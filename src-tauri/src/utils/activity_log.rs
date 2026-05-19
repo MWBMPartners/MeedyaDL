@@ -22,8 +22,9 @@
 //          commands::gamdl, commands::updates, commands::dependencies,
 //          commands::cookies, commands::settings, commands::login_window
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use tauri::{Emitter, Manager};
 
 use crate::services::download_queue::QueueHandle;
@@ -80,6 +81,49 @@ pub fn write_to_disk(event: &ActivityLogEvent) {
 /// Update the verbose logging flag. Called from settings load/save paths.
 pub fn set_verbose_logging(enabled: bool) {
     VERBOSE_LOGGING.store(enabled, Ordering::Relaxed);
+}
+
+/// Per-download activity-event counter (#846).
+///
+/// The queue watchdog (`services/queue_watchdog.rs`) compares a tuple of
+/// progress fields across poll cycles to detect stalls. During long-running
+/// passes that don't move the per-item progress bar (e.g. the once-per-item
+/// companion lyrics conversion from #843) the tuple is bit-identical for
+/// the duration even though hundreds of activity-log events fire — so the
+/// watchdog issues a false-positive "no progress signal for 10 min" warn.
+///
+/// Mirroring an emit-counter from `emit_inner` into the watchdog snapshot
+/// gives the watchdog a cheap, accurate "is work happening?" signal: any
+/// per-download activity-log event bumps the counter, which the watchdog
+/// reads under [`get_activity_count`].
+///
+/// Map grows monotonically (one u64 per ever-seen download_id), which is
+/// fine — even 10k downloads is ~240 KB. Cleanup on terminal-state would
+/// be possible but adds complexity for no real win.
+static ACTIVITY_COUNTERS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+
+fn activity_counters() -> &'static Mutex<HashMap<String, u64>> {
+    ACTIVITY_COUNTERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn bump_activity_count(download_id: &str) {
+    if let Ok(mut map) = activity_counters().lock() {
+        let entry = map.entry(download_id.to_string()).or_insert(0);
+        *entry = entry.wrapping_add(1);
+    }
+}
+
+/// Reads the activity-event count for a download (#846).
+///
+/// Returns 0 if no events have been emitted for this id yet, or if the
+/// counter lock is poisoned (extremely unlikely; would only happen if a
+/// panic occurred while holding it).
+pub fn get_activity_count(download_id: &str) -> u64 {
+    activity_counters()
+        .lock()
+        .ok()
+        .and_then(|map| map.get(download_id).copied())
+        .unwrap_or(0)
 }
 
 /// Check whether verbose logging is currently enabled.
@@ -220,6 +264,14 @@ fn emit_inner(
     severity: LogSeverity,
 ) {
     let id = download_id.unwrap_or(SYSTEM_LOG_ID);
+
+    // #846: bump the per-download activity counter so the queue watchdog
+    // sees activity-log emission as a progress signal. System-level
+    // messages (no download_id) intentionally don't bump anything —
+    // they're not tied to a specific stalled item.
+    if download_id.is_some() {
+        bump_activity_count(id);
+    }
 
     // Per-download messages get media-label enrichment via the queue
     // (Phase 3a / #712); system-level messages don't have a queue
@@ -374,6 +426,11 @@ pub fn emit_subprocess_line(
     line: String,
     show_in_ui: bool,
 ) {
+    // #846: subprocess output is a strong progress signal — bump the
+    // watchdog counter so GAMDL's per-track lines count as activity
+    // even when the in-UI line is suppressed for noise.
+    bump_activity_count(download_id);
+
     // Severity inferred from GAMDL's structlog level prefix (#793).
     // GAMDL 3.0+ emits lines like `[WARNING  12:10:05] [Track 2/4]
     // Skipping…` so we can colour-code without changing the
