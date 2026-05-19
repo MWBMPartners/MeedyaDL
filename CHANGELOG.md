@@ -114,6 +114,8 @@ Records the lyrics-conversion loop bug now tracked in #839 so the file
 
 [skip ci]
 
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.1 [skip ci]
 
 ### ⚡ Performance
 
