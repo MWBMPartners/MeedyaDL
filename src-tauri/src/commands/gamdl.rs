@@ -603,10 +603,16 @@ pub async fn start_download(
             });
         }
 
+        let queued_bulleted = request
+            .urls
+            .iter()
+            .map(|u| format!("  • {u}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         emit_app_log(
             &app,
             &format!(
-                "Queued: {urls_display} ({} artist modes)",
+                "Queued ({} artist modes):\n{queued_bulleted}",
                 artist_modes.len()
             ),
         );
@@ -628,7 +634,6 @@ pub async fn start_download(
     }
 
     // Single-mode path: standard enqueue (also handles single artist_auto_select_multi)
-    let urls_display = request.urls.join(", ");
 
     // If exactly one multi-mode is set and it's an artist URL, apply it as an override
     let mut request = if is_artist_url && artist_modes.len() == 1 {
@@ -869,7 +874,12 @@ pub async fn start_download(
     crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
 
     log::info!("Download {download_id} queued");
-    emit_app_log(&app, &format!("Queued: {urls_display}"));
+    let queued_bulleted = submitted_urls
+        .iter()
+        .map(|u| format!("  • {u}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    emit_app_log(&app, &format!("Queued:\n{queued_bulleted}"));
 
     // Persist the updated queue to disk for crash recovery.
     // This ensures the new item survives an unexpected app close/crash.
