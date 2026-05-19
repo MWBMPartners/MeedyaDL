@@ -765,6 +765,51 @@ pub fn is_codec_skip_message(message: &str) -> bool {
 /// Idempotent: running this on an already-humanised line is a no-op.
 /// Returns the unchanged input when the line doesn't match the codec-
 /// skip shape, so callers can apply it unconditionally.
+/// Maps a GAMDL codec CLI identifier (lowercase `atmos`, `aac-legacy`, etc.)
+/// to a user-facing display label (`Atmos`, `AAC Legacy`, etc.) for use in
+/// the activity log.
+///
+/// Mirrors the labels in [`crate::models::gamdl_options::SongCodec::display_name`]
+/// but without the trailing `(Experimental)` annotation that GAMDL adds
+/// internally and that's redundant noise in the activity log (the line is
+/// ALREADY telling the user the codec isn't available, so the
+/// "Experimental" tag adds zero information). Codecs not in the
+/// lookup table fall back to a defensive title-cased form — keeps the
+/// function future-proof if upstream adds a new codec we haven't
+/// registered yet.
+///
+/// Used by [`humanise_codec_skip_line`] (#832) to replace lowercase
+/// enum identifiers with the proper display labels users see elsewhere
+/// in the UI.
+#[must_use]
+fn pretty_codec_label(cli_id: &str) -> String {
+    match cli_id {
+        "atmos" => "Atmos".to_string(),
+        "alac" => "ALAC".to_string(),
+        "ac3" => "AC3".to_string(),
+        "aac" => "AAC".to_string(),
+        "aac-legacy" => "AAC Legacy".to_string(),
+        "aac-he" => "HE-AAC".to_string(),
+        "aac-binaural" => "AAC Binaural".to_string(),
+        "aac-downmix" => "AAC Downmix".to_string(),
+        // Defensive fallback: title-case and replace `-` with space.
+        // Means a new codec upstream produces `Some-New-Codec` rather
+        // than the raw `some-new-codec` if it sneaks through before
+        // we add a mapping.
+        other => other
+            .split('-')
+            .map(|w| {
+                let mut chars = w.chars();
+                match chars.next() {
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
 #[must_use]
 pub fn humanise_codec_skip_line(line: &str) -> String {
     if !is_codec_skip_line(line) {
@@ -779,10 +824,34 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     };
     let mut out = media_id_re.replace_all(line, "").to_string();
 
-    // Replace the Python-repr codec list with a friendly comma-
-    // separated lowercase list. `[<SongCodec.AC3: 'ac3'>, <SongCodec.ATMOS: 'atmos'>]`
-    // → `ac3, atmos`. The single-quoted name inside each entry is
-    // exactly what we want.
+    // #832: also strip GAMDL 3.x's verbose
+    // `(Unavailable requested format candidates: Dolby Atmos
+    // (Experimental) [atmos] -> Lossless (ALAC) (Experimental)
+    // [alac] -> …)` parenthetical. Pre-fix this line was 200+
+    // characters wide in the activity log and contained the exact
+    // same codec list a second time, just with the verbose
+    // "(Experimental)" annotations. The shorter
+    // `atmos, alac, ac3, aac, aac-legacy not available` summary at
+    // the start of the line already communicates everything.
+    // Greedy `.*\)$` rather than `[^)]*\)` because GAMDL 3.x nests
+    // parens inside the parenthetical itself (e.g. "Dolby Atmos
+    // (Experimental)"). The greedy match anchored at end-of-line
+    // consumes the whole verbose block in one go. The activity-log
+    // is line-delimited so there's no risk of swallowing content
+    // from a following line.
+    let unavailable_re =
+        match regex::Regex::new(r"\s*\(Unavailable requested format candidates:.*\)$") {
+            Ok(re) => re,
+            Err(_) => return out,
+        };
+    out = unavailable_re.replace_all(&out, "").to_string();
+
+    // Replace the Python-repr codec list with friendly display labels.
+    // `[<SongCodec.AC3: 'ac3'>, <SongCodec.ATMOS: 'atmos'>]`
+    // → `AC3, Atmos`. Single-quoted name inside each entry is the
+    // GAMDL CLI identifier; pass each through `pretty_codec_label` so
+    // users see "Atmos" / "AAC Legacy" / etc. rather than the raw
+    // enum forms.
     let codec_re = match regex::Regex::new(r"\[\s*(?:<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>\s*,?\s*)+\]") {
         Ok(re) => re,
         Err(_) => return out,
@@ -798,12 +867,56 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
                 .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
                 .collect();
             if !codecs.is_empty() {
-                let friendly = if codecs.len() == 1 {
-                    format!("{} not available", codecs[0])
-                } else {
-                    format!("{} not available", codecs.join(", "))
-                };
+                let pretty: Vec<String> = codecs.iter().map(|c| pretty_codec_label(c)).collect();
+                let friendly = format!("{} not available", pretty.join(", "));
                 out = codec_re.replace(&out, friendly.as_str()).to_string();
+            }
+        }
+    }
+
+    // GAMDL 3.x multi-codec line shape (companion mode "all formats
+    // failed"): the codec list appears as a lowercase comma-separated
+    // run BEFORE the parenthetical we already stripped — e.g.
+    // `Requested format is not available: atmos, alac, ac3, aac,
+    // aac-legacy not available`. Match the exact "<list> not available"
+    // suffix and rewrite the list with pretty labels. Pinning to the
+    // "not available" tail keeps this from accidentally rewriting other
+    // codec-shaped substrings elsewhere in the line.
+    let lc_list_re =
+        match regex::Regex::new(r"([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:,\s*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)\s+not available") {
+            Ok(re) => re,
+            Err(_) => return out,
+        };
+    if let Some(caps) = lc_list_re.captures(&out.clone()) {
+        if let Some(list_match) = caps.get(1) {
+            let list_text = list_match.as_str();
+            let codec_tokens: Vec<&str> =
+                list_text.split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
+            // Only rewrite when every token is a known codec — avoids
+            // accidentally rewriting e.g. "errno 1, errno 2" or any other
+            // comma-separated lowercase run that happens to share the
+            // pattern.
+            let all_known_codecs = !codec_tokens.is_empty()
+                && codec_tokens.iter().all(|t| {
+                    matches!(
+                        *t,
+                        "atmos"
+                            | "alac"
+                            | "ac3"
+                            | "aac"
+                            | "aac-legacy"
+                            | "aac-he"
+                            | "aac-binaural"
+                            | "aac-downmix"
+                    )
+                });
+            if all_known_codecs {
+                let pretty: Vec<String> = codec_tokens
+                    .iter()
+                    .map(|t| pretty_codec_label(t))
+                    .collect();
+                let replacement = format!("{} not available", pretty.join(", "));
+                out = lc_list_re.replace(&out, replacement.as_str()).to_string();
             }
         }
     }
@@ -2833,7 +2946,10 @@ mod tests {
         assert!(!humanised.contains("1578734917"), "should strip the numeric ID");
         // Codec repr replaced by friendly text.
         assert!(!humanised.contains("SongCodec"), "should strip Python repr: {humanised}");
-        assert!(humanised.contains("ac3 not available"), "should mention ac3: {humanised}");
+        // #832: lowercase enum identifier `ac3` is now upgraded to the
+        // proper display label `AC3` to match what users see elsewhere
+        // in the UI (codec dropdowns, companion filename suffixes).
+        assert!(humanised.contains("AC3 not available"), "should mention AC3: {humanised}");
         // Track title preserved.
         assert!(humanised.contains("\"Pickle (3ballMTY Remix)\""), "title preserved: {humanised}");
     }
@@ -2844,9 +2960,55 @@ mod tests {
         let humanised = humanise_codec_skip_line(raw);
         assert!(!humanised.contains("media ID"));
         assert!(!humanised.contains("SongCodec"));
+        // #832: pretty labels instead of the raw lowercase enum identifiers.
         assert!(
-            humanised.contains("atmos, alac not available"),
-            "should list both codecs: {humanised}"
+            humanised.contains("Atmos, ALAC not available"),
+            "should list both codecs with display labels: {humanised}"
+        );
+    }
+
+    /// GAMDL 3.x multi-codec line shape — the `atmos, alac, ac3, aac,
+    /// aac-legacy not available` summary, plus the verbose
+    /// `(Unavailable requested format candidates: …)` parenthetical
+    /// (#832).
+    #[test]
+    fn humanise_rewrites_gamdl3_lowercase_multi_codec_summary() {
+        let raw = "[WARNING  21:14:34] [Track   1/19 ] Skipping \"My Love (Radio Edit)\": Requested format is not available: atmos, alac, ac3, aac, aac-legacy not available (Unavailable requested format candidates: Dolby Atmos (Experimental) [atmos] -> Lossless (ALAC) (Experimental) [alac] -> Dolby Digital (AC3) (Experimental) [ac3] -> AAC (256kbps at up to 48kHz) (Experimental) [aac] -> AAC Legacy (256kbps at up to 44.1kHz) [aac-legacy])";
+        let humanised = humanise_codec_skip_line(raw);
+        // Verbose "(Unavailable requested format candidates: …)"
+        // parenthetical gone — it was just the same codec list a
+        // second time, with the redundant "(Experimental)" tags.
+        assert!(
+            !humanised.contains("Unavailable requested format candidates"),
+            "should strip verbose parenthetical: {humanised}"
+        );
+        assert!(
+            !humanised.contains("(Experimental)"),
+            "Experimental tags gone too: {humanised}"
+        );
+        // Lowercase codec list rewritten with pretty labels.
+        assert!(
+            humanised.contains("Atmos, ALAC, AC3, AAC, AAC Legacy not available"),
+            "should rewrite lowercase list with pretty labels: {humanised}"
+        );
+        // Track title and identifier preserved.
+        assert!(
+            humanised.contains("\"My Love (Radio Edit)\""),
+            "title preserved: {humanised}"
+        );
+    }
+
+    /// Defensive: a comma-separated lowercase run that ISN'T all known
+    /// codecs (e.g. accidental match on some other GAMDL warning) must
+    /// pass through unchanged so we never garble unrelated content.
+    #[test]
+    fn humanise_does_not_rewrite_unknown_token_runs() {
+        let raw = "[WARNING] Skipping \"X\": Requested format is not available: foo, bar, baz not available";
+        let humanised = humanise_codec_skip_line(raw);
+        // foo, bar, baz are NOT known codecs → must pass through.
+        assert!(
+            humanised.contains("foo, bar, baz not available"),
+            "unknown tokens preserved: {humanised}"
         );
     }
 
