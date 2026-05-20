@@ -8,6 +8,47 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(watchdog)** Refresh tracked activity_count after own WARN emission (#851)
+
+#846 (v1.9.2) wired the per-download activity counter into the
+  watchdog snapshot so long activity-log-only passes (e.g. the
+  once-per-item lyrics conversion from #843) wouldn't false-positive
+  as stalls. The fix worked for legitimate progress but created a
+  self-referential bug: the watchdog's own ⚠ WARN emission bumps the
+  counter, so the NEXT poll observed "snapshot changed" and reset
+  the stall timer.
+
+  Sequence (every ~11 min instead of escalating to auto-fail at 20):
+    T+0:        snapshot ac=5 → match → still stalled
+    T+10min:    snapshot ac=5 → secs=600 → emit warn (ac→6)
+    T+11min:    snapshot ac=6 ≠ tracked ac=5 → reset stall_started_at
+                + clear warn_emitted
+    T+21min:    snapshot ac=6 → match → secs=600 → emit warn again
+    ... repeat indefinitely
+
+  User log 2026-05-20 showed this firing 38 times over 8 hours for a
+  single wedged item (disk full on output drive). The hard-fail at
+  20 min never happened, queue slot was never released, downstream
+  items never got their turn.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.3 user-facing release notes draft
+
+Post-publish recovery: PR #850 was merged overnight before the body
+  was rewritten. Live GitHub Release body patched via gh release edit;
+  in-repo draft committed for the historical record.
+
+  [skip ci]
+
+
+## [1.9.3] - 2026-05-20
+
+### 🐛 Bug Fixes
+
 - **(activity-log)** Break 'Queued: ...' URL lists across lines (#849)
 
 Third sibling site to #840 / #845. The constructive ("succeeded")
@@ -27,7 +68,6 @@ Third sibling site to #840 / #845. The constructive ("succeeded")
 - **(security)** Update supported versions to 1.9.2 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.9.3 [skip ci]
 
 ## [1.9.2] - 2026-05-19
 
