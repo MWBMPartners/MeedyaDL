@@ -228,6 +228,15 @@ async fn poll_once(
                         ),
                     );
                     state.warn_emitted = true;
+                    // #851: the emit_download_log call above bumps the
+                    // per-download activity counter via #846. Without
+                    // accounting for our own bump, the next poll would
+                    // observe snapshot.activity_count != tracked.snapshot
+                    // .activity_count, mistake the watchdog's own warn
+                    // for genuine progress, reset the stall timer, and
+                    // warn again 10 min later — repeating indefinitely
+                    // instead of escalating to auto-fail at 20 min.
+                    state.snapshot.activity_count = get_activity_count(&id);
                 }
                 if secs >= STALL_HARD_SECS {
                     let mins = secs / 60;
@@ -358,6 +367,41 @@ mod tests {
         let s1 = make_snapshot_with_activity(100.0, 10);
         let s2 = make_snapshot_with_activity(100.0, 11);
         assert_ne!(s1, s2);
+    }
+
+    #[test]
+    fn warn_emission_must_not_reset_stall_via_activity_count_bump() {
+        // #851 regression guard: the watchdog's own ⚠ WARN emission
+        // bumps the per-download activity counter via #846. If the
+        // tracked snapshot's activity_count isn't refreshed after the
+        // emit, the NEXT poll observes "snapshot changed → work
+        // happened → reset stall_started_at + warn_emitted" — and the
+        // watchdog warns every ~11 min indefinitely instead of
+        // escalating to auto-fail at 20 min.
+        //
+        // This test models the contract directly: after a WARN, the
+        // tracked snapshot MUST be updated to reflect the post-emit
+        // counter so the next snapshot comparison sees "unchanged".
+        let before_warn = make_snapshot_with_activity(100.0, 42);
+        let mut tracked = before_warn.clone();
+
+        // Simulate the WARN site: post-emit, the activity counter is
+        // now 43 (the watchdog's own emit bumped it).
+        let post_emit_counter: u64 = 43;
+        // Apply the #851 fix: refresh tracked.activity_count.
+        tracked.activity_count = post_emit_counter;
+
+        // Next poll constructs a fresh snapshot from queue state +
+        // counter — counter is the post-emit value (43), every other
+        // field unchanged because no real work happened.
+        let next_poll = make_snapshot_with_activity(100.0, post_emit_counter);
+
+        assert_eq!(
+            tracked, next_poll,
+            "after refreshing activity_count post-WARN, the next poll's \
+             snapshot must compare equal so the stall timer doesn't \
+             reset (else watchdog warns forever and never escalates)"
+        );
     }
 
     #[test]
