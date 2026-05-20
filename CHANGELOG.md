@@ -4,7 +4,7 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
-## [Unreleased]
+## [1.9.4] - 2026-05-20
 
 ### 🐛 Bug Fixes
 
@@ -43,6 +43,11 @@ Post-publish recovery: PR #850 was merged overnight before the body
   in-repo draft committed for the historical record.
 
   [skip ci]
+
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.4 user-facing release notes draft
+
+[skip ci]
 
 
 ## [1.9.3] - 2026-05-20
