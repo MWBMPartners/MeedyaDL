@@ -212,6 +212,21 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 5;
     }
 
+    // v5 → v6: introduces `wrapper_url` (#853, GAMDL v3.6 support).
+    //
+    // The new field gets `"http://127.0.0.1"` via `#[serde(default = …)]`
+    // for upgrading users — same value GAMDL v3.6's `WrapperApi.create()`
+    // uses as its CLI default, so users with a local wrapper-v2 daemon
+    // on port 80 see no behavioural change. Users still on GAMDL ≤ 3.5.x
+    // continue to use the existing `wrapper_account_url` /
+    // `wrapper_m3u8_ip` / `wrapper_decrypt_ip` triple (capability-gated
+    // in the CLI/INI emission sites). Both field families coexist in the
+    // settings file; the runtime picks which to emit based on the
+    // detected GAMDL version.
+    if settings.settings_version == 5 {
+        settings.settings_version = 6;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",

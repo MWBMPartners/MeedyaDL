@@ -183,9 +183,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
   storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
-  wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
-  wrapper_m3u8_ip: '127.0.0.1:20020', // Wrapper m3u8 address (GAMDL v3.1+)
-  wrapper_decrypt_ip: '127.0.0.1:10020', // Wrapper decryption address (#743)
+  wrapper_account_url: 'http://127.0.0.1:30020', // wrapper-v1 account URL (GAMDL <= 3.5.x)
+  wrapper_m3u8_ip: '127.0.0.1:20020', // wrapper-v1 m3u8 address (GAMDL 3.1–3.5.x)
+  wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
+  wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
   truncate: null, // Max filename length in characters; null = no truncation
   fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files
