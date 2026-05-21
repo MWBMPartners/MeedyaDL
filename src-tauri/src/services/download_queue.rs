@@ -2227,7 +2227,7 @@ impl DownloadQueue {
             //    has the full chain) so GAMDL tries only this one codec.
             // Using --song-codec-priority with one codec is equivalent to
             // --song-codec but also overrides the config.ini key.
-            new_options.song_codec_priority = Some(next_codec.to_cli_string().to_string());
+            new_options.song_codec_priority = Some(next_codec.to_runtime_cli_string().to_string());
 
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
@@ -5839,7 +5839,7 @@ fn spawn_companion_downloads(
                     // GAMDL >= 2.9.1 removed the --song-codec flag entirely;
                     // passing a single-element priority achieves the same effect.
                     opts.song_codec = None;
-                    opts.song_codec_priority = Some(codec.to_cli_string().to_string());
+                    opts.song_codec_priority = Some(codec.to_runtime_cli_string().to_string());
 
                     // If this tier needs a suffix (e.g., ALAC
                     // companion in AtmosToLosslessAndLossy mode

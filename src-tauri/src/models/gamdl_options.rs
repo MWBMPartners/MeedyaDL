@@ -141,6 +141,12 @@ impl SongCodec {
     /// Parse a CLI string (e.g., `"atmos"`, `"aac-binaural"`) back into a
     /// `SongCodec` variant. Returns `None` for unrecognized strings.
     /// Inverse of `to_cli_string()`.
+    ///
+    /// **GAMDL v3.6 (#853):** accepts both the pre-3.6 strings
+    /// (`aac-legacy`, `aac-he-legacy`) AND the v3.6+ renames
+    /// (`aac-web`, `aac-he-web`) — they describe the same underlying
+    /// codec on different upstream releases. This lets us round-trip
+    /// settings files saved by either version.
     #[must_use]
     pub fn from_cli_string(s: &str) -> Option<Self> {
         match s {
@@ -149,13 +155,52 @@ impl SongCodec {
             "ac3" => Some(Self::Ac3),
             "aac-binaural" => Some(Self::AacBinaural),
             "aac" => Some(Self::Aac),
-            "aac-legacy" => Some(Self::AacLegacy),
-            "aac-he-legacy" => Some(Self::AacHeLegacy),
+            // GAMDL <3.6 names + >=3.6 renames map to the same Rust variant.
+            "aac-legacy" | "aac-web" => Some(Self::AacLegacy),
+            "aac-he-legacy" | "aac-he-web" => Some(Self::AacHeLegacy),
             "aac-he" => Some(Self::AacHe),
             "aac-downmix" => Some(Self::AacDownmix),
             "aac-he-binaural" => Some(Self::AacHeBinaural),
             "aac-he-downmix" => Some(Self::AacHeDownmix),
             _ => None,
+        }
+    }
+
+    /// Capability-aware CLI string (#853).
+    ///
+    /// Identical to [`Self::to_cli_string`] for every codec **except**
+    /// `AacLegacy` / `AacHeLegacy`, which GAMDL v3.6 renamed to
+    /// `aac-web` / `aac-he-web`. On runtimes ≥ v3.6 this returns the
+    /// new name; on older runtimes (and when the version cache hasn't
+    /// been populated yet — `gamdl_capabilities::supports` returns
+    /// `false` in that case) it returns the historical name.
+    ///
+    /// Use this at every CLI / INI emission site that hands a codec
+    /// identifier to GAMDL. `to_cli_string()` stays `const fn` for
+    /// display, history, tag-writing, and other non-runtime
+    /// consumers.
+    #[must_use]
+    pub fn to_runtime_cli_string(&self) -> &'static str {
+        use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+        // List each variant explicitly so we return `&'static str` (all
+        // arms are string literals). Borrowing the result of
+        // `to_cli_string(&self)` would only give us `&'a str` tied to
+        // `self`'s lifetime, which doesn't satisfy callers that need
+        // `&'static`.
+        match self {
+            Self::Alac => "alac",
+            Self::Atmos => "atmos",
+            Self::Ac3 => "ac3",
+            Self::AacBinaural => "aac-binaural",
+            Self::Aac => "aac",
+            Self::AacLegacy if supports(GamdlFeature::AacWebCodecRename) => "aac-web",
+            Self::AacLegacy => "aac-legacy",
+            Self::AacHeLegacy if supports(GamdlFeature::AacWebCodecRename) => "aac-he-web",
+            Self::AacHeLegacy => "aac-he-legacy",
+            Self::AacHe => "aac-he",
+            Self::AacDownmix => "aac-downmix",
+            Self::AacHeBinaural => "aac-he-binaural",
+            Self::AacHeDownmix => "aac-he-downmix",
         }
     }
 
@@ -804,7 +849,7 @@ impl GamdlOptions {
         let priority = self.song_codec_priority.clone().or_else(|| {
             self.song_codec
                 .as_ref()
-                .map(|c| c.to_cli_string().to_string())
+                .map(|c| c.to_runtime_cli_string().to_string())
         });
         if let Some(priority) = priority {
             args.push("--song-codec-priority".to_string());
