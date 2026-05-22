@@ -4,6 +4,63 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [Unreleased]
+
+### ✨ Features
+
+- **(deps)** Add rclone as optional bundled tool + multi-endpoint updater fallback (prep for #858) (#863)
+
+## Summary
+
+  Two-commit infrastructure-prep PR. No user-visible UI changes; no
+  feature wiring. Pure scaffolding for two upcoming workstreams: the
+  planned MWBMPartners → MeedyaSuite org consolidation, and the
+  cloud-destinations epic (#858 → M11 #859).
+
+  ## What's in this PR
+
+  ### Commit 1 — `chore(updater)+docs`
+
+  - **`src-tauri/tauri.conf.json`**: Tauri updater now lists TWO
+  endpoints. The MWBMPartners URL stays as primary (works today, every
+  existing v1.x install keeps updating normally). The MeedyaSuite URL is
+  added as a fallback that becomes active after the eventual repo
+  transfer. Tauri tries each in order on 404 / network failure, so
+  behaviour is unchanged today and **future-proofed** for whenever the
+  migration day arrives. Zero risk of breaking existing installs.
+
+  - **`.claude/memory/project_meedyasuite_org_migration.md`** (new) +
+  **`.claude/memory/MEMORY.md`** index entry: captures the deferred
+  consolidation plan that came out of recent strategic discussion —
+  secrets inventory (10 items), recommended placement tiers on MeedyaSuite
+  (org-all / org-selected / repo-only), transfer order, the "GitHub does
+  NOT support nested orgs" clarification, and the timing rationale (defer
+  until after v1.10.0-stable). Loaded into every contributor's Claude
+  session via the shared-memory sync script.
+
+  ### Commit 2 — `feat(deps): add rclone as optional external tool`
+
+  Bundles rclone via the existing three-tier resolution chain (system PATH
+  → primary upstream → mirror fallback), same pattern as FFmpeg /
+  mp4decrypt / N_m3u8DL-RE / MP4Box / MediaInfo.
+
+  - **`src-tauri/tool-versions.toml`**: new `[rclone]` section pinning
+  minimum 1.60.0. `binary_name = "rclone"`, `version_flag = "version"`
+  (rclone predates GNU's `--version` convention).
+  - **`src-tauri/src/services/dependency_manager.rs`**: new `ToolInfo`
+  entry with `required: false`, new `get_rclone_url(os, arch)` resolver
+  using upstream's platform suffix convention (`osx-arm64`, `linux-amd64`,
+  `linux-arm` for ARMv7, etc.) via the existing
+  `resolve_github_release_asset()` helper. New dispatch arm in
+  `get_tool_download_url()`. Mirror fallback works automatically through
+  the shared `download_tool_with_fallback()` path.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.4 [skip ci]
+
 ## [1.9.4] - 2026-05-20
 
 ### 🐛 Bug Fixes
