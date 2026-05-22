@@ -6668,7 +6668,17 @@ pub fn process_queue(
                 // Run internet + wrapper checks concurrently (both are HTTP GETs)
                 let internet_future =
                     crate::services::health_check_service::check_internet_connectivity();
-                let wrapper_future = if settings.use_wrapper {
+                // #853: pick wrapper-v1 vs wrapper-v2 preflights based on the
+                // detected GAMDL release. v1 needs the three sockets (account
+                // HTTP + m3u8 TCP + decrypt TCP); v2 (≥ 3.6) needs the single
+                // HTTP /health endpoint + an authenticated session
+                // verification via /me.
+                use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+                let use_wrapper_v2 = settings.use_wrapper && supports(GamdlFeature::WrapperUrl);
+                let use_wrapper_v1 = settings.use_wrapper && !supports(GamdlFeature::WrapperUrl);
+
+                // -- wrapper-v1 (GAMDL ≤ 3.5.x) --
+                let wrapper_future = if use_wrapper_v1 {
                     Some(crate::services::health_check_service::check_wrapper_health(
                         &settings.wrapper_account_url,
                     ))
@@ -6677,12 +6687,10 @@ pub fn process_queue(
                 };
                 // GAMDL v3.1+ fetches HLS URLs from the wrapper's m3u8 socket
                 // when `--use-wrapper` is set. Skip the probe on older
-                // releases (flag is ignored there) and when wrapper mode is
-                // off (cookie downloads don't consult the socket).
-                let wrapper_m3u8_future = if settings.use_wrapper
-                    && crate::services::gamdl_capabilities::supports(
-                        crate::services::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
-                    )
+                // releases (flag is ignored there) and on v3.6+ (replaced by
+                // wrapper-v2 single endpoint).
+                let wrapper_m3u8_future = if use_wrapper_v1
+                    && supports(GamdlFeature::WrapperM3u8Ip)
                 {
                     Some(
                         crate::services::health_check_service::check_wrapper_m3u8_health(
@@ -6693,17 +6701,32 @@ pub fn process_queue(
                     None
                 };
                 // Wrapper decryption socket reachability (#743). Needed for
-                // every GAMDL release in the support window — decrypt has
-                // been a wrapper feature since well before v3.1, so unlike
-                // the m3u8 probe there's no version capability gate. Cookie
-                // downloads still skip the probe (no decrypt socket
-                // consulted).
-                let wrapper_decrypt_future = if settings.use_wrapper {
+                // every wrapper-v1 release. Cookie downloads still skip the
+                // probe (no decrypt socket consulted). wrapper-v2 has no
+                // equivalent TCP probe — decryption is bundled into the
+                // single HTTP endpoint.
+                let wrapper_decrypt_future = if use_wrapper_v1 {
                     Some(
                         crate::services::health_check_service::check_wrapper_decrypt_health(
                             &settings.wrapper_decrypt_ip,
                         ),
                     )
+                } else {
+                    None
+                };
+
+                // -- wrapper-v2 (GAMDL ≥ 3.6, #853) --
+                let wrapper_v2_health_future = if use_wrapper_v2 {
+                    Some(crate::services::health_check_service::check_wrapper_v2_health(
+                        &settings.wrapper_url,
+                    ))
+                } else {
+                    None
+                };
+                let wrapper_v2_auth_future = if use_wrapper_v2 {
+                    Some(crate::services::health_check_service::check_wrapper_v2_auth(
+                        &settings.wrapper_url,
+                    ))
                 } else {
                     None
                 };
@@ -6748,6 +6771,14 @@ pub fn process_queue(
                     Some(fut) => fut.await,
                     None => None,
                 };
+                let wrapper_v2_health_warning = match wrapper_v2_health_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
+                let wrapper_v2_auth_warning = match wrapper_v2_auth_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
                 let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
@@ -6767,7 +6798,7 @@ pub fn process_queue(
                     if !settings.use_wrapper {
                         v.push((PreflightCheck::Cookies, cookie_warning));
                     }
-                    if settings.use_wrapper {
+                    if use_wrapper_v1 {
                         v.push((PreflightCheck::Wrapper, wrapper_warning));
                         // Only checked when GAMDL supports it; when the
                         // capability gate returned `None` above, this entry
@@ -6778,6 +6809,11 @@ pub fn process_queue(
                         // regardless of GAMDL version — the decrypt flag
                         // exists in every supported release (#743).
                         v.push((PreflightCheck::WrapperDecrypt, wrapper_decrypt_warning));
+                    }
+                    if use_wrapper_v2 {
+                        // wrapper-v2 single-endpoint preflights (#853).
+                        v.push((PreflightCheck::WrapperV2Health, wrapper_v2_health_warning));
+                        v.push((PreflightCheck::WrapperV2Auth, wrapper_v2_auth_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));

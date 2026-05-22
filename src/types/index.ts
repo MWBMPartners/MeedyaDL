@@ -1049,6 +1049,8 @@ export type PreflightCheck =
   | 'wrapper'
   | 'wrapper_m3u8'
   | 'wrapper_decrypt'
+  | 'wrapper_v2_health'
+  | 'wrapper_v2_auth'
   | 'output_path';
 
 /**
