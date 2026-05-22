@@ -883,17 +883,26 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
 
 /// Appends custom tool path INI key-value pairs (user-specified paths only).
 fn ini_tool_path_section(lines: &mut Vec<String>, settings: &AppSettings) {
+    use super::gamdl_capabilities::{supports, GamdlFeature};
     // These are tool paths the user explicitly configured in Settings.
     // Note: managed tool paths (installed by dependency_manager.rs) are injected
     // separately via gamdl_service::inject_tool_paths() at command build time.
-    if let Some(ref path) = settings.ffmpeg_path {
-        lines.push(format!("ffmpeg_path = {}", sanitize_ini_value(path)));
-    }
-    if let Some(ref path) = settings.mp4decrypt_path {
-        lines.push(format!("mp4decrypt_path = {}", sanitize_ini_value(path)));
-    }
-    if let Some(ref path) = settings.mp4box_path {
-        lines.push(format!("mp4box_path = {}", sanitize_ini_value(path)));
+    //
+    // GAMDL ≥ v3.6 (#853) dropped ffmpeg/mp4box/mp4decrypt for native
+    // muxing/decryption — the corresponding INI keys are no longer
+    // recognised. `cleanup_unknown_params()` would silently drop them,
+    // but we stay explicit and skip emission on v3.6+.
+    let native_muxing = supports(GamdlFeature::NativeMuxing);
+    if !native_muxing {
+        if let Some(ref path) = settings.ffmpeg_path {
+            lines.push(format!("ffmpeg_path = {}", sanitize_ini_value(path)));
+        }
+        if let Some(ref path) = settings.mp4decrypt_path {
+            lines.push(format!("mp4decrypt_path = {}", sanitize_ini_value(path)));
+        }
+        if let Some(ref path) = settings.mp4box_path {
+            lines.push(format!("mp4box_path = {}", sanitize_ini_value(path)));
+        }
     }
     if let Some(ref path) = settings.nm3u8dlre_path {
         lines.push(format!("nm3u8dlre_path = {}", sanitize_ini_value(path)));
@@ -902,25 +911,35 @@ fn ini_tool_path_section(lines: &mut Vec<String>, settings: &AppSettings) {
 
 /// Appends advanced settings INI key-value pairs (wrapper mode).
 fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
+    use super::gamdl_capabilities::{supports, GamdlFeature};
     // Wrapper mode uses an alternative authentication method via a web service.
     // Both the flag and the URL must be present for GAMDL to use the wrapper.
     if settings.use_wrapper {
         lines.push("use_wrapper = true".to_string());
-        lines.push(format!(
-            "wrapper_account_url = {}",
-            sanitize_ini_value(&settings.wrapper_account_url)
-        ));
-        // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write keeps the
-        // emitted INI self-consistent with the detected CLI — older releases
-        // drop unknown keys via `cleanup_unknown_params()` but we stay
-        // explicit. Skipped silently on v3.0 and below.
-        if super::gamdl_capabilities::supports(
-            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
-        ) {
+        if supports(GamdlFeature::WrapperUrl) {
+            // GAMDL ≥ v3.6 — wrapper-v2 single endpoint (#853).
+            // Replaces wrapper_account_url + wrapper_m3u8_ip +
+            // wrapper_decrypt_ip with a single HTTP URL.
             lines.push(format!(
-                "wrapper_m3u8_ip = {}",
-                sanitize_ini_value(&settings.wrapper_m3u8_ip)
+                "wrapper_url = {}",
+                sanitize_ini_value(&settings.wrapper_url)
             ));
+        } else {
+            // GAMDL ≤ 3.5.x — wrapper-v1 triple.
+            lines.push(format!(
+                "wrapper_account_url = {}",
+                sanitize_ini_value(&settings.wrapper_account_url)
+            ));
+            // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write
+            // keeps the emitted INI self-consistent with the detected
+            // CLI — older releases drop unknown keys via
+            // `cleanup_unknown_params()` but we stay explicit.
+            if supports(GamdlFeature::WrapperM3u8Ip) {
+                lines.push(format!(
+                    "wrapper_m3u8_ip = {}",
+                    sanitize_ini_value(&settings.wrapper_m3u8_ip)
+                ));
+            }
         }
     }
 }

@@ -708,7 +708,15 @@ pub struct GamdlOptions {
     /// master playlist URL from the wrapper instead of Apple's API. Only
     /// emitted when the detected GAMDL release supports it (see
     /// `GamdlFeature::WrapperM3u8Ip`). Default on upstream: `127.0.0.1:20020`.
+    ///
+    /// GAMDL v3.6 (#853) removed this CLI option — emission is gated.
     pub wrapper_m3u8_ip: Option<String>,
+    /// Wrapper-v2 HTTP base URL (#853). Emitted as `--wrapper-url <url>`
+    /// only when the detected GAMDL release supports it
+    /// (`GamdlFeature::WrapperUrl`, ≥3.6) — replaces the three v1 socket
+    /// addresses above on that path. Default on upstream:
+    /// `http://127.0.0.1` (port 80 implied).
+    pub wrapper_url: Option<String>,
 
     // --- Metadata ---
     /// Language for metadata (ISO 639-1 code, e.g., "en-US")
@@ -925,6 +933,7 @@ impl GamdlOptions {
     /// `--wrapper-account-url`, `--wrapper-decrypt-ip`, folder/file templates,
     /// and binary paths (`--ffmpeg-path`, `--mp4decrypt-path`, etc.).
     fn path_cli_args(&self) -> Vec<String> {
+        use crate::services::gamdl_capabilities::{supports, GamdlFeature};
         let mut args = Vec::new();
 
         // --- Output ---
@@ -946,17 +955,44 @@ impl GamdlOptions {
             args.push("--cookies-path".to_string());
             args.push(path.clone());
         }
-        if let Some(ref url) = self.wrapper_account_url {
-            args.push("--wrapper-account-url".to_string());
-            args.push(url.clone());
-        }
-        if let Some(ref ip) = self.wrapper_decrypt_ip {
-            args.push("--wrapper-decrypt-ip".to_string());
-            args.push(ip.clone());
-        }
-        if let Some(ref ip) = self.wrapper_m3u8_ip {
-            args.push("--wrapper-m3u8-ip".to_string());
-            args.push(ip.clone());
+        // Wrapper authentication — capability-gated per #853.
+        //
+        // GAMDL 2.9.x – 3.5.x: three separate v1 socket addresses
+        //   --wrapper-account-url <url>      (HTTP)
+        //   --wrapper-decrypt-ip <host:port> (TCP)
+        //   --wrapper-m3u8-ip <host:port>    (TCP, GAMDL 3.1+ only)
+        //
+        // GAMDL ≥ 3.6: a single HTTP base URL pointing at the wrapper-v2
+        // daemon's REST API (replaces all three above)
+        //   --wrapper-url <url>
+        //
+        // We emit EXACTLY ONE family per CLI invocation. Mixing would
+        // either silently no-op (`cleanup_unknown_params()` on v3.0+
+        // INI parsing) or crash Click with "no such option" on the
+        // CLI parser. (Imports hoisted to fn top.)
+        if supports(GamdlFeature::WrapperUrl) {
+            // GAMDL ≥ 3.6 — wrapper-v2 single endpoint.
+            if let Some(ref url) = self.wrapper_url {
+                args.push("--wrapper-url".to_string());
+                args.push(url.clone());
+            }
+        } else {
+            // GAMDL ≤ 3.5.x — wrapper-v1 triple.
+            if let Some(ref url) = self.wrapper_account_url {
+                args.push("--wrapper-account-url".to_string());
+                args.push(url.clone());
+            }
+            if let Some(ref ip) = self.wrapper_decrypt_ip {
+                args.push("--wrapper-decrypt-ip".to_string());
+                args.push(ip.clone());
+            }
+            // --wrapper-m3u8-ip is itself GAMDL v3.1+ only.
+            if let Some(ref ip) = self.wrapper_m3u8_ip {
+                if supports(GamdlFeature::WrapperM3u8Ip) {
+                    args.push("--wrapper-m3u8-ip".to_string());
+                    args.push(ip.clone());
+                }
+            }
         }
 
         // --- Metadata (string-valued) ---
@@ -1016,17 +1052,28 @@ impl GamdlOptions {
         }
 
         // --- Tool Paths ---
-        if let Some(ref path) = self.ffmpeg_path {
-            args.push("--ffmpeg-path".to_string());
-            args.push(path.clone());
-        }
-        if let Some(ref path) = self.mp4decrypt_path {
-            args.push("--mp4decrypt-path".to_string());
-            args.push(path.clone());
-        }
-        if let Some(ref path) = self.mp4box_path {
-            args.push("--mp4box-path".to_string());
-            args.push(path.clone());
+        //
+        // GAMDL ≥ v3.6 (#853) dropped FFmpeg/MP4Box/mp4decrypt for native
+        // muxing + decryption. The corresponding CLI options were
+        // removed; passing any of them on v3.6 crashes Click with "no
+        // such option". MeedyaDL still ships these binaries for its own
+        // pipeline (FFmpeg → ReplayGain / BPM analysis; MP4Box +
+        // mp4decrypt were only relied on by GAMDL itself), so emission
+        // is purely conditional on the GAMDL release.
+        let native_muxing = supports(GamdlFeature::NativeMuxing);
+        if !native_muxing {
+            if let Some(ref path) = self.ffmpeg_path {
+                args.push("--ffmpeg-path".to_string());
+                args.push(path.clone());
+            }
+            if let Some(ref path) = self.mp4decrypt_path {
+                args.push("--mp4decrypt-path".to_string());
+                args.push(path.clone());
+            }
+            if let Some(ref path) = self.mp4box_path {
+                args.push("--mp4box-path".to_string());
+                args.push(path.clone());
+            }
         }
         if let Some(ref path) = self.nm3u8dlre_path {
             args.push("--nm3u8dlre-path".to_string());
@@ -1046,6 +1093,7 @@ impl GamdlOptions {
     /// `--fetch-extra-tags`, `--download-mode`, `--remux-mode`, `--log-level`,
     /// `--no-exceptions`, `--save-playlist`, `--no-config-file`.
     fn flag_cli_args(&self) -> Vec<String> {
+        use crate::services::gamdl_capabilities::{supports, GamdlFeature};
         let mut args = Vec::new();
 
         // --- Boolean flags ---
@@ -1078,14 +1126,19 @@ impl GamdlOptions {
             );
         }
         if let Some(ref mode) = self.remux_mode {
-            args.push("--music-video-remux-mode".to_string());
-            args.push(
-                match mode {
-                    RemuxMode::Ffmpeg => "ffmpeg",
-                    RemuxMode::Mp4box => "mp4box",
-                }
-                .to_string(),
-            );
+            // GAMDL ≥ v3.6 (#853) removed --music-video-remux-mode
+            // alongside native muxing — there's only one remux
+            // strategy on that release. Gate emission.
+            if supports(GamdlFeature::MusicVideoRemuxMode) {
+                args.push("--music-video-remux-mode".to_string());
+                args.push(
+                    match mode {
+                        RemuxMode::Ffmpeg => "ffmpeg",
+                        RemuxMode::Mp4box => "mp4box",
+                    }
+                    .to_string(),
+                );
+            }
         }
 
         // --- Other ---
@@ -1384,11 +1437,19 @@ mod tests {
 
     #[test]
     fn wrapper_m3u8_ip_option() {
+        // The --wrapper-m3u8-ip CLI flag is GAMDL v3.1 — v3.5.x only.
+        // Pre-3.1 didn't recognise the flag at all; v3.6 removed it
+        // alongside the wrapper-v2 single-endpoint redesign (#853).
+        // Set the version cache to a supporting release so the gate
+        // emits the flag.
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.5.2".to_string()));
         let options = GamdlOptions {
             wrapper_m3u8_ip: Some("127.0.0.1:20020".to_string()),
             ..Default::default()
         };
         let args = options.to_cli_args();
+        set_detected_version(None);
         assert_eq!(args, vec!["--wrapper-m3u8-ip", "127.0.0.1:20020"]);
     }
 
