@@ -67,6 +67,23 @@ minimum_version = "22.0"
 binary_name = "mediainfo"
 version_flag = "--version"
 
+# rclone is an OPTIONAL dependency — only required when the user enables
+# direct-to-cloud upload (Settings → Cloud Destinations, feature landing in
+# v1.11.0 / M11 per issue #859). Listed as `required: false` in the TOOLS
+# array so the setup wizard does not block first-launch on its absence.
+# MeedyaDL invokes rclone as a subprocess; rclone's MIT licence means there
+# is no GPL propagation concern (same pattern as FFmpeg / mp4decrypt /
+# N_m3u8DL-RE / MP4Box / get_iplayer planned for M8).
+#
+# Upstream: https://github.com/rclone/rclone — official rclone project.
+# Releases ship signed binaries for every platform MeedyaDL targets.
+# Mirror fallback ships from MeedyaSuite/MeedyaDL-Tools (planned, tracked
+# in MeedyaSuite/MeedyaDL-Tools#17).
+[rclone]
+minimum_version = "1.60.0"
+binary_name = "rclone"
+version_flag = "version"
+
 # GAMDL is installed via pip (not as a standalone binary) so the
 # `binary_name` / `version_flag` fields above don't apply. Instead we
 # declare a **support window** that bounds which GAMDL releases this
