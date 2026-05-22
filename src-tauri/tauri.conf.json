@@ -99,7 +99,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFMDNBMUY3ODFGOUQ3NjEKUldSaDEvbUI5NkVEL3EwcU1nNUFiWWtLelA5WjNXVndHMDNBWGlWcytPTEM0bkhVbWJtQWhJR2MK",
       "endpoints": [
-        "https://github.com/MWBMPartners/MeedyaDL/releases/latest/download/latest.json"
+        "https://github.com/MWBMPartners/MeedyaDL/releases/latest/download/latest.json",
+        "https://github.com/MeedyaSuite/MeedyaDL/releases/latest/download/latest.json"
       ]
     }
   }
