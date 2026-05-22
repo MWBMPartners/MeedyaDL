@@ -3664,6 +3664,27 @@ fn filter_tiers_by_audio_traits(
     (kept, skipped)
 }
 
+/// Lossy AAC fallback chain ordered for the detected GAMDL release (#853).
+///
+/// - On GAMDL ≥ 3.6, `SongCodec::AacLegacy` serialises as `aac-web`. The
+///   web-player path (`is_web == true`) goes through
+///   `apple_music_api.get_webplayback()` and requires only MusicKit JWT
+///   auth — it works in cookie-only mode. Plain `Aac` on 3.6 still uses
+///   the m3u8 path which requires wrapper-v2 for FairPlay decrypt and
+///   would fail for users without a running wrapper-v2 daemon. So we
+///   try `aac-web` first.
+/// - On GAMDL ≤ 3.5.x, both codecs use the m3u8 path and either works
+///   the same. We keep the historical order (`Aac` first) to preserve
+///   the exact CLI emission of every prior release.
+fn lossy_chain_for_runtime() -> Vec<SongCodec> {
+    use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+    if supports(GamdlFeature::AacWebCodecRename) {
+        vec![SongCodec::AacLegacy, SongCodec::Aac]
+    } else {
+        lossy_chain_for_runtime()
+    }
+}
+
 fn plan_companions(
     mode: &CompanionMode,
     primary_codec: &str,
@@ -3696,13 +3717,13 @@ fn plan_companions(
                         apply_suffix: true, // ALAC gets [Lossless] suffix (AAC exists too)
                     },
                     CompanionTier {
-                        codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                        codecs_to_try: lossy_chain_for_runtime(),
                         apply_suffix: false, // Lossy AAC gets clean filename
                     },
                 ]
             } else if primary_codec == "alac" {
                 vec![CompanionTier {
-                    codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                    codecs_to_try: lossy_chain_for_runtime(),
                     apply_suffix: false, // Lossy AAC gets clean filename
                 }]
             } else {
@@ -3714,7 +3735,7 @@ fn plan_companions(
         CompanionMode::SpecialistToLossy => {
             if primary_codec == "atmos" || primary_codec == "alac" {
                 vec![CompanionTier {
-                    codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                    codecs_to_try: lossy_chain_for_runtime(),
                     apply_suffix: false, // Lossy AAC gets clean filename
                 }]
             } else {
@@ -3736,7 +3757,7 @@ fn plan_companions(
                         apply_suffix: true, // ALAC gets [Lossless] suffix
                     },
                     CompanionTier {
-                        codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                        codecs_to_try: lossy_chain_for_runtime(),
                         apply_suffix: false, // AAC gets clean filename
                     },
                 ]
