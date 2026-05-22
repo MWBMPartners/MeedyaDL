@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file SettingsTabs.test.tsx -- Component rendering tests for settings tabs.
@@ -65,6 +65,10 @@ vi.mock('lucide-react', () => {
     ArrowDown: stub('ArrowDown'),
     /* Settings tabs */
     Trash2: stub('Trash2'),
+    /* GeneralTab: Send Test Notification button (#658) */
+    Bell: stub('Bell'),
+    /* FallbackChainList: remove / re-add buttons (#659) */
+    Plus: stub('Plus'),
     /* Download components (pulled via barrel transitive) */
     Pause: stub('Pause'),
     Play: stub('Play'),
@@ -119,7 +123,9 @@ beforeEach(() => {
       auto_start_queue: true,
       auto_check_updates: true,
       check_pre_releases: false,
+      update_channel: 'stable',
       update_check_interval_hours: 6,
+      gamdl_idle_timeout_minutes: 5,
       theme_override: null,
       language: 'en-US',
       ui_language: '',
@@ -134,10 +140,14 @@ beforeEach(() => {
       use_wrapper: false,
       auto_retry_without_wrapper: false,
       wrapper_account_url: 'http://127.0.0.1:30020',
+      wrapper_m3u8_ip: '127.0.0.1:20020',
+      wrapper_decrypt_ip: '127.0.0.1:10020',
       download_mode: 'ytdlp',
       remux_mode: 'ffmpeg',
       sentry_enabled: false,
       verbose_activity_log: false,
+      verbose_gamdl_exceptions: false,
+      activity_log_path_override: '',
     },
     isDirty: false,
     isLoading: false,

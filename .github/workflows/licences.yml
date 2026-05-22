@@ -1,0 +1,148 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Licence compliance workflow (#806).
+# ===================================
+#
+# Runs on every PR to `main` and verifies three things about MeedyaDL's
+# dependency licensing posture:
+#
+#   1. ACKNOWLEDGEMENTS.md drift — every direct dep in `Cargo.toml` /
+#      `package.json` is named in `ACKNOWLEDGEMENTS.md`. (Catches the
+#      "new dep added, inventory not updated" failure mode.)
+#
+#   2. Upstream licence string drift — for every direct dep, the
+#      licence string in `ACKNOWLEDGEMENTS.md` matches what the
+#      upstream package's manifest currently declares. (Catches the
+#      "upstream re-licensed between MeedyaDL releases, our snapshot
+#      is stale" failure mode — most commonly MIT → MIT/Apache-2.0
+#      dual, sometimes more serious permissive → copyleft changes.)
+#
+#   3. cargo-deny licence allowlist — `deny.toml` constrains the
+#      project to permissive-only licences. Cargo-deny enforces this
+#      against the full transitive tree. Already runs in the Backend
+#      CI matrix; duplicated here so the legal-compliance picture
+#      lives in one workflow that a maintainer can read in isolation.
+#
+# Triggered on `pull_request` (so it gates merge) AND `workflow_dispatch`
+# (so a maintainer can re-run it after editing ACKNOWLEDGEMENTS.md or
+# bumping a dep manually).
+#
+# The workflow is fast (≤ ~3 min) — `npm ci` + `cargo metadata` + the
+# two Node scripts + cargo-deny. Cache-friendly via Swatinem/rust-cache
+# and setup-node's npm cache.
+#
+# See:
+#   - scripts/check-acknowledgements.mjs    -- Check 1 (set-coverage)
+#   - scripts/check-upstream-licences.mjs   -- Check 2 (string drift)
+#   - src-tauri/deny.toml                   -- Check 3 (allowlist)
+#   - THIRD_PARTY_LICENSES.md               -- Verbatim notices (manual)
+#   - ACKNOWLEDGEMENTS.md                   -- Dependency inventory
+#   - .claude/memory/project_third_party_licence_obligations.md -- crib
+
+name: Licences
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Cancel an in-flight run when a new commit is pushed to the same PR.
+# We're only running cheap reads — no point completing the old one.
+concurrency:
+  group: licences-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  licences:
+    name: Licence compliance
+    runs-on: ubuntu-latest
+
+    # Suppress Node's DEP0040 punycode deprecation warning emitted via
+    # `@actions/cache`'s bundled dependencies. Matches the env block in
+    # `ci.yml::backend` (#797) so CI logs stay clean here too.
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
+
+    steps:
+      # Step 1: Check out the repository code at the PR head.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Step 2: Set up Node.js LTS with npm cache.
+      # `lts/*` resolves to Node 22.x on current GitHub-hosted runners,
+      # which is what the production builds also use.
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      # Step 3: Install npm runtime + dev dependencies. The upstream-
+      # licence check (Step 6) reads `node_modules/<pkg>/package.json`
+      # to discover each runtime dep's actual declared licence string,
+      # so we need a real install — not a `--package-lock-only` shortcut.
+      - name: Install npm dependencies
+        run: npm ci
+
+      # Step 4: Set up Rust stable. Needed for `cargo metadata` (Check 2)
+      # and `cargo deny check licenses` (Check 3). No specific target
+      # required — we're only reading metadata, not compiling.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      # Step 5: Cache the cargo registry so `cargo metadata` doesn't
+      # re-fetch the entire dependency tree on every PR. Same SHA pin
+      # as the other workflows.
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
+        with:
+          workspaces: src-tauri
+
+      # Step 6: Check 1 — every direct dep is named in ACKNOWLEDGEMENTS.md.
+      # Fast set-coverage check; no remote calls.
+      - name: Check 1 — ACKNOWLEDGEMENTS.md drift (set-coverage)
+        run: npm run check:acknowledgements
+
+      # Step 7: Check 2 — every direct dep's licence string matches.
+      # Reads cargo-metadata + node_modules locally. No remote calls
+      # (cargo registry is cached from Step 5; node_modules from Step 3).
+      - name: Check 2 — Upstream licence string drift
+        run: npm run check:upstream-licences
+
+      # Step 8: Check 3 — cargo-deny licence allowlist on the full
+      # transitive tree. `deny.toml` lives at `src-tauri/deny.toml`.
+      # This step is also run by the Backend CI matrix; duplicating
+      # here so the compliance picture lives in one workflow.
+      - name: Check 3 — cargo-deny licence allowlist
+        uses: EmbarkStudios/cargo-deny-action@3fd3802e88374d3fe9159b834c7714ec57d6c979 # v2
+        with:
+          # Match the ci.yml invocation shape so the two stay aligned.
+          manifest-path: src-tauri/Cargo.toml
+          # Run only the `licenses` check in this workflow — advisory /
+          # bans / sources are run by the Backend CI job. Keeps the
+          # licences workflow purely about licence-string compliance.
+          command: check licenses
+
+      # Step 9: Summary card pinned to the workflow run page. Saves a
+      # maintainer one click when they want to confirm all three
+      # checks passed.
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Licence compliance"
+            echo ""
+            echo "All three checks must pass for a PR to merge:"
+            echo ""
+            echo "1. **ACKNOWLEDGEMENTS.md drift** — every direct dep is named."
+            echo "2. **Upstream licence string** — declared licences match."
+            echo "3. **cargo-deny allowlist** — only permissive licences."
+            echo ""
+            echo "When a check fails, the run log shows the offending dep and the"
+            echo "exact fix. See [.github/workflows/licences.yml](.github/workflows/licences.yml)"
+            echo "for the workflow definition."
+          } >> "$GITHUB_STEP_SUMMARY"

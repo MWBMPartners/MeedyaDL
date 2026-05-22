@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // replaygain_service.rs -- ReplayGain loudness analysis service
@@ -87,6 +87,16 @@ pub struct ReplayGainResult {
 /// * `reference_level` - Target loudness in LUFS (e.g., -18.0 for EBU R128)
 /// * `prevent_clipping` - When true, limits gain so peak × gain never exceeds 1.0
 /// * `include_album_gain` - When true, computes and writes album-level gain tags
+/// * `on_progress` - Called BEFORE each file is analysed with
+///   `(current_index_one_based, total_files)`. Lets the
+///   enrichment task surface live "ReplayGain: track 5 of 19"
+///   captions on the per-item progress bar (#574). Pass
+///   `|_, _| {}` if you don't need progress updates.
+/// * `file_locks` - Optional shared per-file write-coordination map
+///   (#779 Option 2). When supplied, each per-file tag-write
+///   acquires the lock for that file so it serialises with any
+///   other stage (notably AcoustID) writing to the same file.
+///   Pass `None` for standalone use.
 ///
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
@@ -97,6 +107,8 @@ pub async fn process_replaygain_for_directory(
     reference_level: f64,
     prevent_clipping: bool,
     include_album_gain: bool,
+    on_progress: impl Fn(usize, usize) + Send,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -110,6 +122,7 @@ pub async fn process_replaygain_for_directory(
 
     let total_files = audio_files.len();
     for (idx, file_path) in audio_files.iter().enumerate() {
+        on_progress(idx + 1, total_files);
         log::info!(
             "ReplayGain: analysing file {}/{} — {}",
             idx + 1,
@@ -199,6 +212,7 @@ pub async fn process_replaygain_for_directory(
             result.true_peak,
             album_gain_db,
             album_peak,
+            file_locks,
         )
         .await
         {
@@ -261,6 +275,7 @@ async fn write_replaygain_tags(
     track_peak: f64,
     album_gain_db: Option<f64>,
     album_peak: Option<f64>,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<(), String> {
     let format = detect_format(file_path).ok_or_else(|| {
         format!(
@@ -268,6 +283,16 @@ async fn write_replaygain_tags(
             file_path.display()
         )
     })?;
+
+    // Acquire the per-file write lock (#779 Option 2) BEFORE the
+    // backend dispatch — whether it's mp4ameta or lofty doing the
+    // write, it's the SAME file on disk that AcoustID might also
+    // be writing to. Held for the full read-modify-write cycle of
+    // the format-specific writer.
+    let _write_guard = match file_locks {
+        Some(locks) => Some(locks.lock(file_path).await),
+        None => None,
+    };
 
     match format {
         AudioFormat::Mp4 => {
@@ -563,26 +588,24 @@ fn collect_audio_files(output_path: &str) -> Vec<PathBuf> {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_audio_recursive(path, &mut files);
+        // Migrated to walk_dir_depth in v1.0.8 (#716/1). max_depth=3
+        // matches GAMDL's natural Output/Artist/Album/file shape;
+        // filesystem sidecars (._*, .DS_Store, Thumbs.db) skipped to
+        // avoid FFmpeg loudness-analysis noise on non-audio binaries
+        // (#577).
+        files.extend(crate::utils::fs_walk::walk_dir_depth(path, 3, |p| {
+            if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                return None;
+            }
+            if p.is_file() && detect_format(p).is_some() {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }));
     }
 
     files
-}
-
-/// Recursively collect supported audio/video file paths from a directory tree.
-fn collect_audio_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_audio_recursive(&path, files);
-        } else if detect_format(&path).is_some() {
-            files.push(path);
-        }
-    }
 }
 
 // ============================================================

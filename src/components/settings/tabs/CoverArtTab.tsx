@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file CoverArtTab.tsx -- Cover art preferences settings tab.
@@ -50,8 +50,8 @@
  * @see {@link @/types/index.ts}           -- CoverFormat type definition
  */
 
-// Zustand store for reading/writing cover art settings.
-import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding.
+import { useSettingsField } from '@/hooks/useSettingsField';
 import { useUiStore } from '@/stores/uiStore';
 
 // Shared form components: Select for format dropdown, Toggle for the save switch,
@@ -89,15 +89,21 @@ const COVER_ART_NAME_OPTIONS = [
  * 2. "Animated Artwork" -- Motion cover art settings (toggle, MusicKit credentials)
  */
 export function CoverArtTab() {
-  /** Current settings snapshot */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting cover art setting changes */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field Zustand bindings (audit v2 #6).
+  const saveCover = useSettingsField('save_cover');
+  const coverFormat = useSettingsField('cover_format');
+  const coverSize = useSettingsField('cover_size');
+  const coverArtName = useSettingsField('cover_art_name');
+  const animatedEnabled = useSettingsField('animated_artwork_enabled');
+  const hideAnimated = useSettingsField('hide_animated_artwork');
+  const artistPromo = useSettingsField('artist_promo_video_enabled');
+  // #533 / #569: embed MV cover sidecar into MP4 + delete sidecar.
+  const mvEmbedCoverSidecar = useSettingsField('music_video_embed_cover_sidecar');
   /** Navigate to a help topic (for the "Animated Artwork help page" link) */
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* ============================================================ */}
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
@@ -106,23 +112,19 @@ export function CoverArtTab() {
           <Toggle
             label="Save Cover Art"
             description="Download and save album cover art as a separate file"
-            checked={settings.save_cover}
-            onChange={(checked) => updateSettings({ save_cover: checked })}
+            checked={saveCover.value}
+            onChange={saveCover.set}
           />
 
           {/* Cover format (only shown when save_cover is enabled) */}
-          {settings.save_cover && (
+          {saveCover.value && (
             <>
               <Select
                 label="Cover Format"
                 description="Image format for saved cover art files"
                 options={COVER_FORMAT_OPTIONS}
-                value={settings.cover_format}
-                onChange={(e) =>
-                  updateSettings({
-                    cover_format: e.target.value as CoverFormat,
-                  })
-                }
+                value={coverFormat.value}
+                onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
               />
 
               {/* Cover size -- numeric input with client-side validation.
@@ -139,12 +141,12 @@ export function CoverArtTab() {
                 min={100}
                 max={10000}
                 step={100}
-                value={settings.cover_size.toString()} /* Convert number to string for the input value */
+                value={coverSize.value.toString()} /* Convert number to string for the input value */
                 onChange={(e) => {
                   const size = parseInt(e.target.value, 10); // Parse the input string to a base-10 integer
                   if (!isNaN(size) && size >= 100 && size <= 10000) {
                     // Validate within acceptable range
-                    updateSettings({ cover_size: size }); // Only persist valid values
+                    coverSize.set(size); // Only persist valid values
                   }
                 }}
               />
@@ -154,12 +156,16 @@ export function CoverArtTab() {
                 label="Cover Art Filename"
                 description="Filename for saved cover art images. GAMDL writes 'Cover' by default; this renames the file after download."
                 options={COVER_ART_NAME_OPTIONS}
-                value={settings.cover_art_name}
-                onChange={(e) =>
-                  updateSettings({
-                    cover_art_name: e.target.value as CoverArtName,
-                  })
-                }
+                value={coverArtName.value}
+                onChange={(e) => coverArtName.set(e.target.value as CoverArtName)}
+              />
+
+              {/* #533 / #569: embed MV cover sidecar into MP4 + delete. */}
+              <Toggle
+                label="Embed Music Video Cover Thumbnail"
+                description="Embed the music-video cover thumbnail into the MP4 as a poster atom and delete the sidecar .jpg/.png. Most modern players (VLC, mpv, QuickTime, Plex, Jellyfin) read the embedded poster directly, so the sidecar just clutters the library. When the embed fails for any reason, the sidecar is kept on disk and a warning is logged."
+                checked={mvEmbedCoverSidecar.value}
+                onChange={mvEmbedCoverSidecar.set}
               />
             </>
           )}
@@ -172,34 +178,34 @@ export function CoverArtTab() {
           {/* Master toggle for animated artwork downloading */}
           <Toggle
             label="Download Animated Cover Art"
-            description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and PortraitCover.mp4 alongside album files."
-            checked={settings.animated_artwork_enabled}
-            onChange={(checked) => updateSettings({ animated_artwork_enabled: checked })}
+            description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and FrontCoverPortrait.mp4 alongside album files."
+            checked={animatedEnabled.value}
+            onChange={animatedEnabled.set}
             helpTopic="settings-help"
           />
 
           {/* Hide animated artwork files toggle (only shown when enabled) */}
-          {settings.animated_artwork_enabled && (
+          {animatedEnabled.value && (
             <Toggle
               label="Hide Animated Artwork Files"
-              description="Set the OS hidden attribute on FrontCover.mp4 and PortraitCover.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
-              checked={settings.hide_animated_artwork}
-              onChange={(checked) => updateSettings({ hide_animated_artwork: checked })}
+              description="Set the OS hidden attribute on FrontCover.mp4 and FrontCoverPortrait.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
+              checked={hideAnimated.value}
+              onChange={hideAnimated.set}
             />
           )}
 
           {/* Artist promo video toggle (only shown when animated artwork is enabled) */}
-          {settings.animated_artwork_enabled && (
+          {animatedEnabled.value && (
             <Toggle
               label="Download Artist Promo Video"
               description="Download the animated background video from the artist's Apple Music page and save it as ArtistCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
-              checked={settings.artist_promo_video_enabled}
-              onChange={(checked) => updateSettings({ artist_promo_video_enabled: checked })}
+              checked={artistPromo.value}
+              onChange={artistPromo.set}
             />
           )}
 
           {/* MusicKit credentials note (credentials are in Settings > Advanced) */}
-          {settings.animated_artwork_enabled && (
+          {animatedEnabled.value && (
             <p className="text-xs text-content-secondary">
               Requires MusicKit credentials (Apple Developer account). Configure them in
               Settings &gt; Advanced &gt; API Credentials. See the{' '}

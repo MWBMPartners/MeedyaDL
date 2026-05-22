@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file FallbackTab.tsx -- Drag-to-reorder fallback chain settings tab.
@@ -52,12 +52,24 @@
 // React useState for tracking which chain section (audio/video) is active.
 import { useState } from 'react';
 
-// Zustand store for reading and writing the fallback chain settings.
-import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding.
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Label maps that convert codec/resolution identifiers to human-readable names.
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 import type { SongCodec, VideoResolution } from '@/types';
+
+/**
+ * Full universe of audio codecs that may appear in the fallback chain (#659).
+ * Used to populate the "Available" panel below the active chain so users can
+ * remove and re-add codecs on demand. Order here is the order shown in the
+ * "Available" pool — it does NOT influence chain priority, which is driven
+ * by the user-managed `music_fallback_chain` array.
+ */
+const ALL_SONG_CODECS = Object.keys(SONG_CODEC_LABELS) as SongCodec[];
+
+/** Full universe of video resolutions for the fallback "Available" panel (#659). */
+const ALL_VIDEO_RESOLUTIONS = Object.keys(VIDEO_RESOLUTION_LABELS) as VideoResolution[];
 
 // Shared components: Button for toggle tabs, FallbackChainList for reorderable lists.
 import { Button, FallbackChainList, SettingsSection } from '@/components/common';
@@ -79,10 +91,9 @@ import { Button, FallbackChainList, SettingsSection } from '@/components/common'
  * the user: items at the top of the chain are tried first.
  */
 export function FallbackTab() {
-  /** Current settings snapshot */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function for persisting chain reorders */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field Zustand bindings (audit v2 #6).
+  const musicChain = useSettingsField('music_fallback_chain');
+  const videoChain = useSettingsField('video_fallback_chain');
 
   /**
    * Tracks which chain section is currently visible: 'music' (audio codecs)
@@ -91,10 +102,10 @@ export function FallbackTab() {
   const [activeChain, setActiveChain] = useState<'music' | 'video'>('music');
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       <SettingsSection
         title="Fallback Chain"
-        description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Drag items to reorder priority (top = highest priority). Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
+        description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Use the up/down arrows to reorder priority (top = highest), the × button to remove a codec from the chain, and the + button under Available to put a removed codec back. Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
       >
         {/* Chain selector tabs */}
         <div className="flex gap-2 border-b border-border-light pb-2">
@@ -128,9 +139,10 @@ export function FallbackTab() {
               device compatibility
             </p>
             <FallbackChainList<SongCodec>
-              items={settings.music_fallback_chain}
+              items={musicChain.value}
               labels={SONG_CODEC_LABELS}
-              onChange={(chain) => updateSettings({ music_fallback_chain: chain })}
+              allItems={ALL_SONG_CODECS}
+              onChange={musicChain.set}
             />
           </div>
         )}
@@ -142,9 +154,10 @@ export function FallbackTab() {
               Video Resolution Fallback Chain
             </h4>
             <FallbackChainList<VideoResolution>
-              items={settings.video_fallback_chain}
+              items={videoChain.value}
               labels={VIDEO_RESOLUTION_LABELS}
-              onChange={(chain) => updateSettings({ video_fallback_chain: chain })}
+              allItems={ALL_VIDEO_RESOLUTIONS}
+              onChange={videoChain.set}
             />
           </div>
         )}

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Core library for the MeedyaDL Tauri application.
@@ -149,47 +149,116 @@ fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::Worker
     guard
 }
 
-/// Deletes log files older than 7 days from the logs directory.
+/// Deletes log files older than their retention period from each of the
+/// logging directories used by MeedyaDL.
+///
+/// Three file classes with independent retention windows:
+///
+/// | Prefix                | Contents                              | Retention |
+/// | --------------------- | ------------------------------------- | --------- |
+/// | `meedyadl.*`          | `tracing` structured log output       | 7 days    |
+/// | `session-*`           | Trimmed activity-log entries (dumped  | 30 days   |
+/// |                       |   from `activityStore` on overflow)   |           |
+/// | `activity-*` (#541)   | Persistent on-disk activity log       | 7 days    |
 ///
 /// `tracing_appender::rolling::daily()` creates new log files daily but
-/// never deletes old ones. Without cleanup, log files accumulate indefinitely.
-/// This function provides the same retention policy as `clear_old_reports()`
-/// does for crash reports.
-fn clear_old_logs(app_data_dir: &std::path::Path) {
-    let log_dir = app_data_dir.join("logs");
-    let Ok(entries) = std::fs::read_dir(&log_dir) else {
-        return;
-    };
-    // Tracing logs: 7 days retention
-    let tracing_cutoff =
+/// never deletes old ones. The `activity_log_writer` background task
+/// similarly appends forever. Without cleanup, log files accumulate
+/// indefinitely. This function provides the same retention policy as
+/// `clear_old_reports()` does for crash reports.
+///
+/// # Arguments
+/// * `app_data_dir` — Default app data directory (used for default log folder).
+/// * `extra_log_dir` — Optional user-chosen override directory from
+///   `AppSettings::activity_log_path_override`. When set and different
+///   from the default, it is scanned too so `activity-*.log` files in
+///   the override location also honour the 7-day retention window.
+fn clear_old_logs(app_data_dir: &std::path::Path, extra_log_dir: Option<&std::path::Path>) {
+    let default_log_dir = app_data_dir.join("logs");
+    // Deduplicate directories so we don't scan the same path twice when
+    // the override happens to equal the default.
+    let mut dirs: Vec<std::path::PathBuf> = vec![default_log_dir];
+    if let Some(extra) = extra_log_dir {
+        if !extra.as_os_str().is_empty() && !dirs.iter().any(|d| d == extra) {
+            dirs.push(extra.to_path_buf());
+        }
+    }
+
+    // Tracing + activity logs: 7 days retention
+    let seven_day_cutoff =
         std::time::SystemTime::now() - std::time::Duration::from_secs(7 * 24 * 60 * 60);
-    // Session logs (trimmed activity log entries): 30 days retention
+    // Session logs: 30 days retention (longer — they contain forensic
+    // data from entries that were trimmed out of the in-memory log).
     let session_cutoff =
         std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 60 * 60);
 
     let mut removed = 0u32;
-    for entry in entries.flatten() {
-        let Ok(metadata) = entry.metadata() else {
+    for log_dir in &dirs {
+        let Ok(entries) = std::fs::read_dir(log_dir) else {
             continue;
         };
-        let Ok(modified) = metadata.modified() else {
-            continue;
-        };
-        let filename = entry.file_name();
-        let name = filename.to_string_lossy();
-        // Session logs get longer retention (30 days) since they contain
-        // debugging data from trimmed activity log entries.
-        let cutoff = if name.starts_with("session-") {
-            session_cutoff
-        } else {
-            tracing_cutoff
-        };
-        if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
-            removed += 1;
+        for entry in entries.flatten() {
+            let Ok(metadata) = entry.metadata() else {
+                continue;
+            };
+            let Ok(modified) = metadata.modified() else {
+                continue;
+            };
+            let filename = entry.file_name();
+            let name = filename.to_string_lossy();
+            let cutoff = if name.starts_with("session-") {
+                session_cutoff
+            } else {
+                // `meedyadl.*` and `activity-*` both get the 7-day window.
+                seven_day_cutoff
+            };
+            if modified < cutoff && std::fs::remove_file(entry.path()).is_ok() {
+                removed += 1;
+            }
         }
     }
     if removed > 0 {
-        log::info!("Cleaned up {removed} log file(s) (tracing: >7d, session: >30d)");
+        log::info!(
+            "Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)"
+        );
+    }
+}
+
+/// Resolves the directory for the persistent on-disk activity log (#541).
+///
+/// Honours `AppSettings::activity_log_path_override` when set to a
+/// non-empty, non-whitespace value. Falls back to
+/// `{app_data_dir}/logs/` on any of the following conditions:
+/// * The setting is empty or contains only whitespace.
+/// * The override path cannot be created (permission issue, missing
+///   mount, invalid characters). We log a warning and fall back rather
+///   than crashing — a non-functional log override must not prevent
+///   the app from starting.
+fn resolve_activity_log_dir(
+    app: &tauri::AppHandle,
+    app_data_dir: &std::path::Path,
+) -> std::path::PathBuf {
+    let default_dir = app_data_dir.join("logs");
+    let override_path = services::config_service::load_settings(app)
+        .ok()
+        .map(|s| s.activity_log_path_override)
+        .unwrap_or_default();
+    let trimmed = override_path.trim();
+    if trimmed.is_empty() {
+        return default_dir;
+    }
+    let candidate = std::path::PathBuf::from(trimmed);
+    match std::fs::create_dir_all(&candidate) {
+        Ok(()) => candidate,
+        Err(e) => {
+            log::warn!(
+                "activity_log: override path {:?} is not writable ({e}); \
+                 falling back to default {:?}",
+                candidate,
+                default_dir
+            );
+            default_dir
+        }
     }
 }
 
@@ -744,6 +813,34 @@ fn emit_startup_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
             flag(s.use_wrapper),
         ),
     );
+
+    // Line 4: Duplicate-detection configuration.
+    //
+    // Surfaced explicitly so bug reports can tell at a glance whether
+    // dedup ran, what scope it consulted, and which key strategy was in
+    // effect. Without this, diagnosing "why did my second album redownload
+    // tracks I already had?" requires digging into settings.json by hand.
+    let dedup_scope = serde_json::to_value(s.duplicate_detection.scope)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.duplicate_detection.scope));
+    let dedup_key = serde_json::to_value(s.duplicate_detection.key_strategy)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("{:?}", s.duplicate_detection.key_strategy));
+    // The preference order is usually long; render it as a `>`-joined
+    // CLI-style list so the activity log row stays one line.
+    let dedup_pref = s
+        .duplicate_detection
+        .preference_order
+        .iter()
+        .map(|m| m.to_cli_string().to_string())
+        .collect::<Vec<_>>()
+        .join(">");
+    emit_app_log(
+        app,
+        &format!("Dedup: scope={dedup_scope}, key={dedup_key}, preferences={dedup_pref}"),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -919,6 +1016,13 @@ pub fn run() {
         // Fire-and-forget tasks (companions, lyrics, enrichment) poll this
         // flag between iterations and exit early when the app is closing.
         .manage(services::download_queue::ShutdownSignal::new())
+        // In-process AppSettings cache (#690). Eliminates redundant
+        // disk reads on the queue hot path — `load_settings_for_queue`
+        // and friends now read from this cache instead of round-
+        // tripping `config_service::load_settings()` per call. The
+        // `save_settings` IPC refreshes the cache after each disk
+        // write so the two stay in sync.
+        .manage(services::settings_cache::SettingsCache::new())
         // ---------------------------------------------------------------
         // Plugin Registration
         // ---------------------------------------------------------------
@@ -1011,11 +1115,18 @@ pub fn run() {
             // Multi-service URL detection (#315)
             commands::system::detect_service,
             commands::system::save_session_log,
+            // Notification diagnostics + backend-pipeline test button (#834).
+            commands::system::test_desktop_notification,
+            commands::system::get_notification_diagnostics,
+            // Output-directory integrity scan (#537 chunk B).
+            commands::system::run_integrity_scan,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
             commands::dependencies::check_gamdl_status,
             commands::dependencies::install_gamdl,
+            commands::dependencies::install_gamdl_version,
+            commands::dependencies::get_gamdl_support_window,
             commands::dependencies::check_votify_status,
             commands::dependencies::install_votify,
             commands::dependencies::check_ofscraper_status,
@@ -1040,9 +1151,16 @@ pub fn run() {
             commands::gamdl::start_download,
             commands::gamdl::cancel_download,
             commands::gamdl::retry_download,
+            commands::gamdl::retry_failed_bulk,
             commands::gamdl::retry_download_without_wrapper,
+            commands::gamdl::move_queue_item_to_top,
+            commands::gamdl::move_queue_item_to_bottom,
+            commands::gamdl::move_queue_item_up,
+            commands::gamdl::move_queue_item_down,
             commands::gamdl::clear_queue,
             commands::gamdl::clear_all_queue,
+            commands::gamdl::delete_queue_item,
+            commands::gamdl::abort_all_downloads,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
             // Queue export/import commands
@@ -1052,9 +1170,29 @@ pub fn run() {
             commands::gamdl::process_queue_manual,
             // Activity log export
             commands::gamdl::export_activity_log,
+            // Persistent on-disk activity log commands (#541)
+            commands::activity_log::export_disk_activity_log,
+            commands::activity_log::get_logs_folder_path,
+            // Embedded legal docs (ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md) — #802
+            commands::legal::get_acknowledgements_text,
+            commands::legal::get_third_party_licenses_text,
+            // Snapshot + restore (#466)
+            commands::backup::create_backup,
+            commands::backup::list_backups,
+            commands::backup::restore_from_backup,
+            commands::backup::delete_backup,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
+            commands::gamdl::scan_enrichment_gaps,
+            // Legacy sibling-folder merge for pre-#528 downloads (#789)
+            commands::gamdl::detect_legacy_folder_pairs,
+            commands::gamdl::preview_legacy_folder_merge,
+            commands::gamdl::execute_legacy_folder_merge,
+            // Library Scan smart-retry diff per row (Phase 5b, #717)
+            commands::gamdl::diff_library_scan_manifest,
+            // Library Scan Apple Music lastModifiedDate freshness check (Phase 5c, #717)
+            commands::gamdl::check_library_scan_freshness,
             // Smart re-download detection (#263)
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)
@@ -1094,10 +1232,13 @@ pub fn run() {
             commands::crash_reports::export_crash_report,
             commands::crash_reports::log_frontend_error,
             commands::crash_reports::get_github_issue_url,
+            commands::crash_reports::build_diagnostic_bundle,
             // Download history commands (list, search, clear)
             commands::history::list_history,
             commands::history::clear_history,
             commands::history::search_history,
+            commands::history::delete_history_entry,
+            commands::history::get_lifetime_stats,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command
@@ -1182,11 +1323,32 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 use tauri::Manager;
-                let shutdown = window
-                    .app_handle()
-                    .state::<services::download_queue::ShutdownSignal>();
+                let app = window.app_handle();
+                let shutdown = app.state::<services::download_queue::ShutdownSignal>();
                 shutdown.trigger();
                 log::info!("Window destroyed — shutdown signal sent to background tasks");
+
+                // Best-effort auto-backup on exit (#466). We do this
+                // synchronously so the snapshot completes before the
+                // process tears down. Errors are logged but do not
+                // block shutdown — a missing snapshot is preferable to
+                // a hung exit. Typical snapshot is ~10-500 KB and
+                // copies in well under 100ms.
+                match services::backup_service::create_backup(&app.clone()) {
+                    Ok(summary) => {
+                        log::info!(
+                            "Exit auto-backup wrote {} file(s) to {} ({} total snapshots)",
+                            summary.files.len(),
+                            summary.snapshot_path,
+                            summary.total_snapshots,
+                        );
+                    }
+                    Err(e) => {
+                        // Don't log as warn if it's just "nothing to back up"
+                        // (fresh install with no state files yet).
+                        log::debug!("Exit auto-backup skipped: {e}");
+                    }
+                }
             }
         })
         // ---------------------------------------------------------------
@@ -1241,11 +1403,63 @@ pub fn run() {
             // Clean up crash reports older than 30 days
             services::crash_report_service::clear_old_reports(app.handle());
 
-            // Clean up log files older than 7 days
-            clear_old_logs(&app_data_dir);
+            // Resolve the on-disk activity log directory, honouring the
+            // user's `activity_log_path_override` setting when set.
+            // Falls back to `{app_data_dir}/logs/` on error or when empty.
+            let activity_log_dir = resolve_activity_log_dir(app.handle(), &app_data_dir);
+
+            // Clean up log files older than their retention period. The
+            // override dir (if set and different from default) is also
+            // scanned so `activity-*.log` files there get pruned too.
+            let extra_dir = if activity_log_dir != app_data_dir.join("logs") {
+                Some(activity_log_dir.as_path())
+            } else {
+                None
+            };
+            clear_old_logs(&app_data_dir, extra_dir);
+
+            // Start the persistent on-disk activity log writer (#541).
+            // Runs as a background Tokio task consuming events from an
+            // unbounded channel. The shared `ShutdownSignal` trips the
+            // writer into its flush-and-exit path on window close / tray
+            // quit so the final events are not lost.
+            use tauri::Manager;
+            let shutdown = app
+                .state::<services::download_queue::ShutdownSignal>()
+                .flag();
+            let writer_handle =
+                services::activity_log_writer::start(activity_log_dir.clone(), shutdown);
+            utils::activity_log::register_disk_writer(writer_handle);
+            log::info!(
+                "Activity log writer started at {} (retention {}d)",
+                activity_log_dir.display(),
+                services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
+            );
+
+            // Compact any duplicate history rows left by older retry behaviour.
+            services::history_service::cleanup_duplicate_entries(app.handle());
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
+
+            // Spawn the external queue watchdog (#818). Runs on its own
+            // top-level tokio task so it can't be killed by a hang in
+            // the queue processor's task tree — the failure mode that
+            // caused the v1.6.0 silent-stuck-download in #815. Polls
+            // every 60s; escalates items with bit-identical progress
+            // signal for >10min (WARN) or >20min (Error + release slot).
+            {
+                use tauri::Manager;
+                let queue: tauri::State<'_, services::download_queue::QueueHandle> =
+                    app.state();
+                let shutdown: tauri::State<'_, services::download_queue::ShutdownSignal> =
+                    app.state();
+                services::queue_watchdog::spawn_queue_watchdog(
+                    app.handle().clone(),
+                    queue.inner().clone(),
+                    std::sync::Arc::new(shutdown.inner().clone()),
+                );
+            }
 
             // Register the deep link URL handler for the `meedyadl://` scheme.
             // When an external tool opens a URL like:

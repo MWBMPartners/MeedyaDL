@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Continuous Integration (CI) Workflow for MeedyaDL
@@ -128,8 +128,22 @@ jobs:
       #   - It uses the exact versions from package-lock.json (no version drift)
       #   - It deletes node_modules/ first for a deterministic install
       #   - It fails if package-lock.json is out of sync with package.json
+      #
+      # `shell: bash` + quiet flags (closes #823):
+      # - `shell: bash` sidesteps the GitHub-Actions-default pwsh
+      #   dot-source pattern (`pwsh -command ". '{0}'"`) on Windows
+      #   runners, which has a known failure mode of silently
+      #   swallowing a child process's stdout/stderr when the process
+      #   exits mid-output-flush. The 2026-05-18 #823 flake reproduced
+      #   exactly that: `npm ci` exited 1 in 19 s with zero output.
+      # - `--no-progress` removes the progress-bar TTY interaction
+      #   that interacts badly with pwsh.
+      # - `--no-audit` because the dedicated "Security audit" step
+      #   below already runs `npm audit --audit-level=high`.
+      # - `--no-fund` skips an unnecessary informational network call.
       - name: Install dependencies
-        run: npm ci
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
 
       # Step 3.5: Check for known vulnerabilities in npm dependencies.
       # 'npm audit' checks installed packages against the npm advisory database.
@@ -166,10 +180,29 @@ jobs:
   backend:
     name: Backend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Suppress Node's DEP0040 punycode deprecation warning emitted by
+    # `@actions/cache`'s bundled dependencies, which the Swatinem/rust-cache
+    # post step invokes. The warning is cosmetic — neither MeedyaDL nor the
+    # action's hot path call `require('punycode')` — but it clutters CI logs
+    # on every cache save. Job-level env propagates to both the main and post
+    # steps of every action in this job. Targeted (`--disable-warning=DEP0040`
+    # rather than `--no-deprecation`) so other deprecations remain visible.
+    # @see https://github.com/MWBMPartners/MeedyaDL/issues — punycode audit 2026-05-17
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # macos-14 pinned (not macos-latest) because the macos-15 runner image
+        # rotated in mid-2026 ships a Homebrew `cargo` shim at
+        # `/opt/homebrew/bin/cargo` that proxies to `rustup-init` when rustup
+        # isn't fully initialised. With the current `dtolnay/rust-toolchain`
+        # pin, that shim wins the PATH race and `cargo check` resolves to
+        # `rustup-init`, failing with `error: unexpected argument 'check'
+        # found`. Pinning the previous LTS image bypasses the shim.
+        # Revisit when `dtolnay/rust-toolchain` (or a successor action) ships
+        # a version that handles the new image layout.
+        os: [ubuntu-latest, macos-14, windows-latest]
 
     steps:
       # Step 1: Check out the repository code.
@@ -199,21 +232,136 @@ jobs:
             libssl-dev \
             libgtk-3-dev
 
+      # Step 2.5: Scrub Homebrew rustup-init shims on macOS runners.
+      # GitHub macOS runner images ship Homebrew-installed `rustup-init` plus
+      # symlinks at `/opt/homebrew/bin/{cargo,rustc,rustdoc,rustup,rustup-init}`
+      # (and the older `/usr/local/bin/` Intel paths). When rustup isn't fully
+      # initialised the shim falls back to running `rustup-init`, so any later
+      # `cargo check` resolves to the installer and fails with
+      # `error: unexpected argument 'check' found`. The first attempt at fixing
+      # this just pinned `macos-14` — same shim layout, same failure.
+      # Removing the shims here, BEFORE `dtolnay/rust-toolchain` runs, lets
+      # the rustup install put `~/.cargo/bin/cargo` on PATH unopposed.
+      - name: Remove Homebrew rustup shims (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scrubbing Homebrew rustup shims AND stale ~/.cargo/bin/ symlinks..."
+          # /opt/homebrew/bin/ + /usr/local/bin/ — Homebrew install paths.
+          for bindir in /opt/homebrew/bin /usr/local/bin; do
+            for binname in cargo rustc rustdoc rustup rustup-init; do
+              target="$bindir/$binname"
+              if [ -e "$target" ] || [ -L "$target" ]; then
+                echo "  removing $target"
+                sudo rm -f "$target"
+              fi
+            done
+          done
+          # ~/.cargo/bin/ — runner image bakes this in pre-symlinked to
+          # the Homebrew rustup-init we just removed (PR #770 v3 root
+          # cause). Wipe it too so the upstream installer rebuilds clean
+          # links to ~/.cargo/bin/rustup (the actual proxy, not
+          # rustup-init).
+          if [ -d "${HOME}/.cargo/bin" ]; then
+            for binname in cargo rustc rustdoc rustup rustup-init; do
+              target="${HOME}/.cargo/bin/${binname}"
+              if [ -e "$target" ] || [ -L "$target" ]; then
+                echo "  removing $target"
+                rm -f "$target"
+              fi
+            done
+          fi
+          # ~/.rustup/ — pre-installed on the runner image; without
+          # removing it, `rustup-init.sh` short-circuits with
+          # "Updating existing toolchain" and never re-populates
+          # ~/.cargo/bin/. Wipe so the installer takes the fresh path.
+          if [ -d "${HOME}/.rustup" ]; then
+            echo "  removing ${HOME}/.rustup (forces fresh install)"
+            rm -rf "${HOME}/.rustup"
+          fi
+          echo "Done. Remaining cargo on PATH (should be empty until Setup Rust runs):"
+          command -v cargo || echo "  (none — good, Setup Rust will install a clean one)"
+
       # Step 3: Set up the Rust stable toolchain with clippy.
-      # dtolnay/rust-toolchain@stable installs the latest stable Rust compiler.
-      # The 'clippy' component is the Rust linter, added for the clippy step below.
+      #
+      # On Linux/Windows, dtolnay/rust-toolchain places real binaries at
+      # ~/.cargo/bin/ via upstream rustup-init.sh and just works.
+      #
+      # On macOS, dtolnay re-creates `/opt/homebrew/bin/rustup-init` (the
+      # very shim that Step 2.5 just scrubbed) and symlinks
+      # ~/.cargo/bin/cargo back to it, perpetuating the original shim
+      # bug — `cargo check` resolves to `rustup-init check` which exits
+      # 1 with `unexpected argument 'check' found`. The PR #770 v2
+      # diagnostic step caught this happening at 20:38:09 UTC on
+      # commit 27b7000.
+      #
+      # Bypass the action entirely on macOS — run upstream rustup-init.sh
+      # ourselves. The official installer places REAL binaries at
+      # ~/.cargo/bin/{cargo,rustc,rustup,...} (proxied through rustup,
+      # not rustup-init), which is what every subsequent step expects.
       # @see https://github.com/dtolnay/rust-toolchain
-      - name: Setup Rust
+      # @see https://rustup.rs (upstream rustup installer source)
+      - name: Setup Rust (Linux/Windows)
+        if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           components: clippy
+
+      - name: Setup Rust (macOS — upstream rustup, bypasses Homebrew shim)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `--default-toolchain stable` matches dtolnay/rust-toolchain@stable.
+          # `--profile minimal` skips docs/tests we don't need on CI.
+          # `--component clippy` matches the dtolnay step's `with: components: clippy`.
+          # `-y` accepts all defaults non-interactively.
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y \
+                --default-toolchain stable \
+                --profile minimal \
+                --component clippy
+          echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+
+      # Step 3.5: Diagnostic + sanity check — confirm cargo on PATH is the
+      # rustup-managed binary, not a Homebrew rustup-init shim. Same step
+      # runs again right before `cargo check` (the actual failure point on
+      # the v1 fix) so we can pinpoint whether state degrades between steps.
+      # The realpath check is stronger than the earlier `cargo --version |
+      # grep rustup-init` approach which falsely passed in the v1 fix run.
+      - name: Verify cargo is rustup-managed (post-setup)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Rust toolchain diagnostic (post-setup) ==="
+          echo "PATH=$PATH"
+          echo "CARGO_HOME=${CARGO_HOME:-<unset>}"
+          echo "RUSTUP_HOME=${RUSTUP_HOME:-<unset>}"
+          cargo_path="$(command -v cargo)" || { echo "::error::cargo not on PATH"; exit 1; }
+          echo "command -v cargo => $cargo_path"
+          if command -v realpath >/dev/null 2>&1; then
+            echo "realpath           => $(realpath "$cargo_path")"
+          fi
+          case "$cargo_path" in
+            */.cargo/bin/cargo|*/cargo/bin/cargo) ;;
+            *)
+              echo "::error::cargo on PATH ($cargo_path) is NOT in ~/.cargo/bin — likely a Homebrew/system shim."
+              exit 1 ;;
+          esac
+          if [ "$(basename "$cargo_path")" = "rustup-init" ] || \
+             (command -v realpath >/dev/null 2>&1 && [ "$(basename "$(realpath "$cargo_path")")" = "rustup-init" ]); then
+            echo "::error::cargo resolves to rustup-init."
+            exit 1
+          fi
+          cargo --version
 
       # Step 4: Cache Rust compilation artifacts for faster builds.
       # Caches the target/ directory within src-tauri/ (the Cargo workspace).
       # This can save 5-15 minutes on subsequent runs by reusing compiled dependencies.
       # @see https://github.com/Swatinem/rust-cache
       - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
         with:
           workspaces: src-tauri
 
@@ -228,8 +376,13 @@ jobs:
 
       # Step 6: Install npm dependencies.
       # Needed for step 7 (building the frontend).
+      # `shell: bash` + quiet flags applied here for the same reason
+      # as the Frontend job's step 3 — closes #823. The Backend job
+      # didn't reproduce the flake on 2026-05-18 but uses identical
+      # tooling, so the same hardening applies as defence-in-depth.
       - name: Install npm dependencies
-        run: npm ci
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
 
       # Step 7: Build the frontend.
       # Runs 'vite build' to generate the dist/ directory with compiled HTML/JS/CSS.
@@ -237,6 +390,33 @@ jobs:
       # and cargo check would fail without it.
       - name: Build frontend
         run: npm run build
+
+      # Step 7.5: Re-run the cargo-shim diagnostic from the working dir that
+      # `cargo check` will actually use. If cargo state changed between
+      # Setup Rust and now (cache restore, Node.js setup, npm install, etc.),
+      # this is where we'll see it — with full PATH dump for forensic context.
+      - name: Verify cargo is rustup-managed (pre-cargo-check)
+        working-directory: src-tauri
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Rust toolchain diagnostic (pre-cargo-check) ==="
+          echo "PWD=$(pwd)"
+          echo "PATH=$PATH"
+          echo "CARGO_HOME=${CARGO_HOME:-<unset>}"
+          echo "RUSTUP_HOME=${RUSTUP_HOME:-<unset>}"
+          cargo_path="$(command -v cargo)" || { echo "::error::cargo not on PATH"; exit 1; }
+          echo "command -v cargo => $cargo_path"
+          if command -v realpath >/dev/null 2>&1; then
+            echo "realpath           => $(realpath "$cargo_path")"
+          fi
+          case "$cargo_path" in
+            */.cargo/bin/cargo|*/cargo/bin/cargo) ;;
+            *)
+              echo "::error::cargo on PATH ($cargo_path) is NOT in ~/.cargo/bin at cargo-check time."
+              exit 1 ;;
+          esac
+          cargo --version
 
       # Step 8: Verify Rust compilation.
       # 'cargo check' runs the compiler without producing a binary -- much faster than

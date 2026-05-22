@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/lib/url-parser.ts - Apple Music URL parser and content type detector
@@ -80,10 +80,21 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
   /* Step 3: Analyze the URL path to determine content type */
   const contentType = detectContentType(trimmed);
 
+  /*
+   * A URL is valid (submittable) if it classifies into a known content
+   * type — including `recording`. An earlier iteration (#573) rejected
+   * `recording` URLs on the grounds that GAMDL's URL vocabulary doesn't
+   * include `/recording/` paths, but that was reverted 2026-04-23: the
+   * correct UX is to accept what the user pasted and let the pipeline
+   * give a clear outcome. With #567's broadened empty-output guard now
+   * on main, a URL GAMDL can't handle fails cleanly (single
+   * "Enrichment skipped — primary download produced no output files"
+   * line instead of cascading false-success noise), so the rationale
+   * for pre-emptive rejection no longer holds.
+   */
   return {
     url: trimmed,
     contentType,
-    /* A URL is valid only if we could classify it into a known content type */
     isValid: contentType !== 'unknown',
   };
 }
@@ -98,7 +109,12 @@ export function parseAppleMusicUrl(url: string): ParsedUrl {
  *
  * Accepted domains:
  * - `music.apple.com` - Current Apple Music web player domain
- * - `classical.apple.com` - Apple Music Classical domain
+ * - `classical.apple.com` - Legacy Apple Music Classical domain
+ * - `classical.music.apple.com` - Current Apple Music Classical domain
+ *   (Apple moved Classical under music.apple.com's subdomain hierarchy
+ *   in 2026; the app now shares Share-link format with `music.apple.com`
+ *   but drops the slug segment: `/album/{id}` instead of
+ *   `/album/{slug}/{id}`)
  * - `itunes.apple.com` - Legacy iTunes Store domain (still used in some links)
  *
  * @param url - The URL string to validate
@@ -110,10 +126,11 @@ export function isAppleMusicUrl(url: string): boolean {
   try {
     /* Use the URL constructor for standards-compliant URL parsing */
     const parsed = new URL(url);
-    /* Check hostname against both the current and legacy Apple Music domains */
+    /* Check hostname against the current and legacy Apple Music domains */
     return (
       parsed.hostname === 'music.apple.com' ||
       parsed.hostname === 'classical.apple.com' ||
+      parsed.hostname === 'classical.music.apple.com' ||
       parsed.hostname === 'itunes.apple.com'
     );
   } catch {
@@ -185,6 +202,24 @@ function detectContentType(url: string): AppleMusicContentType {
       return 'library';
     }
 
+    /*
+     * Apple Music Classical recording URLs (`classical.music.apple.com`).
+     * A "recording" is a specific performance of a classical work — e.g.
+     * Beethoven's 5th as performed by Karajan / Berliner Philharmoniker
+     * in 1977, distinct from the album release that contains it. The
+     * path shape is `/recording/{composer-year-piece}-{id}` (example:
+     * `/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB`).
+     *
+     * Recognised here so the UI can surface a specific "not yet
+     * supported — use the album URL instead" message rather than the
+     * generic "Please enter a valid Apple Music URL". Marked
+     * non-submittable in `parseAppleMusicUrl()` to block downloads —
+     * GAMDL's URL vocabulary does not include `/recording/` paths.
+     */
+    if (path.includes('/recording/')) {
+      return 'recording';
+    }
+
     /* No recognized content type path segment found */
     return 'unknown';
   } catch {
@@ -220,6 +255,8 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
       return 'Artist';
     case 'library':
       return 'Library';
+    case 'recording':
+      return 'Classical Recording';
     default:
       return 'Unknown';
   }
@@ -235,7 +272,7 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
  * (e.g., music.youtube.com before youtube.com).
  */
 const SERVICE_DOMAINS: Array<{ service: MediaServiceId; domains: string[] }> = [
-  { service: 'apple-music', domains: ['music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
+  { service: 'apple-music', domains: ['classical.music.apple.com', 'music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
   { service: 'youtube-music', domains: ['music.youtube.com'] },
   { service: 'youtube', domains: ['youtube.com', 'youtu.be'] },
   { service: 'spotify', domains: ['open.spotify.com'] },

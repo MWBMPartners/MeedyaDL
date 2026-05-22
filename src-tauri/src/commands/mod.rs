@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Command modules for Tauri IPC handlers.
@@ -126,3 +126,22 @@ pub mod service_status;
 
 /// Smart Download command — cross-platform quality search.
 pub mod smart_download;
+
+/// Activity log IPC commands (#541) — export the persistent on-disk
+/// activity log and reveal the logs folder in the OS file manager.
+/// Complements `commands::gamdl::export_activity_log`, which exports
+/// the in-memory (possibly-trimmed) entries.
+pub mod activity_log;
+
+/// Legal / compliance IPC commands (#802) — surface the embedded
+/// `ACKNOWLEDGEMENTS.md` and `THIRD_PARTY_LICENSES.md` files to the
+/// frontend's Help > About > Open Source Acknowledgements view. The
+/// files are compiled in via `include_str!()` so the notices ride
+/// inside the binary on every platform without bundle-resource
+/// path quirks.
+pub mod legal;
+
+/// Snapshot + restore commands (#466). Wraps `backup_service` with
+/// IPC entry points: create, list, restore, delete. Each runs on a
+/// blocking thread so the FS work doesn't block the main runtime.
+pub mod backup;

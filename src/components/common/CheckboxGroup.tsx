@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Multi-select checkbox group component.
@@ -89,7 +89,7 @@ export function CheckboxGroup<T extends string>({
               disabled={disabled}
               className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
             />
-            <span className="truncate">{optLabel}</span>
+            <span className="leading-tight break-words">{optLabel}</span>
           </label>
         ))}
       </div>

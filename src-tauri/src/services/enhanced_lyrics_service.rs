@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Enhanced LRC lyrics conversion service.
@@ -137,14 +137,18 @@ pub fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, S
 
     let mut processed = 0;
 
-    // Collect .ttml files in the directory
+    // Collect .ttml files in the directory. Skip filesystem sidecars
+    // (macOS AppleDouble `._*.ttml`, etc.) so we don't try to parse
+    // resource-fork blobs as TTML XML (#577).
     let entries: Vec<_> = std::fs::read_dir(dir)
         .map_err(|e| format!("Failed to read directory: {e}"))?
         .filter_map(Result::ok)
         .filter(|entry| {
-            entry
-                .path()
-                .extension()
+            let path = entry.path();
+            if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+                return false;
+            }
+            path.extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
         })
         .collect();

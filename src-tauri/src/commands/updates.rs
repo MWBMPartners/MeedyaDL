@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Update checking IPC commands.
@@ -41,6 +41,7 @@ use tauri::Emitter;
 
 // config_service: loads user settings (including check_pre_releases preference)
 // from the app data directory.
+use crate::models::settings::UpdateChannel;
 use crate::services::config_service;
 // update_checker module contains the core update checking logic.
 // ComponentUpdate: per-component update status (name, current version,
@@ -87,14 +88,22 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 
     log::info!("Checking for updates...");
     emit_app_log(&app, "Checking for updates...");
-    // Load settings to check the user's pre-release preference.
+    // Load settings to check the user's pre-release preference and channel.
     // If settings fail to load, default to stable-only (check_pre_releases: false).
     let settings = config_service::load_settings(&app).unwrap_or_default();
+
+    // When the user has opted into a non-stable channel, we must query the
+    // list endpoint (`releases?per_page=N`) because `releases/latest` skips
+    // pre-releases. This effectively forces check_pre_releases = true for any
+    // non-Stable channel, regardless of the legacy toggle.
+    let include_prereleases =
+        settings.check_pre_releases || settings.update_channel != UpdateChannel::Stable;
 
     // check_all_updates() runs all component checks concurrently and
     // aggregates the results. Individual check failures are captured
     // per-component rather than failing the entire operation.
-    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
+    let result =
+        update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
 
     // Log the result for debugging — list components with available updates
     if result.has_updates {
@@ -117,7 +126,7 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 
 /// Upgrades GAMDL to the latest compatible version via pip.
 ///
-/// **Frontend caller:** `upgradeGamdl()` in `src/lib/tauri-commands.ts`
+/// **Frontend caller:** `upgradeGamdl(targetVersion?)` in `src/lib/tauri-commands.ts`
 ///
 /// Runs `pip install --upgrade gamdl` using the managed Python runtime.
 /// This reuses the same `install_gamdl()` service function used during
@@ -129,6 +138,13 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for locating the Python/pip binaries.
+/// * `target_version` - When `Some`, install exactly this version. The
+///   frontend passes the latest PyPI version when the user is upgrading
+///   to an above-ceiling "Untested" release (amber warning badge in the
+///   Updates page) — pinning bypasses the bounded support-window spec
+///   so the install actually lands on the version the banner advertised.
+///   When `None`, the bounded spec is used (routine "Upgrade" clicks on
+///   tested updates, cap-at-`maximum_tested_version`).
 ///
 /// # Returns
 /// * `Ok(String)` - The new version string after upgrade (e.g., "2.9.0").
@@ -138,16 +154,34 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
 /// Returns an error if the pip upgrade subprocess fails (network timeout,
 /// dependency conflict, disk full, missing Python runtime, etc.).
 #[tauri::command]
-pub async fn upgrade_gamdl(app: AppHandle) -> Result<String, String> {
-    log::info!("Upgrading GAMDL...");
-    emit_app_log(&app, "Upgrading GAMDL...");
-    // Reuses install_gamdl() which runs `pip install --upgrade gamdl`.
-    // The --upgrade flag ensures pip upgrades to the latest version if
-    // an older version is already installed.
-    let version = crate::services::gamdl_service::install_gamdl(&app).await?;
-    log::info!("GAMDL upgraded to {version}");
-    emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
-    Ok(version)
+pub async fn upgrade_gamdl(
+    app: AppHandle,
+    target_version: Option<String>,
+) -> Result<String, String> {
+    if let Some(target) = target_version.as_deref() {
+        log::info!("Upgrading GAMDL to explicit target v{target}...");
+        emit_app_log(&app, &format!("Upgrading GAMDL to v{target}..."));
+    } else {
+        log::info!("Upgrading GAMDL...");
+        emit_app_log(&app, "Upgrading GAMDL...");
+    }
+    match crate::services::gamdl_service::install_gamdl(&app, target_version.as_deref()).await {
+        Ok(version) => {
+            log::info!("GAMDL upgraded to {version}");
+            emit_app_log(&app, &format!("GAMDL upgraded to v{version}"));
+            Ok(version)
+        }
+        Err(err) => {
+            // Echo the failure into the activity log (the Rust log file
+            // already has it via `install_gamdl`'s logging). Without this,
+            // a failed Upgrade click in the UI vanishes from the in-app
+            // diagnostics — users had to dig through the OS log file to
+            // find the pip stderr that caused the toast.
+            log::warn!("GAMDL upgrade failed: {err}");
+            emit_app_log(&app, &format!("GAMDL upgrade failed: {err}"));
+            Err(err)
+        }
+    }
 }
 
 /// Upgrades any pip-based engine to the latest version.
@@ -212,7 +246,10 @@ pub async fn check_component_update(
     // Load settings for the pre-release preference, then run all update checks
     // (currently no way to check individual components independently)
     let settings = config_service::load_settings(&app).unwrap_or_default();
-    let result = update_checker::check_all_updates(&app, settings.check_pre_releases).await;
+    let include_prereleases =
+        settings.check_pre_releases || settings.update_channel != UpdateChannel::Stable;
+    let result =
+        update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
 
     // Find the component whose name contains the search string (case-insensitive).
     // into_iter() consumes the Vec, avoiding cloning the ComponentUpdate structs.
@@ -279,6 +316,32 @@ pub async fn download_and_install_app_update(
 
     log::info!("Downloading app update from tag: {tag}");
     emit_app_log(&app, &format!("Downloading app update {tag}..."));
+
+    // Channel guard: refuse to install a release whose channel is less
+    // stable than the user's subscribed channel. This is the enforcement
+    // point for "option 2" channel safety — even if a cross-channel URL
+    // is constructed elsewhere (e.g., via deep link or a stale cache),
+    // the installer won't cross the stability boundary.
+    //
+    // Users can change channel from Settings > General > Updates, which
+    // legitimately moves them up or down the ladder; that is an explicit
+    // action, not an accidental install.
+    {
+        let settings = config_service::load_settings(&app).unwrap_or_default();
+        let tag_channel = UpdateChannel::from_tag(&tag);
+        if tag_channel < settings.update_channel {
+            let msg = format!(
+                "Refusing to install {tag}: it belongs to the '{tag_channel:?}' channel, \
+                 but this install is subscribed to '{:?}'. \
+                 Change your update channel in Settings > General > Updates if you want \
+                 to move to a less-stable channel.",
+                settings.update_channel
+            );
+            log::warn!("{msg}");
+            emit_app_log(&app, &msg);
+            return Err(msg);
+        }
+    }
 
     // macOS pre-flight: verify the app directory is writable before attempting
     // the update. The Tauri updater replaces the .app bundle in-place, which

@@ -1,0 +1,66 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Auto-Delete Merged Branches
+# ===========================
+#
+# Deletes the head branch of a merged pull request, unless that branch is in
+# the protected-channel allowlist. This is a complement to the repo setting
+# "Automatically delete head branches": the setting deletes every merged PR
+# head branch unconditionally, which is usually what we want for `feat/*`
+# and `fix/*` branches but is wrong for cross-channel merges (e.g., merging
+# `nightly` into `weekly` should NOT delete `nightly`).
+#
+# The `protected-release-branches` ruleset (applied via
+# apply-branch-rulesets.yml) provides the hard guarantee — GitHub will
+# reject the DELETE call on protected branches. This workflow's allowlist
+# is the soft guardrail that avoids even attempting the delete and keeps
+# the Actions log clean.
+#
+# Keep this workflow aligned with .github/rulesets/protected-release-branches.json.
+
+name: Auto-Delete Merged Branches
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete head branch unless protected
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          set -euo pipefail
+
+          # Skip cross-repo PRs (forks) — we can't delete branches we don't own.
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            echo "Skipping: head branch is on a fork ($HEAD_REPO)"
+            exit 0
+          fi
+
+          # Protected branches that must never be auto-deleted. Keep in sync
+          # with .github/rulesets/protected-stable-branches.json (no bypass)
+          # and .github/rulesets/protected-cron-channels.json (admin bypass).
+          case "$HEAD_REF" in
+            main|release-candidate|beta|alpha|monthly|weekly|nightly)
+              echo "Skipping: '$HEAD_REF' is a protected release channel"
+              exit 0
+              ;;
+          esac
+
+          echo "Deleting merged branch: $HEAD_REF"
+          gh api -X DELETE "repos/$REPO/git/refs/heads/$HEAD_REF" || {
+            # A 422 here usually means the branch was already deleted
+            # (e.g., the repo-wide auto-delete setting beat us to it).
+            echo "Branch may already be deleted — continuing"
+          }

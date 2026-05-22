@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file HelpViewer.tsx -- Help documentation viewer with search.
@@ -120,6 +120,7 @@ import {
   ShieldAlert, // "Disclaimer" topic
   Keyboard, // "Keyboard Shortcuts" topic
   Globe, // "Supported Services" topic
+  GitBranch, // "Release Channels" topic
   Search, // Search icon in the sidebar search bar
   X, // Clear search button icon
 } from 'lucide-react';
@@ -858,7 +859,7 @@ A multiplatform media downloader desktop application. Currently supports Apple M
 <details>
 <summary><strong>License</strong></summary>
 
-Copyright (c) 2026 MeedyaDL
+Copyright (c) 2026 MeedyaSuite
 
 Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
 
@@ -876,33 +877,28 @@ Licensed under the MIT License. See the LICENSE file in the project root for the
 <details>
 <summary><strong>Open Source Acknowledgements</strong></summary>
 
-MeedyaDL is built on top of many open-source projects. We are grateful to the developers and maintainers of these libraries and tools.
+MeedyaDL is built on top of many open-source projects. The full inventory of every direct dependency, its licence, and its purpose lives in the \`ACKNOWLEDGEMENTS.md\` file bundled inside this build (#802). Expand below to read it inline without leaving the app.
 
-**Download Engines:**
-- **GAMDL** (MIT) — Apple Music download engine
+<details>
+<summary><em>Show full acknowledgements (ACKNOWLEDGEMENTS.md)</em></summary>
 
-**Application Framework:**
-- **Tauri** (MIT/Apache-2.0) — Desktop application framework
-- **React** (MIT) — UI component library
-- **Zustand** (MIT) — State management
-- **Tailwind CSS** (MIT) — CSS framework
+{{ACKNOWLEDGEMENTS_MD}}
 
-**External Tools:**
-- **FFmpeg** (LGPL/GPL) — Audio/video processing and remuxing
-- **mp4decrypt / Bento4** (MIT) — MP4 DRM decryption
-- **N_m3u8DL-RE** (MIT) — HLS/DASH stream downloader
-- **MP4Box / GPAC** (LGPL) — Media container toolkit
-- **MediaInfo** (BSD-2-Clause) — Media file analysis and codec detection
+</details>
 
-**Key Libraries:**
-- **Tokio** (MIT) — Rust async runtime
-- **Reqwest** (MIT) — HTTP client
-- **mp4ameta** (MIT) — M4A metadata reading/writing
-- **roxmltree** (MIT) — XML parsing for TTML lyrics
-- **rusty-chromaprint** (MIT) — Audio fingerprinting
-- **i18next** (MIT) — Internationalisation
+</details>
 
-For the full list of all dependencies and their licences, see the ACKNOWLEDGEMENTS file included with this application.
+<details>
+<summary><strong>Third-Party Licences</strong></summary>
+
+The verbatim upstream copyright notices and licence text for every external engine and tool MeedyaDL invokes or bundles (GAMDL, FFmpeg, MP4Box, MediaInfo, mp4decrypt, N_m3u8DL-RE, Python, etc.) — plus the LGPL/GPL written offer for source code that applies to the offline-installer build — are reproduced verbatim from upstream in the \`THIRD_PARTY_LICENSES.md\` file bundled inside this build. Expand to read.
+
+<details>
+<summary><em>Show full third-party licences (THIRD_PARTY_LICENSES.md)</em></summary>
+
+{{THIRD_PARTY_LICENSES_MD}}
+
+</details>
 
 </details>
 
@@ -1043,6 +1039,56 @@ Some services support multiple download engines. When the primary engine fails w
 
 The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.`,
   },
+  {
+    id: 'release-channels',
+    label: 'Release Channels',
+    icon: GitBranch,
+    content: `# Release Channels
+
+MeedyaDL publishes builds on six channels, ordered from **least** to **most** stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
+
+## The six channels
+
+| Channel | Cadence | Version suffix | Who it's for |
+| --- | --- | --- | --- |
+| **Nightly** | Daily at 00:00 UTC | \`-nightly.YYYYMMDD\` | Developers validating today's work-in-progress. Can be broken. |
+| **Weekly** | Sunday at 00:00 UTC | \`-weekly.YYYYWW\` | Testers who want a week of nightlies rolled up. |
+| **Monthly** | 1st of the month at 00:00 UTC | \`-monthly.YYYYMM\` | Early adopters wanting a monthly preview. |
+| **Alpha** | Ad-hoc | \`-alpha.N\` | Feature-complete previews with known rough edges. |
+| **Beta** | Ad-hoc | \`-beta.N\` | Release candidates close to Stable. |
+| **Stable** | Release-please merge | _(no suffix)_ | Most users — production-ready. |
+
+Each channel is an integration of the channel directly below it plus any ready feature branches, so moving up the ladder picks up strictly more testing.
+
+## Switching channels
+
+1. Open **Settings > General > Updates**.
+2. Pick a channel from the **Update Channel** dropdown.
+3. Save. The next update check will use the new channel.
+
+Switching to a less-stable channel is always an explicit choice. Switching back up is equally explicit.
+
+## The auto-update guard
+
+MeedyaDL will **never auto-downgrade your stability tier**:
+
+- The update check only ever surfaces a release from your selected channel — a Stable install will not be offered a Nightly build.
+- If an update URL or deep link points at a less-stable build than your current channel, the installer refuses to apply it and shows a clear error. Change channel first if you genuinely want that build.
+
+## Which channel should I use?
+
+- **Stable** — the default. Pick this unless you have a reason not to.
+- **Beta** — pre-release candidates. Helps catch regressions before they reach Stable.
+- **Alpha / Monthly / Weekly / Nightly** — only if you are comfortable filing bug reports and rolling back to a working build. Expect regressions.
+
+## Reporting problems on pre-release builds
+
+When reporting an issue for any pre-release channel, please include:
+
+- The **exact version** from *Settings > About* (e.g., \`0.34.6-nightly.20260420\`).
+- Your selected **Update Channel**.
+- Reproduction steps and any relevant log output.`,
+  },
 ];
 
 /**
@@ -1147,26 +1193,55 @@ export function HelpViewer() {
   const [appVersion, setAppVersion] = useState('...');
   /** Component version table (markdown) for the About > Component Library section */
   const [componentVersions, setComponentVersions] = useState('*Loading...*');
+  /**
+   * Verbatim content of `ACKNOWLEDGEMENTS.md` (#802). Embedded into the
+   * binary via `include_str!()` and surfaced through the legal IPC. The
+   * placeholder `{{ACKNOWLEDGEMENTS_MD}}` in the About topic gets
+   * replaced with this string at render time. `*Loading…*` is the
+   * pre-load fallback so the section never renders an empty block.
+   */
+  const [acknowledgementsMd, setAcknowledgementsMd] = useState('*Loading…*');
+  /**
+   * Verbatim content of `THIRD_PARTY_LICENSES.md` (#802) — the actual
+   * MIT/BSD/LGPL/GPL/PSF licence text + source offers for bundled
+   * components. Placeholder `{{THIRD_PARTY_LICENSES_MD}}` in the
+   * About topic gets replaced with this at render time.
+   */
+  const [thirdPartyLicensesMd, setThirdPartyLicensesMd] = useState('*Loading…*');
   useEffect(() => {
     getVersion()
       .then((v) => setAppVersion(v))
       .catch(() => setAppVersion('unknown'));
   }, []);
 
-  // Fetch component versions when the About topic is selected
+  // Fetch component versions, acknowledgements, and third-party licence
+  // text when the About topic is selected. All three IPCs are cheap and
+  // idempotent — the legal text is `include_str!`-embedded so there's no
+  // disk I/O — but we still defer until About is opened so the data
+  // isn't loaded unnecessarily on every app launch.
   useEffect(() => {
     if (activeTopic !== 'about') return;
     import('@/lib/tauri-commands')
-      .then(({ getComponentVersions }) => getComponentVersions())
-      .then((versions) => {
-        const rows = versions
-          .filter((v) => v.installed)
-          .map((v) => `| ${v.name} | ${v.version ?? 'unknown'} |`)
-          .join('\n');
-        const table = `| Component | Version |\n|-----------|--------|\n${rows}`;
-        setComponentVersions(table);
-      })
-      .catch(() => setComponentVersions('*Unable to load component versions.*'));
+      .then(({ getComponentVersions, getAcknowledgementsText, getThirdPartyLicensesText }) => {
+        getComponentVersions()
+          .then((versions) => {
+            const rows = versions
+              .filter((v) => v.installed)
+              .map((v) => `| ${v.name} | ${v.version ?? 'unknown'} |`)
+              .join('\n');
+            const table = `| Component | Version |\n|-----------|--------|\n${rows}`;
+            setComponentVersions(table);
+          })
+          .catch(() => setComponentVersions('*Unable to load component versions.*'));
+
+        // #802: load the embedded ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md
+        getAcknowledgementsText()
+          .then(setAcknowledgementsMd)
+          .catch(() => setAcknowledgementsMd('*Unable to load acknowledgements.*'));
+        getThirdPartyLicensesText()
+          .then(setThirdPartyLicensesMd)
+          .catch(() => setThirdPartyLicensesMd('*Unable to load third-party licences.*'));
+      });
   }, [activeTopic]);
 
   /* ---- Store bindings for help deep-linking ---- */
@@ -1476,7 +1551,15 @@ export function HelpViewer() {
             >
               {topic.content
                 .replace('{{VERSION}}', appVersion)
-                .replace('{{COMPONENT_VERSIONS}}', componentVersions)}
+                .replace('{{COMPONENT_VERSIONS}}', componentVersions)
+                // #802 — embedded ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md
+                // surfaced through the About topic. Lazy-loaded on first
+                // open of the About page, default `*Loading…*` until the
+                // IPCs resolve. Both files are `include_str!`-baked so
+                // there's no disk I/O — the lazy load is purely a
+                // first-render optimisation.
+                .replace('{{ACKNOWLEDGEMENTS_MD}}', acknowledgementsMd)
+                .replace('{{THIRD_PARTY_LICENSES_MD}}', thirdPartyLicensesMd)}
             </ReactMarkdown>
           </div>
         </div>

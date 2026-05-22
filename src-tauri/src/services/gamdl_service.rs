@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // GAMDL CLI wrapper service.
@@ -90,6 +90,12 @@ pub struct GamdlProgress {
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
+/// * `target_version` - When `Some`, pin pip to install exactly this
+///   version (e.g. an above-ceiling "Untested" upgrade the user has
+///   explicitly opted into). When `None`, use the bounded support-window
+///   spec — pip resolves to the newest release inside
+///   `[minimum, maximum_tested]`. See [`super::gamdl_capabilities::pip_target_spec`]
+///   for the rationale on explicit targeting.
 ///
 /// # Errors
 ///
@@ -99,7 +105,10 @@ pub struct GamdlProgress {
 /// # Returns
 /// * `Ok(version)` - The installed GAMDL version (e.g., "2.8.4")
 /// * `Err(message)` - If installation failed (Python not found, pip error, etc.)
-pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
+pub async fn install_gamdl(
+    app: &AppHandle,
+    target_version: Option<&str>,
+) -> Result<String, String> {
     log::info!("Installing GAMDL via pip...");
 
     // Resolve the Python binary path
@@ -114,14 +123,34 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
         );
     }
 
-    // Run `python -m pip install --upgrade gamdl`.
-    // `-m pip` invokes pip as a module of our managed Python, ensuring we use
-    // the correct pip instance rather than any system pip.
-    // `--upgrade` ensures we get the latest version even if an older one exists,
-    // which is important for the update flow.
+    // Pip spec selection:
+    // * `target_version = None` → bounded support-window spec
+    //   (e.g. `gamdl>=2.9.1,<=3.3`). This is the routine path used by
+    //   the setup wizard and by `Upgrade` clicks on tested updates.
+    //   `--upgrade` + the bounded spec means "pick the newest release
+    //   inside the tested range, even if an older one is installed".
+    //   Without the ceiling, `--upgrade` silently pulls future majors
+    //   that remove CLI flags MeedyaDL depends on — GAMDL v3.0
+    //   dropped `--fetch-extra-tags` and caused exactly this class of
+    //   fire.
+    // * `target_version = Some(v)` → exact pin (`gamdl==v`). Used when
+    //   the user has consciously opted into installing an above-ceiling
+    //   "Untested" release from the Updates page (amber warning badge).
+    //   Pinning bypasses the ceiling so the install actually lands on
+    //   the version the banner advertised, instead of silently
+    //   resolving down to `maximum_tested`.
+    //
+    // `-m pip` invokes pip as a module of our managed Python, so we
+    // always use the correct pip instance (not any system pip).
+    //
     // GAMDL's PyPI page: https://pypi.org/project/gamdl/
+    let pip_spec = match target_version {
+        Some(v) => super::gamdl_capabilities::pip_target_spec(v),
+        None => super::gamdl_capabilities::pip_version_spec(),
+    };
+    log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
-        .args(["-m", "pip", "install", "--upgrade", "gamdl"])
+        .args(["-m", "pip", "install", "--upgrade", &pip_spec])
         .output()
         .await
         .map_err(|e| format!("Failed to run pip install: {e}"))?;
@@ -137,7 +166,11 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
 
     // Get the installed version by parsing `pip show gamdl` output.
     // We do this after install to confirm the exact version that was installed
-    // and return it to the frontend for display.
+    // and return it to the frontend for display. `get_gamdl_version` also
+    // refreshes the shared capability cache so every consumer (CLI-arg
+    // builder, config.ini writer, download queue) sees the new version
+    // immediately — critical for upgrades that add or remove CLI flags
+    // (e.g. v2.x → v3.0 which dropped `--fetch-extra-tags`).
     let version = get_gamdl_version(app)
         .await?
         .unwrap_or_else(|| "unknown".to_string());
@@ -161,6 +194,102 @@ pub async fn install_gamdl(app: &AppHandle) -> Result<String, String> {
     }
 
     log::info!("GAMDL {version} installed and verified successfully");
+    Ok(version)
+}
+
+/// Installs a **specific** GAMDL version using `--force-reinstall`.
+///
+/// Unlike [`install_gamdl`] (which uses `--upgrade`), this function
+/// works for **downgrades** as well as upgrades. Pip's resolver only
+/// goes higher under `--upgrade`; to land on an explicit version
+/// regardless of what's currently installed we have to combine
+/// `--force-reinstall` with the exact `gamdl==X.Y.Z` pin.
+///
+/// Use cases (per #522):
+///   - User auto-installed GAMDL v3.0, v3.0 has a regression they ran
+///     into, they want to pin v2.9.3 until a fix ships.
+///   - Power user on a MeedyaDL pre-release wants to validate v3.0.1
+///     manually before the support ceiling moves.
+///   - Support engineer asking "downgrade GAMDL to $version and see if
+///     the bug reproduces" — needs a CLI-free path for non-technical
+///     reporters.
+///
+/// The target version is **not** validated against the support window
+/// here — the caller is expected to surface a warning to the user when
+/// they pick an Unsupported / Untested version, and the user is
+/// expected to confirm. We only sanity-check that the version string
+/// parses as `MAJOR.MINOR.PATCH` (with optional suffix) so a typo
+/// can't trigger an unbounded pip resolve.
+///
+/// After install we re-probe via `get_gamdl_version` which also
+/// refreshes the capability cache, so every consumer sees the new
+/// version immediately (critical when downgrading from v3.x → v2.x
+/// flips feature gates like `FetchExtraTags`).
+///
+/// # Errors
+///
+/// * `target` doesn't parse as a recognisable version string.
+/// * Python isn't installed.
+/// * `pip install --force-reinstall` exits non-zero.
+/// * Post-install version probe fails.
+pub async fn install_gamdl_version(
+    app: &AppHandle,
+    target: &str,
+) -> Result<String, String> {
+    // Cheap sanity check on the version string. We accept anything pip
+    // will accept (X.Y, X.Y.Z, X.Y.Z.devN, X.Y.ZrcN, …) — the bar is
+    // just "no shell metacharacters, no whitespace, starts with a
+    // digit". pip itself is the authoritative validator.
+    let trimmed = target.trim();
+    if trimmed.is_empty()
+        || !trimmed.starts_with(|c: char| c.is_ascii_digit())
+        || trimmed
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '`' | '$' | ';' | '&' | '|' | '<' | '>' | '"' | '\''))
+    {
+        return Err(format!(
+            "Invalid GAMDL version string '{target}' — expected a PyPI-compatible version like '2.9.3' or '3.5.2'."
+        ));
+    }
+
+    log::info!("Installing GAMDL version {trimmed} via pip --force-reinstall (per #522)…");
+
+    let python_dir = platform::get_python_dir(app);
+    let python_bin = platform::get_python_binary_path(&python_dir);
+
+    if !python_bin.exists() {
+        return Err(
+            "Cannot install GAMDL: Python is not installed. Run the setup wizard first."
+                .to_string(),
+        );
+    }
+
+    let pip_spec = super::gamdl_capabilities::pip_target_spec(trimmed);
+    log::info!("Pip spec: {pip_spec} (force-reinstall)");
+
+    let output = Command::new(&python_bin)
+        .args(["-m", "pip", "install", "--force-reinstall", &pip_spec])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run pip install: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "pip install --force-reinstall {pip_spec} failed: {}",
+            stderr.trim()
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    log::info!("pip install output: {}", stdout.trim());
+
+    // Re-probe and refresh the capability cache.
+    let version = get_gamdl_version(app)
+        .await?
+        .unwrap_or_else(|| "unknown".to_string());
+
+    log::info!("GAMDL {version} installed (force-reinstall) and capability cache refreshed");
     Ok(version)
 }
 
@@ -220,6 +349,13 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
         .lines()
         .find(|line| line.starts_with("Version:"))
         .map(|line| line.trim_start_matches("Version:").trim().to_string());
+
+    // Keep the shared capability cache in sync. Every reader (CLI-arg
+    // builder, config.ini writer, download queue) asks this cache
+    // whether a given flag / INI key is safe to emit for the currently
+    // installed GAMDL release, so stale data here silently breaks
+    // downloads after the user upgrades or downgrades GAMDL.
+    super::gamdl_capabilities::set_detected_version(version.clone());
 
     Ok(version)
 }
@@ -364,7 +500,7 @@ fn build_gamdl_command(
     }
 
     let config_path = platform::get_gamdl_config_path(app);
-    if config_path.exists() {
+    if options.no_config_file != Some(true) && config_path.exists() {
         cmd.arg("--config-path");
         cmd.arg(config_path);
     }

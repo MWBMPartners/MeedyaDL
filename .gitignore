@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # MeedyaDL .gitignore
 # Excludes build artifacts, dependencies, and OS-specific files
 
@@ -82,6 +82,8 @@ coverage/
 # ============================================================
 *.log
 logs/
+# Test fixtures: committed `.log` captures used by parser regression tests
+!.github/audits/fixtures/**/*.log
 
 # ============================================================
 # Temporary files

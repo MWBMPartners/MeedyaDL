@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaDL
+  Copyright (c) 2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -103,6 +103,18 @@ See [Getting Started](getting-started.md) for initial configuration.
 
 Content availability depends on your Apple Music account's region. The app downloads whatever content is available to your account. If a song, album, or music video is not available in your region's Apple Music catalog, it will not be accessible for download through MeedyaDL.
 
+**What if I paste a URL from another country?** MeedyaDL respects the storefront in the URL — pasting a `/us/album/X` link makes MeedyaDL ask Apple's US catalog for that album. If the album exists in the US catalog and your account can license it, you get the US version (which may have different track lists, regional bonus tracks, or mix variants from your local version — sometimes that's exactly what you want). If the URL's storefront returns `Resource Not Found` or your account can't license it from there, MeedyaDL automatically retries once with your account region (Settings > General > Storefront). If neither catalog has it, the download fails. You can opt out of the auto-retry by unchecking **Settings > General > Auto-retry with your region when a URL's storefront fails**.
+
+### How do I retry a failed download?
+
+Three ways:
+
+- **Single failed item in Queue:** click the circular-arrow **Retry** button on the right of the row, or right-click the row and choose **Retry Download**.
+- **Single failed item in History:** the History page now shows the same Retry button on every failed entry, and the right-click menu offers Retry / Copy URL / Open Folder.
+- **Multiple failed items at once:** the Queue and History pages each show a **Retry All Failed (N)** button in their header when at least one failure exists. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
+
+When you retry an item that left a partial download on disk, MeedyaDL uses the `manifest.meedyadl` file to figure out which tracks actually failed and only re-runs GAMDL for those — a 50-track box set with 3 missing tracks finishes in seconds. If every expected track is already on disk, the retry is refused with a friendly "Nothing to retry" message instead of pointlessly re-fetching the album.
+
 ### What is a .meedyadl file?
 
 A `.meedyadl` file is a download manifest that MeedyaDL saves in each album's output folder after a successful download. It contains the source Apple Music URLs and per-track metadata, allowing you to re-download the same content later without looking up URLs or reconfiguring settings. You can re-import a manifest by clicking the **Import** button on the Download page, dragging the file onto the app window, or using the Queue Import feature. See [Downloading Music](downloading-music.md#download-manifests-meedyadl-files) for full details.
@@ -126,7 +138,9 @@ When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for
 
 ### How does the Activity Log work?
 
-The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The log retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached). Use the **Export** button to save the full log to a file before it's trimmed. Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
+The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The panel retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached, but are not lost — see below). Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
+
+The toolbar offers three export actions: **Export** (what you currently see, respects filters), **Export Disk** (the complete on-disk activity log covering the last 3 days — the authoritative record for bug hunting), and **Reveal** (opens the logs folder in your OS file manager). The on-disk log is written to `activity-YYYY-MM-DD.log` files in the logs directory and is retained for 7 days. You can point the on-disk log at a custom directory (e.g. an external drive) via **Settings > Advanced > Diagnostics > On-disk activity log location**.
 
 ### Does MeedyaDL support library URLs?
 
@@ -194,6 +208,22 @@ GAMDL is a command-line Apple Music download tool created by glomatico. It handl
 
 This is not recommended. Running the GUI and CLI simultaneously may cause conflicts over shared cookie files or output directories, leading to authentication errors or corrupted downloads. Use one at a time to avoid issues.
 
+### Why did my album's initial metadata phase get slower after upgrading GAMDL?
+
+Starting with **GAMDL 3.2**, track metadata is fetched from Apple Music sequentially by default — one track at a time. Previously, GAMDL fanned out up to 5 parallel requests per album during the metadata phase.
+
+This is an intentional upstream change. The parallel fetch was triggering Apple Music API rate-limits and occasional cascading failures (one bad response could cause the whole metadata gather to fail). The slower phase is a fair trade for more reliable downloads; **actual download speed per track is unchanged** once the metadata is gathered.
+
+This change aligns with MeedyaDL's own serial-queue processing, which already completes one queue item's full pipeline (download → companions → enrichment → lyrics → manifest) before starting the next. Both decisions favour reliability over throughput for music-downloader workloads where the Apple Music API is the slowest and most failure-prone component.
+
+The typical real-world impact:
+
+- **Single song**: no observable change.
+- **~10-track album**: metadata phase ~5–10 s instead of ~1–2 s.
+- **100-track playlist**: metadata phase ~30–60 s but reliably completes (previously prone to rate-limit cascades).
+
+There is no setting to re-enable parallel fetch — the knob is internal to GAMDL and was not exposed as a CLI flag. If upstream adds one in a future release, MeedyaDL will expose it in **Settings &gt; Quality**.
+
 ### How do I update MeedyaDL?
 
 MeedyaDL checks for updates automatically in two ways:
@@ -232,6 +262,29 @@ Try these steps in order:
 ### Where can I get more help?
 
 If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MeedyaSuite/MeedyaDL/issues) page for support.
+
+---
+
+## Release channels and updates
+
+### What are "release channels"?
+
+MeedyaDL ships across six channels, ordered from least to most stable: **Nightly → Weekly → Monthly → Alpha → Beta → Stable**. Pre-release channels (anything below Stable) may be incomplete, untested, or broken. Pick your channel in **Settings > General > Updates**. See [Release Channels](release-channels.md) for the full breakdown.
+
+### Will I accidentally get a Nightly build if I'm on Stable?
+
+No. The in-app updater only surfaces releases matching your selected channel, and the installer refuses to apply a tag from a less-stable channel than the one you're on. Switching channel is always an explicit action in Settings.
+
+### How do I move back to Stable after trying a pre-release build?
+
+Open **Settings > General > Updates**, pick **Stable** from the Update Channel dropdown, and save. The next update check will surface the latest Stable release. If the Stable version number is lower than the pre-release version you're currently on, you'll need to download and install Stable manually from the [Releases page](https://github.com/MWBMPartners/MeedyaDL/releases) — the updater won't auto-downgrade your version.
+
+### How often are pre-release builds published?
+
+- **Nightly**: every day at 00:00 UTC (if there are new changes to integrate).
+- **Weekly**: every Sunday at 00:00 UTC.
+- **Monthly**: on the 1st of every month at 00:00 UTC.
+- **Alpha / Beta**: published ad-hoc during release preparation.
 
 ---
 

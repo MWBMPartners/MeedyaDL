@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Service status checking service.
@@ -86,10 +86,7 @@ pub async fn fetch_service_status(app: &AppHandle) -> Result<ServiceStatusConfig
 
 /// Fetches the service status config from the remote GitHub endpoint.
 async fn fetch_remote() -> Result<ServiceStatusConfig, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = crate::utils::http_client::build_simple(REQUEST_TIMEOUT_SECS)?;
 
     let response = client
         .get(SERVICE_STATUS_URL)

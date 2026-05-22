@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // MusicBrainz recording lookup service.
@@ -126,11 +126,10 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
     log::debug!("MusicBrainz: looking up ISRC {isrc}");
 
     // Create HTTP client with timeout and required User-Agent header
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     // Make the API request
     let response = client
@@ -423,17 +422,56 @@ pub async fn lookup_recording_by_url(
         return Ok(None);
     }
 
+    // #807: try the user's exact URL first, then fall back to the
+    // storefront-independent canonical form. MusicBrainz indexes
+    // URLs as-stored, so an MB record with `/us/album/123` won't
+    // match a Lucene query for `/gb/album/super-slug/123`. The
+    // canonical fallback issues a second query with a wildcard
+    // glob (`*album/123`) that matches every storefront-and-slug
+    // permutation MB might have indexed.
+    let exact_hit = try_lookup_recording_by_url_exact(external_url).await?;
+    if exact_hit.is_some() {
+        return Ok(exact_hit);
+    }
+
+    if let Some(canonical) =
+        super::apple_music_api::canonicalise_apple_music_url(external_url)
+    {
+        log::debug!(
+            "MusicBrainz: exact-URL lookup missed, falling back to canonical-form glob (#807)"
+        );
+        // The canonical form is `music.apple.com/{type}/{id}`. MB's
+        // Lucene query syntax supports wildcards on URL fields, so
+        // we glob the storefront + slug segments by searching for
+        // the tail. Search shape: `url:*{type}/{id}` — matches
+        // every MB external_url that ends in `{type}/{id}`
+        // regardless of storefront / slug.
+        // Strip `music.apple.com/` prefix to get just the
+        // type+ID portion that we want to anchor.
+        if let Some(tail) = canonical.strip_prefix("music.apple.com/") {
+            return try_lookup_recording_by_url_glob(tail).await;
+        }
+    }
+
+    Ok(None)
+}
+
+/// Issue the exact-string MB Lucene query for the given URL.
+/// Internal helper for `lookup_recording_by_url`; the canonical
+/// fallback path lives in `try_lookup_recording_by_url_glob`.
+async fn try_lookup_recording_by_url_exact(
+    external_url: &str,
+) -> Result<Option<MusicBrainzRecording>, String> {
     // URL-encode the search URL for the MusicBrainz query
     let encoded_url = external_url.replace(':', "%3A").replace('/', "%2F");
     let url = format!("{MB_API_BASE}/recording?query=url:%22{encoded_url}%22&fmt=json&limit=1");
 
-    log::debug!("MusicBrainz: searching for recording by URL");
+    log::debug!("MusicBrainz: searching for recording by exact URL");
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     let response = client
         .get(&url)
@@ -454,6 +492,58 @@ pub async fn lookup_recording_by_url(
         .await
         .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
 
+    extract_first_recording_from_search(&json).await
+}
+
+/// Wildcard-glob fallback (#807) — issues an MB Lucene query that
+/// matches the canonical `type/id` tail regardless of storefront
+/// or slug. Used when the exact-URL lookup misses because the
+/// user's URL carries `/gb/.../super-slug/` and MB's stored URL
+/// carries `/us/.../`.
+async fn try_lookup_recording_by_url_glob(
+    canonical_tail: &str,
+) -> Result<Option<MusicBrainzRecording>, String> {
+    // Encode the tail (path-separator + colon-safe) for inclusion
+    // in MB's Lucene query string. We deliberately do NOT wrap the
+    // value in quotes — quoted searches are exact match in Lucene.
+    // Wildcards anchor the suffix.
+    let encoded_tail = canonical_tail.replace('/', "%2F");
+    let url = format!(
+        "{MB_API_BASE}/recording?query=url:*{encoded_tail}&fmt=json&limit=1"
+    );
+
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("MusicBrainz URL glob search failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "MusicBrainz API returned HTTP {} on glob fallback",
+            response.status().as_u16()
+        ));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
+
+    extract_first_recording_from_search(&json).await
+}
+
+/// Shared post-search step: pull the first recording's ID from
+/// the search JSON and fetch the full recording with relationships.
+async fn extract_first_recording_from_search(
+    json: &serde_json::Value,
+) -> Result<Option<MusicBrainzRecording>, String> {
     // Get the first matching recording
     let recording = json
         .get("recordings")
@@ -532,11 +622,10 @@ pub async fn lookup_recording_by_id(
 
     log::debug!("MusicBrainz: looking up recording by ID {recording_id}");
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
 
     // Fetch recording with URL and recording relationships
     let url = format!(

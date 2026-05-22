@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file uiStore.ts -- UI State Management Store
  * @license MIT -- See LICENSE file in the project root.
@@ -100,6 +100,14 @@ interface UiState {
    */
   helpActiveTopic: string | null;
 
+  /**
+   * Whether the global Keyboard Shortcuts help dialog (#465) is
+   * currently visible. Flipped by the Cmd/Ctrl+Shift+? handler in
+   * `useKeyboardShortcuts.ts` and consumed by `ShortcutsHelpDialog`
+   * which is mounted in MainLayout so it can appear over any page.
+   */
+  shortcutsHelpOpen: boolean;
+
   // ---------------------------------------------------------------------------
   // Actions -- each calls `set()` to produce the next immutable state snapshot
   // ---------------------------------------------------------------------------
@@ -150,6 +158,9 @@ interface UiState {
    * Prevents stale topic selections on subsequent visits to the Help page.
    */
   clearHelpActiveTopic: () => void;
+
+  /** Open or close the global Keyboard Shortcuts help dialog (#465). */
+  setShortcutsHelpOpen: (open: boolean) => void;
 
   /**
    * Create and display a new toast notification.
@@ -210,6 +221,7 @@ export const useUiStore = create<UiState>((set) => ({
   showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
   showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
+  shortcutsHelpOpen: false, // Shortcuts help dialog closed until Cmd/Ctrl+Shift+? opens it (#465)
 
   // -------------------------------------------------------------------------
   // Actions
@@ -251,6 +263,8 @@ export const useUiStore = create<UiState>((set) => ({
   /** Clear the help deep-link topic after HelpViewer has consumed it. */
   clearHelpActiveTopic: () => set({ helpActiveTopic: null }),
 
+  setShortcutsHelpOpen: (open) => set({ shortcutsHelpOpen: open }),
+
   /**
    * Create a new toast notification with a unique ID and optional auto-dismiss.
    *
@@ -280,6 +294,8 @@ export const useUiStore = create<UiState>((set) => ({
     }
 
     // Send native OS notification when notification_style includes native.
+    // Errors are surfaced to the WebView console so future regressions can
+    // be diagnosed instead of failing silently (#658).
     if (style === 'native_and_in_app' || style === 'native_only') {
       const typeLabel = type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Info';
       import('@tauri-apps/plugin-notification').then(({ isPermissionGranted, requestPermission, sendNotification }) => {
@@ -291,10 +307,19 @@ export const useUiStore = create<UiState>((set) => ({
           .then((result) => {
             if (result === 'granted') {
               sendNotification({ title: `MeedyaDL — ${typeLabel}`, body: message });
+            } else {
+              console.warn(
+                `[notification] permission not granted (status: ${result}). ` +
+                'Open System Settings > Notifications > MeedyaDL to enable.',
+              );
             }
           })
-          .catch(() => { /* Notification permission denied or unavailable */ });
-      }).catch(() => { /* Plugin not available (e.g., dev mode without Tauri) */ });
+          .catch((err: unknown) => {
+            console.warn('[notification] sendNotification failed:', err);
+          });
+      }).catch((err: unknown) => {
+        console.warn('[notification] plugin module failed to load:', err);
+      });
     }
 
     // Skip in-app toast when user prefers native-only notifications.

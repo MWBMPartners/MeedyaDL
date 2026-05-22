@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaDL
+  Copyright (c) 2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -21,6 +21,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 - [:musical_note: Downloading Music](downloading-music.md) -- How to download songs, albums, and playlists from Apple Music.
 - [:clapper: Downloading Videos](downloading-videos.md) -- How to download music videos and post videos, including quality options.
 - [:pencil2: Lyrics and Metadata](lyrics-and-metadata.md) -- Working with LRC, SRT, and TTML lyric formats, and embedding metadata into downloaded files.
+- [:bookmark_tabs: Metadata Mapping Reference](metadata-mapping.md) -- Canonical reference for every tag MeedyaDL writes: standard MP4 atoms, Apple proprietary IDs, iTunes freeform, MeedyaMeta freeform, per-format support, and API source mapping.
 
 ### Configuration and Quality
 
@@ -32,6 +33,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 ### Reference
 
 - [:globe_with_meridians: Supported Services](supported-services.md) -- Apple Music, Spotify, YouTube, BBC iPlayer — what's available and what's coming.
+- [:twisted_rightwards_arrows: Release Channels](release-channels.md) -- Nightly, Weekly, Monthly, Alpha, Beta, and Stable channels, and how the in-app update guard keeps you on your selected tier.
 - [:keyboard: Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
 
 ### Support

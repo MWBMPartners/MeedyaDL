@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file Individual download queue item component.
  *
@@ -56,7 +56,7 @@
  *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
  *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
  */
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import {
   Clock,
   Copy,
@@ -69,6 +69,11 @@ import {
   FolderOpen,
   FileOutput,
   AlertTriangle,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUp,
+  ChevronsDown,
 } from 'lucide-react';
 
 /**
@@ -76,7 +81,7 @@ import {
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar, ContextMenu } from '@/components/common';
+import { ProgressBar, ContextMenu, ErrorMessageDisplay } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -131,6 +136,52 @@ interface QueueItemProps {
    * notification confirming the copy.
    */
   onCopyUrl: (url: string) => void;
+
+  /**
+   * Whether this row is currently selected for bulk actions (#463).
+   * When `undefined` (the legacy path) the checkbox is not rendered
+   * and the row behaves exactly as before. When defined, a checkbox
+   * is prepended to the row's left edge.
+   */
+  isSelected?: boolean;
+
+  /**
+   * Callback invoked when the user toggles the selection checkbox
+   * (#463). Receives the item id. Required when `isSelected` is
+   * defined; ignored otherwise.
+   */
+  onToggleSelect?: (id: string) => void;
+
+  /**
+   * Callback invoked when the user picks "Delete" from the right-click
+   * menu (#685). The parent is responsible for showing a confirmation
+   * modal before invoking the IPC. Receives the unique download ID.
+   *
+   * The Delete entry is hidden for active rows (`downloading` /
+   * `processing`) — the user must Cancel first.
+   */
+  onDelete: (id: string) => void;
+
+  /**
+   * Callbacks for the four queue-reorder context-menu entries (#782).
+   * Only fire for `Queued` items; the parent is responsible for
+   * invoking the matching IPC (`moveQueueItemToTop` etc.) and showing
+   * any toast feedback.
+   */
+  onMoveToTop: (id: string) => void;
+  onMoveUp: (id: string) => void;
+  onMoveDown: (id: string) => void;
+  onMoveToBottom: (id: string) => void;
+
+  /**
+   * Whether each move action is currently meaningful — drives the
+   * `disabled` flag on the corresponding context-menu entry so the
+   * user sees the action greyed-out when it would be a no-op
+   * (e.g. "Move up" on the topmost queued item). Computed by the
+   * parent from the item's position within the queued sub-sequence.
+   */
+  canMoveUp: boolean;
+  canMoveDown: boolean;
 }
 
 /**
@@ -205,12 +256,21 @@ const STATE_CONFIG: Record<
  * @see https://tailwindcss.com/docs/animation#spin
  *      Tailwind animate-spin for the processing spinner.
  */
-export function QueueItem({
+function QueueItemComponent({
   item,
   onCancel,
   onRetry,
   onRetryWithoutWrapper,
   onCopyUrl,
+  onDelete,
+  onMoveToTop,
+  onMoveUp,
+  onMoveDown,
+  onMoveToBottom,
+  canMoveUp,
+  canMoveDown,
+  isSelected,
+  onToggleSelect,
 }: QueueItemProps) {
   /**
    * Look up the visual configuration (icon, colour, label) for the
@@ -337,6 +397,41 @@ export function QueueItem({
           },
         ]
       : []),
+    // Queue reorder actions (#782) — visible only for `Queued` items
+    // since active and terminal rows can't be reordered. The four
+    // entries form one logical group with a trailing separator so
+    // they sit visually apart from the Retry / Delete cluster below.
+    // Each entry is `disabled` when the move would be a no-op (e.g.
+    // "Move up" on the topmost queued item).
+    ...(item.state === 'queued'
+      ? [
+          {
+            label: 'Move to Top',
+            icon: <ChevronsUp size={14} />,
+            onClick: () => onMoveToTop(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Up',
+            icon: <ChevronUp size={14} />,
+            onClick: () => onMoveUp(item.id),
+            disabled: !canMoveUp,
+          },
+          {
+            label: 'Move Down',
+            icon: <ChevronDown size={14} />,
+            onClick: () => onMoveDown(item.id),
+            disabled: !canMoveDown,
+          },
+          {
+            label: 'Move to Bottom',
+            icon: <ChevronsDown size={14} />,
+            onClick: () => onMoveToBottom(item.id),
+            disabled: !canMoveDown,
+            separator: true,
+          },
+        ]
+      : []),
     // Available for failed or cancelled downloads
     ...(item.state === 'error' || item.state === 'cancelled'
       ? [
@@ -359,6 +454,18 @@ export function QueueItem({
             : []),
         ]
       : []),
+    // "Delete" — non-active rows only (#685). Active items must be
+    // cancelled first; the Rust guard rejects deletion of active rows
+    // for defense-in-depth, but hiding the entry keeps the UI honest.
+    ...(item.state !== 'downloading' && item.state !== 'processing'
+      ? [
+          {
+            label: 'Delete',
+            icon: <Trash2 size={14} />,
+            onClick: () => onDelete(item.id),
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -372,17 +479,31 @@ export function QueueItem({
      * `transition-colors` smoothly animates the background change.
      */
     <div
-      className="px-4 py-3 border-b border-border-light last:border-b-0 hover:bg-surface-secondary transition-colors"
+      className={`px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
+        isSelected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-secondary'
+      }`}
       role="listitem"
       aria-label={`Download: ${item.urls?.[0] ?? 'unknown'}`}
       onContextMenu={handleContextMenu}
     >
       {/*
-       * Top row: three-column flex layout.
-       * Left: status icon | Center: URL + track info | Right: action buttons.
+       * Top row: three-column flex layout (or four when bulk-select mode
+       * is active: checkbox | status icon | URL + track info | actions).
        * `items-start` aligns all columns to the top edge.
        */}
       <div className="flex items-start gap-3">
+        {/* Bulk-select checkbox (#463). Only rendered when the parent
+         * has wired isSelected + onToggleSelect; otherwise the legacy
+         * 3-column layout is preserved. */}
+        {isSelected !== undefined && onToggleSelect && (
+          <input
+            type="checkbox"
+            className="mt-1 accent-accent cursor-pointer"
+            checked={isSelected}
+            onChange={() => onToggleSelect(item.id)}
+            aria-label={isSelected ? 'Deselect queue item' : 'Select queue item'}
+          />
+        )}
         {/*
          * Status icon column.
          *
@@ -427,12 +548,19 @@ export function QueueItem({
            * When `total_tracks` and `completed_tracks` are both available
            * and the item is in an active state, a "Track N of M" counter
            * is appended after the track name for aggregate progress context.
+           *
+           * Suppress the counter for `total_tracks === 1` — GAMDL v3.1
+           * emits `[Track   1/1  ]` for single-song URLs (new in 3.1;
+           * older GAMDL releases stayed silent), so the counter would
+           * read a redundant "(Track 1 of 1)" on every single-song
+           * download. #609.
            */}
           {item.current_track && (
             <p className="text-xs text-content-secondary mt-0.5 truncate">
               {item.current_track}
               {isActive &&
                 item.total_tracks != null &&
+                item.total_tracks > 1 &&
                 item.completed_tracks != null && (
                   <span className="text-content-tertiary ml-1.5">
                     (Track {item.completed_tracks} of {item.total_tracks})
@@ -555,7 +683,16 @@ export function QueueItem({
        * `pl-7` aligns with the URL text above.
        */}
       {item.state === 'error' && item.error && (
-        <p className="mt-1.5 pl-7 text-xs text-status-error">{item.error}</p>
+        <div className="mt-1.5 pl-7">
+          <ErrorMessageDisplay
+            message={item.error}
+            sourceUrl={item.urls?.[0]}
+            // Queue rows are full-width so we don't aggressively
+            // truncate, but tooltip + right-click (copy / report
+            // upstream when applicable) still apply.
+            truncateLines={null}
+          />
+        </div>
       )}
 
       {/*
@@ -641,3 +778,68 @@ export function QueueItem({
     </div>
   );
 }
+
+/**
+ * Field-aware equality check for `React.memo` (#689).
+ *
+ * `getQueueStatus` IPC polling at ~10×/sec on active downloads
+ * deserialises fresh JSON, producing new object references for every
+ * `item` even when the content is unchanged. So a shallow `prev.item
+ * !== next.item` check would treat every poll as a change and defeat
+ * the memo. Instead, we compare only the fields that actually drive
+ * rendering of this row — when none have changed, React skips the
+ * re-render even if the parent passed a fresh object.
+ *
+ * Callbacks are deliberately *not* compared: they are invoke-only
+ * (clicked never read), so an identity change doesn't require a
+ * re-render. The parent already wraps every callback in
+ * `useCallback` (#689 sibling change in DownloadQueue.tsx) so they
+ * stay stable across renders for unrelated rows.
+ *
+ * `canMoveUp` / `canMoveDown` ARE compared because they affect the
+ * `disabled` state of the right-click menu entries the row renders.
+ *
+ * Returning `true` here means "props are equal — skip the re-render."
+ * Returning `false` means "render again."
+ */
+function arePropsEqual(prev: QueueItemProps, next: QueueItemProps): boolean {
+  if (prev.item.id !== next.item.id) return false;
+  if (prev.canMoveUp !== next.canMoveUp) return false;
+  if (prev.canMoveDown !== next.canMoveDown) return false;
+  if (prev.isSelected !== next.isSelected) return false;
+
+  const a = prev.item;
+  const b = next.item;
+  return (
+    a.state === b.state &&
+    a.progress === b.progress &&
+    a.processing_progress === b.processing_progress &&
+    a.processing_label === b.processing_label &&
+    a.current_track === b.current_track &&
+    a.codec_used === b.codec_used &&
+    a.fallback_occurred === b.fallback_occurred &&
+    a.used_wrapper === b.used_wrapper &&
+    a.output_path === b.output_path &&
+    a.output_is_directory === b.output_is_directory &&
+    a.error === b.error &&
+    a.speed === b.speed &&
+    a.eta === b.eta &&
+    a.total_tracks === b.total_tracks &&
+    a.completed_tracks === b.completed_tracks &&
+    a.album_name === b.album_name &&
+    a.artist_name === b.artist_name &&
+    // Arrays: shallow ref check is sufficient. The store replaces
+    // these in-place via setState, so ref-equal means content-equal
+    // for our purposes; if the array is rebuilt, the content has
+    // genuinely changed.
+    a.urls === b.urls &&
+    a.warnings === b.warnings
+  );
+}
+
+/**
+ * Memoised `QueueItem` export — see {@link arePropsEqual} for the
+ * rationale and field list. Without this wrap, every progress event
+ * re-renders every row in the queue.
+ */
+export const QueueItem = memo(QueueItemComponent, arePropsEqual);

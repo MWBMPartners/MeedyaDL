@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Release Build Workflow for MeedyaDL
@@ -188,6 +188,15 @@ jobs:
 
     runs-on: ${{ matrix.settings.os }}
 
+    # Suppress Node's DEP0040 punycode deprecation warning emitted by
+    # `@actions/cache`'s bundled dependencies, which the Swatinem/rust-cache
+    # post step invokes. Cosmetic only — neither MeedyaDL nor the action's
+    # hot path call `require('punycode')` — but it clutters every Build job's
+    # log. Job-level env propagates to main + post steps. Targeted
+    # (`--disable-warning=DEP0040`) so other deprecations remain visible.
+    env:
+      NODE_OPTIONS: --disable-warning=DEP0040
+
     # Linux ARM builds are experimental — allow them to fail without
     # blocking the overall release. All Tier 1 builds must succeed.
     continue-on-error: ${{ matrix.settings.cross_arch != '' }}
@@ -218,6 +227,28 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           echo "number=${TAG#v}" >> "$GITHUB_OUTPUT"
 
+      # Step 0c: Derive the GitHub Release `prerelease` flag from the tag.
+      # Any tag with a pre-release suffix (e.g. `-alpha.1`, `-beta.2`,
+      # `-rc.3`, `-nightly.20260420`) marks the release as pre-release.
+      # A bare semver tag (`v1.0.0`) marks it as a stable / non-prerelease
+      # release. This replaces the previous hard-coded `prerelease: true`
+      # flag and lets the same workflow handle both stable and pre-release
+      # tag pushes correctly.
+      - name: Derive prerelease flag from tag
+        id: prerelease
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          # Strip leading 'v' then check for a `-` indicating a pre-release suffix.
+          STRIPPED="${TAG#v}"
+          if [[ "$STRIPPED" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
       # Step 1: Check out the repository code at the tagged commit.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -245,7 +276,7 @@ jobs:
       # Release builds compile all dependencies from scratch with optimizations,
       # which takes 15-30 minutes without caching. The cache saves most of this time.
       - name: Cache Rust
-        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2
+        uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2.9.1
         with:
           workspaces: src-tauri
 
@@ -488,6 +519,122 @@ jobs:
           echo "✅ Offline installer bundle ready"
           du -sh "$DEPS_DIR"
 
+      # Step 8.6: Harvest third-party licence notices from every bundled
+      # component into the offline installer.
+      #
+      # Why: MIT/BSD/Unlicense/PSF components require the upstream copyright
+      # notice + permission notice to travel with the binary when we
+      # redistribute. LGPL/GPL components additionally require a written
+      # offer for source code (#802). This step gathers both into the
+      # offline bundle so the legal text physically ships alongside the
+      # binaries it covers — no separate manual step, no risk of forgetting
+      # when a new component lands in tool-versions.toml.
+      #
+      # The repo-root THIRD_PARTY_LICENSES.md is the source of truth for
+      # the textual notices and is embedded into the app binary via
+      # include_str!() (src-tauri/src/commands/legal.rs). The bundle copy
+      # is additionally useful for downstream packagers and auditors who
+      # only see the offline installer tarball.
+      - name: Bundle third-party licence notices (offline installer, #802)
+        if: inputs.bundle_engines == true
+        run: |
+          set -euo pipefail
+          DEPS_DIR="src-tauri/bundled-deps"
+          if [ ! -d "$DEPS_DIR" ]; then
+            echo "::warning::No bundled-deps directory found — skipping licence harvest"
+            exit 0
+          fi
+          echo "::group::Bundle third-party licence notices"
+
+          # Copy the repo-root verbatim file in (single source of truth).
+          cp THIRD_PARTY_LICENSES.md "$DEPS_DIR/THIRD_PARTY_LICENSES.md"
+          cp ACKNOWLEDGEMENTS.md     "$DEPS_DIR/ACKNOWLEDGEMENTS.md"
+
+          # Harvest per-component LICENSE files from pip wheels' dist-info
+          # metadata. Most modern wheels carry the upstream LICENSE next
+          # to the METADATA file under *.dist-info/. We aggregate those
+          # into a single browseable directory so the bundle includes the
+          # raw upstream files, not just our consolidated markdown.
+          LIC_DIR="$DEPS_DIR/licences"
+          mkdir -p "$LIC_DIR/pip-packages" "$LIC_DIR/tools" "$LIC_DIR/source-offers"
+
+          if [ -d "$DEPS_DIR/python" ]; then
+            find "$DEPS_DIR/python" -type d -name '*.dist-info' | while read -r distinfo; do
+              pkg=$(basename "$distinfo" .dist-info)
+              find "$distinfo" -maxdepth 2 -type f \
+                \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+                | while read -r f; do
+                  out="$LIC_DIR/pip-packages/$pkg-$(basename "$f")"
+                  cp "$f" "$out" 2>/dev/null || true
+                done
+            done
+          fi
+
+          # Harvest binary-tool licence text from the tool source archives'
+          # standard layout. The mirror repo (MeedyaDL-Tools) stores the
+          # upstream LICENSE file alongside each tool binary, so the
+          # bundle dirs may already contain them — copy any we find.
+          if [ -d "$DEPS_DIR/tools" ]; then
+            find "$DEPS_DIR/tools" -type f \
+              \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) \
+              | while read -r f; do
+                # Preserve the tool dir name so the user can tell which
+                # tool a licence belongs to (e.g. ffmpeg-LICENSE.txt).
+                tool=$(basename "$(dirname "$f")")
+                out="$LIC_DIR/tools/$tool-$(basename "$f")"
+                cp "$f" "$out" 2>/dev/null || true
+              done
+          fi
+
+          # Emit the per-version OFFER_FOR_SOURCE.txt for the LGPL/GPL
+          # components actually shipped. Versions come from tool-versions.toml
+          # which is the canonical source for what we'll be downloading. We
+          # parse minimally because installing a TOML parser inside this
+          # step would inflate CI time for one read.
+          OFFER="$LIC_DIR/source-offers/OFFER_FOR_SOURCE.txt"
+          {
+            echo "MeedyaDL written offer for complete corresponding source code"
+            echo "============================================================="
+            echo ""
+            echo "This file is part of the MeedyaDL offline-installer artefact for"
+            echo "the version named in ../../manifest.json. It constitutes the"
+            echo "MeedyaDL project's written offer to provide the complete"
+            echo "corresponding source code for every LGPL- or GPL-licensed"
+            echo "component shipped inside this installer, valid for three (3)"
+            echo "years from the date of this distribution."
+            echo ""
+            echo "The unmodified upstream source for the exact version of each"
+            echo "component listed below is available from the linked upstream"
+            echo "release page. If a linked URL becomes unreachable, you may"
+            echo "obtain a copy by opening an issue at:"
+            echo "    https://github.com/MWBMPartners/MeedyaDL/issues"
+            echo "with the subject 'Source request - <component> <version>'."
+            echo ""
+            echo "MeedyaDL does NOT currently modify any of these components."
+            echo "If a future release does, the modified source tree will be"
+            echo "published in MWBMPartners/MeedyaDL-Tools alongside the binary."
+            echo ""
+            echo "--- Components covered ---"
+            echo ""
+            if [ -f tool-versions.toml ]; then
+              echo "FFmpeg   - LGPL-2.1+  - https://ffmpeg.org/releases/"
+              echo "MP4Box   - LGPL-2.1   - https://github.com/gpac/gpac/releases"
+              echo "mp4decrypt (Bento4) - GPL-2.0 w/ linking exception"
+              echo "         - https://github.com/axiomatic-systems/Bento4/releases"
+              echo ""
+              echo "Exact shipped versions for this build:"
+              grep -E '^\s*(minimum_version|recommended_version|maximum_tested_version)\s*=' \
+                tool-versions.toml || true
+            fi
+            echo ""
+            echo "--- Issued by ---"
+            echo "MeedyaDL maintainers, ${GITHUB_REF_NAME:-unknown-tag}, $(date -u +%Y-%m-%d)"
+          } > "$OFFER"
+
+          echo "✅ Licences + source offer bundled at $LIC_DIR"
+          ls -la "$LIC_DIR" "$LIC_DIR/pip-packages" "$LIC_DIR/tools" "$LIC_DIR/source-offers" || true
+          echo "::endgroup::"
+
       # Step 8.9: Fix macOS codesign secure timestamp.
       # Tauri's tauri-macos-sign crate omits --timestamp from the codesign command,
       # causing Apple's notarization service to reject signatures with:
@@ -635,7 +782,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Tauri updater signing key — generates .sig signature files alongside
-          # each build artifact and includes them in the latest.json manifest.
+          # each build artifact. The final latest.json manifest is rebuilt once
+          # after the matrix completes to avoid parallel release-asset races.
           # Required for the in-app auto-update system to verify downloads.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
@@ -686,13 +834,17 @@ jobs:
 
             On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
           releaseDraft: true
-          # All releases are pre-release until v1.0. Users with the
-          # "Include Pre-Release Versions" toggle enabled (Settings >
-          # General) will receive these updates. To publish a full
-          # (stable) release, change this to false or manually edit
-          # the release on GitHub after publishing.
-          prerelease: true
+          # `prerelease` is derived from the tag suffix in step 0c:
+          # any `-alpha.N` / `-beta.N` / `-rc.N` / `-nightly.*` / `-weekly.*`
+          # / `-monthly.*` tag → pre-release; bare `vX.Y.Z` → stable. This
+          # lets the same release workflow handle every channel without
+          # hard-coding the flag for each tag push.
+          prerelease: ${{ steps.prerelease.outputs.is_prerelease == 'true' }}
           args: ${{ matrix.settings.args }}
+          # Do not let every matrix job create/update latest.json. Parallel
+          # tauri-action uploads can race and fail while updating the same
+          # release asset; finalize-release rebuilds the complete manifest once.
+          includeUpdaterJson: false
 
       # Step 10a: Build macOS with notarization retry.
       # Apple's notarization service occasionally returns HTTP 503 "Slow Down"
@@ -775,7 +927,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
           fi
 
           # Upload .dmg
@@ -843,7 +995,7 @@ jobs:
 
           # Ensure the draft release exists (another build may not have created it yet)
           if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft --prerelease --title "$TAG" --notes "Release in progress..."
+            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
           fi
 
           # Upload .deb: rename armhf → armv7 for clarity
@@ -1019,6 +1171,18 @@ jobs:
           # Get the current release body
           CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
 
+          # Strip any leading "Release in progress..." placeholder + the
+          # optional `---` separator that follows it. The placeholder is
+          # inserted by the per-platform `gh release create --notes
+          # "Release in progress..."` race-guard calls earlier in this
+          # workflow (lines ~805 / ~873 / ~898). Without this strip the
+          # placeholder becomes persistent in the final body — see the
+          # 2026-05-10 release-pipeline-cleanup PR which backfilled 13
+          # historical releases that had this issue. One-line python
+          # invocation avoids YAML indentation interactions with a
+          # heredoc-style script.
+          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "import re,sys;sys.stdout.write(re.sub(r'^Release in progress[^\n]*\n+(?:---\s*\n+)?', '', sys.stdin.read()))")
+
           # Check if the download guide has already been appended (idempotent)
           if echo "$CURRENT_BODY" | grep -q "Choose your download"; then
             echo "Download guide already present in release notes. Skipping."
@@ -1079,3 +1243,45 @@ jobs:
           # Update the release
           gh release edit "$TAG" --repo "$REPO" --notes "$NEW_BODY"
           echo "Download guide appended to release notes for $TAG"
+
+      # Auto-publish prerelease drafts (#646).
+      #
+      # tauri-action creates the GitHub Release as a draft and never publishes
+      # it. For STABLE releases (tag matches `vX.Y.Z` exactly), `release-please-
+      # action` publishes the release object itself before this workflow runs,
+      # so the draft state is irrelevant. For PRERELEASES (`vX.Y.Z-{nightly|
+      # weekly|monthly|alpha|beta|rc}.N` etc.) there is no release-please-action
+      # involvement — the draft sits unpublished forever, and end-users see
+      # only the source-archive auto-attachments on the public tag page.
+      #
+      # This step flips draft→published for any prerelease tag. Stable tags are
+      # deliberately left alone — `version-bump.yml`'s gap is fixed separately
+      # in #645 (pre-create the release object before the tag push).
+      #
+      # Idempotent: skips releases that are already published, so re-running
+      # the workflow on the same tag is safe.
+      - name: Auto-publish prerelease draft
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+
+          # Prerelease tags carry a hyphen suffix (`-nightly.YYYYMMDD`,
+          # `-alpha.N`, `-rc.N`, etc.) immediately after the `vX.Y.Z` core.
+          # Stable tags are bare semver (`v1.2.3`).
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+- ]]; then
+            echo "Stable tag $TAG — leaving draft state alone (handled by release-please / #645)"
+            exit 0
+          fi
+
+          IS_DRAFT=$(gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft)
+          if [ "$IS_DRAFT" != "true" ]; then
+            echo "Prerelease $TAG is already published — no action"
+            exit 0
+          fi
+
+          echo "Publishing prerelease draft: $TAG"
+          gh release edit "$TAG" --repo "$REPO" --draft=false
+          echo "Published $TAG as a public prerelease"

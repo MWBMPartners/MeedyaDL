@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file settingsStore.ts -- Application Settings State Management Store
  * @license MIT -- See LICENSE file in the project root.
@@ -70,8 +70,11 @@ const DEFAULT_SETTINGS: AppSettings = {
   ui_language: '', // Auto-detect UI language from OS locale
   auto_check_updates: true, // Automatically check for updates on startup
   check_pre_releases: false, // Only show stable releases by default
+  update_channel: 'stable', // Subscribe to the stable release channel
   update_check_interval_hours: 6, // Check for updates every 6 hours
+  gamdl_idle_timeout_minutes: 5, // Kill hung GAMDL after 5 min of silent output (#505)
   auto_start_queue: true, // Start processing immediately when items are enqueued
+  abort_queue_confirm: true, // Show confirmation modal before abort fires (#620)
   desktop_notifications: true, // OS-native notifications for download events when window not focused
   notification_style: 'native_and_in_app' as const, // Both native + in-app by default
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
@@ -107,6 +110,20 @@ const DEFAULT_SETTINGS: AppSettings = {
   musicbrainz_lookup: false, // MusicBrainz video/cross-platform discovery (no creds needed)
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
+  // Pre-queue duplicate detection (#510). On by default, skipping songs that
+  // appear in multiple artist-auto-select modes (e.g. album + single + compilation).
+  // Does NOT affect companion-format downloads (ALAC/Atmos/AAC/etc).
+  duplicate_detection: {
+    scope: 'intra_and_queued',
+    preference_order: [
+      'main-albums',
+      'singles-eps',
+      'compilation-albums',
+      'live-albums',
+      'top-songs',
+    ],
+    key_strategy: 'song_id_isrc_fallback',
+  },
   embed_lyrics_and_sidecar: true, // Embed lyrics in metadata
   keep_lyrics_sidecar: true, // Keep .lrc/.srt/.ttml sidecar files alongside embedded lyrics
   enhanced_lrc: true, // Convert TTML to Enhanced LRC with word-by-word sync
@@ -124,6 +141,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   cover_format: 'jpg', // JPEG default; GAMDL 2.8.4 crashes with 'raw' format
   cover_size: 10000, // Request maximum available artwork resolution from Apple CDN
   cover_art_name: 'front_cover' as const, // Rename Cover → FrontCover after download (#448)
+  music_video_embed_cover_sidecar: true, // Embed MV cover into MP4 + delete sidecar (#533 / #569)
   // Animated artwork (motion cover art) -- requires MusicKit credentials
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
@@ -141,10 +159,18 @@ const DEFAULT_SETTINGS: AppSettings = {
   album_folder_template: '{album_artist}/{album}',
   compilation_folder_template: 'Compilations/{album}',
   no_album_folder_template: '{artist}/Unknown Album',
+  // GAMDL v3.0+ only (#618). Stored unconditionally; the Rust side gates
+  // CLI emission behind the detected GAMDL version so v2.9.x falls back to
+  // upstream's built-in default.
+  playlist_folder_template: 'Playlists/{playlist_artist}',
   single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
   playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  // Padding strategies for {track} and {disc} placeholders (#587).
+  // Auto-derive widths from track_total / disc_total — sorts box sets correctly.
+  track_number_padding: 'auto' as const,
+  disc_number_padding: 'auto' as const,
   // Tool paths -- null means "auto-detect from bundled/PATH"
   cookies_path: null, // Netscape-format cookies file for authentication
   ffmpeg_path: null, // FFmpeg binary for audio/video processing
@@ -156,12 +182,18 @@ const DEFAULT_SETTINGS: AppSettings = {
   remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
+  storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
   wrapper_account_url: 'http://127.0.0.1:30020', // Default wrapper service URL (localhost)
+  wrapper_m3u8_ip: '127.0.0.1:20020', // Wrapper m3u8 address (GAMDL v3.1+)
+  wrapper_decrypt_ip: '127.0.0.1:10020', // Wrapper decryption address (#743)
   truncate: null, // Max filename length in characters; null = no truncation
   fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)
+  verbose_gamdl_exceptions: false, // Pass --no-exceptions to GAMDL by default; flip on for upstream bug reports
+  gamdl_log_level: 'INFO', // GAMDL subprocess --log-level. Default matches GAMDL's compiled-in default; Developer Tools surface flips it to DEBUG (#768).
+  activity_log_path_override: '', // Empty = use {app_data_dir}/logs/ for on-disk activity log (#541)
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
   last_seen_version: '', // Last app version the user launched (empty = first run)
   setup_completed: false, // Whether the setup wizard has been completed at least once

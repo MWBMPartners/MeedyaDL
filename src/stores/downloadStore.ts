@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file downloadStore.ts -- Download Queue State Management Store
  * @license MIT -- See LICENSE file in the project root.
@@ -201,6 +201,19 @@ interface DownloadState {
   retryWithoutWrapper: (downloadId: string) => Promise<void>;
 
   /**
+   * Remove a single queue item by ID (#685). Refuses active items
+   * (`downloading` / `processing`) — the caller must cancel first; the
+   * Rust backend enforces the same guard for defense-in-depth.
+   *
+   * IPC call: `commands.deleteQueueItem(downloadId)` -> Rust `delete_queue_item`
+   * Refreshes the queue afterwards.
+   *
+   * @param downloadId - UUID of the queue item to remove.
+   * @throws Re-throws the IPC error so callers can show a toast.
+   */
+  deleteItem: (downloadId: string) => Promise<void>;
+
+  /**
    * Remove all completed, failed, and cancelled items from the queue.
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items removed. Refreshes the queue afterward.
@@ -215,6 +228,25 @@ interface DownloadState {
    * @returns The count of items that were cleared
    */
   clearAll: () => Promise<number>;
+
+  /**
+   * Abort every active AND queued download in one IPC call (#620).
+   *
+   * Unlike {@link cancelDownload} (per-item) and {@link clearAll}
+   * (non-active only), this is the destructive "stop everything now"
+   * action for a running batch. It cancels every Queued / Downloading
+   * / Processing item, reaps the active GAMDL subprocess via the
+   * cancellation-poll loop, and preserves terminal items (Complete /
+   * Cancelled / Error) so history stays intact.
+   *
+   * IPC call: `commands.abortAllDownloads()` -> Rust `abort_all_downloads`.
+   *
+   * Emits a single toast summarising what was stopped. Callers should
+   * confirm with the user before invoking — this is a destructive action.
+   *
+   * @returns the number of items aborted (sum of all three pre-states).
+   */
+  abortAll: () => Promise<number>;
 
   /**
    * Fetch the full queue snapshot from the Rust backend.
@@ -468,6 +500,18 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
   },
 
   /**
+   * Remove a single queue item by ID (#685). The backend persists the
+   * change before returning, so the subsequent refresh sees the canonical
+   * post-delete state. Errors are re-thrown so the caller can surface
+   * them as a toast (e.g. "active downloads can't be deleted").
+   */
+  deleteItem: async (downloadId) => {
+    await commands.deleteQueueItem(downloadId);
+    const status = await commands.getQueueStatus();
+    set({ queueItems: status.items });
+  },
+
+  /**
    * Clear all terminal-state items (completed, failed, cancelled) from the queue.
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items that were removed.
@@ -530,6 +574,48 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       }
 
       return removed;
+    } catch (e) {
+      set({ error: String(e) });
+      return 0;
+    }
+  },
+
+  /**
+   * Abort every active + queued download (#620).
+   *
+   * Destructive action — callers should confirm with the user before
+   * invoking. Emits a single summary toast and refreshes the queue
+   * snapshot so the UI reflects the post-abort state immediately
+   * (cancellation-poll loops on active tasks reap the subprocesses
+   * asynchronously, but their state is already Cancelled in the
+   * snapshot).
+   */
+  abortAll: async () => {
+    try {
+      const summary = await commands.abortAllDownloads();
+      const total = summary.queuedCancelled + summary.downloadingStopped + summary.processingStopped;
+
+      // Refresh the queue snapshot so the UI reflects the state change
+      // without waiting for the subsequent `queue-updated` event.
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+
+      if (total > 0) {
+        const { addToast } = useUiStore.getState();
+        const parts: string[] = [];
+        if (summary.queuedCancelled > 0) {
+          parts.push(`${summary.queuedCancelled} queued`);
+        }
+        if (summary.downloadingStopped > 0) {
+          parts.push(`${summary.downloadingStopped} downloading`);
+        }
+        if (summary.processingStopped > 0) {
+          parts.push(`${summary.processingStopped} processing`);
+        }
+        addToast(`Aborted — stopped ${parts.join(', ')}`, 'info');
+      }
+
+      return total;
     } catch (e) {
       set({ error: String(e) });
       return 0;

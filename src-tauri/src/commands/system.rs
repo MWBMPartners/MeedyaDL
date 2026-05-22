@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // System information IPC commands.
@@ -267,4 +267,145 @@ pub fn save_session_log(app: tauri::AppHandle, entries: Vec<String>) -> Result<(
         session_file.display()
     );
     Ok(())
+}
+
+/// Sends a one-off test notification through the **backend** notification
+/// pipeline (#834).
+///
+/// The "Send Test Notification" button in Settings → General used to call
+/// the JS notification plugin directly, which:
+/// 1. Tested a different code path than what production downloads use, and
+/// 2. Was unable to surface OS-level send failures because the plugin's
+///    `sendNotification()` resolves successfully even when macOS silently
+///    drops the notification (Focus mode, sandbox, etc.).
+///
+/// This IPC routes the test through the same Rust pipeline as
+/// `send_desktop_notification`, but bypasses the focus-check and throttle
+/// (the user is explicitly testing — silently no-opping defeats the
+/// purpose). Returns a structured error string the frontend can render
+/// directly into a toast so the user knows whether the failure is at the
+/// settings layer, the permission layer, or the OS layer.
+///
+/// **Frontend caller:** `testDesktopNotification()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub fn test_desktop_notification(app: tauri::AppHandle) -> Result<(), String> {
+    crate::services::download_queue::test_desktop_notification(&app)
+}
+
+/// Returns a diagnostic snapshot of the desktop-notification configuration
+/// and current OS permission state (#834).
+///
+/// Used by the Settings → Advanced → Diagnostics panel so users on macOS 26+
+/// (where notifications have been silently failing) can see at a glance
+/// whether the toggle, the style, and the OS permission are all in the
+/// expected state. Pure read-only — never triggers a permission prompt.
+///
+/// **Frontend caller:** `getNotificationDiagnostics()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub fn get_notification_diagnostics(
+    app: tauri::AppHandle,
+) -> NotificationDiagnostics {
+    // `load_settings` returns `Result<AppSettings, String>`; on a load
+    // failure we fall back to the safe defaults so the diagnostics
+    // panel still renders something useful (and the user can see that
+    // settings.json failed to load via the surfaced error elsewhere).
+    let settings = crate::services::config_service::load_settings(&app)
+        .unwrap_or_default();
+    NotificationDiagnostics {
+        desktop_notifications_enabled: settings.desktop_notifications,
+        notification_style: settings.notification_style,
+        platform: std::env::consts::OS.to_string(),
+        // The actual OS permission grant lives in the JS plugin layer
+        // — the frontend fills `os_permission_state` itself by calling
+        // `isPermissionGranted()` and merges it with this snapshot.
+    }
+}
+
+/// Backend half of the notification diagnostics readout (#834). The
+/// frontend tops this up with the JS-side permission state.
+#[derive(serde::Serialize)]
+pub struct NotificationDiagnostics {
+    /// Mirrors `AppSettings::desktop_notifications`.
+    pub desktop_notifications_enabled: bool,
+    /// Mirrors `AppSettings::notification_style` — one of
+    /// `in_app_only`, `native_and_in_app`, `native_only`.
+    pub notification_style: String,
+    /// Current build's target OS — `macos`, `windows`, `linux`, etc.
+    /// Lets the frontend hint at OS-specific troubleshooting steps.
+    pub platform: String,
+}
+
+/// Runs the output-directory integrity scan (#537 chunk B).
+///
+/// Walks the user's configured `output_path` (loaded from settings)
+/// looking for historic damage from pre-v1.6 broken builds:
+/// `-.mp4`/`-.jpg` empty-tag filenames, `[Unknown]/` folder
+/// segments, and zero-byte fixed-name covers. Returns the structured
+/// report so the Settings → Advanced → Diagnostics panel can render
+/// a per-issue list to the user.
+///
+/// User-initiated only (button in the Diagnostics panel). No
+/// startup auto-run yet — that's gated behind a feature flag in the
+/// #537 spec and lands after this MVP is proven on real user data.
+///
+/// Runs synchronously under `spawn_blocking` because the walk can
+/// take several seconds on libraries with 1000+ albums — we don't
+/// want to block Tauri's async runtime for the duration.
+///
+/// **Frontend caller:** `runIntegrityScan()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub async fn run_integrity_scan(
+    app: tauri::AppHandle,
+) -> Result<crate::services::integrity_scan::IntegrityScanReport, String> {
+    let settings =
+        crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let output_path = if settings.output_path.is_empty() {
+        // Empty output_path means the user is using the default
+        // (resolved per-platform at download time). Fall back to the
+        // user's Music dir so the scan still has a concrete root on
+        // a fresh install. `dirs::audio_dir` returns
+        // `~/Music` on macOS/Linux and `Music` under the user
+        // profile on Windows. If even that resolves to None (very
+        // unusual — happens on locked-down kiosk setups) we bail
+        // with an actionable error.
+        dirs::audio_dir().ok_or_else(|| {
+            "No output path configured and the OS doesn't expose a default \
+             Music directory. Set Output Path in Settings → Download → Tools \
+             and try again."
+                .to_string()
+        })?
+    } else {
+        std::path::PathBuf::from(&settings.output_path)
+    };
+
+    // `spawn_blocking` because the walk is purely synchronous file I/O
+    // and can take seconds on big libraries — blocking the runtime
+    // would freeze every other IPC for the duration.
+    let report = tokio::task::spawn_blocking(move || {
+        crate::services::integrity_scan::scan(&output_path)
+    })
+    .await
+    .map_err(|e| format!("Integrity scan task panicked: {e}"))?;
+
+    // Activity-log breadcrumb so the user has a record of when they
+    // ran the scan and what it found. The full per-issue list goes
+    // to the frontend modal; here we just summarise.
+    let degenerate = report.degenerate_name_count();
+    let zero_byte = report.zero_byte_cover_count();
+    let summary = if degenerate == 0 && zero_byte == 0 {
+        format!(
+            "Integrity scan: {} file(s) walked, no issues found.",
+            report.files_walked
+        )
+    } else {
+        format!(
+            "Integrity scan: {} file(s) walked, {} degenerate name(s), \
+             {} zero-byte cover(s). See Settings → Advanced → Diagnostics \
+             for the full list.",
+            report.files_walked, degenerate, zero_byte
+        )
+    };
+    crate::utils::activity_log::emit_app_log(&app, &summary);
+
+    Ok(report)
 }

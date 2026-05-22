@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file dependencyStore.ts -- Dependency Checking & Installation State Store
  * @license MIT -- See LICENSE file in the project root.

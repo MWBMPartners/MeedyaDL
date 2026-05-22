@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file QualityTab.tsx -- Audio and video quality defaults settings tab.
@@ -51,8 +51,8 @@
  * @see {@link @/types/index.ts}           -- SongCodec, VideoResolution, CompanionMode types
  */
 
-// Zustand store for reading/writing quality settings.
-import { useSettingsStore } from '@/stores/settingsStore';
+// Audit v2 #6 — per-field Zustand binding.
+import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form components.
 import { Select, Toggle, FallbackChainList, CheckboxGroup, SettingsSection } from '@/components/common';
@@ -72,7 +72,25 @@ import type {
   VideoCodec,
   CompanionMode,
   ArtistAutoSelect,
+  DuplicateDetectionScope,
+  DedupKeyStrategy,
 } from '@/types';
+
+/** Display labels for the duplicate-detection scope setting. */
+const DEDUP_SCOPE_LABELS: Record<DuplicateDetectionScope, string> = {
+  off: 'Off — download everything',
+  intra_session: 'Within this artist URL only',
+  intra_and_queued: 'This URL + already-queued items (recommended)',
+  intra_and_queued_and_history:
+    'This URL + queue + download history (scans manifest files)',
+};
+
+/** Display labels for the dedup key strategy. */
+const DEDUP_KEY_LABELS: Record<DedupKeyStrategy, string> = {
+  song_id_isrc_fallback: 'Song ID (with ISRC fallback) — recommended',
+  isrc_only: 'ISRC only — catches remasters as duplicates',
+  song_id_only: 'Song ID only — strictest match',
+};
 
 /** All valid video codec identifiers, used for type-guarding parsed strings. */
 const VALID_VIDEO_CODECS: VideoCodec[] = ['h265', 'h264'];
@@ -102,10 +120,19 @@ function parseVideoCodecPriority(raw: string): VideoCodec[] {
  * narrow the string from the native <select> element to the expected union type.
  */
 export function QualityTab() {
-  /** Current settings snapshot from the Zustand store */
-  const settings = useSettingsStore((s) => s.settings);
-  /** Partial-update function that sets isDirty = true */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  // Per-field Zustand bindings (audit v2 #6).
+  const songCodec = useSettingsField('default_song_codec');
+  const fallbackEnabled = useSettingsField('fallback_enabled');
+  const companionMode = useSettingsField('companion_mode');
+  const customCompanionCodecs = useSettingsField('custom_companion_codecs');
+  const artistAutoSelectMulti = useSettingsField('artist_auto_select_multi');
+  const artistAutoSelect = useSettingsField('artist_auto_select');
+  const dupDetect = useSettingsField('duplicate_detection');
+  const videoResolution = useSettingsField('default_video_resolution');
+  const videoCodecPriority = useSettingsField('default_video_codec_priority');
+  const videoRemuxFormat = useSettingsField('default_video_remux_format');
+  const musicVideoCompanion = useSettingsField('music_video_companion');
+  const musicbrainzLookup = useSettingsField('musicbrainz_lookup');
 
   /**
    * Transform the SONG_CODEC_LABELS record into the array format expected
@@ -126,7 +153,7 @@ export function QualityTab() {
   }));
 
   /** Whether custom companion mode is active (shows codec checkboxes). */
-  const isCustomCompanion = settings.companion_mode === 'custom';
+  const isCustomCompanion = companionMode.value === 'custom';
 
   /**
    * Same transformation for video resolution labels.
@@ -148,7 +175,7 @@ export function QualityTab() {
   ];
 
   return (
-    <div className="space-y-3 max-w-xl">
+    <div className="space-y-3">
       {/* Section: Audio */}
       <SettingsSection title="Audio Quality">
 
@@ -170,8 +197,8 @@ export function QualityTab() {
             </>
           }
           options={codecOptions}
-          value={settings.default_song_codec}
-          onChange={(e) => updateSettings({ default_song_codec: e.target.value as SongCodec })}
+          value={songCodec.value}
+          onChange={(e) => songCodec.set(e.target.value as SongCodec)}
           helpTopic="audio-codecs"
         />
 
@@ -179,8 +206,8 @@ export function QualityTab() {
         <Toggle
           label="Enable Fallback Chain"
           description="When the preferred codec is unavailable, automatically try the next codec in the fallback chain"
-          checked={settings.fallback_enabled}
-          onChange={(checked) => updateSettings({ fallback_enabled: checked })}
+          checked={fallbackEnabled.value}
+          onChange={fallbackEnabled.set}
         />
 
         {/* Companion download mode */}
@@ -188,8 +215,8 @@ export function QualityTab() {
           label="Companion Downloads"
           description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom...' to pick exact codecs."
           options={companionModeOptions}
-          value={settings.companion_mode}
-          onChange={(e) => updateSettings({ companion_mode: e.target.value as CompanionMode })}
+          value={companionMode.value}
+          onChange={(e) => companionMode.set(e.target.value as CompanionMode)}
           helpTopic="audio-codecs"
         />
 
@@ -199,25 +226,90 @@ export function QualityTab() {
             label="Custom Companion Codecs"
             description="Select which codecs to download as companions alongside the primary format. Each selected codec runs as a separate download. The last codec in the list gets a clean filename; others get a suffix."
             options={SONG_CODEC_LABELS}
-            selected={settings.custom_companion_codecs}
-            onChange={(selected) => updateSettings({ custom_companion_codecs: selected })}
+            selected={customCompanionCodecs.value}
+            onChange={customCompanionCodecs.set}
           />
         )}
 
-        {/* Artist auto-select mode (multi-select) */}
+        {/* Artist auto-select mode (multi-select). Two writes per change
+            because the legacy `artist_auto_select` scalar is kept in
+            sync with the multi-select array for backwards compat. */}
         <CheckboxGroup<ArtistAutoSelect>
           label="Artist Auto-Select"
           description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
           options={ARTIST_AUTO_SELECT_LABELS}
-          selected={settings.artist_auto_select_multi}
+          selected={artistAutoSelectMulti.value}
           onChange={(selected) => {
-            updateSettings({
-              artist_auto_select_multi: selected,
-              // Keep legacy field in sync for backwards compat
-              artist_auto_select: selected.length > 0 ? selected[0] : null,
-            });
+            artistAutoSelectMulti.set(selected);
+            artistAutoSelect.set(selected.length > 0 ? selected[0] : null);
           }}
         />
+      </SettingsSection>
+
+      {/* Section: Duplicate detection (#510) */}
+      <SettingsSection title="Duplicate Detection">
+        <p className="text-sm text-content-secondary">
+          When an artist URL is downloaded with multiple Artist Auto-Select modes
+          (e.g. main albums + singles/EPs + compilations), the same song can
+          appear in multiple modes. Duplicate detection queries the Apple
+          Music catalog API before queueing, then skips duplicates so each
+          song is only downloaded once. This does <strong>not</strong> affect
+          companion-format downloads — the winning song still runs the full
+          ALAC/Atmos/AAC companion chain you've configured.
+        </p>
+
+        <Select
+          label="Scope"
+          description="How far to look when deciding whether a track is a duplicate."
+          options={(['off', 'intra_session', 'intra_and_queued', 'intra_and_queued_and_history'] as DuplicateDetectionScope[]).map((v) => ({
+            value: v,
+            label: DEDUP_SCOPE_LABELS[v],
+          }))}
+          value={dupDetect.value.scope}
+          onChange={(e) =>
+            dupDetect.set({
+              ...dupDetect.value,
+              scope: e.target.value as DuplicateDetectionScope,
+            })
+          }
+        />
+
+        <Select
+          label="Match key"
+          description="Which identifier to match tracks on. Song ID is the strictest — it matches only the exact same master file. ISRC also matches remasters and re-releases of the same recording."
+          options={(['song_id_isrc_fallback', 'isrc_only', 'song_id_only'] as DedupKeyStrategy[]).map((v) => ({
+            value: v,
+            label: DEDUP_KEY_LABELS[v],
+          }))}
+          value={dupDetect.value.key_strategy}
+          onChange={(e) =>
+            dupDetect.set({
+              ...dupDetect.value,
+              key_strategy: e.target.value as DedupKeyStrategy,
+            })
+          }
+        />
+
+        <div>
+          <label className="block text-sm font-medium text-content-primary mb-1">
+            Version preference
+          </label>
+          <p className="text-sm text-content-secondary mb-2">
+            When a song appears in multiple Artist Auto-Select modes, the
+            version from the highest-priority mode wins and the others are
+            skipped. Reorder to change which version is kept.
+          </p>
+          <FallbackChainList<ArtistAutoSelect>
+            items={dupDetect.value.preference_order}
+            labels={ARTIST_AUTO_SELECT_LABELS}
+            onChange={(items) =>
+              dupDetect.set({
+                ...dupDetect.value,
+                preference_order: items,
+              })
+            }
+          />
+        </div>
       </SettingsSection>
 
       {/* Section: Video */}
@@ -228,12 +320,8 @@ export function QualityTab() {
           label="Default Video Resolution"
           description="The preferred resolution for music video downloads"
           options={resolutionOptions}
-          value={settings.default_video_resolution}
-          onChange={(e) =>
-            updateSettings({
-              default_video_resolution: e.target.value as VideoResolution,
-            })
-          }
+          value={videoResolution.value}
+          onChange={(e) => videoResolution.set(e.target.value as VideoResolution)}
         />
 
         {/* Video codec priority (reorderable list) */}
@@ -245,11 +333,9 @@ export function QualityTab() {
             Order of preferred video codecs for music video downloads (top = tried first)
           </p>
           <FallbackChainList<VideoCodec>
-            items={parseVideoCodecPriority(settings.default_video_codec_priority)}
+            items={parseVideoCodecPriority(videoCodecPriority.value)}
             labels={VIDEO_CODEC_LABELS}
-            onChange={(codecs) =>
-              updateSettings({ default_video_codec_priority: codecs.join(',') })
-            }
+            onChange={(codecs) => videoCodecPriority.set(codecs.join(','))}
           />
         </div>
 
@@ -258,19 +344,19 @@ export function QualityTab() {
           label="Video Remux Format"
           description="Container format for remuxed video files"
           options={remuxOptions}
-          value={settings.default_video_remux_format}
-          onChange={(e) => updateSettings({ default_video_remux_format: e.target.value })}
+          value={videoRemuxFormat.value}
+          onChange={(e) => videoRemuxFormat.set(e.target.value)}
         />
 
         {/* Music video companion downloads */}
         <Toggle
           label="Music Video Companions (Experimental)"
           description="When downloading audio, also download the music video for each track (if available on Apple Music). Uses the video quality settings above. Discovery via Apple Music API (requires MusicKit credentials) and/or MusicBrainz ISRC lookup (no credentials needed)."
-          checked={settings.music_video_companion}
-          onChange={(checked) => updateSettings({ music_video_companion: checked })}
+          checked={musicVideoCompanion.value}
+          onChange={musicVideoCompanion.set}
         />
 
-        {settings.music_video_companion && (
+        {musicVideoCompanion.value && (
           <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning mb-1">
               Experimental Feature
@@ -288,8 +374,8 @@ export function QualityTab() {
         <Toggle
           label="MusicBrainz Video Lookup"
           description="Use MusicBrainz database to discover music videos and cross-platform URLs via ISRC codes. No credentials required. Also used by Music Video Companions when MusicKit credentials are not configured."
-          checked={settings.musicbrainz_lookup}
-          onChange={(checked) => updateSettings({ musicbrainz_lookup: checked })}
+          checked={musicbrainzLookup.value}
+          onChange={musicbrainzLookup.set}
         />
       </SettingsSection>
     </div>

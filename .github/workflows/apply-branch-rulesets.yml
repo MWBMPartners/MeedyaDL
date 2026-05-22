@@ -1,0 +1,95 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Apply Branch Rulesets
+# =====================
+#
+# Idempotently applies every JSON ruleset under `.github/rulesets/` to the
+# repository. Run manually after editing a ruleset file, or on push when
+# one of them changes. Each ruleset's `name` field is used to detect an
+# existing ruleset on the repo: present → PUT update, absent → POST create.
+#
+# Rulesets committed in this repo:
+#   - protected-stable-branches.json
+#       Strict protection for main, release-candidate, beta, alpha. No bypass
+#       actors — these branches must never receive a force-push from automation.
+#   - protected-cron-channels.json
+#       Protection for nightly, weekly, monthly with a RepositoryRole admin
+#       bypass so the cron-driven release workflows can do their integration
+#       force-push using RELEASE_PAT.
+#
+# After applying source-tree rulesets, any ruleset on the repo whose name is
+# NOT present in the source tree is deleted. This is what cleans up the legacy
+# `protected-release-branches` ruleset after the split landed.
+#
+# Requires: RELEASE_PAT with `administration:write` scope on the repo.
+
+name: Apply Branch Rulesets
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/rulesets/*.json'
+      - '.github/workflows/apply-branch-rulesets.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Apply rulesets
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # List existing rulesets (name → id map)
+          EXISTING=$(gh api "repos/$REPO/rulesets" --jq 'map({ (.name): .id }) | add // {}')
+
+          # Collect the set of names defined in the source tree so we can
+          # reconcile (delete unmanaged rulesets) after applying.
+          SOURCE_NAMES=()
+
+          for FILE in .github/rulesets/*.json; do
+            NAME=$(jq -r '.name' "$FILE")
+            SOURCE_NAMES+=("$NAME")
+            echo "::group::$NAME ($FILE)"
+
+            # Strip comment-only fields (keys starting with _) before sending
+            PAYLOAD=$(jq 'with_entries(select(.key | startswith("_") | not))' "$FILE")
+
+            ID=$(echo "$EXISTING" | jq -r --arg n "$NAME" '.[$n] // empty')
+            if [ -n "$ID" ]; then
+              echo "Updating existing ruleset id=$ID"
+              echo "$PAYLOAD" | gh api -X PUT "repos/$REPO/rulesets/$ID" --input -
+            else
+              echo "Creating new ruleset"
+              echo "$PAYLOAD" | gh api -X POST "repos/$REPO/rulesets" --input -
+            fi
+            echo "::endgroup::"
+          done
+
+          # Reconcile: delete any branch-targeted ruleset on the repo whose
+          # name is not present in the source tree. This cleans up renamed /
+          # split / removed rulesets without manual intervention.
+          # (Rulesets we don't manage — e.g. tag rulesets created via the UI —
+          # would also be deleted here, so all branch rulesets must be
+          # source-controlled.)
+          UNMANAGED=$(echo "$EXISTING" | jq -r --argjson keep "$(printf '%s\n' "${SOURCE_NAMES[@]}" | jq -R . | jq -s .)" \
+            'to_entries | map(select(.key as $k | $keep | index($k) | not)) | .[] | "\(.key)\t\(.value)"')
+          if [ -n "$UNMANAGED" ]; then
+            while IFS=$'\t' read -r NAME ID; do
+              echo "::group::Deleting unmanaged ruleset: $NAME (id=$ID)"
+              gh api -X DELETE "repos/$REPO/rulesets/$ID" || echo "::warning::Failed to delete ruleset $NAME"
+              echo "::endgroup::"
+            done <<< "$UNMANAGED"
+          else
+            echo "No unmanaged rulesets to clean up."
+          fi

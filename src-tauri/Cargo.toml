@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Cargo.toml -- Rust Package Manifest for MeedyaDL Tauri Backend
@@ -34,11 +34,11 @@
 # name -- The crate name. Used as the binary name and in `cargo build` output.
 name = "meedyadl"
 # version -- Semantic version. Should stay in sync with tauri.conf.json "version" and package.json.
-version = "0.34.6"
+version = "1.9.4"
 # description -- Short description shown on crates.io and in `cargo search` results.
 description = "A multiplatform media downloader"
 # authors -- Package authors. Used in bundle metadata (installers, About dialogs).
-authors = ["MeedyaDL"]
+authors = ["MeedyaSuite"]
 # license -- SPDX license identifier. MIT is permissive, allowing commercial and private use.
 license = "MIT"
 # repository -- URL to the source code. Included in bundle metadata and crates.io listings.
@@ -67,9 +67,31 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 
 # ---- MeedyaSuite-core ----
-# Shared core library providing metadata providers, codec detection, and fingerprinting.
+# Shared core library providing metadata providers, codec detection,
+# fingerprinting, lyrics (LRC + LRCLIB), tag schemas, library-import,
+# and provider/credentials machinery.
+#
 # @see https://github.com/MWBMPartners/MeedyaSuite-core
-meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "claude/interesting-mirzakhani", features = ["full"] }
+#
+# **Pinned to a specific main-branch commit (rev = …)** rather than a
+# branch ref so reproducible builds don't break when feature branches
+# get deleted upstream. The previous pin to
+# `branch = "claude/interesting-mirzakhani"` silently broke fresh
+# clones after the upstream branch was removed — local cargo cache
+# still resolved cleanly, but anyone new hit
+# `error: failed to resolve git reference`. The online audit during
+# the v1.8 bumper bundle caught this; the rev pin prevents the same
+# class of breakage from recurring.
+#
+# `features = ["full"]` enables every module (metadata + codecs +
+# fingerprint + lyrics + providers + tags-extended + library-import + db).
+#
+# **Bumping this commit:**
+#   1. `gh api repos/MWBMPartners/MeedyaSuite-core/commits/main --jq '.sha'`
+#   2. Replace the `rev` below with the new SHA.
+#   3. `cargo update -p meedya-core` to refresh Cargo.lock.
+#   4. Run the full test suite — upstream may have changed APIs.
+meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.

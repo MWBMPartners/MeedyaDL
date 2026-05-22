@@ -48,7 +48,7 @@ Run this whenever engines are enabled/disabled or dependencies change.
 
 ## Release Workflow
 
-### There Are 4 Separate Workflows — Don't Confuse Them
+### There Are 7 Separate Workflows — Don't Confuse Them
 
 | Workflow | Trigger | What It Does | Produces Binaries? |
 | -------- | ------- | ------------ | ------------------ |
@@ -56,6 +56,9 @@ Run this whenever engines are enabled/disabled or dependencies change.
 | **Release Please** (`release-please.yml`) | Every push to `main` | Creates or updates a "Release PR" that bumps version numbers | **No** — just creates/updates a PR |
 | **Release** (`release.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Builds the app on all 6 platforms | **Yes** — this is the only workflow that produces installable binaries |
 | **Changelog** (`changelog.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Regenerates `CHANGELOG.md` via git-cliff | **No** — just updates the changelog file |
+| **Nightly Release** (`nightly-release.yml`) | Cron `0 0 * * *` (daily 00:00 UTC) or manual `workflow_dispatch` | Merges `feat/*` branches into `nightly`, bumps version to `X.Y.Z-nightly.YYYYMMDD`, pushes tag to trigger `release.yml` | **Yes** — via the tag it pushes |
+| **Apply Branch Rulesets** (`apply-branch-rulesets.yml`) | Push to `.github/rulesets/*.json` or manual `workflow_dispatch` | Idempotently applies every ruleset in `.github/rulesets/` via the GitHub API | **No** — repo-config only |
+| **Auto-Delete Merged Branches** (`auto-delete-merged-branches.yml`) | `pull_request` closed (merged) | Deletes merged PR head branches except the protected channels | **No** — repo-config only |
 
 **Key insight**: When you push code to `main`, you'll see CI and Release Please run. These are fast and lightweight — they do NOT build binaries. The Release workflow only runs after the full release pipeline completes (see below).
 
@@ -322,14 +325,48 @@ If the private key is lost:
 
 ---
 
-## Pre-Release Channel
+## Release Channels
 
-The app supports a toggle for "Include Pre-Release Versions" in General settings:
+MeedyaDL ships across six long-lived channels, ordered from least to most stable:
 
-- **Off (default)**: Only checks `releases/latest` (stable releases)
-- **On**: Checks `releases?per_page=5` which includes pre-release/beta/RC versions
+| Channel | Branch | Tag format | Cadence | Audience |
+| ------- | ------ | ---------- | ------- | -------- |
+| Nightly | `nightly` | `vX.Y.Z-nightly.YYYYMMDD` | Daily 00:00 UTC | Developers validating today's `feat/*` integrations |
+| Weekly | `weekly` | `vX.Y.Z-weekly.YYYYWW` | Weekly Sunday 00:00 UTC (planned) | Testers willing to trial a week's worth of nightlies |
+| Monthly | `monthly` | `vX.Y.Z-monthly.YYYYMM` | Monthly 1st 00:00 UTC (planned) | Early adopters wanting monthly preview builds |
+| Alpha | `alpha` | `vX.Y.Z-alpha.N` | Ad-hoc | Feature-complete previews |
+| Beta | `beta` | `vX.Y.Z-beta.N` | Ad-hoc | Release candidates |
+| Stable | `main` | `vX.Y.Z` | Release-please PR merges | End users |
 
-Pre-release updates show an amber badge and disclaimer in the Update Banner. The setting is stored as `check_pre_releases: bool` in `AppSettings`.
+All six channel branches are **protected against deletion and non-fast-forward pushes** via `.github/rulesets/protected-release-branches.json`.
+
+### Channel auto-merge pipeline
+
+Each channel's source branch is refreshed from the one directly below it plus any ready `feat/*` branches, preserving the stability ladder:
+
+```
+feat/* ─→ nightly ─→ weekly ─→ monthly ─→ alpha ─→ beta ─→ main (stable)
+```
+
+`nightly-release.yml` is the live implementation of the first hop: it resets `nightly` to `main`, merges every `origin/feat/*` branch (skipping any that conflict and opening an issue listing them), bumps the version in `package.json` / `tauri.conf.json` / `Cargo.toml`, force-pushes `nightly`, and creates an annotated tag. The tag push triggers `release.yml`, which produces the platform installers. Weekly and monthly use the same pattern with their own crons (`0 0 * * 0` and `0 0 1 * *`).
+
+### In-app update guard (option 2)
+
+The app filters and enforces the channel on the client:
+
+- `UpdateChannel` enum in `src-tauri/src/models/settings.rs` — ordered `Nightly < Weekly < Monthly < Alpha < Beta < Stable`.
+- `UpdateChannel::from_tag()` parses the pre-release suffix of any tag (`"-nightly.20260420"` → `Nightly`, `"-beta.1"` → `Beta`, no suffix → `Stable`).
+- `update_channel: UpdateChannel` is persisted in `AppSettings`, exposed as the **Update Channel** dropdown under *Settings > General > Updates*.
+- `check_all_updates` filters the GitHub releases list to the user's channel, so a Stable user never sees Nightly entries and vice-versa. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=20` and picks the first entry matching the selection.
+- `download_and_install_app_update` refuses to install a tag whose channel is **less stable** than the user's current selection. This is the enforcement point: even if a cross-channel URL reaches the installer (deep link, stale cache, or manifest tampering), the installer returns a clear error instead of downgrading the user's stability tier. Switching to a less-stable channel is always an explicit action in Settings.
+
+The legacy `check_pre_releases: bool` setting still exists and is implicitly enabled whenever `update_channel != Stable` — it controls which GitHub endpoint the checker hits, but the channel drives which release is actually surfaced and installable.
+
+### Branch protection + auto-delete
+
+- `.github/rulesets/protected-release-branches.json` blocks deletion and non-fast-forward pushes on `main`, `beta`, `alpha`, `monthly`, `weekly`, `nightly`. Apply (or re-apply) with `gh workflow run "Apply Branch Rulesets" --ref main`, or through **Actions → Apply Branch Rulesets → Run workflow** in the GitHub UI.
+- `auto-delete-merged-branches.yml` deletes merged PR head branches (so `feat/*` and `fix/*` don't accumulate), while the same six channel names in its `case` are exempted as a soft guardrail. The ruleset is the hard guarantee — the workflow is just quieter.
+- Requires a `RELEASE_PAT` with `administration:write` to apply rulesets.
 
 ---
 
@@ -928,6 +965,33 @@ The `music_video_companion` setting (default: `false`) enables automatic downloa
 | `src-tauri/src/models/settings.rs` | `music_video_companion: bool` setting field |
 | `src/components/settings/tabs/QualityTab.tsx` | Toggle in Video Quality section (gated behind MusicKit credentials) |
 
+### Music-Video Filename & Folder Resolution (#527 #531 #537)
+
+Music video placement on disk is resolved through a four-tier cascade, highest priority first. This section is the spec — any change must update the precedence, the constants, AND the unit tests.
+
+| Tier | Source | Where it plays in | Folder path | Filename pattern | Unique? |
+|------|--------|-------------------|-------------|------------------|---------|
+| 1 | GAMDL's **iTunes Lookup** (`interface_music_video.py:80`) with album linkage | Inside GAMDL (`tags.album` populated → `album_folder_template`) | `{album_artist}/{album}/` | `{track:02d} {title}` or `{disc}-{track:02d} {title}` | Yes (disc/track disambiguate) |
+| 2 | **Apple Music Catalog API** `music-videos/{id}?include=albums` | Not yet wired — tracked as follow-up in #537 | `{album_artist}/{album}/` (pre-filled into `no_album_folder_template` before GAMDL runs) | `{title} ({title_id})` (same last-resort file template; album-aware override planned) | Yes |
+| 3 | **MeedyaDL-known parent album** — when the MV is discovered via `fetch_music_video_relations()` for album X, we already know it belongs to album X | Not yet wired — tracked in #537 | `{album_artist}/{album}/` from our known parent context | `{title} ({title_id})` | Yes |
+| 4 | **Fallback** (`MV_NO_ALBUM_FOLDER_TEMPLATE` + `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs`) | Reached only when all three above fail or the MV genuinely has no album (standalone promo MV) | `{artist}/Music Videos/` | `{title} ({title_id})` — `{title_id}` is Apple Music's numeric MV ID, **guaranteed unique** and **deterministic across re-downloads** | Yes |
+
+**Why `{title_id}` and not a datetime?** `{title_id}` is the Apple Music MV numeric ID — the same ID every time, so re-downloads of the same MV dedupe correctly under GAMDL's `overwrite=false`. A datetime suffix would cause every re-download to create a new file, silently multiplying on-disk copies.
+
+**Why override `no_album_*` templates for MVs only (not globally)?** The user's `no_album_folder_template` and `no_album_file_template` are audio-oriented. Legacy MeedyaDL installs (pre-v0.38 settings) shipped `"{artist}/[Unknown]"` + `"{disc} - "` as those defaults — which for MVs without `{disc}` produces the catastrophic `Artist/[Unknown]/-.mp4` output that motivated #527 in the first place. Forcing a fixed MV-safe pair means an audio download still honours the user's no-album choices while MVs get guaranteed-sane output regardless of settings hygiene.
+
+**Tiers 2 and 3 are scoped out of the initial RC fix.** The current PR covers Tier 4 only (the safety net). Tier 1 already works natively in GAMDL. Tiers 2 and 3 are tracked in #537 and will land as a separate PR once the Apple Music Catalog MV endpoint and the parent-album threading are implemented. Landing Tier 4 alone already resolves the RC blocker — MVs that fell into the buggy `[Unknown]` path now land in a predictable `{artist}/Music Videos/` folder with unique `{title} ({title_id}).mp4` filenames.
+
+**Key constants & locations:**
+
+| Location | Role |
+|----------|------|
+| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FOLDER_TEMPLATE` | Tier 4 folder template |
+| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FILE_TEMPLATE` | Tier 4 file template (includes `{title_id}` for uniqueness) |
+| `src-tauri/src/services/download_queue.rs` → `download_music_video_by_url()` | Applies Tier 4 overrides to the GAMDL invocation for MVs |
+| `src-tauri/src/services/config_service.rs` → `migrate_settings()` v2→v3 | Heals legacy broken `no_album_*` defaults on upgrade |
+| `src-tauri/src/services/apple_music_api.rs` → `fetch_music_video_relations()` | Currently returns MV ID + name only; to be extended for Tier 2 (`include=albums`) |
+
 ---
 
 ## Animated Cover Art (Motion Artwork)
@@ -939,7 +1003,12 @@ MeedyaDL downloads animated cover art (motion artwork) from Apple Music after al
 | File | Aspect Ratio | Max Resolution | Source API Field |
 |------|-------------|----------------|-----------------|
 | `FrontCover.mp4` | 1:1 (square) | 3840x3840 | `editorialVideo.motionDetailSquare.video` |
-| `PortraitCover.mp4` | 3:4 (portrait) | 2048x2732 | `editorialVideo.motionDetailTall.video` |
+| `FrontCoverPortrait.mp4` | 3:4 (portrait) | 2048x2732 | `editorialVideo.motionDetailTall.video` |
+| `ArtistSpotlightCover.mp4` | 16:9 (landscape) | artist-dependent | `editorialVideo.motionArtistFullscreen16x9.video` (preferred) or `editorialVideo.motionArtistWide16x9.video` (fallback) — queried from the artist endpoint, saved to the artist folder |
+
+> **Filename rationale:** `FrontCover` + `FrontCoverPortrait` are the two orientations of the same album cover and sort adjacent alphabetically, so they stay visually paired in any file browser. `ArtistSpotlightCover` is intentionally narrower than the `motionArtist*` fallback chain used in earlier versions — lower-tier fallbacks (`motionDetailSquare` / `motionDetailTall`) are tightly cropped around cover art and look visually wrong as an artist-page hero, so we skip the download rather than substitute a mismatched source.
+
+> **Legacy filename migration:** Pre-v0.39 releases wrote the portrait variant as `PortraitCover.mp4`. We do **not** auto-rename existing files — renaming without consent is risky (the user may have built scripts or media-player presets around the legacy name). Freshly downloaded albums get the new name; re-downloads leave the old file untouched (GAMDL-style `overwrite=false`). Users who want a clean sweep can delete `PortraitCover.mp4` before re-running animated artwork on an album.
 
 Both are saved as sidecar files alongside downloaded audio in the album directory.
 
@@ -1373,6 +1442,20 @@ Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` 
 - `resolve_named_styles(doc)` — Parse `<head><styling><style>` definitions
 - `resolve_element_style(node, named_styles)` — Merge named + inline styles
 - `TtmlStyle { bold, italic, underline, color }` — Shared style struct
+
+### Sidecar Overwrite Behaviour (#550)
+
+All sidecar writers (`.lrc`, `.srt`, `.vtt`, `.ass`) unconditionally overwrite their target path on every enrichment run. This is **intentional, not a bug**:
+
+- `enhanced_lyrics_service.rs` writes `.lrc` via `std::fs::write()` (no existence check).
+- `rich_srt_service.rs` writes `.srt` via `std::fs::write()` — deliberately replaces any plain SRT that GAMDL wrote natively, because the rich variant carries styling tags (`<b>`, `<i>`, colour) that the plain SRT lacks.
+- `webvtt_service.rs` writes `.vtt` via `std::fs::write()`.
+- `ass_subtitle_service.rs` writes `.ass` via `std::fs::write()`.
+- The syllable-lyrics upgrade path in `download_queue.rs` also overwrites GAMDL's TTML with the richer `/syllable-lyrics` API response.
+
+The design assumption is that these services are pure generators: same source TTML + same renderer version produces byte-identical output, so overwriting is a no-op in the common case. **Manual edits to any of these sidecar files WILL be silently clobbered** the next time the item is enriched (re-download, quality upgrade, manifest re-import). If you need to preserve hand-tweaked lyrics, copy the edited sidecar out of the output directory before re-running.
+
+Follow-up work (content-hash skip, opt-in preservation flag, `.bak` backups) tracked in the Option B/C/D discussion on #550 — deliberately out of scope for the current design contract.
 
 ---
 
@@ -2025,3 +2108,69 @@ Returns "Too many requests. Please wait N seconds" when exceeded.
 
 On save: SHA-256 digest written to companion `settings.json.sha256` file.
 On load: digest verified. Mismatch logs a warning but settings are still loaded (user may have intentionally edited). Missing checksum file (pre-upgrade settings) is accepted and a checksum generated for next time.
+
+## Engine Filename Safety Contract (#551)
+
+A **design-review tool** — not a runtime guard. Every new download-engine integration (votify for Spotify, yt-dlp for YouTube, get_iplayer for BBC iPlayer, ...) is expected to implement `services::filename_safety::FilenameSafetyContract` in a companion `impl` block so that the review PR demonstrates compile-time + unit-test conformance to the invariants that #527 / #531 / #537 chased across the Apple Music pipeline.
+
+Runtime enforcement of safe paths remains the job of `utils/fs_safe.rs` and the #487 umbrella. This contract prevents the bug from *landing* in the first place.
+
+### Failure modes the contract guards against
+
+1. **Punctuation-only filename** — every template placeholder resolves to the empty string, so the final filename is something like `"-.mp4"` (the original #527 MV bug, where `no_album_file_template = "{disc} - "` rendered to `" - "` because `{disc}` was empty).
+2. **`[Unknown]`-sentinel folder** — unknown content gets routed to a literal folder called `[Unknown]` / `Unknown Album` / `(no album)`, silently colliding two distinct unknown items in one directory. Legacy pre-v2 GAMDL default.
+3. **Stable-ID-less dedup collision** — two items with different stable IDs (Clean/Explicit cuts of the same track, remix variants, regional re-releases) produce the same filename, triggering `MediaFileExists` skips under `overwrite=false` with no user-visible warning.
+
+### The trait
+
+```rust
+pub trait FilenameSafetyContract {
+    fn engine_id(&self) -> &str;
+    fn fallback_file_template(&self) -> &str;
+    fn fallback_folder_template(&self) -> &str;
+    fn supported_placeholders(&self) -> &[&str];
+    fn stable_id_placeholder(&self) -> Option<&str>;
+    fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String;
+
+    // Default-provided conformance checks (no per-engine override needed):
+    fn must_reference_stable_id(&self)       -> Result<(), FilenameSafetyViolation>;
+    fn must_not_be_unknown_sentinel(&self)   -> Result<(), FilenameSafetyViolation>;
+    fn must_survive_empty_metadata(&self)    -> Result<(), FilenameSafetyViolation>;
+    fn must_disambiguate_by_stable_id(&self) -> Result<(), FilenameSafetyViolation>;
+    fn run_all_checks(&self) -> Vec<FilenameSafetyViolation>;
+}
+```
+
+### Reviewer checklist — every new engine PR must tick all five
+
+- [ ] Fallback file template includes a stable-unique ID placeholder — `{title_id}` (Apple Music MVs), `{spotify_id}` (Spotify), `{id}` (YouTube), `{pid}` (BBC iPlayer).
+- [ ] Fallback folder template contains no literal `[Unknown]` / `Unknown Album` / `(no album)` segments as the entire path. Route unknown content to a stable named folder instead (`{artist}/Singles/`, `{channel}/`, `{programme_name}/`, ...).
+- [ ] Template-builder UI (`src/lib/template-parser.ts::TEMPLATE_VARIABLES` + `TemplateBuilder.tsx`) exposes the engine's placeholders.
+- [ ] Engine's conformance `impl` is added to `registered_contracts()` in `services/filename_safety.rs::tests` so `all_registered_contracts_conform` covers it in CI.
+- [ ] Engine-specific regression test reproduces the "empty metadata" failure mode in a synthetic fixture (mirror the `GamdlMusicVideoFallback` example).
+
+### Canonical implementation example
+
+`services::filename_safety::GamdlMusicVideoFallback` — pairs with `MV_NO_ALBUM_FILE_TEMPLATE` / `MV_NO_ALBUM_FOLDER_TEMPLATE` in `services/download_queue.rs`. New engines should structure their `impl` the same way: mirror the runtime template constants as string literals inside the contract module to keep the safety-check module free of cross-module coupling.
+
+### Out of scope
+
+- **Runtime enforcement** — the contract does not abort a download when the invariant is violated. A failing conformance test breaks the build; a malformed runtime template (via user override of the default) is caught by `utils/fs_safe.rs`.
+- **Per-placeholder validation** — whether `{artist}` correctly resolves during rendering is the engine's own business; the contract only cares about the no-metadata failure mode.
+- **Forbidden-segment exhaustiveness** — the sentinel-check list (`[Unknown]`, `Unknown`, `(no album)`, ...) is deliberately short; extend it if a new legacy default surfaces, but don't let it become a style rulebook.
+
+## Lyric Sidecar Regeneration Policy (#550)
+
+Lyric/subtitle generators run on every enrichment pass (first download, companion pass, retry, manifest re-import). The write policy is non-uniform today:
+
+| Generator                  | File               | Source (`src-tauri/src/services/`)          | Existing file behaviour                                                                 |
+| -------------------------- | ------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Enhanced LRC converter     | `.lrc`             | `enhanced_lyrics_service.rs:191`            | **Overwrites** — no `exists()` guard                                                    |
+| Rich SRT generator         | `.srt`             | `rich_srt_service.rs:132`                   | **Overwrites** by design (including GAMDL's plain `.srt`)                               |
+| Syllable-lyrics upgrade    | `.ttml`            | `download_queue.rs:~5594` and `~5618`       | **Overwrites** when Apple Music's `/syllable-lyrics` returns a word-level version       |
+| WebVTT generator           | `.vtt`             | `webvtt_service.rs:85-87`                   | **Skips** (`if vtt_path.exists() { continue; }`)                                        |
+| ASS generator              | `.ass`             | `ass_subtitle_service.rs:91-95`             | **Skips** (`if ass_path.exists() { continue; }`)                                        |
+
+**Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
+
+**If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.

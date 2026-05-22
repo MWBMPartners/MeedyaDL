@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Update checker service.
@@ -35,9 +35,13 @@
 // ## Compatibility Gating
 //
 // GAMDL updates are subject to a compatibility check (`is_gamdl_compatible()`).
-// This prevents the user from upgrading to a GAMDL version that may have changed
-// its CLI interface in incompatible ways. The range [MIN_COMPATIBLE_GAMDL,
-// MAX_COMPATIBLE_GAMDL] defines the known-compatible window.
+// This prevents the user from upgrading to a GAMDL version that may have
+// changed its CLI interface in incompatible ways. The compatible range is
+// declared in `tool-versions.toml` → `[gamdl]` (`minimum_version` …
+// `maximum_tested_version`) and queried via
+// `services::gamdl_capabilities::should_offer_upgrade`. Bumping the ceiling
+// is a one-file change; see `services/gamdl_capabilities.rs` for the
+// surrounding design.
 //
 // ## References
 //
@@ -48,11 +52,24 @@
 // - Chrono for timestamps: https://docs.rs/chrono/latest/chrono/
 
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use tauri::AppHandle;
+
+// Cached semver-extraction regex.
+//
+// `check_component_update` runs on every app startup, every periodic update
+// poll, and every manual "Check for updates" click. Compiling this trivial
+// pattern per call wastes microseconds on a hot path; caching once via
+// `LazyLock` matches the pattern used in `apple_music_api.rs` and
+// `process.rs`. Pattern is a static literal so `.expect()` only fires on
+// developer typos at boot — never at runtime.
+static SEMVER_EXTRACT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
 
 // gamdl_service: provides get_gamdl_version() and check_latest_gamdl_version() for GAMDL update checks.
 // python_manager: provides get_installed_python_version() and get_target_python_version() for Python update checks.
-use crate::services::{gamdl_service, python_manager};
+use crate::models::settings::UpdateChannel;
+use crate::services::{gamdl_capabilities, gamdl_service, python_manager};
 // platform: provides get_python_dir() for resolving the Python installation directory.
 use crate::utils::platform;
 
@@ -81,9 +98,24 @@ pub struct ComponentUpdate {
     /// True if not installed and a version is available on the remote source.
     pub update_available: bool,
     /// Whether this update is compatible with the current app version.
-    /// For GAMDL: checked via `is_gamdl_compatible()` range gate.
-    /// For app and Python: always true (updates are self-compatible).
+    /// For GAMDL: any parseable semver passes (we only reject obviously
+    /// malformed strings like `v3-rc`). The "untested vs tested" status
+    /// is communicated separately via [`Self::is_untested`] so users see
+    /// the new release as soon as upstream ships it. For app and Python:
+    /// always true (updates are self-compatible).
     pub is_compatible: bool,
+    /// Whether the latest available version is **above** the
+    /// `maximum_tested_version` declared in this MeedyaDL build's
+    /// `tool-versions.toml`.
+    ///
+    /// `true` here flags an upgrade we have not validated against the
+    /// MeedyaDL CLI / INI surface — installation works (the user opts in
+    /// via an explicit-version pin in `pip_target_spec`), but the
+    /// frontend should render an amber "Untested" badge and a short
+    /// disclaimer. Currently only set for the GAMDL component;
+    /// always `false` for the app, Python, pip engines, and binary tools.
+    #[serde(default)]
+    pub is_untested: bool,
     /// Human-readable description of the update (e.g., release notes excerpt).
     /// For app updates: truncated first 200 chars of the GitHub release body.
     pub description: Option<String>,
@@ -140,61 +172,31 @@ pub struct UpdateCheckResult {
 // ============================================================
 // GAMDL version compatibility
 // ============================================================
+//
+// The compatibility range was previously declared via two `const`
+// version strings pinned inside this file. That was brittle because:
+//
+//   * bumping the range required a code change rather than a
+//     tool-versions.toml bump, and
+//   * the frontend had no way to surface the range to users, so
+//     "why is this update hidden?" needed engineering support to
+//     explain.
+//
+// Today both are fixed by delegating to `gamdl_capabilities`, which
+// owns the single source of truth (`tool-versions.toml` → `[gamdl]`)
+// and exposes typed classification helpers.
 
-/// Minimum GAMDL version known to be compatible with this app version.
-/// Versions below this may have different CLI argument formats or missing features.
-/// When GAMDL makes a breaking CLI change, update this to exclude old versions.
-/// - 2.9.1: introduced `--song-codec-priority` (replaced `--song-codec`)
-const MIN_COMPATIBLE_GAMDL: &str = "2.9.1";
-
-/// Maximum GAMDL version known to be compatible (inclusive).
-/// Set to a deliberately high value (99.99.99) to allow all future patch and
-/// minor releases by default. Update this to a specific version only when a
-/// known-incompatible GAMDL release is published (e.g., a major version bump
-/// that changes CLI argument names or output format).
-const MAX_COMPATIBLE_GAMDL: &str = "99.99.99";
-
-/// Checks whether a GAMDL version is compatible with this app version.
+/// Checks whether a GAMDL version is safe to surface as an update.
 ///
-/// This is a simple semver range check that prevents the user from
-/// upgrading to a GAMDL version that may break the CLI interface.
-///
-/// # Arguments
-/// * `version` - The GAMDL version string to check (e.g., "2.8.4")
+/// Thin wrapper over [`gamdl_capabilities::should_offer_upgrade`] kept
+/// so the surrounding `check_gamdl_update` call site stays readable.
+/// Returns `false` only for unparseable version strings. Above-ceiling
+/// versions DO pass — the "untested" state is communicated via the
+/// separate [`ComponentUpdate::is_untested`] field rather than by
+/// hiding the update entirely. See `gamdl_capabilities.rs` for the
+/// rationale.
 fn is_gamdl_compatible(version: &str) -> bool {
-    // Inner closure that parses "X.Y.Z" into (major, minor, patch).
-    // Handles both "X.Y.Z" (3 parts) and "X.Y" (2 parts, patch defaults to 0).
-    // Returns None for unparseable strings (e.g., "invalid", "1", "1.x.2").
-    let parse = |v: &str| -> Option<(u32, u32, u32)> {
-        let parts: Vec<&str> = v.split('.').collect();
-        if parts.len() >= 3 {
-            Some((
-                parts[0].parse().ok()?,
-                parts[1].parse().ok()?,
-                parts[2].parse().ok()?,
-            ))
-        } else if parts.len() == 2 {
-            Some((parts[0].parse().ok()?, parts[1].parse().ok()?, 0))
-        } else {
-            None
-        }
-    };
-
-    // Parse all three versions; return false (incompatible) if any fails to parse
-    let Some(current) = parse(version) else {
-        return false;
-    };
-    let Some(min) = parse(MIN_COMPATIBLE_GAMDL) else {
-        return false;
-    };
-    let Some(max) = parse(MAX_COMPATIBLE_GAMDL) else {
-        return false;
-    };
-
-    // Check that the version falls within the inclusive range [min, max].
-    // Rust's tuple comparison is lexicographic, which matches semver ordering:
-    // (2, 8, 4) >= (2, 0, 0) && (2, 8, 4) <= (99, 99, 99)
-    current >= min && current <= max
+    gamdl_capabilities::should_offer_upgrade(version)
 }
 
 /// Compares two semver version strings and returns true if `latest` is strictly newer than `current`.
@@ -464,7 +466,11 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 /// * `check_pre_releases` - Whether to include pre-release versions when
 ///   checking for app updates. When true, queries all recent GitHub releases
 ///   (including betas/RCs); when false, only checks the latest stable release.
-pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> UpdateCheckResult {
+pub async fn check_all_updates(
+    app: &AppHandle,
+    check_pre_releases: bool,
+    user_channel: UpdateChannel,
+) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
 
@@ -478,7 +484,9 @@ pub async fn check_all_updates(app: &AppHandle, check_pre_releases: bool) -> Upd
     // Check for app self-updates via GitHub Releases API.
     // Compares the running app version against the latest GitHub release tag.
     // When check_pre_releases is true, includes beta/RC releases in the check.
-    match check_app_update(app, check_pre_releases).await {
+    // `user_channel` is used to filter out releases that don't match the user's
+    // subscribed stability tier (e.g., a beta user won't see nightly builds).
+    match check_app_update(app, check_pre_releases, user_channel).await {
         Ok(update) => components.push(update),
         Err(e) => errors.push(format!("App update check failed: {e}")),
     }
@@ -615,10 +623,28 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         _ => false,
     };
 
-    // Apply the compatibility gate: only offer the update if the latest version
-    // falls within [MIN_COMPATIBLE_GAMDL, MAX_COMPATIBLE_GAMDL].
-    // This prevents upgrading to a GAMDL version with incompatible CLI changes.
+    // Compatibility now permits any parseable semver — the strict "is
+    // it inside the validated window?" check moved to `is_untested`.
+    // Hiding above-ceiling versions silently meant users couldn't see
+    // newly released GAMDL versions until we'd audited them; surfacing
+    // them with a warning badge is the better default.
     let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
+    let is_untested = latest
+        .as_ref()
+        .is_some_and(|v| gamdl_capabilities::is_above_tested_ceiling(v));
+
+    let description = if update_available {
+        Some(if is_untested {
+            // Surface the warning in the description text so it shows up
+            // even in places that don't render the dedicated badge.
+            "New GAMDL version available on PyPI (untested with this MeedyaDL build)"
+                .to_string()
+        } else {
+            "New GAMDL version available on PyPI".to_string()
+        })
+    } else {
+        None
+    };
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
@@ -626,11 +652,8 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         latest_version: latest.clone(),
         update_available,
         is_compatible,
-        description: if update_available {
-            Some("New GAMDL version available on PyPI".to_string())
-        } else {
-            None
-        },
+        is_untested,
+        description,
         release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{v}/")),
         release_body: None,
         // GAMDL updates are from PyPI, not GitHub Releases — no pre-release concept
@@ -656,6 +679,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
 async fn check_app_update(
     app: &AppHandle,
     check_pre_releases: bool,
+    user_channel: UpdateChannel,
 ) -> Result<ComponentUpdate, String> {
     // Get the current app version from Tauri's package info.
     // This reads the version from tauri.conf.json, set at build time.
@@ -663,10 +687,13 @@ async fn check_app_update(
 
     // Choose the GitHub API endpoint based on pre-release preference.
     // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
-    // - Include pre-releases: `releases?per_page=5` returns an array sorted newest-first
+    // - Include pre-releases: `releases?per_page=20` returns an array sorted newest-first.
+    //   We fetch up to 20 so that, after channel filtering, we still find the most
+    //   recent release on the user's tier (nightly releases ship daily and can bury
+    //   other channels in the first few results).
     let (url, is_list) = if check_pre_releases {
         (
-            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=5",
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20",
             true,
         )
     } else {
@@ -703,6 +730,7 @@ async fn check_app_update(
                 latest_version: None,
                 update_available: false,
                 is_compatible: true,
+                is_untested: false,
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -722,18 +750,30 @@ async fn check_app_update(
         .map_err(|e| format!("Failed to parse GitHub response: {e}"))?;
 
     // Extract the release object: either the single response (stable mode)
-    // or the first item from the array (pre-release mode, newest first).
+    // or the newest channel-matching entry from the array (pre-release mode).
     let release = if is_list {
         let releases = json
             .as_array()
             .ok_or("GitHub API returned unexpected format (expected array)")?;
-        if releases.is_empty() {
+        // Pick the newest release whose channel is at least as stable as
+        // the user's subscribed channel. A Beta user sees Beta, Rc, and
+        // Stable; a Stable user sees only Stable. Releases from a less-stable
+        // channel (e.g. a fresh nightly when the user is on Beta) are skipped
+        // so the UI never surfaces an update that crosses down the stability
+        // ladder. The release list is newest-first by GitHub's API contract,
+        // so `find` returns the newest qualifying entry.
+        let matched = releases.iter().find(|r| {
+            let tag = r["tag_name"].as_str().unwrap_or("");
+            UpdateChannel::from_tag(tag) >= user_channel
+        });
+        let Some(release) = matched else {
             return Ok(ComponentUpdate {
                 name: "MeedyaDL".to_string(),
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
                 is_compatible: true,
+                is_untested: false,
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -742,9 +782,8 @@ async fn check_app_update(
                 pip_package: None,
                 tool_id: None,
             });
-        }
-        // Index 0 is the newest release (may be a pre-release).
-        &releases[0]
+        };
+        release
     } else {
         // Stable mode: response is a single release object.
         &json
@@ -860,6 +899,9 @@ fn parse_release_from_response(
         // App updates are always "compatible" — the new version replaces the old one entirely.
         // Unlike GAMDL (which has a CLI interface contract), the app is self-contained.
         is_compatible: true,
+        // Untested-vs-tested only applies to GAMDL (whose CLI surface
+        // we audit per-version). MeedyaDL releases are self-contained.
+        is_untested: false,
         description: body,
         release_url: html_url,
         release_body: full_body,
@@ -1032,10 +1074,8 @@ async fn check_github_tool_update(
     // or "autobuild-2024-12-19", which can't be compared numerically.
     // Others (e.g., nilaoda/N_m3u8DL-RE) use "v0.5.1-beta" — we strip
     // the pre-release suffix to match how extract_version_from_output() works.
-    let semver_re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok();
-    let latest_semver = semver_re
-        .as_ref()
-        .and_then(|re| re.find(&latest_tag))
+    let latest_semver = SEMVER_EXTRACT_RE
+        .find(&latest_tag)
         .map(|m| m.as_str().to_string());
 
     let latest_version = if latest_tag.is_empty() {
@@ -1060,6 +1100,7 @@ async fn check_github_tool_update(
         latest_version: latest_semver.or(latest_version),
         update_available,
         is_compatible: true,
+        is_untested: false,
         description: if update_available {
             Some(format!("Newer version of {display_name} available"))
         } else {
@@ -1099,6 +1140,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // Python updates are always compatible since we control the version
         // and test it with GAMDL before shipping.
         is_compatible: true,
+        is_untested: false,
         description: if update_available {
             Some(format!("Python {target} available (portable runtime)"))
         } else {
@@ -1192,6 +1234,7 @@ async fn check_pip_engine_update(
         latest_version: latest,
         update_available,
         is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
+        is_untested: false,  // Untested-vs-tested only applies to GAMDL
         description,
         release_url,
         release_body: None,
@@ -1210,6 +1253,97 @@ async fn check_pip_engine_update(
 mod tests {
     use super::*;
 
+    /// Tests that UpdateChannel::from_tag correctly maps release tag suffixes
+    /// to their channel. Stable is the fallback for anything unrecognised so
+    /// an unexpected tag never downgrades a user's stability selection.
+    #[test]
+    fn test_update_channel_from_tag() {
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0"),
+            UpdateChannel::Stable
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("1.0.0"),
+            UpdateChannel::Stable
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-nightly.20260420"),
+            UpdateChannel::Nightly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-weekly.202616"),
+            UpdateChannel::Weekly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-monthly.202604"),
+            UpdateChannel::Monthly
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-alpha.1"),
+            UpdateChannel::Alpha
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-beta.1"),
+            UpdateChannel::Beta
+        );
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-rc.1"),
+            UpdateChannel::Rc
+        );
+        // Unknown suffix: fall back to Stable (safe default)
+        assert_eq!(
+            UpdateChannel::from_tag("v1.0.0-unreleased.x"),
+            UpdateChannel::Stable
+        );
+    }
+
+    /// Verifies the channel ordering: Nightly < Weekly < Monthly < Alpha
+    /// < Beta < Rc < Stable. This ordering is what allows the discovery
+    /// filter (`tag_channel >= user_channel`) to surface Stable releases
+    /// to a Beta-subscribed user without surfacing Beta releases to a
+    /// Stable-subscribed user.
+    #[test]
+    fn test_update_channel_ordering() {
+        assert!(UpdateChannel::Nightly < UpdateChannel::Weekly);
+        assert!(UpdateChannel::Weekly < UpdateChannel::Monthly);
+        assert!(UpdateChannel::Monthly < UpdateChannel::Alpha);
+        assert!(UpdateChannel::Alpha < UpdateChannel::Beta);
+        assert!(UpdateChannel::Beta < UpdateChannel::Rc);
+        assert!(UpdateChannel::Rc < UpdateChannel::Stable);
+    }
+
+    /// A user subscribed to Beta should receive Beta, Rc, and Stable
+    /// releases via the discovery filter (`tag_channel >= user_channel`)
+    /// but NOT Alpha or below. A user subscribed to Stable receives
+    /// only Stable.
+    #[test]
+    fn test_channel_filter_promotion() {
+        let user = UpdateChannel::Beta;
+        assert!(UpdateChannel::from_tag("v1.0.0") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-alpha.1") < user);
+        assert!(UpdateChannel::from_tag("v1.0.0-nightly.20260101") < user);
+
+        let user = UpdateChannel::Stable;
+        assert!(UpdateChannel::from_tag("v1.0.0") >= user);
+        assert!(UpdateChannel::from_tag("v1.0.0-rc.1") < user);
+        assert!(UpdateChannel::from_tag("v1.0.0-beta.1") < user);
+    }
+
+    /// requires_dev_access() should return true only for the four channels
+    /// hidden behind the Konami-code Dev Access gate.
+    #[test]
+    fn test_requires_dev_access() {
+        assert!(UpdateChannel::Nightly.requires_dev_access());
+        assert!(UpdateChannel::Weekly.requires_dev_access());
+        assert!(UpdateChannel::Monthly.requires_dev_access());
+        assert!(UpdateChannel::Alpha.requires_dev_access());
+        assert!(!UpdateChannel::Beta.requires_dev_access());
+        assert!(!UpdateChannel::Rc.requires_dev_access());
+        assert!(!UpdateChannel::Stable.requires_dev_access());
+    }
+
     /// Tests that is_newer() correctly handles all semver comparison cases:
     /// patch bumps, minor bumps, major bumps, equal versions, and downgrades.
     #[test]
@@ -1226,23 +1360,29 @@ mod tests {
         assert!(!is_newer("2.0.0", "1.0.0"));
     }
 
-    /// Tests that is_gamdl_compatible() correctly identifies versions within
-    /// and outside the [MIN_COMPATIBLE_GAMDL, MAX_COMPATIBLE_GAMDL] range.
+    /// `is_gamdl_compatible` is a thin alias over
+    /// `gamdl_capabilities::should_offer_upgrade`, which now permits any
+    /// parseable semver. The "untested vs tested" gate moved to
+    /// `is_above_tested_ceiling` and the `ComponentUpdate.is_untested`
+    /// field — that way users see new GAMDL releases as soon as upstream
+    /// ships them instead of having to wait for a MeedyaDL audit + ceiling
+    /// bump before the Updates page admits the upgrade.
     #[test]
     fn test_is_gamdl_compatible() {
-        // Within range: compatible
+        // Inside the validated window: surface as a normal upgrade.
         assert!(is_gamdl_compatible("2.9.1"));
         assert!(is_gamdl_compatible("2.9.2"));
-        assert!(is_gamdl_compatible("2.10.0"));
+        assert!(is_gamdl_compatible("3.0"));
         assert!(is_gamdl_compatible("3.0.0"));
-        // At minimum boundary: compatible (inclusive)
-        assert!(is_gamdl_compatible("2.9.1"));
-        // Below minimum: incompatible (old CLI format)
-        assert!(!is_gamdl_compatible("2.9.0"));
-        assert!(!is_gamdl_compatible("2.8.4"));
-        assert!(!is_gamdl_compatible("1.9.9"));
-        // Unparseable string: incompatible (safe default)
+
+        // Above the validated ceiling: STILL surfaced (the
+        // `is_untested` flag carries the warning context to the UI).
+        assert!(is_gamdl_compatible("99.0.0"));
+
+        // Unparseable string: refuse to offer (we can't reason about it,
+        // and downstream version comparisons would coerce it to 0.0.0).
         assert!(!is_gamdl_compatible("invalid"));
+        assert!(!is_gamdl_compatible(""));
     }
 
     /// Tests that get_platform_asset_patterns() returns a non-empty list

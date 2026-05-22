@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Utility modules providing cross-cutting concerns.
@@ -78,3 +78,66 @@ pub mod rate_limiter;
 /// `safe_rename`, `rename_if_dest_free`, `write_non_clobbering`,
 /// `resolve_non_clobbering_path`, and `same_file`.
 pub mod fs_safe;
+
+/// Depth-bounded recursive directory traversal helper (#716 finding #1).
+///
+/// Replaces 5+ ad-hoc walkers across `services/` that each open-coded
+/// `read_dir → recurse on subdirs → filter by extension/predicate →
+/// accumulate`. Single primitive `walk_dir_depth(base, max_depth, visitor)`
+/// covers every collect-paths / count-files / find-first use case via
+/// a closure visitor. New callers should use this; existing callers
+/// migrate opportunistically (#716 follow-up sub-tasks).
+pub mod fs_walk;
+
+/// Centralised reqwest::Client construction (#716 finding #2).
+///
+/// Replaces 13+ ad-hoc `reqwest::Client::builder()...build()` instances
+/// across services/ + utils/ + commands/, each rebuilding the same
+/// timeout + error-message pattern. `build_client(ClientConfig)` is
+/// the single primitive; `build_simple(timeout_secs)` is the
+/// convenience wrapper for the common case. New callers should use
+/// these; existing callers migrate opportunistically.
+pub mod http_client;
+
+/// `context_err!` macro for Tauri command error wrapping (audit v2 #7).
+///
+/// Replaces ~30-40 sites of `.map_err(|e| format!("...: {e}"))?`
+/// with `context_err!(result, "...")?`. The macro is exported via
+/// `#[macro_export]` so it lives at crate root (`crate::context_err!`)
+/// rather than under `utils::error_context::`. Real value isn't LOC
+/// saved — it's having one place to evolve error formatting if we
+/// ever migrate to a structured `CommandError` type.
+pub mod error_context;
+
+/// Subprocess line-reader spawn helper (audit v2 finding #5).
+///
+/// `spawn_line_reader(stream, visitor)` captures the truly-common
+/// shell at every subprocess reader site (`BufReader → next_line
+/// loop → visitor call`) without forcing the per-line work into a
+/// generic shape. Direct enabler for new pip-engine implementations
+/// (Votify M9, yt-dlp M10) which follow the engine_runner pattern;
+/// callers with caller-specific per-stream state (companion
+/// supervisor's watchdog/accumulator, download queue's last-clean
+/// threading) keep their inline implementations and document the
+/// choice in-source.
+pub mod subprocess_reader;
+
+/// Atomic JSON file write helper (#716 finding #8).
+///
+/// Replaces 5+ services that independently implement the same
+/// `serialize → write to .tmp → rename` durability pattern (settings,
+/// queue, history, crash reports, manifest, engine config). Single
+/// primitive `atomic_write_json(path, data, context)` makes future
+/// durability changes (fsync, retry-on-EBUSY, lock-file support)
+/// touch one place.
+pub mod atomic_write;
+
+/// Per-file write-coordination locks for concurrent enrichment stages
+/// (#779 Option 2). When AcoustID and ReplayGain both write freeform
+/// atoms to the same M4A file via `mp4ameta::Tag::write_to_path`, the
+/// read-modify-write cycle races at the byte level — last write wins,
+/// losing the other stage's atoms. `FileWriteLocks` serialises writes
+/// at the granularity of a single file so the slow per-file analyses
+/// (chromaprint, FFmpeg ebur128) can run truly in parallel while the
+/// fast millisecond-scale writes coordinate correctly.
+pub mod file_locks;

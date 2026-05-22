@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Automated Changelog Generation Workflow for MeedyaDL
@@ -67,6 +67,26 @@ on:
 permissions:
   contents: write
 
+# Concurrency control (#703).
+#
+# Without a concurrency group, two pushes to main spawn two parallel
+# changelog jobs that race on CHANGELOG.md — both check out the same SHA,
+# both regenerate against slightly different histories, and the second
+# push is rejected non-fast-forward. Earlier patches (#544, #700) bolted
+# bash-level retry loops onto the symptom; this group fixes the root
+# cause by serialising runs.
+#
+# `cancel-in-progress: false` so we don't drop changelog updates when a
+# fast-follow merge arrives — the second job waits for the first to
+# complete, then runs against the new origin/main, then short-circuits
+# (no diff) if the first job's regeneration already covered it.
+#
+# Group keyed by ref so workflow_dispatch from a feature branch doesn't
+# block the main-branch push handler (and vice versa).
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ============================================================
   # Generate and Commit CHANGELOG.md
@@ -101,33 +121,43 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
-      # Step 2: Generate CHANGELOG.md using git-cliff.
-      # The orhun/git-cliff-action@v4 installs git-cliff and runs it with the
-      # specified configuration file (cliff.toml).
+      # Step 2: Install the git-cliff binary on the runner's $PATH.
       #
-      # Inputs:
-      #   config: cliff.toml -- Path to the git-cliff configuration file that defines
-      #           the changelog template, commit parsers, and sorting rules
-      #   args: --verbose    -- Print debug information about commit parsing
+      # We previously used orhun/git-cliff-action@v4 here, but that runs
+      # git-cliff as a Docker action — the binary lives inside the
+      # container that the action uses, not on the host. The retry loop
+      # in the Commit step (#700) needs to invoke `git-cliff` directly
+      # to regenerate against a freshly-reset working tree, so the
+      # binary must be on $PATH (#703 — Run #530 failed with
+      # `git-cliff: command not found`).
       #
-      # Environment:
-      #   OUTPUT: CHANGELOG.md -- The output file path for the generated changelog.
-      #           git-cliff writes the complete changelog to this file (replacing
-      #           any existing content).
+      # Pinning the version explicitly here also gives us hermetic,
+      # reproducible regeneration: both the initial regeneration and
+      # any retry-loop regenerations use the same binary, so they can
+      # never produce different outputs against the same history.
       #
-      # The step ID 'git-cliff' makes the action's outputs available to later steps
-      # (e.g., steps.git-cliff.outputs.changelog for the generated content).
-      #
-      # @see https://github.com/orhun/git-cliff-action -- Action documentation
-      # @see https://git-cliff.org/docs/usage/cli -- CLI options reference
+      # Bump GIT_CLIFF_VERSION when a new git-cliff release introduces
+      # changelog formatting we want; otherwise leave pinned for stable
+      # CHANGELOG.md output across runs.
+      - name: Install git-cliff
+        run: |
+          set -euo pipefail
+          GIT_CLIFF_VERSION=2.10.1
+          GIT_CLIFF_DIR="git-cliff-${GIT_CLIFF_VERSION}"
+          GIT_CLIFF_TARBALL="${GIT_CLIFF_DIR}-x86_64-unknown-linux-gnu.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/${GIT_CLIFF_TARBALL}" \
+            -o /tmp/git-cliff.tar.gz
+          tar -xzf /tmp/git-cliff.tar.gz -C /tmp
+          sudo install -m 755 "/tmp/${GIT_CLIFF_DIR}/git-cliff" /usr/local/bin/git-cliff
+          git-cliff --version
+
+      # Step 3: Generate CHANGELOG.md using the locally-installed binary.
+      # Same effective invocation as the orhun action, but uses the binary
+      # we just installed so the version is consistent with the retry
+      # loop's regenerations below (#703).
       - name: Generate changelog
-        uses: orhun/git-cliff-action@c93ef52f3d0ddcdcc9bd5447d98d458a11cd4f72 # v4
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: --verbose
-        env:
-          OUTPUT: CHANGELOG.md
+        run: git-cliff --config cliff.toml --verbose --output CHANGELOG.md
 
       # Step 3: Commit and push the updated CHANGELOG.md.
       # This step:
@@ -146,10 +176,77 @@ jobs:
       # any workflows for this push, providing a second layer of infinite loop prevention.
       #
       # @see https://docs.github.com/en/actions/managing-workflow-runs/skipping-workflow-runs
+      # Push is wrapped in a regenerate-from-scratch + bounded retry loop to
+      # survive the race where another workflow (e.g. release-please, or a
+      # concurrent changelog run from a fast-follow merge) lands on main
+      # between our checkout and our push.
+      #
+      # The earlier retry strategy (#544) used `git pull --rebase` to resolve
+      # the non-fast-forward case, but did not handle a CHANGELOG.md conflict
+      # produced *during* that rebase. When two changelog runs both
+      # regenerated the file from slightly different histories, the rebase
+      # left an unmerged tree, and the next iteration of the loop tripped
+      # on `Pulling is not possible because you have unmerged files` until
+      # the budget was exhausted (#700).
+      #
+      # The fix: every retry iteration starts from a hermetically-clean
+      # state — abort any pending rebase, hard-reset to the latest
+      # origin/main, regenerate CHANGELOG.md from the new history, then
+      # commit and push. Because `git-cliff` is a deterministic function
+      # of `git log`, regenerating against the merged base produces the
+      # correct file content; there is no semantic conflict to resolve.
+      #
+      # `git-cliff` is on $PATH because orhun/git-cliff-action@v4 (the
+      # previous step) installs it and exports the directory via
+      # $GITHUB_PATH. Cargo install fallback isn't needed for this
+      # workflow's invocation pattern.
       - name: Commit changelog
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Probe once: if the action's first regeneration produced no
+          # diff against the checkout, we can short-circuit before the
+          # loop spends an iteration.
           git add CHANGELOG.md
-          git diff --staged --quiet || git commit -m "docs: update CHANGELOG.md [skip ci]"
-          git push
+          if git diff --staged --quiet; then
+            echo "No changelog changes to commit."
+            exit 0
+          fi
+          git reset HEAD -- CHANGELOG.md > /dev/null
+
+          for attempt in 1 2 3 4; do
+            # Clean slate: abort any rebase the previous iteration left
+            # behind, then fast-forward the working tree to the current
+            # tip of origin/main. Discards our local CHANGELOG.md edits;
+            # we'll regenerate them in a moment.
+            git rebase --abort 2>/dev/null || true
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Regenerate against the new history. `git-cliff` is
+            # deterministic, so the output is the canonical CHANGELOG.md
+            # for whatever HEAD now points at — no conflict to resolve.
+            git-cliff --config cliff.toml --output CHANGELOG.md
+
+            git add CHANGELOG.md
+            if git diff --staged --quiet; then
+              echo "No changelog changes to commit (attempt ${attempt}) — \
+            another run already pushed an equivalent regeneration."
+              exit 0
+            fi
+
+            git commit -m "docs: update CHANGELOG.md [skip ci]"
+
+            if git push; then
+              echo "Changelog pushed on attempt ${attempt}."
+              exit 0
+            fi
+
+            sleep_seconds=$((attempt * 2))
+            echo "Push attempt ${attempt} failed (likely non-fast-forward — \
+          another push landed); retrying in ${sleep_seconds}s..."
+            sleep "${sleep_seconds}"
+          done
+          echo "Push failed after 4 attempts." >&2
+          exit 1

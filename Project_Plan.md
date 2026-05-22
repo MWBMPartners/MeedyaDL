@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 MeedyaDL -->
+<!-- Copyright (c) 2026 MeedyaSuite -->
 <!-- Licensed under the MIT License. See LICENSE file in the project root. -->
 
 # 📋 MeedyaDL - Project Plan & Status
@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v0.34.6** (2026-03-30) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v1.9.4** (2026-03-30) — All 6 phases complete + post-release features <!-- x-release-please-version -->
 
 ---
 
@@ -237,10 +237,10 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Browser cookie auto-import** - Detect installed browsers, extract Apple Music cookies automatically
 - ✅ **Embedded Apple Music login window** - Sign in directly within the app to extract cookies (no browser extension needed)
 - ✅ **Enhanced error handling** - Improved cookie import feedback and error messages
-- ✅ **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, PortraitCover.mp4) via FFmpeg HLS conversion
+- ✅ **Animated cover art download** - MusicKit API integration for downloading animated (motion) cover art (FrontCover.mp4, FrontCoverPortrait.mp4) via FFmpeg HLS conversion
 - ✅ **MusicKit credential management** - Team ID and Key ID in settings, private key in OS keychain, ES256 JWT generation
 - ✅ **Animated artwork documentation** - Setup guide, troubleshooting, privacy info
-- ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/PortraitCover.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
+- ✅ **Hidden animated artwork files** - OS-level hidden attribute on downloaded FrontCover.mp4/FrontCoverPortrait.mp4 (macOS: `chflags hidden`, Windows: `attrib +H`, Linux: `.` prefix rename). Configurable toggle in Settings > Cover Art, default on.
 - ✅ **Configurable companion downloads** - 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, Atmos→All Formats) plus Custom mode with multi-select codec checkboxes, with [Lossless]/[Dolby Atmos] file suffixes
 - ✅ **Multi-select artist auto-select** - Checkbox group for selecting multiple artist content types (Main Albums, Singles & EPs, Music Videos, etc.) simultaneously. MeedyaDL creates N separate queue items for artist URLs (one per selected mode) since GAMDL only accepts a single `--artist-auto-select` value per invocation.
 - ✅ **Lyrics embed + sidecar** - Both embedded in file metadata AND saved as separate sidecar files (LRC/SRT/TTML)
@@ -343,6 +343,8 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Responsive content width** (v0.32.0) - Removed `max-w-*` constraints from Download, Help, and Updates pages so they fill available width.
 - ✅ **Verbose mode bypasses \r coalescing** (v0.32.0) - When `verbose_activity_log` is enabled, all progress lines are emitted to the activity log without `\r` segment coalescing.
 - ✅ **Companion lyrics recursive directory discovery** (v0.32.0) - `run_companion_lyrics_conversion()` now uses `find_dirs_with_ttml()` to recursively find album directories containing `.ttml` files, fixing missing LRC/SRT/VTT/ASS for companion tiers (#439).
+- ✅ **Persistent on-disk activity log** (#541) - Every `ActivityLogEvent` is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered Tokio background task (unbounded channel + `BufWriter` + 500 ms flush tick + UTC date rollover + graceful shutdown drain). All four `emit_*` helpers in `utils::activity_log` and the four direct-emit sites in `services::download_queue` fan out to the writer after emitting the Tauri event, so every event reaches disk regardless of the 10K in-memory cap or the Verbose UI filter. New `export_disk_activity_log` and `get_logs_folder_path` IPC commands back the "Export Disk" and "Reveal" buttons in the Activity Log toolbar. User-configurable storage location via `activity_log_path_override` setting in Settings > Advanced > Diagnostics (Browse + Reset buttons; empty = default). Pruned alongside tracing logs in `clear_old_logs()` at startup (7-day retention). Zero hot-path disk I/O, no change to WebView memory footprint — complete forensic record for bug hunting without reintroducing the 14 GB WebView RAM leak.
+- ✅ **Release channel ladder** — seven-tier channel hierarchy `feat/* → nightly → weekly → monthly → alpha → beta → release-candidate → main (stable)` with protected long-lived branches. Three cron-driven channels: `nightly-release.yml` (daily 00:00 UTC), `weekly-release.yml` (Sundays 00:00 UTC, #628 / PR #652), `monthly-release.yml` (1st of month 00:00 UTC, #628 / PR #652) — each merges `feat/*` into its branch, bumps version to `-{channel}.YYYYMMDD`, and pushes a tag to trigger `release.yml`. Three push-driven channels: `alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml` (#631) — each fires on push to its branch, computes a monotonic `-{channel}.N` counter that never resets across base-version bumps, and pushes the tag. `UpdateChannel` enum (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) plus `update_channel` AppSetting with channel-aware update checker (uses `>=` for promotion, so a Beta user also sees RC + Stable) and install guard (`download_and_install_app_update` refuses tags from a less-stable channel — #630). Channel selector in Settings > General > Updates with `ChannelSwitchWarning.tsx` modal on switch to a pre-release channel; the four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated behind `dev_access_enabled` so they only appear after the Konami unlock (#632). Branch protection split into `.github/rulesets/protected-stable-branches.json` (main / release-candidate / beta / alpha — no bypass actor, fast-forward only) and `protected-cron-channels.json` (nightly / weekly / monthly with admin-bypass for cron force-pushes — #629). `auto-delete-merged-branches.yml` exempts the channel branches from PR-merge cleanup. `release.yml` derives the `prerelease` flag dynamically from the tag suffix, auto-publishes prerelease drafts at the end of `finalize-release` (#646), and is fed by `version-bump.yml`'s pre-created GitHub Release object on the manual stable path (#645) so platform jobs can't race to fragment installers across multiple drafts. `update-security-policy.yml` rewrites SECURITY.md's "Supported Versions" table on every main push and tag push (#633). One-shot `realign-alpha.yml` helper for fast-forwarding `alpha` after a stable cut (#634).
 - 🔲 **Library folder scan for re-download** (#380) - Scan existing music folder to find quality upgrade and re-download opportunities.
 - ✅ **Multi-service groundwork** (#430, #431, #432, #433, #424, #425, #426, #288) - All service modules registered and compiling, frontend types/IPC ready, Settings Services group, DownloadForm service detection, shared deps, enrichment routing, per-service auth.
 
@@ -569,6 +571,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-04-11*
+*Last updated: 2026-04-28*
 
 (c) 2024-2026 MeedyaDL

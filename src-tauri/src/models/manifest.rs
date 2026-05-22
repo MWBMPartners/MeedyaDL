@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Download manifest model (.meedyadl files embedded in album folders).
@@ -63,6 +63,52 @@ pub struct ManifestSource {
     /// Per-track metadata from the download.
     #[serde(default)]
     pub tracks: Vec<ManifestTrack>,
+
+    /// Per-enrichment-stage completion record (#759). `None` for
+    /// manifests written before this field existed; treat absent /
+    /// `None` as "stage status unknown — assume incomplete and let
+    /// the file-based gap detector make the final call". Present
+    /// records carry an ISO 8601 `completed_at` and a `stage_version`
+    /// so future schema bumps can re-run stages whose contract
+    /// changed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enrichment: Option<std::collections::BTreeMap<String, EnrichmentRecord>>,
+
+    /// Cross-platform URLs discovered for this album (#295 Phase A).
+    /// Keyed by Odesli's platform identifier (`spotify`,
+    /// `youtubeMusic`, `tidal`, `deezer`, `amazonMusic`, …). Sparse —
+    /// only populated when `odesli_lookup_enabled` was on at
+    /// download time AND Odesli returned matches. Absent for older
+    /// manifests / Odesli misses / lookup disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
+}
+
+/// Per-stage enrichment completion record (#759).
+///
+/// Recorded into the manifest after each enrichment stage runs to
+/// completion. The Library Scan gap-fill UI consults this to decide
+/// which stages need to be re-run.
+///
+/// Schema: keep additive only. New fields must be `#[serde(default)]`
+/// so old manifests deserialize cleanly. `stage_version = 1` is the
+/// initial baseline; bump per stage when the stage's output contract
+/// changes in a way that warrants forced re-run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnrichmentRecord {
+    /// ISO 8601 timestamp when the stage completed successfully.
+    /// `None` means "ran but failed / partial / timed out".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    /// Stage-contract version. Increment per stage when its output
+    /// changes incompatibly (e.g. ReplayGain switches from RG2 to
+    /// EBU R128). Defaults to 1 for any stage that hasn't bumped.
+    #[serde(default = "default_stage_version")]
+    pub stage_version: u32,
+}
+
+fn default_stage_version() -> u32 {
+    1
 }
 
 /// Metadata for a single track within a manifest source.
@@ -84,6 +130,11 @@ pub struct ManifestTrack {
     /// ISRC (International Standard Recording Code) for cross-platform matching.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub isrc: Option<String>,
+    /// Apple Music song_id (numeric string) — primary dedup key when a user
+    /// enables the duplicate-detection history scope (#510). Older manifests
+    /// written before this field existed will deserialize with `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub song_id: Option<String>,
 }
 
 fn default_disc() -> u32 {
@@ -105,21 +156,188 @@ impl ManifestFile {
 
     /// Merge a new source into an existing manifest.
     ///
-    /// If a source with the same `platform` and `url` already exists,
-    /// it is replaced (re-download of the same content). Otherwise,
-    /// the new source is appended.
+    /// **Dedup key** (`platform`, `url`, `codec`) — promoted from
+    /// (`platform`, `url`) in #789 so a single album folder can carry
+    /// both the primary codec source (e.g. Atmos) AND a companion
+    /// codec source (e.g. ALAC) without one replacing the other. The
+    /// pre-#789 dedup treated both as the same "re-download" and lost
+    /// the companion's per-track metadata when the legacy-folder
+    /// merge appended its source.
+    ///
+    /// Behaviour:
+    ///   - Same (`platform`, `url`, `codec`) → replace (genuine
+    ///     re-download of the same content + codec; tracks may have
+    ///     been remastered / added).
+    ///   - Different `codec` for the same `url` → append (the
+    ///     companion-codec case that #789 surfaces).
+    ///   - Different `url` → append (existing multi-platform /
+    ///     multi-album behaviour).
     pub fn merge_source(&mut self, source: ManifestSource) {
         self.updated_at = chrono::Utc::now().to_rfc3339();
 
-        // Replace existing source for the same platform + URL, or append
-        if let Some(existing) = self
-            .sources
-            .iter_mut()
-            .find(|s| s.platform == source.platform && s.url == source.url)
-        {
+        // Replace existing source for the same platform + URL + codec,
+        // or append. `codec` is part of the key so primary + companion
+        // sources for the same album both survive the merge (#789).
+        if let Some(existing) = self.sources.iter_mut().find(|s| {
+            s.platform == source.platform
+                && s.url == source.url
+                && s.codec == source.codec
+        }) {
             *existing = source;
         } else {
             self.sources.push(source);
         }
+    }
+}
+
+// ============================================================
+// Unit tests
+// ============================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_source(platform: &str, url: &str, codec: Option<&str>) -> ManifestSource {
+        ManifestSource {
+            platform: platform.to_string(),
+            url: url.to_string(),
+            storefront: None,
+            downloaded_at: "2026-05-17T12:00:00Z".to_string(),
+            codec: codec.map(String::from),
+            last_modified_date: None,
+            tracks: Vec::new(),
+            enrichment: None,
+            cross_platform_urls: None,
+        }
+    }
+
+    /// Genuine re-download: same (platform, url, codec) → replace.
+    /// Preserves the old behaviour for the most common case.
+    #[test]
+    fn merge_source_replaces_same_platform_url_codec() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        let mut second = make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        );
+        second.downloaded_at = "2026-05-17T13:00:00Z".to_string();
+        m.merge_source(second);
+        assert_eq!(m.sources.len(), 1, "same (platform, url, codec) → replace");
+        assert_eq!(m.sources[0].downloaded_at, "2026-05-17T13:00:00Z");
+    }
+
+    /// Companion-codec case (#789): same album URL but different codec
+    /// → append both, don't replace. This is the change the issue
+    /// surfaced: pre-fix the companion's source would overwrite the
+    /// primary's source and lose its tracks.
+    #[test]
+    fn merge_source_appends_when_codec_differs_on_same_url() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("atmos"),
+        ));
+        m.merge_source(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        assert_eq!(m.sources.len(), 2);
+        assert_eq!(m.sources[0].codec.as_deref(), Some("atmos"));
+        assert_eq!(m.sources[1].codec.as_deref(), Some("alac"));
+    }
+
+    /// Different URL still appends regardless of codec (existing
+    /// multi-album behaviour preserved).
+    #[test]
+    fn merge_source_appends_when_url_differs() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        m.merge_source(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/bar/456",
+            Some("alac"),
+        ));
+        assert_eq!(m.sources.len(), 2);
+    }
+
+    /// Different platform always appends (multi-service support).
+    #[test]
+    fn merge_source_appends_when_platform_differs() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        m.merge_source(make_source(
+            "spotify",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        assert_eq!(m.sources.len(), 2);
+    }
+
+    /// Both sources lack a codec field → they're still "the same"
+    /// source (the dedup key matches on `None == None`).
+    #[test]
+    fn merge_source_replaces_when_both_codecs_are_none() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            None,
+        ));
+        m.merge_source(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            None,
+        ));
+        assert_eq!(m.sources.len(), 1);
+    }
+
+    /// One source has a codec, the other doesn't → these are
+    /// distinct entries (a legacy manifest without codec metadata
+    /// next to a fresh one with codec).
+    #[test]
+    fn merge_source_treats_some_codec_and_none_as_distinct() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            None,
+        ));
+        m.merge_source(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        assert_eq!(m.sources.len(), 2);
+    }
+
+    /// `updated_at` bumps on every merge call (so consumers can
+    /// detect manifest staleness).
+    #[test]
+    fn merge_source_bumps_updated_at() {
+        let mut m = ManifestFile::new(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("alac"),
+        ));
+        let original_updated = m.updated_at.clone();
+        // Wait at least 1 ms so the new RFC3339 timestamp differs.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        m.merge_source(make_source(
+            "apple-music",
+            "https://music.apple.com/us/album/foo/123",
+            Some("atmos"),
+        ));
+        assert_ne!(m.updated_at, original_updated);
     }
 }

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaDL
+# Copyright (c) 2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Release Please Workflow for MeedyaDL
@@ -63,6 +63,20 @@ on:
 permissions:
   contents: write
   pull-requests: write
+
+# Concurrency control (#703 — hardening).
+#
+# release-please-action coalesces internally on its own release-PR
+# branch, so this group is belt-and-braces — but every other long-
+# running workflow that mutates `main` in this repo (alpha/beta/rc/
+# nightly/weekly/monthly/realign-alpha/update-security-policy) has a
+# concurrency group, and missing it here was a foot-gun for the
+# future. `cancel-in-progress: false` matches the pattern used by
+# those workflows so a late-arriving push doesn't drop a release-PR
+# update mid-flight.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release-please:

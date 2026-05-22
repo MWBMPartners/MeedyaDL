@@ -1,0 +1,60 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# PR Title Lint
+# =============
+#
+# Release Please reads the squash-merge commit title from merged pull
+# requests. If that title is not a Conventional Commit, Release Please
+# treats the change as non-user-facing and will not create a release PR.
+# This workflow catches bad PR titles before merge.
+
+name: PR Title
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commitlint:
+    name: Conventional PR title
+    runs-on: ubuntu-latest
+    # Skip release-please's own PRs (#825). The title comes from a fixed
+    # template (`chore(main): release X.Y.Z`) that is always valid, so
+    # validating it adds zero value. Release-please force-pushes its
+    # release branch rapidly (multiple syncs within seconds); with the
+    # workflow's `cancel-in-progress: true` concurrency group, an earlier
+    # in-flight run can be cancelled by a later push and the cancelled
+    # run becomes the rollup status on the current HEAD — blocking merge
+    # of an otherwise-fine release PR. v1.8.0's #822 hit this exact race
+    # and required a manual rerun. Skipping the job entirely on that
+    # branch eliminates the hazard.
+    if: github.event.pull_request.head.ref != 'release-please--branches--main--components--meedyadl'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        shell: bash
+        run: npm ci --no-audit --no-fund --no-progress
+
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$PR_TITLE" | npx commitlint

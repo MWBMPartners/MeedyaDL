@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaDL
+  Copyright (c) 2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -79,6 +79,15 @@ Not all content on Apple Music is available in every codec and resolution. Some 
 
 ### Not Found Errors (not_found)
 
+#### Storefront Mismatch (different country in URL vs your account)
+
+If you paste a URL from a country other than your Apple Music account region (e.g. a `/us/` link while your account is `gb`), and the album either isn't published in the URL's catalog or your account can't license it from that storefront, MeedyaDL will see an `AMP API Status code: 404 Resource Not Found` error.
+
+- **Default behaviour (v0.52+):** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
+- **If both storefronts fail:** the activity log shows `Album not available in 'us' or 'gb'` and the item moves to the failed bucket. The album may genuinely be region-locked or removed from the catalog.
+- **To disable the auto-retry:** uncheck **Settings > General > Auto-retry with your region when a URL's storefront fails**. Strict URL-storefront behaviour is restored.
+- **Why the auto-retry is one-shot only:** to prevent two URLs whose albums are mutually unavailable from ping-ponging forever. A manual click on the **Retry** button refreshes the budget, so you can ask for the rewrite again.
+
 #### Content Not Found
 
 - **Cause:** The content has been removed from Apple Music, the URL is invalid or malformed, or the content is not available in your configured region.
@@ -121,6 +130,128 @@ If you use wrapper authentication and MeedyaDL reports the wrapper is unreachabl
 If wrapper downloads fail frequently, you can enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled, failed wrapper downloads are automatically re-queued with wrapper disabled (falls back to cookie-based authentication). This saves you from manually clicking "Retry without Wrapper" on each failed item.
 
 Without this setting enabled, failed wrapper downloads show a **"Retry without Wrapper"** button on the queue item, allowing you to manually retry with cookie-based auth.
+
+#### "Decryption is not available" warnings (wrapper enabled, downloads still skipping)
+
+This is a GAMDL warning that means: *"the wrapper accepted the connection, but it couldn't decrypt this track."* You'll see lines like this in the Activity Log:
+
+```text
+[Track 14/14] Skipping "Just Getting Started.": Decryption is not available for media ID: 1021848727
+```
+
+The most common cause when the wrapper is enabled is **stale wrapper authentication**. The wrapper service logs into Apple Music once with your credentials and keeps the resulting tokens in its data directory. Those tokens can expire over time — often after a few weeks or after Apple invalidates the session for any reason. When that happens, the wrapper still *appears* to be working: MeedyaDL's pre-download checks for the account / m3u8 / decryption services all pass (the sockets accept connections), the download starts, and the manifest fetch succeeds — but every per-track decryption request fails because the wrapper's stored Apple Music tokens are no longer valid.
+
+##### How to re-authenticate the wrapper
+
+You re-run the wrapper's one-off **login command** with your Apple Music username and password. The wrapper saves fresh tokens to its data directory; subsequent runs use those tokens normally.
+
+**If you're running the wrapper via Docker** (the most common setup):
+
+1. Stop the running wrapper container:
+
+   ```sh
+   docker compose down
+   ```
+
+2. Run the wrapper in **login mode** with your Apple credentials:
+
+   ```sh
+   docker run --privileged --rm -it \
+     -v ./rootfs/data:/app/rootfs/data \
+     --entrypoint ./wrapper \
+     ghcr.io/worldobservationlog/wrapper:local \
+     -L "your.apple.id@example.com:your-apple-password" \
+     -H 0.0.0.0
+   ```
+
+   The wrapper will sign into Apple Music. If your Apple ID has two-factor authentication, it will prompt for the 6-digit code — enter it and let the login finish.
+
+3. Once login completes (you'll see confirmation in the terminal), press **Ctrl-C** to quit.
+
+4. Start the wrapper normally again:
+
+   ```sh
+   docker compose up -d
+   ```
+
+**If you're running the wrapper natively** (not via Docker), the equivalent is to run the wrapper binary with the `-L "username:password"` flag once, let it sign in, quit, then start it again normally.
+
+##### How to tell if it's an auth issue vs a different problem
+
+Stale wrapper auth typically shows *every* track in a download skipping with the same "Decryption is not available" message. If only some tracks skip and others succeed, it's more likely that those specific tracks just aren't available in the requested codec — adjust the [Fallback Quality chain](fallback-quality.md) so MeedyaDL retries with a different format (ALAC / AAC) for the skipped ones. The Activity Log entries themselves look identical for both cases; the rate of skips is your diagnostic.
+
+##### Other possible causes
+
+- **You haven't enabled wrapper auth at all.** Atmos, AC-3 and other experimental codecs are wrapper-only — cookie-based auth alone can't decrypt them. Toggle **Use Wrapper** in Settings > Advanced if you haven't already.
+- **The track genuinely isn't available in the requested codec.** Some Apple Music regions have different mastering catalogues; not every track has an Atmos mix. The fallback chain handles this automatically when configured.
+- **The track was withdrawn or replaced.** Apple periodically replaces individual tracks (e.g., a song migrated from one album release to another). Re-fetching the album page in your browser may reveal it's been re-listed under a different ID.
+
+##### Does changing **Download Mode** help?
+
+No — Download Mode (yt-dlp vs N_m3u8DL-RE in Settings > Advanced) only changes the tool that downloads the encrypted HLS streams from Apple's CDN. It doesn't affect authentication or decryption. If decryption is failing, switching Download Mode won't fix it. (Some users see downloads "start working again" after switching modes because changing the setting forces a fresh attempt with reset state — not because of the mode itself.)
+
+#### Running the wrapper on a different device on your network
+
+You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
+
+This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know about all three. If you only update one or two of them, downloads will appear to start successfully but then fail partway through.
+
+In **Settings > Advanced > Wrapper**, you'll find three address fields. Update *all three* to point at the device running the wrapper:
+
+| Setting                          | What it does                          | Default                    |
+| -------------------------------- | ------------------------------------- | -------------------------- |
+| **Wrapper Account URL**          | The wrapper's account / login service | `http://127.0.0.1:30020`   |
+| **Wrapper m3u8 Address**         | The wrapper's playlist service        | `127.0.0.1:20020`          |
+| **Wrapper Decryption Address**   | The wrapper's decryption service      | `127.0.0.1:10020`          |
+
+If your wrapper runs on a Raspberry Pi at `192.168.1.50`, change them to:
+
+- **Wrapper Account URL:** `http://192.168.1.50:30020`
+- **Wrapper m3u8 Address:** `192.168.1.50:20020`
+- **Wrapper Decryption Address:** `192.168.1.50:10020`
+
+Note that the host (`192.168.1.50`) is the same in all three — only the port number differs.
+
+**MeedyaDL will warn you if anything's unreachable.** Before each download starts, MeedyaDL quietly checks all three services and shows a yellow warning toast if any of them can't be reached. The warning tells you which service failed and at what address, so you can fix the right setting.
+
+##### Common gotchas when using a remote wrapper
+
+- **The wrapper service needs to accept network connections, not just local ones.** By default, many wrapper installs only listen on `127.0.0.1` (the device itself). If you've installed it via Docker, that usually means the container needs port-forwarding configured (the `ports:` section in your `compose.yaml`); if you've installed it natively, the wrapper's own configuration needs to listen on `0.0.0.0` instead of `127.0.0.1`.
+- **A firewall on the wrapper's device may be blocking the ports.** On Linux, run something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`).
+- **Forgetting to update all three settings.** If the Account URL points at the Raspberry Pi but the Decryption Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads silently fail at the decryption stage. The pre-download warnings catch this.
+- **You need three free ports on the same device.** The wrapper can't share its three ports with anything else on its host, but the host *can* run other services on different ports.
+
+##### Quick alternative: SSH tunnel
+
+If you'd rather not change MeedyaDL's settings at all, you can forward all three ports through SSH from your MeedyaDL machine. From a terminal on the Mac/PC running MeedyaDL:
+
+```sh
+ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
+```
+
+While the SSH session stays open, the three ports on the Mac/PC tunnel through to the same ports on the Raspberry Pi. MeedyaDL can keep its default `127.0.0.1` settings and everything just works. Useful for trying it out before committing to the address-change approach.
+
+---
+
+### Retrying Failed or Partial Downloads
+
+#### Per-item retry
+
+- **Queue page:** every failed item has a circular-arrow **Retry** button on the right of its row. Wrapper-using items also expose **Retry without Wrapper**. Right-click a row for the same actions plus **Copy Source Link** and **Open Folder**.
+- **History page:** every failed entry now has a **Retry** button (rotate-ccw icon) and the same actions are available via right-click. The original history entry is preserved when you retry; the new download writes its own entry on completion.
+
+#### Bulk retry: "Retry All Failed"
+
+The header on both **Queue** and **History** pages shows a **Retry All Failed (N)** button when at least one failed item exists. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
+
+#### Smart retry: only the failed tracks re-run
+
+When you retry an item that previously produced a partial download (e.g. `GAMDL reported N per-track error(s)`), MeedyaDL reads the `manifest.meedyadl` file in the album folder, diffs the expected track list against the audio files actually on disk, and re-runs GAMDL with `album_url?i={song_id}` URLs covering only the missing tracks. Behaviour:
+
+- If **every track** is already on disk, the retry is refused with `Nothing to retry — all N track(s) are already on disk` instead of pointlessly re-queueing.
+- If **some tracks** are missing, only those are re-fetched. A 50-track box set with 3 failed tracks runs in seconds, not minutes.
+- If **no manifest** is found (the previous run failed before enrichment finished), the retry falls back to the original behaviour: re-running the full album URL with `overwrite=false` so existing files are kept.
+- The Activity Log shows the smart-retry decision: `Smart retry for {id}: targeting 3 of 50 track(s) — 3 URL(s) queued`.
 
 ---
 
@@ -266,22 +397,47 @@ The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** check
 - **Scrolling up:** The checkbox automatically unchecks, freezing the view so you can read earlier entries without losing your place.
 - **Re-checking:** Jumps back to the bottom and resumes auto-scrolling.
 
-The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Use the **Export** button to save the full log before entries are trimmed.
+The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
 
 ---
 
 ### Activity Log Export
 
-#### How to Export the Activity Log
+The Activity Log toolbar offers **three** actions for preserving log data, each suited to a different scenario:
 
-You can export the contents of the Activity Log to a text file for sharing or archival purposes.
+| Button | What it exports | When to use it |
+| --- | --- | --- |
+| **Export** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
+| **Export Disk** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
+| **Reveal** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
+
+#### How to Export the Visible Activity Log
 
 1. Open the **Activity Log** panel (accessible from the sidebar or the bottom panel).
-2. Click the **Export** button in the Activity Log header.
-3. Choose a save location in the native file dialog -- the default filename includes a timestamp (e.g., `activity-log-2026-03-26.log`).
-4. The exported `.log` file is a plain-text file with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
+2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
+3. Click the **Export** button in the Activity Log header.
+4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
+5. The exported `.log` file is plain-text with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
 
-The export captures all entries currently visible in the Activity Log, respecting any active search or filter. To export the complete unfiltered log, clear the search field and ensure all category filters (System, Download, Verbose) are enabled before exporting.
+To export the complete unfiltered in-memory view, clear the search field and enable all category filters (System, Download, Verbose) before exporting.
+
+#### How to Export the On-Disk Activity Log
+
+MeedyaDL writes every activity log event to a daily-rotating file on disk (`activity-YYYY-MM-DD.log`) as it happens. This is the authoritative record for bug hunting because it includes:
+
+- Entries from earlier in the session that were trimmed from the 10,000-line in-memory buffer.
+- Every verbose event, even when the Verbose filter in the UI is off.
+- Events written before the Activity Log panel was ever opened in that session.
+
+To export it, click **Export Disk** in the Activity Log toolbar. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
+
+You can also browse the log files directly by clicking **Reveal** — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
+
+> **Retention:** On-disk activity logs are kept for **7 days** before being pruned automatically, matching the retention window for the tracing log. A heavy download session typically writes under 5 MB per day.
+
+#### Changing where on-disk activity logs are stored
+
+By default, activity logs live in the same `logs/` directory as the tracing and session logs (see *Log File Locations* below). You can point them at a different directory — for example, an external drive — via **Settings > Advanced > Diagnostics > On-disk activity log location**. Click **Browse…** to select a folder, or paste a path directly into the field. Click **Reset** to return to the default. The change applies on the next app restart. If the chosen path is not writable at startup, MeedyaDL falls back to the default and logs a warning.
 
 ---
 
@@ -289,13 +445,23 @@ The export captures all entries currently visible in the Activity Log, respectin
 
 ### Log File Locations
 
-MeedyaDL writes daily-rotating log files to the application data directory on each platform. Log files are named `meedyadl.YYYY-MM-DD.log` and are created automatically:
+MeedyaDL writes three kinds of daily-rotating log files to its `logs/` subdirectory under the platform app data directory:
+
+| Filename pattern | Contents | Retention |
+| --- | --- | --- |
+| `meedyadl.YYYY-MM-DD.log` | `tracing` structured log output from the Rust backend. | 7 days |
+| `activity-YYYY-MM-DD.log` | Persistent on-disk activity log — every event emitted to the Activity Log panel, including events that were trimmed from the in-memory buffer and every verbose line regardless of UI filter state. Written by a dedicated background writer with buffered I/O so it never blocks downloads. | 7 days |
+| `session-YYYY-MM-DD.log` | Older fallback: entries that were trimmed out of the 10,000-line Activity Log as a session overflowed. Largely superseded by `activity-*.log`, but kept for backwards compatibility. | 30 days |
+
+The default `logs/` directory:
 
 | Platform | Log File Location |
 | --- | --- |
 | macOS | `~/Library/Application Support/io.github.meedyadl/logs/` |
 | Windows | `%APPDATA%/io.github.meedyadl/logs/` |
 | Linux | `~/.local/share/io.github.meedyadl/logs/` |
+
+You can override the location of `activity-*.log` files via **Settings > Advanced > Diagnostics > On-disk activity log location** — useful for pointing logs at an external drive. The `meedyadl.*` tracing logs and `session-*` files always live in the default directory.
 
 ### Reading Log Files
 

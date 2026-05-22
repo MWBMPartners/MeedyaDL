@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaDL
+  Copyright (c) 2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -149,6 +149,8 @@ Once setup is complete and your cookies are configured, downloading music is str
 You can paste multiple URLs and add them to the queue one after another. The queue processes downloads sequentially so you can continue adding items while downloads are in progress.
 
 **Tip:** MeedyaDL also monitors your clipboard. If you copy an Apple Music URL from a browser or messaging app, a notification will appear offering to download it — clicking **Download** adds it directly to the queue. When the app window is not focused, a native OS notification is sent instead so you don't miss it. Clipboard monitoring can be toggled off in **Settings > General > Preferences**.
+
+**If a download fails:** every failed item shows a **Retry** button on the right of its row in both the Queue and History pages. Right-click any row to access the same actions plus Copy URL and Open Folder. To re-run multiple failed items at once, use the **Retry All Failed (N)** button in the page header. MeedyaDL is smart about retries — it reads the album's manifest and only re-fetches the tracks that actually failed, rather than re-running the whole album.
 
 For more details on downloading music, see [Downloading Music](downloading-music.md). For music videos, see [Downloading Videos](downloading-videos.md).
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Download-related data models.
@@ -66,7 +66,12 @@ use super::gamdl_options::GamdlOptions;
 /// 1. Reads the current `AppSettings` and converts them to `GamdlOptions`.
 /// 2. Merges `self.options` (if present) on top of the global options.
 /// 3. Creates one `QueueItemStatus` per URL and enqueues them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Default` is implemented so callers can use struct-update syntax
+/// (`DownloadRequest { urls: ..., ..Default::default() }`) — important
+/// because adding new optional fields (e.g. `mv_companion_override` in
+/// #717 5e) shouldn't require updating every existing struct literal.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DownloadRequest {
     /// One or more Apple Music URLs to download. Each URL can be a song,
     /// album, playlist, or music video link. The download manager creates
@@ -82,6 +87,27 @@ pub struct DownloadRequest {
     /// See `GamdlOptions` in `gamdl_options.rs` for why all fields are
     /// `Option<T>` and how the merge works.
     pub options: Option<GamdlOptions>,
+
+    /// Per-item override for the music-video-companion enrichment stage
+    /// (#717 sub-feature 5e, Phase 5d-prep).
+    ///
+    /// - `None` -- inherit `AppSettings.music_video_companion`. Default
+    ///   for normal queue additions from the Download form / clipboard /
+    ///   deep links.
+    /// - `Some(true)` -- force-enable MV companion downloads for THIS item
+    ///   only, regardless of the global setting. Used by the Library Scan
+    ///   gap-fill flow when the user opts in to "Yes, include music
+    ///   videos" on a re-download where the global setting is off.
+    /// - `Some(false)` -- force-disable MV companion downloads for THIS
+    ///   item only. Used when the user opts out on a re-download where
+    ///   the global setting is on.
+    ///
+    /// Stored on the resulting `QueueItem` so the enrichment task can
+    /// consult it before falling back to settings. Persists across app
+    /// restarts via `PersistedQueueItem` so an in-flight queue carrying
+    /// per-item MV decisions survives a crash recovery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mv_companion_override: Option<bool>,
 }
 
 /// Response returned by the `start_download` Tauri command.
@@ -243,6 +269,24 @@ pub struct QueueItemStatus {
     /// "ReplayGain 12/28"). `None` outside of Processing state.
     pub processing_label: Option<String>,
 
+    /// Intra-Processing progress estimate in the range 0.0–1.0 (#576).
+    ///
+    /// Set by each enrichment stage at its start / end so the queue-level
+    /// progress bar shows visible forward motion DURING the Processing
+    /// state — not just a single 0 → 1 jump when the item transitions
+    /// from `Processing` to `Complete`.
+    ///
+    /// Cumulative across all enrichment stages: 0.0 when the item first
+    /// enters Processing, 1.0 when the final stage (manifest write)
+    /// completes. Each stage contributes a fixed weight from the
+    /// stage-weights table in `services::download_queue`.
+    ///
+    /// `None` in non-Processing states. The UI's queue-level aggregation
+    /// treats `None` within a Processing item as 0.5 — a safe mid-credit
+    /// default, equivalent to the pre-#576 flat credit.
+    #[serde(default)]
+    pub processing_progress: Option<f32>,
+
     /// Error message if the download failed (`state == Error`). Contains
     /// the stderr output or exception message from the GAMDL subprocess.
     /// `None` in all non-error states.
@@ -286,6 +330,27 @@ pub struct QueueItemStatus {
     /// URL for completed items. Empty for clean completions.
     #[serde(default)]
     pub warnings: Vec<String>,
+
+    /// Union of `audioTraits` across all tracks in this download as
+    /// returned by the Apple Music catalog API (e.g.,
+    /// `["atmos", "lossless", "lossy-stereo", "spatial"]`). Populated
+    /// during the early-metadata fetch in `process_queue` and used by
+    /// `plan_companions` (#504) to skip companion tiers whose codec
+    /// has no matching trait, instead of letting GAMDL crash with
+    /// `NoneType.audio_track`. Empty when no API metadata was reachable.
+    #[serde(default)]
+    pub audio_traits: Vec<String>,
+
+    /// Number of music-video companions discovered for this item, once
+    /// the enrichment task has run its MV-relation lookup (#776). `None`
+    /// before the lookup runs (or when MV companions are disabled);
+    /// `Some(n)` once the count is known. Read by the completion-task
+    /// timeout calculation so the *companion-wait* deadline can scale
+    /// against the real number of MV downloads still pending instead of
+    /// the conservative `min(track_count, 30)` estimate used pre-lookup.
+    /// Cleared on retry alongside the other per-attempt state.
+    #[serde(default)]
+    pub mv_companion_count: Option<usize>,
 
     /// ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SS.sssZ`) when this item
     /// was added to the queue. Used for sorting the queue display and
@@ -393,6 +458,7 @@ mod tests {
                 "https://music.apple.com/us/album/another/987654321".to_string(),
             ],
             options: None,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -414,6 +480,7 @@ mod tests {
                 overwrite: Some(true),
                 ..Default::default()
             }),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -451,6 +518,7 @@ mod tests {
             speed: Some("2.5 MB/s".to_string()),
             eta: Some("00:45".to_string()),
             processing_label: None,
+            processing_progress: None,
             error: None,
             output_path: None,
             codec_used: Some("alac".to_string()),
@@ -460,6 +528,8 @@ mod tests {
             album_name: Some("Test Album".to_string()),
             artist_name: Some("Test Artist".to_string()),
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-01-15T10:30:00.000Z".to_string(),
         };
 
@@ -500,6 +570,7 @@ mod tests {
             speed: None,
             eta: None,
             processing_label: None,
+            processing_progress: None,
             error: Some("Network timeout after 30 seconds".to_string()),
             output_path: None,
             codec_used: None,
@@ -509,6 +580,8 @@ mod tests {
             album_name: None,
             artist_name: None,
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-02-01T08:00:00.000Z".to_string(),
         };
 
@@ -542,6 +615,7 @@ mod tests {
             speed: None,
             eta: None,
             processing_label: None,
+            processing_progress: None,
             error: None,
             output_path: Some("/Users/test/Music/Artist/Album/01 Track.m4a".to_string()),
             codec_used: Some("aac".to_string()),
@@ -551,6 +625,8 @@ mod tests {
             album_name: Some("Done Album".to_string()),
             artist_name: None,
             warnings: Vec::new(),
+            audio_traits: Vec::new(),
+            mv_companion_count: None,
             created_at: "2025-03-10T14:22:00.000Z".to_string(),
         };
 

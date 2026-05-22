@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file Status bar component.
  *
@@ -27,10 +27,12 @@
  * @see https://react.dev/learn/rendering-lists       -- conditional rendering of count spans.
  */
 
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 // Tauri app API for reading the version from tauri.conf.json at runtime.
 import { getVersion } from '@tauri-apps/api/app';
+
+import { Square } from 'lucide-react';
 
 /**
  * Zustand store hook for the download queue.
@@ -42,6 +44,7 @@ import { getVersion } from '@tauri-apps/api/app';
  */
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useUiStore } from '@/stores/uiStore';
 
 /** Human-readable labels for after-queue actions (status bar display). */
 const AFTER_QUEUE_LABELS: Record<string, string> = {
@@ -118,16 +121,56 @@ export function StatusBar() {
    * queue sizes this is efficient enough without memoisation.
    */
 
-  /** Number of items currently downloading or being post-processed. */
-  const activeCount = queueItems.filter(
-    (i) => i.state === 'downloading' || i.state === 'processing'
-  ).length;
+  /**
+   * Split downloading vs processing (#817). Pre-fix, both were
+   * lumped into a single "N downloading" count, which violated the
+   * serial-queue invariant on screen — users would see "2 downloading"
+   * when one item was actively downloading via GAMDL and another was
+   * stuck in post-processing (e.g. the #815 silent-hang). Showing
+   * them separately gives a truthful signal: "1 downloading · 1
+   * processing" makes the stuck-post-processing state visible
+   * without misleading users that two GAMDL subprocesses are racing.
+   */
+  const downloadingCount = queueItems.filter((i) => i.state === 'downloading').length;
+  const processingCount = queueItems.filter((i) => i.state === 'processing').length;
+  /** Combined for backwards-compat with downstream conditions that
+   * just need to know "is anything active". */
+  const activeCount = downloadingCount + processingCount;
 
   /** Number of items waiting in the queue that have not yet started. */
   const queuedCount = queueItems.filter((i) => i.state === 'queued').length;
 
   /** Number of items that have finished successfully. */
   const completedCount = queueItems.filter((i) => i.state === 'complete').length;
+
+  /**
+   * Fires the abort-all action (#620). Honours the
+   * `abort_queue_confirm` setting: when enabled, uses a native
+   * `window.confirm()` rather than the queue-page modal — duplicating
+   * the modal here would require lifting state into a shared context,
+   * and the StatusBar affordance is the "quick escape" path where a
+   * lightweight confirmation is appropriate. When disabled, fires
+   * immediately.
+   */
+  const abortAll = useDownloadStore((s) => s.abortAll);
+  const abortQueueConfirm = useSettingsStore(
+    (s) => s.settings.abort_queue_confirm,
+  );
+  const addToast = useUiStore((s) => s.addToast);
+  const triggerAbort = useCallback(() => {
+    if (abortQueueConfirm) {
+      // `window.confirm` is a blocking native modal — acceptable here
+      // because the action is destructive and the StatusBar doesn't
+      // own the shared Modal component the Queue page uses. The Queue
+      // page's richer confirmation (with "Don't ask again") remains
+      // the canonical flow.
+      const confirmed = window.confirm(
+        'Abort every active and queued download? This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
+    void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
+  }, [abortAll, abortQueueConfirm, addToast]);
 
   return (
     /**
@@ -163,14 +206,45 @@ export function StatusBar() {
          * to draw attention to ongoing activity.
          * @see https://tailwindcss.com/docs/animation#pulse
          */}
-        {activeCount > 0 && (
+        {downloadingCount > 0 && (
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-status-info animate-pulse" />
-            {activeCount} downloading
+            {downloadingCount} downloading
+          </span>
+        )}
+        {/* Processing count (#817) — items past GAMDL exit and in
+         * the post-companion / enrichment / final-tag stages. Shown
+         * separately from `downloading` so the serial-queue
+         * invariant ("only 1 GAMDL subprocess active at a time") is
+         * visible without lumping stuck post-processing into the
+         * download count. Uses an hourglass-style amber dot to
+         * distinguish at a glance. */}
+        {processingCount > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-status-warning" />
+            {processingCount} processing
           </span>
         )}
         {/* Queued count -- items waiting to start */}
         {queuedCount > 0 && <span>{queuedCount} queued</span>}
+        {/*
+          Global "Abort Queue" affordance (#620). Always available — even
+          when the user is on Settings / History pages and can't reach the
+          queue-page button. Fires the same abort path (confirmation
+          respects `abort_queue_confirm`).
+        */}
+        {(activeCount > 0 || queuedCount > 0) && (
+          <button
+            type="button"
+            onClick={triggerAbort}
+            aria-label="Abort queue"
+            title="Abort queue — stop every active and queued download (Cmd/Ctrl+Shift+.)"
+            className="flex items-center gap-1 text-status-error hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
+          >
+            <Square size={12} />
+            <span className="text-xs">Abort</span>
+          </button>
+        )}
         {/* Completed count -- successfully finished items */}
         {completedCount > 0 && <span>{completedCount} completed</span>}
         {/* Empty-queue fallback message */}
