@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Service modules containing the core business logic.
@@ -61,6 +61,14 @@ pub mod python_manager;
 /// and emits events to the frontend via Tauri's event system.
 pub mod gamdl_service;
 
+/// Version-aware capability flags for the installed GAMDL release.
+///
+/// Tracks which CLI options / INI keys the currently installed GAMDL
+/// version supports so we can emit a backwards-compatible command line
+/// across GAMDL `>= 2.9.1` (oldest we still support) through the
+/// current v3.x line.
+pub mod gamdl_capabilities;
+
 /// Dependency manager: download and install external tool binaries
 /// (`FFmpeg`, mp4decrypt, N_m3u8DL-RE, `MP4Box`) from their official
 /// GitHub release pages.
@@ -89,6 +97,14 @@ pub mod config_service;
 /// (`State<'_, QueueHandle>`) and accessed from both command handlers
 /// and background download tasks.
 pub mod download_queue;
+
+/// Companion-download supervisor.
+///
+/// Wraps a single GAMDL companion-tier child process with soft-error
+/// detection (#500), an idle-timeout watchdog (#505),
+/// post-processing detection (#503) and `kill_on_drop` so timeouts
+/// in `download_queue` don't leak zombie GAMDL processes (#501).
+pub mod companion_supervisor;
 
 /// Update checker.
 ///
@@ -122,7 +138,7 @@ pub mod login_window_service;
 /// Apple Music catalog API for animated album covers (`editorialVideo`)
 /// and downloads them via `FFmpeg` HLS-to-MP4 conversion.
 ///
-/// Saves `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4`
+/// Saves `FrontCover.mp4` (square, 1:1) and `FrontCoverPortrait.mp4`
 /// (portrait, 3:4) alongside downloaded album files. Requires user-provided
 /// `MusicKit` credentials (Team ID, Key ID, private key in OS keychain).
 pub mod animated_artwork_service;
@@ -135,6 +151,29 @@ pub mod animated_artwork_service;
 ///
 /// Used by: `animated_artwork_service`, `metadata_tag_service`
 pub mod apple_music_api;
+
+/// Static cover-art fallback chain (#756).
+///
+/// When GAMDL fails to write the requested static cover format
+/// (typically `cover_format = raw`, where the upstream cover-bytes
+/// fetch raises a Python traceback), this service walks a fallback
+/// chain — RAW → PNG → JPEG — by fetching the static artwork URL
+/// from `AlbumMetadata.artwork_url_template` directly, sidestepping
+/// GAMDL entirely. Idempotent: skips when the cover is already
+/// present and non-trivially sized.
+pub mod cover_art_fallback;
+
+/// Python traceback diagnostic capture (#758).
+///
+/// Scans GAMDL stdout/stderr buffers at process completion for
+/// recurring Python tracebacks, deduplicates identical groups, and
+/// writes a diagnostic report under the existing crash-report
+/// infrastructure. Fires on **any** download where traceback noise
+/// was observed — even successful ones — because some upstream bugs
+/// (cover-bytes fetch, syllable-lyrics race, music-video relations)
+/// raise tracebacks but don't fail the download. The forensic record
+/// gives us aggregated visibility into otherwise-silent issues.
+pub mod traceback_diagnostic;
 
 /// Post-download metadata enrichment service.
 ///
@@ -257,6 +296,24 @@ pub mod ass_subtitle_service;
 /// post-processing after GAMDL finishes).
 pub mod music_video_subtitle_service;
 
+/// Music-video cover-sidecar embedding (#533 / #569).
+///
+/// Embeds the `.jpg` / `.png` cover thumbnail GAMDL writes next to
+/// each music video into the MP4 container as a `covr` atom, then
+/// deletes the sidecar. Cleans up the library while preserving the
+/// thumbnail as an embedded poster frame that every modern player
+/// renders directly. Wired into the same MV post-download loop as
+/// `music_video_subtitle_service`.
+pub mod music_video_cover_embed;
+
+/// In-process `AppSettings` cache (#690).
+///
+/// Eliminates redundant disk reads on the queue hot path. Lazy-
+/// populated on first access, refreshed by the `save_settings` IPC
+/// after each write, and read by `load_settings_for_queue` so every
+/// caller path benefits without per-site changes.
+pub mod settings_cache;
+
 /// MusicBrainz recording lookup service.
 ///
 /// Queries the MusicBrainz database to discover recording metadata,
@@ -285,6 +342,68 @@ pub mod mediainfo_service;
 ///
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
+
+/// External queue watchdog (#818).
+///
+/// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
+/// the queue processor — that polls every 60 s and escalates queue
+/// items whose progress has been bit-identical for >10 min (WARN)
+/// or >20 min (transition to Error + release queue slot). Independent
+/// of the queue processor's task tree so a hang in the parent can't
+/// kill the watchdog. Recovers from the #815 silent-hang failure
+/// class without needing to identify each specific hang surface.
+pub mod queue_watchdog;
+
+/// Odesli (song.link) API client (#295 Phase A).
+///
+/// Cross-platform URL discovery — given an Apple Music URL, returns
+/// matching URLs for Spotify / YouTube / Tidal / Deezer / Amazon
+/// Music / SoundCloud / Bandcamp / Pandora / etc. Rate-limited per-
+/// process at 1 req/~1.1 s (well below the 10 req/min free tier).
+/// Phase A returns the URLs; integration into the manifest and the
+/// MeedyaMeta:*Url freeform atoms is wired in the enrichment task.
+pub mod odesli_service;
+
+/// Enrichment gap detection (#759 Phase 1).
+///
+/// Inspects an album directory + its `manifest.meedyadl` and reports
+/// which enrichment stages (ReplayGain, AcoustID, MusicBrainz,
+/// Enhanced LRC, animated artwork, …) are missing. Hybrid signals:
+/// manifest record when present, file-based heuristics for sidecar
+/// outputs (LRC / SRT / VTT / ASS / FrontCover.mp4 / Cover.{jpg,png}).
+/// Stages whose output is tag-embedded with no manifest record
+/// return "unknown" — Phase 2 adds ffprobe-based tag detection.
+/// Runner that re-executes missing stages is deferred to Phase 2.
+pub mod enrichment_gaps;
+
+/// Opt-in diagnostic bundle composer (#572 Phase 1).
+///
+/// Composes a redacted Markdown report covering system state at
+/// capture time (version info, settings snapshot, recent activity-log
+/// slice, output-dir structure) plus a pre-filled GitHub issue URL.
+/// Privacy-first: no credentials, no file contents, no auto-submit.
+/// Username paths are redacted to `/Users/{user}/`.
+pub mod diagnostic_bundle;
+
+/// Lifetime download analytics (#464).
+///
+/// Aggregates `history.json` into roll-up stats: total downloads,
+/// success rate, codec distribution, top artist / album, last-7-day
+/// activity. Computed on-demand (no separate stats file) so
+/// `history_service` remains the single source of truth for terminal
+/// download records. Pure function `compute_lifetime_stats` is
+/// covered by unit tests.
+pub mod stats_service;
+
+/// Snapshot + restore for essential state (#466).
+///
+/// Bundles `settings.json`, `queue.json`, and `history.json` into a
+/// timestamped directory under `{app_data_dir}/backups/`. Keeps the
+/// last 10 backups (constant inside the module), pruning older ones
+/// after each successful write. Restore is opt-in via the Settings >
+/// Tools UI; the IPC also exposes list / delete commands. Snapshots
+/// are flat directories of plain JSON for trivial inspection.
+pub mod backup_service;
 
 /// API field audit service — diagnostic tool for discovering new API fields.
 ///
@@ -356,6 +475,74 @@ pub mod service_status;
 /// Analyses content availability across services to recommend the best
 /// quality source for a given album/track.
 pub mod smart_download;
+
+/// Smart manifest-driven retry planner (#667).
+///
+/// Reads the `manifest.meedyadl` written at end-of-pipeline, diffs the
+/// expected track set against on-disk audio files, and returns a
+/// per-track URL list so a retry only re-fetches the tracks that
+/// actually failed (versus today's "re-run the whole album URL" path).
+pub mod smart_retry_planner;
+
+/// Pre-queue duplicate detector (#510).
+///
+/// When an Apple Music artist URL is queued with multiple
+/// `artist_auto_select_multi` modes, fetches the album list for each mode,
+/// applies the user's preference hierarchy (default: main > singles >
+/// compilations > live > top-songs), and returns a plan indicating which
+/// track URLs to skip in each mode so that any given song is downloaded
+/// exactly once. Operates on track identity (song_id / ISRC) only —
+/// companion format downloads (ALAC / Atmos / AAC, etc.) are unaffected.
+pub mod duplicate_detector;
+
+/// Persistent on-disk activity log writer (#541).
+///
+/// Streams every `ActivityLogEvent` to a daily-rotating, append-only
+/// text file at `{app_data_dir}/logs/activity-YYYY-MM-DD.log`. Runs as
+/// a background Tokio task fed via an unbounded channel so the emit
+/// hot path never blocks on disk I/O. Retained for 7 days by
+/// `clear_old_logs()` in `lib.rs`.
+pub mod activity_log_writer;
+
+/// Engine filename-safety contract (#551).
+///
+/// Design-review-only trait every new engine integration (votify,
+/// yt-dlp, get_iplayer, ...) is expected to implement. Default
+/// conformance checks prove each engine's no-album / no-collection
+/// fallback templates cannot reproduce the #527 / #531 / #537 class
+/// of bug (punctuation-only filenames, `[Unknown]`-sentinel folders,
+/// stable-ID-less dedup collisions). GAMDL's music-video fallback is
+/// bundled as the first conformance example.
+pub mod filename_safety;
+
+/// Per-item progress stage registry (#712-followup / Phase 3.5b).
+///
+/// Single source of truth for the stages an item passes through after
+/// primary GAMDL exit and before the completion task marks it `Complete`.
+/// Replaces the 8 scattered `PROGRESS_*_STAGE: f32` constants and the
+/// closure-local `set_label(...)` calls inside the enrichment task.
+/// Used by both the enrichment task and the companion task so the
+/// per-item progress bar caption stays in sync regardless of which
+/// task is active.
+pub mod progress_stages;
+
+/// Legacy sibling-folder merge for pre-#528 downloads (#789).
+/// Detects `Album/` + `Album [Explicit]/` pairs left over from
+/// older versions and offers a three-phase (detect → preview →
+/// execute) merge to consolidate them into the single
+/// post-#528 layout.
+pub mod legacy_folder_merge;
+
+/// Output-directory integrity scan (#537 chunk B).
+///
+/// Walks the user's configured output directory looking for historic
+/// damage from pre-v1.6 broken builds: `-.mp4` / `-.jpg` filenames
+/// from the empty-tag MV pipeline, `[Unknown]/` folder segments, and
+/// zero-byte fixed-name covers (`FrontCover.mp4`,
+/// `PortraitCover.mp4`, `ArtistSpotlightCover.mp4`) from interrupted
+/// HLS downloads. User-initiated via Settings → Advanced →
+/// Diagnostics; quarantine action lands as a follow-up.
+pub mod integrity_scan;
 
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]

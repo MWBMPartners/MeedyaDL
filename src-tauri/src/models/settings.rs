@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Application settings model.
@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use super::gamdl_options::{
-    ArtistAutoSelect, CoverFormat, DownloadMode, LyricsFormat, RemuxMode, SongCodec,
+    ArtistAutoSelect, CoverFormat, DownloadMode, LogLevel, LyricsFormat, RemuxMode, SongCodec,
     VideoResolution,
 };
 
@@ -47,8 +47,88 @@ fn default_true() -> bool {
     true
 }
 
+/// Serde default helper for the `gamdl_log_level` field (#768). Returns
+/// `LogLevel::Info`, which matches GAMDL's compiled-in default. Keeps
+/// settings.json files written by older builds (where the field was
+/// absent) loading unchanged on upgrade.
+fn default_gamdl_log_level() -> LogLevel {
+    LogLevel::Info
+}
+
 fn default_replaygain_reference() -> f64 {
     -18.0
+}
+
+/// Update channel (stability tier) the user is tracking.
+///
+/// Channels are ordered from least to most stable. The user selects which
+/// channel they want updates from; the update checker filters GitHub
+/// releases so the user only sees updates matching their channel, and
+/// `download_and_install_app_update` refuses to install a release whose
+/// channel is less stable than the user's selection (guard against
+/// accidentally sliding down the stability ladder via a spoofed URL).
+///
+/// The channel is derived from a release tag's pre-release suffix:
+///   - `v0.32.0-nightly.20260420` → Nightly
+///   - `v0.32.0-weekly.202616`    → Weekly
+///   - `v0.32.0-monthly.202604`   → Monthly
+///   - `v0.32.0-alpha.1`          → Alpha
+///   - `v0.32.0-beta.1`           → Beta
+///   - `v0.32.0-rc.1`             → Rc
+///   - `v0.32.0`                  → Stable
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    Nightly,
+    Weekly,
+    Monthly,
+    Alpha,
+    Beta,
+    Rc,
+    Stable,
+}
+
+impl UpdateChannel {
+    /// Parses a release tag (with or without leading `v`) and returns the
+    /// channel implied by its pre-release suffix. Tags with no suffix or
+    /// an unrecognised suffix are treated as Stable.
+    pub fn from_tag(tag: &str) -> Self {
+        let trimmed = tag.trim_start_matches('v');
+        let suffix = match trimmed.split_once('-') {
+            Some((_, s)) => s,
+            None => return Self::Stable,
+        };
+        // Match on the first dotted segment so "nightly.20260420" → "nightly".
+        let label = suffix.split('.').next().unwrap_or("").to_ascii_lowercase();
+        match label.as_str() {
+            "nightly" => Self::Nightly,
+            "weekly" => Self::Weekly,
+            "monthly" => Self::Monthly,
+            "alpha" => Self::Alpha,
+            "beta" => Self::Beta,
+            "rc" => Self::Rc,
+            _ => Self::Stable,
+        }
+    }
+
+    /// True for any channel less stable than `Stable`. Used by the UI to
+    /// surface the pre-release stability warning before a user switches.
+    pub fn is_pre_release(self) -> bool {
+        self != Self::Stable
+    }
+
+    /// True for the channels that are gated behind Dev Access in the UI:
+    /// Nightly, Weekly, Monthly, Alpha. Beta and Rc are freely selectable
+    /// (with a confirmation warning); Stable is the default.
+    pub fn requires_dev_access(self) -> bool {
+        matches!(self, Self::Nightly | Self::Weekly | Self::Monthly | Self::Alpha)
+    }
+}
+
+/// Default update channel: Stable. New installs only receive production
+/// releases unless the user opts into a pre-release channel in Settings.
+const fn default_update_channel() -> UpdateChannel {
+    UpdateChannel::Stable
 }
 
 /// Companion download mode configuration.
@@ -153,7 +233,7 @@ impl Default for CompanionMode {
 ///
 /// GAMDL writes `Cover.<ext>` by default. MeedyaDL renames the file after
 /// download to match this setting. Default: `FrontCover` for consistency
-/// with animated artwork naming (FrontCover.mp4, PortraitCover.mp4).
+/// with animated artwork naming (FrontCover.mp4, FrontCoverPortrait.mp4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CoverArtName {
@@ -179,6 +259,211 @@ impl CoverArtName {
 
 fn default_cover_art_name() -> CoverArtName {
     CoverArtName::FrontCover
+}
+
+/// User-configurable zero-padding for the `{track}` placeholder in
+/// filename templates (#587).
+///
+/// `Auto` is the preferred default: padding width derives from the
+/// album's `track_total` at download time so a 12-track album gets
+/// `01`-`12` and a 200-track box set gets `001`-`200` without user
+/// intervention. Fixed widths are offered for users who want
+/// library-wide filename consistency regardless of album size.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackNumberPadding {
+    /// Auto-derive padding width from album's track_total. Produces
+    /// `01` for <100-track albums, `001` for <1000, `0001` for larger.
+    Auto,
+    /// No padding: `1`, `2`, ..., `9`, `10`, `100`.
+    None,
+    /// 2 digits: `01`, `02`, ..., `99`, `100`. (Pre-#587 default
+    /// behaviour — sorts wrong on albums >99 tracks.)
+    TwoDigits,
+    /// 3 digits: `001`, `002`, ..., `999`, `1000`.
+    ThreeDigits,
+    /// 4 digits: `0001`, ..., `9999`.
+    FourDigits,
+}
+
+impl TrackNumberPadding {
+    /// Resolve to a concrete padding width for the given album
+    /// `track_total`. `Auto` is the only mode that consults the
+    /// album metadata; the fixed modes ignore the argument entirely.
+    ///
+    /// Returns the number of digits in the format specifier
+    /// (e.g. `3` → `{track:03d}` in Python-style templates).
+    #[must_use]
+    pub fn resolve_width(&self, track_total: Option<u32>) -> usize {
+        match self {
+            Self::None => 0,
+            Self::TwoDigits => 2,
+            Self::ThreeDigits => 3,
+            Self::FourDigits => 4,
+            Self::Auto => match track_total {
+                Some(n) if n <= 99 => 2,
+                Some(n) if n <= 999 => 3,
+                Some(_) => 4,
+                // No album metadata available yet — match the
+                // pre-#587 `{track:02d}` default so single-track
+                // downloads don't regress.
+                None => 2,
+            },
+        }
+    }
+}
+
+fn default_track_number_padding() -> TrackNumberPadding {
+    TrackNumberPadding::Auto
+}
+
+/// Mirrors GAMDL v3.0+'s upstream default for `--playlist-folder-template`
+/// (`gamdl/downloader/base.py::playlist_folder_template`). Kept in sync here
+/// so users who haven't customised the template see the same layout
+/// regardless of whether the flag is emitted (v3.0+) or not (v2.9.x
+/// silently falls back to its own equivalent default).
+fn default_playlist_folder_template() -> String {
+    "Playlists/{playlist_artist}".to_string()
+}
+
+/// User-configurable zero-padding for the `{disc}` placeholder in
+/// filename templates (#587). Mirrors `TrackNumberPadding` but scoped
+/// to disc numbers (typically much smaller than track counts).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscNumberPadding {
+    /// Auto-derive padding width from `disc_total`. 1-digit for <10
+    /// discs, 2-digit for <100, 3-digit for >99 (pathological). Most
+    /// real-world albums hit the 1-digit branch.
+    Auto,
+    /// No padding: `1`, `2`, `10`. (Pre-#587 behaviour.)
+    None,
+    /// 1 digit (same as `None` for values < 10).
+    OneDigit,
+    /// 2 digits: `01`, `02`, `10`, `99`.
+    TwoDigits,
+}
+
+impl DiscNumberPadding {
+    /// Resolve to a concrete padding width for the given
+    /// `disc_total`. See `TrackNumberPadding::resolve_width`.
+    #[must_use]
+    pub fn resolve_width(&self, disc_total: Option<u32>) -> usize {
+        match self {
+            Self::None | Self::OneDigit => 0,
+            Self::TwoDigits => 2,
+            Self::Auto => match disc_total {
+                Some(n) if n <= 9 => 0,
+                Some(n) if n <= 99 => 2,
+                Some(_) => 3,
+                None => 0,
+            },
+        }
+    }
+}
+
+fn default_disc_number_padding() -> DiscNumberPadding {
+    DiscNumberPadding::Auto
+}
+
+// ============================================================
+// Duplicate Detection (#510)
+// ============================================================
+
+/// Scope of the pre-queue duplicate-detection pass.
+///
+/// Controls how far we look when deciding whether a track fetched from the
+/// Apple Music API is already "claimed" by another download. Broader scopes
+/// do more I/O (reading manifest files on disk) but catch more duplicates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateDetectionScope {
+    /// Feature disabled — no duplicate detection is performed.
+    Off,
+    /// Dedupe only within the fan-out of the current artist URL
+    /// (across the N modes in `artist_auto_select_multi`).
+    IntraSession,
+    /// Intra-session plus songs already present in other queue items
+    /// (Queued / Downloading / Processing states).
+    #[default]
+    IntraAndQueued,
+    /// Intra-session, queue, AND songs recorded in existing manifest files
+    /// under the configured output directory (prior download history).
+    /// Walks the output directory once per artist-URL enqueue.
+    IntraAndQueuedAndHistory,
+}
+
+/// Dedup-key strategy when comparing two tracks.
+///
+/// Apple Music's internal `song_id` is the most reliable key (unique per
+/// master). ISRC is shared across re-releases, which is either desired
+/// (catching remasters) or too aggressive (collapsing distinct masters).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DedupKeyStrategy {
+    /// Primary key: Apple Music `song_id`. Fall back to ISRC only when
+    /// `song_id` is absent. Recommended default.
+    #[default]
+    SongIdIsrcFallback,
+    /// Use ISRC exclusively — catches remasters/re-releases as duplicates.
+    IsrcOnly,
+    /// Use `song_id` exclusively — most conservative, won't collapse
+    /// different masters of the same recording.
+    SongIdOnly,
+}
+
+/// Settings governing the pre-queue duplicate-detection pipeline.
+///
+/// Applied when an Apple Music artist URL is fanned out into multiple
+/// queue items (one per `artist_auto_select_multi` mode). Before those
+/// items are enqueued, each mode's track list is fetched via the Apple
+/// Music catalog API and filtered against the user's preference order so
+/// that a given song is downloaded exactly once.
+///
+/// Disabling this (via `scope: Off`) makes the feature a no-op.
+///
+/// ## Scope (important)
+///
+/// This operates on **track identity** only — the same song appearing in
+/// multiple artist-auto-select modes (album, single, compilation, etc.).
+/// Companion downloads that produce multiple **format** versions of the
+/// same song (ALAC / Atmos / AAC / AC3 etc., governed by `companion_mode`)
+/// are NOT touched. A song chosen from, say, the main-album mode still
+/// triggers the user's full companion chain. Dedup only prevents the
+/// same-quality copy from being fetched 3 times because it happens to
+/// appear in 3 different albums under an artist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DuplicateDetectionSettings {
+    /// Which scopes to consult when deciding if a track is a duplicate.
+    pub scope: DuplicateDetectionScope,
+    /// Ordered priority of artist-auto-select modes. When the same song
+    /// appears in multiple fetched modes, the mode earliest in this list
+    /// wins and keeps the track; later modes have the duplicate skipped.
+    /// Modes not present in this list fall to the end in default order.
+    pub preference_order: Vec<ArtistAutoSelect>,
+    /// How strict to be when matching tracks (see [`DedupKeyStrategy`]).
+    pub key_strategy: DedupKeyStrategy,
+}
+
+impl Default for DuplicateDetectionSettings {
+    fn default() -> Self {
+        Self {
+            scope: DuplicateDetectionScope::IntraAndQueued,
+            // User-agreed default order: full album > singles/EPs >
+            // compilations > live albums > top-songs. Music videos are
+            // intentionally omitted (not an audio track) and won't be
+            // deduplicated even when selected.
+            preference_order: vec![
+                ArtistAutoSelect::MainAlbums,
+                ArtistAutoSelect::SinglesEps,
+                ArtistAutoSelect::CompilationAlbums,
+                ArtistAutoSelect::LiveAlbums,
+                ArtistAutoSelect::TopSongs,
+            ],
+            key_strategy: DedupKeyStrategy::SongIdIsrcFallback,
+        }
+    }
 }
 
 // ============================================================
@@ -369,12 +654,31 @@ pub struct AppSettings {
     #[serde(default)]
     pub check_pre_releases: bool,
 
+    /// Release channel the user is subscribed to for app updates.
+    /// Defaults to `Stable` (production releases only). Users can opt into
+    /// less-stable channels (Beta/Alpha/Monthly/Weekly/Nightly) to preview
+    /// upcoming features. The channel acts as a guard in
+    /// `download_and_install_app_update`: the installer refuses tags whose
+    /// channel is less stable than the user's selection, so a stable
+    /// install can't be tricked into downgrading to a nightly build.
+    #[serde(default = "default_update_channel")]
+    pub update_channel: UpdateChannel,
+
     /// How often (in hours) to periodically check for updates while the app
     /// is running. Value `0` = check on startup only (no periodic timer).
     /// Only effective when `auto_check_updates` is `true`. Default: 6 hours,
     /// providing frequent checks during early development.
     #[serde(default = "default_update_interval")]
     pub update_check_interval_hours: u32,
+
+    /// Maximum minutes a GAMDL child process may sit silent (no
+    /// stdout / stderr output) while still in the active-download phase
+    /// before the companion supervisor kills it (#505). The watchdog
+    /// pauses automatically once the post-processing phase is detected
+    /// (#503), so a slow remux/decrypt over a network volume will not
+    /// trip the killswitch. Default: 5 minutes.
+    #[serde(default = "default_gamdl_idle_timeout")]
+    pub gamdl_idle_timeout_minutes: u32,
 
     /// Whether to start processing the download queue immediately when items
     /// are enqueued. When `true` (the default), downloads begin as soon as
@@ -383,6 +687,17 @@ pub struct AppSettings {
     /// Queue page.
     #[serde(default = "default_auto_start_queue")]
     pub auto_start_queue: bool,
+
+    /// Whether to show a confirmation modal before the "Abort Queue"
+    /// action fires (#620). Default: `true`. Users who've grown
+    /// comfortable with the destructive action can tick "Don't ask
+    /// again" on the modal to flip this to `false` and invoke the
+    /// abort via a single click (keyboard shortcut or button).
+    ///
+    /// Exposed by the modal's "Don't ask again" checkbox and in
+    /// Settings > General > Preferences for explicit re-enable.
+    #[serde(default = "default_true")]
+    pub abort_queue_confirm: bool,
 
     /// Whether to send native OS desktop notifications for download events
     /// (completion and terminal failure). Notifications are only sent when
@@ -523,6 +838,34 @@ pub struct AppSettings {
     /// metadata for future cross-platform features.
     #[serde(default)]
     pub musicbrainz_lookup: bool,
+
+    /// **Odesli (song.link) cross-platform URL lookup** (#295 Phase A).
+    ///
+    /// When enabled, after the primary download MeedyaDL queries
+    /// Odesli's API (`api.song.link/v1-alpha.1/links?url=…`) with
+    /// the album URL and stores the returned per-platform URLs
+    /// (Spotify / YouTube / Tidal / Deezer / Amazon Music /
+    /// SoundCloud / Bandcamp / Pandora / …) in the manifest's
+    /// `ManifestSource.cross_platform_urls` field.
+    ///
+    /// **Rate limit**: free tier is 10 req/min (one album = one
+    /// request). Set [`odesli_api_key`] for the 60 req/min tier if
+    /// you regularly download many albums in a short window. Without
+    /// a key, MeedyaDL's per-process limiter throttles to ~54
+    /// req/min so a free-tier user can't burst-trip the cap.
+    #[serde(default)]
+    pub odesli_lookup_enabled: bool,
+
+    /// **Odesli API key** (#295 Phase A — optional).
+    ///
+    /// Free-tier requests have no auth requirement. Setting this
+    /// field bumps your account to the 60 req/min tier — useful for
+    /// power users with large libraries. Get a key at
+    /// <https://songlink.notion.site/API-d0ebe08a5e304a55928405eb682f6741>.
+    ///
+    /// Empty string ⇒ free tier (default).
+    #[serde(default)]
+    pub odesli_api_key: String,
 
     // ================================================================
     // Lyrics
@@ -668,13 +1011,22 @@ pub struct AppSettings {
     #[serde(default = "default_cover_art_name")]
     pub cover_art_name: CoverArtName,
 
+    /// Embed the music-video cover thumbnail as a `covr` atom in the
+    /// `.mp4` and delete the sidecar `.jpg`/`.png` (#533 / #569).
+    /// Default `true` — most users see the embedded poster frame in
+    /// every modern player and never need the sidecar. Flip to `false`
+    /// to keep the sidecar on disk (e.g. for tooling that expects a
+    /// visible thumbnail next to the video).
+    #[serde(default = "default_true")]
+    pub music_video_embed_cover_sidecar: bool,
+
     // ================================================================
     // Animated Artwork (Motion Cover Art)
     // ================================================================
     /// Whether to download animated cover art (motion artwork) from Apple
     /// Music after each album download. When enabled, `MeedyaDL` queries the
     /// Apple Music catalog API (`extend=editorialVideo`) and saves
-    /// `FrontCover.mp4` (square, 1:1) and `PortraitCover.mp4` (portrait,
+    /// `FrontCover.mp4` (square, 1:1) and `FrontCoverPortrait.mp4` (portrait,
     /// 3:4) alongside the audio files, if animated artwork is available.
     ///
     /// Requires valid `MusicKit` credentials (`musickit_team_id`,
@@ -682,7 +1034,7 @@ pub struct AppSettings {
     pub animated_artwork_enabled: bool,
 
     /// Whether to set the OS "hidden" attribute on downloaded animated
-    /// artwork files (FrontCover.mp4, PortraitCover.mp4). When `true`
+    /// artwork files (FrontCover.mp4, FrontCoverPortrait.mp4). When `true`
     /// (default), files are hidden from default file browser views but
     /// still accessible to media players and scripts that reference them
     /// by name.
@@ -784,6 +1136,23 @@ pub struct AppSettings {
     /// Default: `"{artist}/Unknown Album"`.
     pub no_album_folder_template: String,
 
+    /// Folder naming template for playlist downloads (#618).
+    ///
+    /// Default: `"Playlists/{playlist_artist}"` — matches GAMDL's own
+    /// upstream default (`gamdl/downloader/base.py::playlist_folder_template`)
+    /// so users who haven't customised the template see the same layout
+    /// MeedyaDL has always produced.
+    ///
+    /// Gated on GAMDL ≥ v3.0 (when the corresponding CLI flag
+    /// `--playlist-folder-template` was introduced). On v2.9.x the flag
+    /// does not exist and emission would crash the subprocess with
+    /// `no such option`. The gate lives in
+    /// [`gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate`] and is
+    /// consulted by both `GamdlOptions::to_cli_args` and
+    /// `config_service::ini_template_section`.
+    #[serde(default = "default_playlist_folder_template")]
+    pub playlist_folder_template: String,
+
     /// File naming template for tracks on single-disc albums.
     /// Default: `"{track:02d} {title}"` -- zero-padded track number + title.
     pub single_disc_file_template: String,
@@ -799,6 +1168,21 @@ pub struct AppSettings {
     /// Folder/file naming template for playlist downloads.
     /// Default: `"Playlists/{playlist_artist}/{playlist_title}"`.
     pub playlist_file_template: String,
+
+    /// User-configurable zero-padding width for `{track}` placeholders
+    /// (#587). `Auto` (the default) derives the width from the album's
+    /// `track_total` at download time, producing sort-correct filenames
+    /// for albums of any size. Fixed widths available for users who want
+    /// uniform padding across their entire library.
+    #[serde(default = "default_track_number_padding")]
+    pub track_number_padding: TrackNumberPadding,
+
+    /// User-configurable zero-padding width for `{disc}` placeholders
+    /// (#587). Mirrors `track_number_padding` but scoped to disc
+    /// numbers. `Auto` (the default) keeps the pre-#587 unpadded
+    /// format for the common <10-disc case.
+    #[serde(default = "default_disc_number_padding")]
+    pub disc_number_padding: DiscNumberPadding,
 
     // ================================================================
     // Tool Paths (None = use managed/bundled tools)
@@ -856,10 +1240,46 @@ pub struct AppSettings {
     #[serde(default)]
     pub auto_retry_without_wrapper: bool,
 
+    /// When `true`, a download that fails with the AMP API "Resource Not
+    /// Found" shape against the URL's storefront is automatically retried
+    /// once with the user's account-region storefront (`storefront`
+    /// setting, falling back to OS locale, then `"us"`). Useful when the
+    /// user pastes a `/us/album/X` link while their account region is
+    /// `gb` and the album either isn't in the US catalog or their account
+    /// can't license it from there. Default: `true` — it only fires when
+    /// the primary attempt has *already* failed, so it can't downgrade an
+    /// otherwise-working download. (#666)
+    #[serde(default = "default_true")]
+    pub storefront_fallback_on_failure: bool,
+
     /// Wrapper server URL used when `use_wrapper` is `true`. The wrapper
     /// server handles account authentication and key exchange. Default:
     /// `"http://127.0.0.1:30020"` (local server).
     pub wrapper_account_url: String,
+
+    /// m3u8 server address (`host:port`) used by GAMDL v3.1+ to fetch the
+    /// HLS master playlist from the wrapper service instead of Apple's
+    /// API. Required for wrapper downloads on GAMDL 3.1+. Emitted as
+    /// `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` only when the detected
+    /// GAMDL version supports it. Default: `"127.0.0.1:20020"` (matches
+    /// upstream GAMDL's default).
+    #[serde(default = "default_wrapper_m3u8_ip")]
+    pub wrapper_m3u8_ip: String,
+
+    /// Decryption server address (`host:port`) used by GAMDL when
+    /// `use_wrapper` is `true`. GAMDL opens an outbound TCP connection
+    /// to this address to send encrypted samples for FairPlay decryption
+    /// (see `gamdl/downloader/amdecrypt.py::decrypt_samples` —
+    /// `asyncio.open_connection(host, port)`). Required for the
+    /// wrapper to be reachable when it's NOT running on the same host
+    /// as MeedyaDL/GAMDL — the third leg of the wrapper triangle
+    /// alongside `wrapper_account_url` and `wrapper_m3u8_ip`. Without
+    /// this exposed, remote-wrapper LAN setups silently fail at the
+    /// decryption stage because GAMDL falls back to its compile-time
+    /// default of `127.0.0.1:10020` (issue #743). Default:
+    /// `"127.0.0.1:10020"` (matches upstream GAMDL's default).
+    #[serde(default = "default_wrapper_decrypt_ip")]
+    pub wrapper_decrypt_ip: String,
 
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
@@ -900,6 +1320,18 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_auto_select_multi: Vec<ArtistAutoSelect>,
 
+    /// Pre-queue duplicate-detection settings (#510).
+    ///
+    /// When a multi-mode artist URL is fanned out into N downloads, songs
+    /// that exist in multiple modes (e.g. the same track on an album AND a
+    /// compilation) would otherwise be downloaded multiple times at the
+    /// same quality. This setting controls the dedup strategy.
+    ///
+    /// Does NOT affect companion-format downloads — a song chosen from one
+    /// mode still runs the full `companion_mode` chain.
+    #[serde(default)]
+    pub duplicate_detection: DuplicateDetectionSettings,
+
     // ================================================================
     // Crash Reporting & Telemetry
     // ================================================================
@@ -935,6 +1367,78 @@ pub struct AppSettings {
     /// Controlled in Settings > Advanced > Diagnostics.
     #[serde(default)]
     pub verbose_activity_log: bool,
+
+    /// When `true`, GAMDL prints full Python tracebacks to stderr on
+    /// uncaught exceptions. When `false` (default), MeedyaDL passes
+    /// `--no-exceptions` to every GAMDL invocation so only the final
+    /// one-line error message reaches the activity log.
+    ///
+    /// Default is `false` because GAMDL v3.0's structlog migration
+    /// interleaves structured log lines with raw multi-line tracebacks,
+    /// which turns the activity log into an unreadable blob and makes
+    /// `classify_error()` match the wrong keyword (e.g. picking up
+    /// "Error" from a traceback filepath like
+    /// `httpx/_transports/default.py`).
+    ///
+    /// Flip this on when filing upstream bug reports against GAMDL —
+    /// you lose a clean activity log but gain the full call stack.
+    ///
+    /// **GAMDL v3.1 compatibility note (#606):** Upstream commit
+    /// `dc6f2e8` removed every `traceback.print_exc()` site and routes
+    /// exceptions through `structlog.ExceptionPrettyPrinter` instead.
+    /// `--no-exceptions` is a no-op on v3.1+, so flipping this setting
+    /// does not change activity-log verbosity on that release. The
+    /// MeedyaDL output parser handles the new format; see #607.
+    ///
+    /// Controlled in Settings > Advanced > Diagnostics.
+    #[serde(default)]
+    pub verbose_gamdl_exceptions: bool,
+
+    /// GAMDL subprocess log level (`--log-level <LEVEL>`).
+    ///
+    /// Surfaced behind the Developer Tools panel only (gated on
+    /// `dev_access_enabled` via the Konami sentinel), so it doesn't
+    /// confuse end users with a knob that mostly just creates activity-
+    /// log noise.
+    ///
+    /// **Why this exists (#768):** GAMDL v3.5.2 (commit `dec4a22`,
+    /// "Bind logger and log m3u8 master URL extraction") added a
+    /// `log.debug("success", m3u8_master_url=...)` call inside the
+    /// music-video pipeline that is silent at GAMDL's default `INFO`
+    /// level. Future v3.x releases follow the same pattern as upstream
+    /// invests more in structlog instrumentation. Without this field a
+    /// developer hitting "music videos download to the wrong folder"
+    /// on v3.5.2+ has no in-app way to enable DEBUG output — they
+    /// have to fork settings.json or shell out to gamdl directly.
+    ///
+    /// **Default `Info`** matches GAMDL's compiled-in default, so this
+    /// field is a no-op for users who never open Developer Tools.
+    /// `merge_options()` in `download_queue.rs` copies the value into
+    /// `GamdlOptions.log_level`, which `to_cli_args()` then emits as
+    /// `--log-level <LEVEL>` regardless of GAMDL version (the flag
+    /// exists on every release in our support window). The serde
+    /// `default = "default_gamdl_log_level"` helper makes settings.json
+    /// files written by pre-#768 builds load unchanged.
+    #[serde(default = "default_gamdl_log_level")]
+    pub gamdl_log_level: LogLevel,
+
+    /// Optional user-chosen directory for the persistent on-disk
+    /// activity log (`activity-YYYY-MM-DD.log` files, #541).
+    ///
+    /// When empty / absent, the writer falls back to the default
+    /// `{app_data_dir}/logs/` location alongside the tracing and
+    /// session logs. When set, the writer opens log files under the
+    /// configured directory instead — useful for pointing logs at an
+    /// external drive to save space on the system disk.
+    ///
+    /// Changes apply on the next app restart because the writer is
+    /// started once during `setup()` and owns the file handle for
+    /// the process lifetime. Relocating mid-session would require
+    /// tearing down the writer, which is not worth the complexity.
+    ///
+    /// Controlled in Settings > Advanced > Diagnostics.
+    #[serde(default)]
+    pub activity_log_path_override: String,
 
     // ================================================================
     // Internal / Developer
@@ -1101,14 +1605,37 @@ const fn default_notification_dismiss() -> u32 {
     5
 }
 
+/// Default GAMDL idle-output timeout: 5 minutes. The companion
+/// supervisor kills the child after this many minutes of stdout/stderr
+/// silence while still in the download phase. The watchdog stands down
+/// once a `100% of` line is observed so the silent post-processing
+/// phase doesn't trigger a false kill.
+const fn default_gamdl_idle_timeout() -> u32 {
+    5
+}
+
 /// Default notification style: native + in-app (both).
 fn default_notification_style() -> String {
     "native_and_in_app".to_string()
 }
 
+/// Default wrapper m3u8 service address — matches upstream GAMDL v3.1's
+/// `AppleMusicBaseInterface.create(wrapper_m3u8_ip="127.0.0.1:20020")`.
+fn default_wrapper_m3u8_ip() -> String {
+    "127.0.0.1:20020".to_string()
+}
+
+/// Default wrapper decryption service address — matches upstream
+/// GAMDL's `AppleMusicSongInterface.create(wrapper_decrypt_ip=
+/// "127.0.0.1:10020")` and the `WorldObservationLog/wrapper`
+/// service's default decrypt port (10020).
+fn default_wrapper_decrypt_ip() -> String {
+    "127.0.0.1:10020".to_string()
+}
+
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 1;
+pub const CURRENT_SETTINGS_VERSION: u32 = 5;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1166,13 +1693,20 @@ impl Default for AppSettings {
             // Only show stable releases by default. Pre-releases may have
             // incomplete features or bugs and are for testers/developers.
             check_pre_releases: false,
+            // Default to the stable channel; users opt into less-stable
+            // channels explicitly from Settings > General > Updates.
+            update_channel: UpdateChannel::Stable,
             // Check for updates every 6 hours during early development.
             // Users can change to 1/12/24 hours or 0 (startup only).
             update_check_interval_hours: 6,
+            // 5-minute idle window matches GAMDL's typical worst-case
+            // segment-download latency before something is genuinely wedged.
+            gamdl_idle_timeout_minutes: default_gamdl_idle_timeout(),
             // Auto-start queue processing by default so downloads begin
             // immediately. When disabled, items stay queued until the user
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
+            abort_queue_confirm: true,
             // Desktop notifications enabled by default — OS-native alerts
             // for download completion and failure when the window is not focused.
             desktop_notifications: true,
@@ -1230,6 +1764,8 @@ impl Default for AppSettings {
             music_video_companion: false,
             // MusicBrainz lookup disabled by default — opt-in for video discovery fallback.
             musicbrainz_lookup: false,
+            odesli_lookup_enabled: false,
+            odesli_api_key: String::new(),
 
             // --- Lyrics ---
             // Enabled by default: embed lyrics in audio metadata.
@@ -1276,8 +1812,12 @@ impl Default for AppSettings {
             // so this effectively means "give me the best you have".
             cover_size: 10000,
             // Rename GAMDL's "Cover" to "FrontCover" for consistency with
-            // animated artwork (FrontCover.mp4, PortraitCover.mp4).
+            // animated artwork (FrontCover.mp4, FrontCoverPortrait.mp4).
             cover_art_name: CoverArtName::FrontCover,
+            // #569: embed MV cover sidecar into the .mp4 as a covr
+            // atom and delete the sidecar on success — keeps the
+            // poster frame, removes the redundant loose .jpg files.
+            music_video_embed_cover_sidecar: true,
 
             // --- Animated artwork ---
             // Enabled by default (#449): animated artwork is downloaded when
@@ -1285,7 +1825,7 @@ impl Default for AppSettings {
             // when MusicKit credentials are missing or album has no artwork.
             animated_artwork_enabled: true,
             // Show animated artwork files by default (#449) so users can see
-            // FrontCover.mp4/PortraitCover.mp4 in their album folders.
+            // FrontCover.mp4/FrontCoverPortrait.mp4 in their album folders.
             hide_animated_artwork: false,
             // Enabled by default (#453): downloads artist promo video to artist
             // folder when available. Gracefully skips when no credentials or
@@ -1306,14 +1846,29 @@ impl Default for AppSettings {
             replaygain_album_gain: true,
 
             // --- Templates ---
-            // These match GAMDL's built-in defaults for familiar organization.
+            // These match GAMDL's built-in defaults for familiar organization,
+            // with two divergences where the upstream default lacks
+            // uniqueness:
+            //   - `playlist_file_template` adds `{playlist_id}` so two
+            //     playlists with the same artist + title don't clobber
+            //     each other's `.m3u8` file (#545).
+            //   - `compilation_folder_template` adds `{album_id}` so two
+            //     Various-Artists compilations with the same title don't
+            //     intermix in one folder (#552).
+            // Both IDs are Apple Music's numeric identifiers — unique per
+            // release/playlist, deterministic across re-downloads, no
+            // datetime foot-guns (same rationale as the MV `{title_id}`
+            // fix in #531).
             album_folder_template: "{album_artist}/{album}".to_string(),
-            compilation_folder_template: "Compilations/{album}".to_string(),
+            compilation_folder_template: "Compilations/{album} ({album_id})".to_string(),
             no_album_folder_template: "{artist}/Unknown Album".to_string(),
+            playlist_folder_template: default_playlist_folder_template(),
             single_disc_file_template: "{track:02d} {title}".to_string(),
             multi_disc_file_template: "{disc}-{track:02d} {title}".to_string(),
             no_album_file_template: "{title}".to_string(),
-            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string(),
+            track_number_padding: TrackNumberPadding::Auto,
+            disc_number_padding: DiscNumberPadding::Auto,
 
             // --- Tool paths ---
             // All None = use managed (auto-installed) tools from the app's
@@ -1338,8 +1893,18 @@ impl Default for AppSettings {
             use_wrapper: false,
             // Off by default — user must opt in to automatic wrapper fallback.
             auto_retry_without_wrapper: false,
+            // On by default (#666) — only fires after the primary URL fails,
+            // so it can never downgrade a working download.
+            storefront_fallback_on_failure: true,
             // Default wrapper URL assumes a locally-running server.
             wrapper_account_url: "http://127.0.0.1:30020".to_string(),
+            // Default wrapper m3u8 service address (GAMDL v3.1+). Matches
+            // upstream's default port 20020.
+            wrapper_m3u8_ip: default_wrapper_m3u8_ip(),
+            // Default wrapper decryption service address. Matches upstream
+            // GAMDL's default port 10020. Override in Settings > Advanced
+            // when the wrapper runs on a different host (#743).
+            wrapper_decrypt_ip: default_wrapper_decrypt_ip(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // Fetch extra metadata (normalization, smooth playback info, etc.)
@@ -1355,12 +1920,31 @@ impl Default for AppSettings {
             // No multi-mode artist selection by default.
             artist_auto_select_multi: Vec::new(),
 
+            // --- Duplicate detection (#510) ---
+            // Default: on, with preference main-albums > singles-eps > compilation-albums
+            // > live-albums > top-songs; scope covers intra-session + already-queued items.
+            // Applies only to multi-mode artist URL expansion; other downloads unaffected.
+            duplicate_detection: DuplicateDetectionSettings::default(),
+
             // --- Crash reporting ---
             // Sentry is disabled by default (opt-in). No data is sent until
             // the user explicitly enables it in Settings > Advanced.
             sentry_enabled: false,
             // Verbose activity log disabled by default — may expose sensitive data.
             verbose_activity_log: false,
+            // GAMDL tracebacks suppressed by default — structlog-wrapped
+            // stderr is unreadable with raw tracebacks interleaved. Users
+            // debugging upstream issues can flip this in Settings > Advanced.
+            verbose_gamdl_exceptions: false,
+            // GAMDL log level — matches GAMDL's compiled-in default.
+            // Only relevant to users who flip this from Developer Tools
+            // (#768); for everyone else it's a no-op that GAMDL would
+            // pick anyway.
+            gamdl_log_level: LogLevel::Info,
+            // Empty string = use default {app_data_dir}/logs/. Users can
+            // point the on-disk activity log at an external drive via
+            // Settings > Advanced > Diagnostics.
+            activity_log_path_override: String::new(),
 
             // --- Internal / Developer ---
             // Developer access is disabled by default; activated via hidden gesture.

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file Download form component.
  *
@@ -112,6 +112,9 @@ import {
 /** Apple Music URL parser for multi-URL validation. */
 import { parseAppleMusicUrl } from '@/lib/url-parser';
 
+/** Single-operation async lifecycle hook (audit v2 #2). */
+import { useAsyncTask } from '@/hooks/useAsyncTask';
+
 /**
  * Type imports for Apple Music content types and audio codecs.
  * @see AppleMusicContentType in @/types/index.ts -- 'song' | 'album' | ... | 'unknown'
@@ -147,6 +150,7 @@ const CONTENT_TYPE_ICONS: Record<AppleMusicContentType, typeof Music> = {
   'music-video': Video, // Music video URL
   artist: User, // Artist page URL
   library: Library, // Personal library URL
+  recording: Music, // Apple Music Classical recording (a specific performance of a work)
   unknown: HelpCircle, // Unrecognised or unparseable URL
 };
 
@@ -162,6 +166,7 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
   'music-video': 'Music Video',
   artist: 'Artist',
   library: 'Library',
+  recording: 'Classical Recording',
   unknown: 'Unknown',
 };
 
@@ -264,8 +269,15 @@ export function DownloadForm() {
    */
   const [cookieError, setCookieError] = useState<string | null>(null);
 
-  /** Whether preflight checks are running (disables submit button). */
-  const [isChecking, setIsChecking] = useState(false);
+  // `submitTask` wraps the full preflight + submit flow via
+  // useAsyncTask (audit v2 #2). `submitTask.isRunning` replaces the
+  // hand-rolled `isChecking` boolean; `submitTask.run()` handles the
+  // try/finally toggle internally. The lambda captures
+  // `runPreflightAndSubmit` lazily so the hoisting order doesn't
+  // matter (the const is in the TDZ at hook-call time but
+  // initialised by the time the user clicks Submit).
+  const submitTask = useAsyncTask(() => runPreflightAndSubmit());
+  const isChecking = submitTask.isRunning;
 
   /** Navigation to the Settings page (for the "Go to Settings" link). */
   const setPage = useUiStore((s) => s.setPage);
@@ -365,13 +377,8 @@ export function DownloadForm() {
    * Shows a success toast on success, a warning toast when offline, or an
    * error toast on failure.
    */
-  const handleSubmit = async () => {
-    setIsChecking(true);
-    try {
-      await runPreflightAndSubmit();
-    } finally {
-      setIsChecking(false);
-    }
+  const handleSubmit = () => {
+    void submitTask.run();
   };
 
   /** Internal: run preflight checks then submit. Separated so setIsChecking wraps the full flow. */
@@ -446,13 +453,15 @@ export function DownloadForm() {
       try {
         const result = await submitBatchDownload(multiUrlInfo.validUrls, isOffline);
 
-        // Show duplicate warnings (batched into a single toast if multiple)
+        // Show duplicate warnings (batched into a single toast if multiple).
+        // Uses `'info'` (auto-dismisses) rather than `'warning'` (persistent) — the
+        // download is still queued and no user action is required (#657).
         if (result.duplicateWarnings.length > 0) {
           addToast(
             result.duplicateWarnings.length === 1
               ? result.duplicateWarnings[0]
               : `${result.duplicateWarnings.length} duplicate URLs detected in queue`,
-            'warning'
+            'info'
           );
         }
 
@@ -491,9 +500,10 @@ export function DownloadForm() {
         const result = await submitDownload(isOffline);
 
         // Show duplicate URL warning if the backend detected a match.
-        // This is non-blocking — the download is still queued.
+        // This is non-blocking — the download is still queued, so the toast
+        // uses `'info'` (auto-dismisses) rather than `'warning'` (persistent) (#657).
         if (result.duplicate_warning) {
-          addToast(result.duplicate_warning, 'warning');
+          addToast(result.duplicate_warning, 'info');
         }
 
         if (isOffline) {

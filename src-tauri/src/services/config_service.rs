@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Settings and configuration service.
@@ -18,13 +18,21 @@
 // settings.json (source of truth)     config.ini (derived, for GAMDL CLI)
 // ================================     ====================================
 // {                                    [gamdl]
-//   "default_song_codec": "alac",      song_codec = alac
+//   "default_song_codec": "alac",      (not synced - see note below)
 //   "save_cover": true,         -->    save_cover = true
 //   "cover_format": "raw",             cover_format = raw
 //   "theme": "dark",                   (not synced - GUI-only setting)
 //   ...                                ...
 // }
 // ```
+//
+// Note: codec preference is NOT written to config.ini (#617). Neither
+// `song_codec` nor `song_codec_priority` round-trips through GAMDL's INI
+// loader on any release in our support window — `song_codec` was removed
+// in v2.9.1, and `song_codec_priority` is dropped because upstream's
+// dataclass field is misspelled as `song_codec_piority`. The CLI flag
+// path (`--song-codec-priority`, emitted by `GamdlOptions::audio_cli_args`)
+// is authoritative. See `.github/audits/gamdl-v3.2-audit.md`.
 //
 // ## Key Names: Underscores, Not Hyphens
 //
@@ -62,7 +70,6 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
-use crate::models::gamdl_options::SongCodec;
 use crate::models::settings::AppSettings;
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
@@ -140,11 +147,70 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 1;
     }
 
-    // Future migrations would go here:
-    // if settings.settings_version == 1 {
-    //     // v1 → v2: rename field, change default, etc.
-    //     settings.settings_version = 2;
-    // }
+    // v1 → v2: introduces `duplicate_detection` (#510). Serde `#[serde(default)]`
+    // on the field means old settings files deserialize with
+    // `DuplicateDetectionSettings::default()`, which enables dedup for the
+    // "IntraAndQueued" scope — the user-agreed default. Existing users who
+    // never opted in see the new behaviour turn on silently, which is the
+    // intended rollout (the feature is opt-out via scope=Off).
+    if settings.settings_version == 1 {
+        settings.settings_version = 2;
+    }
+
+    // v2 → v3: repair legacy no-album templates (#531).
+    //
+    // Early MeedyaDL releases shipped `no_album_folder_template` as
+    // `"{artist}/[Unknown]"` and `no_album_file_template` as
+    // `"{disc} - "`. Serde only fills in MISSING fields with defaults,
+    // so upgrading users keep the original (broken) values. The former
+    // yields a literal `[Unknown]` directory, and the latter yields
+    // empty filenames like `-.mp4` for content without `{disc}` or
+    // `{title}` (notably music videos). Heal exact matches of the old
+    // defaults to the current defaults; leave intentionally customised
+    // values untouched.
+    if settings.settings_version == 2 {
+        if settings.no_album_folder_template == "{artist}/[Unknown]" {
+            settings.no_album_folder_template = "{artist}/Unknown Album".to_string();
+        }
+        if settings.no_album_file_template == "{disc} - " {
+            settings.no_album_file_template = "{title}".to_string();
+        }
+        settings.settings_version = 3;
+    }
+
+    // v3 → v4: repair playlist + compilation template collisions (#545, #552).
+    //
+    // Two upstream GAMDL defaults we inherited lack stable uniqueness
+    // placeholders:
+    //   - `"Playlists/{playlist_artist}/{playlist_title}"` — two playlists
+    //     with the same artist + title silently overwrote each other's
+    //     `.m3u8` (#545).
+    //   - `"Compilations/{album}"` — two Various-Artists compilations with
+    //     the same album name intermixed in one folder (#552).
+    //
+    // Heal both to include Apple Music's stable numeric ID in the same
+    // exact-match style as the v2→v3 migration: only adjust values that
+    // match the pre-v4 default; user-customised values are left alone.
+    if settings.settings_version == 3 {
+        if settings.playlist_file_template == "Playlists/{playlist_artist}/{playlist_title}" {
+            settings.playlist_file_template =
+                "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string();
+        }
+        if settings.compilation_folder_template == "Compilations/{album}" {
+            settings.compilation_folder_template = "Compilations/{album} ({album_id})".to_string();
+        }
+        settings.settings_version = 4;
+    }
+
+    // v4 → v5: introduces `wrapper_decrypt_ip` (#743). The new field
+    // gets `"127.0.0.1:10020"` via `#[serde(default = …)]` for upgrading
+    // users — same value GAMDL would have used at the CLI default, so
+    // local-wrapper setups see no behavioural change. Remote-wrapper
+    // users now have a settings field they can configure to point at
+    // their wrapper host (previously impossible from the UI).
+    if settings.settings_version == 4 {
+        settings.settings_version = 5;
+    }
 
     if old_version != settings.settings_version {
         log::info!(
@@ -352,6 +418,12 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // This prevents corruption if the process crashes or loses power mid-write,
     // because rename() is atomic on all major filesystems (APFS, ext4, NTFS).
     // See: https://github.com/MWBMPartners/MeedyaDL/issues/230
+    //
+    // Note: this site is NOT migrated to `utils::atomic_write::atomic_write_json`
+    // (#716 finding #8) because the in-memory `json` string is reused below
+    // for `write_settings_checksum`. Migrating would force a redundant
+    // re-serialisation. Future enhancement: split the helper into a two-phase
+    // API that returns the serialised string for callers that need it.
     let temp_path = settings_path.with_extension("json.tmp");
     std::fs::write(&temp_path, &json)
         .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
@@ -401,10 +473,11 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
 /// ```ini
 /// [gamdl]
 /// cookies_path = /path/to/cookies.txt
-/// song_codec = alac
 /// save_cover = true
 /// cover_format = raw
 /// ```
+/// Codec preference is transmitted via the CLI flag path
+/// (`--song-codec-priority`), not the INI — see `ini_audio_section` and #617.
 ///
 /// Key names use underscores (matching GAMDL's Click parameter names).
 /// Boolean flags use `key = true` (omitted when false).
@@ -461,6 +534,39 @@ fn sanitize_ini_value(value: &str) -> String {
     value.replace(['\n', '\r'], "")
 }
 
+/// Substitute MeedyaDL-introduced template variables before handing the
+/// template off to GAMDL.
+///
+/// GAMDL's `CustomStringFormatter` only knows about its own metadata
+/// keys (`artist`, `album`, `title`, `track`, `disc`, etc.). Any
+/// MeedyaDL-introduced placeholder must be resolved here BEFORE the
+/// template is written into GAMDL's `config.ini` or passed via CLI,
+/// otherwise GAMDL's Python `str.format(**metadata)` raises
+/// `KeyError: '<our-var>'` and the download fails.
+///
+/// Currently:
+/// - `{platform}` → `"AppleMusic"` (only supported service today; will
+///   become per-queue-item once M8 / M9 / M10 land).
+///
+/// **Why this exists (#829):** `{platform}` was added to the frontend
+/// `TEMPLATE_VARIABLES` registry in #309 (April 2026) for multi-service
+/// preparedness, but the corresponding write-time substitution was
+/// never implemented. #800 (v1.6.0 bundle) then added the `[Platform]`
+/// chip to every `TemplateBuilder` instance by default, making the
+/// broken variable highly discoverable. Any user who clicked the chip
+/// got `Error processing "...": 'platform'` on every download until
+/// they manually removed the chip from their templates.
+pub(crate) fn resolve_meedyadl_template_vars(template: &str) -> String {
+    // Short-circuit the common case (no MeedyaDL vars in the template)
+    // to avoid an unnecessary allocation. The check is cheap — if the
+    // template doesn't contain `{platform}`, return the original slice
+    // unchanged via `to_string`.
+    if !template.contains("{platform}") {
+        return template.to_string();
+    }
+    template.replace("{platform}", "AppleMusic")
+}
+
 /// Validate a user-provided path for safety (#459).
 ///
 /// Rejects paths containing traversal sequences (`..`) that could
@@ -514,26 +620,34 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends audio quality INI key-value pairs (song codec, codec priority).
-fn ini_audio_section(lines: &mut Vec<String>, settings: &AppSettings) {
-    // Write single codec for GAMDL < 2.9.1 compatibility
-    lines.push(format!(
-        "song_codec = {}",
-        settings.default_song_codec.to_cli_string()
-    ));
-
-    // Also write the full fallback chain as song_codec_priority for GAMDL >= 2.9.1.
-    // GAMDL 2.9.1+ reads this key and ignores song_codec when it's present.
-    // GAMDL < 2.9.1 silently ignores the unknown key.
-    if settings.fallback_enabled && !settings.music_fallback_chain.is_empty() {
-        let priority: String = settings
-            .music_fallback_chain
-            .iter()
-            .map(SongCodec::to_cli_string)
-            .collect::<Vec<&str>>()
-            .join(",");
-        lines.push(format!("song_codec_priority = {priority}"));
-    }
+/// Appends audio quality INI key-value pairs.
+///
+/// **Intentionally empty (#617).** Neither `song_codec` nor
+/// `song_codec_priority` are valid INI keys on any GAMDL release in our
+/// support window (v2.9.1 → v3.2):
+///
+/// * `song_codec` was removed from GAMDL's CLI in the v2.9.1 CLI
+///   restructure. The parameter never made it into the Click param set,
+///   so GAMDL's `cleanup_unknown_params()` silently drops any
+///   `song_codec = …` line we write.
+/// * `song_codec_priority` looks valid, but upstream declares the
+///   dataclass field as **`song_codec_piority`** (missing the `r` — see
+///   `.github/audits/gamdl-v3.2-audit.md` and upstream
+///   `gamdl/cli/cli_config.py`). The `dataclass_click` library
+///   propagates the Python field name to `click.Parameter.name`, which
+///   is the key GAMDL reads from the INI. Our correctly-spelled
+///   `song_codec_priority = …` line is therefore also silently
+///   dropped.
+///
+/// Codec preference reaches GAMDL via the CLI flag path
+/// (`--song-codec-priority`, emitted by
+/// [`GamdlOptions::audio_cli_args`](crate::models::gamdl_options::GamdlOptions)) which is authoritative and
+/// unaffected by the INI quirks above. The INI codec block was
+/// decorative at best and misleading at worst, so this function is now
+/// a no-op and kept as a section anchor for future audio-related INI
+/// keys that *do* round-trip through Click.
+fn ini_audio_section(_lines: &mut Vec<String>, _settings: &AppSettings) {
+    // Deliberately empty. See function docs for the v2.9.1+ rationale.
 }
 
 /// Appends video quality INI key-value pairs (resolution, codec priority, remux format).
@@ -642,7 +756,18 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     lines.push(format!("storefront = {storefront}"));
     // Boolean flag: when true, GAMDL fetches extra metadata tags
     // (normalization info, smooth playback data, etc.) from Apple Music.
-    if settings.fetch_extra_tags {
+    //
+    // Version-gated: `fetch_extra_tags` was removed in GAMDL v3.0
+    // alongside the preview-parsing code path. v3.0's INI loader
+    // silently drops unknown keys (see upstream `config_file.py`
+    // `cleanup_unknown_params`), so leaving stale v2.x keys behind is
+    // harmless, but we still skip writing fresh ones on v3+ to keep the
+    // emitted file self-consistent with the detected CLI.
+    if settings.fetch_extra_tags
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
+        )
+    {
         lines.push("fetch_extra_tags = true".to_string());
     }
     // Artist auto-selection mode (GAMDL >= 2.9.1). Controls which content
@@ -659,46 +784,84 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output path templates use Python format strings with metadata placeholders.
     // Example: "{album_artist}/{album}" -> "Taylor Swift/1989 (Taylor's Version)"
     // Ref: https://github.com/glomatico/gamdl#output-path-template
+    // Every template field below is passed through
+    // `resolve_meedyadl_template_vars` BEFORE `sanitize_ini_value` so
+    // MeedyaDL-introduced placeholders (currently just `{platform}`,
+    // #829) are resolved to concrete values that GAMDL's metadata dict
+    // actually contains. Without this, GAMDL's
+    // `CustomStringFormatter.format(**metadata)` raises
+    // `KeyError: '<our-var>'` and every download fails.
     if !settings.album_folder_template.is_empty() {
         lines.push(format!(
             "album_folder_template = {}",
-            sanitize_ini_value(&settings.album_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.album_folder_template
+            ))
         ));
     }
     if !settings.compilation_folder_template.is_empty() {
         lines.push(format!(
             "compilation_folder_template = {}",
-            sanitize_ini_value(&settings.compilation_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.compilation_folder_template
+            ))
         ));
     }
     if !settings.no_album_folder_template.is_empty() {
         lines.push(format!(
             "no_album_folder_template = {}",
-            sanitize_ini_value(&settings.no_album_folder_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.no_album_folder_template
+            ))
+        ));
+    }
+    // `playlist_folder_template` is GAMDL v3.0+ only (#618). On v2.9.x the
+    // key is silently dropped by `cleanup_unknown_params()`, but we still
+    // gate the emission so the generated INI is self-consistent with the
+    // detected CLI — same pattern as `wrapper_m3u8_ip` and (formerly)
+    // `fetch_extra_tags`.
+    if !settings.playlist_folder_template.is_empty()
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate,
+        )
+    {
+        lines.push(format!(
+            "playlist_folder_template = {}",
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.playlist_folder_template
+            ))
         ));
     }
     if !settings.single_disc_file_template.is_empty() {
         lines.push(format!(
             "single_disc_file_template = {}",
-            sanitize_ini_value(&settings.single_disc_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.single_disc_file_template
+            ))
         ));
     }
     if !settings.multi_disc_file_template.is_empty() {
         lines.push(format!(
             "multi_disc_file_template = {}",
-            sanitize_ini_value(&settings.multi_disc_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.multi_disc_file_template
+            ))
         ));
     }
     if !settings.no_album_file_template.is_empty() {
         lines.push(format!(
             "no_album_file_template = {}",
-            sanitize_ini_value(&settings.no_album_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.no_album_file_template
+            ))
         ));
     }
     if !settings.playlist_file_template.is_empty() {
         lines.push(format!(
             "playlist_file_template = {}",
-            sanitize_ini_value(&settings.playlist_file_template)
+            sanitize_ini_value(&resolve_meedyadl_template_vars(
+                &settings.playlist_file_template
+            ))
         ));
     }
 }
@@ -732,6 +895,18 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             "wrapper_account_url = {}",
             sanitize_ini_value(&settings.wrapper_account_url)
         ));
+        // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write keeps the
+        // emitted INI self-consistent with the detected CLI — older releases
+        // drop unknown keys via `cleanup_unknown_params()` but we stay
+        // explicit. Skipped silently on v3.0 and below.
+        if super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+        ) {
+            lines.push(format!(
+                "wrapper_m3u8_ip = {}",
+                sanitize_ini_value(&settings.wrapper_m3u8_ip)
+            ));
+        }
     }
 }
 
@@ -777,10 +952,102 @@ pub fn get_default_output_path() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::settings::CURRENT_SETTINGS_VERSION;
+    use crate::services::gamdl_capabilities;
 
     /// Helper: create default settings for testing
     fn default_settings() -> AppSettings {
         AppSettings::default()
+    }
+
+    /// Serialises tests that mutate the process-global GAMDL capability
+    /// cache. `cargo test` runs tests in parallel by default, so any test
+    /// that depends on a specific detected version must hold this lock
+    /// for the entire render + assertion window to avoid races with
+    /// other tests flipping the cache.
+    static CAPABILITY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// RAII guard: sets the detected GAMDL version for the duration of
+    /// a single test and restores the previous value on drop.
+    ///
+    /// Using a guard instead of raw `set_detected_version` calls means
+    /// we cannot forget to clear the cache when a test panics — the
+    /// stored state would otherwise leak into whichever test runs next.
+    struct VersionGuard {
+        previous: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl VersionGuard {
+        fn new(version: Option<&str>) -> Self {
+            // Recover poisoned locks so a previous test panic does not
+            // permanently disable this helper.
+            let lock = CAPABILITY_TEST_LOCK
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            let previous = gamdl_capabilities::detected_version();
+            gamdl_capabilities::set_detected_version(version.map(ToString::to_string));
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for VersionGuard {
+        fn drop(&mut self) {
+            gamdl_capabilities::set_detected_version(self.previous.take());
+        }
+    }
+
+    // ----------------------------------------------------------
+    // resolve_meedyadl_template_vars (#829)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn platform_var_is_substituted_to_apple_music() {
+        assert_eq!(
+            resolve_meedyadl_template_vars("{platform}/{album_artist}/{album}"),
+            "AppleMusic/{album_artist}/{album}"
+        );
+    }
+
+    #[test]
+    fn platform_var_substitutes_every_occurrence() {
+        // Defensive: a user could put `{platform}` in both folder AND
+        // file templates and the result must substitute consistently.
+        assert_eq!(
+            resolve_meedyadl_template_vars("[{platform}]/{artist}/{platform}-cover"),
+            "[AppleMusic]/{artist}/AppleMusic-cover"
+        );
+    }
+
+    #[test]
+    fn templates_without_platform_pass_through_unchanged() {
+        // The short-circuit branch must not corrupt templates that
+        // don't mention `{platform}`. GAMDL's own placeholders
+        // (`{album_artist}`, `{album}`, `{track}`) survive verbatim.
+        let template = "{album_artist}/{album}/{track:02d} {title}";
+        assert_eq!(resolve_meedyadl_template_vars(template), template);
+    }
+
+    #[test]
+    fn ini_template_section_resolves_platform_var() {
+        // End-to-end: settings with `{platform}` in a folder template
+        // must produce an INI line that already has it substituted.
+        // Pre-#829, GAMDL would read the unresolved `{platform}` and
+        // crash on `KeyError: 'platform'` at first download.
+        let mut settings = default_settings();
+        settings.album_folder_template = "{platform}/{album_artist}/{album}".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(
+            ini.contains("album_folder_template = AppleMusic/{album_artist}/{album}"),
+            "expected substituted template in INI, got:\n{ini}"
+        );
+        assert!(
+            !ini.contains("album_folder_template = {platform}"),
+            "unresolved {{platform}} leaked into INI:\n{ini}"
+        );
     }
 
     // ----------------------------------------------------------
@@ -802,22 +1069,48 @@ mod tests {
     }
 
     // ----------------------------------------------------------
-    // settings_to_ini: audio codec
+    // settings_to_ini: audio codec (#617)
+    //
+    // Both `song_codec` and `song_codec_priority` are silently dropped by
+    // GAMDL's `cleanup_unknown_params()` on every release in the support
+    // window — `song_codec` because the parameter was removed in the
+    // v2.9.1 CLI restructure, and `song_codec_priority` because the
+    // upstream dataclass field is misspelled as `song_codec_piority`.
+    // Codec preference is transmitted via the CLI flag (--song-codec-priority)
+    // which is authoritative; the INI path must emit neither key.
     // ----------------------------------------------------------
 
     #[test]
-    fn ini_contains_default_song_codec() {
+    fn ini_does_not_emit_song_codec() {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec = alac"));
+        assert!(
+            !ini.contains("song_codec ="),
+            "`song_codec` INI key must not be emitted — upstream removed it in v2.9.1; see #617"
+        );
     }
 
     #[test]
-    fn ini_uses_custom_song_codec() {
+    fn ini_does_not_emit_song_codec_priority() {
         let mut settings = default_settings();
-        settings.default_song_codec = crate::models::gamdl_options::SongCodec::Aac;
+        // Even with fallback enabled and a populated chain, the INI key must
+        // not appear. GAMDL's upstream field name is `song_codec_piority`
+        // (typo) so our correctly-spelled key would be dropped regardless —
+        // we leave emission to the CLI path entirely.
+        settings.fallback_enabled = true;
+        settings.music_fallback_chain = vec![
+            crate::models::gamdl_options::SongCodec::Alac,
+            crate::models::gamdl_options::SongCodec::Aac,
+        ];
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec = aac"));
+        assert!(
+            !ini.contains("song_codec_priority"),
+            "`song_codec_priority` INI key must not be emitted — upstream dataclass field is misspelled, see #617"
+        );
+        assert!(
+            !ini.contains("song_codec_piority"),
+            "`song_codec_piority` (upstream typo) must also not be emitted — CLI path is authoritative, see #617"
+        );
     }
 
     // ----------------------------------------------------------
@@ -964,6 +1257,26 @@ mod tests {
         assert!(ini.contains("wrapper_account_url = http://localhost:9999"));
     }
 
+    #[test]
+    fn ini_includes_wrapper_m3u8_ip_on_v31() {
+        let _guard = VersionGuard::new(Some("3.1"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_m3u8_ip = 10.0.0.1:20020"));
+    }
+
+    #[test]
+    fn ini_omits_wrapper_m3u8_ip_on_v30() {
+        let _guard = VersionGuard::new(Some("3.0"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains("wrapper_m3u8_ip"));
+    }
+
     // ----------------------------------------------------------
     // settings_to_ini: templates
     // ----------------------------------------------------------
@@ -1032,6 +1345,10 @@ mod tests {
 
     #[test]
     fn ini_uses_underscores_not_hyphens() {
+        // `fetch_extra_tags` only gets written on v2.x releases, so pin
+        // the capability cache to one while this test asserts its
+        // presence.
+        let _guard = VersionGuard::new(Some("2.9.3"));
         let mut settings = default_settings();
         settings.save_cover = true;
         settings.overwrite = true;
@@ -1046,7 +1363,11 @@ mod tests {
         assert!(!ini.contains("fetch-extra-tags"));
         // All use underscores
         assert!(ini.contains("save_cover = true"));
-        assert!(ini.contains("song_codec"));
+        // Note: `song_codec` is deliberately no longer emitted — #617. The CLI
+        // flag path is authoritative. Assert a different snake_case key that
+        // IS emitted so the "underscores not hyphens" invariant is still
+        // exercised.
+        assert!(ini.contains("cover_format"));
         assert!(ini.contains("output_path"));
         assert!(ini.contains("cover_size"));
         assert!(ini.contains("fetch_extra_tags = true"));
@@ -1054,6 +1375,7 @@ mod tests {
 
     #[test]
     fn ini_booleans_use_equals_true_not_bare_keys() {
+        let _guard = VersionGuard::new(Some("2.9.3"));
         let mut settings = default_settings();
         settings.save_cover = true;
         settings.overwrite = true;
@@ -1082,26 +1404,52 @@ mod tests {
         }
     }
 
-    // ----------------------------------------------------------
-    // settings_to_ini: song_codec_priority
-    // ----------------------------------------------------------
-
     #[test]
-    fn ini_contains_song_codec_priority_when_fallback_enabled() {
-        let settings = default_settings(); // fallback_enabled is true by default
-        let ini = settings_to_ini(&settings);
-        assert!(ini.contains("song_codec_priority ="));
-        // Should contain the full default fallback chain
-        assert!(ini.contains("alac"));
-    }
-
-    #[test]
-    fn ini_omits_song_codec_priority_when_fallback_disabled() {
+    fn ini_omits_fetch_extra_tags_on_gamdl_v3() {
+        // GAMDL v3.0 removed `--fetch-extra-tags`. Even when the user
+        // has the toggle flipped on in settings, we must not write the
+        // key — a stale `config.ini` entry is harmless (v3 silently
+        // drops unknown keys) but the goal here is to confirm the
+        // writer side of the capability gate.
+        let _guard = VersionGuard::new(Some("3.0"));
         let mut settings = default_settings();
-        settings.fallback_enabled = false;
+        settings.fetch_extra_tags = true;
         let ini = settings_to_ini(&settings);
-        assert!(!ini.contains("song_codec_priority ="));
+        assert!(
+            !ini.contains("fetch_extra_tags"),
+            "v3.0 INI must not contain fetch_extra_tags, got:\n{ini}"
+        );
     }
+
+    #[test]
+    fn ini_omits_fetch_extra_tags_when_version_unknown() {
+        // Before the dependency probe runs we don't know what GAMDL
+        // release is installed. The safe default is to not emit the
+        // key so a freshly installed v3.0 never sees it.
+        let _guard = VersionGuard::new(None);
+        let mut settings = default_settings();
+        settings.fetch_extra_tags = true;
+        let ini = settings_to_ini(&settings);
+        assert!(
+            !ini.contains("fetch_extra_tags"),
+            "INI must omit fetch_extra_tags when GAMDL version is unknown"
+        );
+    }
+
+    #[test]
+    fn ini_emits_fetch_extra_tags_on_gamdl_v2() {
+        let _guard = VersionGuard::new(Some("2.9.1"));
+        let mut settings = default_settings();
+        settings.fetch_extra_tags = true;
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("fetch_extra_tags = true"));
+    }
+
+    // settings_to_ini: song_codec_priority — the pre-#617 tests for this
+    // section have been removed. The new invariant (key never emitted on
+    // any GAMDL release in our support window, regardless of
+    // `fallback_enabled`) is locked in by `ini_does_not_emit_song_codec`
+    // and `ini_does_not_emit_song_codec_priority` further up.
 
     // ----------------------------------------------------------
     // settings_to_ini: artist_auto_select
@@ -1157,6 +1505,217 @@ mod tests {
         assert_eq!(
             deserialized.music_fallback_chain,
             settings.music_fallback_chain
+        );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v2 → v3 no-album template repair (#531)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v2_to_v3_heals_legacy_no_album_folder_template() {
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+    }
+
+    #[test]
+    fn migration_v2_to_v3_heals_legacy_no_album_file_template() {
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_file_template: "{disc} - ".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_file_template, "{title}");
+    }
+
+    #[test]
+    fn migration_v2_to_v3_preserves_custom_no_album_templates() {
+        // A user who intentionally customised their templates to anything
+        // other than the exact legacy defaults should see no change.
+        let mut s = AppSettings {
+            settings_version: 2,
+            no_album_folder_template: "Singles/{artist}".to_string(),
+            no_album_file_template: "{artist} - {title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        // Migration runs sequentially through all versions; end state is
+        // always CURRENT_SETTINGS_VERSION regardless of which individual
+        // version-gate this test is exercising.
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "Singles/{artist}");
+        assert_eq!(s.no_album_file_template, "{artist} - {title}");
+    }
+
+    #[test]
+    fn migration_runs_from_v0_all_the_way_to_current() {
+        // End-to-end: a completely stale v0 settings file with legacy
+        // broken templates should wind up on the current schema version
+        // with both templates repaired.
+        let mut s = AppSettings {
+            settings_version: 0,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            no_album_file_template: "{disc} - ".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+        assert_eq!(s.no_album_file_template, "{title}");
+    }
+
+    #[test]
+    fn migration_is_noop_when_already_at_current_version() {
+        let mut s = default_settings();
+        let before_folder = s.no_album_folder_template.clone();
+        let before_file = s.no_album_file_template.clone();
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, before_folder);
+        assert_eq!(s.no_album_file_template, before_file);
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v3 → v4 playlist template repair (#545)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v3_to_v4_heals_legacy_playlist_file_template() {
+        // After the v4→v5 migration (#743 wrapper_decrypt_ip), the
+        // version ceiling is now 5; this test asserts the v3→v4 step
+        // happened correctly and that subsequent steps don't undo it.
+        let mut s = AppSettings {
+            settings_version: 3,
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(
+            s.playlist_file_template,
+            "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
+        );
+    }
+
+    #[test]
+    fn migration_v3_to_v4_preserves_custom_playlist_template() {
+        // A user who intentionally customised their playlist template to
+        // anything other than the exact legacy default should see no change.
+        let mut s = AppSettings {
+            settings_version: 3,
+            playlist_file_template: "MyPlaylists/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.playlist_file_template, "MyPlaylists/{playlist_title}");
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v4 → v5 wrapper_decrypt_ip rollout (#743)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v4_to_v5_stamps_version_without_changing_decrypt_ip() {
+        // v4→v5 only bumps the schema version. The new
+        // `wrapper_decrypt_ip` field gets its serde default
+        // ("127.0.0.1:10020") on deserialise; this test exercises
+        // the in-memory case where the field is already populated.
+        let mut s = AppSettings {
+            settings_version: 4,
+            wrapper_decrypt_ip: "192.168.1.50:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.wrapper_decrypt_ip, "192.168.1.50:10020");
+    }
+
+    #[test]
+    fn migration_v3_to_v4_runs_from_v0_with_every_legacy_default() {
+        // End-to-end: a v0 settings file with the v0 / v2 broken defaults
+        // AND the v3 broken playlist default should wind up on v4 with
+        // all three healed.
+        let mut s = AppSettings {
+            settings_version: 0,
+            no_album_folder_template: "{artist}/[Unknown]".to_string(),
+            no_album_file_template: "{disc} - ".to_string(),
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.no_album_folder_template, "{artist}/Unknown Album");
+        assert_eq!(s.no_album_file_template, "{title}");
+        assert_eq!(
+            s.playlist_file_template,
+            "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
+        );
+    }
+
+    #[test]
+    fn default_playlist_file_template_includes_playlist_id() {
+        // Hard invariant — removing {playlist_id} re-opens the silent
+        // .m3u8 collision regression (#545).
+        let s = default_settings();
+        assert!(
+            s.playlist_file_template.contains("{playlist_id}"),
+            "default playlist_file_template must include {{playlist_id}} for uniqueness"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v3 → v4 compilation template repair (#552)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v3_to_v4_heals_legacy_compilation_folder_template() {
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "Compilations/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "Compilations/{album} ({album_id})");
+    }
+
+    #[test]
+    fn migration_v3_to_v4_preserves_custom_compilation_template() {
+        // A user who intentionally customised their compilation template
+        // should not see it mutated.
+        let mut s = AppSettings {
+            settings_version: 3,
+            compilation_folder_template: "VA/{album}".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.compilation_folder_template, "VA/{album}");
+    }
+
+    #[test]
+    fn default_compilation_folder_template_includes_album_id() {
+        // Hard invariant — removing {album_id} re-opens the silent
+        // compilation-folder intermix regression (#552).
+        let s = default_settings();
+        assert!(
+            s.compilation_folder_template.contains("{album_id}"),
+            "default compilation_folder_template must include {{album_id}} for uniqueness"
         );
     }
 }

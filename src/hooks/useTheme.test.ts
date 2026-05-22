@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/hooks/useTheme.test.ts - Unit tests for the theme override hook

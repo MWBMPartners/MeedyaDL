@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Engine runner — service-agnostic subprocess spawning and streaming.
@@ -31,10 +31,10 @@
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
-use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use crate::utils::process;
+use crate::utils::subprocess_reader::spawn_line_reader;
 
 // ============================================================
 // Progress event payload (generic, replaces GAMDL-specific)
@@ -140,61 +140,44 @@ pub async fn run_engine(
         .take()
         .ok_or_else(|| format!("Failed to capture {engine_id} stderr"))?;
 
-    // Spawn stdout reader task
-    let stdout_task = {
+    // Spawn one reader task per stream via the shared helper. The
+    // per-line work is identical between stdout and stderr — parse,
+    // log, emit on the generic + legacy event channels — so we
+    // capture it once in a builder and invoke `spawn_line_reader`
+    // twice. Audit v2 #5: the helper is the truly-common shell
+    // (BufReader → next_line loop); the visitor body is the
+    // engine-specific work.
+    let make_emitter = |stream_label: &'static str| {
         let download_id = download_id.to_string();
         let engine = engine_id.to_string();
         let app = app.clone();
-        tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+        move |line: String| {
+            let download_id = download_id.clone();
+            let engine = engine.clone();
+            let app = app.clone();
+            async move {
                 let event = process::parse_gamdl_output(&line);
-                log::debug!("[{engine} stdout] {line}");
+                log::debug!("[{engine} {stream_label}] {line}");
 
                 let progress = EngineProgress {
                     download_id: download_id.clone(),
-                    engine: engine.clone(),
+                    engine,
                     event: event.clone(),
                 };
-                // Emit on both the generic and legacy event channels
+                // Emit on both the generic and legacy event channels —
+                // the frontend still listens to the legacy "gamdl-output"
+                // alias for backwards compatibility.
                 let _ = app.emit("engine-output", &progress);
-                // Legacy compatibility: frontend still listens to "gamdl-output"
                 let legacy = super::gamdl_service::GamdlProgress {
-                    download_id: download_id.clone(),
+                    download_id,
                     event,
                 };
                 let _ = app.emit("gamdl-output", &legacy);
             }
-        })
+        }
     };
-
-    // Spawn stderr reader task
-    let stderr_task = {
-        let download_id = download_id.to_string();
-        let engine = engine_id.to_string();
-        let app = app.clone();
-        tokio::spawn(async move {
-            let reader = BufReader::new(stderr);
-            let mut lines = reader.lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                let event = process::parse_gamdl_output(&line);
-                log::debug!("[{engine} stderr] {line}");
-
-                let progress = EngineProgress {
-                    download_id: download_id.clone(),
-                    engine: engine.clone(),
-                    event: event.clone(),
-                };
-                let _ = app.emit("engine-output", &progress);
-                let legacy = super::gamdl_service::GamdlProgress {
-                    download_id: download_id.clone(),
-                    event,
-                };
-                let _ = app.emit("gamdl-output", &legacy);
-            }
-        })
-    };
+    let stdout_task = spawn_line_reader(stdout, make_emitter("stdout"));
+    let stderr_task = spawn_line_reader(stderr, make_emitter("stderr"));
 
     // Wait for process exit
     let status = child

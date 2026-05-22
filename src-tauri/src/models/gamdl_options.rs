@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // GAMDL CLI option models.
@@ -171,6 +171,39 @@ impl SongCodec {
     #[must_use]
     pub const fn is_wrapper_dependent(&self) -> bool {
         matches!(self, Self::Atmos | Self::Ac3)
+    }
+
+    /// Returns the Apple Music `audioTraits` value that must be present
+    /// on a track for this codec to be downloadable. Used by the
+    /// companion planner (#504) to skip tiers whose codec the API has
+    /// already told us isn't offered for the track, instead of letting
+    /// GAMDL crash with `NoneType.audio_track`.
+    ///
+    /// Returns `None` for codecs that are derived from another stream
+    /// (binaural / downmix / HE variants) — those are computed on top
+    /// of whatever the track *does* have, so they can't be filtered
+    /// purely from `audioTraits` and we still hand them to GAMDL.
+    ///
+    /// Mapping derived from Apple Music API field values observed on
+    /// catalog responses for tracks across the codec matrix.
+    #[must_use]
+    pub const fn required_audio_trait(&self) -> Option<&'static str> {
+        match self {
+            Self::Alac => Some("lossless"),
+            Self::Atmos => Some("atmos"),
+            Self::Ac3 => Some("dolby-digital"),
+            Self::Aac | Self::AacLegacy => Some("lossy-stereo"),
+            // Derived / rendered codecs — gated by their source stream
+            // (binaural and downmix are computed from the spatial mix;
+            // HE variants share the lossy stereo source). Returning
+            // None means "don't pre-skip on traits".
+            Self::AacBinaural
+            | Self::AacHe
+            | Self::AacHeLegacy
+            | Self::AacDownmix
+            | Self::AacHeBinaural
+            | Self::AacHeDownmix => None,
+        }
     }
 
     /// Human-readable display name for the UI dropdown/selector.
@@ -458,7 +491,7 @@ pub enum LogLevel {
 /// ## Reference
 ///
 /// - GAMDL `--artist-auto-select` flag: <https://github.com/glomatico/gamdl#usage>
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ArtistAutoSelect {
     /// Download main studio albums only.
@@ -564,7 +597,29 @@ pub struct GamdlOptions {
     pub music_video_resolution: Option<VideoResolution>,
     /// Video container format ("mp4" or "m4v")
     pub music_video_remux_format: Option<String>,
-    /// Uploaded/post video quality ("best" or "ask")
+    /// Uploaded/post video quality ("best" or "ask").
+    ///
+    /// **State of the uploaded-video pipeline (#549):** this field is a
+    /// pass-through CLI flag only. GAMDL ships `downloader_uploaded_video.py`
+    /// and `interface_uploaded_video.py` for Apple Music's label/artist-uploaded
+    /// videos (behind-the-scenes clips, live sessions, interviews — distinct
+    /// from catalog music videos), but MeedyaDL does not:
+    /// - detect uploaded-video URLs in `parse_apple_music_url` / the
+    ///   frontend `detectContentType`,
+    /// - route them through `download_music_video_by_url()` (so the
+    ///   MV-safe `MV_NO_ALBUM_FOLDER_TEMPLATE` / `MV_NO_ALBUM_FILE_TEMPLATE`
+    ///   in `download_queue.rs:2916, 2943` are NOT applied),
+    /// - expose any UI surface for uploaded-video discovery.
+    ///
+    /// If an uploaded-video URL is somehow submitted (deep link,
+    /// drag-drop, or direct IPC call) its tag shape — per the upstream
+    /// `interface_uploaded_video.py` — is `{artist, date, title,
+    /// title_id, storefront}` with no `album`, `disc`, `track`, or
+    /// `album_artist`. That routes straight through GAMDL's `no_album_*`
+    /// templates. Post-v3 migration the default is safe
+    /// (`{artist}/Unknown Album/{title}`) but loses the `{title_id}`
+    /// uniqueness guarantee — two same-artist uploaded videos sharing a
+    /// title ("Live Session") collide. See #549 for the pipeline plan.
     pub uploaded_video_quality: Option<String>,
     /// Whether to skip music videos in album/playlist downloads
     pub disable_music_video_skip: Option<bool>,
@@ -604,6 +659,11 @@ pub struct GamdlOptions {
     pub wrapper_account_url: Option<String>,
     /// Decryption server address
     pub wrapper_decrypt_ip: Option<String>,
+    /// m3u8 server address (host:port) used by GAMDL v3.1+ to fetch the HLS
+    /// master playlist URL from the wrapper instead of Apple's API. Only
+    /// emitted when the detected GAMDL release supports it (see
+    /// `GamdlFeature::WrapperM3u8Ip`). Default on upstream: `127.0.0.1:20020`.
+    pub wrapper_m3u8_ip: Option<String>,
 
     // --- Metadata ---
     /// Language for metadata (ISO 639-1 code, e.g., "en-US")
@@ -624,6 +684,11 @@ pub struct GamdlOptions {
     pub compilation_folder_template: Option<String>,
     /// Folder template for non-album tracks
     pub no_album_folder_template: Option<String>,
+    /// Folder template for playlists (GAMDL v3.0+). Emission is gated by
+    /// [`crate::services::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate`]
+    /// — `--playlist-folder-template` does not exist on v2.9.x and would
+    /// crash the subprocess with "no such option". See #618.
+    pub playlist_folder_template: Option<String>,
     /// File template for single-disc albums
     pub single_disc_file_template: Option<String>,
     /// File template for multi-disc albums
@@ -716,21 +781,34 @@ impl GamdlOptions {
 
     /// Builds CLI arguments for audio quality, lyrics, and cover art options.
     ///
-    /// Covers: `--song-codec`, `--synced-lyrics-format`, `--no-synced-lyrics`,
-    /// `--synced-lyrics-only`, `--save-cover`, `--cover-format`, `--cover-size`.
+    /// Covers: `--song-codec-priority`, `--synced-lyrics-format`,
+    /// `--no-synced-lyrics`, `--synced-lyrics-only`, `--save-cover`,
+    /// `--cover-format`, `--cover-size`.
     fn audio_cli_args(&self) -> Vec<String> {
         let mut args = Vec::new();
 
         // --- Audio Quality ---
-        // Prefer song_codec_priority (GAMDL >= 2.9.1) over song_codec.
-        // When both are set, song_codec_priority takes precedence because
-        // GAMDL handles codec fallback natively within a single process.
-        if let Some(ref priority) = self.song_codec_priority {
+        // `--song-codec-priority` has been the only codec-selection flag in
+        // GAMDL since v2.9.1 (the floor of our support window) — the legacy
+        // `--song-codec` single-codec flag was removed in the 2.9.1 CLI
+        // restructure and crashes Click with "No such option" on every
+        // subsequent release (v2.9.1 → v3.2). See #614 for the full
+        // cross-version verification.
+        //
+        // `song_codec_priority` wins when set; otherwise we promote the
+        // scalar `song_codec` field into a one-element CSV (valid per
+        // GAMDL's `Csv(SongCodec)` typing). This keeps `GamdlOptions`
+        // backwards-compatible with callers that still set `song_codec`
+        // while emitting a command line every supported GAMDL release
+        // understands.
+        let priority = self.song_codec_priority.clone().or_else(|| {
+            self.song_codec
+                .as_ref()
+                .map(|c| c.to_cli_string().to_string())
+        });
+        if let Some(priority) = priority {
             args.push("--song-codec-priority".to_string());
-            args.push(priority.clone());
-        } else if let Some(ref codec) = self.song_codec {
-            args.push("--song-codec".to_string());
-            args.push(codec.to_cli_string().to_string());
+            args.push(priority);
         }
 
         // --- Lyrics ---
@@ -831,6 +909,10 @@ impl GamdlOptions {
             args.push("--wrapper-decrypt-ip".to_string());
             args.push(ip.clone());
         }
+        if let Some(ref ip) = self.wrapper_m3u8_ip {
+            args.push("--wrapper-m3u8-ip".to_string());
+            args.push(ip.clone());
+        }
 
         // --- Metadata (string-valued) ---
         if let Some(ref lang) = self.language {
@@ -858,6 +940,18 @@ impl GamdlOptions {
         if let Some(ref t) = self.no_album_folder_template {
             args.push("--no-album-folder-template".to_string());
             args.push(t.clone());
+        }
+        // `--playlist-folder-template` is GAMDL v3.0+ only (#618). On
+        // v2.9.x the flag does not exist and emission would crash the
+        // subprocess with "no such option", so we gate it the same way
+        // `wrapper_m3u8_ip` is gated in `path_cli_args` above.
+        if let Some(ref t) = self.playlist_folder_template {
+            if crate::services::gamdl_capabilities::supports(
+                crate::services::gamdl_capabilities::GamdlFeature::PlaylistFolderTemplate,
+            ) {
+                args.push("--playlist-folder-template".to_string());
+                args.push(t.clone());
+            }
         }
         if let Some(ref t) = self.single_disc_file_template {
             args.push("--single-disc-file-template".to_string());
@@ -1117,14 +1211,40 @@ mod tests {
     // GamdlOptions::to_cli_args -- enum-valued options
     // ----------------------------------------------------------
 
+    /// `song_codec` alone still yields a working CLI — but via
+    /// `--song-codec-priority <single-codec>`, not the removed-in-v2.9.1
+    /// `--song-codec` flag. This exercises the `or_else` promotion branch
+    /// in `audio_cli_args` (the fix for #614).
     #[test]
-    fn song_codec_option() {
+    fn song_codec_promotes_to_priority_csv() {
         let options = GamdlOptions {
             song_codec: Some(SongCodec::Alac),
             ..Default::default()
         };
         let args = options.to_cli_args();
-        assert_eq!(args, vec!["--song-codec", "alac"]);
+        assert_eq!(args, vec!["--song-codec-priority", "alac"]);
+        assert!(!args.iter().any(|a| a == "--song-codec"));
+    }
+
+    /// Native priority chain takes precedence over the scalar `song_codec`.
+    #[test]
+    fn song_codec_priority_wins_over_scalar() {
+        let options = GamdlOptions {
+            song_codec: Some(SongCodec::Alac),
+            song_codec_priority: Some("atmos,alac,aac".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--song-codec-priority", "atmos,alac,aac"]);
+    }
+
+    /// Both-`None` emits no codec arg at all (existing invariant preserved).
+    #[test]
+    fn song_codec_both_none_emits_nothing() {
+        let options = GamdlOptions::default();
+        let args = options.to_cli_args();
+        assert!(!args.iter().any(|a| a == "--song-codec"));
+        assert!(!args.iter().any(|a| a == "--song-codec-priority"));
     }
 
     #[test]
@@ -1217,6 +1337,16 @@ mod tests {
         assert_eq!(args, vec!["--language", "ja-JP"]);
     }
 
+    #[test]
+    fn wrapper_m3u8_ip_option() {
+        let options = GamdlOptions {
+            wrapper_m3u8_ip: Some("127.0.0.1:20020".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert_eq!(args, vec!["--wrapper-m3u8-ip", "127.0.0.1:20020"]);
+    }
+
     // ----------------------------------------------------------
     // GamdlOptions::to_cli_args -- mode enums
     // ----------------------------------------------------------
@@ -1267,9 +1397,12 @@ mod tests {
         };
         let args = options.to_cli_args();
 
-        // Verify all expected flags are present
-        assert!(args.contains(&"--song-codec".to_string()));
+        // Verify all expected flags are present.
+        // Post-#614, the scalar `song_codec` is promoted to a one-element
+        // `--song-codec-priority` CSV on every supported GAMDL release.
+        assert!(args.contains(&"--song-codec-priority".to_string()));
         assert!(args.contains(&"aac".to_string()));
+        assert!(!args.iter().any(|a| a == "--song-codec"));
         assert!(args.contains(&"--save-cover".to_string()));
         assert!(args.contains(&"--cover-format".to_string()));
         assert!(args.contains(&"jpg".to_string()));
@@ -1319,17 +1452,20 @@ mod tests {
         assert!(!args.contains(&"--song-codec".to_string()));
     }
 
+    /// When `song_codec_priority` is `None` the scalar `song_codec` value
+    /// is promoted to a one-element `--song-codec-priority` CSV. The
+    /// removed-in-v2.9.1 `--song-codec` flag must NEVER be emitted (#614).
     #[test]
-    fn song_codec_used_when_priority_not_set() {
+    fn song_codec_promotes_when_priority_unset() {
         let options = GamdlOptions {
             song_codec: Some(SongCodec::Aac),
             song_codec_priority: None,
             ..Default::default()
         };
         let args = options.to_cli_args();
-        assert!(args.contains(&"--song-codec".to_string()));
+        assert!(args.contains(&"--song-codec-priority".to_string()));
         assert!(args.contains(&"aac".to_string()));
-        assert!(!args.contains(&"--song-codec-priority".to_string()));
+        assert!(!args.iter().any(|a| a == "--song-codec"));
     }
 
     #[test]
@@ -1342,6 +1478,69 @@ mod tests {
         let args = options.to_cli_args();
         assert!(!args.contains(&"--song-codec".to_string()));
         assert!(!args.contains(&"--song-codec-priority".to_string()));
+    }
+
+    // ----------------------------------------------------------
+    // playlist_folder_template capability gate (#618)
+    //
+    // These tests mutate the process-global capability cache so they
+    // share a `Mutex` to avoid interfering with each other (same
+    // pattern as the `gamdl_capabilities` module's own tests).
+    // ----------------------------------------------------------
+
+    /// Shared lock for `playlist_folder_template` tests — see
+    /// `gamdl_capabilities::tests::TEST_LOCK` for the pattern.
+    static PLAYLIST_TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn playlist_folder_template_emitted_on_v30_plus() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.0".to_string()));
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(args.contains(&"--playlist-folder-template".to_string()));
+        assert!(args.contains(&"MyPlaylists/{playlist_artist}".to_string()));
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn playlist_folder_template_suppressed_on_v29x() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(Some("2.9.3".to_string()));
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(
+            !args.contains(&"--playlist-folder-template".to_string()),
+            "v2.9.x must not receive --playlist-folder-template (no such option)"
+        );
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn playlist_folder_template_suppressed_when_version_unknown() {
+        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        crate::services::gamdl_capabilities::set_detected_version(None);
+        let options = GamdlOptions {
+            playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        assert!(
+            !args.contains(&"--playlist-folder-template".to_string()),
+            "unknown-version default is 'no capability' per the module contract"
+        );
     }
 
     // ----------------------------------------------------------
@@ -1441,5 +1640,29 @@ mod tests {
         assert!(!SongCodec::AacHeLegacy.is_wrapper_dependent());
         assert!(!SongCodec::AacHeBinaural.is_wrapper_dependent());
         assert!(!SongCodec::AacHeDownmix.is_wrapper_dependent());
+    }
+
+    #[test]
+    fn required_audio_trait_maps_known_codecs() {
+        assert_eq!(SongCodec::Alac.required_audio_trait(), Some("lossless"));
+        assert_eq!(SongCodec::Atmos.required_audio_trait(), Some("atmos"));
+        assert_eq!(SongCodec::Ac3.required_audio_trait(), Some("dolby-digital"));
+        assert_eq!(SongCodec::Aac.required_audio_trait(), Some("lossy-stereo"));
+        assert_eq!(
+            SongCodec::AacLegacy.required_audio_trait(),
+            Some("lossy-stereo")
+        );
+    }
+
+    #[test]
+    fn required_audio_trait_none_for_derived_codecs() {
+        // Binaural / downmix / HE variants are computed from another
+        // stream — we don't pre-skip them on traits.
+        assert_eq!(SongCodec::AacBinaural.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHe.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacDownmix.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeLegacy.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeBinaural.required_audio_trait(), None);
+        assert_eq!(SongCodec::AacHeDownmix.required_audio_trait(), None);
     }
 }

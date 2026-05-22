@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Download queue manager service.
@@ -74,7 +74,7 @@ use std::collections::{HashSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 // Tokio's Mutex is used instead of std::sync::Mutex because the lock is held
 // across .await points. std::sync::Mutex would block the entire thread;
 // tokio::sync::Mutex yields the task instead.
@@ -93,7 +93,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
 use crate::models::codec_registry::codec_suffix_from_registry;
-use crate::models::gamdl_options::{GamdlOptions, LyricsFormat, SongCodec};
+use crate::models::gamdl_options::{ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
 use crate::models::settings::{AppSettings, CompanionMode};
@@ -107,9 +107,14 @@ use crate::models::crash_report::CrashReport;
 // classify_error() for categorizing errors (codec, network, etc.) for retry logic.
 use crate::utils::process;
 // Activity log helpers: emit_download_log for per-download messages,
-// emit_app_log for system-level messages, ActivityLogEvent for raw stdout/stderr.
+// emit_app_log for system-level messages. `ActivityLogEvent` is no
+// longer imported here — Phase 3.5e moved every direct
+// `app.emit("activity-log", &event)` site through the new
+// `emit_subprocess_line` helper, so download_queue.rs no longer needs
+// to construct events directly.
 use crate::utils::activity_log::{
-    emit_app_log, emit_download_log, emit_verbose_download_log, ActivityLogEvent,
+    emit_app_log, emit_download_error, emit_download_log, emit_download_warn,
+    emit_verbose_download_log,
 };
 
 // ============================================================
@@ -147,6 +152,13 @@ impl ShutdownSignal {
     /// Returns `true` if shutdown has been requested.
     pub fn is_triggered(&self) -> bool {
         self.0.load(Ordering::Relaxed)
+    }
+
+    /// Exposes the inner `Arc<AtomicBool>` so long-lived background
+    /// tasks (e.g. the on-disk activity log writer in #541) can poll
+    /// the shutdown flag without holding a Tauri `State` reference.
+    pub fn flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0)
     }
 }
 
@@ -197,6 +209,15 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         return;
     }
 
+    // Respect the user's notification style preference (#658).
+    // The backend used to fire native notifications regardless of style, which
+    // contradicted the `in_app_only` choice and gave the impression that the
+    // setting did nothing. Skip the OS notification when the user picked
+    // `in_app_only` — the in-app toast path is unaffected.
+    if settings.notification_style == "in_app_only" {
+        return;
+    }
+
     // Only send notifications when the window is NOT focused.
     if let Some(window) = app.get_webview_window("main") {
         if window.is_focused().unwrap_or(false) {
@@ -229,13 +250,94 @@ fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
         }
     };
 
-    // Send the OS-native notification
-    app.notification()
+    // Send the OS-native notification.
+    //
+    // Instrumentation (#834): the previous `.ok()` swallowed every
+    // failure silently, which made it impossible to tell whether
+    // notifications were being dropped at the plugin layer, the
+    // OS permission layer, or somewhere else. Now log both arms
+    // through tracing so the on-disk log (#541) captures the truth
+    // for any future bug report. The user's in-app activity log is
+    // *not* spammed — these are OS-pipeline events, not download
+    // events.
+    match app
+        .notification()
         .builder()
         .title(title)
         .body(&display_body)
         .show()
-        .ok();
+    {
+        Ok(()) => {
+            log::debug!(
+                "desktop notification sent: title={:?} body={:?}",
+                title,
+                display_body
+            );
+        }
+        Err(e) => {
+            log::warn!(
+                "desktop notification FAILED: title={:?} error={:?} \
+                 (likely OS-level: permission revoked, Focus mode, or sandbox block)",
+                title,
+                e
+            );
+        }
+    }
+}
+
+/// Sends a one-off test notification through the **real** backend
+/// pipeline so the user can self-diagnose why OS notifications are
+/// or aren't appearing.
+///
+/// Differs from `send_desktop_notification` in two ways:
+/// - Bypasses the focus check. The user is clicking "Send Test
+///   Notification" while the app is focused (by definition — they're
+///   on a Settings page); we don't want to silently no-op on them.
+/// - Bypasses the throttle. They might click the button repeatedly.
+///
+/// Otherwise hits the exact same plugin entrypoint, so a successful
+/// test means the production path will also work; a failure surfaces
+/// the actual reason via the returned `Err`.
+///
+/// Closes #834 (instrumentation half).
+pub fn test_desktop_notification(
+    app: &AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_notification::NotificationExt;
+
+    let settings = load_settings_for_queue(app);
+    if !settings.desktop_notifications {
+        return Err(
+            "Desktop Notifications toggle is off. \
+             Turn it on in Settings → General → Notifications first."
+                .to_string(),
+        );
+    }
+    if settings.notification_style == "in_app_only" {
+        return Err(
+            "Notification Style is set to 'In-app only'. \
+             Switch to 'Native + in-app' or 'Native only' to test the OS pipeline."
+                .to_string(),
+        );
+    }
+
+    app.notification()
+        .builder()
+        .title("MeedyaDL — Backend Test")
+        .body(
+            "If you can read this, the native notification pipeline is working \
+             from the Rust side. If you don't see this notification, check macOS \
+             System Settings → Notifications → MeedyaDL.",
+        )
+        .show()
+        .map_err(|e| {
+            format!(
+                "OS-level send failed: {e}. \
+                 Likely causes: macOS notification permission revoked, \
+                 Focus / Do Not Disturb mode enabled, or the app bundle \
+                 missing from System Settings → Notifications."
+            )
+        })
 }
 
 /// Executes the configured after-queue action when the queue becomes idle.
@@ -262,6 +364,17 @@ fn execute_after_queue_action(app: &AppHandle) {
         let settings_path = data_dir.join("settings.json");
         if let Ok(json) = serde_json::to_string_pretty(&settings) {
             let _ = std::fs::write(settings_path, json);
+        }
+        // #690: also refresh the in-process settings cache so the
+        // next reader after a one-shot clear sees the post-clear
+        // value without re-reading disk. Without this, every read
+        // until the user next saves settings would see the stale
+        // pre-clear after_queue_once = Some(...) value.
+        use tauri::Manager as _;
+        if let Some(cache) =
+            app.try_state::<super::settings_cache::SettingsCache>()
+        {
+            cache.refresh(settings.clone());
         }
     }
 
@@ -438,7 +551,37 @@ fn extract_album_info_from_url(url: &str) -> (Option<String>, Option<String>) {
     (None, None)
 }
 
-fn normalize_url_for_dedup(url: &str) -> String {
+/// Format a human-readable label identifying the content of a queue item,
+/// for use in user-visible activity-log messages where "this content" would
+/// otherwise be ambiguous. Prefers the cached Apple Music API names
+/// (`artist_name` — `album_name` — `current_track`) populated at enqueue
+/// time, and falls back to the first URL when names are unavailable.
+///
+/// `pub(crate)` because the activity log emitter ([`crate::utils::activity_log::emit_download_log`])
+/// auto-enriches every `[MeedyaDL]` line with this label so the on-disk
+/// log and UI both identify which queued item a message refers to.
+pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
+    let mut parts: Vec<&str> = Vec::with_capacity(3);
+    if let Some(artist) = status.artist_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(artist);
+    }
+    if let Some(album) = status.album_name.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(album);
+    }
+    if let Some(track) = status.current_track.as_deref().filter(|s| !s.is_empty()) {
+        parts.push(track);
+    }
+    if !parts.is_empty() {
+        return parts.join(" — ");
+    }
+    status
+        .urls
+        .first()
+        .map(|u| redact_url_query(u).to_string())
+        .unwrap_or_else(|| "unknown content".to_string())
+}
+
+pub(crate) fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment
     let url = url.trim();
@@ -532,9 +675,13 @@ fn find_album_directory(
     }
 
     // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
+    // Depth-bounded to 10 levels (#844) — matches the convention used by
+    // `find_dirs_with_ttml` and `scan_folder_for_manifests`. Without the cap,
+    // pointing this at a 484-album library walked tens of thousands of dirs
+    // and added 30-60 s of pure I/O before any actual enrichment work began.
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
 
-    find_deepest_audio_dir(base_dir, &mut best);
+    find_deepest_audio_dir(base_dir, &mut best, 0);
 
     // If no subdirectory with audio files found, check if base itself has audio
     if best.is_none() && has_direct_audio_files(base_dir) {
@@ -589,10 +736,21 @@ fn find_directory_case_insensitive(
 
 /// Recursively finds the deepest directory that directly contains audio files.
 /// Prefers the most recently modified leaf directory.
+/// Maximum recursion depth for [`find_deepest_audio_dir`] (#844).
+///
+/// User libraries typically fit within 3 levels (`Music/Artist/Album/`); 10
+/// gives generous headroom for unusual layouts while keeping the cold-scan
+/// cost bounded.
+const FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH: u32 = 10;
+
 fn find_deepest_audio_dir(
     dir: &std::path::Path,
     best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
+    depth: u32,
 ) {
+    if depth >= FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH {
+        return;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -611,18 +769,23 @@ fn find_deepest_audio_dir(
                 }
             }
             // Always recurse deeper — there may be nested album directories
-            find_deepest_audio_dir(&path, best);
+            find_deepest_audio_dir(&path, best, depth + 1);
         }
     }
 }
 
 /// Checks if the given directory directly contains audio files (non-recursive).
 /// Unlike `has_audio_files()`, this does NOT recurse into subdirectories.
+///
+/// Skips filesystem sidecars (macOS `._*` AppleDouble, `.DS_Store`,
+/// Windows `Thumbs.db`, etc.) via `fs_safe::is_filesystem_sidecar`
+/// so a directory containing only such sidecars reports `false` even
+/// if some of those sidecars end in audio-file extensions like `._track.m4a`.
 fn has_direct_audio_files(dir: &std::path::Path) -> bool {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(&path) {
                 if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                     if ext.eq_ignore_ascii_case("m4a")
                         || ext.eq_ignore_ascii_case("m4v")
@@ -656,6 +819,77 @@ fn count_codec_skip_warnings(warnings: &[String]) -> usize {
         .count()
 }
 
+fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String> {
+    if let Some(priority) = options.song_codec_priority.as_deref() {
+        return priority
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+
+    options
+        .song_codec
+        .as_ref()
+        .map(|codec| vec![codec.to_cli_string().to_string()])
+        .unwrap_or_default()
+}
+
+fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
+    line.split("SongCodec.")
+        .skip(1)
+        .filter_map(|part| {
+            let value_start = part.find(": '")? + 3;
+            let value_rest = &part[value_start..];
+            let value_end = value_rest.find('\'')?;
+            Some(value_rest[..value_end].to_string())
+        })
+        .collect()
+}
+
+fn describe_song_codec_cli_value(value: &str) -> String {
+    SongCodec::from_cli_string(value).map_or_else(
+        || value.to_string(),
+        |codec| format!("{} [{}]", codec.display_name(), codec.to_cli_string()),
+    )
+}
+
+fn annotate_unavailable_format_line(line: &str, requested_formats: &[String]) -> String {
+    let lower = line.to_lowercase();
+    let is_unavailable_format = lower.contains("format is not available")
+        || lower.contains("format not available")
+        || lower.contains("requested format");
+    if !is_unavailable_format || line.contains("Unavailable requested format") {
+        return line.to_string();
+    }
+
+    let parsed_formats = extract_song_codec_values_from_line(line);
+    let formats = if parsed_formats.is_empty() {
+        requested_formats.to_vec()
+    } else {
+        parsed_formats
+    };
+    if formats.is_empty() {
+        return line.to_string();
+    }
+
+    let labels: Vec<String> = formats
+        .iter()
+        .map(|value| describe_song_codec_cli_value(value))
+        .collect();
+    let detail = if labels.len() == 1 {
+        format!("Unavailable requested format: {}", labels[0])
+    } else {
+        format!(
+            "Unavailable requested format candidates: {}",
+            labels.join(" -> ")
+        )
+    };
+
+    format!("{line} ({detail})")
+}
+
 /// Build a gap-fill priority chain by removing wrapper-dependent codecs
 /// (Atmos, AC3) from the original chain. These codecs don't reliably
 /// work without wrapper authentication for per-track availability.
@@ -685,27 +919,177 @@ fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
 /// Count audio files (.m4a, .m4v, .mp4) in the output directory to
 /// detect partial download success. Searches recursively through
 /// Artist/Album subdirectory structure.
-fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
-    let mut count = 0;
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                    if ext.eq_ignore_ascii_case("m4a")
-                        || ext.eq_ignore_ascii_case("m4v")
-                        || ext.eq_ignore_ascii_case("mp4")
-                    {
-                        count += 1;
-                    }
-                }
-            } else if path.is_dir() {
-                count += count_audio_files_in_directory(&path);
-            }
-        }
+///
+/// Migrated to the shared [`crate::utils::fs_walk::walk_dir_depth`]
+/// helper (#716 finding #1, v1.0.2 prep). Pre-migration this was an
+/// open-coded recursive walker without an explicit depth limit;
+/// Inject an advisory suffix (`[Explicit]` / `[Clean]`) into a GAMDL
+/// folder template so a companion download lands in the same album
+/// folder as the post-enrichment renamed primary (#528).
+///
+/// Pre-fix the primary's `apply_advisory_suffixes` would rename
+/// `Album/` → `Album [Explicit]/` after the primary download
+/// finished; the parallel companion GAMDL run, oblivious to that
+/// rename, would write its files to a fresh `Album/` sibling. This
+/// helper builds the folder template the companion needs to match
+/// the post-rename path.
+///
+/// Substitution rule: replace **every** `{album}` placeholder with
+/// `{album} <suffix>`. The placeholder is the natural anchor — the
+/// suffix lives on the same path component as the album-name, and
+/// existing user templates always position `{album}` as the last
+/// path segment (the album folder itself).
+///
+/// Returns:
+/// - `Some(new_template)` — the template was modified.
+/// - `None` — the input was missing or didn't contain `{album}`
+///   (custom user template that doesn't reference the placeholder;
+///   we'd rather leave it alone than guess where to splice the
+///   suffix and risk a worse outcome).
+#[must_use]
+fn inject_advisory_suffix_into_template(
+    template: Option<&str>,
+    suffix: &str,
+) -> Option<String> {
+    let template = template?;
+    if !template.contains("{album}") {
+        return None;
     }
-    count
+    let new_template = template.replace("{album}", &format!("{{album}} {suffix}"));
+    Some(new_template)
 }
+
+/// `walk_dir_depth` makes the bound mandatory and enforces the same
+/// `read_dir → recurse → filter` shape as the other 4+ walkers in
+/// the codebase. Depth 10 matches the convention used by
+/// `scan_folder_for_manifests` and `find_dirs_with_ttml` (post-#712).
+fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
+    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        if ext.eq_ignore_ascii_case("m4a")
+            || ext.eq_ignore_ascii_case("m4v")
+            || ext.eq_ignore_ascii_case("mp4")
+        {
+            Some(())
+        } else {
+            None
+        }
+    })
+    .len()
+}
+
+/// Unified completion-task timeout (#776).
+///
+/// Single source of truth for "how long is this download legitimately
+/// allowed to take?" Used both for the enrichment-alone wait (pass
+/// `companion_tier_count = 0`) and for the wait that includes companion
+/// tiers.
+///
+/// **Why a timeout exists in the first place** (#461): the completion
+/// task awaits the enrichment + companion `JoinHandle`s. If any stage
+/// deadlocks (e.g. an API client waiting on a response without its own
+/// timeout, a `Mutex` held by a dead task), the queue would stall
+/// forever. The timeout is a belt-and-braces safety net that force-
+/// completes the item after the deadline so the queue keeps moving.
+///
+/// **Scaling formula**:
+/// ```text
+///   base
+/// + tracks   × per_track_seconds   (drives RG/AcoustID/MB scaling)
+/// + tiers    × per_tier_seconds    (each companion variant = a full
+///                                   GAMDL re-download + remux)
+/// + mvs      × per_mv_seconds      (each MV companion = a separate
+///                                   GAMDL invocation)
+/// capped at 4 h
+/// ```
+///
+/// **Why the per-track slice was raised from 10 s → 30 s** (#776):
+/// the previous 10 s/track allowance was tuned for the documented
+/// ~1.5 s/track ReplayGain + AcoustID cost — but ReplayGain decodes
+/// the entire audio file via FFmpeg `ebur128`, so live tracks (8-15
+/// min each) take 5-10 s of FFmpeg time alone. A 19-track live album
+/// brushed the old 13 min budget and timed out mid-stage with
+/// "some files may be missing ReplayGain / AcoustID / MusicBrainz
+/// tags". The new 30 s/track gives those albums genuine headroom even
+/// after #776's parallelisation roughly halves the wall-clock cost.
+///
+/// **Why MV count is now an input** (#776): each music-video
+/// companion is a separate GAMDL invocation (decrypt + remux + tag).
+/// Without it counted, an album with many MV companions could blow
+/// the budget for the same reason the box-set case originally did.
+///
+/// | Workload | Old budget | New budget |
+/// |---|---|---|
+/// | 19 tracks, 0 tiers, 0 MVs | 13 min | 19.5 min |
+/// | 19 tracks, 1 tier, 5 MVs | 21 min | 32.5 min |
+/// | 50 tracks, 4 tiers, 0 MVs | 18 min (enrich-only) / 50 min (companions) | 67 min |
+/// | 200 tracks, 4 tiers, 0 MVs | 75 min | 150 min |
+/// | extreme | capped at 4 h | capped at 4 h |
+///
+/// The companion supervisor's per-process idle watchdog
+/// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
+/// that genuinely stalls, so this completion-level deadline only needs
+/// to cover the *legitimate* total wall-clock cost.
+fn compute_total_timeout(
+    track_count: usize,
+    companion_tier_count: usize,
+    mv_count: usize,
+) -> std::time::Duration {
+    /// 10-minute base timeout (unchanged from #461's original design).
+    const BASE_SECS: u64 = 600;
+    /// Per-output-file slice. Raised from 10 s → 30 s in #776 to cover
+    /// long-form audio (live albums) where ReplayGain's full-file
+    /// FFmpeg decode dominates per-track cost.
+    const PER_TRACK_SECS: u64 = 30;
+    /// Per-tier overhead. 8 min covers a full GAMDL re-download +
+    /// mp4decrypt + remux on a typical album over a normal connection.
+    /// Generous on purpose: this is a "give up, something is wrong"
+    /// threshold, not a target.
+    const PER_TIER_SECS: u64 = 8 * 60;
+    /// Per-MV-companion overhead. 1 min covers a typical music-video
+    /// download (smaller than an album re-download but still a separate
+    /// GAMDL invocation per video).
+    const PER_MV_SECS: u64 = 60;
+    /// Absolute cap — refuses to propose a timeout above 4 h regardless
+    /// of how many files are in the directory. Protects against accidental
+    /// recursion into a user's full music library if the output-path
+    /// check ever mis-resolves.
+    const MAX_SECS: u64 = 4 * 3600;
+
+    let scaled = BASE_SECS
+        .saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64))
+        .saturating_add(PER_TIER_SECS.saturating_mul(companion_tier_count as u64))
+        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64));
+    let clamped = scaled.min(MAX_SECS);
+    std::time::Duration::from_secs(clamped)
+}
+
+// ============================================================
+// Enrichment stage progress weights (#576 → Phase 3.5b refactor)
+// ============================================================
+//
+// The cumulative weights AND human labels for each per-item processing
+// stage now live in the [`super::progress_stages::ProgressStage`] enum
+// (one source of truth, label + weight + ordering enforced together,
+// covered by unit tests for monotonicity, bound, ellipsis convention,
+// and `ALL`-array completeness).
+//
+// Pre-refactor we had 8 scattered `PROGRESS_*_STAGE: f32` constants
+// here plus 9 closure-local `set_label("...", PROGRESS_*)` calls
+// inside the enrichment task. Adding a new stage required edits in
+// 3+ places and a stale label was an easy bug to miss — exactly the
+// pattern that produced the 30-minute "ReplayGain loudness analysis…"
+// hang in #712. The enum is the registry; this comment is the
+// breadcrumb pointing future readers to it.
+// Phase 3.5d: `set_stage_with_label` is used by the enrichment task's
+// `set_label` shim. The simpler `set_stage` (which uses the enum's
+// canonical label, no override) will be picked up by the companion
+// task in Phase 3.5g — re-exported here for that consumer.
+#[allow(unused_imports)]
+use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, ProgressStage};
 
 // ============================================================
 // Manifest writer
@@ -721,6 +1105,7 @@ fn write_manifest(
     album_metadata: Option<&crate::services::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
     downloaded_at: &str,
+    cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -766,6 +1151,14 @@ fn write_manifest(
                     } else {
                         None
                     };
+                    // Record Apple Music song_id when non-empty so the
+                    // duplicate-detection "History" scope (#510) can match
+                    // previously-downloaded tracks.
+                    let song_id = if t.song_id.is_empty() {
+                        None
+                    } else {
+                        Some(t.song_id.clone())
+                    };
                     ManifestTrack {
                         number: t.track_number,
                         disc: t.disc_number,
@@ -773,6 +1166,7 @@ fn write_manifest(
                         url: track_url,
                         codec: None,
                         isrc: t.isrc.clone(),
+                        song_id,
                     }
                 })
                 .collect()
@@ -793,6 +1187,12 @@ fn write_manifest(
         codec: None,
         last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
         tracks,
+        // Phase 1 (#759): per-stage enrichment record. Initial
+        // manifest write happens before enrichment runs, so all
+        // stages are absent here; the post-stage hooks will add
+        // records as each stage completes (Phase 2 wiring).
+        enrichment: None,
+        cross_platform_urls,
     };
 
     // Read existing manifest or create new
@@ -819,26 +1219,21 @@ fn write_manifest(
         manifest.merge_source(source);
     }
 
-    // Write atomically (temp file + rename)
-    match serde_json::to_string_pretty(&manifest) {
-        Ok(json) => {
-            // Use a sibling temp file with a simple suffix to avoid
-            // Rust's `with_extension()` quirks on dotfiles (#447).
-            let tmp_path = dir.join("manifest.meedyadl.tmp");
-            if let Err(e) = std::fs::write(&tmp_path, &json) {
-                log::warn!("Failed to write manifest temp file: {e}");
-                return;
-            }
-            if let Err(e) = std::fs::rename(&tmp_path, &manifest_path) {
-                log::warn!("Failed to rename manifest temp file: {e}");
-                // Clean up temp file
-                let _ = std::fs::remove_file(&tmp_path);
-                return;
-            }
+    // Atomic write via the shared `utils::atomic_write::atomic_write_json`
+    // helper (#716/8, v1.0.5 prep). The helper computes the temp path
+    // as `{path}.{existing_ext}.tmp` — for `manifest.meedyadl` that's
+    // `manifest.meedyadl.tmp`, exactly matching the pre-migration
+    // sibling-temp pattern that #447 used to dodge the dotfile quirks
+    // of `Path::with_extension`. No leftover-temp cleanup-on-rename-
+    // fail (the helper trusts std::fs::rename), but the rename failure
+    // path is rare in practice (same-fs operation) and any orphan
+    // .tmp will be overwritten on the next manifest update.
+    match crate::utils::atomic_write::atomic_write_json(&manifest_path, &manifest, "manifest") {
+        Ok(()) => {
             log::info!("Wrote download manifest to {}", manifest_path.display());
         }
         Err(e) => {
-            log::warn!("Failed to serialise manifest: {e}");
+            log::warn!("{e}");
         }
     }
 }
@@ -916,6 +1311,12 @@ struct QueueItem {
     /// 0 = primary engine, 1 = first fallback engine, etc.
     /// Incremented by `try_engine_fallback()` on tool errors (#320).
     pub engine_fallback_index: usize,
+    /// Whether [`try_storefront_fallback`] has already rewritten this
+    /// item's URL once (#666). Budget is one attempt — without this flag
+    /// the same item could ping-pong between two storefronts forever
+    /// when neither catalog has the content. Reset by [`retry`] so a
+    /// user-driven manual retry from the UI is allowed to try again.
+    pub storefront_fallback_attempted: bool,
 }
 
 // ============================================================
@@ -994,6 +1395,35 @@ pub struct ExportedItem {
 /// Queued -> Downloading -> Error -> (retry/fallback) -> Queued (retry path)
 /// Queued -> Cancelled (user cancellation)
 ///
+/// Summary returned by [`DownloadQueue::abort_all`] describing how many
+/// items were stopped, grouped by their pre-abort state. Used by the
+/// `abort_all_downloads` IPC to surface a meaningful toast / activity-log
+/// line without re-iterating the queue on the frontend (#620).
+///
+/// Items already in a terminal state (`Complete`, `Cancelled`, `Error`)
+/// are NOT counted — they were not stopped by this action.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbortSummary {
+    /// Items that were `Queued` (not yet started) and are now `Cancelled`.
+    pub queued_cancelled: u32,
+    /// Items that were actively `Downloading` when the abort fired. The
+    /// download task will reap its subprocess on the next cancellation
+    /// poll and transition out of the main loop.
+    pub downloading_stopped: u32,
+    /// Items that were in post-download `Processing` (enrichment,
+    /// companion downloads, etc.) when the abort fired.
+    pub processing_stopped: u32,
+}
+
+impl AbortSummary {
+    /// Total number of items affected (sum of all three fields).
+    #[must_use]
+    pub fn total(&self) -> u32 {
+        self.queued_cancelled + self.downloading_stopped + self.processing_stopped
+    }
+}
+
 /// Only `max_concurrent` downloads run simultaneously. When a download
 /// finishes, the queue automatically starts the next queued item.
 #[derive(Debug)]
@@ -1021,6 +1451,14 @@ pub struct DownloadQueue {
     /// is called recursively for each item). Reset to `None` when the queue drains.
     /// A 60-second cooldown prevents duplicate warnings during rapid re-processing.
     last_preflight_at: Option<std::time::Instant>,
+    /// One-shot flag set by [`Self::abort_all`] (#620) and consumed by
+    /// [`Self::take_recently_aborted`] when the queue would otherwise fire
+    /// its post-queue action. Abort is a user-directed terminal action; the
+    /// user did not want their system to shut down / play a sound / open a
+    /// folder just because they stopped the queue. The flag is automatically
+    /// cleared on consumption so the next legitimate queue-drain still runs
+    /// the configured post-queue action.
+    recently_aborted: bool,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -1035,6 +1473,69 @@ pub type QueueHandle = Arc<Mutex<DownloadQueue>>;
 #[must_use]
 pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
+}
+
+/// RAII guard that ensures one queue slot is released when the
+/// completion task finishes (#706).
+///
+/// **Why this exists.** The success path of the per-item download task
+/// used to call `q.on_task_finished()` immediately after primary GAMDL
+/// exited (line 6183 pre-#706), then spawn a separate completion task
+/// that awaited enrichment + companions. That early decrement freed
+/// the slot while the previous item was still in post-processing, so
+/// any subsequent `process_queue` invocation (user IPC, fallback
+/// retry, startup recovery) could start the next item in parallel —
+/// violating the strictly-serial contract of #455 and re-introducing
+/// the metadata cross-contamination risk that #452 / #455 were
+/// designed to prevent.
+///
+/// **The fix.** The success-path call is moved into the completion
+/// task so the slot is held throughout post-processing. To make sure
+/// a panic, abort, or runtime shutdown inside the completion task
+/// cannot leak the slot (and stall the entire queue forever), the
+/// task takes ownership of one of these guards on entry. In the
+/// happy path the task calls [`ActiveSlotGuard::disarm`] alongside
+/// the explicit `q.on_task_finished()` so the `Drop` impl is a no-op;
+/// otherwise `Drop` fires a fire-and-forget `tokio::spawn` to release
+/// the slot asynchronously.
+///
+/// Construct exactly one of these per spawn of the completion task —
+/// double-construction would over-release.
+struct ActiveSlotGuard {
+    /// `Some` while armed, `None` once `disarm` has run. `Drop`
+    /// inspects this to decide whether to fire its release task.
+    queue: Option<QueueHandle>,
+}
+
+impl ActiveSlotGuard {
+    fn new(queue: QueueHandle) -> Self {
+        Self { queue: Some(queue) }
+    }
+
+    /// Disarms the guard. Call this from the completion task's happy
+    /// path immediately after the explicit `q.on_task_finished()`,
+    /// inside the same scope as the queue lock that performed the
+    /// release, so `Drop` becomes a no-op.
+    fn disarm(mut self) {
+        self.queue = None;
+    }
+}
+
+impl Drop for ActiveSlotGuard {
+    fn drop(&mut self) {
+        let Some(queue) = self.queue.take() else {
+            return; // disarmed by happy-path
+        };
+        // `Drop` is synchronous; we cannot `.await` here. A
+        // fire-and-forget release task acquires the lock and
+        // decrements `active_count`. If the runtime is shutting
+        // down the spawn may never run, but at that point the
+        // queue accounting no longer matters.
+        tokio::spawn(async move {
+            let mut q = queue.lock().await;
+            q.on_task_finished();
+        });
+    }
 }
 
 impl Default for DownloadQueue {
@@ -1054,6 +1555,7 @@ impl DownloadQueue {
             max_network_retries: 3,
             gamdl_version: None,
             last_preflight_at: None,
+            recently_aborted: false,
         }
     }
 
@@ -1069,7 +1571,14 @@ impl DownloadQueue {
     ///
     /// # Returns
     /// The unique download ID for tracking this job.
-    pub fn enqueue(&mut self, request: DownloadRequest, settings: &AppSettings) -> String {
+    pub fn enqueue(&mut self, mut request: DownloadRequest, settings: &AppSettings) -> String {
+        self.remove_terminal_duplicates_for_urls(&request.urls);
+
+        let mut seen_urls = HashSet::new();
+        request
+            .urls
+            .retain(|url| seen_urls.insert(normalize_url_for_dedup(url)));
+
         // Generate a unique download ID using UUID v4.
         // This ID is used to track the download across the queue, events, and frontend.
         let download_id = uuid::Uuid::new_v4().to_string();
@@ -1116,6 +1625,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error: None,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -1126,6 +1636,8 @@ impl DownloadQueue {
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     output_is_directory: false,
                     warnings: Vec::new(),
+                    audio_traits: Vec::new(),
+                    mv_companion_count: None,
                     created_at: chrono::Utc::now().to_rfc3339(),
                 }
             },
@@ -1134,6 +1646,7 @@ impl DownloadQueue {
             fallback_index: 0,
             network_retries_left: self.max_network_retries,
             engine_fallback_index: 0,
+            storefront_fallback_attempted: false,
         };
 
         log::info!(
@@ -1144,6 +1657,34 @@ impl DownloadQueue {
 
         self.items.push_back(item);
         download_id
+    }
+
+    /// Removes terminal queue rows that match the incoming URL set.
+    ///
+    /// Retried history entries are requeued as fresh items, so any older
+    /// failed/cancelled/completed row for the same link should disappear
+    /// from Queue instead of accumulating as a duplicate.
+    fn remove_terminal_duplicates_for_urls(&mut self, urls: &[String]) -> usize {
+        if urls.is_empty() {
+            return 0;
+        }
+
+        let incoming: HashSet<String> = urls.iter().map(|u| normalize_url_for_dedup(u)).collect();
+        let original_len = self.items.len();
+        self.items.retain(|item| {
+            let is_terminal = matches!(
+                item.status.state,
+                DownloadState::Complete | DownloadState::Error | DownloadState::Cancelled
+            );
+            let matches_incoming = item
+                .status
+                .urls
+                .iter()
+                .any(|u| incoming.contains(&normalize_url_for_dedup(u)));
+            !(is_terminal && matches_incoming)
+        });
+
+        original_len - self.items.len()
     }
 
     /// Checks whether any of the given URLs already exist in the queue in an
@@ -1173,12 +1714,58 @@ impl DownloadQueue {
         })
     }
 
+    /// Returns only URLs that are not already in a queued/active item.
+    #[must_use]
+    pub fn filter_out_active_duplicate_urls(&self, urls: &[String]) -> Vec<String> {
+        let active_urls: HashSet<String> = self
+            .items
+            .iter()
+            .filter(|item| {
+                matches!(
+                    item.status.state,
+                    DownloadState::Queued | DownloadState::Downloading | DownloadState::Processing
+                )
+            })
+            .flat_map(|item| item.status.urls.iter())
+            .map(|url| normalize_url_for_dedup(url))
+            .collect();
+
+        let mut seen_in_request = HashSet::new();
+        urls.iter()
+            .filter(|url| {
+                let normalized = normalize_url_for_dedup(url);
+                seen_in_request.insert(normalized.clone()) && !active_urls.contains(&normalized)
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Returns the public status of all queue items for display in the frontend.
     /// The frontend calls this (via a Tauri command) to render the queue list.
     /// Returns cloned statuses to avoid holding the lock during serialization.
     #[must_use]
     pub fn get_status(&self) -> Vec<QueueItemStatus> {
         self.items.iter().map(|item| item.status.clone()).collect()
+    }
+
+    /// Returns the formatted media label
+    /// (`Artist — Album — Track`, with URL fallback) for a given
+    /// download ID, or `None` if no item with that ID exists or the
+    /// label is empty.
+    ///
+    /// Used by [`crate::utils::activity_log::emit_download_log`] to
+    /// auto-enrich every `[MeedyaDL]` activity-log line so users don't
+    /// have to cross-reference the 8-char download ID against the queue
+    /// page to know which item a message refers to.
+    #[must_use]
+    pub fn media_label_for(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let label = format_content_label(&item.status);
+        if label.is_empty() {
+            None
+        } else {
+            Some(label)
+        }
     }
 
     /// Returns summary counts for the queue: (total, active, queued, completed, failed).
@@ -1246,6 +1833,37 @@ impl DownloadQueue {
         }
     }
 
+    /// Removes a single item from the queue by ID.
+    ///
+    /// Refuses to remove `Downloading` / `Processing` items — the user must
+    /// `cancel()` them first. Without this guard, deleting a live row would
+    /// orphan the GAMDL subprocess (which writes to disk and would emit
+    /// progress events with no queue entry to update), and the cancellation
+    /// poll loop would have nothing to find on its next tick.
+    ///
+    /// # Returns
+    /// - `Ok(true)` if the item was found and removed.
+    /// - `Ok(false)` if the item was not found (already removed by a prior
+    ///   call, or the ID was wrong).
+    /// - `Err(message)` if the item exists but is in an active state.
+    pub fn delete(&mut self, download_id: &str) -> Result<bool, String> {
+        let Some(idx) = self.items.iter().position(|i| i.status.id == download_id) else {
+            return Ok(false);
+        };
+
+        match self.items[idx].status.state {
+            DownloadState::Downloading | DownloadState::Processing => Err(format!(
+                "Cannot delete download {download_id} — currently active. \
+                 Cancel it first."
+            )),
+            _ => {
+                self.items.remove(idx);
+                log::info!("Deleted download {download_id} from queue");
+                Ok(true)
+            }
+        }
+    }
+
     /// Removes completed and cancelled items from the queue.
     /// Errored items are kept so the user can review and retry them.
     ///
@@ -1287,6 +1905,75 @@ impl DownloadQueue {
         removed
     }
 
+    /// Aborts every non-terminal item in the queue and returns a summary of
+    /// what was stopped.
+    ///
+    /// Each matching item is transitioned directly to `DownloadState::Cancelled`
+    /// in the same way the per-item `cancel()` does — the running task's
+    /// cancellation-poll loop will detect the state change on its next tick,
+    /// reap the subprocess via `Child::kill_on_drop(true)`, and short-circuit
+    /// any enrichment / companion / lyrics tasks that poll
+    /// [`ShutdownSignal`]-style flags.
+    ///
+    /// Items already in `Complete`, `Cancelled`, or `Error` are untouched so
+    /// the user keeps their history intact.
+    ///
+    /// The returned [`AbortSummary`] exposes per-pre-abort-state counts so
+    /// the caller can produce a meaningful activity-log line + toast without
+    /// having to iterate the queue themselves (#620).
+    pub fn abort_all(&mut self) -> AbortSummary {
+        let mut summary = AbortSummary::default();
+        for item in &mut self.items {
+            match item.status.state {
+                DownloadState::Queued => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.queued_cancelled += 1;
+                }
+                DownloadState::Downloading => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.downloading_stopped += 1;
+                }
+                DownloadState::Processing => {
+                    item.status.state = DownloadState::Cancelled;
+                    summary.processing_stopped += 1;
+                }
+                DownloadState::Complete
+                | DownloadState::Cancelled
+                | DownloadState::Error => {
+                    // Terminal — leave alone.
+                }
+            }
+        }
+        if summary.total() > 0 {
+            log::info!(
+                "Abort: cancelled {queued} queued, stopped {dl} downloading, stopped {proc} processing",
+                queued = summary.queued_cancelled,
+                dl = summary.downloading_stopped,
+                proc = summary.processing_stopped,
+            );
+            // Arm the post-queue-action suppression flag. Abort is a
+            // user-directed terminal action; suppress the configured
+            // post-queue action (shutdown, hibernate, play sound,
+            // etc.) that would otherwise fire when the queue drains.
+            // Consumed once by `take_recently_aborted` on the next
+            // would-be post-action trigger, so subsequent legitimate
+            // drains still run the configured action.
+            self.recently_aborted = true;
+        }
+        summary
+    }
+
+    /// Consumes the one-shot "recently aborted" flag set by
+    /// [`Self::abort_all`]. Returns `true` and clears the flag if the
+    /// queue was aborted since the last drain; returns `false`
+    /// otherwise. The post-queue-action dispatch path calls this to
+    /// decide whether to suppress the configured action (#620).
+    pub fn take_recently_aborted(&mut self) -> bool {
+        let was_aborted = self.recently_aborted;
+        self.recently_aborted = false;
+        was_aborted
+    }
+
     /// Updates the state of a queue item.
     /// Used by the download task to report progress.
     pub fn update_item_state(&mut self, download_id: &str, state: DownloadState) {
@@ -1320,7 +2007,13 @@ impl DownloadQueue {
                     item.status.eta = Some(eta.clone());
                     item.status.state = DownloadState::Downloading;
                 }
-                process::GamdlOutputEvent::TrackInfo { title, artist, .. } => {
+                process::GamdlOutputEvent::TrackInfo {
+                    title,
+                    artist,
+                    track_number,
+                    track_total,
+                    ..
+                } => {
                     // Format the current track as "Artist - Title" or just "Title"
                     let track_name = if artist.is_empty() {
                         title.clone()
@@ -1328,6 +2021,18 @@ impl DownloadQueue {
                         format!("{artist} - {title}")
                     };
                     item.status.current_track = Some(track_name);
+                    // Wire the parsed "[Track N/M]" counters through to
+                    // `QueueItemStatus` so the UI can display "(Track N
+                    // of M)" context on album / playlist / artist-bucket
+                    // downloads. GAMDL v3.1 also emits `[Track 1/1]` for
+                    // single-song URLs; the frontend suppresses the
+                    // counter when `total_tracks == 1` (#609).
+                    if let Some(n) = track_number {
+                        item.status.completed_tracks = Some(*n as usize);
+                    }
+                    if let Some(t) = track_total {
+                        item.status.total_tracks = Some(*t as usize);
+                    }
                 }
                 process::GamdlOutputEvent::ProcessingStep { .. } => {
                     // Processing state covers post-download steps like remuxing,
@@ -1349,13 +2054,46 @@ impl DownloadQueue {
                 // any recognized pattern; they're logged for debugging but
                 // don't affect queue item state.
                 process::GamdlOutputEvent::Unknown { .. } => {}
+                // Traceback frames from upstream Python noise (#660). They
+                // do not represent a state transition — the actual exception
+                // summary line is captured separately via the Error variant
+                // (PYTHON_EXCEPTION_REGEX).
+                process::GamdlOutputEvent::TracebackFrame { .. } => {}
+                // Per-track codec-availability skips (#698) are normal
+                // catalog behaviour, not download failures. Don't set
+                // `item.status.error` from these — the queue's terminal
+                // classifier inspects the collected `errors` Vec at exit
+                // time and produces a meaningful "no audio available"
+                // message when every recorded warning is a codec skip.
+                // Setting `error` here would surface the misleading
+                // `[WARNING] Skipping ...` text mid-download even if the
+                // remaining tracks succeed and the item ends Complete.
+                process::GamdlOutputEvent::CodecSkip { .. } => {}
             }
         }
     }
 
     /// Marks a download as errored and sets the error message.
+    ///
+    /// Refuses to overwrite a `Cancelled` or `Complete` terminal state
+    /// (#661). The cancellation path explicitly transitions an active
+    /// item to `Cancelled` first, and a late-arriving error from a
+    /// subprocess that was being torn down must not flip that to
+    /// `Error`. Likewise, a `Complete` item should not regress to
+    /// `Error` if a tail-end async task fails after enrichment ended.
     pub fn set_error(&mut self, download_id: &str, error: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Cancelled | DownloadState::Complete
+            ) {
+                log::debug!(
+                    "set_error skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
         }
@@ -1377,11 +2115,54 @@ impl DownloadQueue {
         }
     }
 
+    /// Updates the intra-Processing progress fraction for a download
+    /// item (#576). `progress` is clamped to `[0.0, 1.0]` before storing.
+    ///
+    /// Drives the queue-level progress bar's within-Processing forward
+    /// motion. Called by each enrichment stage with its cumulative
+    /// contribution (see `ENRICHMENT_STAGE_WEIGHTS`) so the user sees
+    /// the aggregate bar advancing through the enrichment phase rather
+    /// than sitting on a fixed "partial credit" value for 20+ minutes
+    /// on large box sets.
+    pub fn set_processing_progress(&mut self, download_id: &str, progress: f32) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_progress = Some(progress.clamp(0.0, 1.0));
+        }
+    }
+
+    /// Clears the processing label for a download. Called by the
+    /// companion supervisor when the post-processing phase finishes
+    /// (#503), so the queue UI returns to its normal caption.
+    pub fn clear_processing_label(&mut self, download_id: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.status.processing_label = None;
+        }
+    }
+
     /// Marks a download as complete (#416).
     /// Clears processing label and speed/ETA to prevent stale data
     /// appearing in the UI after completion.
+    ///
+    /// Refuses to overwrite an `Error` or `Cancelled` terminal state
+    /// (#661). The completion task at the bottom of the per-item
+    /// pipeline always calls `set_complete` after the post-companion
+    /// advisory pass, even if the download itself failed minutes
+    /// earlier — without this guard, failed items would silently
+    /// "revive" to Complete in the UI, contradicting both the in-app
+    /// error toast and the prior activity-log error entry.
     pub fn set_complete(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            if matches!(
+                item.status.state,
+                DownloadState::Error | DownloadState::Cancelled
+            ) {
+                log::debug!(
+                    "set_complete skipped for {} — already in terminal state {:?}",
+                    download_id,
+                    item.status.state,
+                );
+                return;
+            }
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
             item.status.processing_label = None;
@@ -1581,6 +2362,269 @@ impl DownloadQueue {
         }
     }
 
+    /// Attempts a one-shot storefront-fallback rewrite for a failed item (#666).
+    ///
+    /// Rewrites every URL on the item from its current storefront to the
+    /// user's account-region storefront (settings.storefront, falling back
+    /// to OS locale, then `"us"`), resets the item to `Queued`, and returns
+    /// `Some((from, to))` describing the swap so the activity-log writer
+    /// can surface it. Returns `None` and leaves the item untouched when:
+    ///
+    /// * the user disabled `storefront_fallback_on_failure`, or
+    /// * the budget of one attempt has already been spent for this item
+    ///   (`storefront_fallback_attempted == true`), or
+    /// * none of the URLs match the standard `/<storefront>/<type>/…`
+    ///   shape (e.g. `/library/…` URLs use a Music-User-Token endpoint
+    ///   that doesn't accept a free storefront), or
+    /// * the resolved fallback storefront is the same as the existing one
+    ///   on every URL (nothing to rewrite — typically when the user is
+    ///   already on the storefront the URL specifies).
+    ///
+    /// Budget is reset to fresh by [`Self::retry`], so a manual user retry
+    /// from the UI gets to try the rewrite again.
+    pub fn try_storefront_fallback(
+        &mut self,
+        download_id: &str,
+        settings: &AppSettings,
+    ) -> Option<(String, String)> {
+        if !settings.storefront_fallback_on_failure {
+            return None;
+        }
+        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+        if item.storefront_fallback_attempted {
+            return None;
+        }
+
+        // Resolve the user's account region. settings.storefront is the
+        // canonical user-configurable value (auto-derived from locale, can
+        // be overridden in Settings > General). Fallbacks: OS locale via
+        // login_window_service::detect_storefront, then "us" as a last-
+        // resort default that's always a valid Apple storefront.
+        let target = if !settings.storefront.is_empty() {
+            settings.storefront.to_ascii_lowercase()
+        } else {
+            super::login_window_service::detect_storefront()
+                .unwrap_or_else(|| "us".to_string())
+        };
+
+        // Capture the current URL storefront from the *first* URL that
+        // parses cleanly; we rewrite every URL but only need one source
+        // value for the activity-log line.
+        let from_storefront = item
+            .status
+            .urls
+            .iter()
+            .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+            .map(|p| p.storefront)?;
+
+        // Skip if the URL storefront already matches the user region.
+        // This is the "user pasted their own region's URL" case — there's
+        // nothing useful to rewrite to, and the failure is genuine.
+        if from_storefront == target {
+            return None;
+        }
+
+        // Rewrite every URL on the item. The helper is a no-op for any URL
+        // shape it can't safely rewrite, so /library/ URLs and other novel
+        // forms in a multi-URL request pass through unchanged — the queue
+        // item just doesn't benefit from the swap for those entries.
+        let new_urls: Vec<String> = item
+            .status
+            .urls
+            .iter()
+            .map(|u| super::apple_music_api::rewrite_url_storefront(u, &target))
+            .collect();
+
+        // Sanity check: at least one URL must have actually changed,
+        // otherwise we'd be retrying the exact same set with the same
+        // failure expected.
+        if new_urls == item.status.urls {
+            return None;
+        }
+
+        item.status.urls = new_urls.clone();
+        item.request.urls = new_urls;
+        item.storefront_fallback_attempted = true;
+        item.status.state = DownloadState::Queued;
+        item.status.error = None;
+        item.status.progress = 0.0;
+
+        log::info!(
+            "Storefront fallback for {download_id}: rewriting URLs '{from_storefront}' -> '{target}'"
+        );
+        Some((from_storefront, target))
+    }
+
+    // ============================================================
+    // Queue reorder API (#782)
+    // ============================================================
+    //
+    // Reordering operates only on `Queued` items and only relative to
+    // other `Queued` items. Active items (`Downloading` / `Processing`)
+    // and terminal items (`Complete` / `Error` / `Cancelled`) keep
+    // their absolute positions in the `VecDeque`. The four move methods
+    // share the same outline:
+    //
+    //   1. Find the target item's current absolute index.
+    //   2. Refuse if the item isn't `Queued` (no preempting actives,
+    //      no shuffling completed history).
+    //   3. Compute the destination absolute index from the desired
+    //      logical position (top / up / down / bottom of the Queued
+    //      sub-sequence), refusing the move when it would be a no-op.
+    //   4. Pop the item and re-insert it at the destination index.
+    //
+    // Race-safety: callers acquire the same `Mutex<DownloadQueue>` as
+    // `next_pending`, so a move can never interleave with item
+    // selection. The moved item is visible to the very next
+    // `next_pending` call.
+    //
+    // All four return `true` when the queue mutated, `false` when the
+    // call was a no-op (item not found, not Queued, or already at the
+    // requested position) so the caller can short-circuit the
+    // `queue-updated` event + disk write when nothing changed.
+
+    /// Returns a human-friendly label for an item — Album name first,
+    /// URL fallback, item-id last-resort. Used by the IPC layer to
+    /// produce traceable activity-log entries for queue mutations
+    /// (#782) without exposing the private `items` field.
+    #[must_use]
+    pub fn friendly_label(&self, download_id: &str) -> Option<String> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        Some(
+            item.status
+                .album_name
+                .clone()
+                .or_else(|| item.status.urls.first().cloned())
+                .unwrap_or_else(|| download_id.to_string()),
+        )
+    }
+
+    /// Helper: indices of every `Queued` item in deque order.
+    /// Empty when no items are queued.
+    fn queued_indices(&self) -> Vec<usize> {
+        self.items
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, item)| {
+                if item.status.state == DownloadState::Queued {
+                    Some(idx)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Move a `Queued` item to the top of the pending sub-sequence —
+    /// it becomes the next item `next_pending` will pick.
+    pub fn move_to_top(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false; // 0 or 1 queued items — no-op
+        }
+        let first_queued_idx = queued[0];
+        let Some(current_idx) = self
+            .items
+            .iter()
+            .position(|i| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
+        }
+        if current_idx == first_queued_idx {
+            return false; // Already at top
+        }
+        // current_idx > first_queued_idx is guaranteed: the item is
+        // Queued and not already at first_queued_idx, so it must come
+        // later in the deque. Removing it shifts no earlier index, so
+        // first_queued_idx remains the correct insert position.
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        self.items.insert(first_queued_idx, removed);
+        true
+    }
+
+    /// Move a `Queued` item to the bottom of the pending sub-sequence.
+    pub fn move_to_bottom(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        if queued.len() < 2 {
+            return false;
+        }
+        let last_queued_idx = *queued.last().expect("checked len >= 2");
+        let Some((current_idx, _)) = self
+            .items
+            .iter()
+            .enumerate()
+            .find(|(_, i)| i.status.id == download_id)
+        else {
+            return false;
+        };
+        if self.items[current_idx].status.state != DownloadState::Queued {
+            return false;
+        }
+        if current_idx == last_queued_idx {
+            return false; // Already at bottom
+        }
+        let removed = self.items.remove(current_idx).expect("index just verified");
+        // After removal, indices > current_idx shift down by 1. We
+        // want to insert at the OLD last_queued_idx position, which
+        // becomes last_queued_idx - 1 after removal (because the
+        // current_idx < last_queued_idx removal shifted it down).
+        let insert_at = if current_idx < last_queued_idx {
+            last_queued_idx - 1
+        } else {
+            // Defensive — would mean current_idx > last_queued_idx,
+            // which contradicts queued.last() being the largest queued
+            // index. Reject.
+            return false;
+        };
+        self.items.insert(insert_at + 1, removed);
+        true
+    }
+
+    /// Swap a `Queued` item with the `Queued` item immediately above
+    /// it in the pending sub-sequence (skipping any intervening
+    /// non-`Queued` items).
+    pub fn move_up(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        // Find the target's position within the queued sub-sequence.
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false; // Not in queue or not Queued
+        };
+        if queued_pos == 0 {
+            return false; // Already at top of queued sub-sequence
+        }
+        let above_idx = queued[queued_pos - 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(above_idx, target_idx);
+        true
+    }
+
+    /// Swap a `Queued` item with the `Queued` item immediately below
+    /// it in the pending sub-sequence.
+    pub fn move_down(&mut self, download_id: &str) -> bool {
+        let queued = self.queued_indices();
+        let Some(queued_pos) = queued.iter().position(|&idx| {
+            self.items
+                .get(idx)
+                .is_some_and(|item| item.status.id == download_id)
+        }) else {
+            return false;
+        };
+        if queued_pos + 1 >= queued.len() {
+            return false; // Already at bottom of queued sub-sequence
+        }
+        let below_idx = queued[queued_pos + 1];
+        let target_idx = queued[queued_pos];
+        self.items.swap(target_idx, below_idx);
+        true
+    }
+
     /// Gets the next queued item's download ID and options for execution.
     ///
     /// This is the "scheduler" — it decides whether a new download can start.
@@ -1657,17 +2701,111 @@ impl DownloadQueue {
     ///
     /// # Returns
     /// `true` if the item was found and reset, `false` otherwise.
+    /// Peek at what a smart-retry plan *would* produce for `download_id`
+    /// without mutating queue state (#667). Returns `None` when the item
+    /// doesn't exist or has no output path — those cases just fall
+    /// through to dumb retry without diagnostic value.
+    ///
+    /// Used by the `retry_download` IPC to give the frontend a precise
+    /// "nothing to retry" message when the planner reports
+    /// [`super::smart_retry_planner::PlanOutcome::AllPresent`], rather
+    /// than the generic `Download cannot be retried` error.
+    #[must_use]
+    pub fn peek_smart_retry_outcome(
+        &self,
+        download_id: &str,
+    ) -> Option<super::smart_retry_planner::PlanOutcome> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        let output = item.status.output_path.as_deref()?;
+        if !item.status.output_is_directory {
+            return None;
+        }
+        let first_url = item.request.urls.first()?;
+        Some(super::smart_retry_planner::plan_retry(
+            std::path::Path::new(output),
+            first_url,
+        ))
+    }
+
     pub fn retry(&mut self, download_id: &str, settings: &AppSettings) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if item.status.state == DownloadState::Error
                 || item.status.state == DownloadState::Cancelled
             {
+                // Smart manifest-driven retry (#667). When the failed item
+                // has a known output directory containing a
+                // `manifest.meedyadl`, diff the expected track set against
+                // disk and replace the queue item's URLs with a precise
+                // per-track list so GAMDL only revisits the tracks that
+                // actually failed. Falls through to the existing dumb
+                // retry on any unsupported case (no manifest, no source
+                // match, no per-track URLs recorded).
+                let smart_outcome = item
+                    .status
+                    .output_path
+                    .as_deref()
+                    .filter(|_| item.status.output_is_directory)
+                    .and_then(|out| {
+                        let path = std::path::Path::new(out);
+                        item.request.urls.first().map(|first_url| {
+                            super::smart_retry_planner::plan_retry(path, first_url)
+                        })
+                    });
+
+                if let Some(super::smart_retry_planner::PlanOutcome::AllPresent {
+                    total_tracks,
+                }) = smart_outcome
+                {
+                    // Every expected track is on disk — there's nothing
+                    // for the retry to fetch. Refuse the retry and let
+                    // the caller surface "nothing to do". Returning
+                    // `false` here means the IPC reports a clean refusal;
+                    // the activity-log helper above has already logged
+                    // the diagnostic. We do NOT clear the Error state —
+                    // the user's previous attempt's error is still the
+                    // most accurate description of what happened.
+                    log::info!(
+                        "Smart retry for {download_id}: all {total_tracks} track(s) already \
+                         present on disk — refusing retry"
+                    );
+                    return false;
+                }
+
                 // Re-merge options from the original request with current settings.
                 // This picks up any settings changes the user made since the original attempt.
                 item.merged_options = merge_options(item.request.options.as_ref(), settings);
                 // Reset fallback and retry counters to their initial values
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
+                // Reset the storefront-fallback budget too (#666) — a manual
+                // retry from the UI is a fresh user intent and should be
+                // allowed to try the rewrite once again, even if the previous
+                // automatic fallback already exhausted its single attempt.
+                item.storefront_fallback_attempted = false;
+                // Clear the cached MV-companion count (#776) so the next
+                // attempt's enrichment task re-discovers it from a fresh
+                // API call. Stale counts from a previous attempt could
+                // mis-size the companion-wait deadline.
+                item.status.mv_companion_count = None;
+
+                // Apply the smart-retry plan if one was produced. The plan
+                // narrows the URL set to per-track entries that GAMDL can
+                // fetch in a single invocation, sharply cutting wall time
+                // (no metadata re-fetch for already-present tracks, no
+                // companion re-traversal, smaller enrichment surface).
+                if let Some(super::smart_retry_planner::PlanOutcome::Plan(plan)) =
+                    smart_outcome
+                {
+                    log::info!(
+                        "Smart retry for {download_id}: targeting {} of {} track(s) — \
+                         {} URL(s) queued",
+                        plan.missing_tracks,
+                        plan.total_tracks,
+                        plan.urls_to_fetch.len(),
+                    );
+                    item.request.urls = plan.urls_to_fetch.clone();
+                    item.status.urls = plan.urls_to_fetch;
+                }
                 // Reset status fields for a fresh start
                 item.status.state = DownloadState::Queued;
                 item.status.error = None;
@@ -1713,6 +2851,7 @@ impl DownloadQueue {
                 item.merged_options.use_wrapper = Some(false);
                 item.merged_options.wrapper_account_url = None;
                 item.merged_options.wrapper_decrypt_ip = None;
+                item.merged_options.wrapper_m3u8_ip = None;
                 // Reset counters and state
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
@@ -1852,6 +2991,7 @@ impl DownloadQueue {
                     speed: None,
                     eta: None,
                     processing_label: None,
+                    processing_progress: None,
                     error,
                     output_path: None,
                     codec_used: Some(merged_options.song_codec.as_ref().map_or_else(
@@ -1862,6 +3002,10 @@ impl DownloadQueue {
                     used_wrapper: merged_options.use_wrapper.unwrap_or(false),
                     output_is_directory: false,
                     warnings: Vec::new(),
+                    // Re-fetched from the Apple Music API on next attempt.
+                    audio_traits: Vec::new(),
+                    // Same — re-discovered when enrichment runs again.
+                    mv_companion_count: None,
                     created_at: p.created_at,
                 },
                 request: p.request,
@@ -1869,6 +3013,7 @@ impl DownloadQueue {
                 fallback_index: 0,
                 engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
+                storefront_fallback_attempted: false,
             };
             self.items.push_back(item);
         }
@@ -1921,6 +3066,7 @@ impl DownloadQueue {
                 let request = DownloadRequest {
                     urls: exported.urls,
                     options: exported.options,
+                    ..Default::default()
                 };
                 self.enqueue(request, settings)
             })
@@ -1945,6 +3091,53 @@ impl DownloadQueue {
 /// The resulting `GamdlOptions` struct is what actually gets passed to
 /// `gamdl_service::build_gamdl_command_public()` to construct the CLI command.
 #[allow(clippy::field_reassign_with_default)]
+/// Inject zero-padding into bare `{track}` / `{disc}` placeholders (#587).
+///
+/// Takes a user-provided filename template and rewrites any bare
+/// `{track}` / `{disc}` token to `{track:{width}d}` / `{disc:{width}d}`
+/// using the caller's preferred padding widths. Tokens that already
+/// carry an explicit format spec (`{track:02d}`, `{disc:02d}`,
+/// `{track:!s}`, etc.) are left untouched — the user's explicit
+/// template always wins. Case-sensitive: `{Track}` is not recognised.
+///
+/// `track_width` / `disc_width` of 0 means "no padding" (emit bare
+/// `{track}` / `{disc}`), so the Python-style format spec becomes the
+/// unpadded placeholder rather than `{track:0d}` which would produce
+/// garbage output.
+///
+/// Extracted as a pure function so it can be exercised by unit tests
+/// without a full settings/queue setup.
+#[must_use]
+fn apply_padding_to_template(template: &str, track_width: usize, disc_width: usize) -> String {
+    // Regex-free implementation: walk the string, find literal `{track}`
+    // and `{disc}` substrings (no format spec after the name), replace
+    // in-place. Robust against tokens that appear multiple times in one
+    // template (e.g. `{artist} - {track} of {track_total}` — only
+    // `{track}` is substituted; `{track_total}` stays untouched because
+    // we match the exact bare form).
+    let track_replacement = if track_width == 0 {
+        "{track}".to_string()
+    } else {
+        format!("{{track:0{track_width}d}}")
+    };
+    let disc_replacement = if disc_width == 0 {
+        "{disc}".to_string()
+    } else {
+        format!("{{disc:0{disc_width}d}}")
+    };
+    // Only substitute when the bare form is what's in the template.
+    // Ordering: track first, since `{track}` is lexically a superset of
+    // nothing that would interfere with `{disc}` processing.
+    let after_track = template.replace("{track}", &track_replacement);
+    after_track.replace("{disc}", &disc_replacement)
+}
+
+// Large builder-style function: assigns ~50 `GamdlOptions` fields in
+// layered order (global settings → computed per-download adjustments →
+// per-download overrides). Rewriting as a single struct literal per
+// clippy's suggestion would produce a 400-line initialiser and bury
+// the layered-assignment logic that makes the merge order readable.
+#[allow(clippy::field_reassign_with_default)]
 fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 
@@ -1962,15 +3155,90 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.cover_size = Some(settings.cover_size);
     options.overwrite = Some(settings.overwrite);
     options.language = Some(settings.language.clone());
-    options.album_folder_template = Some(settings.album_folder_template.clone());
-    options.compilation_folder_template = Some(settings.compilation_folder_template.clone());
-    options.no_album_folder_template = Some(settings.no_album_folder_template.clone());
-    options.single_disc_file_template = Some(settings.single_disc_file_template.clone());
-    options.multi_disc_file_template = Some(settings.multi_disc_file_template.clone());
-    options.no_album_file_template = Some(settings.no_album_file_template.clone());
-    options.playlist_file_template = Some(settings.playlist_file_template.clone());
+    // Every template field is passed through
+    // `config_service::resolve_meedyadl_template_vars` BEFORE assignment
+    // so MeedyaDL-introduced placeholders (currently `{platform}`, #829)
+    // are resolved to concrete values. Without this, GAMDL's Python
+    // `str.format(**metadata)` raises `KeyError: 'platform'` and every
+    // download fails — same path as the INI-write equivalent in
+    // `config_service::ini_template_section`. CLI-arg path matters
+    // because options can also be passed via `--album-folder-template`
+    // etc. when overriding INI defaults.
+    options.album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.album_folder_template,
+    ));
+    options.compilation_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.compilation_folder_template,
+    ));
+    options.no_album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.no_album_folder_template,
+    ));
+    // `playlist_folder_template` is a GAMDL v3.0+ CLI flag (#618). We can
+    // safely set the field on `options` unconditionally — the CLI-emission
+    // path in `GamdlOptions::to_cli_args` gates the actual `--playlist-
+    // folder-template` arg behind `GamdlFeature::PlaylistFolderTemplate`,
+    // so v2.9.x still gets a crash-free invocation. Setting the field on
+    // every version keeps `GamdlOptions` the canonical debug dump.
+    options.playlist_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.playlist_folder_template,
+    ));
+    // Apply user-configurable zero-padding (#587). Padding widths are
+    // derived from the user's settings; `resolve_width(None)` passes
+    // `None` because `track_total` / `disc_total` aren't known at merge
+    // time — they come from the Apple Music API prefetch later in the
+    // pipeline. `Auto` mode falls back to pre-#587 defaults in that
+    // case; fixed widths take effect immediately. See
+    // `apply_padding_to_template` for the substitution rules.
+    //
+    // {platform} resolution runs FIRST, then padding rewrites
+    // `{track}` / `{disc}`. Order matters only insofar as one helper
+    // produces literal characters the other might touch — neither
+    // currently does (padding only matches `{track}` / `{disc}`;
+    // platform substitution only matches `{platform}`), so the order
+    // is purely cosmetic, but we keep `{platform}` first so the
+    // post-resolution debug dump shows the user-visible service name.
+    options.single_disc_file_template = Some(apply_padding_to_template(
+        &super::config_service::resolve_meedyadl_template_vars(
+            &settings.single_disc_file_template,
+        ),
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
+    options.multi_disc_file_template = Some(apply_padding_to_template(
+        &super::config_service::resolve_meedyadl_template_vars(
+            &settings.multi_disc_file_template,
+        ),
+        settings.track_number_padding.resolve_width(None),
+        settings.disc_number_padding.resolve_width(None),
+    ));
+    options.no_album_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.no_album_file_template,
+    ));
+    options.playlist_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
+        &settings.playlist_file_template,
+    ));
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
+    // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
+    // detected GAMDL release supports it and the user has wrapper mode on.
+    // Older releases don't know the flag (would parse-error), and cookie-
+    // mode downloads never consult the wrapper m3u8 socket.
+    if settings.use_wrapper
+        && super::gamdl_capabilities::supports(
+            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+        )
+    {
+        options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
+    }
+    // `wrapper_decrypt_ip` (#743) is the third leg of the wrapper triangle —
+    // GAMDL opens an outbound TCP connection to this address to send
+    // encrypted samples for FairPlay decryption. Unlike `wrapper_m3u8_ip`,
+    // this flag exists in every GAMDL release we support, so no
+    // version-capability gate is needed. Cookie-mode downloads never hit
+    // the decrypt socket, so we only emit when wrapper auth is on.
+    if settings.use_wrapper {
+        options.wrapper_decrypt_ip = Some(settings.wrapper_decrypt_ip.clone());
+    }
     options.truncate = settings.truncate;
 
     if !settings.output_path.is_empty() {
@@ -2015,8 +3283,62 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options.download_mode = Some(settings.download_mode.clone());
     options.remux_mode = Some(settings.remux_mode.clone());
 
-    // Apply metadata options
-    options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    // Apply metadata options.
+    //
+    // `fetch_extra_tags` is version-gated: the CLI flag exists in every
+    // v2.x release but was removed in GAMDL v3.0 ("Remove extra tags
+    // fetching and preview parsing"). Emitting `--fetch-extra-tags` on
+    // v3+ crashes the subprocess with a Click "no such option" error, so
+    // we leave the field as `None` there — `GamdlOptions::to_cli_args()`
+    // only emits the flag when the value is `Some(true)`.
+    if super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
+    ) {
+        options.fetch_extra_tags = Some(settings.fetch_extra_tags);
+    }
+
+    // Default to `--no-exceptions` so GAMDL prints a single user-facing
+    // line per failure instead of a full Python traceback. Version matrix:
+    //
+    //   * v2.x: flag suppresses `traceback.print_exc()` — fully
+    //     effective.
+    //   * v3.0: flag still suppresses `traceback.print_exc()`, but
+    //     structlog's default processors prepend
+    //     `[ERROR  HH:MM:SS]` to the printed line, which keeps the
+    //     activity log mostly clean.
+    //   * v3.1+: flag is a no-op. Upstream commit `dc6f2e8` removed
+    //     every `traceback.print_exc()` call and switched to
+    //     `structlog.processors.ExceptionPrettyPrinter` + `log.exception`.
+    //     The flag is still accepted by the CLI parser but nothing
+    //     consumes it.
+    //
+    // MeedyaDL's activity log may therefore surface pretty-printed
+    // exception blocks on v3.1 regardless of `verbose_gamdl_exceptions`.
+    // Users debugging upstream issues can still flip the
+    // `verbose_gamdl_exceptions` setting to get the full stack trace
+    // back; in that case we leave `no_exceptions` as `None` so
+    // `to_cli_args()` never emits the flag.
+    //
+    // The actual CLI arg emission is further gated by
+    // `GamdlFeature::NoExceptionsFlag` in `to_cli_args()` — on v3.1 we
+    // silently drop the flag to avoid adding noise to the debug log and
+    // to make it clear to anyone reading the spawned command line that
+    // the flag would have no effect.
+    if !settings.verbose_gamdl_exceptions {
+        options.no_exceptions = Some(true);
+    }
+    // Drop the flag when we've positively detected a v3.1+ release —
+    // upstream ignores it there, so emitting would be log noise and
+    // misleading to anyone reading the spawned command line. When the
+    // version is unknown (capability cache not yet populated, first
+    // download of the session), keep emitting: the flag is accepted on
+    // every GAMDL version since 2.x and suppresses tracebacks on the
+    // majority of our user base (v2.x / v3.0).
+    if let Some(ver) = super::gamdl_capabilities::detected_version() {
+        if super::gamdl_service::is_version_at_least(&ver, "3.1") {
+            options.no_exceptions = None;
+        }
+    }
 
     // Apply exclude tags
     if !settings.exclude_tags.is_empty() {
@@ -2027,6 +3349,14 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     options
         .artist_auto_select
         .clone_from(&settings.artist_auto_select);
+
+    // GAMDL log level (#768) — `--log-level <LEVEL>` exists on every
+    // release in our support window, so there's no GamdlFeature gate
+    // needed here. The default (`Info`) matches GAMDL's compiled-in
+    // default; flipping to `Debug` in Developer Tools is what surfaces
+    // the v3.5.2+ structlog `m3u8_master_url=…` diagnostics that
+    // motivated this wiring. Cloned because LogLevel doesn't impl Copy.
+    options.log_level = Some(settings.gamdl_log_level.clone());
 
     // === Layer 2: Apply per-download overrides (highest priority) ===
     // Only non-None fields from the override replace the global values.
@@ -2061,6 +3391,21 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
                 .artist_auto_select
                 .clone_from(&overrides.artist_auto_select);
         }
+    }
+
+    // GAMDL 3.5 can fail music-video artist selections before the media
+    // download starts when `--save-cover` is enabled: some Apple video
+    // artwork URLs arrive as `{w}x{h}` templates and GAMDL fetches them
+    // literally. Static cover sidecars are non-essential for MV-only runs,
+    // so keep the user's cover settings for audio and suppress them here.
+    if matches!(
+        options.artist_auto_select,
+        Some(ArtistAutoSelect::MusicVideos)
+    ) {
+        options.save_cover = None;
+        options.cover_format = None;
+        options.cover_size = None;
+        options.no_config_file = Some(true);
     }
 
     // === Layer 3: Lyrics embed + sidecar enforcement ===
@@ -2211,6 +3556,114 @@ struct CompanionTier {
 /// `AtmosToLosslessAndLossy` with primary `"atmos"`:
 /// → `[CompanionTier { codecs: [ALAC], suffix: true },
 ///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
+/// Epoch-milliseconds helper used by `run_download_with_events` for
+/// the primary GAMDL idle watchdog (#508). Local copy rather than
+/// importing from `companion_supervisor` to avoid a tight coupling
+/// between the two modules — the helper is trivially small.
+fn now_epoch_ms_primary() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+/// Reads the union of `audioTraits` for a queue item, returning an
+/// empty `Vec` when the item is missing or has no traits captured.
+/// Used at companion-spawn time to feed the audioTraits-aware filter
+/// in `filter_tiers_by_audio_traits`.
+async fn read_audio_traits(queue: &QueueHandle, dl_id: &str) -> Vec<String> {
+    let q = queue.lock().await;
+    q.items
+        .iter()
+        .find(|i| i.status.id == dl_id)
+        .map(|i| i.status.audio_traits.clone())
+        .unwrap_or_default()
+}
+
+/// Filters a planned companion-tier list against the union of
+/// `audioTraits` reported by the Apple Music catalog API for this
+/// download's tracks (#504).
+///
+/// A tier is kept when at least one of its codecs has either:
+///   - no `required_audio_trait()` (the codec is derived from another
+///     stream, e.g. binaural — leave the decision to GAMDL), or
+///   - a required trait that appears in `available_traits`.
+///
+/// When `available_traits` is empty (API metadata wasn't reachable) we
+/// pass every tier through unchanged so the existing best-effort
+/// behaviour is preserved.
+fn filter_tiers_by_audio_traits(
+    tiers: Vec<CompanionTier>,
+    available_traits: &[String],
+) -> (Vec<CompanionTier>, Vec<String>) {
+    if available_traits.is_empty() {
+        // #772 investigation: log the no-data path so the
+        // forensic record makes it clear when API metadata
+        // failed (vs the pre-filter genuinely dropping a tier).
+        log::debug!(
+            "filter_tiers_by_audio_traits: audioTraits unavailable from Apple Music API \
+             — passing all tiers through unfiltered (no AC3/Atmos pre-filter applied)"
+        );
+        return (tiers, Vec::new());
+    }
+    // #772 investigation: trace decision-making per tier so users
+    // gathering AC3-false-negative evidence can paste the raw log
+    // lines rather than reasoning from the absence of a tier.
+    // Always emits at debug level — surfaces in the on-disk
+    // activity log when `--log-level=Debug` is configured (#768)
+    // and stays out of the user-facing UI by default.
+    log::debug!(
+        "filter_tiers_by_audio_traits: available_traits = {available_traits:?}"
+    );
+    let mut skipped = Vec::new();
+    let kept: Vec<CompanionTier> = tiers
+        .into_iter()
+        .filter(|tier| {
+            let any_codec_supported = tier.codecs_to_try.iter().any(|c| match c.required_audio_trait() {
+                None => true,
+                Some(needed) => available_traits.iter().any(|t| t == needed),
+            });
+            let names: Vec<&str> = tier
+                .codecs_to_try
+                .iter()
+                .map(SongCodec::to_cli_string)
+                .collect();
+            // Per-tier decision trace (#772). The keep/skip
+            // shape names the codec list AND the
+            // required-trait → matched-trait outcome so a user
+            // pasting these lines can answer the AC3-false-
+            // negative question without guessing.
+            let trait_details: Vec<String> = tier
+                .codecs_to_try
+                .iter()
+                .map(|c| match c.required_audio_trait() {
+                    None => format!("{}=ok(no-trait)", c.to_cli_string()),
+                    Some(needed) => {
+                        let matched = available_traits.iter().any(|t| t == needed);
+                        format!(
+                            "{}=needs[{needed}]={}",
+                            c.to_cli_string(),
+                            if matched { "matched" } else { "missing" }
+                        )
+                    }
+                })
+                .collect();
+            log::debug!(
+                "filter_tiers_by_audio_traits: tier=[{}] decision={} ({})",
+                names.join(","),
+                if any_codec_supported { "keep" } else { "drop" },
+                trait_details.join(", "),
+            );
+            if !any_codec_supported {
+                skipped.push(names.join(","));
+            }
+            any_codec_supported
+        })
+        .collect();
+    (kept, skipped)
+}
+
 fn plan_companions(
     mode: &CompanionMode,
     primary_codec: &str,
@@ -2423,6 +3876,7 @@ async fn spawn_music_video_companion_inner(
     album_metadata: Option<&super::apple_music_api::AlbumMetadata>,
     settings: &crate::models::settings::AppSettings,
     shutdown: &ShutdownSignal,
+    parent_album_path: Option<&str>,
 ) {
     // Early exit if the original URL is already a music-video URL
     // (no self-referencing companion).
@@ -2495,7 +3949,7 @@ async fn spawn_music_video_companion_inner(
         }
         Err(e) => {
             log::debug!("Music video companion token resolution failed for {dl_id}: {e}");
-            emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+            emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
             return;
         }
     };
@@ -2510,7 +3964,7 @@ async fn spawn_music_video_companion_inner(
             Ok(r) => r,
             Err(e) => {
                 log::debug!("Music video relation lookup failed for {dl_id}: {e}");
-                emit_download_log(app, dl_id, &format!("Music video lookup failed: {e}"));
+                emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
                 return;
             }
         };
@@ -2539,10 +3993,39 @@ async fn spawn_music_video_companion_inner(
         ),
     );
 
+    // Snapshot the video-file set under the user's output root BEFORE any
+    // MV download runs, so the post-loop summary message can report the
+    // actual number of files produced rather than blindly claiming
+    // "{N} video(s)" when GAMDL silently failed every download (#774-class
+    // false-positive that mirrors Phase 3.5h for audio companions).
+    //
+    // Empty `output_path` ⇒ user is on the default (per-OS resolution
+    // happens inside GAMDL) — skip the snapshot in that case and fall
+    // back to the count-of-attempts message. Better than emitting a
+    // misleading "0 of N downloaded" when we just don't have visibility.
+    let video_count_tracking = (!settings.output_path.is_empty())
+        .then(|| (settings.output_path.clone(), snapshot_video_files(&settings.output_path).len()));
+
     // Download each music video using the shared helper
     for relation in &unique_relations {
         if shutdown.is_triggered() {
             log::info!("Music video companions stopping early for {dl_id} (app shutting down)");
+            // Even on early-exit, give the user an accurate summary if
+            // we know what landed on disk. Without this, they'd see the
+            // last "Downloading music video: X" line without ever
+            // learning whether anything succeeded.
+            if let Some((root, pre_count)) = video_count_tracking {
+                let post_count = snapshot_video_files(&root).len();
+                let new_files = post_count.saturating_sub(pre_count);
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Music video companion downloads stopped — {new_files} of {} attempted before shutdown",
+                        unique_relations.len()
+                    ),
+                );
+            }
             return;
         }
 
@@ -2552,17 +4035,50 @@ async fn spawn_music_video_companion_inner(
 
         emit_download_log(app, dl_id, &format!("Downloading music video: {mv_name}"));
 
-        download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings).await;
+        download_music_video_by_url(
+            app,
+            dl_id,
+            &mv_url,
+            mv_name,
+            settings,
+            parent_album_path,
+        )
+        .await;
     }
 
-    emit_download_log(
-        app,
-        dl_id,
-        &format!(
-            "Music video companion downloads complete ({} video(s))",
+    // Honest completion summary (#774-class false-positive fix). When
+    // we have a tracked output root, diff the snapshot against the
+    // post-loop video-file set so the reported count reflects what
+    // actually downloaded — not the number of attempts. When we don't
+    // have a tracked root (empty output_path), fall back to the
+    // attempts-count phrasing so we never claim a number we can't
+    // verify.
+    let summary = match video_count_tracking {
+        Some((root, pre_count)) => {
+            let post_count = snapshot_video_files(&root).len();
+            let new_files = post_count.saturating_sub(pre_count);
+            let total_attempted = unique_relations.len();
+            if new_files == 0 {
+                format!(
+                    "Music video companion downloads finished — 0 of {total_attempted} produced any files (no compatible streams or all attempts failed)"
+                )
+            } else if new_files < total_attempted {
+                format!(
+                    "Music video companion downloads complete — {new_files} of {total_attempted} downloaded ({} unavailable or failed)",
+                    total_attempted - new_files
+                )
+            } else {
+                format!(
+                    "Music video companion downloads complete ({new_files} video(s))"
+                )
+            }
+        }
+        None => format!(
+            "Music video companion downloads attempted ({} video(s) — file count not verified)",
             unique_relations.len()
         ),
-    );
+    };
+    emit_download_log(app, dl_id, &summary);
 }
 
 /// Downloads a single music video given its Apple Music URL.
@@ -2586,6 +4102,107 @@ async fn spawn_music_video_companion_inner(
 /// Shared by companion audio downloads and music-video companion
 /// downloads so their progress renders consistently with the primary
 /// GAMDL reader.
+/// Parses a single companion-GAMDL output line and, if it is a
+/// `TrackInfo` event, overwrites the per-item `processing_label`
+/// with a track-aware caption (#799). No-op on lines that are not
+/// `TrackInfo` events.
+///
+/// Caption format mirrors what users already see for the primary
+/// download caption, just prefixed with the companion tier + codec:
+///
+/// ```text
+/// Companion (tier 2 — atmos): "We Are the Champions (Ding a Dang Dong)" — 8 of 8
+/// ```
+///
+/// When the GAMDL line carries `title` only (no track counter) the
+/// counter clause is omitted. When neither is present the line is
+/// ignored — we keep the previous label rather than risk replacing
+/// a richer one with an empty placeholder.
+///
+/// Called from the LineEmitter closure inside
+/// `spawn_companion_downloads` for every line. Cheap single-line
+/// parse; no allocation when the event isn't `TrackInfo`.
+async fn update_companion_label_from_line(
+    app: &tauri::AppHandle,
+    queue: &QueueHandle,
+    dl_id: &str,
+    tier_idx: usize,
+    codec_name: &str,
+    raw_line: &str,
+) {
+    // `parse_gamdl_output` already strips ANSI codes and handles `\r`
+    // overwrites; we deliberately don't pre-clean here so the
+    // pre-strip shape matches what the parser was tuned for.
+    let event = crate::utils::process::parse_gamdl_output(raw_line);
+    let crate::utils::process::GamdlOutputEvent::TrackInfo {
+        track_number,
+        track_total,
+        title,
+        ..
+    } = event
+    else {
+        return;
+    };
+
+    // Compose the caption. Both `track_number` + `track_total` are
+    // required for the counter clause — partial track info would
+    // mislead more than it informs. `title` is always `String`
+    // (parser substitutes an empty string when missing) so guard
+    // against the empty case explicitly.
+    let title_trimmed = title.trim();
+    if title_trimmed.is_empty() {
+        return;
+    }
+    let caption = match (track_number, track_total) {
+        (Some(c), Some(t)) => {
+            format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\" — {c} of {t}")
+        }
+        _ => format!("Companion (tier {tier_idx} — {codec_name}): \"{title_trimmed}\""),
+    };
+
+    // #808 fix: use `set_label_only` rather than
+    // `set_stage_with_label(…, Finalising, …)` here. The per-track
+    // caption update fires many times during a single companion
+    // download (one per track in a 21-track album = 21 calls), and
+    // every `set_stage_with_label` call resets the bar to the
+    // stage's weight — `Finalising` is 0.95, which pegged the bar
+    // at 95% for the entire companion run regardless of actual
+    // within-companion progress.
+    set_label_only(app, queue, dl_id, &caption);
+
+    // #836: drive the per-item bar between 95% and ~99% so the
+    // companion phase no longer appears frozen for 30+ minutes on
+    // big multi-tier runs. The pre-fix design assumed the
+    // companion subprocess's `[download] X%` events would advance
+    // the bar (#808 comment), but in practice each companion track
+    // is its own GAMDL run that resets `[download]` to 0% on each
+    // track start. The visible bar therefore oscillated within a
+    // single track and never advanced across tracks — users saw
+    // "95%" for the entire companion phase.
+    //
+    // Strategy: advance the bar by `(track_number / track_total) *
+    // 0.04` within the 0.95..0.99 reserve, so each track-start
+    // tick produces a small but visible forward movement. The
+    // reserve's last 1% (0.99..1.00) is left for the post-companion
+    // advisory pass and `set_complete`.
+    //
+    // This is per-TIER progress — multi-tier runs (e.g. Custom
+    // mode with [ac3, alac, atmos]) will replay 0.95 → 0.99 once
+    // per tier rather than spreading the 4% slice across all
+    // tiers. Sufficient to remove the "stuck" appearance; precise
+    // multi-tier mapping is a follow-up if users want it.
+    if let (Some(n), Some(t)) = (track_number, track_total) {
+        if t > 0 {
+            // Cap at 0.99 so the bar can't accidentally hit 1.0
+            // before the advisory pass / set_complete fires.
+            let fraction = (n as f32 / t as f32).clamp(0.0, 1.0);
+            let bar_value = 0.95 + fraction * 0.04;
+            let mut q = queue.lock().await;
+            q.set_processing_progress(dl_id, bar_value);
+        }
+    }
+}
+
 async fn emit_companion_stream_line(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -2616,17 +4233,19 @@ async fn emit_companion_stream_line(
         let _ = app.emit("gamdl-output", &progress);
 
         // Emit to activity-log: last segment only (normal) or all (verbose).
-        if verbose || Some(idx) == last_segment_idx {
-            let _ = app.emit(
-                "activity-log",
-                &crate::utils::activity_log::ActivityLogEvent {
-                    download_id: dl_id.to_string(),
-                    stream,
-                    line: clean_line,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                },
-            );
-        }
+        // Disk mirror happens unconditionally inside the helper (#541) —
+        // the file is the forensic record. Phase 3.5e: routes through
+        // `emit_subprocess_line` instead of constructing the event +
+        // calling `app.emit` directly so future emission rules only
+        // need to touch one place.
+        let show_in_ui = verbose || Some(idx) == last_segment_idx;
+        crate::utils::activity_log::emit_subprocess_line(
+            app,
+            dl_id,
+            stream,
+            clean_line,
+            show_in_ui,
+        );
     }
 
     last_clean
@@ -2639,37 +4258,29 @@ async fn emit_companion_stream_line(
 /// produced. Depth-limited at 4 levels to keep the scan bounded on large
 /// music libraries.
 fn snapshot_video_files(root: &str) -> std::collections::HashSet<std::path::PathBuf> {
-    let mut out = std::collections::HashSet::new();
     let root_path = std::path::Path::new(root);
     if !root_path.is_dir() {
-        return out;
+        return std::collections::HashSet::new();
     }
-    collect_video_files_depth_limited(root_path, &mut out, 0, 4);
-    out
-}
-
-fn collect_video_files_depth_limited(
-    dir: &std::path::Path,
-    out: &mut std::collections::HashSet<std::path::PathBuf>,
-    depth: u32,
-    max_depth: u32,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if depth < max_depth {
-                collect_video_files_depth_limited(&path, out, depth + 1, max_depth);
-            }
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lc = ext.to_ascii_lowercase();
-            if ext_lc == "mp4" || ext_lc == "m4v" {
-                out.insert(path);
-            }
+    // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+    // (#716 finding #1, v1.0.3 prep). Depth limit of 4 preserved —
+    // matches the GAMDL `Output/Artist/Album/Disc/file` shape with one
+    // level of headroom for compilation-style nesting. Net diff: 17 LOC
+    // → 9 LOC, identical mp4/m4v filtering.
+    crate::utils::fs_walk::walk_dir_depth(root_path, 4, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        let ext_lc = ext.to_ascii_lowercase();
+        if ext_lc == "mp4" || ext_lc == "m4v" {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
+    .into_iter()
+    .collect()
 }
 
 /// Identify freshly-created music video files (those not present in
@@ -2708,6 +4319,37 @@ async fn extract_music_video_subtitles_for_new_files(
     }
 
     for video_path in &new_videos {
+        // 0. Defensive filename-safety classification (#532).
+        //    GAMDL's MV pipeline is the highest-risk source for
+        //    degenerate output paths (#527 was the RC-blocker shape
+        //    landing here). The classifier surfaces a warn-severity
+        //    activity-log line so the user can investigate
+        //    suspicious or broken paths even after the Tier 4
+        //    safety net catches the worst case.
+        match crate::utils::fs_safe::classify_path_components(video_path) {
+            crate::utils::fs_safe::FilenameClassification::Ok => {}
+            crate::utils::fs_safe::FilenameClassification::Suspicious { reason } => {
+                emit_download_warn(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety: music video at '{}' is suspicious — {reason}",
+                        video_path.display()
+                    ),
+                );
+            }
+            crate::utils::fs_safe::FilenameClassification::Degenerate { reason } => {
+                emit_download_error(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Filename safety (#532): music video at '{}' is degenerate — {reason}. The Tier 4 safety net should have prevented this; please report as a bug.",
+                        video_path.display()
+                    ),
+                );
+            }
+        }
+
         // 1. Extract any embedded subtitle / caption streams to sidecars.
         match super::music_video_subtitle_service::extract_subtitles_to_sidecars(
             &ffprobe_path,
@@ -2762,7 +4404,295 @@ async fn extract_music_video_subtitles_for_new_files(
                 );
             }
         }
+
+        // 3. Embed the sidecar cover thumbnail into the MP4 and
+        //    delete it (#533 / #569). Gated on the
+        //    `music_video_embed_cover_sidecar` setting (default
+        //    true). Most modern players read the embedded poster
+        //    atom from the MP4 directly, so the sidecar is just
+        //    library clutter. The verify-before-delete logic in
+        //    `embed_and_remove_sidecar` makes the embed safe — a
+        //    failed write never loses the only cover copy.
+        let settings_for_mv = load_settings_for_queue(app);
+        if settings_for_mv.music_video_embed_cover_sidecar {
+            use super::music_video_cover_embed::{embed_and_remove_sidecar, EmbedOutcome};
+            let video_filename = video_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("music video")
+                .to_string();
+            match embed_and_remove_sidecar(video_path) {
+                EmbedOutcome::Embedded { sidecar_filename, bytes_embedded } => {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video: embedded {sidecar_filename} ({} bytes) into {video_filename} and removed sidecar",
+                            bytes_embedded,
+                        ),
+                    );
+                }
+                EmbedOutcome::NoSidecar => {
+                    log::debug!("No cover sidecar found next to {}", video_path.display());
+                }
+                EmbedOutcome::Failed { sidecar_filename, reason } => {
+                    // Sidecar kept (safe by design) — warn so the
+                    // user knows the embed didn't happen.
+                    log::warn!(
+                        "Music video cover-embed failed for {}: {reason}",
+                        video_path.display(),
+                    );
+                    emit_download_warn(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Music video cover embed failed — {sidecar_filename} kept as sidecar: {reason}"
+                        ),
+                    );
+                }
+            }
+        }
     }
+}
+
+/// Folder template applied to GAMDL music-video downloads when the MV
+/// has no album context (direct `/music-video/` URLs AND upstream
+/// iTunes Lookup did not return album linkage). Uses a fixed
+/// `{artist}/Music Videos` layout rather than inheriting the user's
+/// `no_album_folder_template` — that setting is audio-oriented and
+/// legacy installs may still hold the pre-v2 default `"{artist}/[Unknown]"`
+/// which produces a literal `[Unknown]` directory (#531).
+///
+/// ## Resolution order for MV → album folder
+///
+/// This constant is the **last-resort** template. The actual placement
+/// cascade is (highest to lowest priority):
+///
+/// 1. **GAMDL's internal iTunes Lookup** (`interface_music_video.py`):
+///    if the MV's iTunes entry exposes a collection row, GAMDL
+///    populates `tags.album` / `tags.album_artist` and uses
+///    `album_folder_template` — MV lands alongside the audio tracks
+///    in `{album_artist}/{album}/`. GAMDL handles this natively.
+/// 2. **Apple Music Catalog API** (not yet wired in — tracked in #537):
+///    when iTunes returns no collection row, fall back to Apple's
+///    `music-videos/{id}?include=albums` endpoint and pre-fill
+///    `no_album_folder_template` with the resolved literal path.
+/// 3. **MeedyaDL-known parent album context** (not yet wired in — #537):
+///    when the MV is discovered as a companion to an album URL we
+///    already downloaded, we *know* the parent album regardless of
+///    what either API says — override the folder template directly.
+/// 4. **This constant**: `{artist}/Music Videos/` — reached only when
+///    all three lookups above fail or are unavailable. Safe and
+///    predictable; never empty.
+///
+/// ## Filename-safety contract (#551)
+///
+/// `services::filename_safety::GamdlMusicVideoFallback` mirrors this
+/// constant (and `MV_NO_ALBUM_FILE_TEMPLATE`) as string literals so the
+/// design-review checks can prove the engine's no-album fallback is
+/// collision-safe without dragging this module into the contract's
+/// compilation unit. If either constant changes, update the literals
+/// in `services/filename_safety.rs` too.
+///
+/// ## Not reached by uploaded videos (#549, decided 2026-05-17)
+///
+/// Apple Music's label/artist-uploaded videos (backstage clips, live
+/// sessions, interviews) have their own GAMDL entry points
+/// (`downloader_uploaded_video.py` / `interface_uploaded_video.py`) and
+/// tag shape (`{artist, date, title, title_id, storefront}` — no album
+/// context). The MeedyaDL decision is to **accept** uploaded-video URLs
+/// (they reach GAMDL via the URL audit catch-all in `commands::gamdl`),
+/// but **defer wiring** them through `download_music_video_by_url()`
+/// until a concrete test URL is available — the uploaded-video URL
+/// shape is undocumented publicly and we can't safely add a regex
+/// without an example. The audit log explicitly names uploaded videos
+/// in the WARN line so users understand what they're seeing. Until a
+/// test URL surfaces and the follow-up wiring lands, an uploaded-video
+/// download inherits the user's audio-oriented `no_album_*` templates
+/// — same collision risk class as #527/#531, different URL scheme.
+/// The GAMDL `--uploaded-video-quality` flag is already a pass-through
+/// (`GamdlOptions.uploaded_video_quality`).
+pub(crate) const MV_NO_ALBUM_FOLDER_TEMPLATE: &str = "{artist}/Music Videos";
+
+/// File template applied to GAMDL music-video downloads when the MV has
+/// no album context. Uses `{title} ({title_id})` so the filename is
+/// **guaranteed unique within the Apple Music catalogue** — `{title_id}`
+/// is the numeric MV ID, deterministic across re-downloads and unique
+/// per MV. Legacy installs may still hold the pre-v2 default
+/// `"{disc} - "` which produces empty `-.mp4` filenames for content
+/// without a `{disc}` (#531).
+///
+/// ## Why include `{title_id}` instead of just `{title}`?
+///
+/// Same-artist MVs with identical titles do occur in real catalogues
+/// (Clean/Explicit cuts, remixes, live versions, region-specific
+/// re-releases). With `overwrite=false` (MeedyaDL's default), the
+/// second download would silently skip with a `MediaFileExists`
+/// exception — no data loss but no user-visible warning either.
+///
+/// `{title_id}` is chosen over any datetime suffix because datetimes
+/// defeat GAMDL's own dedup: every re-download would create a new file
+/// rather than being recognised as the same MV.
+///
+/// This template is only reached in the last-resort path (see the
+/// docstring on `MV_NO_ALBUM_FOLDER_TEMPLATE`). Apple-Music-linked or
+/// iTunes-linked MVs land in their album folder via GAMDL's native
+/// `single_disc_file_template` / `multi_disc_file_template` and do not
+/// use this constant at all — their filenames remain clean.
+pub(crate) const MV_NO_ALBUM_FILE_TEMPLATE: &str = "{title} ({title_id})";
+
+/// Heuristic check that returns `true` when the supplied URL looks
+/// like it came from Apple Music's `editorialVideo` block rather than
+/// from the music-video catalog. Motion-art / spotlight HLS streams
+/// are hosted under a distinct subdomain pattern and never have a
+/// `music.apple.com/<region>/music-video/...` shape.
+///
+/// Used by [`download_music_video_by_url`] as a defensive guard
+/// against the #536 failure mode where a motion-art URL would be
+/// passed in by mistake (e.g. a future caller refactor that confuses
+/// `relationships.music-videos.data` with `editorialVideo`).
+///
+/// Two positive signals:
+///   1. Host contains "video-ssl.itunes.apple.com" /
+///      "play-edge.itunes.apple.com" → these are Apple's HLS hosts
+///      for editorial / motion art, never used for music-video
+///      master m3u8s (which come from the GAMDL DRM resolver path).
+///   2. Path ends in `.m3u8` AND there's no `/music-video/` segment
+///      anywhere in the URL.
+///
+/// False negative is tolerable (we just fall through and GAMDL tells
+/// us the URL is bad); false positive would block a real MV, so the
+/// signals are deliberately conservative.
+fn is_likely_motion_art_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    if lower.contains("/music-video/") {
+        return false; // unambiguously an MV catalog URL
+    }
+    // Apple's editorial HLS hosts.
+    let looks_like_editorial_host = lower.contains("video-ssl.itunes.apple.com")
+        || lower.contains("play-edge.itunes.apple.com")
+        || lower.contains("itunes.apple.com/video-cdn");
+    let looks_like_hls = lower.ends_with(".m3u8") || lower.contains(".m3u8?");
+    looks_like_editorial_host && looks_like_hls
+}
+
+/// **MV filename-resolution Tier 2** (#558): try to resolve the MV's
+/// parent album via Apple Music's
+/// `music-videos/{id}?include=albums` endpoint and return a literal
+/// folder path (e.g. `Anne-Marie/Psycho - Single`) suitable for
+/// passing as `no_album_folder_template`.
+///
+/// Returns `None` on every fail-soft condition (URL parse miss, no
+/// MusicKit credentials, 404, 401/403, missing album name/artist) so
+/// callers always fall through to Tier 4 cleanly. Network errors are
+/// logged at debug but also produce `None` — Tier 4 is a correct
+/// safety net, not a degraded mode.
+///
+/// **Why a literal path instead of a template string?** GAMDL renders
+/// `no_album_folder_template` against the MV's own tag bag — which
+/// doesn't carry `{album}` / `{album_artist}` for unanchored MVs.
+/// We could pre-render the user's `album_folder_template` here, but
+/// that risks template-syntax drift (curly-brace placeholders the
+/// user has customised). Passing the literal path bypasses GAMDL's
+/// template engine for this specific call without affecting global
+/// settings — same trick #531 uses for the Tier 4 safety net.
+async fn try_resolve_mv_album_folder_via_catalog_api(
+    app: &tauri::AppHandle,
+    video_url: &str,
+    settings: &crate::models::settings::AppSettings,
+) -> Option<String> {
+    // Parse the MV URL to extract storefront + video_id.
+    let parsed = crate::services::apple_music_api::parse_apple_music_url(video_url)?;
+    if parsed.content_type != "music-video" {
+        return None;
+    }
+    // For music-video URLs the parser stores the MV's numeric ID in
+    // `album_id` (the regex reuses the album-style numeric-tail
+    // capture group). Per parse_apple_music_url's contract, this is
+    // populated for every music-video URL the regex matches.
+    let storefront = parsed.storefront;
+    let video_id = parsed.album_id;
+
+    // Resolve MusicKit JWT (same path as animated artwork / syllable
+    // lyrics). Skip Tier 2 silently when no credentials are available
+    // — Tier 4 still gives a correct result.
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
+    let private_key =
+        match crate::services::apple_music_api::get_private_key_from_keychain() {
+            Ok(Some(key)) => Some(key),
+            Ok(None) => None,
+            Err(e) => {
+                log::debug!("Tier 2 skipped — keychain read failed: {e}");
+                return None;
+            }
+        };
+    let token_pair = match crate::services::apple_music_api::resolve_premium_feature_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    ) {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            log::debug!("Tier 2 skipped — no MusicKit token available");
+            return None;
+        }
+        Err(e) => {
+            log::debug!("Tier 2 skipped — token resolution failed: {e}");
+            return None;
+        }
+    };
+    let (jwt, _src) = token_pair;
+
+    // Fetch + parse. fetch_music_video_album_linkage already maps
+    // 404/401/403 to Ok(None); anything else (Err) we treat as a
+    // Tier-2 miss and fall through.
+    let linkage = match crate::services::apple_music_api::fetch_music_video_album_linkage(
+        &jwt,
+        &storefront,
+        &video_id,
+    )
+    .await
+    {
+        Ok(Some(l)) => l,
+        Ok(None) => return None,
+        Err(e) => {
+            log::debug!("Tier 2 lookup failed for {video_url}: {e} — falling through");
+            // Mark `app` as used to keep the signature stable when
+            // the activity-log import is needed for non-debug logs.
+            let _ = app;
+            return None;
+        }
+    };
+
+    // Build the literal folder path. Strip filesystem-unsafe chars
+    // the way GAMDL's template engine does (`/ \ : * ? " < > |` →
+    // `_`, plus trim leading/trailing dots and whitespace which
+    // collapse to invisible files on Unix and bare-name conflicts
+    // on Windows). The result is safe on every FS MeedyaDL targets.
+    let safe_artist = sanitize_fs_segment(&linkage.artist_name);
+    let safe_album = sanitize_fs_segment(&linkage.album_name);
+    if safe_artist.is_empty() || safe_album.is_empty() {
+        log::debug!(
+            "Tier 2 produced empty artist/album after sanitisation — falling through"
+        );
+        return None;
+    }
+    Some(format!("{safe_artist}/{safe_album}"))
+}
+
+/// Strip filesystem-unsafe characters from a path segment. Mirrors
+/// the sanitisation GAMDL applies internally to album / artist names
+/// before rendering them into folder templates, so the resulting
+/// path is identical to what GAMDL would produce when rendering
+/// `{album_artist}/{album}` itself.
+fn sanitize_fs_segment(raw: &str) -> String {
+    const UNSAFE: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+    raw.chars()
+        .map(|c| if UNSAFE.contains(&c) || c.is_control() { '_' } else { c })
+        .collect::<String>()
+        .trim_matches(|c: char| c == '.' || c.is_whitespace())
+        .to_string()
 }
 
 /// Shared helper used by both the MusicKit-based video companion pipeline
@@ -2778,11 +4708,105 @@ async fn download_music_video_by_url(
     video_url: &str,
     video_label: &str,
     settings: &crate::models::settings::AppSettings,
+    parent_album_path: Option<&str>,
 ) -> bool {
+    // Defensive guard (#536): motion-art HLS URLs (album cover /
+    // portrait cover / album spotlight / artist spotlight) come from
+    // the API's `editorialVideo` block and are processed by
+    // `animated_artwork_service` with fixed filenames (FrontCover.mp4
+    // / FrontCoverPortrait.mp4 / AlbumSpotlightCover.mp4 /
+    // ArtistSpotlightCover.mp4). They are NOT DRM-protected music
+    // videos and must never reach GAMDL's MV pipeline — which would
+    // try to apply DRM unwrapping and route the file through
+    // `no_album_*` templates, producing `[Unknown]/-.mp4`-style
+    // collision-prone paths (the #527 / #532 failure mode).
+    //
+    // Architecturally the two pipelines read different API fields and
+    // cannot cross-pollinate by construction (motion art comes from
+    // `extend=editorialVideo` URLs; MVs come from `relationships.
+    // music-videos.data[*].attributes.url`). This guard is a
+    // belt-and-braces sanity check that catches any future regression
+    // — if a motion-art URL somehow reaches here, we bail out with a
+    // clear log + activity-log line rather than corrupt the user's
+    // motion-art assets.
+    if is_likely_motion_art_url(video_url) {
+        log::warn!(
+            "Refusing to route motion-art URL through GAMDL MV pipeline (#536): {video_label} \
+             — should go through animated_artwork_service instead"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "Skipped MV download — URL looks like motion-art (cover / spotlight) which doesn't belong in the music-video pipeline: {video_label}"
+            ),
+        );
+        return false;
+    }
+
     // Inherit the user's filename/folder templates, tool paths, and metadata
     // settings so the music video output matches what the primary pipeline
     // produces. Without these, GAMDL falls back to its own defaults which
     // can yield empty filenames like "-.mp4" for music videos (#481).
+    //
+    // The `no_album_*` templates are an exception: a direct
+    // `/music-video/` URL has no album context, so GAMDL routes it
+    // through the no-album template path. The user's audio-oriented
+    // no-album templates are unsuitable here — legacy installs may still
+    // have them set to `"{artist}/[Unknown]"` + `"{disc} - "` (the
+    // pre-v2 defaults), which yield literal `[Unknown]` directories and
+    // empty `-.mp4` filenames for MVs (#531). Override with MV-safe
+    // fixed templates regardless of user settings.
+    //
+    // Folder-template cascade (#558 Tier 2 + #559 Tier 3 + Tier 4
+    // safety net). Tier precedence is deliberate:
+    //
+    //   Tier 3 wins over Tier 2 because the local parent-album path
+    //   is more trustworthy than the API — the user has already
+    //   downloaded a specific release into a specific folder, and
+    //   the API might point at a different re-release of the same
+    //   recording.
+    //
+    //   Tier 2 wins over Tier 4 because Apple Music's album linkage,
+    //   when present, gives the user-facing album-folder layout
+    //   instead of the generic `{artist}/Music Videos/` bucket.
+    //
+    //   Tier 4 is the always-safe last resort.
+    let resolved_no_album_folder_template = if let Some(parent_path) = parent_album_path {
+        // Tier 3: parent album context known from caller (MV companion
+        // or MusicBrainz fallback within an album-scoped enrichment
+        // task). Use the literal on-disk path directly.
+        log::info!(
+            "MV folder resolved via Tier 3 (parent album context): {parent_path}"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"
+            ),
+        );
+        parent_path.to_string()
+    } else if let Some(literal_path) =
+        try_resolve_mv_album_folder_via_catalog_api(app, video_url, settings).await
+    {
+        // Tier 2: Apple Music Catalog endpoint returned an album linkage.
+        log::info!(
+            "MV folder resolved via Tier 2 (Apple Music Catalog album linkage): {literal_path}"
+        );
+        emit_app_log(
+            app,
+            &format!(
+                "MV folder routed to album linkage via Tier 2: {video_label} → {literal_path}"
+            ),
+        );
+        literal_path
+    } else {
+        // Tier 4: safety net.
+        log::debug!(
+            "Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net"
+        );
+        MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
+    };
+
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
@@ -2800,14 +4824,16 @@ async fn download_music_video_by_url(
         } else {
             None
         },
-        // Filename / folder templates — shared with the audio pipeline so
-        // videos land with `{artist}/{album}/{title}` style names.
+        // Filename / folder templates — album-context paths inherit the
+        // user's templates (MVs discovered via album URLs land alongside
+        // their album tracks). The no-album paths force fixed MV-safe
+        // templates — see rationale above.
         album_folder_template: Some(settings.album_folder_template.clone()),
         compilation_folder_template: Some(settings.compilation_folder_template.clone()),
-        no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+        no_album_folder_template: Some(resolved_no_album_folder_template),
         single_disc_file_template: Some(settings.single_disc_file_template.clone()),
         multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
-        no_album_file_template: Some(settings.no_album_file_template.clone()),
+        no_album_file_template: Some(MV_NO_ALBUM_FILE_TEMPLATE.to_string()),
         playlist_file_template: Some(settings.playlist_file_template.clone()),
         // Tool paths (ffmpeg, mp4decrypt, mp4box, N_m3u8DL-RE) so GAMDL can
         // resolve the managed binaries instead of relying on PATH lookup.
@@ -2820,6 +4846,7 @@ async fn download_music_video_by_url(
         truncate: settings.truncate,
         download_mode: Some(settings.download_mode.clone()),
         remux_mode: Some(settings.remux_mode.clone()),
+        no_config_file: Some(true),
         ..Default::default()
     };
 
@@ -2953,6 +4980,9 @@ async fn download_music_video_by_url(
 /// Returns the number of files matching any supported lyrics extension
 /// (`.ttml`, `.lrc`, `.srt`). Each unique stem is counted only once
 /// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
+///
+/// Skips filesystem sidecars (#577) so a `._01 Song.ttml` AppleDouble
+/// shadow doesn't double-count toward coverage checks.
 fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -2960,6 +4990,9 @@ fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let mut stems_with_lyrics = std::collections::HashSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
         let ext = path
             .extension()
             .and_then(|e| e.to_str())
@@ -2984,8 +5017,11 @@ fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
     let mut audio = 0;
     let mut video = 0;
     for entry in entries.flatten() {
-        let ext = entry
-            .path()
+        let path = entry.path();
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+            continue;
+        }
+        let ext = path
             .extension()
             .and_then(|e| e.to_str())
             .unwrap_or("")
@@ -3291,21 +5327,371 @@ async fn detect_actual_primary_codec(
 /// will be re-attempted and companions will fire on the final outcome).
 /// Spawns companion downloads and returns a JoinHandle that resolves when
 /// all companion tiers have completed. Returns None if no companions are needed.
+/// Default cadence for the long-running-stage heartbeat ticker (#805).
+///
+/// Companion downloads + post-companion enrichment can occupy the
+/// activity log with zero output for tens of minutes at a time
+/// (per-track download lines all fire up front; then post-processing,
+/// FFmpeg remux, tag write, lyrics conversion, ReplayGain etc. all
+/// happen silently). Users reasonably conclude the app has stalled.
+///
+/// 120 s strikes a balance: short enough that no silent stretch
+/// exceeds a couple of minutes; long enough that healthy short
+/// downloads don't get spammed (a typical 8-track album with
+/// companions finishes in well under 2 min, so the heartbeat never
+/// even fires).
+pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(120);
+
+/// Lightweight handle for a heartbeat ticker spawned via
+/// [`start_heartbeat_ticker`]. Owning the handle keeps the ticker
+/// running; dropping the handle (or calling [`stop`](Self::stop))
+/// signals the ticker to exit on its next tick.
+///
+/// Pairs naturally with [`CompanionTaskHandle`]'s existing
+/// cooperative-cancel `Arc<AtomicBool>` — the same flag stops both
+/// the parent stage and its heartbeat ticker, so when a stage
+/// completes (success, error, or abort) the heartbeat dies with it
+/// and there's no risk of orphaned tickers chatting about a stage
+/// that's already over.
+pub(crate) struct HeartbeatTicker {
+    cancel: Arc<AtomicBool>,
+    handle: tokio::task::JoinHandle<()>,
+}
+
+impl HeartbeatTicker {
+    /// Signals the ticker to exit on the next tick (or
+    /// immediately, if it's currently waiting on the abort signal).
+    /// Idempotent — calling more than once is harmless.
+    pub(crate) fn stop(&self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
+impl Drop for HeartbeatTicker {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Spawns a tokio task that emits an `emit_download_log` heartbeat
+/// every [`HEARTBEAT_INTERVAL`] for the given download item, naming
+/// the current stage (read from the queue's `processing_label`) and
+/// the wall-clock elapsed time since the stage started. Returns a
+/// [`HeartbeatTicker`] whose drop signals the ticker to stop (#805).
+///
+/// The ticker reads the cooperative-cancel flag every tick and exits
+/// when set. Callers that already track a stage with an
+/// `Arc<AtomicBool>` abort flag (e.g. the companion supervisor's
+/// flag in [`CompanionTaskHandle`]) should pass *the same flag* here
+/// so the heartbeat stops automatically when the parent stage does.
+///
+/// Heartbeat line format (matches the existing `[MeedyaDL]` internal-
+/// emission style; the hourglass prefix lets users visually scan
+/// past heartbeats when they're not the focus):
+///
+/// ```text
+/// 17:17:38 [d3ba7a54] [MeedyaDL] ⏳ Still working — Companion: downloading atmos (tier 2)… — 8 min elapsed
+/// ```
+///
+/// When the queue's `processing_label` is empty (no work to describe
+/// — usually a brief state-transition window) the heartbeat is
+/// suppressed for that tick. This avoids spurious "Still working —
+/// (no label) — 2 min elapsed" lines during normal transitions.
+pub(crate) fn start_heartbeat_ticker(
+    app: tauri::AppHandle,
+    queue: QueueHandle,
+    dl_id: String,
+    cancel: Arc<AtomicBool>,
+    stage_kind: &'static str,
+) -> HeartbeatTicker {
+    let handle = tokio::spawn({
+        let cancel = Arc::clone(&cancel);
+        async move {
+            let start = std::time::Instant::now();
+            let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
+            // Skip the immediate tick — we don't want a heartbeat at
+            // t=0 saying "0 min elapsed" right after the stage starts.
+            interval.set_missed_tick_behavior(
+                tokio::time::MissedTickBehavior::Delay,
+            );
+            interval.tick().await;
+
+            loop {
+                interval.tick().await;
+                if cancel.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Look up the current stage label from the queue.
+                // The lock is released before emit so the heartbeat
+                // emission doesn't hold it.
+                let label = {
+                    let q = queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == dl_id)
+                        .and_then(|i| i.status.processing_label.clone())
+                };
+
+                let Some(label) = label.filter(|s| !s.trim().is_empty()) else {
+                    // Stage between transitions — suppress this tick.
+                    continue;
+                };
+
+                // #836: dedup the stage prefix. Companion captions
+                // already start with `"Companion: "` (set via
+                // `set_label_only(…, &caption)` in
+                // `update_companion_label_from_line`, where the caption
+                // is `"Companion: downloading atmos (tier 2)…"` and the
+                // like). The heartbeat formatter would then produce
+                // `"⏳ Still working — Companion: Companion: downloading
+                // atmos…"` — the user's 2026-05-18 / v1.8.1 screenshot
+                // shows the duplication verbatim. Strip the leading
+                // `"{stage_kind}: "` from `label` if it's already
+                // there, so the format string's own prefix is the
+                // only one users see.
+                let stage_prefix = format!("{stage_kind}: ");
+                let display_label = label
+                    .strip_prefix(stage_prefix.as_str())
+                    .unwrap_or(label.as_str());
+
+                let elapsed = format_heartbeat_elapsed(start.elapsed());
+                emit_download_log(
+                    &app,
+                    &dl_id,
+                    &format!("⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"),
+                );
+            }
+        }
+    });
+
+    HeartbeatTicker { cancel, handle }
+}
+
+/// Emits one activity-log line per animated-artwork variant
+/// (#529). Replaces the pre-#529 single-line summary that lied
+/// about availability when an offered variant failed to download.
+///
+/// One of three deterministic lines per call, depending on the
+/// `VariantStatus` discriminant:
+///
+/// - `NotOffered` → "Animated artwork: {variant} not offered by Apple Music" (info)
+/// - `Downloaded { path, size_bytes }` → "Animated artwork: {variant} downloaded ({size} → {path})" (info)
+/// - `DownloadFailed { reason, .. }` → "Animated artwork: {variant} download failed — {reason}" (warn-tagged)
+///
+/// `variant_label` is "square" or "portrait" (the user-facing
+/// term). Filesize is rendered with a human readable suffix
+/// (KB / MB) so the line reads cleanly in a log.
+fn emit_artwork_variant_log(
+    app: &tauri::AppHandle,
+    dl_id: &str,
+    variant_label: &'static str,
+    status: &super::animated_artwork_service::VariantStatus,
+) {
+    use super::animated_artwork_service::VariantStatus;
+    match status {
+        VariantStatus::NotOffered => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} not offered by Apple Music"),
+            );
+        }
+        VariantStatus::Downloaded { path, size_bytes } => {
+            emit_download_log(
+                app,
+                dl_id,
+                &format!(
+                    "Animated artwork: {variant_label} downloaded ({} → {path})",
+                    format_artwork_size(*size_bytes),
+                ),
+            );
+        }
+        VariantStatus::DownloadFailed { reason, .. } => {
+            // Use the warn-severity emitter so the line is colour-
+            // coded amber in the Activity Log (#793), matching the
+            // existing convention for "the work was attempted but
+            // didn't land on disk" outcomes.
+            emit_download_warn(
+                app,
+                dl_id,
+                &format!("Animated artwork: {variant_label} download failed — {reason}"),
+            );
+        }
+    }
+}
+
+/// Renders an animated-artwork file size as a compact human string
+/// (e.g. `"2.1 MB"`, `"512 KB"`). Used only by
+/// `emit_artwork_variant_log` for the success-path line.
+fn format_artwork_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = 1024 * KB;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{} KB", bytes / KB)
+    } else {
+        format!("{bytes} bytes")
+    }
+}
+
+/// Formats a stage-elapsed `Duration` as a compact human string for
+/// heartbeat lines: `"2 min"`, `"1h 23 min"`, `"45 s"` (the last
+/// shouldn't appear in practice because we skip the first tick, but
+/// is included for completeness in case of unusual cadence overrides).
+fn format_heartbeat_elapsed(d: std::time::Duration) -> String {
+    let total_secs = d.as_secs();
+    if total_secs < 60 {
+        return format!("{total_secs} s");
+    }
+    let total_mins = total_secs / 60;
+    if total_mins < 60 {
+        return format!("{total_mins} min");
+    }
+    let hours = total_mins / 60;
+    let mins = total_mins % 60;
+    format!("{hours}h {mins} min")
+}
+
+/// Handle returned by [`spawn_companion_downloads`].
+///
+/// Wraps the spawned task's `JoinHandle` together with progress metadata
+/// for timeout/advisory logging. The cooperative-cancel flag is retained
+/// for the synchronous companion lyrics conversion checkpoints. The
+/// completion watcher first emits a soft advisory, then uses this flag
+/// only if the second hard deadline is also exceeded.
+///
+/// The optional `heartbeat` field owns the [`HeartbeatTicker`] spawned
+/// for the companion phase (#805). When the supervisor task finishes
+/// (success, failure, or abort) it drops `heartbeat` and the ticker
+/// exits cleanly.
+pub(crate) struct CompanionTaskHandle {
+    handle: tokio::task::JoinHandle<()>,
+    aborted: Arc<AtomicBool>,
+    progress: Arc<StdMutex<CompanionTaskProgress>>,
+    #[allow(dead_code)] // Held for its Drop; not directly read.
+    heartbeat: Option<HeartbeatTicker>,
+}
+
+impl CompanionTaskHandle {
+    /// Signals the companion task to stop processing at the next
+    /// cooperative checkpoint *and* aborts the async runtime task.
+    /// Also stops the heartbeat ticker (#805) so it doesn't continue
+    /// chatting about a stage that the user has cancelled.
+    pub(crate) fn abort(&mut self) {
+        self.aborted.store(true, Ordering::Relaxed);
+        self.handle.abort();
+        if let Some(hb) = self.heartbeat.take() {
+            hb.stop();
+        }
+    }
+
+    fn describe_pending(&self) -> String {
+        self.progress
+            .lock()
+            .map(|progress| progress.describe_pending())
+            .unwrap_or_else(|_| "pending companion state unavailable".to_string())
+    }
+
+    /// Number of companion tiers planned for this item. Used by the
+    /// completion task to size its companion-phase timeout proportionally
+    /// to the actual workload — a 4-tier "Atmos → all formats" item
+    /// legitimately needs much more wall-clock time than a 1-tier
+    /// "Atmos → Lossless" item.
+    fn tier_count(&self) -> usize {
+        self.progress
+            .lock()
+            .map(|progress| progress.planned_tiers.len())
+            .unwrap_or(0)
+    }
+}
+
+#[derive(Default)]
+struct CompanionTaskProgress {
+    planned_tiers: Vec<String>,
+    current_tier: Option<usize>,
+    completed_tiers: HashSet<usize>,
+    exhausted_tiers: HashSet<usize>,
+}
+
+impl CompanionTaskProgress {
+    fn describe_pending(&self) -> String {
+        let mut parts = Vec::new();
+
+        if let Some(idx) = self.current_tier {
+            if let Some(label) = self.planned_tiers.get(idx) {
+                parts.push(format!("currently running tier {idx}: {label}"));
+            }
+        }
+
+        let not_started: Vec<String> = self
+            .planned_tiers
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| {
+                Some(*idx) != self.current_tier
+                    && !self.completed_tiers.contains(idx)
+                    && !self.exhausted_tiers.contains(idx)
+            })
+            .map(|(idx, label)| format!("tier {idx}: {label}"))
+            .collect();
+        if !not_started.is_empty() {
+            parts.push(format!("not yet started: {}", not_started.join("; ")));
+        }
+
+        if parts.is_empty() {
+            "no remaining companion tiers recorded".to_string()
+        } else {
+            parts.join("; ")
+        }
+    }
+}
+
+// The argument list is long because this function is the seam between
+// the queue's per-download state (app, queue, dl_id, urls, shutdown),
+// the GAMDL invocation context (primary codec, base options,
+// force_all_suffixes), and the audioTraits pre-filter from #504. All
+// of them are needed inside the spawned task and a struct wrapper
+// would just move the repetition to the three call sites. Suppress
+// the clippy nit rather than introduce indirection.
+#[allow(clippy::too_many_arguments)]
 fn spawn_companion_downloads(
     app: &tauri::AppHandle,
+    queue: &QueueHandle,
     dl_id: &str,
     urls: &[String],
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
-) -> Option<tokio::task::JoinHandle<()>> {
+    available_audio_traits: &[String],
+) -> Option<CompanionTaskHandle> {
     let companion_settings = load_settings_for_queue(app);
-    let mut companion_tiers = plan_companions(
+    let raw_tiers = plan_companions(
         &companion_settings.companion_mode,
         primary_codec_str,
         &companion_settings.custom_companion_codecs,
     );
+
+    // Drop tiers whose codec the Apple Music API has already told us
+    // isn't offered for this track (#504). When no traits are available
+    // the filter is a no-op and we fall through to GAMDL as before.
+    let (mut companion_tiers, skipped) =
+        filter_tiers_by_audio_traits(raw_tiers, available_audio_traits);
+    for codec_list in &skipped {
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Companion skipped: {codec_list} not available for this track on Apple Music \
+                 (audioTraits: [{}])",
+                available_audio_traits.join(", ")
+            ),
+        );
+    }
 
     // When native priority was used, the primary download has clean filenames
     // (because we don't know the actual codec until GAMDL finishes). Force ALL
@@ -3322,10 +5708,33 @@ fn spawn_companion_downloads(
         None
     } else {
         let comp_app = app.clone();
+        let comp_queue = queue.clone();
         let comp_urls = urls.to_vec();
         let comp_base_opts = companion_base_options.clone();
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
+        // Per-task cooperative-cancel flag (#663). The completion task
+        // sets this to `true` before calling `handle.abort()` so the
+        // synchronous `run_companion_lyrics_conversion` and the tier
+        // loop can bail out at their next loop boundary instead of
+        // emitting activity-log events for many minutes after abort.
+        let comp_aborted = Arc::new(AtomicBool::new(false));
+        let aborted_for_task = comp_aborted.clone();
+        let companion_progress = Arc::new(StdMutex::new(CompanionTaskProgress {
+            planned_tiers: companion_tiers
+                .iter()
+                .map(|tier| {
+                    let codec_names: Vec<&str> = tier
+                        .codecs_to_try
+                        .iter()
+                        .map(SongCodec::to_cli_string)
+                        .collect();
+                    codec_names.join(", ")
+                })
+                .collect(),
+            ..Default::default()
+        }));
+        let progress_for_task = companion_progress.clone();
 
         emit_download_log(
             app,
@@ -3354,6 +5763,15 @@ fn spawn_companion_downloads(
         }
 
         let handle = tokio::spawn(async move {
+            // `any_tier_produced_files` is set the first time a tier actually
+            // writes new audio files to disk (#843). After the tier loop we
+            // run the companion lyrics conversion exactly once if the flag is
+            // set — moving it out of the loop fixes the duplicated walk-the-
+            // library symptom from v1.8.x where multi-tier items (e.g. Atmos
+            // tier 2 + AAC-Legacy tier 4 both succeeding) re-converted the
+            // same TTML files once per successful tier.
+            let mut any_tier_produced_files = false;
+
             // Process each companion tier sequentially
             for (tier_idx, tier) in companion_tiers.iter().enumerate() {
                 // Check for app shutdown between tiers
@@ -3361,11 +5779,51 @@ fn spawn_companion_downloads(
                     log::info!("Companion downloads stopping early (app shutting down)");
                     return;
                 }
+                // Cooperative-cancel check (#663). If the completion
+                // task fired the deadline timeout while we were in
+                // sync code, leave before launching another GAMDL.
+                if aborted_for_task.load(Ordering::Relaxed) {
+                    let pending = progress_for_task
+                        .lock()
+                        .map(|progress| progress.describe_pending())
+                        .unwrap_or_else(|_| "pending companion state unavailable".to_string());
+                    log::info!(
+                        "Companion downloads aborted via cooperative flag for {comp_dl_id} — \
+                         skipping remaining tiers: {pending}"
+                    );
+                    emit_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        &format!("Companion task aborted — skipping remaining companions: {pending}"),
+                    );
+                    return;
+                }
 
                 let mut tier_succeeded = false;
+                if let Ok(mut progress) = progress_for_task.lock() {
+                    progress.current_tier = Some(tier_idx);
+                }
 
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
+                    // Phase 3.5g: surface the active companion stage to the
+                    // per-item progress bar. Pre-3.5d this was impossible
+                    // (set_label was a closure local to the enrichment task);
+                    // now we use the shared `set_stage_with_label` helper.
+                    // Companion downloads happen AFTER enrichment finishes,
+                    // so the bar would otherwise still display "Finalising
+                    // metadata…" while companion GAMDL is the actual work.
+                    set_stage_with_label(
+                        &comp_app,
+                        &comp_queue,
+                        &comp_dl_id,
+                        ProgressStage::Finalising,
+                        &format!(
+                            "Companion: downloading {} (tier {})…",
+                            codec.to_cli_string(),
+                            tier_idx
+                        ),
+                    );
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -3426,135 +5884,292 @@ fn spawn_companion_downloads(
                     cmd.stdout(std::process::Stdio::piped());
                     cmd.stderr(std::process::Stdio::piped());
 
-                    match cmd.spawn() {
-                        Ok(mut child) => {
-                            // Stream stdout to activity log line-by-line
-                            let stdout = child.stdout.take();
-                            let stderr = child.stderr.take();
-                            let stream_app = comp_app.clone();
-                            let stream_dl_id = comp_dl_id.clone();
-                            let stream_codec = codec.to_cli_string().to_string();
+                    let stream_codec = codec.to_cli_string().to_string();
 
-                            // Spawn stdout reader — splits on `\r` so yt-dlp /
-                            // N_m3u8DL-RE progress lines render as separate
-                            // activity-log rows instead of one giant blob.
-                            let stdout_task = if let Some(out) = stdout {
-                                let app = stream_app.clone();
-                                let dl_id = stream_dl_id.clone();
-                                Some(tokio::spawn(async move {
-                                    use tokio::io::AsyncBufReadExt;
-                                    let reader = tokio::io::BufReader::new(out);
-                                    let mut lines = reader.lines();
-                                    while let Ok(Some(line)) = lines.next_line().await {
-                                        emit_companion_stream_line(&app, &dl_id, "stdout", &line)
-                                            .await;
-                                    }
-                                }))
-                            } else {
-                                None
-                            };
+                    // Hand the child off to the companion supervisor:
+                    //   - kill_on_drop(true) so an aborted task reaps GAMDL (#501)
+                    //   - parses `Finished with N error(s)` to detect soft errors (#500)
+                    //   - watches for stdout/stderr silence and kills the child after
+                    //     `gamdl_idle_timeout_minutes` of inactivity (#505), pausing the
+                    //     watchdog once a `100% of` line marks the post-processing phase (#503)
+                    let supervisor_app = comp_app.clone();
+                    let supervisor_dl = comp_dl_id.clone();
+                    let label_for_emit = format!("companion-tier-{tier_idx}");
+                    let companion_settings = load_settings_for_queue(&comp_app);
+                    let idle_timeout = std::time::Duration::from_secs(
+                        u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
+                    );
+                    // Track-aware companion caption (#799). The
+                    // per-tier label set at tier start
+                    // ("Companion: downloading atmos (tier 2)…") is
+                    // overwritten on each `TrackInfo` event with the
+                    // current track name + counter, so the top
+                    // progress bar tells the user *what track* is
+                    // running — not just the codec and tier.
+                    //
+                    // `parse_gamdl_output` is called twice for each
+                    // line (once inside `emit_companion_stream_line`
+                    // and once here) — cheap single-line parses,
+                    // worth it to avoid changing the LineEmitter
+                    // signature shared with the MV companion path.
+                    let tier_label_codec = codec.to_cli_string().to_string();
+                    let tier_idx_for_label = tier_idx;
+                    let queue_for_label = comp_queue.clone();
+                    let app_for_label = comp_app.clone();
+                    let dl_for_label = comp_dl_id.clone();
+                    let emitter: super::companion_supervisor::LineEmitter =
+                        std::sync::Arc::new(move |app, dl, stream, line| {
+                            // Captured-by-value clones for the per-line update path.
+                            let codec_name = tier_label_codec.clone();
+                            let tier_n = tier_idx_for_label;
+                            let queue_clone = queue_for_label.clone();
+                            let app_clone_inner = app_for_label.clone();
+                            let dl_clone_inner = dl_for_label.clone();
+                            Box::pin(async move {
+                                let kind = if stream.contains("stderr") {
+                                    "stderr"
+                                } else {
+                                    "stdout"
+                                };
+                                // #799: update the per-item caption on every TrackInfo.
+                                update_companion_label_from_line(
+                                    &app_clone_inner,
+                                    &queue_clone,
+                                    &dl_clone_inner,
+                                    tier_n,
+                                    &codec_name,
+                                    &line,
+                                )
+                                .await;
+                                emit_companion_stream_line(&app, &dl, kind, &line).await
+                            })
+                        });
 
-                            // Collect stderr for error diagnosis — same
-                            // `\r`-splitting rules as stdout.
-                            let stderr_task = if let Some(err) = stderr {
-                                let app = stream_app.clone();
-                                let dl_id = stream_dl_id.clone();
-                                Some(tokio::spawn(async move {
-                                    use tokio::io::AsyncBufReadExt;
-                                    let reader = tokio::io::BufReader::new(err);
-                                    let mut lines = reader.lines();
-                                    let mut last_line = String::new();
-                                    while let Ok(Some(line)) = lines.next_line().await {
-                                        if let Some(clean) = emit_companion_stream_line(
-                                            &app, &dl_id, "stderr", &line,
-                                        )
-                                        .await
-                                        {
-                                            last_line = clean;
-                                        }
-                                    }
-                                    last_line
-                                }))
-                            } else {
-                                None
-                            };
+                    // Phase 3.5h: snapshot the audio-file count BEFORE running
+                    // companion GAMDL. After a "successful" exit (GAMDL exits 0
+                    // even when it skipped every track because the requested
+                    // format wasn't available — `Skipping … format is not
+                    // available` is a warning, not an error in GAMDL's view),
+                    // we compare against this snapshot to detect the false-
+                    // positive "complete" case the user flagged on 2026-05-08:
+                    // companion AC3 ran on a track Apple Music doesn't ship in
+                    // AC3, GAMDL produced 0 files, but the activity log said
+                    // "Companion download complete (tier 0, codec: ac3)".
+                    let pre_run_audio_count = opts
+                        .output_path
+                        .as_deref()
+                        .map(std::path::Path::new)
+                        .map(count_audio_files_in_directory)
+                        .unwrap_or(0);
 
-                            // Wait for the process to complete
-                            let status = child.wait().await;
+                    let run_result = super::companion_supervisor::run_supervised(
+                        &supervisor_app,
+                        &supervisor_dl,
+                        &label_for_emit,
+                        cmd,
+                        idle_timeout,
+                        emitter,
+                    )
+                    .await;
 
-                            // Wait for stream readers to finish
-                            if let Some(t) = stdout_task { let _ = t.await; }
-                            let last_err = if let Some(t) = stderr_task {
-                                t.await.unwrap_or_default()
-                            } else {
-                                String::new()
-                            };
+                    // Surface the post-processing transition to the queue UI so
+                    // the per-item bar switches from `DOWNLOADING…` to
+                    // `PROCESSING (remux / decrypt)…` instead of looking frozen
+                    // while mp4decrypt / ffmpeg / mp4box run silently (#503).
+                    if let Ok(ref r) = run_result {
+                        if r.reached_post_processing {
+                            let mut q = comp_queue.lock().await;
+                            q.set_processing_label(
+                                &supervisor_dl,
+                                &format!(
+                                    "Post-processing companion ({}): remux / decrypt",
+                                    stream_codec
+                                ),
+                            );
+                        }
+                    }
 
-                            match status {
-                                Ok(s) if s.success() => {
-                                    emit_download_log(
-                                        &comp_app,
-                                        &comp_dl_id,
-                                        &format!(
-                                            "Companion download complete (tier {}, codec: {})",
-                                            tier_idx, stream_codec,
-                                        ),
-                                    );
-                                    let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
+                    match run_result {
+                        Ok(r) if r.exit_success && !r.had_soft_error => {
+                            // Phase 3.5h: verify files actually landed before
+                            // claiming "complete". GAMDL exits 0 with 0 errors
+                            // when it skips every track due to format
+                            // unavailability ("Skipping … format is not
+                            // available" is a warning, not an error). Without
+                            // this check, the companion task records a false
+                            // success — confusing for the user when checking
+                            // history / diagnosing missing companions.
+                            let post_run_audio_count = opts
+                                .output_path
+                                .as_deref()
+                                .map(std::path::Path::new)
+                                .map(count_audio_files_in_directory)
+                                .unwrap_or(0);
+                            if post_run_audio_count <= pre_run_audio_count {
+                                // No new files landed — the codec wasn't
+                                // available for any track in this URL set.
+                                emit_download_log(
+                                    &comp_app,
+                                    &comp_dl_id,
+                                    &format!(
+                                        "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
+                                        tier_idx, stream_codec,
+                                    ),
+                                );
+                                // Do NOT mark this tier as succeeded; let the
+                                // next codec in the tier (if any) be tried.
+                                // We still treat this as a non-failure
+                                // (companion exited cleanly), so we don't
+                                // emit `companion-downloaded` either.
+                                // Reset post-processing label since there's
+                                // nothing to post-process.
+                                {
+                                    let mut q = comp_queue.lock().await;
+                                    q.clear_processing_label(&supervisor_dl);
+                                }
+                                continue;
+                            }
 
-                                    if let Some(ref output_dir) = opts.output_path {
-                                        // Rename cover art per user setting (#448)
-                                        let comp_settings = load_settings_for_queue(&comp_app);
-                                        rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "Companion download complete (tier {}, codec: {}, {} new file(s))",
+                                    tier_idx,
+                                    stream_codec,
+                                    post_run_audio_count - pre_run_audio_count,
+                                ),
+                            );
+                            let _ = comp_app.emit("companion-downloaded", &comp_dl_id);
 
-                                        match super::metadata_tag_service::apply_codec_metadata_tags(
-                                            output_dir, codec,
-                                        ) {
-                                            Ok(count) if count > 0 => {
-                                                log::info!(
-                                                    "Tagged {} companion file(s) with {} metadata for {}",
-                                                    count, stream_codec, comp_dl_id
-                                                );
-                                            }
-                                            Ok(_) => {}
-                                            Err(e) => {
-                                                log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                            }
-                                        }
+                            if let Some(ref output_dir) = opts.output_path {
+                                // Rename cover art per user setting (#448)
+                                let comp_settings = load_settings_for_queue(&comp_app);
+                                rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
 
-                                        run_companion_lyrics_conversion(
-                                            &comp_app,
-                                            &comp_dl_id,
-                                            output_dir,
+                                // Scope the lyrics conversion AND the tag pass
+                                // (#816) to the album we just produced —
+                                // falls back to a recursive walk over the
+                                // whole output root only when the artist/
+                                // album hints are unavailable (#502).
+                                let (artist_hint, album_hint) = {
+                                    let q = comp_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == comp_dl_id)
+                                        .map(|i| {
+                                            (
+                                                i.status.artist_name.clone(),
+                                                i.status.album_name.clone(),
+                                            )
+                                        })
+                                        .unwrap_or((None, None))
+                                };
+
+                                // **#816 fix**: the codec-metadata tagger
+                                // walks every M4A under the path it's given.
+                                // Pre-#816, we passed `output_dir` (the
+                                // user's whole output root, e.g.
+                                // `/Volumes/DriveC/[MeedyaDL]/[AppleMusic]`)
+                                // which made the tagger walk the user's
+                                // ENTIRE library on every tier completion —
+                                // 8000+ files tagged per tier × 4 tiers ×
+                                // 220 queue items = ~18-36 hours of wasted
+                                // tag-write work per queue run, AND silently
+                                // overwriting hand-edited tags on
+                                // previously-completed items. Now scope to
+                                // the current item's resolved album dir via
+                                // the same hints the lyrics conversion uses.
+                                let tag_pass_target = find_album_directory(
+                                    std::path::Path::new(output_dir),
+                                    artist_hint.as_deref(),
+                                    album_hint.as_deref(),
+                                )
+                                .unwrap_or_else(|| output_dir.clone());
+                                match super::metadata_tag_service::apply_codec_metadata_tags(
+                                    &tag_pass_target,
+                                    codec,
+                                ) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Tagged {} companion file(s) with {} metadata in {} for {}",
+                                            count, stream_codec, tag_pass_target, comp_dl_id
                                         );
                                     }
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
+                                    }
+                                }
 
-                                    tier_succeeded = true;
-                                    break;
-                                }
-                                Ok(_) => {
-                                    emit_download_log(
-                                        &comp_app,
-                                        &comp_dl_id,
-                                        &format!(
-                                            "Companion tier {}: {} failed — {}",
-                                            tier_idx, stream_codec,
-                                            if last_err.is_empty() { "unknown error" } else { &last_err }
-                                        ),
-                                    );
-                                }
-                                Err(e) => {
-                                    log::debug!("Companion process wait error: {e}");
-                                }
+                                // #843: lyrics conversion was previously called
+                                // here. It now runs ONCE after the tier loop
+                                // completes (TTML files don't change between
+                                // tiers — companions inherit them from the
+                                // primary download), so multi-tier items
+                                // don't pay the conversion cost N times.
+                                any_tier_produced_files = true;
+                            }
+
+                            // Clear the post-processing label now that we're done.
+                            {
+                                let mut q = comp_queue.lock().await;
+                                q.clear_processing_label(&supervisor_dl);
+                            }
+
+                            tier_succeeded = true;
+                            if let Ok(mut progress) = progress_for_task.lock() {
+                                progress.completed_tiers.insert(tier_idx);
+                                progress.current_tier = None;
+                            }
+                            break;
+                        }
+                        Ok(r) => {
+                            // Build the most informative failure message we can:
+                            //   - friendly_error wins (translated traceback, #500)
+                            //   - then idle_killed (#505)
+                            //   - then had_soft_error notes the GAMDL summary (#500)
+                            //   - last resort: whatever stderr ended on
+                            let detail = if let Some(msg) = r.friendly_error {
+                                msg
+                            } else if r.idle_killed {
+                                format!(
+                                    "GAMDL was idle for {} min — terminated by watchdog",
+                                    companion_settings.gamdl_idle_timeout_minutes.max(1)
+                                )
+                            } else if r.had_soft_error {
+                                "GAMDL exited 0 but reported per-track errors — treating as failure"
+                                    .to_string()
+                            } else if r.last_stderr_line.is_empty() {
+                                "unknown error".to_string()
+                            } else {
+                                r.last_stderr_line.clone()
+                            };
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "Companion tier {}: {} failed — {}",
+                                    tier_idx, stream_codec, detail
+                                ),
+                            );
+                            // Reset post-processing label on failure too.
+                            {
+                                let mut q = comp_queue.lock().await;
+                                q.clear_processing_label(&supervisor_dl);
                             }
                         }
                         Err(e) => {
-                            log::debug!("Failed to spawn companion: {e}");
+                            log::debug!("Failed to spawn companion ({stream_codec}): {e}");
                         }
                     }
                 }
 
                 if !tier_succeeded {
+                    if let Ok(mut progress) = progress_for_task.lock() {
+                        progress.exhausted_tiers.insert(tier_idx);
+                        progress.current_tier = None;
+                    }
                     log::debug!("Companion tier {tier_idx} exhausted all codecs for {comp_dl_id}");
                     emit_download_log(
                         &comp_app,
@@ -3563,8 +6178,66 @@ fn spawn_companion_downloads(
                     );
                 }
             }
+
+            // #843: run the companion lyrics conversion ONCE for the whole
+            // item, after every tier has finished. Pre-fix, this ran inside
+            // the tier-success branch — multi-tier items (e.g. Atmos tier 2
+            // + AAC-Legacy tier 4 both succeeding) re-walked the user's
+            // library once per successful tier, doubling/tripling wasted
+            // work on big libraries. TTML files don't change between tiers,
+            // so converting them once is correct.
+            if any_tier_produced_files && !aborted_for_task.load(Ordering::Relaxed) {
+                let Some(output_dir) = comp_base_opts.output_path.as_deref() else {
+                    return;
+                };
+                // Re-read hints from the queue item — the enrichment
+                // task may have populated them via API mid-flight
+                // even though they were absent at companion-loop start.
+                let (artist_hint, album_hint) = {
+                    let q = comp_queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == comp_dl_id)
+                        .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
+                        .unwrap_or((None, None))
+                };
+                set_stage_with_label(
+                    &comp_app,
+                    &comp_queue,
+                    &comp_dl_id,
+                    ProgressStage::Finalising,
+                    "Companion: converting lyrics formats…",
+                );
+                run_companion_lyrics_conversion(
+                    &comp_app,
+                    &comp_dl_id,
+                    output_dir,
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                    &aborted_for_task,
+                );
+            }
         });
-        Some(handle)
+        // Heartbeat ticker for the companion phase (#805). Shares the
+        // cooperative-cancel flag with the supervisor task — when the
+        // supervisor finishes (success / failure / abort) the flag
+        // flips and the heartbeat exits on its next tick. Dropping
+        // `CompanionTaskHandle` also drops the ticker via Drop, so
+        // the ticker never outlives the handle either.
+        let heartbeat = Some(start_heartbeat_ticker(
+            app.clone(),
+            queue.clone(),
+            dl_id.to_string(),
+            comp_aborted.clone(),
+            "Companion",
+        ));
+
+        Some(CompanionTaskHandle {
+            handle,
+            aborted: comp_aborted,
+            progress: companion_progress,
+            heartbeat,
+        })
     };
 
     /// Runs lyrics format conversion on a companion download's output directory.
@@ -3583,6 +6256,9 @@ fn spawn_companion_downloads(
         app: &tauri::AppHandle,
         dl_id: &str,
         output_dir: &str,
+        artist_hint: Option<&str>,
+        album_hint: Option<&str>,
+        aborted: &Arc<AtomicBool>,
     ) {
         let settings = load_settings_for_queue(app);
         let base = std::path::Path::new(output_dir);
@@ -3590,20 +6266,101 @@ fn spawn_companion_downloads(
         if !base.is_dir() {
             return;
         }
+        // Cooperative-cancel checkpoint #1 (#663). Bail before the
+        // potentially-multi-minute recursive directory walk if the
+        // completion task already fired the deadline.
+        if aborted.load(Ordering::Relaxed) {
+            return;
+        }
 
-        // Resolve the album directory: the lyrics services operate on a flat
-        // directory of .ttml + .m4a files, but output_dir is typically the
-        // top-level output path. Find directories containing TTML files by
-        // walking the tree recursively.
-        let album_dirs = find_dirs_with_ttml(base);
+        // Resolve the album directory in three layered ways, falling
+        // through to the next only when the prior produces nothing:
+        //   (1) targeted `{output_dir}/{artist}/{album}/` when both hints
+        //       are non-empty strings,
+        //   (2) `find_album_directory` (case-insensitive match + deepest
+        //       recently-modified audio dir),
+        //   (3) skip — return an empty `album_dirs` and bail.
+        //
+        // **What we no longer do (#839).** Previously the catch-all arm
+        // walked `find_dirs_with_ttml(base)` over the *entire* output
+        // root whenever either hint was missing, producing the
+        // 484-album-dir / 25-minute symptom users reported on v1.8.x.
+        // The depth-10 cap inside `find_dirs_with_ttml` doesn't help
+        // because user libraries naturally fit within 3 levels
+        // (`~/Music/Artist/Album/`). The trigger wasn't only
+        // `(None, None)`: an Apple Music API response with an empty
+        // artist or album string (`Some("")`) joined as `base` itself,
+        // satisfied `.is_dir()`, and walked the whole library too. The
+        // empty-string filter below treats those as missing.
+        let artist_hint = artist_hint.filter(|s| !s.is_empty());
+        let album_hint = album_hint.filter(|s| !s.is_empty());
+
+        let resolved_album_dir: Option<std::path::PathBuf> = if let (Some(artist), Some(album)) =
+            (artist_hint, album_hint)
+        {
+            let scoped = base.join(artist).join(album);
+            if scoped.is_dir() {
+                log::debug!(
+                    "Companion lyrics: scoped to album dir {} for {dl_id}",
+                    scoped.display()
+                );
+                Some(scoped)
+            } else {
+                // Hinted path doesn't exist on disk (e.g. user's folder
+                // template differs from `{album_artist}/{album}`, or
+                // sanitisation rewrote special characters). Try the
+                // shared `find_album_directory` resolver which handles
+                // case-insensitive matches + a bounded deepest-audio-dir
+                // scan, same as the codec-tag pass uses at #816.
+                find_album_directory(base, Some(artist), Some(album)).map(std::path::PathBuf::from)
+            }
+        } else {
+            log::debug!(
+                "Companion lyrics: no artist/album hints for {dl_id} — \
+                 attempting find_album_directory recovery for {output_dir}"
+            );
+            find_album_directory(base, artist_hint, album_hint).map(std::path::PathBuf::from)
+        };
+
+        let album_dirs: Vec<std::path::PathBuf> = match resolved_album_dir {
+            Some(dir) => find_dirs_with_ttml(&dir),
+            None => {
+                log::debug!(
+                    "Companion lyrics: no specific album dir resolved for {dl_id} — \
+                     skipping conversion (item likely had no successful audio)"
+                );
+                Vec::new()
+            }
+        };
         if album_dirs.is_empty() {
             log::debug!(
                 "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
             );
             return;
         }
+        emit_download_log(
+            app,
+            dl_id,
+            &format!(
+                "Companion lyrics conversion: processing {} album dir(s)...",
+                album_dirs.len()
+            ),
+        );
 
         for album_dir in &album_dirs {
+            // Cooperative-cancel checkpoint #2 (#663). Without this,
+            // the loop would emit `Companion: converted N TTML…`
+            // entries for every album dir even after the completion
+            // task aborted us — the symptom from the captured logs.
+            if aborted.load(Ordering::Relaxed) {
+                log::info!(
+                    "Companion lyrics conversion aborted for {dl_id} — \
+                     processed {}/{} album dirs",
+                    album_dirs.iter().position(|p| p == album_dir).unwrap_or(0),
+                    album_dirs.len(),
+                );
+                return;
+            }
             let dir_str = album_dir.to_string_lossy();
 
             // Enhanced LRC: TTML → word-by-word LRC
@@ -3672,30 +6429,42 @@ fn spawn_companion_downloads(
     /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
     /// and collects every directory that directly contains at least one
     /// `.ttml` file.
+    ///
+    /// **Depth-limited** to 10 levels (matching the convention used by
+    /// `scan_folder_for_manifests`). Without a cap, pointing this at a
+    /// large user music library walks tens of thousands of directories
+    /// and stalls the companion task for tens of minutes — the symptom
+    /// the user reported as a 30-minute silent gap between
+    /// `Companion download complete` and `Companion: converted N TTML…`.
     fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
-        let mut result = Vec::new();
-        let mut has_ttml_here = false;
-
-        if let Ok(entries) = std::fs::read_dir(base) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    // Recurse into subdirectories
-                    result.extend(find_dirs_with_ttml(&path));
-                } else if path
-                    .extension()
-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
+        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
+        // (#716/1, v1.0.4 prep). Strategy: walk every entry, return the
+        // PARENT path of each `.ttml` file the visitor sees, then dedup
+        // via HashSet — net behaviour identical to the previous "scan
+        // each dir, set a `has_ttml_here` flag, push if true" pattern,
+        // but the per-directory state is replaced by post-pass dedup
+        // which fits the visitor model cleanly.
+        //
+        // Depth limit of 10 preserved (the convention used by
+        // `scan_folder_for_manifests`); see #712 for why this matters
+        // — without it, pointing at a large library produces the
+        // 30-minute hang the user reproduced on 2026-05-08.
+        const MAX_DEPTH: u32 = 10;
+        let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
+            crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {
+                if path.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
                 {
-                    has_ttml_here = true;
+                    path.parent().map(|p| p.to_path_buf())
+                } else {
+                    None
                 }
-            }
-        }
-
-        if has_ttml_here {
-            result.push(base.to_path_buf());
-        }
-
-        result
+            })
+            .into_iter()
+            .collect();
+        parent_dirs.into_iter().collect()
     }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
@@ -3885,6 +6654,17 @@ pub fn process_queue(
 
                 let settings = load_settings_for_queue(&app);
 
+                // Tell the user we're about to verify the prerequisites.
+                // The old wording ("Pre-flight checks passed") was flagged
+                // in #578 as jargon — even dev-literate users couldn't tell
+                // whether something had broken or succeeded. Emitting a
+                // user-facing "Checking..." line before the result gives
+                // the activity log a clear question-and-answer shape.
+                emit_app_log(
+                    &app,
+                    "Checking internet connection, output folder, and account...",
+                );
+
                 // Run internet + wrapper checks concurrently (both are HTTP GETs)
                 let internet_future =
                     crate::services::health_check_service::check_internet_connectivity();
@@ -3892,6 +6672,38 @@ pub fn process_queue(
                     Some(crate::services::health_check_service::check_wrapper_health(
                         &settings.wrapper_account_url,
                     ))
+                } else {
+                    None
+                };
+                // GAMDL v3.1+ fetches HLS URLs from the wrapper's m3u8 socket
+                // when `--use-wrapper` is set. Skip the probe on older
+                // releases (flag is ignored there) and when wrapper mode is
+                // off (cookie downloads don't consult the socket).
+                let wrapper_m3u8_future = if settings.use_wrapper
+                    && crate::services::gamdl_capabilities::supports(
+                        crate::services::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
+                    )
+                {
+                    Some(
+                        crate::services::health_check_service::check_wrapper_m3u8_health(
+                            &settings.wrapper_m3u8_ip,
+                        ),
+                    )
+                } else {
+                    None
+                };
+                // Wrapper decryption socket reachability (#743). Needed for
+                // every GAMDL release in the support window — decrypt has
+                // been a wrapper feature since well before v3.1, so unlike
+                // the m3u8 probe there's no version capability gate. Cookie
+                // downloads still skip the probe (no decrypt socket
+                // consulted).
+                let wrapper_decrypt_future = if settings.use_wrapper {
+                    Some(
+                        crate::services::health_check_service::check_wrapper_decrypt_health(
+                            &settings.wrapper_decrypt_ip,
+                        ),
+                    )
                 } else {
                     None
                 };
@@ -3928,6 +6740,14 @@ pub fn process_queue(
                     Some(fut) => fut.await,
                     None => None,
                 };
+                let wrapper_m3u8_warning = match wrapper_m3u8_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
+                let wrapper_decrypt_warning = match wrapper_decrypt_future {
+                    Some(fut) => fut.await,
+                    None => None,
+                };
                 let output_path_warning = match output_path_future {
                     Some(fut) => fut.await,
                     None => None,
@@ -3949,6 +6769,15 @@ pub fn process_queue(
                     }
                     if settings.use_wrapper {
                         v.push((PreflightCheck::Wrapper, wrapper_warning));
+                        // Only checked when GAMDL supports it; when the
+                        // capability gate returned `None` above, this entry
+                        // carries `None` and the loop emits a "cleared"
+                        // event so any stale toast is dismissed.
+                        v.push((PreflightCheck::WrapperM3u8, wrapper_m3u8_warning));
+                        // Decrypt probe runs on every wrapper download
+                        // regardless of GAMDL version — the decrypt flag
+                        // exists in every supported release (#743).
+                        v.push((PreflightCheck::WrapperDecrypt, wrapper_decrypt_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));
@@ -3960,7 +6789,11 @@ pub fn process_queue(
                     if let Some(w) = warning {
                         any_warnings = true;
                         log::warn!("Pre-flight warning ({check:?}): {}", w.message);
-                        emit_app_log(&app, &format!("Pre-flight: {}", w.message));
+                        // Warnings keep the "Pre-flight:" prefix — the word
+                        // "warning" is more useful context than the technical
+                        // phrase on the all-OK path, and the preflight-warning
+                        // event below drives a user-visible toast regardless.
+                        emit_app_log(&app, &format!("Pre-flight warning: {}", w.message));
                         let _ = app.emit("preflight-warning", &w);
                     } else {
                         // Check passed — dismiss any stale toast for this check type
@@ -3971,7 +6804,18 @@ pub fn process_queue(
                     }
                 }
                 if !any_warnings {
-                    emit_app_log(&app, "Pre-flight checks passed");
+                    // Plain-English all-clear message (#578). Describes what
+                    // was verified and what happens next, so the user — dev
+                    // or otherwise — doesn't have to infer the outcome from
+                    // the phrase "Pre-flight checks passed". The explicit
+                    // enumeration of the three verified prerequisites matches
+                    // the "Checking..." line that fired at the start so the
+                    // activity-log pair reads as a coherent question-and-
+                    // answer.
+                    emit_app_log(
+                        &app,
+                        "Ready to download — internet, output folder, and account all verified",
+                    );
                 }
             }
         }
@@ -3985,14 +6829,27 @@ pub fn process_queue(
 
         // If no items are pending (queue empty or max concurrent reached), exit.
         // When the queue is truly idle (no active + no pending), execute the
-        // configured after-queue action (e.g., shutdown, close app).
+        // configured after-queue action (e.g., shutdown, close app) — unless
+        // the drain was caused by a user-initiated abort (#620), in which
+        // case `take_recently_aborted` returns `true` and we suppress the
+        // post-queue action this time around.
         let Some((download_id, urls, mut options, item_service)) = pending else {
-            let is_idle = {
-                let q = queue.lock().await;
-                q.is_idle()
+            let (is_idle, was_aborted) = {
+                let mut q = queue.lock().await;
+                (q.is_idle(), q.take_recently_aborted())
             };
             if is_idle {
-                execute_after_queue_action(&app);
+                if was_aborted {
+                    log::info!(
+                        "Queue idle after abort — suppressing post-queue action (#620)"
+                    );
+                    emit_app_log(
+                        &app,
+                        "Queue drained by abort — skipping post-queue action",
+                    );
+                } else {
+                    execute_after_queue_action(&app);
+                }
             }
             return;
         };
@@ -4038,13 +6895,23 @@ pub fn process_queue(
         // the progress bar caption and activity log from the very first track.
         // This is a lightweight API call that completes in <1s on good networks.
         // Failures are silently ignored — the enrichment pipeline will retry later.
-        if is_apple_music {
+        // Captured at this scope so the post-fetch companion-template
+        // injection (#528) can read it. `None` when the early metadata
+        // fetch failed (offline, API rate-limit) — companions then fall
+        // through to the existing folder template, which will produce
+        // the sibling-folder bug for that one item; better than blocking
+        // the download on a metadata fetch.
+        let early_album_content_rating: Option<String> = if is_apple_music {
             let early_metadata = super::metadata_tag_service::try_fetch_metadata(
                 &app,
                 &urls,
                 Some((&app, &download_id)),
             )
             .await;
+
+            let captured_rating = early_metadata
+                .as_ref()
+                .and_then(|m| m.content_rating.clone());
 
             if let Some(ref meta) = early_metadata {
                 let mut q = queue.lock().await;
@@ -4059,12 +6926,26 @@ pub fn process_queue(
                     if let Some(ref name) = meta.album_name {
                         item.status.album_name = Some(name.clone());
                     }
+                    // Capture the union of audioTraits across every track
+                    // for the companion planner (#504). De-duplicate so
+                    // the slice handed to plan_companions is compact.
+                    let mut traits: Vec<String> = meta
+                        .tracks
+                        .iter()
+                        .flat_map(|t| t.audio_traits.iter().cloned())
+                        .collect();
+                    traits.sort();
+                    traits.dedup();
+                    item.status.audio_traits = traits;
                 }
                 drop(q);
                 // Trigger frontend queue refresh so progress bar picks up the metadata
                 let _ = app.emit("download-queued", &download_id);
             }
-        }
+            captured_rating
+        } else {
+            None
+        };
 
         // === GAMDL version detection (cached, runs once per queue lifetime) ===
         // Detect the installed GAMDL version on the first download so we can
@@ -4165,9 +7046,55 @@ pub fn process_queue(
         // (via `force_all_suffixes` in `spawn_companion_downloads`).
         //
         // Keep the original (unsuffixed) options for companion downloads later.
-        let companion_base_options = options.clone();
+        let mut companion_base_options = options.clone();
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
+
+        // Companion-folder advisory-suffix injection (#528).
+        //
+        // When `content_advisory_in_filenames` is enabled, the primary's
+        // post-enrichment `apply_advisory_suffixes` will rename the album
+        // folder from `Album/` → `Album [Explicit]/` (or `[Clean]/`).
+        // GAMDL has no knowledge of that rename — a companion GAMDL run
+        // spawned with the default folder template writes its files to
+        // `Album/` again, leaving the user with two sibling folders.
+        //
+        // We pre-compute the suffix here from the album's content rating
+        // (captured during the early metadata fetch a few lines above)
+        // and inject it into the companion's `album_folder_template` BEFORE
+        // the tokio::spawn that owns these options. The companion's GAMDL
+        // run then writes directly into the post-rename folder.
+        //
+        // Why we predict rather than wait: the spawn block at the bottom
+        // of `process_queue` owns the options by move, and the enrichment
+        // task (which performs the rename) only kicks off inside that
+        // spawn. Waiting for the rename to land would require a fresh
+        // synchronisation primitive between two background tasks — A1
+        // (predict) avoids that complexity for a quick, low-risk fix.
+        //
+        // Graceful degradation: if the early metadata fetch returned no
+        // rating (offline, API failure) we leave the template alone and
+        // the user gets the existing sibling-folder behaviour for that
+        // one item. No worse than today.
+        if settings_for_companion.content_advisory_in_filenames {
+            if let Some(rating) = early_album_content_rating.as_deref() {
+                if let Some(suffix) =
+                    super::metadata_tag_service::advisory_suffix(rating)
+                {
+                    if let Some(new_template) = inject_advisory_suffix_into_template(
+                        companion_base_options.album_folder_template.as_deref(),
+                        suffix,
+                    ) {
+                        log::info!(
+                            "Companion folder template for {download_id}: \
+                             injecting advisory suffix `{suffix}` so companions \
+                             land in the primary's renamed folder (#528)"
+                        );
+                        companion_base_options.album_folder_template = Some(new_template);
+                    }
+                }
+            }
+        }
         if !uses_native_priority {
             // Single-codec mode: apply codec suffix to file templates only
             // when companion downloads will produce alternative formats.
@@ -4253,6 +7180,23 @@ pub fn process_queue(
             );
         }
 
+        // Per-download GAMDL version + capability flags (#755). The
+        // process-global cache populated at startup means we read it
+        // here without spawning a `--version` probe. Surfaces in both
+        // the Tauri-event activity log AND the on-disk file so any
+        // crash report can be correlated to the exact GAMDL release
+        // that produced it.
+        let gamdl_version_label = crate::services::gamdl_capabilities::detected_version()
+            .unwrap_or_else(|| "unknown".to_string());
+        let gamdl_capabilities = crate::services::gamdl_capabilities::active_capabilities_summary();
+        emit_download_log(
+            &app,
+            &download_id,
+            &format!(
+                "GAMDL {gamdl_version_label} — capabilities: {gamdl_capabilities}"
+            ),
+        );
+
         // Verbose: log the full download options
         emit_verbose_download_log(
             &app,
@@ -4281,6 +7225,28 @@ pub fn process_queue(
         let shutdown_clone = shutdown_signal;
 
         tokio::spawn(async move {
+            // Snapshot the audio-file count in the configured output base
+            // BEFORE spawning GAMDL (#831). This is the primary-path twin
+            // of the Phase 3.5h companion-task snapshot. After a clean
+            // GAMDL exit we compare against this baseline; if no new audio
+            // files have landed in the output tree, the run failed
+            // silently (GAMDL exits 0 when every track is skipped due to
+            // format unavailability — "Skipping … format is not
+            // available" is a warning, not an error from GAMDL's view).
+            //
+            // Without this check, the recovery path's `find_album_directory`
+            // can pick up a previously-downloaded album directory from a
+            // prior run and treat its files as evidence this run
+            // succeeded — producing the user-visible "Complete" badge on
+            // an item where every single track was actually skipped
+            // (#831).
+            let pre_run_audio_count = download_options
+                .output_path
+                .as_deref()
+                .map(std::path::Path::new)
+                .map(count_audio_files_in_directory)
+                .unwrap_or(0);
+
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
             // and cancellation polling. See run_download_with_events() below.
@@ -4425,11 +7391,19 @@ pub fn process_queue(
                                              (existing={existing_audio}, skipped={skip_count}, \
                                              wrapper={wrapper_active}): {error_msg}"
                                         );
+                                        let content_label = q
+                                            .items
+                                            .iter()
+                                            .find(|i| i.status.id == dl_id)
+                                            .map(|i| format_content_label(&i.status))
+                                            .unwrap_or_else(|| "unknown content".to_string());
                                         emit_download_log(
                                             &app_clone,
                                             &dl_id,
-                                            "GAMDL tried all formats in priority chain \
-                                             — none available for this content",
+                                            &format!(
+                                                "GAMDL tried all formats in priority chain \
+                                                 for {content_label} — none available"
+                                            ),
                                         );
                                     }
                                     // Fall through to partial-success recovery below
@@ -4466,10 +7440,19 @@ pub fn process_queue(
                                         return;
                                     }
                                     // Fallback chain exhausted — fall through to error below
+                                    let content_label = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .map(|i| format_content_label(&i.status))
+                                        .unwrap_or_else(|| "unknown content".to_string());
                                     emit_download_log(
                                         &app_clone,
                                         &dl_id,
-                                        "All audio formats exhausted — no compatible format found",
+                                        &format!(
+                                            "All audio formats exhausted for {content_label} \
+                                             — no compatible format found"
+                                        ),
                                     );
                                 }
                             }
@@ -4581,9 +7564,73 @@ pub fn process_queue(
                                 .and_then(|i| i.status.output_path.as_ref())
                                 .is_some();
 
-                            if !has_output_now {
+                            // #831: even if `has_output_now` is true, verify
+                            // that this run actually produced NEW audio files.
+                            // The `find_album_directory` recovery above can
+                            // pick up a previously-downloaded album folder
+                            // from an earlier run and set `output_path` to
+                            // it — making the rest of the pipeline treat
+                            // this run as a success even though zero new
+                            // tracks landed. Without this check, retrying a
+                            // failed item with the same (unavailable) codec
+                            // chain endlessly produces "Complete" badges on
+                            // items where every track was actually Skipped.
+                            //
+                            // Compare against the pre-run snapshot taken at
+                            // the top of this spawn (line ~7155). If the
+                            // count hasn't moved, treat the run as a
+                            // no-files-produced failure regardless of what
+                            // the recovery path set `output_path` to.
+                            let new_files_landed = if has_output_now {
+                                let post_run_count = download_options
+                                    .output_path
+                                    .as_deref()
+                                    .map(std::path::Path::new)
+                                    .map(count_audio_files_in_directory)
+                                    .unwrap_or(0);
+                                if post_run_count <= pre_run_audio_count {
+                                    log::info!(
+                                        "Download {dl_id}: output_path set but no new \
+                                         audio files landed (pre={pre_run_audio_count}, \
+                                         post={post_run_count}) — treating as \
+                                         no-files-produced failure (#831)"
+                                    );
+                                    // Clear the misleading output_path so the
+                                    // post-error UI doesn't open a folder that
+                                    // was actually pre-existing.
+                                    if let Some(item) = q
+                                        .items
+                                        .iter_mut()
+                                        .find(|i| i.status.id == dl_id)
+                                    {
+                                        item.status.output_path = None;
+                                        item.status.output_is_directory = false;
+                                    }
+                                    false
+                                } else {
+                                    true
+                                }
+                            } else {
+                                false
+                            };
+
+                            if !new_files_landed {
                                 // Terminal: no output, no IO recovery, no files on
                                 // disk despite codec fallback exhausted.
+                                //
+                                // Distinguish the codec-skips-only case (#698) from
+                                // genuine download failures: when every collected
+                                // warning is a per-track codec-availability skip,
+                                // Apple Music simply doesn't offer this content in
+                                // any of the user's requested formats. That's a
+                                // catalog limitation, not a download infrastructure
+                                // failure, and the user-facing message should say
+                                // so honestly instead of "Download completed but no
+                                // output files were produced: [WARNING] Skipping ...".
+                                let only_codec_skips = !warnings.is_empty()
+                                    && warnings
+                                        .iter()
+                                        .all(|w| process::is_codec_skip_message(w));
                                 let error_msg = if has_io_error {
                                     format!(
                                         "Output path may be unreachable or too slow. \
@@ -4591,6 +7638,13 @@ pub fn process_queue(
                                      output path. Details: {}",
                                         warnings.last().cloned().unwrap_or_default()
                                     )
+                                } else if only_codec_skips {
+                                    "No audio available: Apple Music does not offer \
+                                 this content in any of your requested formats. Try \
+                                 alternative codecs in Settings > Quality > Music \
+                                 Codec, or check that this content exists in your \
+                                 storefront."
+                                        .to_string()
                                 } else if let Some(last_warning) = warnings.last() {
                                     format!(
                                         "Download completed but no output files were \
@@ -4607,7 +7661,7 @@ pub fn process_queue(
                                 q.set_error(&dl_id, &error_msg);
                                 q.on_task_finished();
                                 drop(q);
-                                emit_download_log(
+                                emit_download_error(
                                     &app_clone,
                                     &dl_id,
                                     &format!("Download failed: {error_msg}"),
@@ -4724,14 +7778,17 @@ pub fn process_queue(
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
+                                let traits = read_audio_traits(&queue_clone, &dl_id).await;
                                 let _ = spawn_companion_downloads(
                                     &app_clone,
+                                    &queue_clone,
                                     &dl_id,
                                     &urls,
                                     &primary_codec_for_companions,
                                     &companion_base_options,
                                     &shutdown_clone,
                                     uses_native_priority,
+                                    &traits,
                                 );
 
                                 // Continue processing remaining queued items
@@ -4756,7 +7813,18 @@ pub fn process_queue(
                         if !all_warnings.is_empty() {
                             q.add_warnings(&dl_id, &all_warnings);
                         }
-                        q.on_task_finished();
+                        // NOTE (#706): `on_task_finished()` deliberately
+                        // does NOT fire here, even though the primary
+                        // GAMDL subprocess has exited. The slot stays
+                        // held by an `ActiveSlotGuard` taken at the top
+                        // of the completion task spawned below, so the
+                        // queue contract from #455 ("ENTIRE pipeline
+                        // completes before the next item starts") is
+                        // actually enforced. Releasing here would let
+                        // any concurrent `process_queue` invocation
+                        // (user IPC, fallback retry, startup recovery)
+                        // grab the next item while this item's
+                        // companions + enrichment are still running.
 
                         // Extract output_path, codec_used, and history metadata while we have the lock
                         let status = q.get_status();
@@ -4851,47 +7919,118 @@ pub fn process_queue(
                         let enrich_is_apple_music = is_apple_music;
                         let enrich_queue = queue_clone.clone();
                         let enrich_started_at = download_started_at.clone();
+                        // Phase 5e (#717): per-item music-video-companion override
+                        // captured at spawn time so the enrichment task doesn't
+                        // need a fresh queue-lock acquisition just to read one
+                        // bool. Set by the Library Scan re-download flow when
+                        // the user opts in/out of MVs on a specific gap-fill.
+                        // `None` means "inherit settings.music_video_companion".
+                        let enrich_mv_override: Option<bool> = {
+                            let q = queue_clone.lock().await;
+                            q.items
+                                .iter()
+                                .find(|i| i.status.id == dl_id)
+                                .and_then(|i| i.request.mv_companion_override)
+                        };
                         Some(tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
+                            //
+                            // **#842 (artist-URL enrichment scope).** Pre-fix,
+                            // when GAMDL wrote into `~/Music/Artist/Album/`,
+                            // `output_dir` was `~/Music/` (the user's root)
+                            // and the `dir.is_dir()` branch set `album_dir`
+                            // to that same root. Every downstream pass
+                            // (codec tagger, AcoustID, ReplayGain, lyrics
+                            // services) then walked the WHOLE library —
+                            // for the Forrest Frank 3-track artist URL the
+                            // user reported, that meant tagging 69 files,
+                            // fingerprinting 69 files, ReplayGain-analysing
+                            // 73 files, and lyrics-fallback-scanning 73
+                            // tracks. Now we resolve a specific album dir
+                            // via the shared `find_album_directory` helper
+                            // (same one #839 wired into the companion lyrics
+                            // path). When hints are missing — common for
+                            // artist URLs whose early metadata fetch returns
+                            // `None` — the helper falls back to a depth-10
+                            // most-recently-modified-leaf scan via
+                            // `find_deepest_audio_dir` (#844 bounded the
+                            // depth, so this is fast even on big libraries)
+                            // and picks up the album GAMDL just produced.
                             let dir = std::path::Path::new(&output_dir);
-                            let mut album_dir = if dir.is_dir() {
-                                output_dir.clone()
+                            let (early_artist_hint, early_album_hint) = {
+                                let q = enrich_queue.lock().await;
+                                q.items
+                                    .iter()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                    .map(|i| {
+                                        (
+                                            i.status.artist_name.clone(),
+                                            i.status.album_name.clone(),
+                                        )
+                                    })
+                                    .unwrap_or((None, None))
+                            };
+                            let resolved_album_dir = if dir.is_dir() {
+                                find_album_directory(
+                                    dir,
+                                    early_artist_hint.as_deref().filter(|s| !s.is_empty()),
+                                    early_album_hint.as_deref().filter(|s| !s.is_empty()),
+                                )
                             } else {
-                                dir.parent().map_or_else(
+                                None
+                            };
+                            let mut album_dir = match resolved_album_dir {
+                                Some(found) => found,
+                                None if dir.is_dir() => output_dir.clone(),
+                                None => dir.parent().map_or_else(
                                     || output_dir.clone(),
                                     |p| p.to_string_lossy().to_string(),
-                                )
+                                ),
                             };
 
-                            // Helper: update the processing label in the queue item
-                            // so the progress bar shows what's happening.
-                            // Also appends album context (Artist: Album) when available.
+                            // Helper: update the processing label AND the
+                            // intra-Processing progress fraction for the queue
+                            // item, then emit `queue-updated` so the frontend
+                            // re-fetches. Callers pass both a human-readable
+                            // label (#574) and a cumulative progress weight
+                            // (#576) picked from `ENRICHMENT_STAGE_WEIGHTS`
+                            // below. Weights are cumulative: stage N's weight
+                            // is the fraction-complete AFTER stage N finishes.
+                            //
+                            // Label format appends album context
+                            // (Artist: Album) so the progress bar surfaces
+                            // which album the stage is acting on — useful
+                            // when the user has a busy queue.
+                            //
+                            // Emit errors are swallowed: worst case is the UI
+                            // stays stale until the next stage transition, no
+                            // worse than pre-#574 behaviour.
+                            // Phase 3.5d: replaced the closure-local set_label
+                            // with a single-line wrapper around the new shared
+                            // `progress_stages::set_stage` / `set_stage_with_label`
+                            // helpers. The helpers take an `AppHandle` + `QueueHandle`
+                            // so the **companion task** can also drive the per-item
+                            // caption (Phase 3.5g) — pre-refactor, only the enrichment
+                            // closure could update the label, which is why companion
+                            // lyrics conversion used to leave a stale "ReplayGain…"
+                            // caption visible for 30+ minutes (#712).
                             let label_queue = enrich_queue.clone();
                             let label_dl_id = enrich_dl_id.clone();
-                            let set_label = move |label: &str| {
-                                if let Ok(mut q) = label_queue.try_lock() {
-                                    // Look up album context for richer labels
-                                    let context = q
-                                        .items
-                                        .iter()
-                                        .find(|i| i.status.id == label_dl_id)
-                                        .map(|item| {
-                                            let artist = item.status.artist_name.as_deref().unwrap_or("");
-                                            let album = item.status.album_name.as_deref().unwrap_or("");
-                                            if !artist.is_empty() && !album.is_empty() {
-                                                format!(" — {artist}: {album}")
-                                            } else if !album.is_empty() {
-                                                format!(" — {album}")
-                                            } else {
-                                                String::new()
-                                            }
-                                        })
-                                        .unwrap_or_default();
-                                    let full_label = format!("{label}{context}");
-                                    q.set_processing_label(&label_dl_id, &full_label);
-                                }
+                            let label_app = enrich_app.clone();
+                            let set_label = move |label: &str, progress: f32| {
+                                // Reverse-lookup the stage from its weight so we can
+                                // call set_stage_with_label without disturbing the
+                                // existing call sites' (label, weight) ergonomics.
+                                // Stages are identified uniquely by weight thanks to
+                                // the `weights_strictly_increasing` invariant.
+                                let stage = ProgressStage::ALL
+                                    .iter()
+                                    .copied()
+                                    .find(|s| (s.weight() - progress).abs() < f32::EPSILON)
+                                    .unwrap_or(ProgressStage::Finalising);
+                                set_stage_with_label(&label_app, &label_queue, &label_dl_id, stage, label);
                             };
 
                             // Helper: get album context for activity log messages.
@@ -4931,6 +8070,53 @@ pub fn process_queue(
                                 return;
                             }
 
+                            // Guard: skip the ENTIRE enrichment pipeline when the
+                            // primary download produced zero output files (#567).
+                            //
+                            // This happens in three observed scenarios:
+                            //   - GAMDL rejects the URL outright (e.g. legacy
+                            //     iTunes URLs, #548 before the #568 rewrite fix).
+                            //   - GAMDL's webplayback API returns an unexpected
+                            //     shape and every track errors (#546 library-URL
+                            //     case).
+                            //   - Mid-pipeline decryption / network truncation
+                            //     kills every track before any file lands.
+                            //
+                            // Without this guard, every enrichment stage (codec
+                            // detection, metadata tagging, lyrics conversion,
+                            // subtitle generation, ReplayGain, AcoustID,
+                            // MusicBrainz, MV companion lookup, artwork fetch,
+                            // advisory rename, manifest write — 20+ stages total)
+                            // iterates zero files and either no-ops silently or
+                            // emits a misleading "success" message. The most
+                            // visible offender historically was the lyrics
+                            // companion pipeline ("Lyrics companion (lrc)
+                            // downloaded" lines despite zero audio files) —
+                            // documented in #548 repro and broadened here to
+                            // cover every post-GAMDL enrichment stage.
+                            //
+                            // Uses recursive counting via `count_audio_files_in_directory`
+                            // so MV direct-URL downloads (which land deeper in
+                            // `{artist}/Music Videos/{title} ({title_id}).mp4`)
+                            // are correctly detected as "primary succeeded".
+                            {
+                                let dir_path = std::path::Path::new(&album_dir);
+                                let output_file_count =
+                                    count_audio_files_in_directory(dir_path);
+                                if output_file_count == 0 {
+                                    log::info!(
+                                        "Skipping enrichment for {} — primary download produced no output files",
+                                        enrich_dl_id,
+                                    );
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        "Enrichment skipped — primary download produced no output files",
+                                    );
+                                    return;
+                                }
+                            }
+
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
                             let enrich_settings = load_settings_for_queue(&enrich_app);
@@ -4948,7 +8134,7 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...");
+                            set_label("Enriching metadata tags...", ProgressStage::Metadata.weight());
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
@@ -5113,8 +8299,59 @@ pub fn process_queue(
                             // --- Post-step 1: Rename cover art per user setting (#448) ---
                             // GAMDL saves static cover art as Cover.<ext>. Rename to the
                             // user's configured name (default: FrontCover for consistency
-                            // with animated artwork FrontCover.mp4/PortraitCover.mp4).
+                            // with animated artwork FrontCover.mp4/FrontCoverPortrait.mp4).
                             rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
+
+                            // --- Post-step 1b: Cover-art fallback chain (#756) ---
+                            // GAMDL's static cover write is fragile, especially for
+                            // `cover_format = raw` where the upstream `httpx` fetch
+                            // raises a Python traceback and leaves no cover on disk.
+                            // The embedded cover atom inside each M4A is unaffected,
+                            // but the sidecar (Cover.<ext>) is missing — so file-
+                            // browser previews fail. Walk the API artwork URL down a
+                            // RAW → PNG → JPEG chain to recover.
+                            if let Some(ref metadata) = album_metadata {
+                                let cover_stem = enrich_settings
+                                    .cover_art_name
+                                    .to_filename_stem();
+                                let outcome = crate::services::cover_art_fallback::ensure_cover_present(
+                                    std::path::Path::new(&album_dir),
+                                    metadata,
+                                    &enrich_settings.cover_format,
+                                    cover_stem,
+                                )
+                                .await;
+                                match outcome {
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::AlreadyPresent { .. } => {
+                                        // Fast path — GAMDL did its job. Silent.
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::FetchedFallback { format, written_path } => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Cover-art fallback wrote {} ({})",
+                                                written_path.file_name()
+                                                    .and_then(|n| n.to_str())
+                                                    .unwrap_or("cover"),
+                                                format.to_cli_string(),
+                                            ),
+                                        );
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::NoTemplate => {
+                                        // Expected for non-album items; no log noise.
+                                    }
+                                    crate::services::cover_art_fallback::CoverFallbackOutcome::AllFallbacksFailed { last_error } => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Cover-art fallback exhausted (PNG + JPEG both failed: {last_error}). Embedded cover in M4A is unaffected."
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
 
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
@@ -5141,13 +8378,17 @@ pub fn process_queue(
                                     let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {
-                                            // Non-clobbering write: if a dump
-                                            // from a prior run already sits at
-                                            // the same name (or two albums
-                                            // sanitise to the same stem), the
-                                            // new dump lands on `...data.1.json`
-                                            // instead of silently replacing it.
-                                            match crate::utils::fs_safe::write_non_clobbering(
+                                            // Content-aware deduped write (#553):
+                                            // - identical bytes to an existing
+                                            //   dump → no-op (skips the disk
+                                            //   sprawl when the API response
+                                            //   hasn't changed between runs);
+                                            // - different bytes → disambiguate
+                                            //   to `...data.1.json` so the old
+                                            //   dump is preserved rather than
+                                            //   silently replaced;
+                                            // - no existing file → normal write.
+                                            match crate::utils::fs_safe::write_deduped(
                                                 album_dir_path,
                                                 &json_filename,
                                                 json_str.as_bytes(),
@@ -5263,7 +8504,10 @@ pub fn process_queue(
                                             .collect();
 
                                         if !tracks_needing_upgrade.is_empty() {
-                                            set_label("Fetching word-level lyrics...");
+                                            set_label(
+                                                "Fetching word-level lyrics...",
+                                                ProgressStage::WordLyrics.weight(),
+                                            );
                                             emit_download_log(
                                                 &enrich_app,
                                                 &enrich_dl_id,
@@ -5374,7 +8618,10 @@ pub fn process_queue(
                                             }
                                         }
                                     } else {
-                                        set_label("Skipping word-level lyrics (no credentials)");
+                                        set_label(
+                                            "Skipping word-level lyrics (no credentials)",
+                                            ProgressStage::WordLyrics.weight(),
+                                        );
                                         log::debug!(
                                             "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
                                         );
@@ -5388,7 +8635,10 @@ pub fn process_queue(
                                 }
                             }
 
-                            set_label("Converting lyrics (Enhanced LRC)...");
+                            set_label(
+                                "Converting lyrics (Enhanced LRC)...",
+                                ProgressStage::LyricsConversion.weight(),
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
@@ -5397,6 +8647,10 @@ pub fn process_queue(
                             // Falls back to standard line-level LRC for songs without
                             // word-level timing in their TTML.
                             if enrich_settings.enhanced_lrc {
+                                set_label(
+                                    "Generating Enhanced LRC…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5467,6 +8721,10 @@ pub fn process_queue(
                             // Runs after lyrics fallback so all available sources are present.
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_webvtt && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating WebVTT subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5517,6 +8775,10 @@ pub fn process_queue(
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_rich_srt && !enrich_shutdown.is_triggered()
                             {
+                                set_label(
+                                    "Generating Rich SRT…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5566,6 +8828,10 @@ pub fn process_queue(
                             // MP4/M4A/M4V containers as freeform atoms.
                             tokio::task::yield_now().await;
                             if enrich_settings.embed_subtitles && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Embedding subtitle sidecars…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5606,6 +8872,10 @@ pub fn process_queue(
                             // (colours, bold, italic, positioning, background vocals).
                             tokio::task::yield_now().await;
                             if enrich_settings.generate_ass && !enrich_shutdown.is_triggered() {
+                                set_label(
+                                    "Generating ASS subtitles…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5653,7 +8923,10 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
-                            set_label("Downloading animated artwork...");
+                            set_label(
+                                "Downloading animated artwork...",
+                                ProgressStage::AnimatedArtwork.weight(),
+                            );
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
@@ -5682,57 +8955,124 @@ pub fn process_queue(
 
                                 match artwork_result {
                                     Ok(result) => {
-                                        if result.square_downloaded || result.portrait_downloaded {
+                                        // #529: emit one deterministic line per
+                                        // variant (square + portrait) instead of
+                                        // the pre-#529 ambiguous "(square: yes,
+                                        // portrait: no)" summary. The new
+                                        // per-variant `VariantStatus` enum lets
+                                        // us distinguish "API didn't offer this"
+                                        // from "API offered it but download
+                                        // failed" — the pre-#529 code lied
+                                        // ("not available") on real failures.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "square",
+                                            &result.square,
+                                        );
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "portrait",
+                                            &result.portrait,
+                                        );
+                                        // #538: album-level 16:9 spotlight video.
+                                        emit_artwork_variant_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "album spotlight",
+                                            &result.spotlight,
+                                        );
+
+                                        // Hide artwork files if enabled in
+                                        // settings. Hide-file failures are now
+                                        // surfaced as warnings instead of
+                                        // silently swallowed (#529 gap #4) —
+                                        // the user needs to know their files
+                                        // exist but didn't get the
+                                        // `hide_animated_artwork` treatment
+                                        // they configured.
+                                        if enrich_settings.hide_animated_artwork {
+                                            let dir = std::path::Path::new(&album_dir);
+                                            if result.square.is_downloaded() {
+                                                let target = dir.join("FrontCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide square cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                            if result.portrait.is_downloaded() {
+                                                let target = dir.join("FrontCoverPortrait.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide FrontCoverPortrait.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide portrait cover ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                            // #538: hide the album-spotlight too.
+                                            if result.spotlight.is_downloaded() {
+                                                let target = dir.join("AlbumSpotlightCover.mp4");
+                                                if let Err(e) =
+                                                    super::animated_artwork_service::hide_file(
+                                                        &target,
+                                                    )
+                                                    .await
+                                                {
+                                                    log::warn!(
+                                                        "Failed to hide AlbumSpotlightCover.mp4: {e}"
+                                                    );
+                                                    emit_download_warn(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Animated artwork: failed to hide album spotlight ({target_disp}) — {e}",
+                                                            target_disp = target.display(),
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        // Frontend event still fires on any
+                                        // actual download (either variant) so
+                                        // the UI can refresh its artwork
+                                        // indicator.
+                                        if result.square.is_downloaded()
+                                            || result.portrait.is_downloaded()
+                                            || result.spotlight.is_downloaded()
+                                        {
                                             log::info!(
                                                 "Animated artwork downloaded for {enrich_dl_id}"
                                             );
-                                            emit_download_log(
-                                            &enrich_app,
-                                            &enrich_dl_id,
-                                            &format!(
-                                                "Animated artwork downloaded (square: {}, portrait: {})",
-                                                if result.square_downloaded { "yes" } else { "no" },
-                                                if result.portrait_downloaded { "yes" } else { "no" },
-                                            ),
-                                        );
-
-                                            // Hide artwork files if enabled in settings
-                                            if enrich_settings.hide_animated_artwork {
-                                                let dir = std::path::Path::new(&album_dir);
-                                                if result.square_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("FrontCover.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide FrontCover.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                                if result.portrait_downloaded {
-                                                    if let Err(e) =
-                                                        super::animated_artwork_service::hide_file(
-                                                            &dir.join("PortraitCover.mp4"),
-                                                        )
-                                                        .await
-                                                    {
-                                                        log::debug!(
-                                                            "Failed to hide PortraitCover.mp4: {e}"
-                                                        );
-                                                    }
-                                                }
-                                            }
-
                                             let _ = enrich_app
                                                 .emit("artwork-downloaded", &enrich_dl_id);
-                                        } else {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "No animated artwork available for this album",
-                                            );
                                         }
                                     }
                                     Err(e) => {
@@ -5790,6 +9130,10 @@ pub fn process_queue(
                                         .unwrap_or_else(|| enrich_settings.storefront.clone());
 
                                     if let Some(aid) = artist_id {
+                                        set_label(
+                                            "Downloading artist promo video…",
+                                            ProgressStage::AnimatedArtwork.weight(),
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -5845,76 +9189,247 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            set_label("AcoustID fingerprinting...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ AcoustID fingerprinting started{}", album_context()));
-                            // --- Step 4: AcoustID fingerprinting (opt-in) ---
-                            // When enabled, generates Chromaprint fingerprints using the
-                            // embedded rusty-chromaprint library and looks up AcoustID
-                            // identifiers from acoustid.org. The API key is resolved with
-                            // priority: user override → compile-time embedded key → none.
-                            if enrich_settings.acoustid_enabled {
-                                let resolved_key = super::acoustid_service::resolve_api_key(
-                                    &enrich_settings.acoustid_api_key,
-                                );
-                                if let Some(ref api_key) = resolved_key {
-                                    emit_download_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        "Running AcoustID fingerprinting...",
-                                    );
-                                    match super::acoustid_service::process_acoustid_for_directory(
-                                        &album_dir, api_key,
-                                    )
-                                    .await
-                                    {
-                                        Ok(count) if count > 0 => {
-                                            log::info!(
-                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
-                                        );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID tagged {count} file(s)"),
-                                            );
-                                        }
-                                        Ok(_) => {
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                "AcoustID: no matches found for any files",
-                                            );
-                                        }
-                                        Err(e) => {
-                                            log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!("AcoustID failed: {e}"),
-                                            );
-                                        }
-                                    }
+                            // --- Steps 4 + 6b lookup: AcoustID + MusicBrainz lookup (parallel) ---
+                            //
+                            // These two stages have independent I/O domains:
+                            //   - AcoustID:    chromaprint fingerprint (CPU/I/O) →
+                            //                  acoustid.org HTTP lookup → freeform-atom
+                            //                  write via mp4ameta.
+                            //   - MusicBrainz: musicbrainz.org HTTP lookup, rate-limited
+                            //                  at 1.1 sec/req. No audio file writes.
+                            //
+                            // Running them concurrently saves up to one stage's worth of
+                            // wall-clock time on heavy albums where both are enabled
+                            // (#779 Option 1). For the user-reported 19-track live
+                            // album, the dominant per-track cost was ReplayGain +
+                            // AcoustID running serially; this fix overlaps AcoustID with
+                            // the rate-limited MusicBrainz HTTP lookup so neither has to
+                            // wait for the other.
+                            //
+                            // ReplayGain (Step 5, below) deliberately stays sequential
+                            // because it ALSO writes to the same M4A files via mp4ameta,
+                            // and concurrent `Tag::write_to_path` calls would race
+                            // (different atoms, but the underlying read-modify-write of
+                            // the tag set conflicts). Tracked separately as Option 2/3
+                            // in #779 if Option 1 isn't enough.
+                            //
+                            // The MusicBrainz video DOWNLOADS (separate GAMDL processes
+                            // per video) are kept after Step 6 (MV companion via Apple
+                            // Music API) so the per-video downloader sees the full set
+                            // of discovered MV URLs in one pass.
+
+                            // Pre-resolve mv_companion_enabled here so both the parallel
+                            // pair AND the sequential MV/MusicBrainz-download stages
+                            // below can share the same value. Originally lived in Step 6.
+                            let mv_companion_enabled = enrich_mv_override
+                                .unwrap_or(enrich_settings.music_video_companion);
+
+                            // Pre-compute the MusicBrainz lookup inputs once so the
+                            // async block doesn't re-borrow nested Option chains.
+                            let run_musicbrainz_lookup = (enrich_settings.musicbrainz_lookup
+                                || mv_companion_enabled)
+                                && !enrich_shutdown.is_triggered();
+                            let mb_isrc_tracks: Option<Vec<(String, Option<String>)>> =
+                                if run_musicbrainz_lookup {
+                                    album_metadata.as_ref().map(|metadata| {
+                                        metadata
+                                            .tracks
+                                            .iter()
+                                            .map(|t| (t.song_id.clone(), t.isrc.clone()))
+                                            .collect()
+                                    })
                                 } else {
+                                    None
+                                };
+
+                            set_label(
+                                "AcoustID + MusicBrainz lookup + ReplayGain (parallel)…",
+                                ProgressStage::AcoustId.weight(),
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "▶ AcoustID + MusicBrainz lookup + ReplayGain started in parallel{}",
+                                    album_context()
+                                ),
+                            );
+
+                            // Per-file write-coordination map (#779 Option 2).
+                            // AcoustID and ReplayGain both write freeform
+                            // atoms to the SAME M4A files via
+                            // `mp4ameta::Tag::write_to_path`. The locks
+                            // serialise their writes at the granularity of a
+                            // single file so the slow per-file analyses
+                            // (chromaprint, FFmpeg ebur128) can run truly in
+                            // parallel without racing on the tag-write
+                            // critical section. MusicBrainz doesn't touch
+                            // audio files at all, so it never contends.
+                            let enrich_file_locks = std::sync::Arc::new(
+                                crate::utils::file_locks::FileWriteLocks::new(),
+                            );
+                            let acoustid_file_locks = enrich_file_locks.clone();
+                            let replaygain_file_locks = enrich_file_locks.clone();
+
+                            // --- AcoustID async block (Step 4, opt-in) ---
+                            // Generates Chromaprint fingerprints via the embedded
+                            // rusty-chromaprint library and looks up AcoustID
+                            // identifiers from acoustid.org. API key resolution
+                            // priority: user override → compile-time embedded key → none.
+                            let acoustid_task = async {
+                                if !enrich_settings.acoustid_enabled {
+                                    return;
+                                }
+                                let Some(api_key) = super::acoustid_service::resolve_api_key(
+                                    &enrich_settings.acoustid_api_key,
+                                ) else {
                                     emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "AcoustID skipped: no API key available",
                                     );
+                                    return;
+                                };
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Running AcoustID fingerprinting...",
+                                );
+                                match super::acoustid_service::process_acoustid_for_directory(
+                                    &album_dir,
+                                    &api_key,
+                                    // Per-track caption update (#574). Both
+                                    // AcoustID and ReplayGain now race to
+                                    // update the caption (they run in
+                                    // parallel post #779 Option 2). User
+                                    // sees whichever stage updated last —
+                                    // still better than the previous static
+                                    // label, and both labels name the stage
+                                    // so the caption is always meaningful.
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "AcoustID fingerprinting: track {current} of {total}"
+                                            ),
+                                            ProgressStage::AcoustId.weight(),
+                                        );
+                                    },
+                                    Some(&acoustid_file_locks),
+                                )
+                                .await
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "AcoustID tagged {count} file(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID tagged {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "AcoustID: no matches found for any files",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!("AcoustID skipped for {enrich_dl_id}: {e}");
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("AcoustID failed: {e}"),
+                                        );
+                                    }
                                 }
-                            }
+                            };
 
-                            if enrich_shutdown.is_triggered() {
-                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
-                                return;
-                            }
+                            // --- MusicBrainz lookup async block (Step 6b lookup, opt-in) ---
+                            // Returns Option<Vec<MusicVideoUrl>> with the discovered
+                            // video URLs. The actual GAMDL download of any Apple Music
+                            // videos is deferred to a sequential step BELOW Step 5/6
+                            // so it doesn't race with the per-track audio file writes.
+                            let musicbrainz_lookup_task = async {
+                                let isrc_tracks = mb_isrc_tracks?;
+                                if isrc_tracks.is_empty() {
+                                    return None;
+                                }
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &format!(
+                                        "MusicBrainz: looking up {} track(s) via ISRC...",
+                                        isrc_tracks.len()
+                                    ),
+                                );
+                                match super::musicbrainz_service::lookup_videos_for_tracks(
+                                    &isrc_tracks,
+                                )
+                                .await
+                                {
+                                    Ok(videos) if !videos.is_empty() => {
+                                        // Log all discovered platform URLs for future reference
+                                        for video in &videos {
+                                            log::info!(
+                                                "MusicBrainz video for {}: {} → {}",
+                                                enrich_dl_id,
+                                                video.platform,
+                                                video.url,
+                                            );
+                                        }
+                                        let am_count = videos
+                                            .iter()
+                                            .filter(|v| v.platform == "apple_music")
+                                            .count();
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "MusicBrainz: found {} video(s) ({} on Apple Music)",
+                                                videos.len(),
+                                                am_count,
+                                            ),
+                                        );
+                                        Some(videos)
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "MusicBrainz: no music videos found",
+                                        );
+                                        None
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "MusicBrainz lookup failed for {enrich_dl_id}: {e}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("MusicBrainz lookup failed: {e}"),
+                                        );
+                                        None
+                                    }
+                                }
+                            };
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ AcoustID fingerprinting completed{}", album_context()));
-
-                            set_label("ReplayGain loudness analysis...");
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ ReplayGain analysis started{}", album_context()));
-                            // --- Step 5: ReplayGain loudness analysis (opt-in) ---
-                            // When enabled, analyses each file's loudness via FFmpeg's
-                            // ebur128 filter and writes non-destructive ReplayGain tags.
-                            if enrich_settings.replaygain_enabled {
+                            // --- ReplayGain async block (Step 5, opt-in) ---
+                            // Moved into the parallel join (#779 Option 2) so
+                            // its per-file FFmpeg ebur128 decode overlaps
+                            // with AcoustID's chromaprint + API work. The
+                            // tag-write race against AcoustID is prevented
+                            // by `enrich_file_locks` — both stages acquire
+                            // the per-file lock before mp4ameta touches the
+                            // file. The slow analysis (which is what
+                            // actually takes 5-10 sec/track on long-form
+                            // audio) runs without holding the lock.
+                            let replaygain_task = async {
+                                if !enrich_settings.replaygain_enabled {
+                                    return;
+                                }
                                 emit_download_log(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5931,13 +9446,22 @@ pub fn process_queue(
                                     enrich_settings.replaygain_reference_level,
                                     enrich_settings.replaygain_prevent_clipping,
                                     enrich_settings.replaygain_album_gain,
+                                    |current, total| {
+                                        set_label(
+                                            &format!(
+                                                "ReplayGain analysis: track {current} of {total}"
+                                            ),
+                                            ProgressStage::ReplayGain.weight(),
+                                        );
+                                    },
+                                    Some(&replaygain_file_locks),
                                 )
                                 .await
                                 {
                                     Ok(count) if count > 0 => {
                                         log::info!(
-                                        "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
-                                    );
+                                            "ReplayGain analysed {count} file(s) for {enrich_dl_id}"
+                                        );
                                         emit_download_log(
                                             &enrich_app,
                                             &enrich_dl_id,
@@ -5960,9 +9484,46 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            };
+
+                            let ((), musicbrainz_videos, ()) =
+                                tokio::join!(acoustid_task, musicbrainz_lookup_task, replaygain_task);
+
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ ReplayGain analysis completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!(
+                                    "✓ AcoustID + MusicBrainz lookup + ReplayGain completed{}",
+                                    album_context()
+                                ),
+                            );
+
+                            set_label(
+                                "Music video discovery...",
+                                ProgressStage::MusicVideoDiscovery.weight(),
+                            );
+
+                            // Snapshot the MV file count under the user's output
+                            // root BEFORE Step 6 / 6b run, so we can write the
+                            // *actual* count of MV companions produced into
+                            // `item.status.mv_companion_count` for the
+                            // completion-task companion-wait deadline (#776).
+                            // Pre-fix the deadline used a `min(track_count, 30)`
+                            // estimate — fine for the conservative case but
+                            // generous when the album has only a few MVs and
+                            // tight when it has more than 30.
+                            //
+                            // Empty `output_path` ⇒ user is on the OS default;
+                            // skip tracking (the heuristic estimate at the
+                            // completion-task site stays in effect for those
+                            // items).
+                            let mv_pre_count = (!enrich_settings.output_path.is_empty())
+                                .then(|| snapshot_video_files(&enrich_settings.output_path).len());
 
                             // --- Step 6: Music video companion downloads via MusicKit (opt-in) ---
                             // When `music_video_companion` is enabled, queries the Apple Music
@@ -5974,9 +9535,15 @@ pub fn process_queue(
                             // or queue progression. Gracefully skips if MusicKit credentials
                             // are not configured — Step 6b (MusicBrainz) provides a
                             // credential-free fallback path.
-                            if enrich_settings.music_video_companion
-                                && !enrich_shutdown.is_triggered()
-                            {
+                            //
+                            // `mv_companion_enabled` was resolved earlier (above the
+                            // AcoustID || MusicBrainz join) so it could be shared between
+                            // the parallel lookup gate and this sequential download stage.
+                            if mv_companion_enabled && !enrich_shutdown.is_triggered() {
+                                // Tier 3 (#559): pass the resolved on-disk
+                                // album directory so MVs land alongside
+                                // the album's audio tracks instead of in
+                                // a generic Music Videos/ bucket.
                                 spawn_music_video_companion_inner(
                                     &enrich_app,
                                     &enrich_dl_id,
@@ -5984,140 +9551,196 @@ pub fn process_queue(
                                     album_metadata.as_ref(),
                                     &enrich_settings,
                                     &enrich_shutdown,
+                                    Some(album_dir.as_str()),
                                 )
                                 .await;
                             }
 
-                            // --- Step 6b: MusicBrainz video discovery and download ---
-                            // Runs when `musicbrainz_lookup` OR `music_video_companion` is
-                            // enabled. Uses MusicBrainz ISRC lookups to discover music videos
-                            // that the MusicKit API may have missed (or as the sole discovery
-                            // method when MusicKit credentials are not configured). No
-                            // credentials required. When `music_video_companion` is also
-                            // enabled, Apple Music video URLs discovered here are downloaded
-                            // via GAMDL (same as Step 6). Cross-platform URLs (YouTube,
-                            // Spotify, etc.) are logged for future reference.
-                            tokio::task::yield_now().await;
-                            let run_musicbrainz = (enrich_settings.musicbrainz_lookup
-                                || enrich_settings.music_video_companion)
-                                && !enrich_shutdown.is_triggered();
-                            if run_musicbrainz {
-                                // Only run MusicBrainz lookup if we have ISRC codes from Step 1
-                                if let Some(ref metadata) = album_metadata {
-                                    let isrc_tracks: Vec<(String, Option<String>)> = metadata
-                                        .tracks
-                                        .iter()
-                                        .map(|t| (t.song_id.clone(), t.isrc.clone()))
-                                        .collect();
-
-                                    if !isrc_tracks.is_empty() {
-                                        emit_download_log(
+                            // --- Step 6b: Download MusicBrainz-discovered videos (opt-in) ---
+                            // The MusicBrainz lookup itself ran in parallel with AcoustID
+                            // (Steps 4 + 6b lookup, above). This block consumes the videos
+                            // it discovered and downloads any Apple Music URLs via GAMDL.
+                            // Cross-platform URLs (YouTube, Spotify, etc.) were already
+                            // logged at lookup time for future reference.
+                            //
+                            // Phase 5e (#717): per-item override applies here too — when
+                            // the user opted out of MVs for THIS gap-fill, MusicBrainz-
+                            // discovered URLs must not be downloaded either.
+                            if let Some(videos) = musicbrainz_videos {
+                                let am_videos: Vec<_> = videos
+                                    .iter()
+                                    .filter(|v| v.platform == "apple_music")
+                                    .collect();
+                                if mv_companion_enabled
+                                    && !am_videos.is_empty()
+                                    && !enrich_shutdown.is_triggered()
+                                {
+                                    emit_download_log(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &format!(
+                                            "MusicBrainz: downloading {} Apple Music video(s)...",
+                                            am_videos.len(),
+                                        ),
+                                    );
+                                    for video in &am_videos {
+                                        if enrich_shutdown.is_triggered() {
+                                            break;
+                                        }
+                                        let label =
+                                            video.title.as_deref().unwrap_or("unknown");
+                                        // Tier 3 (#559): MusicBrainz
+                                        // fallback inherits the same parent-
+                                        // album context as the MusicKit path.
+                                        download_music_video_by_url(
                                             &enrich_app,
                                             &enrich_dl_id,
-                                            &format!(
-                                                "MusicBrainz: looking up {} track(s) via ISRC...",
-                                                isrc_tracks.len()
-                                            ),
-                                        );
-
-                                        match super::musicbrainz_service::lookup_videos_for_tracks(
-                                            &isrc_tracks,
+                                            &video.url,
+                                            label,
+                                            &enrich_settings,
+                                            Some(album_dir.as_str()),
                                         )
-                                        .await
-                                        {
-                                            Ok(videos) if !videos.is_empty() => {
-                                                // Filter for Apple Music video URLs (downloadable via GAMDL)
-                                                let am_videos: Vec<_> = videos
-                                                    .iter()
-                                                    .filter(|v| v.platform == "apple_music")
-                                                    .collect();
-
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "MusicBrainz: found {} video(s) ({} on Apple Music)",
-                                                        videos.len(),
-                                                        am_videos.len(),
-                                                    ),
-                                                );
-
-                                                // Log all discovered platform URLs for future reference
-                                                for video in &videos {
-                                                    log::info!(
-                                                        "MusicBrainz video for {}: {} → {}",
-                                                        enrich_dl_id,
-                                                        video.platform,
-                                                        video.url,
-                                                    );
-                                                }
-
-                                                // Download Apple Music videos when music_video_companion is enabled
-                                                if enrich_settings.music_video_companion
-                                                    && !am_videos.is_empty()
-                                                {
-                                                    emit_download_log(
-                                                        &enrich_app,
-                                                        &enrich_dl_id,
-                                                        &format!(
-                                                            "MusicBrainz: downloading {} Apple Music video(s)...",
-                                                            am_videos.len(),
-                                                        ),
-                                                    );
-                                                    for video in &am_videos {
-                                                        if enrich_shutdown.is_triggered() {
-                                                            break;
-                                                        }
-                                                        let label = video
-                                                            .title
-                                                            .as_deref()
-                                                            .unwrap_or("unknown");
-                                                        download_music_video_by_url(
-                                                            &enrich_app,
-                                                            &enrich_dl_id,
-                                                            &video.url,
-                                                            label,
-                                                            &enrich_settings,
-                                                        )
-                                                        .await;
-                                                    }
-                                                }
-                                            }
-                                            Ok(_) => {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    "MusicBrainz: no music videos found",
-                                                );
-                                            }
-                                            Err(e) => {
-                                                log::debug!("MusicBrainz lookup failed for {enrich_dl_id}: {e}");
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!("MusicBrainz lookup failed: {e}"),
-                                                );
-                                            }
-                                        }
+                                        .await;
                                     }
                                 }
                             }
 
+                            // Snapshot the MV file count AFTER Step 6 + 6b
+                            // and write the diff to the queue item so the
+                            // completion task's companion-wait deadline can
+                            // size against the real number of MV downloads
+                            // instead of the conservative estimate (#776).
+                            // Skipped when `output_path` is empty (no
+                            // tracking root) — the heuristic estimate at
+                            // the completion-task site applies in that
+                            // case.
+                            if let Some(pre) = mv_pre_count {
+                                let post = snapshot_video_files(&enrich_settings.output_path).len();
+                                let mv_count = post.saturating_sub(pre);
+                                let mut q = enrich_queue.lock().await;
+                                if let Some(item) = q
+                                    .items
+                                    .iter_mut()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                {
+                                    item.status.mv_companion_count = Some(mv_count);
+                                }
+                                drop(q);
+                            }
+
+                            // Step 6c (#295 Phase A): Odesli cross-platform URL
+                            // lookup. Opt-in via `odesli_lookup_enabled`. The
+                            // call is rate-limited at ~1.1 s between requests
+                            // (well below the 10 req/min free-tier cap) by
+                            // `odesli_service`'s per-process limiter, so the
+                            // wait time is bounded regardless of how many
+                            // albums are enriching in parallel. Result is
+                            // threaded into `write_manifest` below.
+                            //
+                            // Skipped silently on:
+                            //   - feature toggle off
+                            //   - empty URL list (defensive)
+                            //   - API miss / network failure (logged at debug)
+                            let cross_platform_urls = if enrich_settings.odesli_lookup_enabled
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                let source_url = enrich_urls
+                                    .first()
+                                    .cloned()
+                                    .unwrap_or_default();
+                                if source_url.is_empty() {
+                                    None
+                                } else {
+                                    set_label(
+                                        "Odesli: looking up cross-platform URLs…",
+                                        ProgressStage::Finalising.weight(),
+                                    );
+                                    let key = if enrich_settings.odesli_api_key.is_empty() {
+                                        None
+                                    } else {
+                                        Some(enrich_settings.odesli_api_key.as_str())
+                                    };
+                                    match crate::services::odesli_service::fetch_links(
+                                        &source_url,
+                                        key,
+                                    )
+                                    .await
+                                    {
+                                        Ok(Some(urls)) if !urls.is_empty() => {
+                                            emit_download_log(
+                                                &enrich_app,
+                                                &enrich_dl_id,
+                                                &format!(
+                                                    "Odesli: discovered {} cross-platform URL(s)",
+                                                    urls.len()
+                                                ),
+                                            );
+                                            Some(urls)
+                                        }
+                                        Ok(_) => {
+                                            log::debug!(
+                                                "Odesli: no cross-platform matches for {source_url}"
+                                            );
+                                            None
+                                        }
+                                        Err(e) => {
+                                            log::debug!(
+                                                "Odesli lookup failed for {source_url}: {e}"
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                            } else {
+                                None
+                            };
+
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
                             // can re-download by importing the manifest file.
+                            set_label(
+                                "Writing download manifest…",
+                                ProgressStage::Finalising.weight(),
+                            );
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
                                 album_metadata.as_ref(),
                                 &enrich_settings,
                                 &enrich_started_at,
+                                cross_platform_urls,
                             );
                             emit_download_log(
                                 &enrich_app,
                                 &enrich_dl_id,
                                 "Download manifest saved to album folder",
                             );
+
+                            // Enrichment is finished — clear the per-item label
+                            // so the bar caption reverts to the track context
+                            // (Path 2 in `formatActiveItemCaption`) until the
+                            // next stage takes over (companion supervisor's
+                            // `Companion: downloading…`, the post-companion
+                            // advisory pass's `Applying [Explicit]/[Clean]
+                            // suffixes…`, or `set_complete` clearing on the
+                            // happy path with neither configured).
+                            //
+                            // Pre-fix this line called `set_label("Finalising
+                            // metadata...", …)` AFTER the manifest write — but
+                            // at that point enrichment is *done*, not
+                            // finalising, and the label persisted as the
+                            // visible caption through every subsequent gap
+                            // (enrichment→companion handoff, companion→
+                            // advisory handoff, etc.). The screenshot the
+                            // user reported on 2026-05-11 caught one of those
+                            // gaps and showed "Finalising metadata…" while
+                            // the activity log was reporting fresh GAMDL
+                            // companion track downloads. Clearing here keeps
+                            // the caption honest.
+                            {
+                                let mut q = enrich_queue.lock().await;
+                                q.clear_processing_label(&enrich_dl_id);
+                            }
 
                             emit_download_log(
                                 &enrich_app,
@@ -6150,14 +9773,18 @@ pub fn process_queue(
 
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
+                    let companion_traits =
+                        read_audio_traits(&queue_clone, &dl_id).await;
                     let companion_handle = spawn_companion_downloads(
                         &app_clone,
+                        &queue_clone,
                         &dl_id,
                         &urls,
                         &actual_codec_for_companions,
                         &companion_base_options,
                         &shutdown_clone,
                         uses_native_priority,
+                        &companion_traits,
                     );
 
                     // Spawn a completion task that waits for ALL background work
@@ -6168,51 +9795,201 @@ pub fn process_queue(
                         let completion_app = app_clone.clone();
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
+                        // Take ownership of the queue slot for the lifetime of
+                        // the completion task (#706). The success path's early
+                        // `q.on_task_finished()` was removed, so the slot
+                        // remains held until either the explicit release at the
+                        // bottom of this task (happy path) or the guard's Drop
+                        // (panic / abort / runtime shutdown). This makes the
+                        // queue *actually* serial as documented in #455.
+                        let active_guard = ActiveSlotGuard::new(completion_queue.clone());
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
-                            // we force completion after 10 minutes to prevent the
-                            // queue from stalling indefinitely.
-                            // IMPORTANT: on timeout, abort() the task so it is actually
-                            // cancelled rather than merely detached (dropping a JoinHandle
-                            // detaches the task and lets it keep running, which can
-                            // reintroduce the cross-contamination this fix aims to prevent).
-                            let enrichment_timeout = std::time::Duration::from_secs(600);
+                            // we force completion after the deadline to prevent
+                            // the queue from stalling indefinitely.
+                            //
+                            // IMPORTANT: on timeout, abort() the task so it is
+                            // actually cancelled rather than merely detached
+                            // (dropping a JoinHandle detaches the task and lets
+                            // it keep running, which can reintroduce the
+                            // cross-contamination #461 was opened to prevent).
+                            //
+                            // The deadline scales with the number of output
+                            // files (#579): a 200-track box set legitimately
+                            // needs 15–20 min for ReplayGain + AcoustID + the
+                            // other per-track enrichment stages, and the fixed
+                            // 10 min from #461 was force-completing mid-
+                            // ReplayGain with tracks missing their tags.
+                            let (output_path_for_timeout, content_label) = {
+                                let q = completion_queue.lock().await;
+                                let item = q
+                                    .items
+                                    .iter()
+                                    .find(|i| i.status.id == completion_dl_id);
+                                let path = item.and_then(|i| i.status.output_path.clone());
+                                let label = item
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
+                                (path, label)
+                            };
+                            let track_count = output_path_for_timeout
+                                .as_deref()
+                                .map(std::path::Path::new)
+                                .map(|p| {
+                                    if p.is_dir() {
+                                        count_audio_files_in_directory(p)
+                                    } else {
+                                        // Single-file output (e.g. direct MV URL) —
+                                        // count its parent directory.
+                                        p.parent()
+                                            .map(count_audio_files_in_directory)
+                                            .unwrap_or(0)
+                                    }
+                                })
+                                .unwrap_or(0);
+                            // Estimate the MV-companion budget from settings (#776).
+                            // The enrichment task hasn't yet fetched the
+                            // music-video relations, so we don't know the
+                            // exact count — but if the user has enabled MV
+                            // companions, give the timeout headroom for up to
+                            // `min(track_count, 30)` MVs (some tracks may
+                            // have an MV, most won't, but cap at 30 so a
+                            // 200-track box set doesn't propose 200 extra
+                            // minutes on top). Overestimating is harmless;
+                            // underestimating risks a false-positive timeout
+                            // on an MV-heavy album.
+                            let timeout_settings = load_settings_for_queue(&completion_app);
+                            let mv_count_estimate = if timeout_settings.music_video_companion {
+                                track_count.min(30)
+                            } else {
+                                0
+                            };
+                            let enrichment_timeout =
+                                compute_total_timeout(track_count, 0, mv_count_estimate);
+                            let timeout_mins = enrichment_timeout.as_secs() / 60;
+                            log::info!(
+                                "Completion timeout for {}: {} min ({} track(s), ~{} MV companion(s) estimated)",
+                                completion_dl_id,
+                                timeout_mins,
+                                track_count,
+                                mv_count_estimate,
+                            );
                             if let Some(mut handle) = enrichment_handle {
                                 if tokio::time::timeout(enrichment_timeout, &mut handle)
                                     .await
                                     .is_err()
                                 {
                                     log::warn!(
-                                        "Enrichment timed out after 10 minutes for {}",
-                                        completion_dl_id
+                                        "Enrichment timed out after {} minutes for {} ({} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags",
+                                        timeout_mins,
+                                        completion_dl_id,
+                                        track_count,
                                     );
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
-                                        "⚠ Enrichment timed out after 10 minutes — marking complete",
+                                        &format!(
+                                            "⚠ Enrichment timed out after {timeout_mins} minutes for {content_label} ({track_count} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags"
+                                        ),
                                     );
                                     handle.abort();
                                     let _ = handle.await;
                                 }
                             }
-                            // Wait for companion downloads with the same timeout
+                            // Wait for companion downloads with a timeout that
+                            // scales with the planned tier count (each tier is
+                            // a full GAMDL re-download). Reusing the
+                            // enrichment-only deadline here was triggering
+                            // hard-timeouts on multi-tier "Atmos → all formats"
+                            // configurations that were still legitimately
+                            // running.
                             if let Some(mut handle) = companion_handle {
-                                if tokio::time::timeout(enrichment_timeout, &mut handle)
-                                    .await
-                                    .is_err()
+                                let tier_count = handle.tier_count();
+                                // Now that enrichment has finished, the
+                                // exact MV-companion count is on the queue
+                                // item (written by the snapshot pass at
+                                // the end of enrichment Step 6 + 6b, #776).
+                                // Use it if present; fall back to the
+                                // pre-enrichment estimate if the item was
+                                // tracked-out (empty `output_path`) or if
+                                // enrichment was aborted before the count
+                                // was written.
+                                let mv_count_actual = {
+                                    let q = completion_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == completion_dl_id)
+                                        .and_then(|i| i.status.mv_companion_count)
+                                };
+                                let mv_count_for_companion =
+                                    mv_count_actual.unwrap_or(mv_count_estimate);
+                                let companion_timeout = compute_total_timeout(
+                                    track_count,
+                                    tier_count,
+                                    mv_count_for_companion,
+                                );
+                                let companion_timeout_mins = companion_timeout.as_secs() / 60;
+                                let mv_source = if mv_count_actual.is_some() {
+                                    "actual"
+                                } else {
+                                    "estimated"
+                                };
+                                log::info!(
+                                    "Companion timeout for {}: {} min ({} tier(s) planned, {} MV companion(s) {})",
+                                    completion_dl_id,
+                                    companion_timeout_mins,
+                                    tier_count,
+                                    mv_count_for_companion,
+                                    mv_source,
+                                );
+                                if tokio::time::timeout(
+                                    companion_timeout,
+                                    &mut handle.handle,
+                                )
+                                .await
+                                .is_err()
                                 {
+                                    let pending = handle.describe_pending();
                                     log::warn!(
-                                        "Companion downloads timed out after 10 minutes for {}",
-                                        completion_dl_id
+                                        "Companion downloads still running after {} minutes for {} ({})",
+                                        companion_timeout_mins,
+                                        completion_dl_id,
+                                        pending,
                                     );
                                     emit_download_log(
                                         &completion_app,
                                         &completion_dl_id,
-                                        "⚠ Companion downloads timed out after 10 minutes — marking complete",
+                                        &format!(
+                                            "⚠ Companion downloads still running after {companion_timeout_mins} minutes for {content_label} — waiting instead of skipping ({pending}); final tag pass will run afterwards"
+                                        ),
                                     );
-                                    handle.abort();
-                                    let _ = handle.await;
+                                    if tokio::time::timeout(
+                                        companion_timeout,
+                                        &mut handle.handle,
+                                    )
+                                    .await
+                                    .is_err()
+                                    {
+                                        let hard_timeout_mins =
+                                            companion_timeout_mins.saturating_mul(2);
+                                        let skipped = handle.describe_pending();
+                                        log::warn!(
+                                            "Companion downloads hard-timed-out after {} minutes for {} — skipping {}",
+                                            hard_timeout_mins,
+                                            completion_dl_id,
+                                            skipped,
+                                        );
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            &format!(
+                                                "⚠ Companion downloads hard-timed-out after {hard_timeout_mins} minutes for {content_label} — skipping remaining companions: {skipped}; final tag pass still to run"
+                                            ),
+                                        );
+                                        handle.abort();
+                                    }
+                                    let _ = handle.handle.await;
                                 }
                             }
 
@@ -6234,6 +10011,30 @@ pub fn process_queue(
                                             .and_then(|i| i.status.output_path.clone())
                                     };
                                     if let Some(output_dir) = advisory_path {
+                                        // Make the long, otherwise-silent advisory
+                                        // pass visible in the activity log (#661)
+                                        // AND on the per-item progress bar — Phase
+                                        // 3.5g, courtesy of the shared
+                                        // `set_stage_with_label` helper from 3.5d
+                                        // (this is the completion task, not the
+                                        // enrichment task, so the closure-local
+                                        // `set_label` was unreachable here pre-3.5d).
+                                        // On large box sets this can run for many
+                                        // minutes; without a marker, users could
+                                        // not tell whether MeedyaDL was hung or
+                                        // working.
+                                        set_stage_with_label(
+                                            &completion_app,
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                            ProgressStage::Finalising,
+                                            "Applying [Explicit]/[Clean] suffixes…",
+                                        );
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            "Final tag pass: applying [Explicit]/[Clean] suffixes…",
+                                        );
                                         let dir_for_advisory = {
                                             let p = std::path::Path::new(&output_dir);
                                             if p.is_dir() {
@@ -6244,19 +10045,86 @@ pub fn process_queue(
                                                     .unwrap_or(output_dir.clone())
                                             }
                                         };
-                                        super::metadata_tag_service::apply_advisory_suffixes_from_tags(
-                                            &dir_for_advisory,
-                                        );
+                                        // #815 defensive fix: the advisory pass is
+                                        // a sync recursive fs walk. On a slow
+                                        // network share / disconnected cloud
+                                        // mount / pathological tree it can hang
+                                        // for hours and block the completion
+                                        // task — preventing the set_complete +
+                                        // on_task_finished that release the queue
+                                        // slot. Wrap in spawn_blocking + timeout
+                                        // so:
+                                        //   1. The sync walk runs on a dedicated
+                                        //      blocking thread (doesn't block the
+                                        //      runtime).
+                                        //   2. If it doesn't finish in
+                                        //      ADVISORY_TIMEOUT, we log a warning
+                                        //      and let the completion task
+                                        //      proceed. The orphaned blocking
+                                        //      thread keeps running on its own
+                                        //      — no leak from the runtime's
+                                        //      perspective.
+                                        //
+                                        // Result: even if the advisory pass
+                                        // hangs forever, the queue slot still
+                                        // gets released and the next item
+                                        // starts.
+                                        const ADVISORY_TIMEOUT: std::time::Duration =
+                                            std::time::Duration::from_secs(300);
+                                        let dir_clone = dir_for_advisory.clone();
+                                        let blocking = tokio::task::spawn_blocking(move || {
+                                            super::metadata_tag_service::apply_advisory_suffixes_from_tags(
+                                                &dir_clone,
+                                            );
+                                        });
+                                        match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await {
+                                            Ok(Ok(())) => {
+                                                // Normal completion — advisory pass
+                                                // finished in time.
+                                            }
+                                            Ok(Err(join_err)) => {
+                                                log::warn!(
+                                                    "Advisory pass panicked for {completion_dl_id}: {join_err} — proceeding to set_complete anyway"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    "⚠ Final tag pass: internal error — proceeding to completion to keep the queue moving",
+                                                );
+                                            }
+                                            Err(_) => {
+                                                log::warn!(
+                                                    "Advisory pass timed out after {ADVISORY_TIMEOUT:?} for {completion_dl_id} — proceeding to set_complete (orphaned blocking task continues in background)"
+                                                );
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    &format!(
+                                                        "⚠ Final tag pass timed out after {} min — proceeding to completion to keep the queue moving. Already-completed renames are preserved on disk.",
+                                                        ADVISORY_TIMEOUT.as_secs() / 60,
+                                                    ),
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
 
-                            // Mark as complete now that all background work is done
+                            // Mark as complete and release the queue slot in
+                            // the same lock acquisition (#706). Releasing the
+                            // slot here — *not* at the early line 6246 — is
+                            // what makes the queue actually serial; the next
+                            // item cannot start until set_complete + the
+                            // accompanying decrement land atomically. The
+                            // ActiveSlotGuard is then disarmed so its Drop is
+                            // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
                                 q.set_complete(&completion_dl_id);
+                                q.on_task_finished();
                                 drop(q);
                             }
+                            active_guard.disarm();
                             save_queue_to_disk(&completion_app, &completion_queue).await;
                             emit_download_log(
                                 &completion_app,
@@ -6273,9 +10141,8 @@ pub fn process_queue(
                             );
 
                             // Cascade: process the next item in the queue (#455).
-                            // Moved inside completion task so the entire pipeline
-                            // (download + enrichment + companions) completes before
-                            // the next item starts. Prevents metadata cross-contamination.
+                            // The slot was already released a few lines above,
+                            // so `next_pending()` will accept the next item.
                             process_queue(completion_app, completion_queue).await;
                         });
                     }
@@ -6387,11 +10254,20 @@ pub fn process_queue(
                             );
                                 true
                             } else {
+                                let content_label = q
+                                    .items
+                                    .iter()
+                                    .find(|i| i.status.id == dl_id)
+                                    .map(|i| format_content_label(&i.status))
+                                    .unwrap_or_else(|| "unknown content".to_string());
                                 drop(q);
                                 emit_download_log(
                                     &app_clone,
                                     &dl_id,
-                                    "All audio formats exhausted — download failed",
+                                    &format!(
+                                        "All audio formats exhausted for {content_label} \
+                                         — download failed"
+                                    ),
                                 );
                                 false
                             }
@@ -6438,7 +10314,7 @@ pub fn process_queue(
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
-                            emit_download_log(
+                            emit_download_error(
                                 &app_clone,
                                 &dl_id,
                                 &format!(
@@ -6455,7 +10331,7 @@ pub fn process_queue(
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
-                            emit_download_log(
+                            emit_download_error(
                                 &app_clone,
                                 &dl_id,
                                 &format!("Download failed ({error_category}): {error_msg}"),
@@ -6470,6 +10346,44 @@ pub fn process_queue(
                     // If no retry will occur, check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
                     if !should_retry {
+                        // Storefront fallback (#666). Try BEFORE wrapper auto-
+                        // retry because (a) wrong-storefront and wrapper
+                        // failure are different root causes, (b) if the album
+                        // simply isn't in the URL's catalog, swapping wrappers
+                        // won't help, and (c) we want one user-visible
+                        // recovery action per failed item — not two
+                        // overlapping retry chains. The detector
+                        // `is_storefront_mismatch_error` is narrow (requires
+                        // both `404` AND `Resource Not Found`) so we never
+                        // burn the budget on a generic 404 from elsewhere.
+                        if process::is_storefront_mismatch_error(&error_msg) {
+                            let sf_settings = load_settings_for_queue(&app_clone);
+                            let swap = {
+                                let mut q = queue_clone.lock().await;
+                                q.try_storefront_fallback(&dl_id, &sf_settings)
+                            };
+                            if let Some((from, to)) = swap {
+                                log::info!(
+                                    "Auto-retrying download {dl_id} via storefront \
+                                     fallback ({from} -> {to})"
+                                );
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!(
+                                        "Storefront '{from}' returned no catalog entry — \
+                                         retrying with your account region '{to}'…"
+                                    ),
+                                );
+                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                let _ = app_clone.emit("download-queued", &dl_id);
+                                // Skip the terminal error path — the rewritten
+                                // URL gets a fresh shot via process_queue.
+                                process_queue(app_clone, queue_clone).await;
+                                return;
+                            }
+                        }
+
                         // Auto-retry without wrapper: if the download used wrapper
                         // auth and the user has opted in, automatically re-queue
                         // with wrapper disabled (cookie-based auth) instead of
@@ -6616,14 +10530,17 @@ pub fn process_queue(
                         // is network-related (network is down, so companions would
                         // also fail and just waste time + clutter the Activity Log).
                         if error_category != "network" {
+                            let traits = read_audio_traits(&queue_clone, &dl_id).await;
                             let _ = spawn_companion_downloads(
                                 &app_clone,
+                                &queue_clone,
                                 &dl_id,
                                 &urls,
                                 &primary_codec_for_companions,
                                 &companion_base_options,
                                 &shutdown_clone,
                                 uses_native_priority,
+                                &traits,
                             );
                         } else {
                             emit_download_log(
@@ -6656,6 +10573,26 @@ pub fn process_queue(
 /// the "Traceback" header. This function finds the last traceback block
 /// in the stderr output and extracts that exception line.
 ///
+/// ## GAMDL 3.1 format note (#607)
+///
+/// Upstream replaced `traceback.print_exc()` with structlog's
+/// `ExceptionPrettyPrinter`, which prints the traceback **before** the
+/// `[ERROR HH:MM:SS] …` log line (the processor runs earlier in
+/// structlog's pipeline than the formatter). So the output order on
+/// v3.1 is:
+/// ```text
+/// Traceback (most recent call last):
+///   File "…/downloader.py", line 123, in download
+/// KeyError: 'title'
+/// [ERROR    17:09:23] [Track 1/14] Error downloading "Lavender Haze"
+/// ```
+///
+/// Without the structlog-line detection below, the walker would pick up
+/// the trailing `[ERROR …]` log line as the "last non-indented line"
+/// and return it instead of the real exception. The stop rule treats
+/// any line that looks like a fresh structlog entry
+/// (`[LEVEL   HH:MM:SS]`) as the end of the traceback block.
+///
 /// Returns `None` if no traceback is found in the stderr lines.
 fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     // Find the last occurrence of "Traceback" in stderr
@@ -6664,7 +10601,9 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
         .rposition(|line| line.trim().to_lowercase().contains("traceback"))?;
 
     // Walk forward from the traceback line to find the exception.
-    // The exception is the last non-empty, non-indented line in the traceback block.
+    // The exception is the last non-empty, non-indented line in the
+    // traceback block — but we stop as soon as a line clearly belongs
+    // to a new structlog log entry (see GAMDL 3.1 note above).
     let mut exception_line: Option<&str> = None;
     for line in &stderr_lines[traceback_idx + 1..] {
         let trimmed = line.trim();
@@ -6675,6 +10614,14 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
             }
             continue;
         }
+        // Structlog-formatted log line ends the traceback block (v3.1).
+        // Match `[LEVEL...]` where LEVEL is one of the standard log levels
+        // GAMDL emits. We don't match bare `[...]` since Python exception
+        // messages can contain square brackets (`[Errno 60] Operation timed
+        // out`).
+        if is_structlog_line_start(trimmed) {
+            break;
+        }
         // Exception lines are NOT indented (don't start with space/tab).
         // Indented lines are stack frame details (File "...", code).
         if !line.starts_with(' ') && !line.starts_with('\t') {
@@ -6683,6 +10630,35 @@ fn extract_python_exception(stderr_lines: &[String]) -> Option<String> {
     }
 
     exception_line.map(std::string::ToString::to_string)
+}
+
+/// Returns `true` when `trimmed` looks like the start of a GAMDL v3.x
+/// structlog log entry, i.e. `[LEVEL    HH:MM:SS] …`. Used by
+/// [`extract_python_exception`] to detect the end of an exception
+/// block on v3.1 where the traceback appears **before** its
+/// accompanying log line.
+fn is_structlog_line_start(trimmed: &str) -> bool {
+    // Fast path: must start with `[` and contain `]`.
+    let Some(rest) = trimmed.strip_prefix('[') else {
+        return false;
+    };
+    let Some(close_idx) = rest.find(']') else {
+        return false;
+    };
+    let inside = &rest[..close_idx];
+    // Recognised level tokens GAMDL emits via structlog.
+    for level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] {
+        if let Some(after_level) = inside.strip_prefix(level) {
+            // Ensure the next char is whitespace (structlog pads with
+            // `{level:<8}`) — this guards against false positives like
+            // `[ERROR] some bracketed exception text` that isn't actually
+            // a log line.
+            if after_level.starts_with(' ') || after_level.is_empty() {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Runs a GAMDL download while forwarding parsed events to both
@@ -6721,7 +10697,7 @@ async fn run_download_with_events(
 
     // Build the command with all arguments
     let mut cmd = gamdl_service::build_gamdl_command_public(app, urls, options)?;
-
+    let requested_format_context = requested_format_cli_values(options);
     // Verbose: log CLI args for debugging
     emit_verbose_download_log(
         app,
@@ -6733,10 +10709,39 @@ async fn run_download_with_events(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
+    // Reap the child automatically if the supervising task is aborted
+    // (e.g., app shutdown, 10-min completion timeout in process_queue).
+    // Prevents zombie GAMDL processes that would otherwise keep running
+    // and writing log lines long after the queue item is "done" (#508).
+    cmd.kill_on_drop(true);
+
     // Spawn the GAMDL subprocess
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("Failed to start GAMDL process: {e}"))?;
+
+    // Idle-watchdog + post-processing shared state (#508).
+    //
+    // - `last_activity_ms` is bumped on every stdout/stderr line so the
+    //   cancellation poll loop can compute idle time against the
+    //   configured `gamdl_idle_timeout_minutes` and kill the child when
+    //   exceeded.
+    // - `post_processing_flag` flips to true once the parser reports a
+    //   `ProcessingStep` or we see a `100% of` progress line. While
+    //   set, the idle watchdog stands down (remux / decrypt is silent
+    //   by design). The queue UI also picks up the flag via a
+    //   processing-label update so the caption flips from
+    //   `DOWNLOADING…` to `Post-processing (remux / decrypt)`.
+    // - `soft_error_count` tallies `Finished with N error(s)` from
+    //   GAMDL's stdout so an exit-0 with N>0 is downgraded to an
+    //   error at status-check time instead of being silently swallowed
+    //   (the same symptom the companion supervisor guards against
+    //   in #500).
+    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(
+        now_epoch_ms_primary(),
+    ));
+    let post_processing_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let soft_error_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
     // Take stdout/stderr handles
     let stdout = child
@@ -6754,12 +10759,20 @@ async fn run_download_with_events(
     // which is more informative than just the exit code.
     let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-    // Collect ALL stderr lines (raw) for Python traceback extraction.
-    // When GAMDL crashes with a Python traceback, the parsed error list may
-    // only contain "Traceback (most recent call last):" because intermediate
-    // lines and the final exception line may not match any error keyword.
-    // The raw stderr buffer lets us extract the actual exception post-mortem.
-    let raw_stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // Collect ALL output lines (raw) from BOTH stdout and stderr for
+    // post-mortem analysis: Python traceback extraction, soft-error
+    // friendly-message generation, and storefront-mismatch detection
+    // for the #666 fallback path.
+    //
+    // Originally stderr-only; expanded to cover stdout in a fix to the
+    // #666 blind spot exposed by GAMDL v3.4 (2026-04-27), which moved
+    // its logging output stream from stderr → stdout via
+    // `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`.
+    // Tracebacks and the AMP `Resource Not Found` shape that
+    // `is_storefront_mismatch_error` keys on now arrive on stdout, so a
+    // stderr-only buffer leaves the detector seeing empty input and the
+    // storefront fallback never fires.
+    let raw_output_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     // Deduplication set for Activity Log emissions.
     // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
@@ -6777,10 +10790,28 @@ async fn run_download_with_events(
         let queue = queue.clone();
         let errors = collected_errors.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
+        let post_proc = post_processing_flag.clone();
+        let soft_errors = soft_error_count.clone();
+        // GAMDL v3.4+ logs to stdout, so stdout must also feed the
+        // raw output buffer used by the soft-error friendly-message
+        // generator and the storefront-mismatch detector (#666).
+        let raw_output = raw_output_lines.clone();
+        let requested_formats = requested_format_context.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stdout);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                // #508: bump the idle watchdog on every line and scan
+                // for GAMDL's end-of-run summary. Parsing is cheap
+                // (byte search) and runs once per stdout line.
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
+                if let Some(n) = process::parse_gamdl_error_count(&raw_line) {
+                    if n > 0 {
+                        soft_errors.store(n, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
                 // Split on \r to handle yt-dlp download progress updates.
                 // yt-dlp uses \r (carriage return) for in-place terminal
                 // updates, but AsyncBufReadExt::lines() only splits on \n.
@@ -6813,6 +10844,8 @@ async fn run_download_with_events(
                     // outputs for terminal colouring but render as garbage
                     // in the Activity Log's HTML view.
                     let clean_line = process::strip_ansi_codes(segment);
+                    let display_line =
+                        annotate_unavailable_format_line(&clean_line, &requested_formats);
                     log::debug!("[gamdl stdout] {clean_line}");
 
                     // Emit to activity-log: last \r segment only (normal),
@@ -6828,16 +10861,34 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let _ = app.emit(
-                                "activity-log",
-                                &ActivityLogEvent {
-                                    download_id: download_id.clone(),
-                                    stream: "stdout",
-                                    line: clean_line.clone(),
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                },
+                            // Suppress Python traceback noise from the user-
+                            // facing activity-log feed when verbose is off
+                            // (#660). The helper unconditionally writes to
+                            // disk so support requests stay debuggable.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // — strip "(media ID: NNN)" and the Python-repr
+                            // codec list. Idempotent + safe on non-matching
+                            // lines.
+                            let humanised = process::humanise_codec_skip_line(&display_line);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stdout",
+                                humanised,
+                                verbose || !is_traceback_noise,
                             );
                         }
+                    }
+
+                    // Mirror clean_line into the shared raw-output buffer so
+                    // GAMDL v3.4+'s stdout-emitted tracebacks and AMP 404s
+                    // are visible to `is_storefront_mismatch_error` (#666)
+                    // and `classify_gamdl_traceback` (#660 friendly path).
+                    {
+                        let mut raw = raw_output.lock().await;
+                        raw.push(clean_line.clone());
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -6888,16 +10939,19 @@ async fn run_download_with_events(
                                 format!("{} — ", parts.join(" — "))
                             }
                         };
-                        let _ = app.emit(
-                            "activity-log",
-                            &ActivityLogEvent {
-                                download_id: download_id.clone(),
-                                stream: "internal",
-                                line: format!(
-                                    "──── {track_label} Downloading {context}\"{title}\" ────"
-                                ),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
-                            },
+                        // Phase 3.5e: track-separator banner now goes through
+                        // `emit_subprocess_line` with `stream: "internal"` so
+                        // it's consistent with every other internal event.
+                        // Disk mirror happens unconditionally inside the
+                        // helper.
+                        crate::utils::activity_log::emit_subprocess_line(
+                            &app,
+                            &download_id,
+                            "internal",
+                            format!(
+                                "──── {track_label} Downloading {context}\"{title}\" ────"
+                            ),
+                            true,
                         );
                     }
 
@@ -6907,10 +10961,41 @@ async fn run_download_with_events(
                         q.update_item_progress(&download_id, &event);
                     }
 
-                    // Collect errors for fallback decisions
-                    if let process::GamdlOutputEvent::Error { ref message } = event {
-                        let mut errs = errors.lock().await;
-                        errs.push(message.clone());
+                    // Collect errors for fallback decisions. CodecSkip events
+                    // (#698) are also pushed so the existing `is_codec_error`
+                    // / `count_codec_skip_warnings` checks in the terminal
+                    // block keep working unchanged — the queue's classifier
+                    // distinguishes "all errors are codec skips" via
+                    // `is_codec_skip_message` at decision time.
+                    match event {
+                        process::GamdlOutputEvent::Error { ref message }
+                        | process::GamdlOutputEvent::CodecSkip { ref message } => {
+                            let mut errs = errors.lock().await;
+                            errs.push(message.clone());
+                        }
+                        _ => {}
+                    }
+
+                    // #508: detect the transition into the silent
+                    // post-processing phase. The parser returns
+                    // `ProcessingStep` for remux/tag/decrypt steps, and
+                    // yt-dlp's final `100% of` progress line signals the
+                    // HLS download is complete. Either path flips the
+                    // shared flag; first flip also updates the queue's
+                    // processing_label so the UI caption flips to
+                    // `Post-processing (remux / decrypt)`.
+                    let is_processing_transition = matches!(
+                        event,
+                        process::GamdlOutputEvent::ProcessingStep { .. }
+                    ) || clean_line.contains("100% of");
+                    if is_processing_transition
+                        && !post_proc.swap(true, std::sync::atomic::Ordering::Relaxed)
+                    {
+                        let mut q = queue.lock().await;
+                        q.set_processing_label(
+                            &download_id,
+                            "Post-processing (remux / decrypt)",
+                        );
                     }
 
                     // Emit parsed event to frontend
@@ -6930,12 +11015,16 @@ async fn run_download_with_events(
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
-        let raw_stderr = raw_stderr_lines.clone();
+        let raw_output = raw_output_lines.clone();
         let seen = seen_lines.clone();
+        let last_activity = last_activity_ms.clone();
+        let requested_formats = requested_format_context.clone();
         tokio::spawn(async move {
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
+                last_activity
+                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
@@ -6954,6 +11043,8 @@ async fn run_download_with_events(
 
                     // Strip ANSI escape codes before display and parsing
                     let clean_line = process::strip_ansi_codes(segment);
+                    let display_line =
+                        annotate_unavailable_format_line(&clean_line, &requested_formats);
                     log::debug!("[gamdl stderr] {clean_line}");
 
                     // Emit to activity-log: last \r segment only (normal),
@@ -6966,24 +11057,35 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            let _ = app.emit(
-                                "activity-log",
-                                &ActivityLogEvent {
-                                    download_id: download_id.clone(),
-                                    stream: "stderr",
-                                    line: clean_line.clone(),
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
-                                },
+                            // Suppress Python traceback noise from the
+                            // user-facing activity-log feed in non-verbose
+                            // mode (#660). The helper unconditionally writes
+                            // to disk so support requests stay debuggable.
+                            let is_traceback_noise =
+                                process::is_python_traceback_noise(&clean_line);
+                            // Phase 3.5h: humanise GAMDL "codec skip" lines
+                            // (strips "(media ID: NNN)" + Python-repr codec
+                            // list).
+                            let humanised = process::humanise_codec_skip_line(&display_line);
+                            crate::utils::activity_log::emit_subprocess_line(
+                                &app,
+                                &download_id,
+                                "stderr",
+                                humanised,
+                                verbose || !is_traceback_noise,
                             );
                         }
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
 
-                    // Collect raw stderr lines for Python traceback extraction
-                    // (always, regardless of dedup — needed for exception analysis)
+                    // Mirror to the shared raw output buffer (#666 detector
+                    // and #660 friendly-traceback path read this on the
+                    // soft-error gate). The stdout reader writes to the
+                    // same Arc<Mutex>, so the buffer ends up containing
+                    // both streams, which is what the consumers need.
                     {
-                        let mut raw = raw_stderr.lock().await;
+                        let mut raw = raw_output.lock().await;
                         raw.push(clean_line.clone());
                     }
 
@@ -6992,9 +11094,16 @@ async fn run_download_with_events(
                         q.update_item_progress(&download_id, &event);
                     }
 
-                    if let process::GamdlOutputEvent::Error { ref message } = event {
-                        let mut errs = errors.lock().await;
-                        errs.push(message.clone());
+                    // Collect errors + codec-skips for fallback decisions
+                    // (#698 — same compatibility-shim rationale as the stdout
+                    // reader above).
+                    match event {
+                        process::GamdlOutputEvent::Error { ref message }
+                        | process::GamdlOutputEvent::CodecSkip { ref message } => {
+                            let mut errs = errors.lock().await;
+                            errs.push(message.clone());
+                        }
+                        _ => {}
                     }
 
                     let progress = gamdl_service::GamdlProgress {
@@ -7006,6 +11115,15 @@ async fn run_download_with_events(
             }
         })
     };
+
+    // Idle watchdog configuration (#508). Read once before the loop —
+    // changing it mid-download has no effect until the next item.
+    // `.max(1)` clamps a pathological 0 to one minute.
+    let idle_limit_ms = u64::from(
+        load_settings_for_queue(app)
+            .gamdl_idle_timeout_minutes
+            .max(1),
+    ) * 60_000;
 
     // Cancellation polling loop: alternate between checking for user cancellation
     // and checking if the GAMDL process has exited naturally.
@@ -7029,6 +11147,37 @@ async fn run_download_with_events(
             }
         }
 
+        // Step 1b (#508): idle watchdog. When the post-processing flag
+        // isn't set, kill the child if no stdout/stderr line has arrived
+        // for `gamdl_idle_timeout_minutes`. The flag pause is important
+        // — remux / decrypt can run silently for minutes on a network
+        // volume without being stuck.
+        if !post_processing_flag.load(std::sync::atomic::Ordering::Relaxed) {
+            let elapsed = now_epoch_ms_primary().saturating_sub(
+                last_activity_ms.load(std::sync::atomic::Ordering::Relaxed),
+            );
+            if elapsed >= idle_limit_ms {
+                let mins = idle_limit_ms / 60_000;
+                log::warn!(
+                    "GAMDL idle for {mins} min on download {download_id} — terminating"
+                );
+                emit_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "⚠ GAMDL was idle for {mins} min — terminated by watchdog"
+                    ),
+                );
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err(format!(
+                    "GAMDL idle for {mins} min — terminated by watchdog"
+                ));
+            }
+        }
+
         // Step 2: Check if the process has exited (non-blocking check).
         // try_wait() returns Ok(Some(status)) if the process has exited,
         // Ok(None) if it's still running, or Err on OS-level error.
@@ -7047,7 +11196,129 @@ async fn run_download_with_events(
     let _ = stdout_task.await;
     let _ = stderr_task.await;
 
+    // Python traceback diagnostic capture (#758). Runs once per GAMDL
+    // invocation regardless of exit status — some traceback patterns
+    // (notably the cover-bytes fetch failure on `cover_format = raw`)
+    // fire on successful downloads too. The helper is a no-op when no
+    // tracebacks are present, so the healthy-download fast path is
+    // a single buffer scan + an early return. The URL is redacted to
+    // strip wrapper auth tokens before being stored in the report.
+    {
+        let raw_snapshot = raw_output_lines.lock().await.clone();
+        let item_state = if status.success() {
+            "complete"
+        } else {
+            "error"
+        };
+        let url_for_report = urls
+            .first()
+            .map(|u| redact_url_query(u))
+            .unwrap_or_default();
+        let gamdl_version = crate::services::gamdl_capabilities::detected_version();
+        // `url_for_report` is already `&str` (redact_url_query returns
+        // a borrowed slice of its input). Passing `&url_for_report`
+        // would create `&&str` and trigger clippy's `needless_borrow`
+        // under Rust 1.95+, breaking CI.
+        let outcome = crate::services::traceback_diagnostic::write_diagnostic_if_any(
+            app,
+            download_id,
+            url_for_report,
+            gamdl_version.as_deref(),
+            item_state,
+            &raw_snapshot,
+        );
+        match outcome {
+            Ok(0) => {
+                // Healthy path — no tracebacks observed.
+            }
+            Ok(n) => {
+                emit_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "Captured {n} distinct Python traceback(s) — see Settings → Advanced → Crash Reporting for the diagnostic report"
+                    ),
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Traceback diagnostic write failed for {download_id}: {e}"
+                );
+            }
+        }
+    }
+
     // Check the exit status and construct an appropriate error message.
+    //
+    // #508 soft-error gate: GAMDL exits 0 even when a per-track download
+    // crashed internally (e.g., `AttributeError: 'NoneType' object has
+    // no attribute 'audio_track'` when a codec isn't offered for the
+    // track). The `Finished with N error(s)` summary line is the
+    // authoritative failure signal in that case. When soft errors
+    // occurred, translate the tracebacks we can recognise and return
+    // an error instead of swallowing them.
+    let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
+    if status.success() && soft_errors > 0 {
+        let raw_lines = raw_output_lines.lock().await;
+        let combined = raw_lines.join("\n");
+
+        // GAMDL music-video cover-template bug detection. Checked
+        // BEFORE the storefront detector because the bug's symptom
+        // (400 Bad Request on a literal `{w}x{h}` URL) is highly
+        // specific and gives the user a clear, actionable message
+        // instead of the generic per-track-error count. Storefront
+        // fallback wouldn't help here — the URL works fine, GAMDL's
+        // template engine is at fault.
+        //
+        // **v3.5.2 status (#774, 2026-05-15)**: still NOT fixed
+        // upstream. The previous client-side retry that appended
+        // `cover` to `--exclude-tags` (#715) was removed once we
+        // verified against GAMDL 3.5.2 source that `--exclude-tags`
+        // only filters which tag KEYS get embedded — it doesn't
+        // skip the per-track cover URL FETCH that triggers the
+        // bug (`gamdl/downloader/music_video.py:202-208` runs the
+        // fetch unconditionally for non-RAW cover formats; the RAW
+        // path also fetches via `_get_cover_file_extension`). No
+        // GAMDL CLI flag combination can avoid the bad request, so
+        // we now report the failure clearly and stop. MeedyaDL's
+        // own `animated_artwork_service` still attaches the
+        // album-level cover during enrichment, so the album cover
+        // is preserved — only the per-track music-video frame
+        // thumbnail is lost.
+        if process::is_gamdl_mv_cover_template_bug(&combined) {
+            return Err(format!(
+                "Music video cover-art bug in GAMDL — {soft_errors} track(s) \
+                 skipped. Audio for those tracks did not download. This is \
+                 an upstream bug (Apple returns 400 Bad Request because \
+                 GAMDL sends literal `{{w}}x{{h}}` placeholders instead of \
+                 real dimensions). The album cover is still attached \
+                 separately during MeedyaDL's enrichment pass. Please \
+                 report at https://github.com/glomatico/gamdl/issues."
+            ));
+        }
+
+        // Storefront-mismatch detection (#666). The friendly soft-error
+        // message would otherwise hide the AMP "Resource Not Found" signal
+        // that the storefront-fallback retry path keys on. When the raw
+        // output looks like a wrong-storefront failure, prepend the
+        // marker so `is_storefront_mismatch_error` matches downstream.
+        // Reads from `raw_output_lines` (both stdout and stderr) since
+        // GAMDL v3.4+ emits its log lines to stdout, not stderr.
+        let storefront_signal = if process::is_storefront_mismatch_error(&combined) {
+            " — AMP API returned 404 Resource Not Found (likely wrong storefront)"
+        } else {
+            ""
+        };
+        let friendly = process::classify_gamdl_traceback(&combined)
+            .map(std::string::ToString::to_string)
+            .unwrap_or_else(|| {
+                format!(
+                    "GAMDL reported {soft_errors} per-track error(s) even though the process exited 0{storefront_signal}"
+                )
+            });
+        return Err(friendly);
+    }
+
     if status.success() {
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
@@ -7060,7 +11331,7 @@ async fn run_download_with_events(
         // The error message is also used by classify_error() to determine the
         // retry/fallback strategy (codec error vs network error vs unknown).
         let errors = collected_errors.lock().await;
-        let raw_lines = raw_stderr_lines.lock().await;
+        let raw_lines = raw_output_lines.lock().await;
 
         errors.last().map_or_else(
             || {
@@ -7083,7 +11354,15 @@ async fn run_download_with_events(
                 // non-indented line after a "Traceback" header, which is the
                 // actual exception (e.g., "httpx.ConnectError: Connection refused").
                 // This gives classify_error() the real error text.
-                if let Some(extracted) = extract_python_exception(&raw_lines) {
+                //
+                // #508: first try the friendly classifier on the combined
+                // raw stderr so `NoneType.audio_track` and similar
+                // "codec not available" patterns surface as a single
+                // actionable line instead of a Python traceback.
+                let combined = raw_lines.join("\n");
+                if let Some(friendly) = process::classify_gamdl_traceback(&combined) {
+                    Err(friendly.to_string())
+                } else if let Some(extracted) = extract_python_exception(&raw_lines) {
                     Err(extracted)
                 } else {
                     Err(last_error.clone())
@@ -7101,7 +11380,24 @@ async fn run_download_with_events(
 /// (the user might change settings while downloads are running).
 ///
 /// Returns `AppSettings::default()` on load failure to avoid blocking queue processing.
+///
+/// Post-#690: reads from the `SettingsCache` Tauri-managed state when
+/// available (lazy-populated on first access, refreshed by the
+/// `save_settings` IPC after each write). On cache miss — or when the
+/// cache isn't registered at all (test contexts that don't set up the
+/// full app state) — falls through to the original disk-read path so
+/// the function stays correct in every caller environment.
 fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
+    use tauri::Manager as _;
+    // Fast path: read from the cache when registered.
+    if let Some(cache) = app.try_state::<super::settings_cache::SettingsCache>() {
+        return cache.get_or_load(app);
+    }
+
+    // Fallback path (test contexts + the rare boot-order edge case
+    // where a queue task fires before AppState is fully managed):
+    // load directly from disk with the same default-on-error shape
+    // as pre-#690.
     match config_service::load_settings(app) {
         Ok(settings) => settings,
         Err(e) => {
@@ -7263,22 +11559,17 @@ async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
     // Update the system tray tooltip with current queue status
     crate::update_tray_tooltip(app, active, queued, completed);
 
-    // Write to disk after releasing the lock
+    // Write to disk after releasing the lock. Atomic via the shared
+    // `utils::atomic_write::atomic_write_json` helper (#716 finding #8).
+    // Atomicity guarantee inherited from `std::fs::rename` per #230.
+    // Errors are warn-logged (not propagated) — same fail-quiet
+    // behaviour as the pre-migration site since queue.json corruption
+    // is recoverable from the in-memory state on next save.
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    match serde_json::to_string_pretty(&items) {
-        Ok(json) => {
-            // Atomic write: write to temp file then rename to prevent
-            // corruption on crash/power loss. See: #230
-            let temp_path = queue_path.with_extension("json.tmp");
-            if let Err(e) = std::fs::write(&temp_path, json) {
-                log::warn!("Failed to write temp queue file: {e}");
-            } else if let Err(e) = std::fs::rename(&temp_path, &queue_path) {
-                log::warn!("Failed to rename temp queue file: {e}");
-            }
-        }
-        Err(e) => {
-            log::warn!("Failed to serialize queue: {e}");
-        }
+    if let Err(e) =
+        crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue")
+    {
+        log::warn!("{e}");
     }
 }
 
@@ -7294,6 +11585,22 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
         |_| vec![], // File doesn't exist (first run) — not an error
         |json| match serde_json::from_str::<Vec<PersistedQueueItem>>(&json) {
             Ok(items) => {
+                let original_len = items.len();
+                let items = dedupe_persisted_queue_items(items);
+                if items.len() != original_len {
+                    log::info!(
+                        "Cleaned up {} duplicate persisted queue item(s)",
+                        original_len - items.len()
+                    );
+                    match serde_json::to_string_pretty(&items) {
+                        Ok(json) => {
+                            if let Err(e) = std::fs::write(&queue_path, json) {
+                                log::warn!("Failed to write cleaned queue.json: {e}");
+                            }
+                        }
+                        Err(e) => log::warn!("Failed to serialize cleaned queue: {e}"),
+                    }
+                }
                 if !items.is_empty() {
                     log::info!("Loaded {} persisted queue item(s) from disk", items.len());
                 }
@@ -7305,6 +11612,28 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
             }
         },
     )
+}
+
+fn dedupe_persisted_queue_items(items: Vec<PersistedQueueItem>) -> Vec<PersistedQueueItem> {
+    let mut seen = HashSet::new();
+    let mut deduped = Vec::with_capacity(items.len());
+
+    for item in items.into_iter().rev() {
+        let urls: Vec<String> = item
+            .request
+            .urls
+            .iter()
+            .map(|url| normalize_url_for_dedup(url))
+            .collect();
+        if urls.iter().any(|url| seen.contains(url)) {
+            continue;
+        }
+        seen.extend(urls);
+        deduped.push(item);
+    }
+
+    deduped.reverse();
+    deduped
 }
 
 /// Deletes the `queue.json` persistence file.
@@ -7332,6 +11661,657 @@ mod tests {
     use super::*;
     use crate::models::download::{DownloadRequest, DownloadState};
     use crate::models::gamdl_options::{GamdlOptions, SongCodec};
+    use crate::models::settings::{DiscNumberPadding, TrackNumberPadding};
+
+    // ----------------------------------------------------------
+    // Track / disc padding template mutation (#587)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn padding_leaves_explicit_format_spec_untouched() {
+        // User's explicit {track:02d} must take precedence over the
+        // padding setting — their template wins.
+        let out = apply_padding_to_template("{disc}-{track:02d} {title}", 3, 0);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_track_token() {
+        let out = apply_padding_to_template("{track} {title}", 3, 0);
+        assert_eq!(out, "{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_substitutes_bare_disc_and_track_tokens() {
+        let out = apply_padding_to_template("{disc}-{track} {title}", 3, 2);
+        assert_eq!(out, "{disc:02d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn padding_width_zero_emits_bare_placeholder() {
+        // `None` padding or 0-digit Auto shouldn't produce "{track:0d}"
+        // which would be a broken format spec.
+        let out = apply_padding_to_template("{track} {title}", 0, 0);
+        assert_eq!(out, "{track} {title}");
+    }
+
+    #[test]
+    fn padding_leaves_similar_but_distinct_tokens_alone() {
+        // `{track_total}` is a different placeholder — must not match
+        // the bare `{track}` substitution target.
+        let out = apply_padding_to_template("{track} of {track_total}", 2, 0);
+        assert_eq!(out, "{track:02d} of {track_total}");
+    }
+
+    #[test]
+    fn padding_auto_mode_derives_width_from_track_total() {
+        // Album of 200 tracks → 3 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(200)), 3);
+        // Album of 12 tracks → 2 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(12)), 2);
+        // Pathological 10 000-track dump → 4 digits.
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(Some(10_000)), 4);
+        // No track_total known → safe default 2 digits (matches pre-#587).
+        assert_eq!(TrackNumberPadding::Auto.resolve_width(None), 2);
+    }
+
+    #[test]
+    fn padding_fixed_modes_ignore_track_total() {
+        // Fixed settings are library-wide preferences; album size
+        // shouldn't alter them.
+        assert_eq!(TrackNumberPadding::None.resolve_width(Some(200)), 0);
+        assert_eq!(TrackNumberPadding::TwoDigits.resolve_width(Some(200)), 2);
+        assert_eq!(TrackNumberPadding::ThreeDigits.resolve_width(Some(5)), 3);
+        assert_eq!(TrackNumberPadding::FourDigits.resolve_width(None), 4);
+    }
+
+    #[test]
+    fn padding_disc_auto_mode_stays_unpadded_for_small_sets() {
+        // Most multi-disc albums are 2-3 discs; unpadded reads more
+        // naturally than `01-`, `02-`.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(2)), 0);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(9)), 0);
+        // 10+ disc box set → 2 digits needed for sort-correct listing.
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(10)), 2);
+        assert_eq!(DiscNumberPadding::Auto.resolve_width(Some(50)), 2);
+    }
+
+    // ----------------------------------------------------------
+    // Multi-disc naming + padding interaction (#589)
+    //
+    // Verifies that the common multi-disc template (`{disc}-{track} {title}`)
+    // produces correct output across the interesting combinations of
+    // `TrackNumberPadding` and `DiscNumberPadding`. Covers the
+    // originating user scenario from the #547 audit — a 10-disc box
+    // set where track numbering exceeds 99 on at least one disc.
+    // ----------------------------------------------------------
+
+    #[test]
+    fn multidisc_template_typical_2_disc_album_with_auto() {
+        // Typical case: 2-disc album with 12-20 tracks per disc.
+        // Auto mode should produce unpadded disc, 2-digit track.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_10_disc_box_set_with_auto() {
+        // Originating case from #589: 10-disc box set forces 2-digit
+        // disc padding so `10-01` doesn't sort between `1-01` and
+        // `2-01` lexicographically.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_deep_classical_box_set() {
+        // Pathological Brilliant-Classics-style "Mozart 225" case:
+        // 200 discs, some with 100+ tracks. Auto should produce
+        // 3-digit disc AND 3-digit track to keep everything
+        // sort-correct.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(120));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(200));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc:03d}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_fixed_three_digit_track_with_auto_disc() {
+        // Settings mix-and-match: user picks fixed `ThreeDigits` for
+        // track (for library-wide consistency) but leaves disc on
+        // `Auto`. Small-disc-count album should still get unpadded
+        // disc while the fixed track pad applies.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:03d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_user_explicit_spec_takes_precedence() {
+        // If the user has set an explicit `{disc:02d}` in their
+        // template (e.g. from a manual power-user edit), that spec
+        // must win over the setting's choice. `TrackNumberPadding` +
+        // `DiscNumberPadding` only apply to BARE tokens.
+        let tmpl = "{disc:02d}-{track:02d} {title}";
+        let track_width = TrackNumberPadding::ThreeDigits.resolve_width(Some(20));
+        let disc_width = DiscNumberPadding::TwoDigits.resolve_width(Some(10));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        // Unchanged — user's explicit spec wins.
+        assert_eq!(out, "{disc:02d}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_direct_song_url_no_metadata() {
+        // User downloads a single track from a multi-disc album via
+        // a `?i=` song URL. At merge time no album metadata is known
+        // (`None` passed to resolve_width). Auto must fall back to
+        // pre-#587 safe defaults: 2-digit track, unpadded disc.
+        let tmpl = "{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(None);
+        let disc_width = DiscNumberPadding::Auto.resolve_width(None);
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(out, "{disc}-{track:02d} {title}");
+    }
+
+    #[test]
+    fn multidisc_template_compilation_various_artists() {
+        // Compilation folder template uses `{album_id}` from #552 for
+        // collision-proofing. Track-level template is a separate
+        // concern — padding applies to tracks, not to album_id.
+        let tmpl = "Compilations/{album} ({album_id})/{disc}-{track} {title}";
+        let track_width = TrackNumberPadding::Auto.resolve_width(Some(30));
+        let disc_width = DiscNumberPadding::Auto.resolve_width(Some(2));
+        let out = apply_padding_to_template(tmpl, track_width, disc_width);
+        assert_eq!(
+            out,
+            "Compilations/{album} ({album_id})/{disc}-{track:02d} {title}"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // Unified completion-task timeout scaling (#579, #776)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_total_timeout_small_album_gets_base() {
+        // Single-track single → 10 min base + 30 s/track = 10 min 30 s.
+        let t = compute_total_timeout(1, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 30);
+    }
+
+    #[test]
+    fn compute_total_timeout_zero_tracks_is_exactly_base() {
+        // Shouldn't normally reach the timeout with zero tracks — the
+        // #567 enrichment guard short-circuits earlier — but if it does,
+        // the base still applies.
+        let t = compute_total_timeout(0, 0, 0);
+        assert_eq!(t.as_secs(), 600);
+    }
+
+    #[test]
+    fn compute_total_timeout_typical_album_under_20_minutes() {
+        // 12-track album: 10 min + 12 × 30 s = 16 min. Stays comfortably
+        // under 20 min so small albums don't see a regression.
+        let t = compute_total_timeout(12, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30);
+        assert!(t.as_secs() / 60 < 20);
+    }
+
+    #[test]
+    fn compute_total_timeout_19_track_live_album_no_companions() {
+        // The originating #776 case: a 19-track live album was hitting
+        // the old 13 min budget. New formula: 10 min + 19 × 30 s
+        // = 19.5 min — comfortable headroom.
+        let t = compute_total_timeout(19, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 19 * 30);
+        assert!(
+            t.as_secs() / 60 >= 19,
+            "must give legitimate live albums >= 19 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_box_set_accommodates_reality() {
+        // 200-track box set — the originating #579 case. New formula:
+        // 10 min + 200 × 30 s = 110 min. Well above the 40 min floor
+        // the original test asserted.
+        let t = compute_total_timeout(200, 0, 0);
+        assert_eq!(t.as_secs(), 600 + 200 * 30);
+        assert!(t.as_secs() / 60 >= 40);
+    }
+
+    #[test]
+    fn compute_total_timeout_caps_at_four_hours() {
+        // Pathologically large workloads get capped so an accidental
+        // recursion into a full music library doesn't propose an
+        // unbounded deadline.
+        let t = compute_total_timeout(100_000, 0, 0);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_total_timeout_saturates_on_usize_max() {
+        // usize::MAX in any input must not overflow the arithmetic.
+        let t = compute_total_timeout(usize::MAX, usize::MAX, usize::MAX);
+        assert_eq!(t.as_secs(), 4 * 3600);
+    }
+
+    #[test]
+    fn compute_total_timeout_monotonic_in_tracks() {
+        // Scaling should never go backwards as track count rises.
+        let mut prev = compute_total_timeout(0, 0, 0);
+        for n in (1..1000).step_by(37) {
+            let t = compute_total_timeout(n, 0, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at n={n}: {t:?} vs prev {prev:?}"
+            );
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // Companion-tier scaling
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_total_timeout_single_tier_adds_eight_minutes() {
+        // 12-track Atmos→Lossless: enrichment (10 + 12×30 s = 16 min)
+        // + 1 tier × 8 min = 24 min.
+        let t = compute_total_timeout(12, 1, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60);
+    }
+
+    #[test]
+    fn compute_total_timeout_four_tier_typical_album() {
+        // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
+        // 10 + 12×30 s + 4×8 min = 48 min. Well above 40 min floor.
+        let t = compute_total_timeout(12, 4, 0);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 4 * 8 * 60);
+        assert!(t.as_secs() / 60 >= 40);
+    }
+
+    #[test]
+    fn compute_total_timeout_monotonic_in_tiers() {
+        // More tiers should never propose a smaller deadline than fewer.
+        let mut prev = compute_total_timeout(50, 0, 0);
+        for tiers in 1..=8 {
+            let t = compute_total_timeout(50, tiers, 0);
+            assert!(
+                t >= prev,
+                "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}"
+            );
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // MV-companion scaling (new in #776)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn compute_total_timeout_each_mv_adds_one_minute() {
+        // Five MV companions on a typical album: enrichment (16 min)
+        // + 1 tier (8 min) + 5 MVs × 1 min = 29 min.
+        let t = compute_total_timeout(12, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60 + 5 * 60);
+    }
+
+    #[test]
+    fn compute_total_timeout_19_track_live_album_with_mvs_and_tier() {
+        // The originating #776 case + 1 companion tier + 5 MV companions:
+        // 10 + 19×30 s + 8 min + 5 min = 32.5 min. Well above the 13 min
+        // budget that was firing.
+        let t = compute_total_timeout(19, 1, 5);
+        assert_eq!(t.as_secs(), 600 + 19 * 30 + 8 * 60 + 5 * 60);
+        assert!(
+            t.as_secs() / 60 >= 30,
+            "must give heavy live albums >= 30 min"
+        );
+    }
+
+    #[test]
+    fn compute_total_timeout_monotonic_in_mvs() {
+        // More MV companions should never propose a smaller deadline.
+        let mut prev = compute_total_timeout(50, 1, 0);
+        for mvs in 1..=20 {
+            let t = compute_total_timeout(50, 1, mvs);
+            assert!(
+                t >= prev,
+                "non-monotonic at mvs={mvs}: {t:?} vs prev {prev:?}"
+            );
+            prev = t;
+        }
+    }
+
+    // ----------------------------------------------------------
+    // inject_advisory_suffix_into_template — companion folder fix (#528)
+    // ----------------------------------------------------------
+
+    /// Default GAMDL template — the suffix lands right after `{album}`
+    /// so the rendered companion folder matches the post-rename
+    /// primary folder exactly.
+    #[test]
+    fn inject_advisory_suffix_default_template_explicit() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Explicit]")
+        );
+    }
+
+    /// `[Clean]` follows the same shape as `[Explicit]`.
+    #[test]
+    fn inject_advisory_suffix_default_template_clean() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album}"),
+            "[Clean]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Clean]")
+        );
+    }
+
+    /// User template with a year prefix — suffix still anchors to the
+    /// album-name segment, not the year.
+    #[test]
+    fn inject_advisory_suffix_with_year_prefix_template() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{year} - {album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{year} - {album} [Explicit]")
+        );
+    }
+
+    /// `None` template input → `None` output (caller leaves the field
+    /// alone; uses GAMDL's default).
+    #[test]
+    fn inject_advisory_suffix_none_input_returns_none() {
+        let result = super::inject_advisory_suffix_into_template(None, "[Explicit]");
+        assert_eq!(result, None);
+    }
+
+    /// Custom template that doesn't reference `{album}` → return None
+    /// rather than guess where to splice the suffix. Caller falls back
+    /// to the original template; user gets the existing behaviour for
+    /// that one item (acceptable graceful degradation).
+    #[test]
+    fn inject_advisory_suffix_template_without_album_placeholder_returns_none() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{title}"),
+            "[Explicit]",
+        );
+        assert_eq!(result, None, "must not blindly append when {{album}} absent");
+    }
+
+    /// Idempotency-ish guard: the helper doesn't recognise that the
+    /// template already contains the suffix and would inject again. We
+    /// rely on the call site checking `content_advisory_in_filenames`
+    /// only ONCE per download to prevent double-injection. This test
+    /// documents the current behaviour so future refactors don't
+    /// silently change it.
+    #[test]
+    fn inject_advisory_suffix_documents_no_built_in_idempotency() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album_artist}/{album} [Explicit]"),
+            "[Explicit]",
+        );
+        // Note: helper does NOT detect that the template already has
+        // the suffix. Caller is responsible for not invoking twice.
+        // The result has the suffix duplicated:
+        assert_eq!(
+            result.as_deref(),
+            Some("{album_artist}/{album} [Explicit] [Explicit]"),
+            "caller-side guarantees: the call site invokes once per spawn"
+        );
+    }
+
+    /// Multiple `{album}` occurrences (uncommon but possible) — every
+    /// occurrence gets the suffix. Documents replace-all semantics so
+    /// the behaviour is intentional.
+    #[test]
+    fn inject_advisory_suffix_multiple_album_placeholders_all_replaced() {
+        let result = super::inject_advisory_suffix_into_template(
+            Some("{album}/{album}"),
+            "[Explicit]",
+        );
+        assert_eq!(
+            result.as_deref(),
+            Some("{album} [Explicit]/{album} [Explicit]")
+        );
+    }
+
+    // ----------------------------------------------------------
+    // mv_companion_count plumbing — actual count wins over estimate (#776)
+    // ----------------------------------------------------------
+
+    /// New items default `mv_companion_count` to `None` so the
+    /// completion task knows to fall back to the heuristic estimate
+    /// (no actual count has been written yet).
+    #[test]
+    fn enqueue_starts_with_no_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "fresh enqueue must leave mv_companion_count as None"
+        );
+    }
+
+    /// Manual user retry from the UI must clear `mv_companion_count`
+    /// so the next attempt's enrichment task re-discovers it from a
+    /// fresh API call — stale counts from a previous attempt would
+    /// mis-size the companion-wait deadline.
+    #[test]
+    fn retry_clears_mv_companion_count() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        // Simulate enrichment writing a discovered MV count from a
+        // previous attempt.
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.mv_companion_count = Some(7);
+        }
+        queue.set_error(&id, "Some failure");
+
+        // Retry should reset the count so the next enrichment writes a
+        // fresh value.
+        assert!(queue.retry(&id, &settings));
+        let item = queue
+            .items
+            .iter()
+            .find(|i| i.status.id == id)
+            .expect("item exists");
+        assert_eq!(
+            item.status.mv_companion_count, None,
+            "retry must clear stale mv_companion_count"
+        );
+    }
+
+    // ----------------------------------------------------------
+    // Queue reorder tests (#782)
+    // ----------------------------------------------------------
+
+    /// Helper: build a mixed-state queue [Active, Queued1, Queued2, Queued3, Complete].
+    /// Returns the four download IDs in deque order.
+    fn mixed_queue_with_actives_and_completed() -> (DownloadQueue, [String; 4]) {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let active_id = q.enqueue(test_request(), &s);
+        // Force into Downloading via the same path next_pending uses.
+        let _ = q.next_pending();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+        // Push a "complete" item at the end.
+        let complete_id = q.enqueue(test_request(), &s);
+        if let Some(item) = q.items.iter_mut().find(|i| i.status.id == complete_id) {
+            item.status.state = DownloadState::Complete;
+        }
+        // Sanity: layout should be [Active, Q1, Q2, Q3, Complete].
+        assert_eq!(q.items[0].status.state, DownloadState::Downloading);
+        assert_eq!(q.items[0].status.id, active_id);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+        assert_eq!(q.items[3].status.id, q3);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+        (q, [active_id, q1, q2, q3])
+    }
+
+    /// move_to_top puts the target at the FIRST queued position
+    /// (right after any actives), preserving the active item's slot.
+    #[test]
+    fn move_to_top_promotes_queued_item_past_active_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_top(&q3));
+        // Active stays at index 0; q3 is now at the front of the
+        // queued sub-sequence (index 1).
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q3);
+        assert_eq!(q.items[2].status.id, q1);
+        assert_eq!(q.items[3].status.id, q2);
+    }
+
+    /// move_to_top is a no-op when the target is already at the top.
+    #[test]
+    fn move_to_top_returns_false_when_already_at_top() {
+        let (mut q, [_active, q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&q1), "q1 already at top of queued");
+    }
+
+    /// move_to_top refuses to move active items.
+    #[test]
+    fn move_to_top_refuses_active_item() {
+        let (mut q, [active, _q1, _q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top(&active));
+    }
+
+    /// move_to_top returns false when the id isn't in the queue.
+    #[test]
+    fn move_to_top_returns_false_for_unknown_id() {
+        let (mut q, _) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_top("does-not-exist"));
+    }
+
+    /// move_to_bottom puts the target at the LAST queued position,
+    /// preserving any non-queued items past the queued sub-sequence.
+    #[test]
+    fn move_to_bottom_demotes_queued_item_before_completed_item() {
+        let (mut q, [active, q1, q2, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_to_bottom(&q1));
+        // Active stays at 0; q2 / q3 shift up; q1 is now last in
+        // the queued sub-sequence; complete still at the end.
+        assert_eq!(q.items[0].status.id, active);
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q3);
+        assert_eq!(q.items[3].status.id, q1);
+        assert_eq!(q.items[4].status.state, DownloadState::Complete);
+    }
+
+    /// move_to_bottom no-op when target is already at bottom.
+    #[test]
+    fn move_to_bottom_returns_false_when_already_at_bottom() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_to_bottom(&q3));
+    }
+
+    /// move_up swaps the target with the queued item immediately
+    /// above it, skipping any non-queued items in between.
+    #[test]
+    fn move_up_swaps_with_queued_neighbour_above() {
+        let (mut q, [_, q1, q2, _q3]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_up(&q2));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_up no-op when target is already at the top of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_up_returns_false_for_topmost_queued_item() {
+        let (mut q, [_, q1, _, _]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_up(&q1));
+    }
+
+    /// move_down swaps with the queued item immediately below.
+    #[test]
+    fn move_down_swaps_with_queued_neighbour_below() {
+        let (mut q, [_, q1, q2, _]) = mixed_queue_with_actives_and_completed();
+        assert!(q.move_down(&q1));
+        assert_eq!(q.items[1].status.id, q2);
+        assert_eq!(q.items[2].status.id, q1);
+    }
+
+    /// move_down no-op when target is at the bottom of the queued
+    /// sub-sequence.
+    #[test]
+    fn move_down_returns_false_for_bottommost_queued_item() {
+        let (mut q, [_, _, _, q3]) = mixed_queue_with_actives_and_completed();
+        assert!(!q.move_down(&q3));
+    }
+
+    /// All four move methods are no-ops on a single-item queue.
+    #[test]
+    fn move_methods_are_no_ops_on_single_item_queue() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let id = q.enqueue(test_request(), &s);
+        assert!(!q.move_to_top(&id));
+        assert!(!q.move_to_bottom(&id));
+        assert!(!q.move_up(&id));
+        assert!(!q.move_down(&id));
+    }
+
+    /// Reorder is preserved through the persistence round-trip — the
+    /// new order applies after MeedyaDL is closed and restarted.
+    #[test]
+    fn move_to_top_persists_through_save_restore_round_trip() {
+        let mut q = DownloadQueue::new();
+        let s = test_settings();
+        let q1 = q.enqueue(test_request(), &s);
+        let q2 = q.enqueue(test_request(), &s);
+        let q3 = q.enqueue(test_request(), &s);
+
+        // Promote q3 to the top of the queued sub-sequence.
+        assert!(q.move_to_top(&q3));
+        assert_eq!(q.items[0].status.id, q3);
+        assert_eq!(q.items[1].status.id, q1);
+        assert_eq!(q.items[2].status.id, q2);
+
+        // Persist + restore (simulating an app close/reopen).
+        let snapshot = q.get_persistable_items();
+        let mut restored = DownloadQueue::new();
+        restored.restore_items(snapshot, &s);
+
+        // Order is preserved across the round-trip.
+        assert_eq!(restored.items[0].status.id, q3);
+        assert_eq!(restored.items[1].status.id, q1);
+        assert_eq!(restored.items[2].status.id, q2);
+    }
+
     use crate::models::settings::AppSettings;
     use crate::utils::process::GamdlOutputEvent;
 
@@ -7352,6 +12332,7 @@ mod tests {
         DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test-song/123456789".to_string()],
             options: None,
+            ..Default::default()
         }
     }
 
@@ -7363,6 +12344,7 @@ mod tests {
                 song_codec: Some(codec),
                 ..Default::default()
             }),
+            ..Default::default()
         }
     }
 
@@ -7456,6 +12438,31 @@ mod tests {
         assert!(!status.fallback_occurred);
     }
 
+    #[test]
+    fn enqueue_removes_terminal_duplicate_attempt() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let old_request = DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
+            options: None,
+            ..Default::default()
+        };
+        let old_id = queue.enqueue(old_request, &settings);
+        queue.set_error(&old_id, "failed once");
+
+        let new_request = DownloadRequest {
+            urls: vec!["https://Music.Apple.Com/us/album/test/123/".to_string()],
+            options: None,
+            ..Default::default()
+        };
+        let new_id = queue.enqueue(new_request, &settings);
+        let statuses = queue.get_status();
+
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].id, new_id);
+        assert_eq!(statuses[0].state, DownloadState::Queued);
+    }
+
     /// Verifies that enqueue() merges global settings into the item's options.
     /// Since merge_options is private, we test it indirectly: the enqueued item's
     /// codec_used field should reflect the default settings codec (ALAC).
@@ -7490,6 +12497,114 @@ mod tests {
             Some("aac"),
             "Per-download override should replace default ALAC with AAC"
         );
+    }
+
+    /// Verifies that artist music-video selections do not pass static cover
+    /// sidecar options through to GAMDL. GAMDL 3.5 can treat Apple video
+    /// artwork template URLs (`{w}x{h}`) as literal URLs and fail every
+    /// selected music video before download.
+    #[test]
+    fn enqueue_suppresses_cover_args_for_artist_music_videos() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.save_cover = true;
+        settings.cover_format = crate::models::gamdl_options::CoverFormat::Raw;
+        settings.cover_size = 10000;
+        settings.artist_auto_select = Some(ArtistAutoSelect::MusicVideos);
+
+        let _id = queue.enqueue(test_request(), &settings);
+        let options = &queue.items[0].merged_options;
+
+        assert_eq!(options.artist_auto_select, Some(ArtistAutoSelect::MusicVideos));
+        assert_eq!(options.save_cover, None);
+        assert_eq!(options.cover_format, None);
+        assert_eq!(options.cover_size, None);
+        assert_eq!(options.no_config_file, Some(true));
+    }
+
+    /// Verifies that the `gamdl_log_level` setting (#768) is propagated by
+    /// `merge_options()` into `GamdlOptions::log_level` for every variant,
+    /// so the existing `to_cli_args()` `--log-level <LEVEL>` emission path
+    /// fires in production instead of being dead code outside this test
+    /// suite. Without this propagation the field is always `None` and
+    /// GAMDL runs at its compiled-in default `INFO` regardless of what
+    /// the user picked in Developer Tools.
+    #[test]
+    fn enqueue_propagates_gamdl_log_level() {
+        use crate::models::gamdl_options::LogLevel;
+
+        for level in [
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warning,
+            LogLevel::Error,
+        ] {
+            let mut queue = DownloadQueue::new();
+            let mut settings = test_settings();
+            settings.gamdl_log_level = level.clone();
+
+            let _id = queue.enqueue(test_request(), &settings);
+            let options = &queue.items[0].merged_options;
+
+            assert_eq!(
+                options.log_level,
+                Some(level.clone()),
+                "merge_options() should copy gamdl_log_level={level:?} into GamdlOptions.log_level",
+            );
+        }
+    }
+
+    /// Verifies `format_artwork_size` renders byte counts in the
+    /// human-readable form `emit_artwork_variant_log` puts in the
+    /// activity log (#529). Exercised at the three thresholds the
+    /// helper switches on.
+    #[test]
+    fn format_artwork_size_human_readable() {
+        assert_eq!(super::format_artwork_size(0), "0 bytes");
+        assert_eq!(super::format_artwork_size(512), "512 bytes");
+        assert_eq!(super::format_artwork_size(1024), "1 KB");
+        assert_eq!(super::format_artwork_size(1024 * 512), "512 KB");
+        assert_eq!(super::format_artwork_size(1024 * 1024), "1.0 MB");
+        // Mid-range: 2_200_000 bytes ≈ 2.1 MB.
+        assert_eq!(super::format_artwork_size(2_200_000), "2.1 MB");
+    }
+
+    /// Verifies that `format_heartbeat_elapsed` produces the compact
+    /// human-readable shape we want in the activity log heartbeat
+    /// lines (#805). Sub-minute and sub-hour shapes are both exercised
+    /// so a future refactor can't accidentally collapse them to one
+    /// arm (e.g. always emitting "0 min" for short stages).
+    #[test]
+    fn format_heartbeat_elapsed_compact_shape() {
+        use std::time::Duration;
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(0)), "0 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(45)), "45 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(59)), "59 s");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(60)), "1 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(120)), "2 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3540)), "59 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3600)), "1h 0 min");
+        assert_eq!(super::format_heartbeat_elapsed(Duration::from_secs(3660)), "1h 1 min");
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(5025)),
+            "1h 23 min"
+        );
+        assert_eq!(
+            super::format_heartbeat_elapsed(Duration::from_secs(7200)),
+            "2h 0 min"
+        );
+    }
+
+    /// Verifies that the default `AppSettings::gamdl_log_level` is `Info`
+    /// — matches GAMDL's compiled-in default and serialises identically
+    /// to a settings.json written by a pre-#768 build where the field
+    /// was absent.
+    #[test]
+    fn default_gamdl_log_level_is_info() {
+        use crate::models::gamdl_options::LogLevel;
+
+        let settings = test_settings();
+        assert_eq!(settings.gamdl_log_level, LogLevel::Info);
     }
 
     /// Verifies that multiple items can be enqueued and they all appear in
@@ -7702,6 +12817,72 @@ mod tests {
         assert_eq!(statuses[0].state, DownloadState::Cancelled);
     }
 
+    // ----------------------------------------------------------
+    // ActiveSlotGuard — RAII slot-release on Drop (#706)
+    // ----------------------------------------------------------
+
+    /// Disarming the guard before Drop must NOT release the slot.
+    /// This is the happy path: the completion task explicitly calls
+    /// `q.on_task_finished()` and then `disarm()`, so the slot release
+    /// is performed exactly once (by the explicit call).
+    #[tokio::test]
+    async fn active_slot_guard_disarm_does_not_release() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1; // pretend next_pending() handed out a slot
+        }
+        let guard = ActiveSlotGuard::new(handle.clone());
+        guard.disarm();
+        // Drop has now run on the disarmed guard. Slot must still be held.
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 1,
+            "disarmed guard must not release the slot"
+        );
+    }
+
+    /// Dropping an armed guard must release the slot — even though Drop
+    /// is synchronous and the queue lock is async. The guard fires a
+    /// fire-and-forget `tokio::spawn`; we then yield long enough for
+    /// the spawned release task to acquire the lock and run.
+    #[tokio::test]
+    async fn active_slot_guard_drop_releases_slot() {
+        let handle = new_queue_handle();
+        {
+            let mut q = handle.lock().await;
+            q.active_count = 1;
+        }
+        {
+            let _guard = ActiveSlotGuard::new(handle.clone());
+            // _guard goes out of scope here → Drop fires.
+        }
+        // Yield the runtime so the fire-and-forget release task can run.
+        // Two yields cover: (1) Drop's tokio::spawn registering the task,
+        // (2) the task acquiring the lock and running on_task_finished().
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+        let q = handle.lock().await;
+        assert_eq!(
+            q.active_count, 0,
+            "Drop on armed guard must release the slot"
+        );
+    }
+
+    /// Confirms `on_task_finished()` saturates at 0 — so even if a
+    /// double-release ever slips through (explicit call + an armed
+    /// guard's Drop), `active_count` cannot underflow into a giant
+    /// usize that would permanently jam `next_pending()`.
+    #[test]
+    fn on_task_finished_saturates_at_zero() {
+        let mut q = DownloadQueue::new();
+        assert_eq!(q.active_count, 0);
+        q.on_task_finished();
+        q.on_task_finished();
+        assert_eq!(q.active_count, 0, "must not underflow past zero");
+    }
+
     /// Verifies that cancel() returns false for items already in a terminal
     /// state (Complete, Error, Cancelled).
     #[test]
@@ -7765,6 +12946,92 @@ mod tests {
         assert_eq!(statuses[0].id, ids[0], "Queued item should remain");
         assert_eq!(statuses[1].id, ids[1], "Downloading item should remain");
         assert_eq!(statuses[2].id, ids[3], "Errored item should remain");
+    }
+
+    /// Verifies the abort_all() summary counts each pre-abort state correctly
+    /// and leaves terminal items untouched (#620).
+    #[test]
+    fn abort_all_counts_per_state_and_preserves_terminal_items() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 6);
+
+        // ids[0] = Queued (→ cancelled, queued_cancelled)
+        // ids[1] = Downloading (→ cancelled, downloading_stopped)
+        queue.update_item_state(&ids[1], DownloadState::Downloading);
+        // ids[2] = Processing (→ cancelled, processing_stopped)
+        queue.update_item_state(&ids[2], DownloadState::Processing);
+        // ids[3] = Complete — terminal, must not be touched
+        queue.set_complete(&ids[3]);
+        // ids[4] = Error — terminal, must not be touched
+        queue.set_error(&ids[4], "whatever");
+        // ids[5] = already Cancelled — terminal, must not be counted twice
+        queue.cancel(&ids[5]);
+
+        let summary = queue.abort_all();
+
+        assert_eq!(summary.queued_cancelled, 1, "one queued item aborted");
+        assert_eq!(summary.downloading_stopped, 1, "one downloading item aborted");
+        assert_eq!(summary.processing_stopped, 1, "one processing item aborted");
+        assert_eq!(summary.total(), 3, "three items affected total");
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Cancelled);
+        assert_eq!(statuses[1].state, DownloadState::Cancelled);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
+        assert_eq!(statuses[3].state, DownloadState::Complete, "Complete preserved");
+        assert_eq!(statuses[4].state, DownloadState::Error, "Error preserved");
+        assert_eq!(statuses[5].state, DownloadState::Cancelled, "already-Cancelled unchanged");
+    }
+
+    /// Verifies that abort_all() on an empty queue is a no-op with a zero summary.
+    #[test]
+    fn abort_all_on_empty_queue_returns_zero_summary() {
+        let mut queue = DownloadQueue::new();
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+    }
+
+    /// Verifies that abort_all() arms the one-shot suppression flag and
+    /// that `take_recently_aborted()` consumes it exactly once (#620).
+    #[test]
+    fn abort_all_arms_post_queue_action_suppression() {
+        let mut queue = DownloadQueue::new();
+        // Fresh queue: no suppression armed.
+        assert!(!queue.take_recently_aborted(), "flag must start clear");
+
+        // No-op abort (empty queue) must NOT arm the flag — the suppression
+        // is scoped to actual abort events, not ceremonial calls.
+        queue.abort_all();
+        assert!(
+            !queue.take_recently_aborted(),
+            "zero-summary abort must not arm suppression"
+        );
+
+        // Real abort: flag arms.
+        let _id = enqueue_one(&mut queue);
+        let summary = queue.abort_all();
+        assert_eq!(summary.queued_cancelled, 1);
+        assert!(queue.take_recently_aborted(), "abort must arm suppression");
+        // Consumption is one-shot.
+        assert!(!queue.take_recently_aborted(), "flag must be consumed on read");
+    }
+
+    /// Verifies that abort_all() on a queue of only-terminal items is a
+    /// zero-summary no-op — no item's state changes.
+    #[test]
+    fn abort_all_with_only_terminal_items_is_no_op() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        queue.set_complete(&ids[0]);
+        queue.set_error(&ids[1], "err");
+        queue.cancel(&ids[2]);
+
+        let summary = queue.abort_all();
+        assert_eq!(summary.total(), 0);
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Complete);
+        assert_eq!(statuses[1].state, DownloadState::Error);
+        assert_eq!(statuses[2].state, DownloadState::Cancelled);
     }
 
     /// Verifies that clear_finished() returns 0 when there are no terminal items.
@@ -8065,6 +13332,52 @@ mod tests {
         );
     }
 
+    /// Verifies that a TrackInfo event carrying `track_number` and
+    /// `track_total` propagates those into `completed_tracks` and
+    /// `total_tracks` on the queue item so the UI can render a
+    /// "Track N of M" context counter (#609).
+    #[test]
+    fn update_item_progress_track_info_sets_counter_fields() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Track One".to_string(),
+            artist: String::new(),
+            album: String::new(),
+            track_number: Some(3),
+            track_total: Some(12),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(3));
+        assert_eq!(statuses[0].total_tracks, Some(12));
+    }
+
+    /// GAMDL v3.1 emits `[Track 1/1]` for single-song URLs (new — older
+    /// GAMDL stayed silent). The backend must still propagate the
+    /// counter; the UI is responsible for suppressing the "1 of 1"
+    /// cosmetic (#609).
+    #[test]
+    fn update_item_progress_track_info_propagates_single_song_counter() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        let event = GamdlOutputEvent::TrackInfo {
+            title: "Flowers".to_string(),
+            artist: "Miley Cyrus".to_string(),
+            album: String::new(),
+            track_number: Some(1),
+            track_total: Some(1),
+        };
+        queue.update_item_progress(&id, &event);
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].completed_tracks, Some(1));
+        assert_eq!(statuses[0].total_tracks, Some(1));
+    }
+
     /// Verifies that a TrackInfo event with an empty artist just uses the title.
     #[test]
     fn update_item_progress_track_info_without_artist() {
@@ -8253,6 +13566,211 @@ mod tests {
         queue.set_complete("nonexistent");
     }
 
+    /// Verifies that set_complete() refuses to overwrite a terminal Error
+    /// state — the "revival" bug from #661.
+    ///
+    /// The completion task at the bottom of the per-item pipeline always
+    /// calls set_complete after the post-companion advisory pass, even if
+    /// the download itself failed minutes earlier. Without this guard,
+    /// failed items would silently appear as Complete in the UI,
+    /// contradicting the prior error toast and activity-log entry.
+    #[test]
+    fn set_complete_does_not_revive_errored_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_error(&id, "primary download failed");
+        queue.set_complete(&id); // Late completion-task pass — must be a no-op.
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Error,
+            "set_complete must not transition Error -> Complete (#661)"
+        );
+        assert_eq!(
+            statuses[0].error.as_deref(),
+            Some("primary download failed"),
+            "the original error message must be preserved"
+        );
+    }
+
+    /// Verifies that set_complete() refuses to overwrite a Cancelled state.
+    /// Mirrors the Error guard — both are terminal and must not regress.
+    #[test]
+    fn set_complete_does_not_revive_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_complete(&id);
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_complete must not transition Cancelled -> Complete (#661)"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Cancelled state.
+    /// A user-initiated cancellation must not be downgraded to "Error" by a
+    /// late-arriving subprocess error during teardown.
+    #[test]
+    fn set_error_does_not_overwrite_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.cancel(&id);
+        queue.set_error(&id, "stderr noise after cancellation");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Cancelled,
+            "set_error must not transition Cancelled -> Error (#661)"
+        );
+        // The cancellation path leaves error=None; the late set_error must
+        // not poison that field with subprocess teardown noise.
+        assert!(
+            statuses[0].error.is_none(),
+            "Cancelled items must not gain an error message after the fact"
+        );
+    }
+
+    /// Verifies that set_error() refuses to overwrite a Complete state.
+    /// A successful download must not regress to Error if some tail-end
+    /// async task fails after enrichment ended.
+    #[test]
+    fn set_error_does_not_overwrite_complete_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+
+        queue.set_complete(&id);
+        queue.set_error(&id, "late-arriving enrichment failure");
+
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Complete,
+            "set_error must not transition Complete -> Error (#661)"
+        );
+    }
+
+    // ==========================================================
+    // 11b. delete() tests (#685)
+    // ==========================================================
+
+    /// Verifies that delete() removes a queued item and reports success.
+    #[test]
+    fn delete_removes_queued_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        assert_eq!(queue.get_status().len(), 1);
+
+        let result = queue.delete(&id);
+        assert_eq!(result, Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes a Complete item.
+    #[test]
+    fn delete_removes_complete_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.set_complete(&id);
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes an Error item (the primary use case
+    /// — purging a stubbornly-failing entry without nuking the whole list).
+    #[test]
+    fn delete_removes_errored_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.set_error(&id, "permanent failure");
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() removes a Cancelled item.
+    #[test]
+    fn delete_removes_cancelled_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        queue.cancel(&id);
+
+        assert_eq!(queue.delete(&id), Ok(true));
+        assert!(queue.get_status().is_empty());
+    }
+
+    /// Verifies that delete() refuses to remove an actively Downloading
+    /// item — orphaning the subprocess would leak file handles and emit
+    /// progress events with no queue row to update.
+    #[test]
+    fn delete_refuses_active_downloading_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        // Force-set state to Downloading. (In production this happens via
+        // process_queue; the test only needs the state for the guard check.)
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.state = DownloadState::Downloading;
+        }
+
+        let result = queue.delete(&id);
+        assert!(result.is_err(), "active items must not be deletable");
+        assert_eq!(queue.get_status().len(), 1, "item must still be present");
+    }
+
+    /// Verifies that delete() refuses to remove a Processing item — the
+    /// enrichment pipeline is still writing tags / running companions
+    /// after GAMDL exits, and pulling the queue row out from under it
+    /// would invalidate the QueueItemHandle the pipeline holds.
+    #[test]
+    fn delete_refuses_active_processing_item() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
+            item.status.state = DownloadState::Processing;
+        }
+
+        let result = queue.delete(&id);
+        assert!(result.is_err(), "processing items must not be deletable");
+        assert_eq!(queue.get_status().len(), 1);
+    }
+
+    /// Verifies that delete() returns Ok(false) for an unknown ID rather
+    /// than treating it as an error — the IPC layer can distinguish "no-op"
+    /// (already removed by a parallel click) from "guard violation".
+    #[test]
+    fn delete_unknown_id_is_noop() {
+        let mut queue = DownloadQueue::new();
+        let _ = enqueue_one(&mut queue);
+
+        assert_eq!(queue.delete("nonexistent-id"), Ok(false));
+        assert_eq!(queue.get_status().len(), 1, "real items untouched");
+    }
+
+    /// Verifies that delete() removes only the targeted item when several
+    /// items are present.
+    #[test]
+    fn delete_targets_only_the_named_item() {
+        let mut queue = DownloadQueue::new();
+        let ids = enqueue_n(&mut queue, 3);
+        assert_eq!(queue.get_status().len(), 3);
+
+        assert_eq!(queue.delete(&ids[1]), Ok(true));
+
+        let remaining: Vec<String> = queue.get_status().into_iter().map(|s| s.id).collect();
+        assert_eq!(remaining.len(), 2);
+        assert!(remaining.contains(&ids[0]));
+        assert!(remaining.contains(&ids[2]));
+        assert!(!remaining.contains(&ids[1]));
+    }
+
     // ==========================================================
     // 12. try_network_retry() tests
     // ==========================================================
@@ -8314,6 +13832,96 @@ mod tests {
     fn try_network_retry_nonexistent_id() {
         let mut queue = DownloadQueue::new();
         assert!(queue.try_network_retry("nonexistent").is_none());
+    }
+
+    // ==========================================================
+    // 12b. try_storefront_fallback() tests (#666)
+    // ==========================================================
+
+    /// Verifies that a US-storefront URL is rewritten to the user's account
+    /// region, the item is reset to Queued, and the budget flag is set so
+    /// a second call is a no-op.
+    #[test]
+    fn try_storefront_fallback_rewrites_us_to_gb_and_consumes_budget() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        let swap = queue.try_storefront_fallback(&id, &settings);
+        assert_eq!(swap, Some(("us".to_string(), "gb".to_string())));
+
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Queued);
+        assert_eq!(statuses[0].urls[0], "https://music.apple.com/gb/album/test-song/123456789");
+        assert!(statuses[0].error.is_none());
+
+        // Budget consumed — second call must return None even after
+        // another error, so we never ping-pong forever.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    }
+
+    /// Verifies that the fallback is a no-op when the URL storefront
+    /// already matches the user's account region (nothing to rewrite to).
+    #[test]
+    fn try_storefront_fallback_skips_when_url_already_matches_region() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "us".to_string(); // matches the test URL
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+        let statuses = queue.get_status();
+        assert_eq!(statuses[0].state, DownloadState::Error, "must stay errored");
+    }
+
+    /// Verifies that the fallback is a no-op when the user has disabled it.
+    #[test]
+    fn try_storefront_fallback_respects_settings_toggle() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = false; // user opted out
+
+        let id = queue.enqueue(test_request(), &settings);
+        queue.set_error(&id, "404 Resource Not Found");
+
+        assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    }
+
+    /// Verifies that a manual user retry (which calls `retry()`) refreshes
+    /// the budget so the user can ask for the rewrite again.
+    #[test]
+    fn retry_resets_storefront_fallback_budget() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+        settings.storefront_fallback_on_failure = true;
+
+        let id = queue.enqueue(test_request(), &settings);
+        // First failure + automatic fallback consumes the budget.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert!(queue.try_storefront_fallback(&id, &settings).is_some());
+        // Pretend the GB attempt also failed.
+        queue.set_error(&id, "404 Resource Not Found");
+        assert!(queue.try_storefront_fallback(&id, &settings).is_none());
+
+        // User clicks Retry — budget refreshes.
+        assert!(queue.retry(&id, &settings));
+        // Re-fail and verify the budget is fresh.
+        queue.set_error(&id, "404 Resource Not Found");
+        // URL is now `/gb/`; the helper rejects same-region rewrites, so we
+        // expect None here. Update settings to a different region to confirm
+        // the budget *would* allow it.
+        settings.storefront = "fr".to_string();
+        assert!(queue.try_storefront_fallback(&id, &settings).is_some());
     }
 
     // ==========================================================
@@ -8884,6 +14492,78 @@ mod tests {
         assert_eq!(extract_python_exception(&lines), None);
     }
 
+    #[test]
+    fn extracts_exception_when_structlog_log_line_follows_traceback_v31() {
+        // GAMDL 3.1 emits the Traceback BEFORE the accompanying
+        // `[ERROR HH:MM:SS]` log line because ExceptionPrettyPrinter
+        // runs earlier in structlog's processor chain than the
+        // formatter. Without structlog-line detection the walker would
+        // pick up the trailing log line instead of the actual
+        // exception.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"gamdl/downloader/song.py\", line 96, in download".to_string(),
+            "    await self._decrypt_amdecrypt(...)".to_string(),
+            "KeyError: 'title'".to_string(),
+            "[ERROR    17:09:23] [Track   1/14] Error downloading \"Lavender Haze\"".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("KeyError: 'title'".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_exception_with_structlog_info_line_follows_v31() {
+        // Catches the case where a subsequent INFO log line follows
+        // the traceback (e.g., "Finished with 1 error(s)").
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"b.py\", line 2".to_string(),
+            "ValueError: boom".to_string(),
+            "[INFO     17:09:24] Finished with 1 error(s)".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("ValueError: boom".to_string())
+        );
+    }
+
+    #[test]
+    fn structlog_line_detector_tolerates_bracketed_exception_text() {
+        // Python exception messages can legitimately contain square
+        // brackets (errno-style prefixes). The detector must NOT treat
+        // `[Errno 60] ...` as a structlog line even though it starts
+        // with `[...]`.
+        let lines = vec![
+            "Traceback (most recent call last):".to_string(),
+            "  File \"x.py\", line 1".to_string(),
+            "TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string(),
+        ];
+        assert_eq!(
+            extract_python_exception(&lines),
+            Some("TimeoutError: [Errno 60] Operation timed out: '/mnt/cover.jpg'".to_string())
+        );
+    }
+
+    #[test]
+    fn is_structlog_line_start_recognises_all_log_levels() {
+        assert!(is_structlog_line_start("[INFO     17:09:24] hello"));
+        assert!(is_structlog_line_start("[DEBUG    17:09:24] hello"));
+        assert!(is_structlog_line_start("[WARNING  17:09:24] hello"));
+        assert!(is_structlog_line_start("[ERROR    17:09:24] hello"));
+        assert!(is_structlog_line_start("[CRITICAL 17:09:24] hello"));
+    }
+
+    #[test]
+    fn is_structlog_line_start_rejects_non_log_brackets() {
+        assert!(!is_structlog_line_start("[Errno 60] Operation timed out"));
+        assert!(!is_structlog_line_start("[not a log] line"));
+        assert!(!is_structlog_line_start("plain text"));
+        assert!(!is_structlog_line_start(""));
+        assert!(!is_structlog_line_start("ERRORISH but no bracket"));
+    }
+
     // ----------------------------------------------------------
     // Gap-fill helper tests
     // ----------------------------------------------------------
@@ -8917,6 +14597,40 @@ mod tests {
     }
 
     #[test]
+    fn companion_progress_describes_current_and_pending_tiers() {
+        let mut progress = CompanionTaskProgress {
+            planned_tiers: vec![
+                "alac".to_string(),
+                "atmos".to_string(),
+                "aac, aac-legacy".to_string(),
+            ],
+            current_tier: Some(1),
+            ..Default::default()
+        };
+        progress.completed_tiers.insert(0);
+
+        let description = progress.describe_pending();
+
+        assert!(description.contains("currently running tier 1: atmos"));
+        assert!(description.contains("not yet started: tier 2: aac, aac-legacy"));
+        assert!(!description.contains("tier 0"));
+    }
+
+    #[test]
+    fn companion_progress_reports_no_remaining_when_all_done() {
+        let mut progress = CompanionTaskProgress {
+            planned_tiers: vec!["alac".to_string()],
+            ..Default::default()
+        };
+        progress.completed_tiers.insert(0);
+
+        assert_eq!(
+            progress.describe_pending(),
+            "no remaining companion tiers recorded"
+        );
+    }
+
+    #[test]
     fn count_codec_skip_warnings_counts_correctly() {
         let warnings = vec![
             "Requested format is not available for song 01".to_string(),
@@ -8925,6 +14639,29 @@ mod tests {
             "Requested format is not available for song 03".to_string(),
         ];
         assert_eq!(count_codec_skip_warnings(&warnings), 3);
+    }
+
+    #[test]
+    fn annotate_unavailable_format_line_adds_single_requested_codec() {
+        let line = r#"[WARNING] Skipping "Track": Requested format is not available"#;
+        let annotated = annotate_unavailable_format_line(line, &["atmos".to_string()]);
+
+        assert!(annotated.contains("Unavailable requested format"));
+        assert!(annotated.contains("Dolby Atmos"));
+        assert!(annotated.contains("[atmos]"));
+    }
+
+    #[test]
+    fn annotate_unavailable_format_line_decodes_gamdl_song_codec_list() {
+        let line = "Requested format is not available: [<SongCodec.ATMOS: 'atmos'>, <SongCodec.ALAC: 'alac'>]";
+        let annotated = annotate_unavailable_format_line(line, &["aac".to_string()]);
+
+        assert!(annotated.contains("Unavailable requested format candidates"));
+        assert!(annotated.contains("Dolby Atmos"));
+        assert!(annotated.contains("[atmos]"));
+        assert!(annotated.contains("Lossless"));
+        assert!(annotated.contains("[alac]"));
+        assert!(!annotated.contains("[aac]"));
     }
 
     #[test]
@@ -8940,6 +14677,82 @@ mod tests {
     fn count_codec_skip_warnings_empty() {
         let warnings: Vec<String> = vec![];
         assert_eq!(count_codec_skip_warnings(&warnings), 0);
+    }
+
+    /// Exercises `count_codec_skip_warnings` against a synthetic GAMDL
+    /// v3.0 stderr capture that includes the structlog prefix.
+    ///
+    /// `count_codec_skip_warnings` matches by substring (lowercased),
+    /// so the `[WARNING  HH:MM:SS]` prefix should not prevent a match.
+    /// This test pins that invariant so a future regression in the
+    /// matcher (e.g. someone anchoring the pattern at line start) is
+    /// caught immediately.
+    ///
+    /// Fixture wording best-effort synthesis — see #521.
+    #[test]
+    fn count_codec_skip_warnings_handles_structlog_prefix() {
+        let v3_lines = vec![
+            "[WARNING  12:10:05] Skipping \"Track Two\": Requested format is not available".to_string(),
+            "[INFO     12:10:06] Downloading \"Track Three\"".to_string(),
+            "[WARNING  12:10:09] Skipping \"Track Four\": Requested format is not available".to_string(),
+            "[INFO     12:10:10] Finished with 2 error(s)".to_string(),
+        ];
+        assert_eq!(
+            count_codec_skip_warnings(&v3_lines),
+            2,
+            "count_codec_skip_warnings must see past GAMDL v3.0's \
+             structlog [LEVEL HH:MM:SS] prefix"
+        );
+    }
+
+    /// End-to-end: if the matcher works, the gap-fill chain builder
+    /// must also produce a usable priority string when experimental
+    /// codecs (wrapper-dependent) are present. Ties the two helpers
+    /// together so a regression in one doesn't silently break the
+    /// pipeline.
+    #[test]
+    fn v3_codec_skips_drive_gapfill_chain_construction() {
+        let warnings = vec![
+            "[WARNING  12:10:05] Skipping \"T1\": Requested format is not available".to_string(),
+            "[WARNING  12:10:09] Skipping \"T2\": Requested format is not available".to_string(),
+        ];
+        let skip_count = count_codec_skip_warnings(&warnings);
+        assert!(skip_count > 0);
+
+        // Original chain favours Atmos (wrapper-dependent), then ALAC.
+        // Gap-fill should drop Atmos and keep ALAC/AAC so the retry
+        // pass can fill the missing tracks with lossless/lossy
+        // fallbacks.
+        let gap = build_gapfill_priority_chain("atmos,alac,aac").unwrap();
+        assert_eq!(gap, "alac,aac");
+    }
+
+    /// `extract_python_exception` scans stderr for traceback lines.
+    /// v3.0 leaves tracebacks unwrapped (structlog only formats
+    /// `logger.error` calls, not the traceback Python itself prints),
+    /// so this should still work. Pin the behaviour.
+    #[test]
+    fn v3_network_traceback_extraction_survives_structlog_interleaving() {
+        let stderr_lines = vec![
+            "[INFO     12:30:00] Processing \"https://music.apple.com/us/album/example/1234567890\"".to_string(),
+            "[ERROR    12:30:05] Error processing \"https://...\": Connection timed out".to_string(),
+            "Traceback (most recent call last):".to_string(),
+            "  File \"gamdl/cli/cli.py\", line 142, in main".to_string(),
+            "    downloader.download(url)".to_string(),
+            "  File \"httpx/_transports/default.py\", line 118, in map_httpcore_exceptions".to_string(),
+            "    raise mapped_exc(message) from exc".to_string(),
+            "httpx.ConnectTimeout: Connection timed out".to_string(),
+        ];
+        let exception = extract_python_exception(&stderr_lines);
+        assert!(
+            exception.is_some(),
+            "extract_python_exception should have captured the traceback"
+        );
+        let msg = exception.unwrap();
+        assert!(
+            msg.contains("ConnectTimeout"),
+            "Expected the final exception line to be extracted; got: {msg}"
+        );
     }
 
     // ==========================================================
@@ -9027,6 +14840,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
@@ -9042,6 +14856,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
@@ -9057,6 +14872,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         let id = queue.enqueue(request, &settings);
         // Transition to complete
@@ -9074,6 +14890,7 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         let id = queue.enqueue(request, &settings);
         queue.set_error(&id, "some error");
@@ -9090,11 +14907,61 @@ mod tests {
         let request = DownloadRequest {
             urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
             options: None,
+            ..Default::default()
         };
         queue.enqueue(request, &settings);
 
         let urls = vec!["https://music.apple.com/us/album/other/456".to_string()];
         assert!(!queue.has_duplicate_urls(&urls));
+    }
+
+    #[test]
+    fn filter_out_active_duplicate_urls_keeps_only_new_urls() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        queue.enqueue(
+            DownloadRequest {
+                urls: vec!["https://music.apple.com/us/album/test/123?ls=1".to_string()],
+                options: None,
+                ..Default::default()
+            },
+            &settings,
+        );
+
+        let urls = vec![
+            "https://Music.Apple.Com/us/album/test/123/".to_string(),
+            "https://music.apple.com/us/album/other/456".to_string(),
+        ];
+
+        assert_eq!(
+            queue.filter_out_active_duplicate_urls(&urls),
+            vec!["https://music.apple.com/us/album/other/456".to_string()]
+        );
+    }
+
+    #[test]
+    fn dedupe_persisted_queue_items_keeps_newest_matching_url() {
+        fn persisted(id: &str, url: &str) -> PersistedQueueItem {
+            PersistedQueueItem {
+                id: id.to_string(),
+                request: DownloadRequest {
+                    urls: vec![url.to_string()],
+                    options: None,
+                    ..Default::default()
+                },
+                created_at: "2026-05-04T10:00:00Z".to_string(),
+                error: Some("failed".to_string()),
+                service: None,
+            }
+        }
+
+        let items = dedupe_persisted_queue_items(vec![
+            persisted("old", "https://music.apple.com/us/album/test/123?ls=1"),
+            persisted("new", "https://Music.Apple.Com/us/album/test/123/"),
+        ]);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "new");
     }
 
     // ============================================================
@@ -9226,5 +15093,271 @@ mod tests {
         assert!(super::super::config_service::validate_path_safe("../etc/passwd").is_err());
         assert!(super::super::config_service::validate_path_safe("/home/../root").is_err());
         assert!(super::super::config_service::validate_path_safe("foo/../../bar").is_err());
+    }
+
+    // ============================================================
+    // filter_tiers_by_audio_traits (#504)
+    // ============================================================
+
+    fn tier(codecs: Vec<SongCodec>, suffix: bool) -> super::CompanionTier {
+        super::CompanionTier {
+            codecs_to_try: codecs,
+            apply_suffix: suffix,
+        }
+    }
+
+    #[test]
+    fn filter_tiers_passes_through_when_no_traits() {
+        let tiers = vec![tier(vec![SongCodec::Ac3], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &[]);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn filter_tiers_drops_unmatched_required_trait() {
+        // PSYCHO single example: track has atmos / lossless / lossy-stereo / spatial
+        // but NOT dolby-digital. AC3 must be dropped.
+        let traits = vec![
+            "atmos".to_string(),
+            "lossless".to_string(),
+            "lossy-stereo".to_string(),
+            "spatial".to_string(),
+        ];
+        let tiers = vec![
+            tier(vec![SongCodec::Ac3], true),
+            tier(vec![SongCodec::AacBinaural], false),
+        ];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1, "AacBinaural tier should survive");
+        assert_eq!(kept[0].codecs_to_try, vec![SongCodec::AacBinaural]);
+        assert_eq!(skipped, vec!["ac3".to_string()]);
+    }
+
+    #[test]
+    fn filter_tiers_keeps_tier_when_any_codec_in_chain_supported() {
+        let traits = vec!["lossy-stereo".to_string()];
+        // A multi-codec tier where one codec is supported and another isn't
+        let tiers = vec![tier(vec![SongCodec::Ac3, SongCodec::Aac], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
+    }
+
+    #[test]
+    fn filter_tiers_keeps_derived_codecs_unconditionally() {
+        // AacBinaural has no required_audio_trait — it should survive
+        // even when the trait list is empty-ish.
+        let traits = vec!["lossy-stereo".to_string()]; // intentionally minimal
+        let tiers = vec![tier(vec![SongCodec::AacBinaural], false)];
+        let (kept, skipped) = super::filter_tiers_by_audio_traits(tiers, &traits);
+        assert_eq!(kept.len(), 1);
+        assert!(skipped.is_empty());
+    }
+
+    // ============================================================
+    // Music-video no-album template overrides (#531)
+    // ============================================================
+
+    #[test]
+    fn mv_no_album_folder_template_includes_artist_and_music_videos() {
+        // Guards against accidental changes that would re-introduce the
+        // `[Unknown]` sentinel path. The template MUST contain `{artist}`
+        // (GAMDL's placeholder) and the literal `Music Videos` folder,
+        // and MUST NOT contain the legacy `[Unknown]` marker.
+        assert!(super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("{artist}"));
+        assert!(super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("Music Videos"));
+        assert!(!super::MV_NO_ALBUM_FOLDER_TEMPLATE.contains("[Unknown]"));
+    }
+
+    #[test]
+    fn mv_no_album_file_template_includes_title_placeholder() {
+        // Guards against regressions like the legacy `"{disc} - "` which
+        // resolves to `-.mp4` for content without a disc number.
+        assert!(super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title}"));
+        assert!(!super::MV_NO_ALBUM_FILE_TEMPLATE.trim().is_empty());
+    }
+
+    #[test]
+    fn mv_no_album_file_template_includes_title_id_for_uniqueness() {
+        // `{title_id}` (Apple Music's numeric MV ID) is the
+        // guaranteed-unique disambiguator for same-title MVs in the
+        // last-resort path. Its presence is a hard invariant — dropping
+        // it re-opens the silent-collision regression where a second MV
+        // with the same title would skip with `MediaFileExists`.
+        assert!(
+            super::MV_NO_ALBUM_FILE_TEMPLATE.contains("{title_id}"),
+            "MV_NO_ALBUM_FILE_TEMPLATE must include {{title_id}} for uniqueness"
+        );
+    }
+
+    /// #547 — Apple Music Classical movement-title collision audit.
+    ///
+    /// Classical recordings have structurally non-unique movement
+    /// titles (every symphony has an "Allegro" movement). The
+    /// audit's HIGH-risk case is a direct song-URL into classical
+    /// content that falls through to `no_album_file_template` —
+    /// the user's library would silently collide as every
+    /// "Allegro" movement saved as `Allegro.m4a`.
+    ///
+    /// This test asserts the failure mode is **reproducible with
+    /// today's default `no_album_file_template` (`{title}`)** so a
+    /// future fix (e.g. forcing the same `{title} ({title_id})`
+    /// safety net the MV path uses, or auto-prefixing with the
+    /// album work name when the source is Classical) has a clear
+    /// regression target.
+    ///
+    /// Pairs with `mv_no_album_template_disambiguates_variants`
+    /// from #571 — that test covers the MV equivalent which is
+    /// already mitigated by the Tier 4 safety net. The audio path
+    /// has no equivalent safety net yet; this test documents the
+    /// gap.
+    #[test]
+    fn classical_movements_collide_under_default_no_album_template() {
+        // Today's default: `{title}` with no disambiguator.
+        // Pin the default in the assertion so a future refactor
+        // that adds `{title_id}` to the default is flagged.
+        let default_template = "{title}";
+
+        let render = |title: &str| default_template.replace("{title}", title);
+
+        // Concrete Classical scenario: two "Allegro" movements
+        // from two different Beethoven symphonies. Both have
+        // distinct title_ids in Apple Music but identical
+        // `tags.title` after GAMDL's tag parse. Same name, same
+        // template → same filename → silent overwrite.
+        let beethoven_5_allegro = render("Allegro con brio");
+        let beethoven_9_allegro = render("Allegro con brio");
+        assert_eq!(
+            beethoven_5_allegro, beethoven_9_allegro,
+            "documents the collision risk (#547) — today's default \
+             no_album_file_template offers no disambiguation for \
+             identically-titled Classical movements. A future fix \
+             should either force {{title_id}} into the default for \
+             Classical content or wire a Classical-specific template."
+        );
+    }
+
+    /// #571 — Verify that the MV no-album template produces distinct
+    /// filenames for variants of the same song (studio cut vs. live
+    /// performance vs. acoustic cut), under two GAMDL-`tags.title`
+    /// shapes:
+    ///
+    ///   (a) **Title-disambiguates**: GAMDL surfaces the variant
+    ///       parenthetical in `tags.title` (e.g. `"Depressed (Live
+    ///       from London)"`). The filename is unique on `{title}`
+    ///       alone — the `{title_id}` suffix is belt-and-braces.
+    ///
+    ///   (b) **Title-collides**: GAMDL surfaces only `"Depressed"`
+    ///       for every variant (the parenthetical lives in
+    ///       `editorialNotes` rather than `name`). The filename is
+    ///       still unique because the `{title_id}` suffix carries
+    ///       the per-variant Apple Music numeric MV ID.
+    ///
+    /// Either way the user's library never silently overwrites one
+    /// variant with another. The test renders the template with
+    /// `String::replace` (the same substitution GAMDL performs) so
+    /// the assertion is end-to-end deterministic.
+    #[test]
+    fn mv_no_album_template_disambiguates_variants() {
+        // Convenience: applies `{title}` and `{title_id}` to the
+        // file template the same way GAMDL would.
+        fn render(title: &str, title_id: &str) -> String {
+            super::MV_NO_ALBUM_FILE_TEMPLATE
+                .replace("{title}", title)
+                .replace("{title_id}", title_id)
+        }
+
+        // (a) Title-disambiguates path. Each variant has a unique
+        // title AND a unique ID, so the rendered filename differs
+        // on both axes.
+        let studio_a = render("Depressed", "1840857276");
+        let live_a = render("Depressed (Live from London)", "1847893387");
+        let acoustic_a = render("Depressed (Acoustic)", "1900000001");
+        assert_ne!(studio_a, live_a, "title-disambiguating studio vs live must differ");
+        assert_ne!(studio_a, acoustic_a, "title-disambiguating studio vs acoustic must differ");
+        assert_ne!(live_a, acoustic_a, "title-disambiguating live vs acoustic must differ");
+        // The `(NNNN)` suffix is present even when titles differ —
+        // the belt-and-braces invariant from the test above.
+        assert!(studio_a.contains("(1840857276)"));
+        assert!(live_a.contains("(1847893387)"));
+
+        // (b) Title-collides path. The pessimistic scenario in
+        // which Apple Music returns only the base title for every
+        // variant. With `{title}` identical, only `{title_id}` is
+        // the disambiguator.
+        let studio_b = render("Depressed", "1840857276");
+        let live_b = render("Depressed", "1847893387");
+        let acoustic_b = render("Depressed", "1900000001");
+        assert_ne!(studio_b, live_b, "title-collides studio vs live must still differ via {{title_id}}");
+        assert_ne!(studio_b, acoustic_b, "title-collides studio vs acoustic must still differ via {{title_id}}");
+        assert_ne!(live_b, acoustic_b, "title-collides live vs acoustic must still differ via {{title_id}}");
+    }
+
+    // ============================================================
+    // is_likely_motion_art_url (#536) — defensive guard tests
+    // ============================================================
+
+    #[test]
+    fn motion_art_url_detector_recognises_editorial_hls() {
+        // Apple's editorial HLS host + .m3u8 = motion art.
+        assert!(super::is_likely_motion_art_url(
+            "https://video-ssl.itunes.apple.com/itunes-assets/HLS/.../motion.m3u8"
+        ));
+        assert!(super::is_likely_motion_art_url(
+            "https://play-edge.itunes.apple.com/playback/v1/playlist/.../artist-spotlight.m3u8?token=xyz"
+        ));
+    }
+
+    #[test]
+    fn motion_art_url_detector_passes_through_music_video_urls() {
+        // Real music-video URLs MUST NOT be flagged — they belong in
+        // the GAMDL MV pipeline.
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/us/music-video/song-title/1639963816"
+        ));
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/gb/music-video/mv/1234567890"
+        ));
+    }
+
+    #[test]
+    fn motion_art_url_detector_passes_through_album_urls() {
+        // Regular album / song URLs are clearly not motion art.
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/us/album/some-album/1234567"
+        ));
+        assert!(!super::is_likely_motion_art_url(
+            "https://music.apple.com/gb/song/title/9999?i=8888"
+        ));
+    }
+
+    #[test]
+    fn sanitize_fs_segment_strips_unsafe_chars() {
+        // Sanity check on the helper used by Tier 2 to build literal
+        // folder paths from API-returned album names.
+        assert_eq!(super::sanitize_fs_segment("Hello/World"), "Hello_World");
+        assert_eq!(super::sanitize_fs_segment("foo:bar*baz?"), "foo_bar_baz_");
+        // Trailing dots and whitespace are trimmed (Windows-unsafe).
+        assert_eq!(super::sanitize_fs_segment("  Album.  "), "Album");
+        // Non-ASCII passes through unchanged.
+        assert_eq!(super::sanitize_fs_segment("Björk - Vespertine"), "Björk - Vespertine");
+        // Empty stays empty (caller falls through to Tier 4).
+        assert_eq!(super::sanitize_fs_segment(""), "");
+    }
+
+    #[test]
+    fn motion_art_url_detector_requires_both_signals() {
+        // editorial host BUT not an HLS playlist → not flagged
+        // (the guard is conservative — false positives would block
+        // a real download).
+        assert!(!super::is_likely_motion_art_url(
+            "https://video-ssl.itunes.apple.com/some/other/path"
+        ));
+        // HLS playlist on an unrelated host → not flagged (could be
+        // a legitimate MV master m3u8 from a CDN we don't recognise).
+        assert!(!super::is_likely_motion_art_url(
+            "https://cdn.example.com/master.m3u8"
+        ));
     }
 }

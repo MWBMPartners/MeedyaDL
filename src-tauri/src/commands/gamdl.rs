@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // GAMDL download execution IPC commands.
@@ -190,12 +190,117 @@ pub async fn start_download(
         .collect();
 
     // Log when normalization occurs so the user sees what happened.
+    // Two distinct rewrites can fire inside `normalize_apple_music_url`:
+    //   - iTunes-host rewrite (#568): `itunes.apple.com` → `music.apple.com`
+    //     plus stripping the legacy `id` prefix from numeric IDs.
+    //   - Storefront injection: missing `/<storefront>/` segment filled in
+    //     from the OS locale (or `us` as a last-resort default).
+    // Both can apply to the same URL (e.g. a non-geographic iTunes URL
+    // gets host-rewritten AND storefront-injected). Detect each
+    // contribution by host comparison so the user-facing log line is
+    // accurate, not just the generic "storefront auto-detected" we used
+    // to emit for every change.
     for (original, normalized) in original_urls.iter().zip(request.urls.iter()) {
         if original != normalized {
-            log::info!("Normalized non-geographic URL: {original} → {normalized}");
+            let was_itunes_rewrite = original.contains("itunes.apple.com")
+                && !normalized.contains("itunes.apple.com");
+            let message = if was_itunes_rewrite {
+                format!(
+                    "Legacy iTunes URL rewritten to music.apple.com (GAMDL doesn't accept itunes.apple.com): {normalized}"
+                )
+            } else {
+                format!("URL normalized — storefront auto-detected: {normalized}")
+            };
+            log::info!("Normalized URL: {original} → {normalized}");
+            emit_app_log(&app, &message);
+        }
+    }
+
+    // URL audit diagnostics (#546/#547/#548/#549 — part of the #487
+    // umbrella). Classify each URL and emit one log line per matching
+    // class so downstream filename-path behaviour can be correlated with
+    // the URL class without replaying the download. Per-URL (not batched)
+    // so each offending URL lands as its own activity-log entry in
+    // timestamp order. All four classes are orthogonal except library,
+    // which is skipped by the #549 catch-all (library URLs already have
+    // their own #546 trace).
+    //
+    // - #546: `/library/` URLs pass through to GAMDL unchanged; no
+    //   MeedyaDL storefront injection, prefetch, or Tier 4 safety net.
+    // - #547: `classical.apple.com` URLs ride the same templates as
+    //   `music.apple.com` — movement-title collisions are the risk.
+    // - #548: `itunes.apple.com` URLs parse cleanly after the regex gap
+    //   fix, but GAMDL's own URL regex compatibility is unverified — WARN.
+    // - #549: host-allowed URLs that fail `parse_apple_music_url` after
+    //   normalisation (uploaded / post videos and any novel path) — WARN.
+    for url in &request.urls {
+        let is_library = url.contains("/library/");
+
+        if is_library {
+            log::info!("Library URL passed through to GAMDL (#546): {url}");
             emit_app_log(
                 &app,
-                &format!("URL normalized — storefront auto-detected: {normalized}"),
+                &format!(
+                    "Library URL detected (#546) — passed through to GAMDL unchanged; no MeedyaDL filename safety net applies: {url}"
+                ),
+            );
+        }
+
+        if url.contains("itunes.apple.com") {
+            // #568 added an iTunes-host rewrite to `normalize_apple_music_url`
+            // that runs BEFORE this audit pass — recognised iTunes URL
+            // shapes (album / song / music-video / artist / playlist) get
+            // rewritten to music.apple.com. So if we still see an
+            // itunes.apple.com URL here, it didn't match any of those
+            // shapes (e.g. a `/lookup`-style URL or a novel path the
+            // rewrite alternation doesn't cover yet). GAMDL will reject
+            // it; warn the user so they can convert manually.
+            log::warn!(
+                "iTunes URL didn't match the rewrite alternation (#568 / #548) — GAMDL will reject: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "iTunes URL detected but couldn't be auto-rewritten — please copy the music.apple.com link instead: {url}"
+                ),
+            );
+        }
+
+        if url.contains("classical.apple.com") {
+            log::info!("Classical URL routed through shared Apple Music pipeline (#547): {url}");
+            emit_app_log(
+                &app,
+                &format!(
+                    "Classical URL detected (#547) — same templates as music.apple.com; watch for movement-title collisions: {url}"
+                ),
+            );
+        }
+
+        if !is_library
+            && crate::services::apple_music_api::parse_apple_music_url(url).is_none()
+        {
+            // Two known shapes land here:
+            //   1. Uploaded videos (`downloader_uploaded_video.py` route in
+            //      GAMDL — label/artist-uploaded backstage clips, live
+            //      sessions, interviews). URL pattern is undocumented but
+            //      GAMDL has full handling. Decision per #549: accept the
+            //      URL, let GAMDL handle it, but warn the user that the
+            //      MeedyaDL prefetch + Tier 4 MV safety net don't apply.
+            //      Wiring for proper MV-safe routing is deferred to a
+            //      follow-up once a concrete test URL is available.
+            //   2. Genuinely novel paths (Apple may add new shapes).
+            //
+            // We can't tell the two apart from the URL alone, so the
+            // message names uploaded videos as the most common case and
+            // leaves the door open for others.
+            log::warn!(
+                "Unrecognised Apple Music URL shape (#549) — passed to GAMDL without MeedyaDL prefetch or safety net: {url}"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Unrecognised Apple Music URL (#549) — likely an uploaded-video, post, or novel path. GAMDL will try to handle it but MeedyaDL's metadata prefetch and music-video filename safety net don't apply; same-title collisions are possible: {url}"
+                ),
             );
         }
     }
@@ -213,6 +318,95 @@ pub async fn start_download(
         }
     };
 
+    // Batch cross-URL dedup (#513). When the user pastes multiple URLs
+    // in one request (e.g. an album + a playlist that overlap), walk
+    // every album/playlist URL's track list and apply a source-priority
+    // filter (song > album > playlist) so any given track is claimed by
+    // exactly one URL. URLs that end up winning nothing are dropped from
+    // the request; URLs that partially win are rewritten to per-track
+    // URLs. Song/artist/video URLs pass through unchanged.
+    //
+    // Runs BEFORE the single-URL album and playlist planners (#512 /
+    // #514) so the later planners see the already-trimmed URL list.
+    if !matches!(
+        settings.duplicate_detection.scope,
+        crate::models::settings::DuplicateDetectionScope::Off
+    ) && request.urls.len() > 1
+    {
+        let queued_keys = {
+            let snapshot = {
+                let q = queue.lock().await;
+                q.get_status()
+            };
+            crate::services::duplicate_detector::collect_queued_keys(
+                &snapshot,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            )
+        };
+        let history_keys = crate::services::duplicate_detector::collect_history_keys(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+        );
+        if let Some(batch_plan) =
+            crate::services::duplicate_detector::plan_batch_deduplication(
+                &app,
+                &request.urls,
+                &settings,
+                &queued_keys,
+                &history_keys,
+            )
+            .await
+        {
+            for line in &batch_plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if batch_plan.skipped_count > 0 || batch_plan.dropped_url_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Batch dedup: {} track(s) skipped, {} URL(s) dropped",
+                        batch_plan.skipped_count, batch_plan.dropped_url_count
+                    ),
+                );
+            }
+
+            // Apply the per-URL actions, preserving original paste order.
+            let mut new_urls: Vec<String> = Vec::with_capacity(request.urls.len());
+            for (i, action) in batch_plan.per_url.iter().enumerate() {
+                match action {
+                    crate::services::duplicate_detector::BatchUrlAction::KeepOriginal => {
+                        if let Some(u) = request.urls.get(i) {
+                            new_urls.push(u.clone());
+                        }
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Replace(urls) => {
+                        new_urls.extend(urls.iter().cloned());
+                    }
+                    crate::services::duplicate_detector::BatchUrlAction::Drop => {
+                        // Skip entirely.
+                    }
+                }
+            }
+
+            if new_urls.is_empty() {
+                emit_app_log(
+                    &app,
+                    "Nothing queued — every track across the batch is already downloaded or queued",
+                );
+                return Ok(StartDownloadResult {
+                    download_id: String::new(),
+                    duplicate_warning: Some(
+                        "Every track in this batch is already downloaded or queued"
+                            .to_string(),
+                    ),
+                });
+            }
+            request.urls = new_urls;
+        }
+    }
+
     // Multi-select artist auto-select: if the URL is an artist URL and
     // multiple modes are configured, split into N separate downloads (one
     // per mode). GAMDL only accepts a single --artist-auto-select value,
@@ -225,6 +419,81 @@ pub async fn start_download(
         let urls_display = request.urls.join(", ");
         let mut first_id = String::new();
 
+        // Pre-queue duplicate detection (#510). When enabled, we fetch each
+        // mode's albums/tracks via the Apple Music catalog API and rewrite
+        // per-mode URL lists so that a song appearing in multiple modes
+        // (e.g. on an album AND a compilation) is only downloaded once at
+        // the preferred mode. Companion-format downloads are unaffected.
+        //
+        // Only runs for the first artist URL in the request — batch pastes
+        // of multiple artist URLs fall through with per-mode dedup skipped
+        // for the secondary URLs (rare case; keeps the code bounded).
+        let dedup_plan = if crate::services::duplicate_detector::dedup_enabled_for(
+            &settings.duplicate_detection,
+            artist_modes,
+        ) {
+            let first_artist_url = request
+                .urls
+                .iter()
+                .find(|u| u.contains("/artist/"))
+                .cloned()
+                .unwrap_or_default();
+            let parsed = crate::services::apple_music_api::parse_apple_music_url(&first_artist_url);
+            if let Some(parsed) = parsed.filter(|p| p.content_type == "artist") {
+                // Collect queue / history keys per the configured scope.
+                let queued_keys = {
+                    let snapshot = {
+                        let q = queue.lock().await;
+                        q.get_status()
+                    };
+                    crate::services::duplicate_detector::collect_queued_keys(
+                        &snapshot,
+                        settings.duplicate_detection.scope,
+                        settings.duplicate_detection.key_strategy,
+                    )
+                };
+                let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                    &settings.output_path,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                );
+                emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
+                crate::services::duplicate_detector::plan_artist_deduplication(
+                    &app,
+                    &parsed,
+                    &first_artist_url,
+                    artist_modes,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Emit per-skipped-track activity log lines. Done before the enqueue
+        // block so the log messages appear in chronological order relative
+        // to the queue entries that follow.
+        if let Some(plan) = &dedup_plan {
+            for line in &plan.activity_lines {
+                emit_app_log(&app, line);
+            }
+            if plan.skipped_count > 0 {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Duplicate detection: {} track(s) skipped across {} mode(s)",
+                        plan.skipped_count,
+                        artist_modes.len()
+                    ),
+                );
+            }
+        }
+
         {
             let mut q = queue.lock().await;
             for (i, mode) in artist_modes.iter().enumerate() {
@@ -233,21 +502,117 @@ pub async fn start_download(
                 let overrides = split_request.options.get_or_insert_with(Default::default);
                 overrides.artist_auto_select = Some(mode.clone());
 
+                // Apply the dedup plan for this mode, if any.
+                if let Some(plan) = &dedup_plan {
+                    let mode_plan = plan
+                        .per_mode
+                        .iter()
+                        .find(|(m, _)| m == mode)
+                        .map(|(_, p)| p);
+                    match mode_plan {
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::SkipEntirely,
+                        ) => {
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Skipping artist mode {} — every track is a duplicate",
+                                    mode.display_name()
+                                ),
+                            );
+                            continue;
+                        }
+                        Some(crate::services::duplicate_detector::ModePlan::TrackUrls(
+                            urls,
+                        )) => {
+                            // Replace the artist URL with explicit per-track
+                            // URLs; GAMDL will download each as a single
+                            // track. Drop --artist-auto-select because it's
+                            // meaningless for non-artist URLs.
+                            split_request.urls = urls.clone();
+                            let overrides = split_request
+                                .options
+                                .get_or_insert_with(Default::default);
+                            overrides.artist_auto_select = None;
+                        }
+                        Some(
+                            crate::services::duplicate_detector::ModePlan::FallbackToArtistUrl,
+                        )
+                        | None => {
+                            // Keep the original artist URL + mode override.
+                        }
+                    }
+                }
+
+                if q.has_duplicate_urls(&split_request.urls) {
+                    crate::services::history_service::remove_entries_for_urls(
+                        &app,
+                        &split_request.urls,
+                    );
+                    let bulleted = split_request
+                        .urls
+                        .iter()
+                        .map(|u| format!("  • {u}"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    emit_app_log(
+                        &app,
+                        &format!("Skipped duplicate queued URL(s):\n{bulleted}"),
+                    );
+                    continue;
+                }
+
+                let queued_urls = split_request.urls.clone();
                 let download_id = q.enqueue(split_request, &settings);
+                crate::services::history_service::remove_entries_for_urls(&app, &queued_urls);
                 log::info!(
                     "Download {download_id} queued (artist mode: {})",
                     mode.to_cli_string()
                 );
-                if i == 0 {
+                if i == 0 || first_id.is_empty() {
                     first_id = download_id;
                 }
             }
         }
 
+        if first_id.is_empty() {
+            // Every mode was SkipEntirely — report this to the caller as a
+            // no-op success with a warning. The frontend will show the
+            // duplicate_warning toast and the user sees the activity log.
+            let urls_bulleted = if urls_display.contains(", ") {
+                urls_display
+                    .split(", ")
+                    .map(|u| format!("  • {u}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                format!("  • {urls_display}")
+            };
+            emit_app_log(
+                &app,
+                &format!(
+                    "Nothing queued — every track is already downloaded or queued:\n{urls_bulleted}"
+                ),
+            );
+            return Ok(StartDownloadResult {
+                download_id: String::new(),
+                duplicate_warning: Some(
+                    "All tracks from this artist URL were duplicates and were not re-queued"
+                        .to_string(),
+                ),
+            });
+        }
+
+        let queued_bulleted = request
+            .urls
+            .iter()
+            .map(|u| format!("  • {u}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         emit_app_log(
             &app,
             &format!(
-                "Queued: {urls_display} ({} artist modes)",
+                "Queued ({} artist modes):\n{queued_bulleted}",
                 artist_modes.len()
             ),
         );
@@ -269,10 +634,9 @@ pub async fn start_download(
     }
 
     // Single-mode path: standard enqueue (also handles single artist_auto_select_multi)
-    let urls_display = request.urls.join(", ");
 
     // If exactly one multi-mode is set and it's an artist URL, apply it as an override
-    let request = if is_artist_url && artist_modes.len() == 1 {
+    let mut request = if is_artist_url && artist_modes.len() == 1 {
         let mut req = request;
         let overrides = req.options.get_or_insert_with(Default::default);
         if overrides.artist_auto_select.is_none() {
@@ -283,16 +647,239 @@ pub async fn start_download(
         request
     };
 
+    // Playlist dedup (#512). When a catalog playlist URL is queued, fetch
+    // its tracks via the Apple Music API and filter out any that match
+    // song_ids / ISRCs already present in the queue or the download
+    // history (per the configured scope). Single-URL requests only —
+    // batch pastes go through the more general cross-URL dedup in #513.
+    //
+    // Like the artist planner, companion-format downloads for the winning
+    // tracks are unaffected (dedup operates on track identity, not codec).
+    let playlist_warning: Option<String> = if request.urls.len() == 1
+        && !matches!(
+            settings.duplicate_detection.scope,
+            crate::models::settings::DuplicateDetectionScope::Off
+        ) {
+        let single_url = request.urls[0].clone();
+        let parsed = crate::services::apple_music_api::parse_apple_music_url(&single_url);
+        let is_playlist = parsed
+            .as_ref()
+            .is_some_and(|p| p.content_type == "playlist");
+        if is_playlist {
+            let parsed = parsed.unwrap();
+            let queued_keys = {
+                let snapshot = {
+                    let q = queue.lock().await;
+                    q.get_status()
+                };
+                crate::services::duplicate_detector::collect_queued_keys(
+                    &snapshot,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                )
+            };
+            let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            );
+            emit_app_log(&app, "Checking playlist for duplicate tracks...");
+            let plan = crate::services::duplicate_detector::plan_playlist_deduplication(
+                &app,
+                &parsed,
+                &settings,
+                &queued_keys,
+                &history_keys,
+            )
+            .await;
+
+            if let Some(plan) = plan {
+                for line in &plan.activity_lines {
+                    emit_app_log(&app, line);
+                }
+                match plan.plan {
+                    crate::services::duplicate_detector::PlaylistPlan::TrackUrls(urls) => {
+                        request.urls = urls;
+                        emit_app_log(
+                            &app,
+                            &format!(
+                                "Playlist dedup: kept {} track(s), skipped {}",
+                                plan.kept_count, plan.skipped_count
+                            ),
+                        );
+                        None
+                    }
+                    crate::services::duplicate_detector::PlaylistPlan::SkipEntirely => {
+                        emit_app_log(
+                            &app,
+                            "Nothing queued — every track in the playlist is already downloaded or queued",
+                        );
+                        return Ok(StartDownloadResult {
+                            download_id: String::new(),
+                            duplicate_warning: Some(
+                                "All tracks from this playlist were duplicates and were not re-queued"
+                                    .to_string(),
+                            ),
+                        });
+                    }
+                    crate::services::duplicate_detector::PlaylistPlan::FallbackToPlaylistUrl => {
+                        // No changes to request.urls — GAMDL will handle the full playlist.
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let _ = playlist_warning; // reserved for future UI surfacing
+
+    // Album URL vs history/queue dedup (#514). Covers the "I already
+    // downloaded the standard edition, then queued the deluxe edition"
+    // case — the bonus tracks get enqueued, the rest are skipped.
+    // Only runs for single-URL requests (batch pastes go through #513).
+    // Album URLs with `?i=song_id` (single-song selectors) are passed
+    // through unchanged.
+    let album_warning: Option<String> = if request.urls.len() == 1
+        && !matches!(
+            settings.duplicate_detection.scope,
+            crate::models::settings::DuplicateDetectionScope::Off
+        ) {
+        let single_url = request.urls[0].clone();
+        let parsed = crate::services::apple_music_api::parse_apple_music_url(&single_url);
+        let is_album_without_song_selector = parsed
+            .as_ref()
+            .is_some_and(|p| p.content_type == "album" && p.song_id.is_none());
+        if is_album_without_song_selector {
+            let parsed = parsed.unwrap();
+            let queued_keys = {
+                let snapshot = {
+                    let q = queue.lock().await;
+                    q.get_status()
+                };
+                crate::services::duplicate_detector::collect_queued_keys(
+                    &snapshot,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                )
+            };
+            let history_keys = crate::services::duplicate_detector::collect_history_keys(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
+            );
+            // Short-circuit the expensive catalog fetch if there's
+            // literally nothing to compare against.
+            if queued_keys.is_empty() && history_keys.is_empty() {
+                None
+            } else {
+                emit_app_log(
+                    &app,
+                    "Checking album against already-queued and previously downloaded tracks...",
+                );
+                let plan = crate::services::duplicate_detector::plan_album_deduplication(
+                    &app,
+                    &parsed,
+                    &settings,
+                    &queued_keys,
+                    &history_keys,
+                )
+                .await;
+                if let Some(plan) = plan {
+                    for line in &plan.activity_lines {
+                        emit_app_log(&app, line);
+                    }
+                    match plan.plan {
+                        crate::services::duplicate_detector::AlbumPlan::TrackUrls(urls) => {
+                            request.urls = urls;
+                            emit_app_log(
+                                &app,
+                                &format!(
+                                    "Album dedup: kept {} new track(s), skipped {}",
+                                    plan.kept_count, plan.skipped_count
+                                ),
+                            );
+                            None
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::SkipEntirely => {
+                            emit_app_log(
+                                &app,
+                                "Nothing queued — every track in this album is already downloaded or queued",
+                            );
+                            return Ok(StartDownloadResult {
+                                download_id: String::new(),
+                                duplicate_warning: Some(
+                                    "Every track in this album is already downloaded or queued. Change scope in Settings > Quality > Duplicate Detection to download anyway."
+                                        .to_string(),
+                                ),
+                            });
+                        }
+                        crate::services::duplicate_detector::AlbumPlan::FallbackToAlbumUrl => {
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let _ = album_warning; // reserved for future UI surfacing
+
     // Acquire the queue lock and enqueue the download. The lock is scoped
     // to this block to release it before the async process_queue() call,
     // avoiding potential deadlocks.
+    let submitted_urls = request.urls.clone();
+    let filtered_urls = {
+        let q = queue.lock().await;
+        q.filter_out_active_duplicate_urls(&request.urls)
+    };
+    if filtered_urls.is_empty() {
+        crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
+        let urls_bulleted = submitted_urls
+            .iter()
+            .map(|u| format!("  • {u}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        emit_app_log(
+            &app,
+            &format!("Nothing queued — already in Queue:\n{urls_bulleted}"),
+        );
+        return Ok(StartDownloadResult {
+            download_id: String::new(),
+            duplicate_warning: Some("This URL is already in the queue".to_string()),
+        });
+    }
+    if filtered_urls.len() != request.urls.len() {
+        let skipped = request.urls.len() - filtered_urls.len();
+        emit_app_log(
+            &app,
+            &format!("Skipped {skipped} duplicate queued URL(s) from request"),
+        );
+        request.urls = filtered_urls;
+    }
+
     let download_id = {
         let mut q = queue.lock().await;
         q.enqueue(request, &settings)
     };
+    crate::services::history_service::remove_entries_for_urls(&app, &submitted_urls);
 
     log::info!("Download {download_id} queued");
-    emit_app_log(&app, &format!("Queued: {urls_display}"));
+    let queued_bulleted = submitted_urls
+        .iter()
+        .map(|u| format!("  • {u}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    emit_app_log(&app, &format!("Queued:\n{queued_bulleted}"));
 
     // Persist the updated queue to disk for crash recovery.
     // This ensures the new item survives an unexpected app close/crash.
@@ -380,6 +967,111 @@ pub async fn cancel_download(
     }
 }
 
+// ============================================================
+// Queue reorder commands (#782)
+// ============================================================
+//
+// Four IPC entry points lets the frontend reorder Queued items live,
+// while other items are still processing. All four:
+//
+//   - Acquire the queue Mutex (so they cannot interleave with
+//     `next_pending` or any other queue mutation).
+//   - Call the matching `DownloadQueue` method.
+//   - On a non-no-op move, persist the queue to disk + emit
+//     `queue-updated` so the frontend re-fetches.
+//   - Emit a `[System]` activity-log entry naming the item and the
+//     direction so reorders are traceable.
+//
+// `Ok(true)` means the queue mutated; `Ok(false)` means the move was
+// a no-op (item missing, not Queued, or already at the requested
+// position). Errors are reserved for queue-lock failures.
+
+async fn run_queue_move(
+    app: &AppHandle,
+    queue: &State<'_, QueueHandle>,
+    download_id: &str,
+    direction_label: &'static str,
+    op: impl FnOnce(&mut crate::services::download_queue::DownloadQueue) -> bool,
+) -> Result<bool, String> {
+    let (moved, label) = {
+        let mut q = queue.lock().await;
+        let moved = op(&mut q);
+        // Capture a friendly label while we still hold the lock so
+        // the activity-log entry says "Black Velvet" not just an ID.
+        let label = q
+            .friendly_label(download_id)
+            .unwrap_or_else(|| download_id.to_string());
+        (moved, label)
+    };
+
+    if moved {
+        let queue_handle = queue.inner().clone();
+        crate::services::download_queue::save_queue_to_disk(app, &queue_handle).await;
+        let _ = app.emit("queue-updated", ());
+        emit_app_log(app, &format!("Reordered: {direction_label} — \"{label}\""));
+    }
+
+    Ok(moved)
+}
+
+/// Move a `Queued` item to the top of the pending sub-sequence.
+/// Returns `true` when the queue changed, `false` when it was a no-op
+/// (item not found, not Queued, or already at the top).
+#[tauri::command]
+pub async fn move_queue_item_to_top(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-to-top requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move to top", |q| {
+        q.move_to_top(&download_id)
+    })
+    .await
+}
+
+/// Move a `Queued` item to the bottom of the pending sub-sequence.
+#[tauri::command]
+pub async fn move_queue_item_to_bottom(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-to-bottom requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move to bottom", |q| {
+        q.move_to_bottom(&download_id)
+    })
+    .await
+}
+
+/// Swap a `Queued` item with the `Queued` item immediately above it.
+#[tauri::command]
+pub async fn move_queue_item_up(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-up requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move up", |q| {
+        q.move_up(&download_id)
+    })
+    .await
+}
+
+/// Swap a `Queued` item with the `Queued` item immediately below it.
+#[tauri::command]
+pub async fn move_queue_item_down(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<bool, String> {
+    log::debug!("Queue move-down requested for {download_id}");
+    run_queue_move(&app, &queue, &download_id, "move down", |q| {
+        q.move_down(&download_id)
+    })
+    .await
+}
+
 /// Retries a failed or cancelled download.
 ///
 /// **Frontend caller:** `retryDownload(downloadId)` in `src/lib/tauri-commands.ts`
@@ -416,15 +1108,54 @@ pub async fn retry_download(
     // (e.g., switching from AAC to ALAC after a failed attempt).
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
 
+    // Smart retry preview (#667). Peek at what the planner would produce
+    // BEFORE mutating queue state, so a "nothing to retry — every track
+    // is already on disk" outcome surfaces as a friendly Err message
+    // instead of the generic `cannot be retried`. The peek is read-only
+    // and doesn't change item state.
+    let smart_preview = {
+        let q = queue.lock().await;
+        q.peek_smart_retry_outcome(&download_id)
+    };
+    if let Some(crate::services::smart_retry_planner::PlanOutcome::AllPresent {
+        total_tracks,
+    }) = smart_preview
+    {
+        emit_app_log(
+            &app,
+            &format!(
+                "Retry refused for [{}]: every track ({total_tracks}) is already \
+                 on disk — manifest diff found nothing to re-fetch",
+                &download_id[..8.min(download_id.len())],
+            ),
+        );
+        return Err(format!(
+            "Nothing to retry — all {total_tracks} track(s) are already on disk. \
+             If something changed (e.g. Apple released a new mix), use Settings > \
+             General > Smart Re-Download Detection."
+        ));
+    }
+
     // Attempt to reset the download item to Queued state.
     // q.retry() returns true only if the item exists and is in a retryable state
     // (Failed or Cancelled).
+    let retry_urls = {
+        let q = queue.lock().await;
+        q.get_status()
+            .into_iter()
+            .find(|item| item.id == download_id)
+            .map(|item| item.urls)
+            .unwrap_or_default()
+    };
+
     let retried = {
         let mut q = queue.lock().await;
         q.retry(&download_id, &settings)
     };
 
     if retried {
+        crate::services::history_service::remove_entries_for_urls(&app, &retry_urls);
+
         // Persist the updated queue (retried item now Queued again)
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
@@ -441,6 +1172,198 @@ pub async fn retry_download(
     } else {
         Err(format!("Download {download_id} cannot be retried"))
     }
+}
+
+/// Bulk re-queue every failed download in one IPC round-trip (#835).
+///
+/// The pre-#835 "Retry All Failed" flow called `retry_download` once
+/// per item from the frontend. Each call acquired the queue mutex 3
+/// times, peeked the smart-retry planner (manifest file I/O), removed
+/// history entries (history.json I/O), persisted the queue to disk
+/// (queue.json I/O), emitted a `download-queued` event, and kicked
+/// `process_queue` (which acquires the mutex again). With 29 failed
+/// items that's ~90 mutex acquisitions, 29 queue.json writes, 29
+/// history-rewrite passes, and 29 process_queue invocations — most
+/// of which were redundant because the queue worker only needs to
+/// see the new state ONCE.
+///
+/// Result: user reported "Retry All" was unresponsive for several
+/// minutes on a 29-item batch.
+///
+/// This handler does the same per-item work (smart-retry peek,
+/// history cleanup, state transition) but **batches the persist /
+/// process_queue / event handling**:
+///   - Settings loaded once.
+///   - Smart-retry peek per item under a single read-lock window.
+///   - State transitions under a single write-lock window.
+///   - History entries removed once at the end.
+///   - Queue persisted to disk once.
+///   - `download-queued` events fired per-item so the frontend can
+///     re-render each row, plus a single `queue-bulk-retried` event
+///     with the full id list for UIs that want a batch hook.
+///   - `process_queue` called once.
+///
+/// Items that can't be retried (smart-retry says "all tracks already
+/// on disk", or item isn't in `Error` state any more) are reported
+/// individually in the returned `BulkRetryReport` so the frontend
+/// can show a precise "X re-queued, Y skipped (reason)" summary.
+///
+/// **Frontend caller:** `retryFailedBulk(ids)` in `src/lib/tauri-commands.ts`.
+///
+/// # Returns
+/// `BulkRetryReport` with per-item success/failure counts and a list
+/// of skip reasons. Always `Ok(...)` at the IPC boundary — per-item
+/// errors are aggregated in the report, not propagated as IPC failures
+/// (one bad ID shouldn't abort the whole batch from the frontend's
+/// perspective).
+#[derive(Debug, serde::Serialize)]
+pub struct BulkRetrySkipped {
+    pub id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct BulkRetryReport {
+    pub requested: usize,
+    pub retried: usize,
+    pub skipped: Vec<BulkRetrySkipped>,
+}
+
+#[tauri::command]
+pub async fn retry_failed_bulk(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_ids: Vec<String>,
+) -> Result<BulkRetryReport, String> {
+    let requested = download_ids.len();
+    log::info!("Bulk retry requested for {requested} download(s)");
+
+    if download_ids.is_empty() {
+        return Ok(BulkRetryReport {
+            requested: 0,
+            retried: 0,
+            skipped: Vec::new(),
+        });
+    }
+
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+
+    // Pre-pass: collect URLs + smart-retry peek for every requested
+    // id under a single read-lock window. Items the planner says
+    // "all tracks already on disk" are skipped here BEFORE we take
+    // the write-lock — keeps the write-lock window minimal and lets
+    // us report skips with precise reasons.
+    let mut skipped: Vec<BulkRetrySkipped> = Vec::new();
+    let mut retry_candidates: Vec<(String, Vec<String>)> = Vec::new();
+    {
+        let q = queue.lock().await;
+        let statuses: std::collections::HashMap<String, Vec<String>> = q
+            .get_status()
+            .into_iter()
+            .map(|s| (s.id, s.urls))
+            .collect();
+        for id in &download_ids {
+            let urls = match statuses.get(id) {
+                Some(urls) => urls.clone(),
+                None => {
+                    skipped.push(BulkRetrySkipped {
+                        id: id.clone(),
+                        reason: "Item not found in queue".to_string(),
+                    });
+                    continue;
+                }
+            };
+            // Smart-retry peek — same call `retry_download` makes per-item.
+            if let Some(crate::services::smart_retry_planner::PlanOutcome::AllPresent {
+                total_tracks,
+            }) = q.peek_smart_retry_outcome(id)
+            {
+                skipped.push(BulkRetrySkipped {
+                    id: id.clone(),
+                    reason: format!(
+                        "All {total_tracks} track(s) already on disk — nothing to re-fetch"
+                    ),
+                });
+                continue;
+            }
+            retry_candidates.push((id.clone(), urls));
+        }
+    }
+
+    // Single write-lock window for every state transition. Massively
+    // reduces lock contention vs the per-item handler — the worst
+    // case is N retries inside one mutex acquisition rather than
+    // 3N acquisitions interleaved with file I/O.
+    let mut retried_ids: Vec<String> = Vec::new();
+    {
+        let mut q = queue.lock().await;
+        for (id, _urls) in &retry_candidates {
+            if q.retry(id, &settings) {
+                retried_ids.push(id.clone());
+            } else {
+                skipped.push(BulkRetrySkipped {
+                    id: id.clone(),
+                    reason: "Item is not in a retryable state".to_string(),
+                });
+            }
+        }
+    }
+
+    // History cleanup batched. The per-URL pass is cheap (in-memory
+    // hash-set lookup over the URLs we want to clear) but the
+    // history.json rewrite at the end is what saves real time on
+    // big batches.
+    let all_urls: Vec<String> = retry_candidates
+        .iter()
+        .filter(|(id, _)| retried_ids.contains(id))
+        .flat_map(|(_, urls)| urls.iter().cloned())
+        .collect();
+    if !all_urls.is_empty() {
+        crate::services::history_service::remove_entries_for_urls(&app, &all_urls);
+    }
+
+    // Single disk persist. The queue's 500-ms debounce (#456) would
+    // collapse rapid per-item writes anyway, but a single explicit
+    // save here makes the latency predictable and the on-disk state
+    // unambiguous if the process crashes mid-batch.
+    let queue_handle = queue.inner().clone();
+    if !retried_ids.is_empty() {
+        download_queue::save_queue_to_disk(&app, &queue_handle).await;
+    }
+
+    // Per-item `download-queued` events so existing frontend listeners
+    // (the queue store's `onQueued` reducer) still see each row's
+    // re-queue. Plus one summary line in the activity log instead of
+    // 29 individual "Retrying download [id]" lines.
+    for id in &retried_ids {
+        let _ = app.emit("download-queued", id);
+    }
+    if !retried_ids.is_empty() {
+        emit_app_log(
+            &app,
+            &format!(
+                "Bulk retry: re-queued {} item(s){}",
+                retried_ids.len(),
+                if skipped.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({} skipped)", skipped.len())
+                }
+            ),
+        );
+    }
+
+    // One process_queue kick. The cascade will pick up every newly-
+    // Queued item naturally; no need to invoke it per-item.
+    if settings.auto_start_queue && !retried_ids.is_empty() {
+        download_queue::process_queue(app, queue_handle).await;
+    }
+
+    Ok(BulkRetryReport {
+        requested,
+        retried: retried_ids.len(),
+        skipped,
+    })
 }
 
 /// Retries a failed download with wrapper authentication disabled.
@@ -480,12 +1403,23 @@ pub async fn retry_download_without_wrapper(
 
     // Attempt to reset the download with wrapper disabled.
     // Returns true only if the item exists, is retryable, and was using wrapper.
+    let retry_urls = {
+        let q = queue.lock().await;
+        q.get_status()
+            .into_iter()
+            .find(|item| item.id == download_id)
+            .map(|item| item.urls)
+            .unwrap_or_default()
+    };
+
     let retried = {
         let mut q = queue.lock().await;
         q.retry_without_wrapper(&download_id, &settings)
     };
 
     if retried {
+        crate::services::history_service::remove_entries_for_urls(&app, &retry_urls);
+
         // Persist the updated queue (retried item now Queued again)
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
@@ -503,6 +1437,58 @@ pub async fn retry_download_without_wrapper(
         Err(format!(
             "Download {download_id} cannot be retried without wrapper (not found, not retryable, or wasn't using wrapper)"
         ))
+    }
+}
+
+/// Removes a single item from the queue by ID (#685).
+///
+/// **Frontend caller:** `deleteQueueItem(downloadId)` in `src/lib/tauri-commands.ts`
+///
+/// Sibling of `cancel_download` (which transitions an active item to
+/// `Cancelled` but keeps the row visible) and `clear_all_queue` (bulk).
+/// This is the per-item destructive removal — typically used to purge a
+/// stubbornly-failing entry from the queue without nuking the rest.
+///
+/// Active items (`Downloading` / `Processing`) are refused — the caller
+/// must `cancel_download` first. The frontend already hides the menu entry
+/// for active rows, so this is defense-in-depth against a context-menu
+/// race (state changed between menu open and click).
+///
+/// # Events Emitted
+/// * `"queue-item-deleted"` — payload: the deleted download ID. The
+///   frontend can listen for this to update lists without a full refetch
+///   (the existing 3 s polling fallback also catches it).
+#[tauri::command]
+pub async fn delete_queue_item(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+    download_id: String,
+) -> Result<(), String> {
+    log::info!("Delete requested for download: {download_id}");
+
+    let result = {
+        let mut q = queue.lock().await;
+        q.delete(&download_id)
+    };
+
+    match result {
+        Ok(true) => {
+            // Persist the updated queue (item removed). Mirrors the
+            // cancel/retry/clear paths so a crash or quit can't resurrect
+            // a deleted row from disk on next startup.
+            let queue_handle = queue.inner().clone();
+            download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+            let short = &download_id[..8.min(download_id.len())];
+            emit_app_log(&app, &format!("Removed queue item [{short}]"));
+
+            // Best-effort frontend notification; the deletion has already
+            // landed regardless of whether the event reaches the UI.
+            let _ = app.emit("queue-item-deleted", &download_id);
+            Ok(())
+        }
+        Ok(false) => Err(format!("Download {download_id} not found")),
+        Err(e) => Err(e),
     }
 }
 
@@ -567,6 +1553,75 @@ pub async fn clear_all_queue(
     }
 
     Ok(removed)
+}
+
+/// Aborts every active and queued download (#620).
+///
+/// **Frontend caller:** `abortAllDownloads()` in `src/lib/tauri-commands.ts`.
+///
+/// Per-item cancellation is a click per queue row and leaves the subprocess
+/// running until the next cancellation poll tick. For a user who wants to
+/// halt a 50-item batch *now*, that's painful. `abort_all_downloads` is the
+/// "stop everything" escape hatch:
+///
+/// 1. Transitions every `Queued` / `Downloading` / `Processing` item to
+///    `Cancelled`.
+/// 2. The already-running cancellation-poll loops on each active task see
+///    the state change on their next tick and kill the subprocess (`Child`
+///    already has `kill_on_drop(true)`), exiting the enrichment / companion
+///    / lyrics pipelines cleanly.
+/// 3. Terminal items (`Complete` / `Cancelled` / `Error`) are untouched so
+///    the user keeps their history.
+/// 4. The updated queue is persisted to disk and a `"downloads-aborted"`
+///    event is emitted carrying the [`AbortSummary`] so the frontend can
+///    show a single summary toast instead of N per-item state changes.
+///
+/// # Arguments
+/// * `app` - Tauri handle for event emission + disk persistence.
+/// * `queue` - Managed download queue state.
+///
+/// # Returns
+/// An [`AbortSummary`] with per-pre-state counts. The frontend uses this to
+/// craft the user-facing toast ("Cancelled 12 queued, stopped 1 downloading").
+///
+/// # Errors
+/// Infallible in practice; `Result` satisfies the Tauri IPC convention.
+///
+/// # Events Emitted
+/// * `"downloads-aborted"` — payload: [`AbortSummary`].
+#[tauri::command]
+pub async fn abort_all_downloads(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<download_queue::AbortSummary, String> {
+    let summary = {
+        let mut q = queue.lock().await;
+        q.abort_all()
+    };
+
+    // Persist the post-abort queue so a crash or accidental quit doesn't
+    // leave behind a stale "Downloading" state that would confuse the
+    // startup recovery path.
+    let queue_handle = queue.inner().clone();
+    download_queue::save_queue_to_disk(&app, &queue_handle).await;
+
+    if summary.total() > 0 {
+        emit_app_log(
+            &app,
+            &format!(
+                "Aborted queue — cancelled {q} queued, stopped {d} downloading, \
+                 stopped {p} processing",
+                q = summary.queued_cancelled,
+                d = summary.downloading_stopped,
+                p = summary.processing_stopped,
+            ),
+        );
+        // Event emission is best-effort; the state change already landed,
+        // so a failed emit is non-critical.
+        let _ = app.emit("downloads-aborted", &summary);
+    }
+
+    Ok(summary)
 }
 
 /// Returns the current status of all items in the download queue.
@@ -1073,8 +2128,7 @@ pub async fn scan_folder_for_manifests(
         folder_path.display()
     );
 
-    let mut results = Vec::new();
-    scan_dir_for_manifests_recursive(&folder_path, &mut results, 0, 10);
+    let results = scan_for_manifests(&folder_path);
 
     log::info!(
         "Found {} manifest(s) in {}",
@@ -1094,98 +2148,169 @@ pub async fn scan_folder_for_manifests(
     Ok(results)
 }
 
-/// Recursively scan directories for manifest files.
-fn scan_dir_for_manifests_recursive(
-    dir: &std::path::Path,
-    results: &mut Vec<ScannedManifest>,
-    depth: u32,
-    max_depth: u32,
-) {
-    if depth > max_depth {
-        return;
+/// Recursively scan a folder for `manifest.meedyadl` (or legacy `.meedyadl`)
+/// files, parse each into a [`ScannedManifest`], and return the collection
+/// for the Library Scan UI.
+///
+/// Migrated to [`walk_dir_depth`] in #716 finding #1 — previously this was a
+/// hand-rolled recursive walker (`scan_dir_for_manifests_recursive`) that
+/// duplicated the depth-limited `read_dir` boilerplate present in 5+ other
+/// callsites. The 10-level depth cap is preserved (matches the documented
+/// max for library scans — see `walk_dir_depth` doc on `max_depth = 10`).
+///
+/// Visitor returns `None` for any entry that isn't a parseable manifest with
+/// at least one source URL — this preserves the original "skip empty-source
+/// manifests entirely" behaviour without introducing a sentinel variant.
+fn scan_for_manifests(base: &std::path::Path) -> Vec<ScannedManifest> {
+    crate::utils::fs_walk::walk_dir_depth(base, 10, parse_manifest_at_path)
+}
+
+/// Visitor for [`scan_for_manifests`]: turns a single filesystem entry into
+/// `Some(ScannedManifest)` if it's a parseable manifest with at least one
+/// source URL, `None` otherwise. Pulled out as a free function so the
+/// closure handed to `walk_dir_depth` stays a one-liner.
+fn parse_manifest_at_path(path: &std::path::Path) -> Option<ScannedManifest> {
+    if !path.is_file() {
+        return None;
+    }
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
+        return None;
     }
 
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
+    let contents = std::fs::read_to_string(path)
+        .inspect_err(|_| log::debug!("Failed to read manifest: {}", path.display()))
+        .ok()?;
 
-    for entry in entries.flatten() {
-        let path = entry.path();
+    let manifest =
+        serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents)
+            .inspect_err(|_| log::debug!("Failed to parse manifest: {}", path.display()))
+            .ok()?;
 
-        if path.is_dir() {
-            scan_dir_for_manifests_recursive(&path, results, depth + 1, max_depth);
-            continue;
-        }
+    let source = manifest.sources.first();
 
-        // Check for manifest.meedyadl or legacy .meedyadl
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+    // Infer artist/album from directory structure:
+    // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
+    let album_dir = path.parent()?;
+    let album_name = album_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(String::from);
+    let artist_name = album_dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .map(String::from);
 
-        if file_name != "manifest.meedyadl" && file_name != ".meedyadl" {
-            continue;
-        }
-
-        // Parse the manifest
-        let Ok(contents) = std::fs::read_to_string(&path) else {
-            log::debug!("Failed to read manifest: {}", path.display());
-            continue;
-        };
-
-        let Ok(manifest) = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents) else {
-            log::debug!("Failed to parse manifest: {}", path.display());
-            continue;
-        };
-
-        // Extract the first (most recent) source
-        let source = manifest.sources.first();
-
-        // Infer artist/album from directory structure:
-        // base/Artist/Album/manifest.meedyadl → parent = Album, grandparent = Artist
-        let album_dir = path.parent().unwrap_or(dir);
-        let album_name = album_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .map(String::from);
-        let artist_name = album_dir
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .map(String::from);
-
-        let urls: Vec<String> = manifest
-            .sources
-            .iter()
-            .map(|s| s.url.clone())
-            .collect();
-
-        if urls.is_empty() {
-            continue;
-        }
-
-        let track_count = source
-            .map(|s| s.tracks.len())
-            .unwrap_or(0);
-
-        // Detect current codec from the first M4A file in the album dir (#380).
-        // Reads the MeedyaMeta:SourceCodec or com.apple.iTunes:isLossless tag.
-        let (current_codec, audio_file_count) = detect_album_codec(album_dir);
-
-        results.push(ScannedManifest {
-            manifest_path: path.to_string_lossy().to_string(),
-            album_dir: album_dir.to_string_lossy().to_string(),
-            urls,
-            platform: source.map(|s| s.platform.clone()),
-            artist: artist_name,
-            album: album_name,
-            downloaded_at: source.map(|s| s.downloaded_at.clone()),
-            track_count,
-            current_codec,
-            audio_file_count,
-            last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
-        });
+    let urls: Vec<String> = manifest.sources.iter().map(|s| s.url.clone()).collect();
+    if urls.is_empty() {
+        return None;
     }
+
+    let track_count = source.map(|s| s.tracks.len()).unwrap_or(0);
+    let (current_codec, audio_file_count) = detect_album_codec(album_dir);
+
+    Some(ScannedManifest {
+        manifest_path: path.to_string_lossy().to_string(),
+        album_dir: album_dir.to_string_lossy().to_string(),
+        urls,
+        platform: source.map(|s| s.platform.clone()),
+        artist: artist_name,
+        album: album_name,
+        downloaded_at: source.map(|s| s.downloaded_at.clone()),
+        track_count,
+        current_codec,
+        audio_file_count,
+        last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
+    })
+}
+
+// ============================================================
+// Legacy sibling-folder merge (#789) — IPC surface
+// ============================================================
+//
+// Three commands wrap the `legacy_folder_merge` service's
+// detect → preview → execute pipeline so the frontend Library
+// Scan UI can offer pre-#528 users a one-shot cleanup.
+//
+// All three are opt-in (user clicks a button); none auto-run on
+// startup. Real on-disk file moves only happen inside
+// `execute_legacy_folder_merge` and only after the user has
+// reviewed the preview.
+
+/// Walk a user-selected folder for sibling pairs that should be
+/// merged (e.g. `Album/` + `Album [Explicit]/`). Defensive — the
+/// service verifies the un-suffixed sibling's `rtng` atom matches
+/// the other sibling's advisory suffix before accepting a pair.
+///
+/// Returns an empty Vec when no pairs are detected — the frontend
+/// shows "no legacy pairs found" rather than a banner.
+#[tauri::command]
+pub async fn detect_legacy_folder_pairs(
+    folder_path: String,
+) -> Result<Vec<crate::services::legacy_folder_merge::SiblingPair>, String> {
+    log::info!("Scanning for legacy sibling-folder pairs at: {folder_path}");
+    let path = std::path::Path::new(&folder_path);
+    if !path.is_dir() {
+        return Err(format!(
+            "Path is not a directory or does not exist: {folder_path}"
+        ));
+    }
+    let pairs = crate::services::legacy_folder_merge::detect_sibling_pairs(path);
+    log::info!("Detected {} legacy sibling-folder pair(s)", pairs.len());
+    Ok(pairs)
+}
+
+/// Dry-run a merge — returns file counts, potential collisions,
+/// and whether manifests will be merged, WITHOUT touching disk.
+/// Powers the confirmation UI before [`execute_legacy_folder_merge`].
+#[tauri::command]
+pub async fn preview_legacy_folder_merge(
+    pair: crate::services::legacy_folder_merge::SiblingPair,
+) -> Result<crate::services::legacy_folder_merge::MergePreview, String> {
+    crate::services::legacy_folder_merge::preview_merge(&pair)
+}
+
+/// Perform the merge. Renames source-folder audio + sidecars to
+/// add the advisory suffix, moves all files into the suffixed
+/// destination via `fs_safe::safe_rename` (auto-disambiguates
+/// collisions), merges `.meedyadl` manifests, and removes the
+/// source folder if empty after.
+///
+/// Returns a structured report the UI can surface ("moved N audio,
+/// M sidecars, K disambiguated, manifest merged"). Non-fatal
+/// warnings are in `report.warnings`.
+#[tauri::command]
+pub async fn execute_legacy_folder_merge(
+    app: AppHandle,
+    pair: crate::services::legacy_folder_merge::SiblingPair,
+) -> Result<crate::services::legacy_folder_merge::MergeReport, String> {
+    log::info!(
+        "Executing legacy folder merge: {} + {}",
+        pair.unsuffixed_path.display(),
+        pair.suffixed_path.display()
+    );
+    let report = crate::services::legacy_folder_merge::execute_merge(&pair)?;
+
+    // Surface a brief summary in the in-app activity log so the
+    // user has a paper trail outside the modal.
+    let summary = format!(
+        "Legacy folder merge: \"{}\" — moved {} audio + {} sidecars + {} other ({} disambiguated, manifest {}, source folder {})",
+        report.pair.album_basename,
+        report.audio_moved,
+        report.sidecars_moved,
+        report.other_moved,
+        report.collisions_disambiguated.len(),
+        if report.manifest_merged { "merged" } else { "skipped" },
+        if report.source_folder_removed { "removed" } else { "left in place" },
+    );
+    emit_app_log(&app, &summary);
+    for w in &report.warnings {
+        log::warn!("Legacy folder merge warning: {w}");
+        emit_app_log(&app, &format!("Legacy folder merge: {w}"));
+    }
+
+    Ok(report)
 }
 
 /// Checks whether a URL was previously downloaded and returns change
@@ -1277,6 +2402,201 @@ pub async fn check_redownload_status(
     }))
 }
 
+/// Result of a Library Scan smart-retry diff (Phase 5b, #717).
+///
+/// Mirrors the three [`crate::services::smart_retry_planner::PlanOutcome`]
+/// variants but uses a TypeScript-friendly tagged-union shape so the
+/// Library Scan UI can render "X of Y missing" / "All present" /
+/// "Cannot diff" badges per row without re-implementing the variant
+/// inspection on every frontend re-render.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryScanDiff {
+    /// Manifest produced a precise per-track URL list — at least one
+    /// track is missing.
+    Plan {
+        missing_tracks: usize,
+        total_tracks: usize,
+    },
+    /// Manifest was found and every track is on disk. No retry needed.
+    AllPresent { total_tracks: usize },
+    /// Manifest missing, malformed, or no source matched. UI should
+    /// render a neutral "Cannot diff" badge.
+    NotApplicable,
+}
+
+/// Diffs a single scanned manifest against its on-disk state to
+/// determine whether tracks are missing (Phase 5b of #717 Library
+/// Scan UX).
+///
+/// Wraps `services::smart_retry_planner::plan_retry`. The Library
+/// Scan page calls this once per `ScannedManifest` to populate per-row
+/// "missing tracks" badges. Cheap (filesystem ops only — no network),
+/// safe to run synchronously per row from the frontend.
+///
+/// # Arguments
+/// * `album_dir` - The album directory path (the parent of the
+///   `manifest.meedyadl` file). Comes directly from
+///   [`ScannedManifest::album_dir`].
+/// * `source_url` - The manifest source URL to diff against. Comes
+///   from `ScannedManifest::urls[0]`. Manifests can carry multiple
+///   sources (Apple Music + Spotify of the same album); the URL
+///   selects which one to plan against.
+#[tauri::command]
+pub async fn diff_library_scan_manifest(
+    album_dir: String,
+    source_url: String,
+) -> Result<LibraryScanDiff, String> {
+    use crate::services::smart_retry_planner::{plan_retry, PlanOutcome};
+    let outcome = plan_retry(std::path::Path::new(&album_dir), &source_url);
+    Ok(match outcome {
+        PlanOutcome::Plan(plan) => LibraryScanDiff::Plan {
+            missing_tracks: plan.missing_tracks,
+            total_tracks: plan.total_tracks,
+        },
+        PlanOutcome::AllPresent { total_tracks } => {
+            LibraryScanDiff::AllPresent { total_tracks }
+        }
+        PlanOutcome::NotApplicable => LibraryScanDiff::NotApplicable,
+    })
+}
+
+/// Apple Music `lastModifiedDate` freshness result for a single
+/// Library Scan row (Phase 5c, #717).
+///
+/// `manifest_date` was recorded at the time of the original download
+/// (stored in `manifest.meedyadl`'s `last_modified_date` field). The
+/// IPC fetches the current value via the Apple Music Catalog API and
+/// returns one of three states:
+///
+/// - **Fresh** — manifest's date matches Apple's current value;
+///   nothing has changed upstream since the user downloaded.
+/// - **Updated** — Apple now reports a newer `lastModifiedDate`. The
+///   album may have gained tracks, swapped a mix (Atmos added, mix
+///   correction), or earned the Apple Digital Master certification.
+///   UI surfaces a "Content updated" badge so the user can choose to
+///   re-download.
+/// - **Unknown** — MusicKit credentials missing, network failure, the
+///   URL parser couldn't extract an album ID, or the manifest had no
+///   recorded date to compare against. UI shows nothing (this is the
+///   expected resting state for users without credentials).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LibraryScanFreshness {
+    /// Apple's current `lastModifiedDate` matches the manifest.
+    Fresh { current_date: String },
+    /// Apple now reports a newer `lastModifiedDate` than the manifest.
+    Updated {
+        manifest_date: String,
+        current_date: String,
+    },
+    /// Compare wasn't possible — credentials missing, API error, etc.
+    /// Carries a short reason for the activity log / diagnostics.
+    Unknown { reason: String },
+}
+
+/// Phase 5c (#717): per-row Apple Music `lastModifiedDate` freshness
+/// check for the Library Scan page.
+///
+/// Hits the Apple Music Catalog API for the URL's album ID and
+/// compares the API's `lastModifiedDate` against the manifest-recorded
+/// value (`ScannedManifest::last_modified_date` from the v1.0.1 scan).
+///
+/// **Cost**: one HTTP request per call. The frontend rate-limits the
+/// dispatch to keep large libraries from saturating the API; see
+/// `LibraryScanPage.tsx`.
+///
+/// Returns `Unknown` rather than `Err` for the typical "user has no
+/// MusicKit credentials" case — this is the expected resting state
+/// for most users and shouldn't surface as an error toast.
+#[tauri::command]
+pub async fn check_library_scan_freshness(
+    app: AppHandle,
+    source_url: String,
+    manifest_date: Option<String>,
+) -> Result<LibraryScanFreshness, String> {
+    use crate::services::apple_music_api::{
+        fetch_album_metadata_with_fallback, get_private_key_from_keychain,
+        parse_apple_music_url, resolve_musickit_developer_token,
+    };
+
+    let Some(manifest_date) = manifest_date.filter(|s| !s.is_empty()) else {
+        return Ok(LibraryScanFreshness::Unknown {
+            reason: "manifest has no recorded lastModifiedDate".to_string(),
+        });
+    };
+
+    let Some(parsed) = parse_apple_music_url(&source_url) else {
+        return Ok(LibraryScanFreshness::Unknown {
+            reason: "URL is not a recognised Apple Music album link".to_string(),
+        });
+    };
+
+    // We need an album ID to query the Catalog API; song / playlist
+    // / library URLs don't carry one and aren't supported here.
+    let album_id = parsed.album_id.clone();
+    let storefront = parsed.storefront.clone();
+
+    // Resolve MusicKit credentials. The team/key IDs live in
+    // settings.json; the private key PEM is stored in the OS
+    // keychain. Most users won't have these configured — that's
+    // fine, return `Unknown` cleanly so the UI can render no badge
+    // and not toast an error.
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let team_id = settings.musickit_team_id.as_deref();
+    let key_id = settings.musickit_key_id.as_deref();
+    let private_key = match get_private_key_from_keychain() {
+        Ok(pk) => pk,
+        Err(_) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit private key keychain inaccessible".to_string(),
+            });
+        }
+    };
+    let jwt = match resolve_musickit_developer_token(
+        team_id,
+        key_id,
+        private_key.as_deref(),
+    ) {
+        Ok(Some(jwt)) => jwt,
+        Ok(None) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit credentials not configured".to_string(),
+            });
+        }
+        Err(_) => {
+            return Ok(LibraryScanFreshness::Unknown {
+                reason: "MusicKit credentials present but invalid".to_string(),
+            });
+        }
+    };
+
+    // Fetch current metadata from Apple's Catalog API.
+    match fetch_album_metadata_with_fallback(&jwt, &storefront, &album_id).await {
+        Ok(Some(metadata)) => match metadata.last_modified_date {
+            Some(current_date) => {
+                if current_date == manifest_date {
+                    Ok(LibraryScanFreshness::Fresh { current_date })
+                } else {
+                    Ok(LibraryScanFreshness::Updated {
+                        manifest_date,
+                        current_date,
+                    })
+                }
+            }
+            None => Ok(LibraryScanFreshness::Unknown {
+                reason: "Apple Music API returned no lastModifiedDate".to_string(),
+            }),
+        },
+        Ok(None) => Ok(LibraryScanFreshness::Unknown {
+            reason: "album not found in any storefront".to_string(),
+        }),
+        Err(e) => Ok(LibraryScanFreshness::Unknown {
+            reason: format!("API error: {e}"),
+        }),
+    }
+}
+
 /// Fetches syllable-level (word-by-word) TTML lyrics for a single song from
 /// the Apple Music API.
 ///
@@ -1341,4 +2661,30 @@ pub struct RedownloadInfo {
     pub title: Option<String>,
     /// Album name from the previous download.
     pub album: Option<String>,
+}
+
+/// Enrichment gap detection for a Library Scan row (#759 Phase 1).
+///
+/// Given an album directory, reads any `manifest.meedyadl` in it +
+/// inspects the directory's files, and reports per-stage status
+/// (complete / missing / unknown). The Library Scan UI calls this
+/// to render a "12/15 stages complete" badge per row.
+///
+/// **Frontend caller:** `scanEnrichmentGaps(albumDir)` in
+/// `src/lib/tauri-commands.ts`.
+///
+/// Pure read — no side effects. Tag-embedded stages without a
+/// manifest record return "unknown" so legacy downloads aren't
+/// falsely flagged as missing (Phase 1 limitation).
+#[tauri::command]
+pub fn scan_enrichment_gaps(
+    album_dir: String,
+) -> crate::services::enrichment_gaps::EnrichmentGapReport {
+    let dir = std::path::PathBuf::from(&album_dir);
+    // Read the manifest if one exists alongside the audio files.
+    let manifest_path = dir.join("manifest.meedyadl");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<crate::models::manifest::ManifestFile>(&s).ok());
+    crate::services::enrichment_gaps::scan_album_dir(&dir, manifest.as_ref())
 }

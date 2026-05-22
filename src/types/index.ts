@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/types/index.ts - Central TypeScript type definitions
@@ -132,6 +132,36 @@ export type CoverFormat = 'jpg' | 'png' | 'raw';
 export type CoverArtName = 'cover' | 'front_cover' | 'folder';
 
 /**
+ * Zero-padding strategy for the `{track}` placeholder in filename templates (#587).
+ *
+ * Mirrors: Rust enum `TrackNumberPadding` in `src-tauri/src/models/settings.rs`
+ *
+ * - `auto`: Derive width from album's track_total — `01` for <100, `001` for <1000.
+ * - `none`: No padding (`1`, `2`, ..., `10`, `100`).
+ * - `two_digits`: 2 digits (`01`, `02`, ..., `99`, `100`) — pre-#587 behaviour.
+ * - `three_digits`: 3 digits (`001`, ..., `999`).
+ * - `four_digits`: 4 digits (`0001`, ..., `9999`).
+ */
+export type TrackNumberPadding =
+  | 'auto'
+  | 'none'
+  | 'two_digits'
+  | 'three_digits'
+  | 'four_digits';
+
+/**
+ * Zero-padding strategy for the `{disc}` placeholder in filename templates (#587).
+ *
+ * Mirrors: Rust enum `DiscNumberPadding` in `src-tauri/src/models/settings.rs`
+ *
+ * - `auto`: Derive from disc_total (1-digit for <10 discs, 2-digit for <100).
+ * - `none`: No padding (`1`, `2`, `10`).
+ * - `one_digit`: 1 digit (same as `none` for typical albums).
+ * - `two_digits`: 2 digits (`01`, `02`, `10`, `99`).
+ */
+export type DiscNumberPadding = 'auto' | 'none' | 'one_digit' | 'two_digits';
+
+/**
  * Download mode: selects which tool GAMDL uses for fetching HLS streams.
  *
  * Mirrors: Rust enum `DownloadMode` in `src-tauri/src/models/settings.rs`
@@ -185,6 +215,64 @@ export type CompanionMode =
  * which is parsed by the Rust backend into GamdlOutputEvent types.
  */
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
+
+/**
+ * Release channel (stability tier) the install is subscribed to.
+ *
+ * Mirrors: Rust enum `UpdateChannel` in `src-tauri/src/models/settings.rs`.
+ * Ordered from least to most stable; the updater blocks installs whose
+ * channel is less stable than the user's selection.
+ */
+export type UpdateChannel =
+  | 'nightly'
+  | 'weekly'
+  | 'monthly'
+  | 'alpha'
+  | 'beta'
+  | 'rc'
+  | 'stable';
+
+/**
+ * Channels that are gated behind Dev Access (Konami-code activation).
+ * The settings UI hides these from the channel dropdown unless
+ * `dev_access_enabled` is true. Beta and Rc are freely selectable
+ * (with a one-time stability-warning modal); Stable is the default.
+ */
+export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = [
+  'nightly',
+  'weekly',
+  'monthly',
+  'alpha',
+];
+
+/**
+ * Channels less stable than `stable`. Switching to any of these triggers
+ * a stability-warning confirmation modal in the UI.
+ */
+export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = [
+  'nightly',
+  'weekly',
+  'monthly',
+  'alpha',
+  'beta',
+  'rc',
+];
+
+/**
+ * Numeric stability rank used for "is channel A more stable than channel B"
+ * comparisons in the UI. Mirrors the `PartialOrd` ordering of the Rust
+ * `UpdateChannel` enum: Nightly(0) < Weekly(1) < Monthly(2) < Alpha(3) <
+ * Beta(4) < Rc(5) < Stable(6). Higher = more stable.
+ */
+export const CHANNEL_STABILITY_RANK: Record<UpdateChannel, number> = {
+  nightly: 0,
+  weekly: 1,
+  monthly: 2,
+  alpha: 3,
+  beta: 4,
+  rc: 5,
+  stable: 6,
+};
 
 // ============================================================
 // Human-readable labels for codec/quality selectors
@@ -354,6 +442,11 @@ export interface GamdlOptions {
   wrapper_account_url?: string;
   /** IP address hint for the wrapper's decryption service */
   wrapper_decrypt_ip?: string;
+  /**
+   * m3u8 service address (host:port) used by GAMDL v3.1+ to fetch HLS stream
+   * URLs from the wrapper. Required for wrapper downloads on 3.1+.
+   */
+  wrapper_m3u8_ip?: string;
   /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
@@ -370,6 +463,12 @@ export interface GamdlOptions {
   compilation_folder_template?: string;
   /** Template for folder names when album folder is disabled */
   no_album_folder_template?: string;
+  /**
+   * Template for playlist folder names (GAMDL v3.0+ only, #618).
+   * On v2.9.x the `--playlist-folder-template` flag does not exist; the
+   * Rust side gates emission behind `GamdlFeature::PlaylistFolderTemplate`.
+   */
+  playlist_folder_template?: string;
   /** Template for file names on single-disc albums */
   single_disc_file_template?: string;
   /** Template for file names on multi-disc albums (includes disc number) */
@@ -446,10 +545,26 @@ export interface AppSettings {
   auto_check_updates: boolean;
   /** Whether to include pre-release (beta/RC) versions in update checks */
   check_pre_releases: boolean;
+  /** Release channel (stability tier) the install is subscribed to.
+   * The installer refuses tags from a less-stable channel than this value,
+   * so users on `stable` can't accidentally be downgraded to a `nightly` build. */
+  update_channel: UpdateChannel;
   /** How often (in hours) to periodically check for updates. 0 = startup only. */
   update_check_interval_hours: number;
+  /** Minutes of stdout/stderr silence the companion supervisor tolerates
+   * before killing a GAMDL child (#505). The watchdog pauses automatically
+   * once post-processing begins, so a slow remux on a network volume will
+   * not trip the killswitch. Default: 5. */
+  gamdl_idle_timeout_minutes: number;
   /** Whether to auto-start queue processing when items are enqueued */
   auto_start_queue: boolean;
+  /**
+   * Whether the "Abort Queue" action (#620) prompts for confirmation
+   * before firing. Default `true`. Users who tick "Don't ask again"
+   * on the confirmation modal flip this to `false` for single-click
+   * aborts from the button / keyboard shortcut.
+   */
+  abort_queue_confirm: boolean;
   /** Whether to send native OS desktop notifications for download events (completion/failure).
    * Notifications are only sent when the app window is not focused. */
   desktop_notifications: boolean;
@@ -495,6 +610,9 @@ export interface AppSettings {
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.
    * MeedyaDL creates one download per mode for artist URLs. */
   artist_auto_select_multi: ArtistAutoSelect[];
+  /** Pre-queue duplicate detection settings (#510).
+   * Applies only when fanning out a multi-mode artist URL. */
+  duplicate_detection: DuplicateDetectionSettings;
   /** Whether to embed lyrics/captions in audio file metadata */
   embed_lyrics_and_sidecar: boolean;
   /** Whether to keep sidecar lyrics files (.lrc/.srt/.ttml) when embedding is enabled */
@@ -530,6 +648,12 @@ export interface AppSettings {
   cover_size: number;
   /** Filename for saved cover art image (without extension). Default: FrontCover */
   cover_art_name: CoverArtName;
+  /**
+   * Embed the music-video cover thumbnail as a `covr` atom in the MP4
+   * and delete the sidecar `.jpg`/`.png` (#533 / #569). Default `true`.
+   * Mirrors Rust field `AppSettings::music_video_embed_cover_sidecar`.
+   */
+  music_video_embed_cover_sidecar: boolean;
   /** Whether to download animated cover art (motion artwork) from Apple Music */
   animated_artwork_enabled: boolean;
   /** Whether to set the OS "hidden" attribute on animated artwork files */
@@ -558,6 +682,13 @@ export interface AppSettings {
   compilation_folder_template: string;
   /** Template for folder naming when album folders are disabled */
   no_album_folder_template: string;
+  /**
+   * Template for playlist folder naming (GAMDL v3.0+ only, #618).
+   * MeedyaDL stores this unconditionally; the Rust side gates emission
+   * behind `GamdlFeature::PlaylistFolderTemplate` so v2.9.x users just
+   * fall back to GAMDL's upstream default layout.
+   */
+  playlist_folder_template: string;
   /** Template for file naming on single-disc albums */
   single_disc_file_template: string;
   /** Template for file naming on multi-disc albums */
@@ -566,6 +697,16 @@ export interface AppSettings {
   no_album_file_template: string;
   /** Template for file naming in playlist downloads */
   playlist_file_template: string;
+  /**
+   * Zero-padding strategy for the `{track}` placeholder in templates (#587).
+   * Default: `'auto'` — derive width from the album's `track_total`.
+   */
+  track_number_padding: TrackNumberPadding;
+  /**
+   * Zero-padding strategy for the `{disc}` placeholder in templates (#587).
+   * Default: `'auto'` — single-digit for <10 discs, 2-digit for <100.
+   */
+  disc_number_padding: DiscNumberPadding;
   /** Path to Netscape-format cookies file, or null if not set */
   cookies_path: string | null;
   /** Custom FFmpeg binary path, or null to use bundled/PATH version */
@@ -586,8 +727,30 @@ export interface AppSettings {
   use_wrapper: boolean;
   /** Auto-retry without wrapper when a wrapper download fails terminally */
   auto_retry_without_wrapper: boolean;
+  /**
+   * When `true`, a download that fails with the AMP "Resource Not Found"
+   * shape against the URL's storefront is automatically retried once
+   * with the user's account-region storefront (#666). Default: `true`.
+   */
+  storefront_fallback_on_failure: boolean;
   /** URL for the API wrapper account endpoint */
   wrapper_account_url: string;
+  /**
+   * m3u8 service address (host:port) used by GAMDL v3.1+ to fetch the HLS
+   * master playlist from the wrapper instead of Apple's API. Required for
+   * wrapper downloads on GAMDL 3.1+. Default: `"127.0.0.1:20020"`.
+   */
+  wrapper_m3u8_ip: string;
+  /**
+   * Decryption service address (host:port) used by GAMDL when the wrapper
+   * is enabled. GAMDL opens an outbound TCP connection here to send
+   * encrypted samples for FairPlay decryption (the third leg of the
+   * wrapper triangle alongside `wrapper_account_url` + `wrapper_m3u8_ip`).
+   * Without this surfaced, remote-wrapper LAN setups silently fail at the
+   * decryption stage because GAMDL falls back to its built-in default
+   * (#743). Default: `"127.0.0.1:10020"`.
+   */
+  wrapper_decrypt_ip: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
   /** Whether to fetch extra metadata tags (normalization, smooth playback) */
@@ -598,6 +761,29 @@ export interface AppSettings {
   sentry_enabled: boolean;
   /** When true, emits detailed [VERBOSE] messages to Activity Log (may expose sensitive data). */
   verbose_activity_log: boolean;
+  /**
+   * When true, MeedyaDL stops passing `--no-exceptions` to GAMDL so full Python
+   * tracebacks reach stderr on uncaught exceptions. Default false keeps v3.0's
+   * structlog output readable by collapsing failures to a single line. Mirrors
+   * Rust field `AppSettings::verbose_gamdl_exceptions`.
+   */
+  verbose_gamdl_exceptions: boolean;
+  /**
+   * GAMDL subprocess log level. Surfaced behind Developer Tools only
+   * (gated on `dev_access_enabled`). Default `'INFO'` matches GAMDL's
+   * compiled-in default; flipping to `'DEBUG'` surfaces v3.5.2+
+   * structlog diagnostics (e.g. `m3u8_master_url=…`) that are
+   * otherwise invisible to MeedyaDL (#768). Mirrors Rust field
+   * `AppSettings::gamdl_log_level` (enum `LogLevel`).
+   */
+  gamdl_log_level: LogLevel;
+  /**
+   * Optional user-chosen directory for the persistent on-disk activity log
+   * (`activity-YYYY-MM-DD.log` files, #541). Empty string = use default
+   * `{app_data_dir}/logs/`. Changes apply on the next app restart.
+   * Mirrors Rust field `AppSettings::activity_log_path_override`.
+   */
+  activity_log_path_override: string;
   /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
   dev_access_enabled: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
@@ -702,6 +888,21 @@ export interface DownloadRequest {
   urls: string[];
   /** Optional per-download overrides (merged with global settings) */
   options?: GamdlOptions;
+  /**
+   * Per-item music-video-companion override (#717 sub-feature 5e).
+   *
+   * - `undefined`/`null` — inherit `AppSettings.music_video_companion`.
+   *   Default for normal queue additions.
+   * - `true` — force-enable MV companion downloads for THIS item only,
+   *   regardless of the global setting. Used by Library Scan gap-fill
+   *   when the user opts in.
+   * - `false` — force-disable MV companion downloads for THIS item only.
+   *   Used when the user opts out of MVs on a re-download where the
+   *   global setting is on.
+   *
+   * Mirrors: Rust field `mv_companion_override` on `DownloadRequest`.
+   */
+  mv_companion_override?: boolean | null;
 }
 
 /**
@@ -779,6 +980,15 @@ export interface QueueItemStatus {
   eta: string | null;
   /** Processing activity label (e.g., "Enriching metadata...", "Companion: ALAC 5/28") */
   processing_label: string | null;
+  /**
+   * Intra-Processing progress fraction in the range 0.0–1.0 (#576).
+   *
+   * Set by each enrichment stage at its start so the queue-level
+   * progress bar shows visible forward motion DURING the Processing
+   * state rather than a single 0→1 jump at completion. `null` when the
+   * item isn't in Processing state or when no stage has updated yet.
+   */
+  processing_progress: number | null;
   /** Error message if state is 'error', otherwise null */
   error: string | null;
   /** Output directory where files were saved, or null if not complete */
@@ -795,6 +1005,17 @@ export interface QueueItemStatus {
   output_is_directory: boolean;
   /** Non-fatal warnings from the download (e.g., GAMDL errors that didn't prevent completion) */
   warnings: string[];
+  /** Union of audioTraits across all tracks in this download (e.g.,
+   * `["atmos", "lossless", "lossy-stereo", "spatial"]`) used by the
+   * companion planner to skip unavailable codecs (#504). */
+  audio_traits: string[];
+  /** Number of music-video companions discovered for this item, once
+   * the enrichment task has run its MV-relation lookup (#776). `null`
+   * before the lookup runs (or when MV companions are disabled);
+   * a number once the count is known. Used by the completion-task
+   * companion-wait deadline so it can scale against the real MV
+   * count instead of a heuristic estimate. */
+  mv_companion_count: number | null;
   /** ISO 8601 timestamp when this download was queued */
   created_at: string;
 }
@@ -808,7 +1029,13 @@ export interface QueueItemStatus {
  *
  * Mirrors: Rust enum `PreflightCheck` in `src-tauri/src/services/health_check_service.rs`
  */
-export type PreflightCheck = 'internet' | 'cookies' | 'wrapper' | 'output_path';
+export type PreflightCheck =
+  | 'internet'
+  | 'cookies'
+  | 'wrapper'
+  | 'wrapper_m3u8'
+  | 'wrapper_decrypt'
+  | 'output_path';
 
 /**
  * Payload of a `"preflight-warning"` Tauri event, emitted by the Rust
@@ -1101,6 +1328,20 @@ export interface GamdlProgress {
  * @see ActivityLog component for the live log viewer
  * @see activityStore for the Zustand store that accumulates entries
  */
+/**
+ * Severity classification for an activity-log entry (#793).
+ *
+ * Drives the per-entry text colour in `ActivityLog.tsx`:
+ *   - `info` — default text colour (no override)
+ *   - `warning` — `text-status-warning` (amber/yellow), theme-aware
+ *   - `error` — `text-status-error` (red), theme-aware
+ *
+ * Optional in the wire format so older Rust builds / persisted
+ * records default cleanly to `info` (deserialised via
+ * `#[serde(default)]` on the Rust side).
+ */
+export type LogSeverity = 'info' | 'warning' | 'error';
+
 export interface ActivityLogEntry {
   /** Unique download ID this line belongs to, or `"system"` for app-wide events */
   download_id: string;
@@ -1111,6 +1352,13 @@ export interface ActivityLogEntry {
   line: string;
   /** ISO 8601 timestamp when the line was captured */
   timestamp: string;
+  /**
+   * Severity classification (#793). Defaults to `'info'` if the
+   * Rust backend didn't include the field (older builds /
+   * persisted records). The frontend coerces missing → `'info'`
+   * before rendering.
+   */
+  severity?: LogSeverity;
   /** Auto-incrementing ID assigned by the activity store for stable React keys.
    * Not present in the Rust-emitted payload — assigned on ingestion. */
   _id?: number;
@@ -1195,6 +1443,7 @@ export type AppleMusicContentType =
   | 'music-video'
   | 'artist'
   | 'library'
+  | 'recording'
   | 'unknown';
 
 /**
@@ -1210,6 +1459,51 @@ export type ArtistAutoSelect =
   | 'all-albums'
   | 'top-songs'
   | 'music-videos';
+
+/**
+ * Scope of the pre-queue duplicate-detection feature (#510).
+ *
+ * Mirrors `DuplicateDetectionScope` in `src-tauri/src/models/settings.rs`.
+ */
+export type DuplicateDetectionScope =
+  | 'off'
+  | 'intra_session'
+  | 'intra_and_queued'
+  | 'intra_and_queued_and_history';
+
+/**
+ * Which key is used to match two tracks as duplicates (#510).
+ *
+ * Mirrors `DedupKeyStrategy` in `src-tauri/src/models/settings.rs`.
+ */
+export type DedupKeyStrategy =
+  | 'song_id_isrc_fallback'
+  | 'isrc_only'
+  | 'song_id_only';
+
+/**
+ * Pre-queue duplicate detection settings (#510).
+ *
+ * Applies when an Apple Music artist URL is fanned out into multiple
+ * queue items (one per `artist_auto_select_multi` mode). The Apple
+ * Music catalog API is queried to enumerate each mode's tracks, and
+ * duplicates across modes / queue / download history are filtered out
+ * according to the preference order so any given song is downloaded
+ * exactly once. Does NOT affect companion-format downloads — a song
+ * chosen from one mode still runs the full companion chain.
+ */
+export interface DuplicateDetectionSettings {
+  /** Which scopes to consult when matching duplicates. */
+  scope: DuplicateDetectionScope;
+  /**
+   * Ordered priority list of artist-auto-select modes. The mode
+   * earliest in this list wins the track; later modes have the
+   * duplicate skipped. Modes not in the list fall back to natural order.
+   */
+  preference_order: ArtistAutoSelect[];
+  /** Which key to use when matching tracks. */
+  key_strategy: DedupKeyStrategy;
+}
 
 /**
  * Result of parsing an Apple Music URL.
@@ -1277,7 +1571,15 @@ export interface HistoryEntry {
  *
  * @see App.tsx renderPage() for the page-to-component mapping
  */
-export type AppPage = 'download' | 'queue' | 'history' | 'activity' | 'updates' | 'settings' | 'help';
+export type AppPage =
+  | 'download'
+  | 'queue'
+  | 'library' // Phase 5 (#717): scan an existing on-disk library for re-download gaps
+  | 'history'
+  | 'activity'
+  | 'updates'
+  | 'settings'
+  | 'help';
 
 /**
  * Toast notification severity levels.
@@ -1424,6 +1726,18 @@ export interface ComponentUpdate {
   update_available: boolean;
   /** Whether the latest version is compatible with this app version */
   is_compatible: boolean;
+  /**
+   * Whether the latest version is **above** the `maximum_tested_version`
+   * declared in this MeedyaDL build's `tool-versions.toml`.
+   *
+   * `true` here means the upgrade has not been validated against MeedyaDL's
+   * GAMDL CLI / INI surface — the install will work (an explicit-version
+   * pin bypasses the bounded support-window spec) but the user should
+   * understand they're upgrading ahead of our audit cycle. The Updates
+   * page renders an amber "Untested" badge plus a short disclaimer when
+   * this flag is set. Currently only set for the GAMDL component.
+   */
+  is_untested: boolean;
   /** Release notes or description of the update, or null */
   description: string | null;
   /** URL to the release page (GitHub releases, PyPI, etc.), or null */
@@ -1481,7 +1795,7 @@ export interface UpdateCheckResult {
 export interface ArtworkResult {
   /** Whether the square (1:1) animated cover was downloaded as FrontCover.mp4 */
   square_downloaded: boolean;
-  /** Whether the portrait (3:4) animated cover was downloaded as PortraitCover.mp4 */
+  /** Whether the portrait (3:4) animated cover was downloaded as FrontCoverPortrait.mp4 */
   portrait_downloaded: boolean;
 }
 

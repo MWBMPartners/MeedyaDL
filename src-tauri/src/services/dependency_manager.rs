@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Dependency manager service.
@@ -50,6 +50,7 @@
 // - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use tauri::AppHandle;
 
 // `archive` provides download_and_extract() for streaming HTTP download + archive extraction,
@@ -106,6 +107,32 @@ fn load_mirror_config() -> Option<MirrorConfig> {
     toml::from_str(&toml::to_string(mirror_table).ok()?).ok()
 }
 
+// Regex caches.
+//
+// Compiling a regex involves parsing the pattern + building an NFA, costing
+// hundreds of microseconds. Tool-version probing runs at every startup and
+// on every "Check for updates" click, so per-call compilation is wasted
+// work that adds up across a session. Each pattern is compiled once via
+// `LazyLock` and reused for the rest of the process lifetime — same shape
+// as `apple_music_api::parse_apple_music_url` and `process::ERROR_PREFIX_REGEX`.
+//
+// All patterns are static literals with no user input, so `.expect()` on
+// `Regex::new` only fires on developer typos at boot — never at runtime.
+static VERSION_TUPLE_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").expect("static regex"));
+static SEMVER_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
+static MP4BOX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").expect("static regex")
+});
+static MP4DECRYPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex")
+});
+static NM3U8DL_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"v?(\d+\.\d+\.\d+)").expect("static regex"));
+static MEDIAINFO_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"v(\d+\.\d+)").expect("static regex"));
+
 /// Parses a version string into (major, minor, patch) components.
 ///
 /// Handles various formats:
@@ -114,9 +141,7 @@ fn load_mirror_config() -> Option<MirrorConfig> {
 ///   - "2.4-DEV" → (2, 4, 0)
 ///   - "N-112479-..." → None (`FFmpeg` nightly builds without numeric version)
 fn parse_version_tuple(version_str: &str) -> Option<(u32, u32, u32)> {
-    // Use regex to extract the first version-like pattern (digits.digits[.digits])
-    let re = regex::Regex::new(r"(\d+)\.(\d+)(?:\.(\d+))?").ok()?;
-    let caps = re.captures(version_str)?;
+    let caps = VERSION_TUPLE_RE.captures(version_str)?;
 
     let major: u32 = caps.get(1)?.as_str().parse().ok()?;
     let minor: u32 = caps.get(2)?.as_str().parse().ok()?;
@@ -151,13 +176,11 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
                 // Nightly build — can't reliably compare, accept as compatible
                 return Some("nightly".to_string());
             }
-            let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
-            Some(re.find(after_version)?.as_str().to_string())
+            Some(SEMVER_RE.find(after_version)?.as_str().to_string())
         }
         "mp4box" => {
             // MP4Box: "MP4Box - GPAC version 2.4-DEV..." or "GPAC version 2.4..."
-            let re = regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").ok()?;
-            let caps = re.captures(first_line)?;
+            let caps = MP4BOX_RE.captures(first_line)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "mp4decrypt" => {
@@ -165,29 +188,24 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
             //   MP4 Decrypter - Version 1.4
             //   (Bento4 Version 1.6.0.0)
             // Extract the Bento4 version from the full output.
-            let re = regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").ok()?;
-            let caps = re.captures(output)?;
+            let caps = MP4DECRYPT_RE.captures(output)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "nm3u8dlre" => {
             // N_m3u8DL-RE: "N_m3u8DL-RE version 0.5.1-beta" or just "v0.5.1-beta"
-            let re = regex::Regex::new(r"v?(\d+\.\d+\.\d+)").ok()?;
-            let caps = re.captures(first_line)?;
+            let caps = NM3U8DL_RE.captures(first_line)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         "mediainfo" => {
             // MediaInfo: "MediaInfo Command line,\nMediaInfoLib - v26.01"
             // The version is on the second line, but first_line may be the first.
             // Try to find "v{major}.{minor}" anywhere in the output.
-            let full_output = output;
-            let re = regex::Regex::new(r"v(\d+\.\d+)").ok()?;
-            let caps = re.captures(full_output)?;
+            let caps = MEDIAINFO_RE.captures(output)?;
             Some(caps.get(1)?.as_str().to_string())
         }
         _ => {
             // Generic: try to find any version-like pattern
-            let re = regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").ok()?;
-            Some(re.find(first_line)?.as_str().to_string())
+            Some(SEMVER_RE.find(first_line)?.as_str().to_string())
         }
     }
 }
@@ -363,10 +381,7 @@ async fn resolve_github_release_asset(
     // endpoint. We detect this by trying /tags/ first and falling back.
     // A User-Agent header is required by the GitHub API (returns 403 without it).
     // 15-second timeout prevents indefinite stalls on unresponsive GitHub API.
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(15)?;
 
     // Try /releases/tags/{tag} first (deterministic, exact tag match).
     // Fall back to /releases/latest if the tag doesn't exist as an explicit tag
@@ -1822,7 +1837,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
 /// # Arguments
 /// * `dir` - The directory to search in
 /// * `tool_id` - The tool identifier (used to determine the binary name)
-fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
+fn find_binary_recursive(dir: &std::path::Path, tool_id: &str) -> Option<PathBuf> {
     let exe_ext = if cfg!(target_os = "windows") {
         ".exe"
     } else {
@@ -1851,27 +1866,23 @@ fn find_binary_recursive(dir: &PathBuf, tool_id: &str) -> Option<PathBuf> {
     };
 
     // Walk the directory tree depth-first looking for any matching binary.
-    // This handles archives with arbitrary nesting (e.g., Bento4 SDK has bin/ subdir).
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                // Check if this file matches any of our search names
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if search_names.iter().any(|s| s == name) {
-                        return Some(path);
-                    }
-                }
-            } else if path.is_dir() {
-                // Recurse into subdirectories (depth-first search)
-                if let Some(found) = find_binary_recursive(&path, tool_id) {
-                    return Some(found);
-                }
-            }
+    // This handles archives with arbitrary nesting (e.g., Bento4 SDK has
+    // bin/ subdir). Migrated to walk_dir_find_first in v1.0.9 (#716/1)
+    // which adds a max_depth bound — previously unbounded. depth=5 covers
+    // every archive shape we've encountered (deepest known is BtbN's
+    // ffmpeg-master-latest-linux64-gpl/bin/ffmpeg at depth 2) with
+    // generous headroom; if a future archive nests deeper, raise this.
+    crate::utils::fs_walk::walk_dir_find_first(dir, 5, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
-
-    None
+        let name = path.file_name().and_then(|n| n.to_str())?;
+        if search_names.iter().any(|s| s == name) {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
 }
 
 /// Installs all companion FFmpeg binaries (ffprobe, ffplay) alongside ffmpeg.
@@ -1903,7 +1914,7 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
         }
 
         // Search the extracted archive tree (BtbN archives nest in bin/)
-        if let Some(found) = find_file_recursive(&tool_dir.to_path_buf(), &binary_name) {
+        if let Some(found) = find_file_recursive(tool_dir, &binary_name) {
             match std::fs::copy(&found, &dest) {
                 Ok(_) => {
                     archive::set_executable(&dest).ok();
@@ -1976,24 +1987,21 @@ fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std:
 ///
 /// Unlike `find_binary_recursive`, this searches for any filename rather than
 /// tool-specific names. Used to find companion binaries like ffprobe.
-fn find_file_recursive(dir: &PathBuf, filename: &str) -> Option<PathBuf> {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name == filename {
-                        return Some(path);
-                    }
-                }
-            } else if path.is_dir() {
-                if let Some(found) = find_file_recursive(&path, filename) {
-                    return Some(found);
-                }
-            }
+///
+/// Migrated to `walk_dir_find_first` in v1.0.9 (#716/1) — previously
+/// unbounded recursion. depth=5 matches `find_binary_recursive`; same
+/// archive-shape rationale applies.
+fn find_file_recursive(dir: &std::path::Path, filename: &str) -> Option<PathBuf> {
+    crate::utils::fs_walk::walk_dir_find_first(dir, 5, |path| {
+        if !path.is_file() {
+            return None;
         }
-    }
-    None
+        if path.file_name().and_then(|n| n.to_str()) == Some(filename) {
+            Some(path.to_path_buf())
+        } else {
+            None
+        }
+    })
 }
 
 /// Attempts to get the version of an installed tool binary.

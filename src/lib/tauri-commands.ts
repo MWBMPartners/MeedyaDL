@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/lib/tauri-commands.ts - Type-safe IPC command wrappers
@@ -250,6 +250,157 @@ export function checkGamdlStatus(): Promise<DependencyStatus> {
  */
 export function installGamdl(): Promise<string> {
   return invoke<string>('install_gamdl');
+}
+
+/**
+ * Installs a **specific** GAMDL version (#522).
+ *
+ * Wraps `install_gamdl_version` in `src-tauri/src/commands/dependencies.rs`.
+ * Uses `pip install --force-reinstall gamdl==<version>` so it supports
+ * downgrades as well as upgrades. The standard `installGamdl()` above
+ * uses `--upgrade` which only goes higher.
+ *
+ * Validates the version string format on the backend before pip runs.
+ *
+ * @param version PyPI-compatible version (e.g., "2.9.3", "3.5.2").
+ * @returns Promise resolving to the post-install version reported by `pip show gamdl`.
+ */
+export function installGamdlVersion(version: string): Promise<string> {
+  return invoke<string>('install_gamdl_version', { version });
+}
+
+/**
+ * Enrichment gap detection (#759 Phase 1).
+ *
+ * Inspects an album directory + its `manifest.meedyadl` and reports
+ * which enrichment stages (ReplayGain, AcoustID, MusicBrainz,
+ * Enhanced LRC, animated artwork, …) are missing. Pure read — safe
+ * to call as often as the Library Scan UI needs.
+ *
+ * Tag-embedded stages without a manifest record return "unknown"
+ * so legacy downloads aren't falsely flagged as missing.
+ */
+export interface StageStatus {
+  stage: string;
+  status: 'complete' | 'missing' | 'unknown';
+  label: string;
+  key: string;
+}
+export interface EnrichmentGapReport {
+  album_dir: string;
+  audio_file_count: number;
+  stages: StageStatus[];
+  missing_count: number;
+  complete_count: number;
+  unknown_count: number;
+}
+export function scanEnrichmentGaps(albumDir: string): Promise<EnrichmentGapReport> {
+  return invoke<EnrichmentGapReport>('scan_enrichment_gaps', { albumDir });
+}
+
+/**
+ * Diagnostic bundle composer (#572 Phase 1).
+ *
+ * Builds a redacted Markdown bundle (version info + settings snapshot +
+ * activity-log slice + output-dir tree) plus a pre-filled GitHub
+ * issue URL. Privacy-first: no credentials, no file contents, no
+ * auto-submit. Caller passes the activity-log slice from the
+ * in-memory store + the version list from `getComponentVersions()`.
+ */
+export interface DiagnosticBundleInput {
+  activity_log_lines: string[];
+  component_versions: { name: string; version: string }[];
+  user_summary?: string | null;
+}
+export interface DiagnosticBundle {
+  markdown_body: string;
+  github_issue_url: string;
+  size_bytes: number;
+}
+export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<DiagnosticBundle> {
+  return invoke<DiagnosticBundle>('build_diagnostic_bundle', { input });
+}
+
+/**
+ * Lifetime download analytics (#464). Aggregates the persistent
+ * history into roll-up stats: totals, success rate, codec
+ * distribution, top artist/album, last-7-day activity.
+ */
+export interface CodecCount { codec: string; count: number; }
+export interface NameCount { name: string; count: number; }
+export interface DayCount { date: string; count: number; }
+export interface LifetimeStats {
+  total: number;
+  success: number;
+  failed: number;
+  success_rate: number;
+  codec_distribution: CodecCount[];
+  top_artist: NameCount | null;
+  top_album: NameCount | null;
+  last_7_days: DayCount[];
+  earliest: string | null;
+  latest: string | null;
+}
+export function getLifetimeStats(): Promise<LifetimeStats> {
+  return invoke<LifetimeStats>('get_lifetime_stats');
+}
+
+/**
+ * Snapshot + restore (#466).
+ *
+ * `createBackup` writes a timestamped snapshot of settings / queue /
+ * history into `{appDataDir}/backups/<YYYYMMDD-HHMMSS>/`.
+ * `listBackups` returns every existing snapshot, newest first.
+ * `restoreFromBackup` overwrites the live state files from a chosen
+ *   snapshot — the caller should prompt the user to restart MeedyaDL
+ *   so the in-memory caches don't diverge from disk.
+ * `deleteBackup` removes a single snapshot directory.
+ */
+export interface BackupSummary {
+  snapshot_path: string;
+  files: string[];
+  total_snapshots: number;
+}
+export interface RestoreSummary {
+  snapshot_path: string;
+  restored: string[];
+  skipped: string[];
+}
+export interface BackupEntry {
+  path: string;
+  name: string;
+  size_bytes: number;
+  file_count: number;
+}
+export function createBackup(): Promise<BackupSummary> {
+  return invoke<BackupSummary>('create_backup');
+}
+export function listBackups(): Promise<BackupEntry[]> {
+  return invoke<BackupEntry[]>('list_backups');
+}
+export function restoreFromBackup(snapshotPath: string): Promise<RestoreSummary> {
+  return invoke<RestoreSummary>('restore_from_backup', { snapshotPath });
+}
+export function deleteBackup(snapshotPath: string): Promise<void> {
+  return invoke<void>('delete_backup', { snapshotPath });
+}
+
+/**
+ * Returns the MeedyaDL-tested GAMDL version window (#522).
+ *
+ * The frontend uses this to render the "Install recommended" button
+ * label, the support badge, and to validate user-typed versions
+ * against the known range.
+ *
+ * Reads from compiled-in `tool-versions.toml` — zero I/O, always succeeds.
+ */
+export interface GamdlSupportWindow {
+  minimum: string;
+  maximum_tested: string;
+  recommended: string;
+}
+export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
+  return invoke<GamdlSupportWindow>('get_gamdl_support_window');
 }
 
 /**
@@ -531,6 +682,42 @@ export function cancelDownload(downloadId: string): Promise<void> {
 }
 
 /**
+ * Summary returned by {@link abortAllDownloads} describing how many items
+ * were stopped, grouped by their pre-abort state. Mirrors the Rust
+ * `AbortSummary` struct in `download_queue.rs` (#620).
+ *
+ * Items already in `Complete` / `Cancelled` / `Error` are not counted —
+ * the user keeps their history.
+ */
+export interface AbortSummary {
+  queuedCancelled: number;
+  downloadingStopped: number;
+  processingStopped: number;
+}
+
+/**
+ * Aborts every active and queued download in one IPC call (#620).
+ *
+ * Rust handler: `abort_all_downloads()` in `src-tauri/src/commands/gamdl.rs`.
+ *
+ * Unlike per-item cancel (which leaves the subprocess running until the
+ * cancellation-poll loop ticks), this is the "stop everything now" escape
+ * hatch — every `Queued` / `Downloading` / `Processing` item transitions
+ * to `Cancelled` in one shot. The already-running cancellation polls then
+ * reap their subprocesses on the next tick.
+ *
+ * Terminal items (`Complete` / `Cancelled` / `Error`) are untouched so
+ * the user keeps their history.
+ *
+ * Emits a `downloads-aborted` event carrying the {@link AbortSummary}.
+ *
+ * @returns summary of items stopped, grouped by pre-abort state.
+ */
+export function abortAllDownloads(): Promise<AbortSummary> {
+  return invoke<AbortSummary>('abort_all_downloads');
+}
+
+/**
  * Retries a failed or cancelled download.
  *
  * Rust handler: `retry_download()` in `src-tauri/src/commands/download.rs`
@@ -546,6 +733,106 @@ export function cancelDownload(downloadId: string): Promise<void> {
  */
 export function retryDownload(downloadId: string): Promise<void> {
   return invoke<void>('retry_download', { downloadId });
+}
+
+/**
+ * Result of a `retry_failed_bulk` call (#835).
+ *
+ * `requested` is the input length. `retried` is the count of items
+ * that actually transitioned back to Queued. `skipped` is one entry
+ * per item that couldn't be retried, with the reason — typically
+ * "All N tracks already on disk" (smart-retry planner) or "Item is
+ * not in a retryable state" (e.g. user-cancelled mid-flight, item
+ * already completed before the bulk request landed).
+ */
+export interface BulkRetrySkipped {
+  id: string;
+  reason: string;
+}
+
+export interface BulkRetryReport {
+  requested: number;
+  retried: number;
+  skipped: BulkRetrySkipped[];
+}
+
+/**
+ * Bulk-retry every failed download in one IPC round-trip (#835).
+ *
+ * Pre-#835 the Queue page's "Retry All Failed" button mapped over
+ * the failed items and called `retryDownload` per item via
+ * `Promise.allSettled`. Each call held the queue mutex 3 times,
+ * peeked smart-retry, persisted queue.json, and kicked
+ * `process_queue` — 29 failed items = ~90 mutex acquisitions and
+ * 29 disk writes, taking minutes on the affected user's system.
+ *
+ * This wrapper hands the whole batch to the Rust side which does
+ * the same per-item work but persists / kicks process_queue / emits
+ * one summary log line — ONCE for the whole batch instead of N
+ * times. Per-item `download-queued` events are still emitted so
+ * the per-row UI animation works as before.
+ *
+ * Always resolves (per-item failures are aggregated in `skipped`).
+ */
+export function retryFailedBulk(downloadIds: string[]): Promise<BulkRetryReport> {
+  return invoke<BulkRetryReport>('retry_failed_bulk', { downloadIds });
+}
+
+/**
+ * Move a `Queued` item to the top of the pending sub-sequence (#782).
+ *
+ * Rust handler: `move_queue_item_to_top()` in
+ * `src-tauri/src/commands/gamdl.rs`.
+ *
+ * Active items (`Downloading` / `Processing`) keep their absolute slot;
+ * the moved item lands at the front of the queued sub-sequence and
+ * becomes the next item `next_pending` will pick. Reorders are
+ * persisted to `queue.json` and survive an app restart.
+ *
+ * Returns `true` when the queue mutated, `false` for a no-op (item
+ * not found, not Queued, or already at the top).
+ *
+ * @param downloadId - UUID of the queued item to promote
+ * @returns true if the queue changed
+ */
+export function moveQueueItemToTop(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_to_top', { downloadId });
+}
+
+/**
+ * Move a `Queued` item to the bottom of the pending sub-sequence (#782).
+ *
+ * Rust handler: `move_queue_item_to_bottom()` in
+ * `src-tauri/src/commands/gamdl.rs`.
+ *
+ * @param downloadId - UUID of the queued item to demote
+ * @returns true if the queue changed
+ */
+export function moveQueueItemToBottom(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_to_bottom', { downloadId });
+}
+
+/**
+ * Swap a `Queued` item with the `Queued` item immediately above it (#782).
+ *
+ * Skips over any non-Queued items (active downloads, completed items
+ * from prior sessions) — the swap is *within* the queued sub-sequence.
+ *
+ * @param downloadId - UUID of the queued item to move up one position
+ * @returns true if the queue changed
+ */
+export function moveQueueItemUp(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_up', { downloadId });
+}
+
+/**
+ * Swap a `Queued` item with the `Queued` item immediately below it (#782).
+ *
+ * @param downloadId - UUID of the queued item to move down one position
+ * @returns true if the queue changed
+ */
+export function moveQueueItemDown(downloadId: string): Promise<boolean> {
+  return invoke<boolean>('move_queue_item_down', { downloadId });
 }
 
 /**
@@ -594,6 +881,22 @@ export function clearQueue(): Promise<number> {
  */
 export function clearAllQueue(): Promise<number> {
   return invoke<number>('clear_all_queue');
+}
+
+/**
+ * Removes a single queue item by ID (#685).
+ *
+ * Rust handler: `delete_queue_item()` in `src-tauri/src/commands/gamdl.rs`
+ *
+ * Backend refuses active items (`Downloading` / `Processing`) — the caller
+ * must `cancelDownload()` first. The frontend already hides the menu
+ * entry for active rows, so the rejection is defense-in-depth.
+ *
+ * @param downloadId - UUID of the queue item to remove.
+ * @returns Promise resolving when the item has been removed and persisted.
+ */
+export function deleteQueueItem(downloadId: string): Promise<void> {
+  return invoke<void>('delete_queue_item', { downloadId });
 }
 
 /**
@@ -692,6 +995,67 @@ export function exportActivityLog(entries: import('@/types').ActivityLogEntry[])
 }
 
 /**
+ * Exports the persistent on-disk activity log (#541) — the complete
+ * forensic record written by `services::activity_log_writer`, not just
+ * the in-memory (possibly-trimmed) entries.
+ *
+ * Concatenates the most recent N daily `activity-YYYY-MM-DD.log` files
+ * (default 3) and saves them via a native save dialog.
+ *
+ * Rust handler: `export_disk_activity_log()` in
+ * `src-tauri/src/commands/activity_log.rs`
+ *
+ * @param daysBack - Number of daily log files to include (default 3, minimum 1).
+ * @returns Promise resolving to the number of bytes written to the exported file.
+ */
+export function exportDiskActivityLog(daysBack?: number): Promise<number> {
+  return invoke<number>('export_disk_activity_log', { daysBack });
+}
+
+/**
+ * Returns the absolute path of the active on-disk activity log
+ * directory, creating it if necessary. Pair with
+ * `@tauri-apps/plugin-shell`'s `open()` to reveal the folder in the
+ * OS file manager (Finder / Explorer / xdg-open).
+ *
+ * Rust handler: `get_logs_folder_path()` in
+ * `src-tauri/src/commands/activity_log.rs`
+ *
+ * Honours the user's `activity_log_path_override` setting when set.
+ */
+export function getLogsFolderPath(): Promise<string> {
+  return invoke<string>('get_logs_folder_path');
+}
+
+/**
+ * Returns the verbatim content of `ACKNOWLEDGEMENTS.md` (the inventory
+ * of every direct dependency, its licence, and its purpose) — embedded
+ * into the binary at compile time via `include_str!()`, so this is
+ * always available on every platform regardless of bundle.resources
+ * config.
+ *
+ * Rust handler: `get_acknowledgements_text()` in
+ * `src-tauri/src/commands/legal.rs` (#802).
+ */
+export function getAcknowledgementsText(): Promise<string> {
+  return invoke<string>('get_acknowledgements_text');
+}
+
+/**
+ * Returns the verbatim content of `THIRD_PARTY_LICENSES.md` (the
+ * actual MIT/BSD/Unlicense/LGPL/GPL/PSF licence text for the bundled
+ * engines and tools, plus the written offer for source code for
+ * LGPL/GPL components shipped in offline-installer builds). Embedded
+ * at compile time via `include_str!()`.
+ *
+ * Rust handler: `get_third_party_licenses_text()` in
+ * `src-tauri/src/commands/legal.rs` (#802).
+ */
+export function getThirdPartyLicensesText(): Promise<string> {
+  return invoke<string>('get_third_party_licenses_text');
+}
+
+/**
  * Imports a `.meedyadl` manifest file via a native open dialog.
  *
  * Rust handler: `import_manifest()` in `src-tauri/src/commands/gamdl.rs`
@@ -712,6 +1076,83 @@ export function importManifest(): Promise<string[]> {
  */
 export function scanFolderForManifests(): Promise<ScannedManifest[]> {
   return invoke<ScannedManifest[]>('scan_folder_for_manifests');
+}
+
+// ============================================================
+// Legacy sibling-folder merge (#789)
+// ============================================================
+
+/** A `Foo` + `Foo [Explicit]` sibling pair detected on disk. */
+export interface SiblingPair {
+  parent: string;
+  unsuffixed_path: string;
+  suffixed_path: string;
+  suffix: string;
+  album_basename: string;
+}
+
+/** Dry-run summary returned by `previewLegacyFolderMerge`. */
+export interface MergePreview {
+  pair: SiblingPair;
+  audio_count: number;
+  sidecar_count: number;
+  other_count: number;
+  potential_collisions: string[];
+  will_merge_manifest: boolean;
+}
+
+/** Outcome of `executeLegacyFolderMerge`. */
+export interface MergeReport {
+  pair: SiblingPair;
+  audio_moved: number;
+  sidecars_moved: number;
+  other_moved: number;
+  collisions_disambiguated: string[];
+  manifest_merged: boolean;
+  source_folder_removed: boolean;
+  warnings: string[];
+}
+
+/**
+ * Walk a previously-scanned folder for sibling pairs left over
+ * from pre-#528 downloads. Defensive — only returns pairs whose
+ * un-suffixed sibling's audio carries the matching `rtng` advisory
+ * rating, so unrelated folders that happen to have similar names
+ * are never offered for merge.
+ *
+ * Rust handler: `detect_legacy_folder_pairs()` in `gamdl.rs`.
+ */
+export function detectLegacyFolderPairs(
+  folderPath: string
+): Promise<SiblingPair[]> {
+  return invoke<SiblingPair[]>('detect_legacy_folder_pairs', { folderPath });
+}
+
+/**
+ * Dry-run preview of what `executeLegacyFolderMerge` would do for
+ * `pair`. Returns file counts + potential collisions WITHOUT
+ * touching disk; powers the confirmation UI.
+ *
+ * Rust handler: `preview_legacy_folder_merge()` in `gamdl.rs`.
+ */
+export function previewLegacyFolderMerge(
+  pair: SiblingPair
+): Promise<MergePreview> {
+  return invoke<MergePreview>('preview_legacy_folder_merge', { pair });
+}
+
+/**
+ * Perform the merge. Renames audio + sidecars in the source folder
+ * to add the advisory suffix, moves all files into the suffixed
+ * sibling (auto-disambiguates collisions), merges `.meedyadl`
+ * manifests, and removes the source folder if empty.
+ *
+ * Rust handler: `execute_legacy_folder_merge()` in `gamdl.rs`.
+ */
+export function executeLegacyFolderMerge(
+  pair: SiblingPair
+): Promise<MergeReport> {
+  return invoke<MergeReport>('execute_legacy_folder_merge', { pair });
 }
 
 /** Result of scanning a folder for manifest files (#456). */
@@ -738,6 +1179,89 @@ export interface ScannedManifest {
   audio_file_count: number;
   /** Apple Music lastModifiedDate from manifest — for content refresh detection (#380) */
   last_modified_date: string | null;
+}
+
+/**
+ * Smart-retry diff result for a single Library Scan row (Phase 5b, #717).
+ *
+ * Mirrors the Rust `LibraryScanDiff` enum (tagged-union by `kind`):
+ * - `plan`: at least one track is missing; UI renders "X of Y missing".
+ * - `all_present`: every track on disk; UI renders "All present".
+ * - `not_applicable`: manifest missing/malformed/no-source-match; UI
+ *   renders a neutral "Cannot diff" badge.
+ *
+ * Rust handler: `diff_library_scan_manifest()` in `src-tauri/src/commands/gamdl.rs`
+ */
+export type LibraryScanDiff =
+  | { kind: 'plan'; missing_tracks: number; total_tracks: number }
+  | { kind: 'all_present'; total_tracks: number }
+  | { kind: 'not_applicable' };
+
+/**
+ * Diffs a scanned manifest against its on-disk state to determine
+ * whether tracks are missing.
+ *
+ * Cheap (filesystem ops only — no network), safe to run synchronously
+ * per row from the Library Scan page. Wraps the existing
+ * `smart_retry_planner::plan_retry`.
+ *
+ * @param albumDir - The album directory path (parent of manifest.meedyadl).
+ *                   Use `ScannedManifest.album_dir`.
+ * @param sourceUrl - The manifest source URL to diff against. Use
+ *                    `ScannedManifest.urls[0]`.
+ */
+export function diffLibraryScanManifest(
+  albumDir: string,
+  sourceUrl: string
+): Promise<LibraryScanDiff> {
+  return invoke<LibraryScanDiff>('diff_library_scan_manifest', {
+    albumDir,
+    sourceUrl,
+  });
+}
+
+/**
+ * Library Scan freshness result for a single row (#717 sub-feature 5c).
+ *
+ * Mirrors the Rust `LibraryScanFreshness` enum (tagged union).
+ *
+ * - `fresh` — manifest's `lastModifiedDate` matches Apple Music API.
+ * - `updated` — Apple now reports a newer date; album may have gained
+ *   tracks, swapped a mix, or earned Apple Digital Master.
+ * - `unknown` — credentials missing, network error, or no manifest
+ *   date to compare. UI renders no badge for this case.
+ *
+ * Rust handler: `check_library_scan_freshness()` in
+ * `src-tauri/src/commands/gamdl.rs`
+ */
+export type LibraryScanFreshness =
+  | { kind: 'fresh'; current_date: string }
+  | { kind: 'updated'; manifest_date: string; current_date: string }
+  | { kind: 'unknown'; reason: string };
+
+/**
+ * Calls Apple Music API for the URL's album and compares its
+ * `lastModifiedDate` against the manifest-recorded value.
+ *
+ * Costs one HTTP request; the frontend rate-limits the dispatch to
+ * keep large libraries from saturating the API. Returns `unknown`
+ * cleanly for the typical "user has no MusicKit credentials" case
+ * (this is the resting state for most users).
+ *
+ * @param sourceUrl - Album URL from `ScannedManifest.urls[0]`.
+ * @param manifestDate - Recorded `last_modified_date` from the
+ *   manifest, if any (`ScannedManifest.last_modified_date`). Pass
+ *   `null` when the manifest has no recorded value — the IPC will
+ *   return `unknown` instead of comparing.
+ */
+export function checkLibraryScanFreshness(
+  sourceUrl: string,
+  manifestDate: string | null
+): Promise<LibraryScanFreshness> {
+  return invoke<LibraryScanFreshness>('check_library_scan_freshness', {
+    sourceUrl,
+    manifestDate,
+  });
 }
 
 /**
@@ -980,20 +1504,33 @@ export function checkAllUpdates(): Promise<UpdateCheckResult> {
 }
 
 /**
- * Upgrades GAMDL to the latest compatible version via pip.
+ * Upgrades GAMDL via pip.
  *
- * Rust handler: `upgrade_gamdl()` in `src-tauri/src/commands/update.rs`
- * Returns: string message (e.g., "GAMDL upgraded to 1.5.2")
+ * Rust handler: `upgrade_gamdl()` in `src-tauri/src/commands/updates.rs`
+ * Returns: the new GAMDL version string (e.g., "3.3").
  *
  * Runs `pip install --upgrade gamdl` in the portable Python environment.
  * This may take a minute as pip resolves and downloads dependencies.
  *
- * Called by: UpdateBanner "Update" button, SettingsPage update section
+ * @param targetVersion - When provided, pip pins to exactly this version
+ *   (`gamdl=={targetVersion}`). The Updates page passes the latest PyPI
+ *   version when the user is upgrading to an above-ceiling "Untested"
+ *   release — without the pin, the bounded support-window spec would
+ *   silently resolve down to `maximum_tested_version`. Omit this for
+ *   routine "Upgrade" clicks on tested updates.
  *
- * @returns Promise resolving to a success message string
+ * Called by: UpdateBanner / UpdatesPage "Upgrade" buttons
+ *
+ * @returns Promise resolving to the installed version string
  */
-export function upgradeGamdl(): Promise<string> {
-  return invoke<string>('upgrade_gamdl');
+export function upgradeGamdl(targetVersion?: string): Promise<string> {
+  // Pass `null` (not `undefined`) when no explicit target is requested —
+  // JSON.stringify drops `undefined` keys, which can interact awkwardly
+  // with how Tauri 2 deserialises `Option<String>` arguments. Explicit
+  // `null` always round-trips cleanly to `None` on the Rust side.
+  return invoke<string>('upgrade_gamdl', {
+    targetVersion: targetVersion ?? null,
+  });
 }
 
 /**
@@ -1350,6 +1887,20 @@ export function searchHistory(query: string): Promise<import('@/types').HistoryE
   return invoke<import('@/types').HistoryEntry[]>('search_history', { query });
 }
 
+/**
+ * Removes a single history entry by ID (#685).
+ *
+ * Rust handler: `delete_history_entry()` in `src-tauri/src/commands/history.rs`
+ *
+ * The Rust side rejects unknown IDs with an error so the caller can
+ * distinguish "already gone" from a successful delete.
+ *
+ * @param id - UUID of the history entry to remove.
+ */
+export function deleteHistoryEntry(id: string): Promise<void> {
+  return invoke<void>('delete_history_entry', { id });
+}
+
 // ============================================================
 // API Field Audit Commands
 // ============================================================
@@ -1402,4 +1953,89 @@ export function readClipboard(): Promise<string | null> {
  */
 export function saveSessionLog(entries: string[]): Promise<void> {
   return invoke<void>('save_session_log', { entries });
+}
+
+/**
+ * Backend-half of the desktop-notification diagnostics readout (#834).
+ *
+ * The Settings → Advanced → Diagnostics panel reads this snapshot to show
+ * the user their current notification configuration — useful on macOS
+ * where Tauri's `sendNotification()` can resolve successfully even when
+ * the OS silently drops the notification.
+ *
+ * The frontend tops the result up with the JS-side
+ * `isPermissionGranted()` value to give a complete picture.
+ *
+ * IPC target: `get_notification_diagnostics` → `commands::system::get_notification_diagnostics`
+ */
+export interface NotificationDiagnostics {
+  desktop_notifications_enabled: boolean;
+  notification_style: string;
+  platform: string;
+}
+
+export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
+  return invoke<NotificationDiagnostics>('get_notification_diagnostics');
+}
+
+/**
+ * Sends a one-off test notification through the **backend** notification
+ * pipeline (#834).
+ *
+ * The pre-#834 "Send Test Notification" button in Settings → General
+ * called the JS plugin directly. That tested a different code path than
+ * what production downloads use AND couldn't surface OS-level failures
+ * because `sendNotification()` resolves successfully even when macOS
+ * drops the notification.
+ *
+ * This wrapper routes the test through the same Rust path as
+ * `send_desktop_notification`, but bypasses the focus check and the
+ * throttle — the user is explicitly testing, so silently no-opping
+ * would defeat the purpose. Returns the actual OS-level error string
+ * when the plugin call fails, which the caller renders into a toast so
+ * the user can act on it (e.g. open System Settings → Notifications).
+ *
+ * IPC target: `test_desktop_notification` → `commands::system::test_desktop_notification`
+ */
+export function testDesktopNotification(): Promise<void> {
+  return invoke<void>('test_desktop_notification');
+}
+
+/**
+ * Single integrity-scan finding (#537 chunk B).
+ *
+ * Discriminated by `kind`:
+ * - `degenerate_name` — filename/path matches one of the empty-tag
+ *   MV pipeline signatures. `signature` says which one
+ *   (`hyphen-dot-extension`, `unknown-folder-segment`,
+ *   `unknown-album-with-empty-filename`).
+ * - `zero_byte_cover` — fixed-name cover file (`FrontCover.mp4`,
+ *   `PortraitCover.mp4`, `ArtistSpotlightCover.mp4`) is 0 bytes,
+ *   likely from an interrupted HLS download.
+ */
+export type IntegrityIssue =
+  | { kind: 'degenerate_name'; path: string; signature: string }
+  | { kind: 'zero_byte_cover'; path: string };
+
+export interface IntegrityScanReport {
+  files_walked: number;
+  issues: IntegrityIssue[];
+  scanned_path: string;
+}
+
+/**
+ * Walks the user's configured output directory and returns a report
+ * of historic damage from pre-v1.6 broken builds (#537 chunk B).
+ *
+ * Detects: `-.mp4`/`-.jpg` empty-tag filenames, `[Unknown]/` folder
+ * segments, zero-byte fixed-name covers. Read-only — does NOT
+ * modify or remove anything. Quarantine action lands as a
+ * follow-up; for now the report is purely informational.
+ *
+ * The Rust side runs the walk on a `spawn_blocking` thread so the
+ * frontend can `await` this freely even on libraries with 1000+
+ * albums (where the scan can take several seconds).
+ */
+export function runIntegrityScan(): Promise<IntegrityScanReport> {
+  return invoke<IntegrityScanReport>('run_integrity_scan');
 }

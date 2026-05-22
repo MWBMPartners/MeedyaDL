@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file updateStore.ts -- Update Checking & Upgrade State Management Store
  * @license MIT -- See LICENSE file in the project root.
@@ -172,10 +172,15 @@ interface UpdateState {
    * After the upgrade completes, automatically re-checks all components
    * to refresh version information in the UI.
    *
+   * @param targetVersion - When provided, pin pip to install exactly this
+   *   version (e.g. an above-ceiling "Untested" upgrade the user opted into
+   *   via the amber badge). Omit for routine "Upgrade" clicks on tested
+   *   updates — the bounded support-window spec is used in that case.
+   *
    * @returns The newly-installed GAMDL version string
    * @throws If the pip upgrade fails
    */
-  upgradeGamdl: () => Promise<string>;
+  upgradeGamdl: (targetVersion?: string) => Promise<string>;
 
   /**
    * Download and install a MeedyaDL app update from a specific release tag.
@@ -307,22 +312,60 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
    * immediately reflects the new GAMDL version and removes the update
    * notification for GAMDL (since `update_available` will now be `false`).
    */
-  upgradeGamdl: async () => {
+  upgradeGamdl: async (targetVersion?: string) => {
     // Signal upgrade in progress and clear stale errors.
     set({ isUpgrading: true, error: null });
+    let version: string;
     try {
-      // Run `pip install --upgrade gamdl` in the portable Python environment.
-      const version = await commands.upgradeGamdl();
-      // Re-check all components to refresh version info post-upgrade.
-      const result = await commands.checkAllUpdates();
-      // Store the fresh result and clear the upgrading flag.
-      set({ lastResult: result, isUpgrading: false });
-      return version;
+      // Run `pip install --upgrade gamdl` (or `gamdl=={target}` when an
+      // explicit-version target was requested — the Updates page passes
+      // the latest PyPI version when upgrading to an above-ceiling
+      // "Untested" release so pip lands on the version the banner
+      // actually advertised).
+      version = await commands.upgradeGamdl(targetVersion);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message, isUpgrading: false });
       throw new Error(message, { cause: e });
     }
+
+    // Post-upgrade refresh runs in its own try block so a refresh
+    // failure can't masquerade as an upgrade failure. The classic
+    // mode of regression here was the `check_all_updates` IPC's 1/min
+    // rate limiter rejecting the refresh when the user clicks
+    // "Upgrade" within 60s of the startup update check — pip had
+    // already finished, but the action's outer try/catch surfaced the
+    // rate-limit error in the toast and the activity log only showed
+    // the successful upgrade, leaving users to wonder which one to
+    // trust. The refresh is best-effort cosmetic state; the next
+    // periodic check will catch up regardless.
+    try {
+      const result = await commands.checkAllUpdates();
+      set({ lastResult: result, isUpgrading: false });
+    } catch (e) {
+      // Log to console for diagnostics but don't block the success
+      // path. Patch `lastResult` locally so the GAMDL banner / row
+      // reflects the new version even when the refresh was rejected
+      // (typically rate limiter, occasionally network) — without this,
+      // a successful upgrade keeps showing the "v3.0 → v3.3" badge
+      // until the next periodic refresh ~6h later.
+      console.warn('Post-upgrade refresh failed (upgrade itself succeeded):', e);
+      const previous = get().lastResult;
+      if (previous) {
+        const patched = {
+          ...previous,
+          components: previous.components.map((c) =>
+            c.name === 'GAMDL'
+              ? { ...c, current_version: version, update_available: false, is_untested: false }
+              : c
+          ),
+        };
+        set({ lastResult: patched, isUpgrading: false });
+      } else {
+        set({ isUpgrading: false });
+      }
+    }
+    return version;
   },
 
   /**

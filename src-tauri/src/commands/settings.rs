@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Settings management IPC commands.
@@ -44,7 +44,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 // AppHandle for resolving app data directory paths (settings.json location).
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 // AppSettings is the Rust struct representing the full application settings.
 // It implements both Serialize (for returning to frontend) and Deserialize
@@ -173,6 +173,16 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     //   2. config.ini — relevant fields translated to GAMDL's INI format
     config_service::save_settings(&app, &settings)?;
 
+    // #690: refresh the in-process settings cache so the next
+    // `load_settings_for_queue` reader sees the post-save snapshot
+    // without re-touching the disk. If the cache isn't registered
+    // (test contexts), this is a no-op.
+    if let Some(cache) =
+        app.try_state::<crate::services::settings_cache::SettingsCache>()
+    {
+        cache.refresh(settings.clone());
+    }
+
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
 
@@ -211,6 +221,8 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
     const REDACTED_FIELDS: &[&str] = &[
         "cookies_path",
         "wrapper_account_url",
+        "wrapper_m3u8_ip",
+        "wrapper_decrypt_ip",
         "musickit_team_id",
         "musickit_key_id",
         "acoustid_api_key",
@@ -520,10 +532,7 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
         return Err("URL must use http:// or https:// scheme".to_string());
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    let client = crate::utils::http_client::build_simple(5)?;
 
     let start = std::time::Instant::now();
     match client.get(&url).send().await {
@@ -775,8 +784,10 @@ fn sanitize_imported_settings(settings: &mut AppSettings) {
     truncate_opt(&mut settings.mp4box_path, MAX_PATH);
     truncate_opt(&mut settings.nm3u8dlre_path, MAX_PATH);
 
-    // URLs
+    // URLs / addresses
     truncate(&mut settings.wrapper_account_url, MAX_URL);
+    // `host:port` address — 64 chars is plenty (IPv6 + port fits in ~45).
+    truncate(&mut settings.wrapper_m3u8_ip, 64);
 
     // Templates
     truncate(&mut settings.album_folder_template, MAX_TEMPLATE);

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 
 /**
  * @file Barrel export file for the common UI component library.
@@ -120,6 +120,15 @@ export { LoadingSpinner } from './LoadingSpinner';
  * Used in: Sidebar navigation, CookiesTab.
  */
 export { Tooltip } from './Tooltip';
+
+/**
+ * Truncated error-message display with hover-to-see-full tooltip and a
+ * right-click context menu (copy, report-to-GAMDL when applicable).
+ * Used in HistoryPage + QueueItem to surface long download errors
+ * (especially upstream "GAMDL bug — …" classifier messages) without
+ * forcing the user to widen the window.
+ */
+export { ErrorMessageDisplay } from './ErrorMessageDisplay';
 
 /**
  * Small "?" icon button that navigates to the Help page with a specific

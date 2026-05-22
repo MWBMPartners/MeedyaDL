@@ -32,7 +32,7 @@
 - **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
 - **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry. Queue header shows live statistics (active/queued/completed/failed counts) with an aggregate progress bar; album downloads display a "Track N of M" counter
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
-- **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / PortraitCover.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
+- **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / FrontCoverPortrait.mp4) via MusicKit API, with optional OS-level file hiding to keep folders clean
 
 ### 📝 Metadata & Extras
 
@@ -102,6 +102,30 @@
 
 ---
 
+## 🧩 Component Support Matrix
+
+MeedyaDL orchestrates several external components (a portable Python runtime, the GAMDL CLI, and a handful of media tools). Each MeedyaDL release is validated against a specific range of versions for every component. Running outside the validated range may work, but we cannot guarantee functional or security correctness.
+
+| Component | Role | Supported range | Recommended | Source of truth |
+| --- | --- | --- | --- | --- |
+| **Python** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
+| **GAMDL** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.5.1** | 3.5.1 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **FFmpeg** | Audio codec conversion and video remuxing. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
+| **mp4decrypt** (Bento4) | Decrypts Widevine-protected streams. Required by GAMDL v3.0+ for music videos. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
+| **N_m3u8DL-RE** | Alternative HLS/DASH downloader used by some codec paths. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
+| **MP4Box** (GPAC) | Alternative MP4 muxer. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
+| **MediaInfo** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
+
+### How the support window is enforced
+
+- **Install flow**: `install_gamdl()` invokes `pip install --upgrade 'gamdl>={min},<={max}'`, so the resolver never pulls a GAMDL release we haven't validated.
+- **Update prompts**: the update banner (`services::update_checker`) queries `gamdl_capabilities::should_offer_upgrade()` — if PyPI advertises a GAMDL version beyond `maximum_tested_version`, no upgrade is suggested. Users who manually upgrade outside the range will still see their installed version, and a startup activity-log entry warns them that downloads may fail on CLI changes until the next MeedyaDL release catches up.
+- **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
+
+If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0), please open an issue before upgrading so we can validate and bump the ceiling.
+
+---
+
 ## Wrapper Authentication
 
 The **wrapper** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running server that handles Apple ID authentication and DRM key exchange directly.
@@ -118,7 +142,7 @@ Most users should stick with **cookie-based authentication** (the default). The 
 
 1. **Obtain and run the wrapper service** — the wrapper is a separate application (not bundled with MeedyaDL) that listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
-3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port
+3. **Configure the URL** — update the **Wrapper Account URL** if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below — there are two more addresses you'll need to update.
 
 ### Auto-Retry without Wrapper
 
@@ -129,12 +153,59 @@ When a wrapper download fails (all retries exhausted), MeedyaDL normally shows a
 
 When enabled, failed wrapper downloads are automatically re-queued with cookie-based authentication — no manual intervention needed. This is useful if your wrapper is intermittently unavailable and you want downloads to fall back gracefully.
 
+### Re-authenticating the Wrapper
+
+If the wrapper appears connected (the connection test passes, the pre-flight checks all clear) but every track skips with `Decryption is not available for media ID: …` in the Activity Log, the wrapper's stored Apple Music credentials have most likely gone stale and need re-authenticating.
+
+For Docker installs, stop the container, run the wrapper one-shot in **login mode** (`docker run --privileged --rm -it -v ./rootfs/data:/app/rootfs/data --entrypoint ./wrapper ghcr.io/worldobservationlog/wrapper:local -L "username:password" -H 0.0.0.0`), enter your 2FA code if prompted, Ctrl-C once login completes, then start the container again. For native installs, the equivalent is to run the binary once with `-L "username:password"` to re-sign-in. Full step-by-step + diagnostic guidance lives in the in-app help under [**Help > Troubleshooting > Wrapper Errors > "Decryption is not available" warnings**](help/troubleshooting.md#decryption-is-not-available-warnings-wrapper-enabled-downloads-still-skipping).
+
 ### Verifying Connectivity
 
 MeedyaDL checks wrapper connectivity in two ways:
 
 - **Manual test** — click **Test Connection** in Settings > Advanced. Shows "Connected (Xms)" on success, or a specific error (timeout, connection refused) on failure.
 - **Automatic pre-flight check** — every time the download queue starts processing, MeedyaDL pings the wrapper and shows a yellow toast notification if it's unreachable (e.g., `Wrapper service at http://192.168.3.179:30020 timed out — check that it is running`). The notification auto-dismisses when the wrapper becomes reachable again. Downloads still proceed — the check is advisory.
+
+### Running the wrapper on a different device on your network
+
+You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
+
+This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know about all three. If you only update one or two of them, downloads will appear to start successfully but then fail partway through.
+
+In **Settings > Advanced > Wrapper**, you'll find three address fields. Update *all three* to point at the device running the wrapper:
+
+| Setting                          | What it does                          | Default                  |
+| -------------------------------- | ------------------------------------- | ------------------------ |
+| **Wrapper Account URL**          | The wrapper's account / login service | `http://127.0.0.1:30020` |
+| **Wrapper m3u8 Address**         | The wrapper's playlist service        | `127.0.0.1:20020`        |
+| **Wrapper Decryption Address**   | The wrapper's decryption service      | `127.0.0.1:10020`        |
+
+If your wrapper runs on a Raspberry Pi at `192.168.1.50`, change them to:
+
+- **Wrapper Account URL:** `http://192.168.1.50:30020`
+- **Wrapper m3u8 Address:** `192.168.1.50:20020`
+- **Wrapper Decryption Address:** `192.168.1.50:10020`
+
+Note that the host (`192.168.1.50`) is the same in all three — only the port number differs.
+
+**MeedyaDL will warn you if anything's unreachable.** Before each download starts, MeedyaDL quietly checks all three services and shows a yellow warning toast if any of them can't be reached. The warning tells you which service failed and at what address, so you can fix the right setting.
+
+#### Common gotchas
+
+- **The wrapper service needs to accept network connections, not just local ones.** By default, many wrapper installs only listen on `127.0.0.1` (the device itself). If you've installed it via Docker, that usually means the container needs port-forwarding configured (the `ports:` section in your `compose.yaml`); if you've installed it natively, the wrapper's own configuration needs to listen on `0.0.0.0` instead of `127.0.0.1`.
+- **A firewall on the wrapper's device may be blocking the ports.** On Linux, run something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`).
+- **Forgetting to update all three settings.** If the Account URL points at the Raspberry Pi but the Decryption Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads silently fail at the decryption stage. The pre-download warnings catch this.
+- **You need three free ports on the same device.** The wrapper can't share its three ports with anything else on its host, but the host *can* run other services on different ports.
+
+#### Quick alternative: SSH tunnel
+
+If you'd rather not change MeedyaDL's settings at all, you can forward all three ports through SSH from your MeedyaDL machine. From a terminal on the Mac/PC running MeedyaDL:
+
+```sh
+ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
+```
+
+While the SSH session stays open, the three ports on the Mac/PC tunnel through to the same ports on the Raspberry Pi. MeedyaDL can keep its default `127.0.0.1` settings and everything just works. Useful for trying it out before committing to the address-change approach.
 
 ### Troubleshooting (Remote / Docker)
 
@@ -189,12 +260,30 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page.
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page. Most users want the latest **Stable** release; if you want bleeding-edge builds, pick one of the pre-release channels (see [Release channels](#-release-channels) below).
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.exe` installer
    - **Linux**: Install the `.deb` or run the `.AppImage`
 3. **Launch** the application.
+
+### Release channels
+
+MeedyaDL publishes across seven channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
+
+| Channel | Cadence | Trigger | Suffix | Audience |
+| ------- | ------- | ------- | ------ | -------- |
+| **Nightly** | Daily 00:00 UTC | cron | `-nightly.YYYYMMDD` | Testing today's in-flight features; expect bugs |
+| **Weekly** | Sunday 00:00 UTC | cron | `-weekly.YYYYMMDD` | Week-old integrations |
+| **Monthly** | 1st of month 00:00 UTC | cron | `-monthly.YYYYMMDD` | Monthly preview |
+| **Alpha** | Ad-hoc | push to `alpha` branch | `-alpha.N` (monotonic) | Feature-complete previews |
+| **Beta** | Ad-hoc | push to `beta` branch | `-beta.N` (monotonic) | Polishing-stage features |
+| **RC** | Ad-hoc | push to `release-candidate` branch | `-rc.N` (monotonic) | Release candidates |
+| **Stable** | Per-version | release-please-action merge or `version-bump.yml` | *no suffix* | Production (recommended) |
+
+Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
+
+The four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are hidden from the channel selector by default and only appear when developer access is unlocked. Beta, RC, and Stable are always visible to all users.
 
 ### First-Run Setup
 
@@ -356,12 +445,12 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v0.34.6) <!-- x-release-please-version -->
+### v1.x — Current (v1.9.4) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
-- ✅ CI/CD pipeline with release-please, pre-release channel, and bundled dependencies
+- ✅ CI/CD pipeline with release-please, six-tier channel ladder (Nightly → Weekly → Monthly → Alpha → Beta → Stable), automated nightly tag-and-release, and bundled dependencies
 - ✅ Settings UI with 10 configuration tabs
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download, install, and rollback
@@ -379,6 +468,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ In-app help viewer with 12 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
+- ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
 - ✅ Per-track activity log separators with codec and auth info
 - ✅ MediaInfo CLI integration for accurate Atmos/AC3 codec detection
 - ✅ Engine registry (`engines.toml`) for per-platform tool priority and fallback
@@ -391,6 +481,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Notification style control — 3-way setting (`in_app_only` / `native_and_in_app` / `native_only`) for fine-grained notification delivery in Settings > General
 - ✅ Download history — persistent history with search, status icons, codec badges (max 1000 entries)
 - ✅ Companion lyrics fix — all 4 lyrics conversion formats (LRC, SRT, VTT, ASS) now generated for every companion tier, not just the primary download
+- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export Disk** and **Reveal** buttons in the Activity Log toolbar; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
 
 ### v2.x — Multi-Service Expansion
 
@@ -425,10 +516,12 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 ```text
 MIT License
 
-Copyright (c) 2026 MeedyaDL
+Copyright (c) 2026 MeedyaSuite
 ```
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
+
+The verbatim upstream copyright notices and licence text for the third-party engines and tools that MeedyaDL invokes or bundles (GAMDL, FFmpeg, MP4Box, MediaInfo, mp4decrypt, N_m3u8DL-RE, Python, etc.) are reproduced in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), which also carries MeedyaDL's written offer for the complete corresponding source code of the LGPL/GPL components shipped in the offline-installer build. The [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) file lists the full dependency inventory with versions and one-line purposes.
 
 ---
 
@@ -457,5 +550,5 @@ For the full implementation plan, project status, architecture decisions, and de
 ---
 
 <p align="center">
-  Made with ❤️ by MeedyaDL
+  Made with ❤️ by MeedyaSuite
 </p>

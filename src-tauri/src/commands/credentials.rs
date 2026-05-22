@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Secure credential storage IPC commands.
@@ -37,6 +37,8 @@
 // - Tauri IPC commands: https://v2.tauri.app/develop/calling-rust/
 // - macOS Keychain Services: https://developer.apple.com/documentation/security/keychain_services
 // - Windows Credential Manager: https://learn.microsoft.com/en-us/windows/win32/secauthn/credential-manager
+
+use crate::context_err;
 
 /// The service name used as the namespace in the OS keychain.
 /// All credentials stored by this app use this identifier.
@@ -86,14 +88,17 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
     // Create a keyring entry handle for the (service, key) pair.
     // Entry::new() can fail if the OS keychain backend is unavailable.
     // See: https://docs.rs/keyring/latest/keyring/struct.Entry.html#method.new
-    let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+    let entry = context_err!(
+        keyring::Entry::new(SERVICE_NAME, &key),
+        "Failed to create keyring entry"
+    )?;
 
     // Store the credential in the OS keychain.
     // set_password() creates or overwrites the credential atomically.
-    entry
-        .set_password(&value)
-        .map_err(|e| format!("Failed to store credential '{key}': {e}"))?;
+    context_err!(
+        entry.set_password(&value),
+        "Failed to store credential '{key}'"
+    )?;
 
     // Log the key name only (never the value) for debugging and auditing
     log::info!("Credential '{key}' stored securely");
@@ -128,8 +133,10 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
 #[tauri::command]
 pub async fn get_credential(key: String) -> Result<Option<String>, String> {
     // Create a keyring entry handle for the lookup
-    let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+    let entry = context_err!(
+        keyring::Entry::new(SERVICE_NAME, &key),
+        "Failed to create keyring entry"
+    )?;
 
     // Attempt to retrieve the stored password.
     // The keyring crate distinguishes between "not found" and other errors,
@@ -170,8 +177,10 @@ pub async fn get_credential(key: String) -> Result<Option<String>, String> {
 #[tauri::command]
 pub async fn delete_credential(key: String) -> Result<(), String> {
     // Create a keyring entry handle for the deletion
-    let entry = keyring::Entry::new(SERVICE_NAME, &key)
-        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+    let entry = context_err!(
+        keyring::Entry::new(SERVICE_NAME, &key),
+        "Failed to create keyring entry"
+    )?;
 
     // Attempt to delete the credential from the OS keychain.
     // We explicitly handle NoEntry as a success case for idempotency.

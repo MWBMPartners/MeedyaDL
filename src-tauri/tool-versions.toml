@@ -1,4 +1,4 @@
-# Copyright (c) 2024-2026 MeedyaDL
+# Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # MeedyaDL External Tool Version Requirements
@@ -66,3 +66,165 @@ version_flag = "-version"
 minimum_version = "22.0"
 binary_name = "mediainfo"
 version_flag = "--version"
+
+# GAMDL is installed via pip (not as a standalone binary) so the
+# `binary_name` / `version_flag` fields above don't apply. Instead we
+# declare a **support window** that bounds which GAMDL releases this
+# MeedyaDL build has been validated against. Consumed by
+# `services::gamdl_capabilities` for:
+#
+#   * capping `pip install --upgrade` to the tested range,
+#   * suppressing update prompts when upstream ships beyond our
+#     ceiling (users shouldn't be pushed into untested territory), and
+#   * classifying the installed version at startup
+#     (Unsupported / Supported / Untested / NotInstalled).
+#
+# Bump `maximum_tested_version` / `recommended_version` every time we
+# validate a new GAMDL release. `minimum_version` is the oldest
+# release that still supports `--song-codec-priority` for albums
+# (native fallback chain support; older releases silently degrade).
+[gamdl]
+# Lowest release we still support. Anything below degrades features
+# (native codec priority, modern error classification) silently.
+minimum_version = "2.9.1"
+# Highest release MeedyaDL has been tested against. Upstream may ship
+# newer versions before we validate them; see module docs in
+# `gamdl_capabilities.rs` for how that scenario is handled.
+#
+# 3.1 validation (#604, landed on `claude/audit-gamdl-v3-1-Qlyug`):
+#   * `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` CLI + INI gated behind
+#     `GamdlFeature::WrapperM3u8Ip` — #605.
+#   * `--no-exceptions` suppressed on 3.1+ (no-op upstream) — #606.
+#   * `extract_python_exception()` handles the new
+#     `ExceptionPrettyPrinter` output ordering — #607.
+#   * `TRACK_INFO_V2_REGEX` + `ERROR_PREFIX_REGEX` verified against
+#     v3.1 padded Track/URL brackets — #608.
+#   * QueueItem counter wiring for per-track index/total — #609.
+#
+# 3.2 validation (#613, landed on `claude/audit-gamdl-v3.2-eI87q`):
+#   * Upstream flipped `AppleMusicInterface.concurrency` 5 → 1
+#     (sequential by default); no MeedyaDL code change needed,
+#     aligns with our serial-queue design (#455). Docs only — #616.
+#   * `track_log.info('Downloading ...')` now conditional on partial
+#     media + specific media types; `TRACK_INFO_V2_REGEX` unaffected
+#     since it keys on the bracket shape. Regression tests — #615.
+#   * `GamdlDownloaderFlatFilterExcludedError` →
+#     `GamdlInterfaceFlatFilterExcludedError` rename is invisible to
+#     our classifier (matches substrings, not class names) — #615.
+#   * Latent pre-existing bugs surfaced during the audit:
+#     — `--song-codec` flag never existed in v2.9.1+ CLI; MeedyaDL
+#       now always emits `--song-codec-priority` — #614.
+#     — Upstream dataclass field misspelled `song_codec_piority`
+#       caused our INI emission to be silently dropped; INI codec
+#       block now empty, CLI path is authoritative — #617.
+#   * `--playlist-folder-template` (v3.0+ flag) finally wired with
+#     a new `GamdlFeature::PlaylistFolderTemplate` gate — #618.
+#   * Queue-level "Abort All" destructive action surfaced in the UI
+#     for fast escape from batch downloads — #620.
+#
+# 3.3 validation (audit landed on `claude/fix-meedyadl-gamdl-updates-ucJWJ`):
+#   * Upstream change set is a single commit — `c83e47d` "Remove total
+#     arg from media fetch calls" — which deletes a stale `total=...`
+#     kwarg from two `_get_*_media` invocations inside
+#     `interface.py::_get_playlist_media`. Pure internal bugfix that
+#     unbreaks playlist downloads when a fetch helper signature drifted.
+#   * Zero CLI flag changes, zero INI key changes, zero output-format
+#     or regex changes. `TRACK_INFO_V2_REGEX`, `ERROR_PREFIX_REGEX`,
+#     and every `GamdlFeature` gate behave identically on 3.3 and 3.2.
+#   * Safe to admit to the support window without further code changes.
+#
+# 3.4 validation (audit: `.github/audits/gamdl-v3.4-v3.5-audit.md`,
+# 2026-04-27, 11 upstream commits, 9 files touched):
+#   * **Logging stream swap**: `cli/cli.py` migrated from
+#     `structlog.stdlib.LoggerFactory` (which routed through stdlib
+#     `logging.StreamHandler()` defaulting to **stderr**) to
+#     `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`.
+#     Every GAMDL log line now lands on **stdout** instead of stderr.
+#     Benign for MeedyaDL because both reader tasks in `download_queue.rs`
+#     call `parse_gamdl_output()` identically — error collection,
+#     progress updates, and Python-traceback extraction are all
+#     stream-agnostic. The cosmetic `──── [Track N/M] Downloading
+#     "Title" ────` separator (only emitted from the stdout reader)
+#     was a latent no-op pre-3.4 because TrackInfo lines came from
+#     stderr; it now starts firing reliably as a free UX improvement.
+#   * **Subprocess error format change**: `utils.async_subprocess()`
+#     replaced `'"<arg0>" exited with code N'` with
+#     `'Exited with code N: <full args>\nstdout:\n…\nstderr:\n…'`.
+#     `process::classify_error()` matches on substrings (ffmpeg,
+#     mp4decrypt, timeout, dns, …) so the new richer text classifies
+#     **better**, not worse. No regex update needed.
+#   * **`Database(overwrite)` constructor + new `flat_filter` sentinel
+#     return** (`"Registered in database"` instead of a path string):
+#     scoped to `--database-path` users only. MeedyaDL never sets that
+#     flag (`grep -rn "database_path" src-tauri/src/` confirms only the
+#     `gamdl_capabilities.rs` module-doc reference). Invisible to us.
+#   * **`DownloadItem.uuid_` factory fix** (class-level expression →
+#     `field(default_factory=…)`), **`skip_cleanup` cleanup refactor**
+#     (caller-side check, net behaviour identical), **raw cover URL
+#     suffix strip** (`/{w}x{h}bb.jpg` removed by `_get_raw_cover_url`),
+#     **filter exclusion error message reworded**: all internal to GAMDL
+#     and never crossed our IPC boundary.
+#   * **`--log-file` codepath** also swapped from `logging.FileHandler`
+#     to `CustomOutputWriter.add_file()`. MeedyaDL doesn't pass
+#     `--log-file` (only `--log-level`), so the file-logging change is
+#     irrelevant.
+#   * No CLI flag added, removed, or renamed. No INI key changed. No
+#     `GamdlFeature` gate touched.
+#
+# 3.5 validation (same audit, 4 upstream commits, 3 files touched —
+# all internal HTTP/storefront fixes for the iTunes lookup path used
+# by music-video metadata):
+#   * `api/itunes.py`: `httpx.AsyncClient(..., follow_redirects=True)`.
+#   * `api/itunes.py`: `X-Apple-Store-Front` header changed from
+#     `"{storefront_id}-1,32 t:music31"` to
+#     `"{storefront_id},32 t:music31"` (commit message references
+#     `-28`; the diff strips `-1`. Either way it's a header detail
+#     internal to GAMDL's HTTP layer).
+#   * `interface/base.py`: passes `storefront_id=None` to
+#     `ItunesApi.create()` for non-US storefronts.
+#   * Bug-fixes-only release for music-video iTunes-page lookups; no
+#     CLI / INI / output-format surface change.
+#   * Safe to admit to the support window without further code changes.
+#
+# 3.5.1 validation (#711, audit doc at
+# `.github/audits/gamdl-v3.5.1-audit.md`):
+#   * Single upstream commit (`34a397e`): "Fixed an issue with music
+#     video m3u8 URL returning error 403." Pure HTTP/header fix inside
+#     GAMDL's music-video URL handling layer.
+#   * No CLI / INI / output-format / regex / log surface change.
+#   * Same shape as v3.3 (playlist fix) and v3.5 (iTunes lookup fix);
+#     zero-code-change admission to the support window.
+#   * User-facing benefit: 403 errors on music-video downloads (both
+#     standalone MV URLs and music-video companions) silently resolve
+#     once installed users upgrade to 3.5.1.
+#
+# 3.5.2 validation (#767, audit doc at
+# `.github/audits/gamdl-v3.5.2-audit.md`):
+#   * Four upstream commits, four functional files (plus pure version
+#     metadata). Bug-fix-only release.
+#     — `b48dbef` `gamdl/api/apple_music.py`: forward all `next_params`
+#       (except `limit`) when paginating `_amp_request`. Pure HTTP-layer
+#       fix; resolves silent pagination failures on Apple Music
+#       resources whose `next` link carries params beyond `offset`
+#       (playlists, artist track lists, editorial art extends).
+#     — `dec4a22` `gamdl/interface/music_video.py`: track Apple's
+#       host migration by rewriting `play-edge.itunes.apple.com` →
+#       `play.itunes.apple.com` (was rewriting `itunes.apple.com`).
+#       This is **the** user-facing fix referenced in the release
+#       ("Fixed an issue with music video m3u8 URL formation").
+#       MV downloads that broke on 3.5.1 once Apple flipped the edge
+#       host succeed once users upgrade. Also adds a `log.debug()`
+#       call gated behind `--log-level DEBUG`; MeedyaDL never sets
+#       that level so the line is invisible in normal operation.
+#     — `bc4cdd1` `gamdl/cli/utils.py`: `CustomOutputWriter.add_file()`
+#       opens the log file as UTF-8. Only matters for `--log-file`,
+#       which MeedyaDL never passes (we capture stdout/stderr via
+#       Tokio `BufReader::lines()` instead). Invisible to us.
+#   * No CLI / INI / output-format / regex / log surface change at
+#     the default `INFO` log level. No `GamdlFeature` gate touched.
+#   * Same zero-code-change admission shape as v3.3 (playlist fix),
+#     v3.5 (iTunes lookup fix), and v3.5.1 (music-video 403 fix).
+maximum_tested_version = "3.5.2"
+# What the installer will resolve to when run with no override. Always
+# within `[minimum_version, maximum_tested_version]`.
+recommended_version = "3.5.2"

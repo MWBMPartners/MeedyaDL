@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/App.tsx - Root application component for MeedyaDL
@@ -134,6 +134,13 @@ import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './compone
 
 /** UpdatesPage: Detailed update view with full release notes */
 import { UpdatesPage } from './components/updates';
+
+/**
+ * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
+ * via the existing `scan_folder_for_manifests` IPC, then offer to re-download
+ * gaps (missing tracks, format upgrades, content updates from Apple Music).
+ */
+import { LibraryScanPage } from './components/library/LibraryScanPage';
 
 /** SettingsPage: Full application settings editor with save/reset */
 import { SettingsPage } from './components/settings';
@@ -524,6 +531,36 @@ function App() {
       } catch {
         /* Non-fatal: version check failure shouldn't block app startup */
       }
+
+      /*
+       * Notification permission preflight (#658).
+       *
+       * On macOS, `requestPermission()` only triggers the system prompt the
+       * first time it is called for a bundle ID. If the user dismissed (not
+       * granted, not denied) the prompt during a prior session, every later
+       * call resolves silently with `'default'` and `sendNotification()` is
+       * a no-op — which is why users on Native + In-app saw no notifications.
+       *
+       * Requesting permission once at startup forces a predictable, visible
+       * prompt and also lets us log the resolved status to the WebView
+       * console for debugging. Skipped when the user picked `in_app_only`.
+       */
+      const notifStyle =
+        useSettingsStore.getState().settings.notification_style ?? 'native_and_in_app';
+      if (notifStyle !== 'in_app_only') {
+        try {
+          const { isPermissionGranted, requestPermission } = await import(
+            '@tauri-apps/plugin-notification'
+          );
+          const granted = await isPermissionGranted();
+          if (!granted) {
+            const result = await requestPermission();
+            console.info(`[notification] startup permission request resolved: ${result}`);
+          }
+        } catch (err) {
+          console.warn('[notification] startup permission preflight failed:', err);
+        }
+      }
     };
 
     initialize().catch((err) => {
@@ -746,6 +783,7 @@ function App() {
     let unlistenError: (() => void) | undefined;
     let unlistenCancelled: (() => void) | undefined;
     let unlistenQueued: (() => void) | undefined;
+    let unlistenQueueUpdated: (() => void) | undefined;
     let unlistenPreflight: (() => void) | undefined;
     let unlistenPreflightCleared: (() => void) | undefined;
 
@@ -793,6 +831,22 @@ function App() {
             refreshQueue();
           } catch (err) {
             console.error('Error in download-queued handler:', err);
+          }
+        });
+
+        /* 4a. Generic queue state change — fires whenever the backend
+         * mutates a queue item (currently: processing_label updates at
+         * each enrichment stage). Without this listener, backend label
+         * changes during enrichment stay invisible until download-complete
+         * fires, and the progress bar keeps showing "DOWNLOADING..." for
+         * the entire enrichment phase (#574). The emit is debounced on the
+         * backend by the rate of stage transitions (typically <15 per
+         * download) so no throttling needed client-side. */
+        unlistenQueueUpdated = await listen('queue-updated', () => {
+          try {
+            refreshQueue();
+          } catch (err) {
+            console.error('Error in queue-updated handler:', err);
           }
         });
 
@@ -847,6 +901,7 @@ function App() {
       unlistenError?.();
       unlistenCancelled?.();
       unlistenQueued?.();
+      unlistenQueueUpdated?.();
       unlistenPreflight?.();
       unlistenPreflightCleared?.();
     };
@@ -1006,6 +1061,8 @@ function App() {
         return <DownloadForm />; // URL input form and download options
       case 'queue':
         return <DownloadQueue />; // Real-time download queue with progress
+      case 'library':
+        return <LibraryScanPage />; // Phase 5 (#717): scan existing on-disk library for re-download gaps
       case 'history':
         return <HistoryPage />; // Persistent download history
       case 'activity':

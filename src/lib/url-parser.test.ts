@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/lib/url-parser.test.ts - Unit tests for the Apple Music URL parser
@@ -57,6 +57,23 @@ describe('isAppleMusicUrl', () => {
   /** Validates that the legacy iTunes domain is also accepted (backward compatibility) */
   it('accepts itunes.apple.com URLs', () => {
     expect(isAppleMusicUrl('https://itunes.apple.com/us/album/test/123')).toBe(true);
+  });
+
+  /** Accepts legacy Apple Music Classical domain */
+  it('accepts classical.apple.com URLs', () => {
+    expect(isAppleMusicUrl('https://classical.apple.com/us/album/test/123')).toBe(true);
+  });
+
+  /** Accepts current Apple Music Classical domain (post-2026 migration) */
+  it('accepts classical.music.apple.com URLs', () => {
+    expect(isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145')).toBe(true);
+  });
+
+  /** Accepts slug-less Classical URL with locale query — the real live shape */
+  it('accepts classical.music.apple.com URLs with slug-less path + locale query', () => {
+    expect(
+      isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145?l=en-GB')
+    ).toBe(true);
   });
 
   /** Ensures non-Apple domains are rejected, even if the path looks valid */
@@ -201,6 +218,36 @@ describe('non-geographic URLs (no storefront code)', () => {
     expect(result.isValid).toBe(true);
   });
 
+  // Apple Music Classical domain migration (2026) — Apple moved Classical
+  // to `classical.music.apple.com` and dropped the slug segment from
+  // Share-link URLs. The frontend parser must classify both the new
+  // hostname and the slug-less path shape.
+
+  it('classifies new classical.music.apple.com album URLs (slug-less)', () => {
+    const result = parseAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145');
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('album');
+  });
+
+  it('classifies new classical.music.apple.com album URL with ?l= locale query', () => {
+    // The real-world shape captured from the Apple Music Classical app
+    // Share → Copy Link, 2026-04-23.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145?l=en-GB'
+    );
+    expect(result.isValid).toBe(true);
+    expect(result.contentType).toBe('album');
+  });
+
+  it('classifies new classical.music.apple.com song URL with ?i= track id', () => {
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145?i=1844602150'
+    );
+    expect(result.isValid).toBe(true);
+    // contentType is 'song' when `?i=` is present on an album URL (per detectContentType).
+    expect(result.contentType).toBe('song');
+  });
+
   it('detects song URL path without storefront', () => {
     const result = parseAppleMusicUrl('https://music.apple.com/song/anti-hero/1649434280');
     // /song/ path is not currently a recognized content type in the frontend
@@ -218,7 +265,7 @@ describe('non-geographic URLs (no storefront code)', () => {
  * test serves as a safety net against accidental typos in the labels.
  */
 describe('getContentTypeLabel', () => {
-  /** Exhaustively tests all seven content type variants */
+  /** Exhaustively tests all content type variants */
   it('returns correct labels for all content types', () => {
     expect(getContentTypeLabel('song')).toBe('Song');
     expect(getContentTypeLabel('album')).toBe('Album');
@@ -226,7 +273,61 @@ describe('getContentTypeLabel', () => {
     expect(getContentTypeLabel('music-video')).toBe('Music Video');
     expect(getContentTypeLabel('artist')).toBe('Artist');
     expect(getContentTypeLabel('library')).toBe('Library');
+    expect(getContentTypeLabel('recording')).toBe('Classical Recording');
     expect(getContentTypeLabel('unknown')).toBe('Unknown');
+  });
+});
+
+/*
+ * Apple Music Classical recording URLs — see url-parser.ts for the path
+ * shape documentation. The parser must:
+ *   1. Recognise the content type as `recording`.
+ *   2. Mark `isValid: true` so the URL can be submitted like any other
+ *      Apple Music URL. Earlier behaviour (#573) rejected recording
+ *      URLs on the grounds that GAMDL can't handle them, but that was
+ *      reversed 2026-04-23 after reviewer feedback: the correct UX is
+ *      to accept what the user pasted and let the pipeline give a
+ *      clear outcome. With #567's broadened empty-output guard, a URL
+ *      GAMDL can't parse fails cleanly rather than cascading into
+ *      false lyrics-companion "success" lines.
+ */
+describe('parseAppleMusicUrl - classical recording URLs', () => {
+  it('classifies recording URLs as `recording` content type', () => {
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808'
+    );
+    expect(result.contentType).toBe('recording');
+  });
+
+  it('marks recording URLs as submittable', () => {
+    // Reversed from the #573 behaviour: recording URLs now pass the
+    // validator so the user isn't asked to re-navigate for a different
+    // link. GAMDL may still fail on the URL — that failure is handled
+    // cleanly by the #567 empty-output enrichment guard.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808'
+    );
+    expect(result.isValid).toBe(true);
+  });
+
+  it('classifies recording URL with locale query param as submittable', () => {
+    // Real-world URL shape from Apple Music Classical Share → Copy Link,
+    // captured 2026-04-23.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB'
+    );
+    expect(result.contentType).toBe('recording');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('does not misclassify album URLs as recordings', () => {
+    // Regression canary — `/album/` URLs must NOT accidentally hit the
+    // `recording` branch if someone refactors the detection order.
+    const result = parseAppleMusicUrl(
+      'https://classical.music.apple.com/gb/album/1844602145'
+    );
+    expect(result.contentType).toBe('album');
+    expect(result.isValid).toBe(true);
   });
 });
 

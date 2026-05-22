@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaDL
+  Copyright (c) 2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -95,9 +95,10 @@ Changes made in this tab take effect immediately for all subsequent downloads.
 
 You can fully customize the order and contents of each fallback chain:
 
-- **Drag-and-drop reordering** -- Click and hold any codec or resolution in the list, then drag it to a new position. The first item in the list is your preferred quality; all subsequent items are tried in order if the preferred quality is unavailable.
-- **Adding codecs/resolutions** -- Use the add button to include a codec or resolution that is not currently in the chain. Adding an option makes it available as a potential fallback.
-- **Removing codecs/resolutions** -- Select a codec or resolution and remove it from the chain. Removing an option means it will never be used as a fallback, even if it is the only available quality for a given track. This is useful if you want to exclude a specific codec entirely (for example, removing AAC Legacy if you never want legacy-encoded files).
+- **Reordering** — use the up (↑) and down (↓) arrow buttons on the right of each row. The first item in the list is your preferred quality; all subsequent items are tried in order if the preferred quality is unavailable.
+- **Removing a codec or resolution** — click the × button on the right of the row to drop it from the active chain. The removed entry moves to the **Available (not in chain)** panel below the active list. Removing an option means it will never be used as a fallback, even if it is the only available quality for a given track — useful for users who don't want, say, AAC Binaural mixed into their library or who never want lower-than-720p video.
+- **Adding a codec or resolution back** — click the + button next to any entry in the **Available** panel to append it to the bottom of the active chain (lowest priority). Use the up arrow to move it earlier if needed.
+- **Safety guard** — the × button on the only remaining row of the chain is disabled. An empty chain would block every download, so MeedyaDL refuses the last removal.
 
 Your customized chain is saved automatically and persists across application restarts.
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 /**
@@ -22,6 +22,8 @@
 import { useMemo, useState, useEffect } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
+import { formatActiveItemCaption } from '@/lib/progress-caption';
+import { computeItemProgress } from '@/lib/progress-percent';
 
 /**
  * Platform detection config — loaded once from engines.toml via IPC.
@@ -235,9 +237,13 @@ export function GlobalProgressBar() {
           i.state === 'error' ||
           i.state === 'cancelled'
       ).length;
-      // Count items that are done for queue-level progress.
-      // 'processing' counts as done — the user's files are downloaded,
-      // enrichment/companions are background bonus processing.
+      // Integer completed-count for the numeric "N of M complete" caption.
+      // A `processing` item has produced its primary files (audio on disk)
+      // but is still mid-enrichment — counted as "done" in the integer
+      // display because the user's expectation of "download complete"
+      // tracks the audio landing, not every last ReplayGain / AcoustID /
+      // manifest-write tick. This preserves the pre-#576 integer caption
+      // behaviour.
       const completed = queueItems.filter(
         (i) =>
           i.state === 'complete' ||
@@ -245,7 +251,43 @@ export function GlobalProgressBar() {
           i.state === 'error' ||
           i.state === 'cancelled'
       ).length;
-      const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+      // Weighted progress fraction (#576). Unlike the integer caption
+      // above, this gives `processing` items credit based on where they
+      // are INSIDE the enrichment pipeline, not just binary 0/1. The
+      // backend emits `processing_progress` at every enrichment stage
+      // start (see ENRICHMENT_STAGE_WEIGHTS in download_queue.rs) so the
+      // bar ticks up 0.05 → 0.15 → 0.25 → 0.40 → 0.55 → 0.75 → 1.0 as
+      // metadata / lyrics / artwork / AcoustID / ReplayGain land.
+      //
+      // Without this, large box sets (200-track Beethoven etc.) showed
+      // the queue bar pinned at a single partial-credit value for the
+      // entire 15–40 min enrichment phase. Progress updates via the
+      // `queue-updated` event listener in App.tsx refresh the store,
+      // and the derived aggregate here picks up the new fraction on
+      // the next render.
+      const weightedDone = queueItems.reduce((acc, i) => {
+        if (
+          i.state === 'complete' ||
+          i.state === 'error' ||
+          i.state === 'cancelled'
+        ) {
+          return acc + 1.0;
+        }
+        if (i.state === 'processing') {
+          // processing_progress is null until the first enrichment stage
+          // ticks over; default to 0.5 so the bar at least reflects the
+          // audio-landed milestone. Matches the pre-#576 flat partial
+          // credit but upgrades over time.
+          const p = i.processing_progress ?? 0.5;
+          // Clamp defensively — a mis-computed weight > 1 would falsely
+          // inflate queue progress past its integer denominator.
+          return acc + Math.min(Math.max(p, 0), 1);
+        }
+        return acc;
+      }, 0);
+      const progress =
+        total > 0 ? Math.round((weightedDone / total) * 100) : 0;
       const working =
         total > 0 && (active !== undefined || completed < total);
 
@@ -262,38 +304,17 @@ export function GlobalProgressBar() {
   if (!hasWork) return null;
 
   /**
-   * Per-item progress value.
-   * During processing: use actual progress if available (companion downloads
-   * update progress while item stays in 'processing' state), otherwise null
-   * for indeterminate animation (enrichment stages without progress data).
+   * Per-item progress value — see `computeItemProgress` for the
+   * aggregation rule (#790). For multi-track items the value now
+   * spans the WHOLE item (completed_tracks + current_track%), not
+   * just the current track's GAMDL `[download] X%` — so the bar
+   * ticks monotonically forward instead of "scrolling" left-to-
+   * right as each track resets to 0.
    */
-  const itemProgress =
-    activeItem?.state === 'processing'
-      ? (activeItem?.speed ? (activeItem?.progress ?? null) : null)
-      : (activeItem?.progress ?? 0);
+  const itemProgress = computeItemProgress(activeItem ?? null);
 
-  /** Build contextual label: "DOWNLOADING...Artist — Album — "Track"" for multi-queue clarity */
-  const itemLabel = (() => {
-    // Processing labels (enrichment/companions) take priority
-    if (activeItem?.processing_label) return activeItem.processing_label;
-
-    const track = activeItem?.current_track;
-    const album = activeItem?.album_name;
-    const artist = activeItem?.artist_name;
-    const isDownloading = activeItem?.state === 'downloading';
-
-    if (track) {
-      const parts: string[] = [];
-      if (artist) parts.push(artist);
-      if (album) parts.push(album);
-      parts.push(`"${track}"`);
-      const label = parts.join(' — ');
-      return isDownloading ? `DOWNLOADING...${label}` : label;
-    }
-
-    const fallback = album ?? activeItem?.urls?.[0] ?? '';
-    return isDownloading ? `DOWNLOADING...${fallback}` : fallback;
-  })();
+  /** Per-item caption — see `formatActiveItemCaption` for rules. */
+  const itemLabel = formatActiveItemCaption(activeItem);
 
   /** Speed and ETA suffix */
   const speedEta = [activeItem?.speed, activeItem?.eta]
@@ -316,7 +337,13 @@ export function GlobalProgressBar() {
         <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
-        {/* Speed + ETA + percentage (right) */}
+        {/* Speed + ETA + percentage (right).
+            #790: `computeItemProgress` now exhausts every signal
+            (active byte stream → enrichment stage weight) before
+            falling back to `null`, so the "Processing…" placeholder
+            only fires in the brief gaps where no signal exists at
+            all. When it does fire, that's the honest answer — we
+            don't fake a percentage we can't measure. */}
         <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
           {speedEta ? `${speedEta} · ` : ''}
           {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
@@ -331,16 +358,24 @@ export function GlobalProgressBar() {
         aria-label="Current download progress"
       >
         {itemProgress === null ? (
-          /* Indeterminate (processing) */
+          /* Indeterminate — LAST resort per #790. Only fires when
+             we have neither an active GAMDL byte stream nor an
+             enrichment stage weight. Should be brief; persistent
+             indeterminate state would indicate a missing emit at
+             the source, not a problem in this render. */
           <div
             className="h-full w-1/3 rounded-full bg-accent animate-[indeterminate_1.5s_ease-in-out_infinite]"
             style={{ animation: 'indeterminate 1.5s ease-in-out infinite' }}
           />
         ) : (
-          /* Determinate */
+          /* Determinate — per-file byte progress (GAMDL active),
+             enrichment stage weight, or terminal-state value.
+             Each file's bar cycles 0 → 100 as expected; the
+             caption changes per file so the user can see which
+             file is in flight. */
           <div
             className="h-full rounded-full bg-accent transition-all duration-300 ease-out"
-            style={{ width: `${Math.max(0, Math.min(100, itemProgress))}%` }}
+            style={{ width: `${itemProgress}%` }}
           />
         )}
       </div>

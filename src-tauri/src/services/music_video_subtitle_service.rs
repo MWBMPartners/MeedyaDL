@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Music video subtitle / caption extraction service (#483).
@@ -286,6 +286,12 @@ pub fn pair_song_lyrics_with_music_video(album_dir: &Path, video_path: &Path) ->
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
+            continue;
+        }
+        // Skip macOS AppleDouble shadows / Thumbs.db / .DS_Store —
+        // some of these can match the lyric extension allowlist
+        // (e.g., `._foo.ttml`) and produce parse failures (#577).
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
             continue;
         }
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {

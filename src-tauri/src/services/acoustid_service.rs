@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // acoustid_service.rs -- AcoustID fingerprinting and lookup service
@@ -113,6 +113,17 @@ pub fn resolve_api_key(user_key: &str) -> Option<String> {
 /// # Arguments
 /// * `output_path` - Download output path (file or album directory)
 /// * `api_key` - AcoustID application API key (registered at acoustid.org)
+/// * `on_progress` - Called BEFORE each file is processed with
+///   `(current_index_one_based, total_files)`. Used by the
+///   enrichment task to update the per-item progress-bar caption
+///   so users see "AcoustID: track 5 of 19" instead of a static
+///   "AcoustID fingerprinting…" for the entire stage (#574).
+///   Pass `|_, _| {}` if you don't need progress updates.
+/// * `file_locks` - Optional shared per-file write-coordination map
+///   (#779 Option 2). When supplied, each per-file
+///   `Tag::write_to_path` call acquires the lock for that file so
+///   it serialises with any other stage that's writing to the same
+///   file (notably ReplayGain). Pass `None` for standalone use.
 ///
 /// # Errors
 ///
@@ -124,6 +135,8 @@ pub fn resolve_api_key(user_key: &str) -> Option<String> {
 pub async fn process_acoustid_for_directory(
     output_path: &str,
     api_key: &str,
+    on_progress: impl Fn(usize, usize) + Send,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
 ) -> Result<usize, String> {
     if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
@@ -138,6 +151,7 @@ pub async fn process_acoustid_for_directory(
 
     let total_files = m4a_files.len();
     for (i, file_path) in m4a_files.iter().enumerate() {
+        on_progress(i + 1, total_files);
         log::info!(
             "AcoustID: fingerprinting file {}/{} — {}",
             i + 1,
@@ -149,7 +163,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(file_path, api_key).await {
+        match process_single_file(file_path, api_key, file_locks).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcoustID match for {}", file_path.display());
@@ -178,7 +192,17 @@ pub async fn process_acoustid_for_directory(
 /// Generate fingerprint, look up `AcoustID`, and write tags for a single file.
 ///
 /// Returns `Ok(true)` if tags were written, `Ok(false)` if no match found.
-async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, String> {
+///
+/// `file_locks` (when supplied) is used to serialise the write phase with
+/// any concurrent stage touching the same M4A file (#779 Option 2). The
+/// lock is held ONLY around the `Tag::read_from_path` → `set_data` →
+/// `Tag::write_to_path` cycle, so the slow fingerprint + API-lookup work
+/// runs without blocking other stages.
+async fn process_single_file(
+    file_path: &Path,
+    api_key: &str,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
     // on a blocking thread to avoid starving the async runtime.
@@ -193,7 +217,18 @@ async fn process_single_file(file_path: &Path, api_key: &str) -> Result<bool, St
         return Ok(false); // No match found
     };
 
-    // Step 3: Write tags on a blocking thread to avoid starving the async
+    // Step 3: Acquire the per-file write lock (#779 Option 2). When
+    // supplied, this serialises against any other enrichment stage
+    // (notably ReplayGain) writing to the same file. Acquired BEFORE
+    // the spawn_blocking so the blocking task itself is short — read,
+    // mutate, write, release. The slow CPU-bound fingerprint work above
+    // already completed on its own thread without holding the lock.
+    let _write_guard = match file_locks {
+        Some(locks) => Some(locks.lock(file_path).await),
+        None => None,
+    };
+
+    // Step 4: Write tags on a blocking thread to avoid starving the async
     // runtime. Tag::read_from_path / Tag::write_to_path are sync I/O that
     // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
     let tag_path = file_path.to_path_buf();
@@ -383,10 +418,10 @@ async fn lookup_acoustid(
     duration: u32,
     api_key: &str,
 ) -> Result<Option<String>, String> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
+    // Phase 1.0.2 (#716 finding #2): migrated to the shared
+    // `utils::http_client::build_simple` helper. Same 30-second timeout,
+    // same canonical error string, no behavioural change.
+    let client = crate::utils::http_client::build_simple(30)?;
 
     let response = client
         .post(ACOUSTID_API_URL)
@@ -472,26 +507,25 @@ fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
             files.push(path.to_path_buf());
         }
     } else if path.is_dir() {
-        collect_m4a_recursive(path, &mut files);
+        // Migrated to walk_dir_depth in v1.0.8 (#716/1). max_depth=3
+        // matches GAMDL's natural Output/Artist/Album/file shape; the
+        // helper docs call this out as the conventional value for
+        // album-scoped walkers. Filesystem sidecars (._*, .DS_Store,
+        // Thumbs.db) skipped to avoid Chromaprint extraction noise
+        // on non-audio binaries (#577).
+        files.extend(crate::utils::fs_walk::walk_dir_depth(path, 3, |p| {
+            if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                return None;
+            }
+            if p.is_file() && is_m4a(p) {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }));
     }
 
     files
-}
-
-/// Recursively collect M4A file paths from a directory tree.
-fn collect_m4a_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_m4a_recursive(&path, files);
-        } else if is_m4a(&path) {
-            files.push(path);
-        }
-    }
 }
 
 /// Checks whether a file path has an `.m4a` extension (case-insensitive).

@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Download history IPC command handlers.
@@ -41,4 +41,36 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn search_history(app: AppHandle, query: String) -> Vec<HistoryEntry> {
     history_service::search_history(&app, &query)
+}
+
+/// Removes a single history entry by ID (#685).
+///
+/// Sibling of `clear_history` (bulk). Returns `Err` only when the ID
+/// doesn't match any row, so the frontend can surface "already gone"
+/// distinctly from a no-op.
+#[tauri::command]
+pub fn delete_history_entry(app: AppHandle, id: String) -> Result<(), String> {
+    if history_service::delete_entry(&app, &id) {
+        Ok(())
+    } else {
+        Err(format!("History entry {id} not found"))
+    }
+}
+
+/// Aggregate lifetime download analytics (#464). Returns totals,
+/// success rate, codec distribution, top artist / album, and
+/// last-7-day activity computed on-demand from the persistent history.
+///
+/// **Frontend caller:** `getLifetimeStats()` in
+/// `src/lib/tauri-commands.ts`, wired to the StatisticsPanel.
+///
+/// Pure read — no side effects, safe to call as often as the UI
+/// likes. Computed on each call rather than cached because the
+/// history is small (≤1000 entries per MAX_HISTORY_ENTRIES) and
+/// the aggregation is sub-ms.
+#[tauri::command]
+pub fn get_lifetime_stats(
+    app: AppHandle,
+) -> crate::services::stats_service::LifetimeStats {
+    crate::services::stats_service::get_lifetime_stats(&app)
 }

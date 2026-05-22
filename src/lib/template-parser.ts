@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file template-parser.ts -- GAMDL template string parser and serializer.
@@ -49,8 +49,16 @@ export interface TemplateVariable {
   label: string;
   /** Short description shown in the add menu. */
   description: string;
-  /** Category for grouping in the add menu. */
-  category: 'track' | 'album' | 'playlist';
+  /** Category for grouping in the add menu.
+   *
+   * - `'common'` — applies to every template context (e.g. `{platform}`).
+   *   Every `TemplateBuilder` invocation includes this so the chip is always
+   *   pickable. Use for multi-service-prep tokens (#800).
+   * - `'track'` — per-track values: artist, title, track #, disc.
+   * - `'album'` — album-context values: album, album_artist, year, genre, album_id.
+   * - `'playlist'` — playlist-context values: playlist_title, playlist_artist, playlist_id.
+   */
+  category: 'common' | 'track' | 'album' | 'playlist';
 }
 
 /** All available GAMDL template variables. */
@@ -63,6 +71,12 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     category: 'album',
   },
   { value: 'album', label: 'Album', description: 'Album title', category: 'album' },
+  {
+    value: 'album_id',
+    label: 'Album ID',
+    description: "Apple Music's numeric album ID — guaranteed unique, use for Various-Artists compilation folders",
+    category: 'album',
+  },
   { value: 'title', label: 'Title', description: 'Track title', category: 'track' },
   {
     value: 'track:02d',
@@ -86,10 +100,16 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
     category: 'playlist',
   },
   {
+    value: 'playlist_id',
+    label: 'Playlist ID',
+    description: "Apple Music's numeric playlist ID — guaranteed unique, use for `.m3u8` filename safety",
+    category: 'playlist',
+  },
+  {
     value: 'platform',
     label: 'Platform',
-    description: 'Download platform (e.g., AppleMusic, Spotify)',
-    category: 'album',
+    description: 'Download platform name (e.g. AppleMusic, Spotify, YouTube). Use as a top-level folder when downloading from multiple services so each service has its own root.',
+    category: 'common',
   },
 ];
 
@@ -126,11 +146,13 @@ export const SAMPLE_METADATA: Record<string, string> = {
   album: "1989 (Taylor's Version)",
   title: 'Style',
   'track:02d': '03',
+  album_id: '1646756971',
   disc: '1',
   year: '2023',
   genre: 'Pop',
   playlist_artist: 'Apple Music',
   playlist_title: "Today's Hits",
+  playlist_id: 'pl.f4d106fed2bd41149aaacabb233eb5eb',
   platform: 'AppleMusic',
 };
 

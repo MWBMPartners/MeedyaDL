@@ -1,0 +1,5 @@
+[INFO     12:00:01] [URL   1/1  ] Processing "https://music.apple.com/us/playlist/sample-playlist/pl.1000000004"
+[INFO     12:00:02] [Track   1/4  ] Downloading "Playlist Track One"
+[INFO     12:00:34] [Track   2/4  ] Downloading "Playlist Track Two"
+[INFO     12:01:06] [Track   3/4  ] Downloading "Playlist Track Three"
+[INFO     12:01:38] [Track   4/4  ] Downloading "Playlist Track Four"

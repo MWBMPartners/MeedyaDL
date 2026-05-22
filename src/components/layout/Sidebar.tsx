@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 /**
  * @file Sidebar navigation component.
  *
@@ -46,6 +46,9 @@ import {
   ChevronLeft,
   ChevronRight,
   RefreshCw,
+  // Library Scan page (Phase 5 / #717): folder-search icon hints at the
+  // "scan an existing on-disk library" UX that the page implements.
+  FolderSearch,
 } from 'lucide-react';
 
 /**
@@ -112,6 +115,9 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { page: 'download', label: 'Download', icon: Download, shortcut: 'D' },
   { page: 'queue', label: 'Queue', icon: ListOrdered, shortcut: 'Q' },
+  // Library Scan (Phase 5 / #717) — placed between Queue and History so
+  // the user-flow ordering reads "queue work → scan library → see history".
+  { page: 'library', label: 'Library', icon: FolderSearch },
   { page: 'history', label: 'History', icon: Clock },
   { page: 'activity', label: 'Activity', icon: ScrollText },
   { page: 'updates', label: 'Updates', icon: ArrowUpCircle },

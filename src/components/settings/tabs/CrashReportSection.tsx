@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file CrashReportSection.tsx -- Error report list with GitHub reporting.
@@ -29,6 +29,7 @@ import { Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/common';
 import { listCrashReports, deleteCrashReport, deleteAllCrashReports } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { withErrorToast } from '@/lib/withErrorToast';
 import type { CrashReport } from '@/types';
 
 import { CrashReportDialog } from './CrashReportDialog';
@@ -115,23 +116,24 @@ export function CrashReportSection() {
 
   /** Deletes a crash report and removes it from the displayed list. */
   const handleDelete = async (id: string) => {
-    try {
-      await deleteCrashReport(id);
+    const ok = await withErrorToast(() => deleteCrashReport(id), {
+      successMsg: 'Crash report deleted',
+      successVariant: 'info',
+      errorMsg: (err) => `Failed to delete crash report: ${err}`,
+    });
+    if (ok !== undefined) {
       setReports((prev) => prev.filter((r) => r.id !== id));
-      addToast('Crash report deleted', 'info');
-    } catch (err) {
-      addToast(`Failed to delete crash report: ${err}`, 'error');
     }
   };
 
   /** Deletes all crash reports and clears the displayed list. */
   const handleDeleteAll = async () => {
-    try {
-      const count = await deleteAllCrashReports();
+    const count = await withErrorToast(() => deleteAllCrashReports(), {
+      errorMsg: (err) => `Failed to clear error reports: ${err}`,
+    });
+    if (count !== undefined) {
       setReports([]);
       addToast(`Deleted ${count} error report(s)`, 'info');
-    } catch (err) {
-      addToast(`Failed to clear error reports: ${err}`, 'error');
     }
   };
 

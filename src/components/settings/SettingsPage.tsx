@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file SettingsPage.tsx -- Settings page container with 10-tab grouped navigation.
@@ -67,7 +67,7 @@
 // React hooks: useState for active tab tracking, useEffect for loading settings on mount.
 // @see https://react.dev/reference/react/useState
 // @see https://react.dev/reference/react/useEffect
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 // Lucide icon components used for the tab sidebar and header action buttons.
 // Each tab has a corresponding icon for visual identification.
@@ -92,9 +92,10 @@ import {
 // @see https://zustand.docs.pmnd.rs/getting-started/introduction
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+import { withErrorToast } from '@/lib/withErrorToast';
 
 // Shared UI components used in the header action bar.
-import { Button } from '@/components/common';
+import { Button, Modal } from '@/components/common';
 import { PageHeader } from '@/components/layout';
 
 // Individual tab components -- each renders its own section of settings.
@@ -214,27 +215,135 @@ export function SettingsPage() {
   /** Pushes a toast notification to the UI toast queue */
   const addToast = useUiStore((s) => s.addToast);
 
+  // ---------------------------------------------------------------
+  // Restart-required tracking for template edits (#833)
+  // ---------------------------------------------------------------
+  //
+  // GAMDL reads its template config (`album_folder_template`, file
+  // templates, etc.) from `config.ini` at process spawn. MeedyaDL
+  // writes `config.ini` once at app startup (and when GAMDL config
+  // is synced from settings), but the GAMDL CLI does NOT re-read the
+  // file mid-process. So a template change saved while a download is
+  // in flight only takes effect from the *next* app launch.
+  //
+  // Strategy:
+  //   1. Snapshot the template-field values when settings first
+  //      hydrate (the load-from-disk pass).
+  //   2. On every `Save Changes`, compare current template values
+  //      against the snapshot. If any TEMPLATE field changed, open a
+  //      modal explaining the restart requirement and offering
+  //      Restart Now / Later.
+  //   3. After a successful Save, re-snapshot — so subsequent saves
+  //      compare against the now-saved state rather than the
+  //      original-load state.
+  //
+  // The list of restart-required keys is co-located here so it's
+  // obvious which fields trigger the prompt. If we later identify
+  // other restart-only settings (e.g. `activity_log_path_override`
+  // already changes on next restart but isn't yet wired here), add
+  // them to this list.
+  const RESTART_REQUIRED_KEYS = [
+    'album_folder_template',
+    'compilation_folder_template',
+    'no_album_folder_template',
+    'playlist_folder_template',
+    'single_disc_file_template',
+    'multi_disc_file_template',
+    'no_album_file_template',
+    'playlist_file_template',
+  ] as const;
+  type RestartKey = (typeof RESTART_REQUIRED_KEYS)[number];
+
+  /** Snapshot taken at load (and refreshed after each successful save). */
+  const templateSnapshot = useRef<Record<RestartKey, string> | null>(null);
+  /** True after a save where one or more template fields changed. */
+  const [restartPromptOpen, setRestartPromptOpen] = useState(false);
+  /**
+   * Persistent banner shown after the user chose Restart Later. Cleared
+   * on next app restart automatically (mounts fresh; ref starts null).
+   */
+  const [restartPending, setRestartPending] = useState(false);
+
   /**
    * Load settings from the backend on component mount.
    * This ensures the settings UI always reflects the latest persisted state.
    * The dependency array contains only `loadSettings` (a stable function
    * reference from Zustand), so this effect runs exactly once.
+   *
+   * Also snapshots the template field values once the load completes (#833),
+   * so subsequent `Save Changes` clicks can detect a template-only edit.
    */
   useEffect(() => {
-    loadSettings();
+    (async () => {
+      await loadSettings();
+      const current = useSettingsStore.getState().settings;
+      const snap = {} as Record<RestartKey, string>;
+      for (const k of RESTART_REQUIRED_KEYS) {
+        snap[k] = (current[k] ?? '') as string;
+      }
+      templateSnapshot.current = snap;
+    })();
+    // RESTART_REQUIRED_KEYS is a stable module-level constant; safe to
+    // omit from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSettings]);
 
   /**
    * Persists settings to disk by calling the Zustand store's `saveSettings`
    * action, which in turn invokes the Tauri IPC command `save_settings`.
    * Displays a success or error toast notification based on the outcome.
+   *
+   * #833: After a successful save, compares the post-save template values
+   * to the pre-save snapshot. If any template field changed, opens the
+   * restart-prompt modal so the user can either Restart Now or dismiss
+   * with a persistent "restart pending" pill.
    */
   const handleSave = async () => {
+    // Capture pre-save template values to detect a change AFTER the save
+    // returns successfully. We compare against the snapshot from
+    // load-or-last-save — not against the current in-memory value, which
+    // is what the user is about to persist.
+    const preSaveSnapshot = templateSnapshot.current;
+    await withErrorToast(() => saveSettings(), {
+      successMsg: 'Settings saved successfully',
+      errorMsg: 'Failed to save settings',
+    });
+    // saveSettings() throws on failure (withErrorToast re-surfaces),
+    // so reaching this line implies a successful disk write.
+    const post = useSettingsStore.getState().settings;
+    const changed =
+      preSaveSnapshot !== null &&
+      RESTART_REQUIRED_KEYS.some(
+        (k) => ((post[k] ?? '') as string) !== preSaveSnapshot[k],
+      );
+    // Refresh snapshot so a second click of Save Changes (with no
+    // further template edits) won't re-trigger the prompt.
+    const next = {} as Record<RestartKey, string>;
+    for (const k of RESTART_REQUIRED_KEYS) {
+      next[k] = (post[k] ?? '') as string;
+    }
+    templateSnapshot.current = next;
+    if (changed) {
+      setRestartPromptOpen(true);
+    }
+  };
+
+  /**
+   * Relaunches the app via the Tauri process plugin. Used by the
+   * "Restart Now" button on the restart-required modal (#833) — same
+   * mechanism the in-app updater uses after installing a new version
+   * (UpdateBanner.tsx:187).
+   */
+  const handleRestartNow = async () => {
     try {
-      await saveSettings();
-      addToast('Settings saved successfully', 'success');
-    } catch {
-      addToast('Failed to save settings', 'error');
+      const { relaunch } = await import('@tauri-apps/plugin-process');
+      await relaunch();
+    } catch (e) {
+      addToast(
+        `Failed to restart: ${e instanceof Error ? e.message : String(e)}. \
+Please quit and reopen MeedyaDL manually.`,
+        'error',
+      );
     }
   };
 
@@ -259,11 +368,69 @@ export function SettingsPage() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Restart-required modal (#833). Triggered by handleSave when one
+          or more template fields differ from the pre-save snapshot. The
+          "Restart Now" button calls Tauri's `relaunch()` (same mechanism
+          UpdateBanner uses post-install). "Restart Later" dismisses and
+          sets `restartPending`, which renders a persistent banner so
+          the user doesn't forget. */}
+      <Modal
+        open={restartPromptOpen}
+        onClose={() => {
+          setRestartPromptOpen(false);
+          setRestartPending(true);
+        }}
+        title="Restart Required"
+      >
+        <p className="text-sm text-content-primary mb-3">
+          Your template changes have been saved, but they only take effect
+          for downloads queued <em>after</em> MeedyaDL restarts. Items
+          already in flight will continue using the previous templates
+          until they finish.
+        </p>
+        <p className="text-xs text-content-tertiary mb-4">
+          GAMDL reads its template configuration when it starts. MeedyaDL
+          writes the config once at app launch and doesn't re-spawn GAMDL
+          mid-download, so a template edit can't be picked up by an
+          already-running subprocess.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setRestartPromptOpen(false);
+              setRestartPending(true);
+            }}
+          >
+            Restart Later
+          </Button>
+          <Button variant="primary" size="sm" onClick={handleRestartNow}>
+            Restart Now
+          </Button>
+        </div>
+      </Modal>
+
       <PageHeader
         title="Settings"
         subtitle="Configure download options, paths, and preferences"
         actions={
           <div className="flex gap-2">
+            {/* Restart-pending pill (#833). Shown after the user picked
+                "Restart Later" — a passive reminder until the user
+                quits or restarts the app. Click to re-open the modal. */}
+            {restartPending && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRestartPromptOpen(true)}
+                title="Template changes won't apply until MeedyaDL restarts"
+                className="text-status-warning"
+              >
+                Restart pending
+              </Button>
+            )}
+
             {/* Reset to defaults */}
             <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleReset}>
               Reset

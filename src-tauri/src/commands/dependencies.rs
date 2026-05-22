@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Dependency management IPC commands.
@@ -232,10 +232,115 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
     // Delegates to gamdl_service which runs pip and parses the output
     log::info!("Installing GAMDL...");
     emit_app_log(&app, "Installing GAMDL...");
-    let version = gamdl_service::install_gamdl(&app).await?;
+    // Routine setup-wizard install: no explicit version target, use the
+    // bounded `[minimum, maximum_tested]` spec.
+    let version = gamdl_service::install_gamdl(&app, None).await?;
     log::info!("GAMDL v{version} installed");
     emit_app_log(&app, &format!("GAMDL v{version} installed"));
     Ok(version)
+}
+
+/// Installs a **specific** GAMDL version (supports downgrades) — #522.
+///
+/// **Frontend caller:** `installGamdlVersion(version)` in
+/// `src/lib/tauri-commands.ts`, wired to the Settings > Tools "Install
+/// recommended" and "Install specific version" controls.
+///
+/// Uses `pip install --force-reinstall gamdl==<version>` under the hood
+/// so it works for both upgrades and downgrades. The bounded
+/// `pip_version_spec` used by [`install_gamdl`] can't downgrade because
+/// pip's `--upgrade` resolver only goes higher.
+///
+/// Logs a WARN to the activity log when the requested version falls
+/// outside the support window, so the user has visible feedback that
+/// they're opting into Unsupported / Untested behaviour. The install
+/// still proceeds — this command's contract is "do what the user
+/// asked"; the warning is a courtesy, not a gate.
+///
+/// # Arguments
+/// * `version` — A PyPI-compatible version string (e.g., "2.9.3",
+///   "3.5.2", "3.6.0a1"). Validated by `gamdl_service` before pip runs.
+///
+/// # Returns
+/// * `Ok(String)` — The post-install version reported by `pip show gamdl`.
+/// * `Err(String)` — Validation failure, pip failure, or version-probe
+///   failure.
+#[tauri::command]
+pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<String, String> {
+    log::info!("Installing specific GAMDL version: {version}");
+    emit_app_log(&app, &format!("Installing GAMDL v{version} (force-reinstall)..."));
+
+    // Classify against the support window so we can surface an
+    // advisory warning to the user before the install lands. We don't
+    // refuse — the user might be downgrading because of an upstream
+    // regression we don't know about, and gating that would be
+    // user-hostile.
+    let classification = crate::services::gamdl_capabilities::classify(Some(&version));
+    match &classification {
+        crate::services::gamdl_capabilities::VersionSupport::Unsupported { .. } => {
+            log::warn!(
+                "User-requested GAMDL v{version} is OUTSIDE the supported version window — \
+                 installing anyway per #522 user opt-in"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "WARNING: GAMDL v{version} is outside MeedyaDL's tested version window — features may misbehave. \
+                     Use 'Install recommended' to return to the validated version."
+                ),
+            );
+        }
+        crate::services::gamdl_capabilities::VersionSupport::Untested { .. } => {
+            log::warn!(
+                "User-requested GAMDL v{version} is ABOVE the tested ceiling — installing \
+                 anyway per #522 user opt-in"
+            );
+            emit_app_log(
+                &app,
+                &format!(
+                    "Notice: GAMDL v{version} is newer than the MeedyaDL-tested ceiling. \
+                     Installing on user request; please report any regressions."
+                ),
+            );
+        }
+        _ => {
+            // Supported or NotInstalled — no advisory needed.
+        }
+    }
+
+    let installed = gamdl_service::install_gamdl_version(&app, &version).await?;
+    log::info!("GAMDL v{installed} installed (force-reinstall, target was v{version})");
+    emit_app_log(&app, &format!("GAMDL v{installed} installed"));
+    Ok(installed)
+}
+
+/// Returns the GAMDL support window (minimum / maximum tested /
+/// recommended) so the frontend can render the version-management UI
+/// without hard-coding the values.
+///
+/// **Frontend caller:** `getGamdlSupportWindow()` in
+/// `src/lib/tauri-commands.ts`.
+///
+/// Reads from the compiled-in `tool-versions.toml` (`include_str!`).
+/// Zero I/O, always succeeds.
+#[tauri::command]
+pub fn get_gamdl_support_window() -> GamdlSupportWindowResponse {
+    let window = crate::services::gamdl_capabilities::support_window();
+    GamdlSupportWindowResponse {
+        minimum: window.minimum.clone(),
+        maximum_tested: window.maximum_tested.clone(),
+        recommended: window.recommended.clone(),
+    }
+}
+
+/// DTO mirrored by `GamdlSupportWindow` in TypeScript. Defined here so
+/// the frontend doesn't have to depend on the private internals of
+/// `gamdl_capabilities`.
+#[derive(serde::Serialize)]
+pub struct GamdlSupportWindowResponse {
+    pub minimum: String,
+    pub maximum_tested: String,
+    pub recommended: String,
 }
 
 /// Checks whether votify is installed in the managed Python environment.
@@ -550,6 +655,15 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
 ///
 /// Called during app setup to log all installed component versions as a
 /// `[System]` entry. Useful for debugging user-reported issues.
+///
+/// Also emits a second `[System]` line classifying the installed GAMDL
+/// version against this build's support window
+/// (`services::gamdl_capabilities::classify`). Users / support staff
+/// can see at a glance whether GAMDL is below our floor
+/// (Unsupported), inside the range (Supported), above the tested
+/// ceiling (Untested), or missing entirely (Not installed) — without
+/// having to correlate version strings against the README support
+/// matrix by hand.
 pub async fn log_component_versions_to_activity(app: &AppHandle) {
     match get_component_versions(app.clone()).await {
         Ok(versions) => {
@@ -569,9 +683,73 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
                 emit_app_log(app, &msg);
                 log::info!("{msg}");
             }
+
+            // Pull the GAMDL version directly (the main list above
+            // stringifies everything together, which loses the
+            // ability to classify any one component).
+            let gamdl_version = versions
+                .iter()
+                .find(|v| v.name == "GAMDL")
+                .and_then(|v| v.version.clone());
+
+            emit_gamdl_support_status(app, gamdl_version.as_deref());
         }
         Err(e) => {
             log::warn!("Failed to gather component versions: {e}");
+        }
+    }
+}
+
+/// Renders a `[System]` activity-log entry describing how the
+/// installed GAMDL version relates to this build's support window.
+///
+/// The classification is visible to users (in the activity log) and
+/// to us (in crash reports). On Unsupported / Untested we write a
+/// `log::warn!` so the entry is also captured by the tracing sink
+/// and shows up in the rotated log file even without activity-log
+/// subscribers.
+fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
+    use crate::services::gamdl_capabilities::{classify, support_window, VersionSupport};
+
+    let window = support_window();
+    let status = classify(gamdl_version);
+
+    let line = match &status {
+        VersionSupport::NotInstalled => format!(
+            "GAMDL support: not installed (supported range {min}–{max})",
+            min = window.minimum,
+            max = window.maximum_tested,
+        ),
+        VersionSupport::Supported { installed } => format!(
+            "GAMDL support: {installed} is inside the validated range \
+             {min}–{max}",
+            min = window.minimum,
+            max = window.maximum_tested,
+        ),
+        VersionSupport::Unsupported { installed, minimum } => format!(
+            "GAMDL support: {installed} is below the supported floor \
+             ({minimum}). Some features may silently degrade; update \
+             via Settings > Tools.",
+        ),
+        VersionSupport::Untested {
+            installed,
+            maximum_tested,
+            recommended,
+        } => format!(
+            "GAMDL support: {installed} is newer than this MeedyaDL \
+             build has validated ({maximum_tested}). Downloads may \
+             fail on CLI changes; consider downgrading to \
+             {recommended}.",
+        ),
+    };
+
+    emit_app_log(app, &line);
+    match &status {
+        VersionSupport::Unsupported { .. } | VersionSupport::Untested { .. } => {
+            log::warn!("{line}");
+        }
+        VersionSupport::Supported { .. } | VersionSupport::NotInstalled => {
+            log::info!("{line}");
         }
     }
 }

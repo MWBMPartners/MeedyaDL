@@ -1,0 +1,126 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Beta Release Workflow for MeedyaDL
+# ==================================
+#
+# Identical to `alpha-release.yml` except:
+#   - Triggered on push to `beta` branch
+#   - Tag suffix: `-beta.N` (monotonic, never resets)
+#
+# See alpha-release.yml header for design rationale.
+
+name: Beta Release
+
+on:
+  push:
+    branches: [beta]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run version bump locally but skip the tag push'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta-release
+  cancel-in-progress: false
+
+jobs:
+  beta:
+    name: Build beta tag
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout beta
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: beta
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Compute next beta version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          BASE=$(node -p "require('./package.json').version")
+          BASE="${BASE%%-*}"
+          MAX=$(gh api "repos/$REPO/tags" --paginate --jq '.[].name' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$' \
+            | sed -E 's/.*-beta\.([0-9]+)$/\1/' \
+            | sort -n | tail -1 || echo 0)
+          MAX="${MAX:-0}"
+          NEXT=$((MAX + 1))
+          VERSION="${BASE}-beta.${NEXT}"
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "counter=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Patch version in manifests
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          node --input-type=module -e "
+            import { readFileSync, writeFileSync } from 'node:fs';
+            const v = process.env.NEW_VERSION;
+            for (const p of ['package.json', 'src-tauri/tauri.conf.json']) {
+              const j = JSON.parse(readFileSync(p, 'utf8'));
+              j.version = v;
+              writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+            }
+          "
+          python3 - <<PY
+          import re, pathlib, os
+          p = pathlib.Path('src-tauri/Cargo.toml')
+          t = p.read_text()
+          t = re.sub(r'(?m)^version\s*=\s*"[^"]*"', f'version = "{os.environ["NEW_VERSION"]}"', t, count=1)
+          p.write_text(t)
+          PY
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Regenerate Cargo.lock
+        working-directory: src-tauri
+        run: cargo generate-lockfile
+
+      - name: Commit version bump
+        run: |
+          git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+          # `[skip ci]` prevents the bot's push from re-triggering this same
+          # workflow (RELEASE_PAT attributes the push to the PAT owner, not
+          # github-actions[bot], which defeats the actor check). See the
+          # release-candidate-release.yml comment for the full incident write-up.
+          git commit -m "chore(beta): ${{ steps.version.outputs.version }} [skip ci]"
+
+      - name: Push beta branch and tag
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          git push origin beta
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Beta ${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Beta Build"
+            echo ""
+            echo "- **Tag:** \`${{ steps.version.outputs.tag }}\`"
+            echo "- **Channel:** beta"
+            echo "- **Counter:** ${{ steps.version.outputs.counter }}"
+            echo "- **Base version:** ${{ steps.version.outputs.base }}"
+          } >> "$GITHUB_STEP_SUMMARY"

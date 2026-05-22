@@ -1,0 +1,12 @@
+- [macOS updater bug](project_macos_updater_bug.md) — recurring filename mismatch in release workflow, fixed #368
+- [GitHub orgs](project_github_orgs.md) — MWBMPartners + MeedyaDL orgs, both allowed in cargo-deny
+- [meedyadl-v2 archive](project_meedyadl_v2_archive.md) — historic only; live prep is `prep/expanded-services-groundwork`
+- [v1 release status](project_v1_rc_prep.md) — v1.0.0 GA, v1.1.0 Pre-release pending user testing; audit v2 fully landed
+- [Multi-service groundwork](project_multi_service_groundwork.md) — `prep/expanded-services-groundwork` ready for M8 (BBC iPlayer); merge before starting service work
+- [GAMDL release cadence](project_gamdl_release_cadence.md) — upstream ships fast (4 releases in 3 days); audit checklist + zero-code-change pattern
+- [Internal helpers from audits v1+v2](project_audit_v2_helpers.md) — index of 12 project primitives (withErrorToast, useConfirmation, useSettingsField, useAsyncTask, walk_dir_depth, atomic_write, http_client, subprocess_reader, context_err!, fs_walk find-first, fixtures, createAsyncResourceStore) — reach for these instead of hand-rolling
+- [Release pipeline gotchas](project_release_pipeline_gotchas.md) — three recurring failure modes from the v1.1.0 cut (skip-ci propagation, "Release in progress…" placeholder, manual-stable-tag drafts) + recovery patterns + the don't-auto-flip-stable-flags rule
+- [Third-party licence obligations](project_third_party_licence_obligations.md) — MIT/BSD = notice only, LGPL (FFmpeg, MP4Box) = notice + written offer for source + user-substitutable binary, GPL (get_iplayer, planned) = notice + complete corresponding source; offline-bundle harvesting belongs in `release.yml` Step 8.5; tracked in #802
+- [Brand identity](project_brand_identity.md) — MeedyaDL = product name (UI / installer / repo / docs body); MeedyaSuite = vendor / publisher / copyright holder; locked in 2026-05-17 by the v1.6 pre-PR sweep (commit `2b62505`)
+- [v1.7 bumper bundle](project_v17_bumper_bundle.md) — 22-issue session on `feat/v1.7-bumper-bundle` (2026-05-17/18); 13 closed + 9 deferred-with-plan; 11 new unit tests; demonstrates the defer-with-plan vs close pattern
+- [MeedyaSuite-core online-only](project_meedyasuite_core_online_only.md) — standing rule: when investigating MeedyaSuite-core integrations, always fetch from github.com/MWBMPartners/MeedyaSuite-core via `gh api`, never trust the local cargo checkout (pinned at Cargo.toml's branch ref, may lag main)

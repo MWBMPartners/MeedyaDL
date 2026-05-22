@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaDL
+ * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/components/layout/StatusBar.test.tsx
@@ -40,6 +40,7 @@ function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStat
     speed: null,
     eta: null,
     processing_label: null,
+  processing_progress: null,
     error: state === 'error' ? 'Test error' : null,
     output_path: state === 'complete' ? '/tmp/output' : null,
     codec_used: 'alac',
@@ -47,6 +48,8 @@ function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStat
     used_wrapper: false,
     output_is_directory: false,
     warnings: [],
+    audio_traits: [],
+    mv_companion_count: null,
     created_at: new Date().toISOString(),
   };
 }
@@ -85,15 +88,22 @@ describe('StatusBar', () => {
     expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
   });
 
-  /** Items in 'processing' state should also count as active. */
-  it('includes processing items in active count', () => {
+  /**
+   * Per #817: downloading and processing are surfaced as TWO
+   * distinct counters so the serial-queue invariant is visible.
+   * The pre-#817 behaviour lumped them as "2 downloading" which
+   * was misleading when an item was stuck in post-processing
+   * (#815 surfaced exactly this confusion in the user's screenshot).
+   */
+  it('splits downloading and processing into distinct counters (#817)', () => {
     useDownloadStore.setState({
       queueItems: [createItem('downloading'), createItem('processing')],
     });
 
     render(<StatusBar />);
 
-    expect(screen.getByText(/2 downloading/)).toBeInTheDocument();
+    expect(screen.getByText(/1 downloading/)).toBeInTheDocument();
+    expect(screen.getByText(/1 processing/)).toBeInTheDocument();
   });
 
   // =========================================================================
