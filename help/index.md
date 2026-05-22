@@ -28,6 +28,7 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 - [:control_knobs: Quality Settings](quality-settings.md) -- Understanding audio codecs, video codecs, and format differences.
 - [:arrows_counterclockwise: Fallback Quality](fallback-quality.md) -- How fallback quality chains work and how to configure priority orders.
 - [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
+- [:package: Wrapper Authentication](wrapper.md) -- Optional wrapper-v1 (GAMDL ≤ 3.5.x) and wrapper-v2 (GAMDL 3.6+) for ALAC / Atmos / AC3 / spatial-audio downloads.
 - [:film_frames: Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
 
 ### Reference

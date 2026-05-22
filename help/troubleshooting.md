@@ -119,9 +119,11 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 
 ### Wrapper Errors
 
+> **GAMDL 3.6 changed the wrapper protocol.** If you've recently upgraded GAMDL, see [Wrapper Authentication](wrapper.md) for the wrapper-v1 → wrapper-v2 transition. The error patterns below cover **both** flavours — MeedyaDL picks the right preflight based on your installed GAMDL.
+
 #### Wrapper Service Unreachable
 
-If you use wrapper authentication and MeedyaDL reports the wrapper is unreachable (yellow toast notification), check that the wrapper service is running and that the URL in **Settings > Advanced** is correct. See the in-app help topic **Help > Wrapper > Troubleshooting Wrapper Connectivity** for detailed diagnostic steps.
+If you use wrapper authentication and MeedyaDL reports the wrapper is unreachable (yellow toast notification), check that the wrapper service is running and that the URL(s) in **Settings > Advanced > Wrapper** are correct. On GAMDL 3.6+ there is a single **Wrapper URL** field (wrapper-v2); on earlier releases there are three fields (account URL + m3u8 IP + decrypt IP). See [Wrapper Authentication](wrapper.md) for the full setup walkthrough.
 
 **Notification behaviour:** Wrapper warnings appear as persistent yellow toast notifications that auto-dismiss when the wrapper becomes reachable again on a subsequent download. Identical notifications are never stacked — only one wrapper warning is shown at a time.
 

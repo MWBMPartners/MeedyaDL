@@ -112,9 +112,11 @@ import {
   getLogsFolderPath,
   buildDiagnosticBundle,
   getComponentVersions,
+  getGamdlCapabilities,
   getNotificationDiagnostics,
   runIntegrityScan,
   type DiagnosticBundle,
+  type GamdlCapabilities,
   type NotificationDiagnostics,
   type IntegrityScanReport,
 } from '@/lib/tauri-commands';
@@ -185,6 +187,7 @@ export function AdvancedTab() {
   const wrapperAccountUrl = useSettingsField('wrapper_account_url');
   const wrapperM3u8Ip = useSettingsField('wrapper_m3u8_ip');
   const wrapperDecryptIp = useSettingsField('wrapper_decrypt_ip');
+  const wrapperUrl = useSettingsField('wrapper_url');
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
   const acoustidApiKey = useSettingsField('acoustid_api_key');
@@ -217,6 +220,23 @@ export function AdvancedTab() {
   /** Whether a build-time MusicKit developer token is available */
   const [hasBuiltInMusicKitToken, setHasBuiltInMusicKitToken] = useState(false);
 
+  // ── GAMDL capabilities (#853) ──
+  /**
+   * Active GAMDL capability flags. Populated from the backend on mount.
+   * Defaults to all-false (matches the Rust-side cache-empty default) so
+   * the UI renders the conservative wrapper-v1 layout before the IPC
+   * completes — same fields the user had pre-3.6.
+   */
+  const [gamdlCaps, setGamdlCaps] = useState<GamdlCapabilities>({
+    wrapper_v2: false,
+    native_muxing: false,
+    aac_web_codec_rename: false,
+    music_video_remux_mode: true, // accept the legacy CLI flag by default
+    wrapper_m3u8_ip: false,
+    playlist_folder_template: false,
+    native_codec_priority: false,
+  });
+
   // ── API Field Audit state ──
   const [auditUrl, setAuditUrl] = useState('');
   const [auditLoading, setAuditLoading] = useState(false);
@@ -246,6 +266,21 @@ export function AdvancedTab() {
     hasEmbeddedAcoustidKey()
       .then(setHasBuiltInKey)
       .catch(() => setHasBuiltInKey(false));
+  }, []);
+
+  // Load GAMDL capability flags on mount (#853). Determines whether the
+  // wrapper section renders the v1 three-fields UI or the v2 single-URL
+  // UI. Re-runs when the component re-mounts (e.g. user navigates back
+  // to Settings) so capability changes after a GAMDL upgrade are
+  // picked up without an app restart.
+  useEffect(() => {
+    getGamdlCapabilities()
+      .then(setGamdlCaps)
+      .catch(() => {
+        // Stay with the defensive default (wrapper-v1 UI). The cache
+        // is populated by the startup dependency probe, so this
+        // catch path only fires in unusual scenarios.
+      });
   }, []);
 
   // Check for build-time MusicKit token on mount
@@ -587,26 +622,40 @@ export function AdvancedTab() {
               checked={autoRetryWithoutWrapper.value}
               onChange={autoRetryWithoutWrapper.set}
             />
-            <Input
-              label="Wrapper Account URL"
-              description="URL of your locally-running wrapper service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
-              value={wrapperAccountUrl.value}
-              onChange={(e) => wrapperAccountUrl.set(e.target.value)}
-            />
-            <Input
-              label="Wrapper m3u8 Address"
-              description="GAMDL 3.1+ fetches the HLS master playlist URL from a TCP socket on this address (default: 127.0.0.1:20020). Your wrapper must expose an m3u8 service on this host:port. Ignored on GAMDL 3.0 and earlier."
-              value={wrapperM3u8Ip.value}
-              onChange={(e) => wrapperM3u8Ip.set(e.target.value)}
-              placeholder="127.0.0.1:20020"
-            />
-            <Input
-              label="Wrapper Decryption Address"
-              description="GAMDL opens a TCP connection to this address to send encrypted samples for FairPlay decryption (default: 127.0.0.1:10020). Set this to your wrapper's host:port — required when the wrapper runs on a different machine than MeedyaDL (e.g. a Raspberry Pi on the same LAN). Use the same host as the m3u8 address; the port differs (10020 vs 20020)."
-              value={wrapperDecryptIp.value}
-              onChange={(e) => wrapperDecryptIp.set(e.target.value)}
-              placeholder="127.0.0.1:10020"
-            />
+            {gamdlCaps.wrapper_v2 ? (
+              // GAMDL ≥ 3.6 — wrapper-v2 single HTTP endpoint (#853).
+              <Input
+                label="Wrapper URL"
+                description="Base URL of your locally-running wrapper-v2 daemon (default http://127.0.0.1, port 80 implied). The daemon exposes /health, /me, /playback, /decrypt, /login over HTTP. See Help > Wrapper for the Docker setup walkthrough — wrapper-v2 needs Docker on macOS/Windows."
+                value={wrapperUrl.value}
+                onChange={(e) => wrapperUrl.set(e.target.value)}
+                placeholder="http://127.0.0.1"
+              />
+            ) : (
+              // GAMDL ≤ 3.5.x — wrapper-v1 three sockets.
+              <>
+                <Input
+                  label="Wrapper Account URL"
+                  description="URL of your locally-running wrapper-v1 service. The default (http://127.0.0.1:30020) works if the wrapper is running on your machine with default settings. See Help > Wrapper for setup instructions."
+                  value={wrapperAccountUrl.value}
+                  onChange={(e) => wrapperAccountUrl.set(e.target.value)}
+                />
+                <Input
+                  label="Wrapper m3u8 Address"
+                  description="GAMDL 3.1+ fetches the HLS master playlist URL from a TCP socket on this address (default: 127.0.0.1:20020). Your wrapper must expose an m3u8 service on this host:port. Ignored on GAMDL 3.0 and earlier; removed entirely in GAMDL 3.6 (wrapper-v2 replaces this with a single HTTP endpoint)."
+                  value={wrapperM3u8Ip.value}
+                  onChange={(e) => wrapperM3u8Ip.set(e.target.value)}
+                  placeholder="127.0.0.1:20020"
+                />
+                <Input
+                  label="Wrapper Decryption Address"
+                  description="GAMDL opens a TCP connection to this address to send encrypted samples for FairPlay decryption (default: 127.0.0.1:10020). Set this to your wrapper's host:port — required when the wrapper runs on a different machine than MeedyaDL (e.g. a Raspberry Pi on the same LAN). Use the same host as the m3u8 address; the port differs (10020 vs 20020). Removed in GAMDL 3.6 (wrapper-v2 bundles decryption into the single HTTP endpoint)."
+                  value={wrapperDecryptIp.value}
+                  onChange={(e) => wrapperDecryptIp.set(e.target.value)}
+                  placeholder="127.0.0.1:10020"
+                />
+              </>
+            )}
             <div className="flex items-center gap-2">
               <Button
                 variant="secondary"

@@ -405,6 +405,64 @@ pub enum GamdlFeature {
     /// the field on `GamdlOptions`; the actual CLI emission is gated by
     /// this capability in `to_cli_args()`.
     NoExceptionsFlag,
+
+    // ---------------------------------------------------------------------
+    // GAMDL v3.6 capability gates (#853)
+    // ---------------------------------------------------------------------
+    /// `--wrapper-url` CLI flag and `wrapper_url` INI key (wrapper-v2).
+    ///
+    /// Introduced in v3.6. Replaces the three v1 wrapper sockets
+    /// ([`Self::WrapperM3u8Ip`], `--wrapper-account-url`, `--wrapper-decrypt-ip`)
+    /// with a single HTTP base URL pointing at the
+    /// [wrapper-v2 daemon](https://github.com/glomatico/wrapper-v2)'s
+    /// HTTP API (`/health`, `/me`, `/playback`, `/decrypt`, `/login`).
+    /// Default value in upstream: `http://127.0.0.1` (port 80 from the
+    /// shipped `compose.yaml`).
+    ///
+    /// MeedyaDL emits exactly one of the v1 or v2 wrapper flag families
+    /// per CLI invocation, gated on this feature.
+    WrapperUrl,
+
+    /// `aac-legacy` / `aac-he-legacy` codec identifiers RENAMED to
+    /// `aac-web` / `aac-he-web` in v3.6 (`gamdl/interface/enums.py`).
+    ///
+    /// The underlying codec is identical — just the on-the-wire string
+    /// changed. Both `SongCodec::AacLegacy` and `SongCodec::AacHeLegacy`
+    /// Rust enum variants are kept (settings file backwards-compat); the
+    /// CLI / INI serialisation site consults this capability to pick
+    /// `aac-legacy` (<3.6) or `aac-web` (>=3.6).
+    ///
+    /// `LEGACY_SONG_CODECS = {"aac-legacy", "aac-he-legacy"}` constant
+    /// also removed; replaced with `SONG_CODEC_FLAVOR_MAP` + new
+    /// `SongCodec.is_web` / `is_cenc` / `flavor` properties on the
+    /// Python side.
+    AacWebCodecRename,
+
+    /// `--ffmpeg-path` / `--mp4box-path` / `--mp4decrypt-path` CLI
+    /// options REMOVED in v3.6 alongside native muxing + decryption
+    /// for music videos (upstream "Dropped FFmpeg, MP4Box and
+    /// mp4decrypt with native muxing and decryption for music videos").
+    ///
+    /// Songs already used native pipelines pre-3.6; music videos were
+    /// the last consumer of these external tools. On 3.6+ MeedyaDL
+    /// must NOT pass any of the three path options (would crash Click
+    /// with "no such option") and must NOT include the corresponding
+    /// INI keys.
+    ///
+    /// The tools are still required for MeedyaDL's own pipeline
+    /// (FFmpeg for ReplayGain / BPM analysis; MP4Box / mp4decrypt only
+    /// previously needed by GAMDL itself) — see [`tool-versions.toml`]
+    /// for which we still ship.
+    NativeMuxing,
+
+    /// `--music-video-remux-mode` CLI option REMOVED in v3.6
+    /// (collateral damage from native muxing — there's only one
+    /// remux strategy now).
+    ///
+    /// MeedyaDL's `GamdlOptions::music_video_remux_mode` field is kept
+    /// for backwards-compat with saved queues / settings; the CLI arg
+    /// builder gates emission behind this capability.
+    MusicVideoRemuxMode,
 }
 
 impl GamdlFeature {
@@ -418,12 +476,25 @@ impl GamdlFeature {
             Self::FetchExtraTags => !is_version_at_least(version, "3.0"),
             // Added in v2.9.1.
             Self::NativeCodecPriority => is_version_at_least(version, "2.9.1"),
-            // Added in v3.1.
-            Self::WrapperM3u8Ip => is_version_at_least(version, "3.1"),
+            // Added in v3.1, REMOVED in v3.6 (replaced by wrapper-v2 single URL).
+            Self::WrapperM3u8Ip => {
+                is_version_at_least(version, "3.1") && !is_version_at_least(version, "3.6")
+            }
             // Added in v3.0 — v2.9.x rejects it at CLI parse time.
             Self::PlaylistFolderTemplate => is_version_at_least(version, "3.0"),
             // No-op starting v3.1 — flag is accepted but ignored.
             Self::NoExceptionsFlag => !is_version_at_least(version, "3.1"),
+            // GAMDL v3.6 family (#853):
+            // Added in v3.6 — single HTTP URL replacing the three wrapper-v1 sockets.
+            Self::WrapperUrl => is_version_at_least(version, "3.6"),
+            // Codec identifier rename in v3.6 (aac-legacy → aac-web).
+            Self::AacWebCodecRename => is_version_at_least(version, "3.6"),
+            // Native muxing in v3.6 — no external FFmpeg/MP4Box/mp4decrypt path
+            // options accepted by the CLI.
+            Self::NativeMuxing => is_version_at_least(version, "3.6"),
+            // --music-video-remux-mode REMOVED in v3.6.
+            // Returns true when the option is STILL available (i.e. on <3.6).
+            Self::MusicVideoRemuxMode => !is_version_at_least(version, "3.6"),
         }
     }
 }
@@ -461,6 +532,10 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::PlaylistFolderTemplate, "playlist_folder_template"),
         (GamdlFeature::WrapperM3u8Ip, "wrapper_m3u8_ip"),
         (GamdlFeature::NoExceptionsFlag, "no_exceptions_flag"),
+        (GamdlFeature::WrapperUrl, "wrapper_url"),
+        (GamdlFeature::AacWebCodecRename, "aac_web_codec_rename"),
+        (GamdlFeature::NativeMuxing, "native_muxing"),
+        (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
     ];
 
     let active: Vec<&str> = all
@@ -765,5 +840,81 @@ mod tests {
         // else under the user's `gamdl>=…,<=…` cap.
         assert_eq!(pip_target_spec("3.3"), "gamdl==3.3");
         assert_eq!(pip_target_spec("4.0.1"), "gamdl==4.0.1");
+    }
+
+    // -- GAMDL v3.6 capability gates (#853) -------------------------------
+
+    #[test]
+    fn wrapper_url_requires_v36() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        for v in ["2.9.3", "3.0", "3.3", "3.5.2"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                !supports(GamdlFeature::WrapperUrl),
+                "WrapperUrl must NOT be available on {v} (wrapper-v1 only)"
+            );
+        }
+        for v in ["3.6", "3.6.0", "3.6.1", "4.0"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::WrapperUrl),
+                "WrapperUrl must be available on {v}"
+            );
+        }
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn wrapper_m3u8_ip_removed_in_v36() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        // The old wrapper-v1 m3u8 IP flag was added in v3.1 but REMOVED
+        // in v3.6 alongside the wrapper-v2 single-endpoint redesign.
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(Some("3.6".to_string()));
+        assert!(!supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(Some("3.6.0".to_string()));
+        assert!(!supports(GamdlFeature::WrapperM3u8Ip));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn aac_web_codec_rename_requires_v36() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(
+            !supports(GamdlFeature::AacWebCodecRename),
+            "on v3.5.2 we must emit 'aac-legacy' / 'aac-he-legacy'"
+        );
+        set_detected_version(Some("3.6".to_string()));
+        assert!(
+            supports(GamdlFeature::AacWebCodecRename),
+            "on v3.6+ we must emit 'aac-web' / 'aac-he-web'"
+        );
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn native_muxing_requires_v36() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        // <3.6: external FFmpeg/MP4Box/mp4decrypt path options still
+        // accepted by the CLI parser; we emit them.
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(!supports(GamdlFeature::NativeMuxing));
+        // >=3.6: options removed; we must NOT emit them.
+        set_detected_version(Some("3.6".to_string()));
+        assert!(supports(GamdlFeature::NativeMuxing));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn music_video_remux_mode_removed_in_v36() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        // Returns true when the option is STILL AVAILABLE.
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(supports(GamdlFeature::MusicVideoRemuxMode));
+        set_detected_version(Some("3.6".to_string()));
+        assert!(!supports(GamdlFeature::MusicVideoRemuxMode));
+        set_detected_version(None);
     }
 }

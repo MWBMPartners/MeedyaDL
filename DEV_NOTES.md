@@ -2174,3 +2174,53 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 
 **If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
+
+## GAMDL 3.6 — Wrapper-v2, Native Muxing, Codec Rename (#853)
+
+GAMDL **v3.6** (2026-05-20) is the largest upstream release MeedyaDL has absorbed since the 2.x → 3.0 transition. Implementation lives across the seven steps documented in PR linked to issue #853:
+
+1. **`GamdlFeature` gates** (`services/gamdl_capabilities.rs`). Four new variants pinned to ≥ 3.6: `WrapperUrl`, `AacWebCodecRename`, `NativeMuxing`, and a re-thresholded `WrapperM3u8Ip` (now 3.1 – 3.5.x only). Plus `MusicVideoRemuxMode` which inverts at the 3.6 boundary (true ≤ 3.5.x, false ≥ 3.6).
+2. **Codec emission** (`models/gamdl_options.rs::SongCodec::to_runtime_cli_string`). `AacLegacy` / `AacHeLegacy` Rust variants stay; their CLI string flips to `aac-web` / `aac-he-web` on ≥ 3.6. Updated 3 call sites in `services/download_queue.rs` (gap-fill priority chain, companion-task tier loop, primary fallback retry).
+3. **Settings model** (`models/settings.rs`). New `wrapper_url: String` field with `default_wrapper_url() = "http://127.0.0.1"`. CURRENT_SETTINGS_VERSION 5 → 6. Migration `migrate_settings()` v5→v6 is additive — both wrapper-v1 (`wrapper_account_url` + `wrapper_m3u8_ip` + `wrapper_decrypt_ip`) and wrapper-v2 (`wrapper_url`) fields coexist; emission picks one per CLI invocation.
+4. **CLI / INI dispatch** (`models/gamdl_options.rs::path_cli_args` + `flag_cli_args`, `services/config_service.rs::ini_advanced_section` + `ini_tool_path_section`). Same gate everywhere: `supports(WrapperUrl) → emit wrapper-v2 family`, else emit wrapper-v1 family (with sub-gate for the v3.1 `wrapper_m3u8_ip` addition). External tool path options (`--ffmpeg-path` / `--mp4box-path` / `--mp4decrypt-path`) gated behind `!supports(NativeMuxing)`. `--music-video-remux-mode` gated behind `supports(MusicVideoRemuxMode)`.
+5. **Wrapper-v2 preflight** (`services/health_check_service.rs`). New `check_wrapper_v2_health()` does `GET /health` with a 3-second timeout. New `check_wrapper_v2_auth()` does `GET /me` and inspects `auth.state` — surfaces a yellow toast when reachable-but-logged-out. Both are called from `download_queue.rs::run_preflight_checks` under the `use_wrapper_v2` branch (mutually exclusive with the wrapper-v1 three-socket branch).
+6. **Companion planner** (`services/download_queue.rs::lossy_chain_for_runtime`). Returns `[AacLegacy, Aac]` (aac-web first) on ≥ 3.6, `[Aac, AacLegacy]` on ≤ 3.5.x. Wired into every CompanionTier that builds a lossy AAC fallback chain — Atmos→Lossless+Lossy, Atmos→AllFormats, SpecialistToLossy, and the ALAC-primary case of Atmos→Lossless+Lossy.
+7. **Frontend** (`commands/dependencies.rs::get_gamdl_capabilities` IPC + `src/components/settings/tabs/AdvancedTab.tsx`). The Settings UI's Wrapper section conditionally renders the v1 (three fields) or v2 (one field) layout based on the IPC response. Capabilities are loaded on mount.
+
+### Fetch-path semantics (the key 3.6 insight)
+
+The `aac-legacy` → `aac-web` rename isn't cosmetic. In upstream's `interface/song.py`:
+
+```python
+for codec in self.codec_priority:
+    if codec.is_web:
+        stream_info = await self._get_web_stream_info(webplayback, codec)
+    else:
+        stream_info = await self._get_stream_info(m3u8_master_url, codec)
+```
+
+- `aac-web` / `aac-he-web` → `apple_music_api.get_webplayback()` (MusicKit JWT only, **no wrapper required**)
+- Every other codec → m3u8 master URL (FairPlay-encrypted, **needs wrapper-v2** on 3.6)
+
+This is why the companion planner now prefers `aac-web` first on 3.6 — it's the only codec that reliably works in cookie-only mode on the new release. Pre-3.6 the same codec was called "legacy" but went through the same web path, so the behavioural difference is upstream's naming catching up to reality.
+
+### Wrapper-v2 deployment reality
+
+Wrapper-v2 is a [C++ daemon](https://github.com/glomatico/wrapper-v2) built with the Android NDK and run inside a Linux chroot. It depends on Apple Music for Android's `.so` libraries which the user must extract from the Android APK themselves — neither MeedyaDL nor the wrapper-v2 upstream redistributes Apple's binaries. On macOS / Windows the canonical path is **Docker Desktop** running the `compose.yaml`-provided container; on native Linux the daemon needs `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges. **MeedyaDL does not bundle wrapper-v2** (Apple-`.so` licensing, privileged caps, NDK build complexity).
+
+A second gotcha: GAMDL 3.6 added an InquirerPy interactive credential prompt in `cli/interactive_prompts.py`. If MeedyaDL's GAMDL subprocess hits an unauthenticated wrapper-v2 daemon, it would block waiting on stdin forever. The preflight `check_wrapper_v2_auth` exists specifically to surface the logged-out state via a yellow toast BEFORE the queue starts processing — so the deadlock window never opens.
+
+### Backwards compatibility
+
+MeedyaDL still supports every release in the 2.9.1 – 3.5.x window. The emission gates are runtime — they read from the in-memory version cache populated by the dependency probe — so a single MeedyaDL build serves both wrapper-v1 and wrapper-v2 users without behaviour drift. Settings file forward-compat: v6 adds `wrapper_url` non-destructively; downgrading the GAMDL install just re-shows the v1 UI without losing the v1 socket addresses.
+
+### Adding the next GAMDL major (v3.7+ / v4.0)
+
+Same drill as 2.9.1 → 3.x → 3.6:
+
+1. Read the upstream diff and audit the four CLI / INI surfaces (`cli/cli_config.py`, `interface/enums.py`, `interface/constants.py`, `api/`).
+2. For each ADDED / REMOVED / RENAMED CLI option or INI key, add a `GamdlFeature` variant. Pin its threshold to the release that introduced the change. Add a per-variant `is_available_on` arm and a per-variant unit test in `services::gamdl_capabilities::tests`.
+3. For each renamed codec / value, follow the `to_runtime_cli_string()` pattern — keep the Rust variant for settings backwards-compat, runtime-dispatch the on-the-wire string.
+4. Bump `tool-versions.toml` → `[gamdl] maximum_tested_version` + `recommended_version`. Add a per-release audit block to the file's comment header documenting the four CLI / INI / output / regex surface deltas (zero-code-change is the happy path; the 3.6 entry shows the full-blown audit shape).
+5. Update `help/wrapper.md`, `help/quality-settings.md`, `README.md` "Component Support Matrix", `SECURITY.md` "Wrapper service" section, and `DEV_NOTES.md` (this section).
+6. Ship as a pre-release on the `alpha` channel; hand-test before promoting to `beta` / Latest.

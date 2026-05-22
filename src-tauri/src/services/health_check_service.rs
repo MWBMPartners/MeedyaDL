@@ -63,6 +63,22 @@ pub enum PreflightCheck {
     /// m3u8 IP to a LAN host but left decrypt at the loopback
     /// default — see #743.
     WrapperDecrypt,
+    /// Wrapper-v2 daemon health check (#853) — HTTP `GET /health`
+    /// on the configured `wrapper_url`. Replaces the three v1 socket
+    /// preflights above on GAMDL ≥ 3.6. Surfaces as a yellow toast
+    /// when the wrapper-v2 container isn't running, isn't bound to
+    /// the configured URL, or returns a non-200 status.
+    WrapperV2Health,
+    /// Wrapper-v2 daemon login state (#853) — HTTP `GET /me` to
+    /// determine whether the wrapper has an active Apple Music
+    /// session, plus an automatic `POST /login` retry when
+    /// credentials are present. Required because GAMDL ≥ 3.6 would
+    /// otherwise interactively prompt for credentials on stdin
+    /// (which MeedyaDL cannot answer from a subprocess context),
+    /// silently hanging the download. Surfaces as a yellow toast
+    /// when the wrapper is reachable but logged out and no
+    /// credentials are available.
+    WrapperV2Auth,
     /// Output directory writability check (filesystem probe)
     OutputPath,
 }
@@ -520,6 +536,152 @@ pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<Prefligh
             check: PreflightCheck::WrapperM3u8,
             message: format!(
                 "Wrapper m3u8 socket at {wrapper_m3u8_ip} timed out — check that your wrapper's m3u8 service is running"
+            ),
+        }),
+    }
+}
+
+// ============================================================
+// Wrapper-v2 Health Check (#853, GAMDL ≥ 3.6)
+// ============================================================
+
+/// Wrapper-v2 daemon `/me` payload subset used by MeedyaDL.
+///
+/// Matches the shape returned by [wrapper-v2](https://github.com/glomatico/wrapper-v2):
+///
+/// ```json
+/// {
+///   "version": "0.2.0",
+///   "runtime": { "playback_ready": true },
+///   "auth":    { "state": "authenticated" | "logged_out" | "logging_in" }
+/// }
+/// ```
+///
+/// We only deserialise the fields we act on (`auth.state` for the
+/// login gate and `runtime.playback_ready` for the FairPlay-ready
+/// signal). Everything else is dropped.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct WrapperV2Me {
+    pub auth: WrapperV2AuthBlock,
+    #[serde(default)]
+    pub runtime: WrapperV2RuntimeBlock,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct WrapperV2AuthBlock {
+    /// `"authenticated"`, `"logged_out"`, `"logging_in"`, `"awaiting_2fa"`.
+    pub state: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct WrapperV2RuntimeBlock {
+    /// True when FairPlay decrypt is available — required for the
+    /// non-`aac-web` codec families. `aac-web` works without this.
+    #[serde(default)]
+    pub playback_ready: bool,
+}
+
+/// Wrapper-v2 daemon `GET /health` preflight (#853).
+///
+/// Issues a 3-second HTTP GET against `{wrapper_url}/health`. The
+/// wrapper-v2 daemon's `/health` returns `200 OK` with the runtime
+/// flags JSON when the supervisor + worker are both up; any other
+/// response — including connection refused — surfaces as a yellow
+/// toast on the queue page.
+///
+/// Returns:
+/// - `None` when the daemon responds 200.
+/// - `Some(PreflightWarning)` on non-200 status, connection error,
+///   or 3-second timeout.
+pub async fn check_wrapper_v2_health(wrapper_url: &str) -> Option<PreflightWarning> {
+    let url = format!("{}/health", wrapper_url.trim_end_matches('/'));
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+    {
+        Ok(c) => c,
+        Err(err) => {
+            return Some(PreflightWarning {
+                check: PreflightCheck::WrapperV2Health,
+                message: format!("Failed to build HTTP client for wrapper-v2 preflight: {err}"),
+            });
+        }
+    };
+    match client.get(&url).send().await {
+        Ok(resp) if resp.status().is_success() => None,
+        Ok(resp) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperV2Health,
+            message: format!(
+                "Wrapper-v2 daemon at {wrapper_url} returned HTTP {} from GET /health — check the container logs",
+                resp.status()
+            ),
+        }),
+        Err(err) if err.is_timeout() => Some(PreflightWarning {
+            check: PreflightCheck::WrapperV2Health,
+            message: format!(
+                "Wrapper-v2 daemon at {wrapper_url} timed out after 3s — is the container running?"
+            ),
+        }),
+        Err(err) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperV2Health,
+            message: format!(
+                "Wrapper-v2 daemon at {wrapper_url} unreachable — {err}. \
+                 GAMDL ≥ 3.6 needs wrapper-v2 for non-aac-web codecs."
+            ),
+        }),
+    }
+}
+
+/// Fetches the wrapper-v2 `/me` payload to determine auth state and
+/// runtime readiness (#853). Returns `Ok(WrapperV2Me)` on success;
+/// the caller decides whether to fail the preflight or auto-login.
+pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, String> {
+    let url = format!("{}/me", wrapper_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("GET {url} failed: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("GET {url} returned HTTP {}", resp.status()));
+    }
+    resp.json::<WrapperV2Me>()
+        .await
+        .map_err(|e| format!("Failed to parse /me JSON: {e}"))
+}
+
+/// Wrapper-v2 auth-state preflight (#853).
+///
+/// Calls [`fetch_wrapper_v2_me`] and inspects `auth.state`. Surfaces
+/// a yellow toast when the wrapper is reachable but logged-out — the
+/// user must complete a `POST /login` flow before the next download
+/// will succeed (otherwise GAMDL ≥ 3.6 would interactively prompt
+/// on stdin, deadlocking the subprocess).
+pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning> {
+    match fetch_wrapper_v2_me(wrapper_url).await {
+        Ok(me) => {
+            if me.auth.state == "authenticated" {
+                None
+            } else {
+                Some(PreflightWarning {
+                    check: PreflightCheck::WrapperV2Auth,
+                    message: format!(
+                        "Wrapper-v2 daemon at {wrapper_url} is reachable but not signed in (state: {}). \
+                         Use Settings > Wrapper > Sign In before queueing downloads — GAMDL 3.6 would \
+                         otherwise prompt for credentials on stdin and hang the subprocess.",
+                        me.auth.state
+                    ),
+                })
+            }
+        }
+        Err(err) => Some(PreflightWarning {
+            check: PreflightCheck::WrapperV2Auth,
+            message: format!(
+                "Could not query wrapper-v2 auth state at {wrapper_url}: {err}"
             ),
         }),
     }

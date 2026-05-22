@@ -404,6 +404,37 @@ export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
 }
 
 /**
+ * Snapshot of the active GAMDL capability flags for the frontend (#853).
+ *
+ * Mirrors `GamdlCapabilities` in `src-tauri/src/commands/dependencies.rs`.
+ *
+ * Used by Settings > Advanced > Wrapper to choose between the v1
+ * three-fields UI and the v2 single-URL UI, and to gate other panes
+ * that need version-aware behaviour. Every flag is `false` when the
+ * GAMDL version cache hasn't been populated yet (e.g. immediately
+ * after launch before the first dependency check) — defensive default.
+ */
+export interface GamdlCapabilities {
+  /** ≥3.6 — uses wrapper-v2 single HTTP endpoint */
+  wrapper_v2: boolean;
+  /** ≥3.6 — no external ffmpeg/mp4box/mp4decrypt CLI options */
+  native_muxing: boolean;
+  /** ≥3.6 — aac-web / aac-he-web (was aac-legacy / aac-he-legacy) */
+  aac_web_codec_rename: boolean;
+  /** ≤3.5.x — --music-video-remux-mode still accepted */
+  music_video_remux_mode: boolean;
+  /** 3.1–3.5.x — --wrapper-m3u8-ip accepted */
+  wrapper_m3u8_ip: boolean;
+  /** ≥3.0 — --playlist-folder-template accepted */
+  playlist_folder_template: boolean;
+  /** ≥2.9.1 — native --song-codec-priority chain accepted */
+  native_codec_priority: boolean;
+}
+export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
+  return invoke<GamdlCapabilities>('get_gamdl_capabilities');
+}
+
+/**
  * Returns the installation status of votify (Spotify engine).
  *
  * Rust handler: `check_votify_status()` in `src-tauri/src/commands/dependencies.rs`

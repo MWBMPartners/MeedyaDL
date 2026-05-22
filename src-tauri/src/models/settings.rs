@@ -1278,8 +1278,30 @@ pub struct AppSettings {
     /// decryption stage because GAMDL falls back to its compile-time
     /// default of `127.0.0.1:10020` (issue #743). Default:
     /// `"127.0.0.1:10020"` (matches upstream GAMDL's default).
+    ///
+    /// **GAMDL ≥ v3.6 (#853):** unused. The three v1 sockets above
+    /// (`wrapper_account_url`, `wrapper_m3u8_ip`, `wrapper_decrypt_ip`)
+    /// are replaced by the single [`Self::wrapper_url`] field pointing
+    /// at the wrapper-v2 HTTP daemon. These fields remain in the
+    /// settings file for users still running GAMDL ≤ 3.5.x.
     #[serde(default = "default_wrapper_decrypt_ip")]
     pub wrapper_decrypt_ip: String,
+
+    /// Wrapper-v2 HTTP base URL (#853). Used when `use_wrapper` is
+    /// `true` AND the detected GAMDL release is ≥ 3.6. Replaces the
+    /// three wrapper-v1 socket addresses above with a single REST
+    /// endpoint exposing `/health`, `/me`, `/playback`, `/decrypt`,
+    /// `/login`, `/login/2fa`, `DELETE /login` per the
+    /// [wrapper-v2 spec](https://github.com/glomatico/wrapper-v2).
+    ///
+    /// Default: `"http://127.0.0.1"` (matches upstream GAMDL v3.6's
+    /// default and the wrapper-v2 `compose.yaml`'s `${HTTP_PORT:-80}:80`
+    /// port mapping — i.e. the implicit `:80` after the host).
+    ///
+    /// MeedyaDL emits exactly one of v1 (three URLs) or v2 (this one
+    /// URL) per CLI invocation, gated on `GamdlFeature::WrapperUrl`.
+    #[serde(default = "default_wrapper_url")]
+    pub wrapper_url: String,
 
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
@@ -1625,6 +1647,16 @@ fn default_wrapper_m3u8_ip() -> String {
     "127.0.0.1:20020".to_string()
 }
 
+/// Default wrapper-v2 HTTP base URL (#853).
+///
+/// Matches upstream GAMDL v3.6's `WrapperApi.create(base_url=
+/// "http://127.0.0.1")` default and the [wrapper-v2](https://github.com/glomatico/wrapper-v2)
+/// `compose.yaml` port mapping `${HTTP_PORT:-80}:80` (i.e. the implicit
+/// `:80` after `127.0.0.1`).
+fn default_wrapper_url() -> String {
+    "http://127.0.0.1".to_string()
+}
+
 /// Default wrapper decryption service address — matches upstream
 /// GAMDL's `AppleMusicSongInterface.create(wrapper_decrypt_ip=
 /// "127.0.0.1:10020")` and the `WorldObservationLog/wrapper`
@@ -1635,7 +1667,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 5;
+pub const CURRENT_SETTINGS_VERSION: u32 = 6;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1905,6 +1937,10 @@ impl Default for AppSettings {
             // GAMDL's default port 10020. Override in Settings > Advanced
             // when the wrapper runs on a different host (#743).
             wrapper_decrypt_ip: default_wrapper_decrypt_ip(),
+            // Default wrapper-v2 HTTP base URL (#853). Used in place of
+            // the three v1 sockets above when the detected GAMDL release
+            // is ≥ 3.6.
+            wrapper_url: default_wrapper_url(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // Fetch extra metadata (normalization, smooth playback info, etc.)

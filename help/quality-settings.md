@@ -22,14 +22,25 @@ The quality settings in MeedyaDL map directly to the codec and resolution option
 
 Most audio codecs are marked **(Experimental)** in MeedyaDL's codec selector. This means they may fail intermittently when using cookie-based authentication. Only two codecs are reliably downloadable without the Wrapper service:
 
-- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies
-- **AAC-HE Legacy** (64kbps) — reliable with cookies
+- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies. **Renamed to `aac-web` on GAMDL 3.6+** but represents the same on-disk M4A file.
+- **AAC-HE Legacy** (64kbps) — reliable with cookies. **Renamed to `aac-he-web` on GAMDL 3.6+**.
 
-All other codecs — including ALAC, Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures:
+### Why "Legacy" is misleading and why it became "Web" in GAMDL 3.6
 
-1. **Retry** — failures are intermittent
+The name is a holdover. In reality, "AAC Legacy" / `aac-web` is the **web-player path** — GAMDL fetches it via `apple_music_api.get_webplayback()` using only MusicKit JWT auth. No FairPlay key exchange, no wrapper service, no DRM dance — just a web stream that Apple themselves serve to authenticated browsers.
+
+The other codecs (`alac`, `atmos`, `ac3`, `aac`, `aac-he`, `aac-binaural`, `aac-downmix`, `aac-he-binaural`, `aac-he-downmix`) go through the **m3u8 master playlist path**, which is FairPlay-encrypted and requires either:
+
+1. The **Wrapper service** (wrapper-v1 on GAMDL ≤ 3.5.x, wrapper-v2 on 3.6+) — see [Wrapper Authentication](wrapper.md)
+2. Cookies that happen to have valid decryption tokens (intermittent, hence "Experimental")
+
+On GAMDL 3.6+, the codec.is_web property in upstream's source makes this routing explicit, which is why the rename happened.
+
+### Failure recovery options
+
+1. **Retry** — failures via cookie-only auth are intermittent for non-web codecs
 2. **Enable the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Use the Wrapper service** — provides more reliable access (Linux x86_64 only)
+3. **Use the Wrapper service** — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 has native Windows / macOS / Linux ports; wrapper-v2 (GAMDL 3.6+) requires Docker on macOS/Windows.
 
 ---
 

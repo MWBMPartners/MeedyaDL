@@ -343,6 +343,65 @@ pub struct GamdlSupportWindowResponse {
     pub recommended: String,
 }
 
+/// Snapshot of the active GAMDL capability flags for the frontend (#853).
+///
+/// Mirrors `GamdlCapabilities` in `src/types/index.ts`. The Settings UI
+/// uses this to render the right wrapper UI block (v1 three-fields vs
+/// v2 single-URL) and to enable / disable the legacy tool-path inputs.
+/// Zero I/O — reads from the in-memory `detected_version` cache.
+#[derive(serde::Serialize, Debug, Clone)]
+pub struct GamdlCapabilities {
+    /// Whether the detected GAMDL release uses the wrapper-v2 single-URL
+    /// dispatch path (i.e. `--wrapper-url` is the wrapper flag and the
+    /// three v1 sockets are removed). `true` for ≥ 3.6.
+    pub wrapper_v2: bool,
+    /// Whether the detected GAMDL release does its own native muxing
+    /// (FFmpeg / MP4Box / mp4decrypt path options dropped). `true` for
+    /// ≥ 3.6.
+    pub native_muxing: bool,
+    /// Whether the detected GAMDL release uses the new `aac-web` /
+    /// `aac-he-web` codec identifiers (vs the historical `aac-legacy`
+    /// / `aac-he-legacy`). `true` for ≥ 3.6.
+    pub aac_web_codec_rename: bool,
+    /// Whether the detected GAMDL release still accepts
+    /// `--music-video-remux-mode`. `true` for ≤ 3.5.x.
+    pub music_video_remux_mode: bool,
+    /// Whether the detected GAMDL release accepts `--wrapper-m3u8-ip`.
+    /// `true` for 3.1 – 3.5.x.
+    pub wrapper_m3u8_ip: bool,
+    /// Whether the detected GAMDL release recognises
+    /// `--playlist-folder-template`. `true` for ≥ 3.0.
+    pub playlist_folder_template: bool,
+    /// Whether the detected GAMDL release supports the native
+    /// `--song-codec-priority` chain. `true` for ≥ 2.9.1.
+    pub native_codec_priority: bool,
+}
+
+/// Returns the currently active GAMDL capability flags (#853).
+///
+/// Used by the Settings UI's Advanced > Wrapper section to render the
+/// v1 vs v2 UI, and by future Apple-Music-specific settings panes that
+/// want to hide options that aren't relevant for the installed release.
+///
+/// Returns `false` for every flag when the version cache hasn't been
+/// populated yet (mirrors `gamdl_capabilities::supports`).
+///
+/// **Frontend caller:** `getGamdlCapabilities()` in
+/// `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub fn get_gamdl_capabilities() -> GamdlCapabilities {
+    use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+    GamdlCapabilities {
+        wrapper_v2: supports(GamdlFeature::WrapperUrl),
+        native_muxing: supports(GamdlFeature::NativeMuxing),
+        aac_web_codec_rename: supports(GamdlFeature::AacWebCodecRename),
+        music_video_remux_mode: supports(GamdlFeature::MusicVideoRemuxMode),
+        wrapper_m3u8_ip: supports(GamdlFeature::WrapperM3u8Ip),
+        playlist_folder_template: supports(GamdlFeature::PlaylistFolderTemplate),
+        native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
+    }
+}
+
 /// Checks whether votify is installed in the managed Python environment.
 ///
 /// **Frontend caller:** `checkVotifyStatus()` in `src/lib/tauri-commands.ts`
