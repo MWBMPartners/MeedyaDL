@@ -23,6 +23,21 @@ MeedyaDL ships with a validated **component support matrix** — a pinned range 
 
 Running MeedyaDL with components **outside** the listed ranges (e.g. a manually installed newer GAMDL, or a system-PATH FFmpeg below our floor) is not a supported configuration. We will triage bug reports against supported versions first, and may decline to investigate issues that do not reproduce inside the documented range.
 
+### Wrapper service (optional, user-deployed)
+
+The Apple Music wrapper used for FairPlay-protected codecs is **not bundled with MeedyaDL** and is deployed independently by the user. MeedyaDL supports two upstream wrapper projects depending on the installed GAMDL release:
+
+- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 2.9.1 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). Native binaries available for Windows / macOS / Linux.
+- **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) — required by GAMDL 3.6+. C++ daemon built with the Android NDK, running inside a Linux chroot. Exposes one HTTP REST API. Requires Docker on macOS/Windows; requires `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges on native Linux. **The user is responsible for extracting Apple Music for Android's `.so` libraries** and staging them into the wrapper's `rootfs/system/lib64/` — these `.so` files are Apple's proprietary code and are not redistributed by the wrapper-v2 upstream OR by MeedyaDL.
+
+**Threat surface introduced by the wrapper:**
+
+- MeedyaDL sends your Apple ID + password to the wrapper's `POST /login` endpoint (wrapper-v2) or its equivalent native-binary login command (wrapper-v1). These credentials are then held by the wrapper process, which uses them to mint Apple Music session tokens. **Do not run the wrapper on a host you do not trust** — anyone with access to the wrapper's data directory can read the cached session tokens, and anyone with read access to its memory can recover the cleartext credentials while a login is in flight.
+- Wrapper-v2 requires elevated capabilities (chroot / ptrace) which expand the attack surface if the daemon process is compromised. Run it inside a single-purpose container or VM where possible.
+- MeedyaDL preflights both wrapper versions over plain HTTP (no TLS). If you expose the wrapper across a LAN, restrict its bind address (`HTTP_PORT` env var on wrapper-v2; CLI flag on wrapper-v1) and rely on network-layer isolation — there is no transport encryption between MeedyaDL and the wrapper.
+
+MeedyaDL itself does not bundle, host, or distribute Apple's native code. Both wrapper projects link Apple's Android `.so` files at runtime via dynamic-load (`dlopen`/`dlsym`); the user must obtain those binaries by extracting them from the Apple Music for Android APK on a device they own.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in MeedyaDL, please report it responsibly:

@@ -438,15 +438,21 @@ export interface GamdlOptions {
   cookies_path?: string;
   /** When true, uses the Apple Music API wrapper instead of cookies */
   use_wrapper?: boolean;
-  /** URL of the Apple Music API wrapper account endpoint */
+  /** URL of the Apple Music API wrapper account endpoint (wrapper-v1, GAMDL <= 3.5.x) */
   wrapper_account_url?: string;
-  /** IP address hint for the wrapper's decryption service */
+  /** IP address hint for the wrapper's decryption service (wrapper-v1, GAMDL <= 3.5.x) */
   wrapper_decrypt_ip?: string;
   /**
    * m3u8 service address (host:port) used by GAMDL v3.1+ to fetch HLS stream
-   * URLs from the wrapper. Required for wrapper downloads on 3.1+.
+   * URLs from the wrapper. Required for wrapper downloads on 3.1+ (wrapper-v1, GAMDL 3.1–3.5.x).
    */
   wrapper_m3u8_ip?: string;
+  /**
+   * Wrapper-v2 HTTP base URL used by GAMDL >= 3.6 (#853). Single endpoint
+   * replacing the three v1 sockets above. Default: `http://127.0.0.1`.
+   * See https://github.com/glomatico/wrapper-v2 for the daemon spec.
+   */
+  wrapper_url?: string;
   /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
@@ -751,6 +757,14 @@ export interface AppSettings {
    * (#743). Default: `"127.0.0.1:10020"`.
    */
   wrapper_decrypt_ip: string;
+  /**
+   * Wrapper-v2 HTTP base URL used by GAMDL >= 3.6 (#853). Single
+   * endpoint replacing the three v1 sockets above when the detected
+   * GAMDL release is on the new wrapper-v2 dispatch path. Default:
+   * `"http://127.0.0.1"` (port 80 implied — matches the wrapper-v2
+   * compose.yaml's `${HTTP_PORT:-80}:80` mapping).
+   */
+  wrapper_url: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
   /** Whether to fetch extra metadata tags (normalization, smooth playback) */
@@ -1035,6 +1049,8 @@ export type PreflightCheck =
   | 'wrapper'
   | 'wrapper_m3u8'
   | 'wrapper_decrypt'
+  | 'wrapper_v2_health'
+  | 'wrapper_v2_auth'
   | 'output_path';
 
 /**

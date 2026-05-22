@@ -224,7 +224,43 @@ minimum_version = "2.9.1"
 #     the default `INFO` log level. No `GamdlFeature` gate touched.
 #   * Same zero-code-change admission shape as v3.3 (playlist fix),
 #     v3.5 (iTunes lookup fix), and v3.5.1 (music-video 403 fix).
-maximum_tested_version = "3.5.2"
+#
+# - 3.6 (2026-05-20 — #853 EPIC). LARGE upstream release; touches every
+#   v3.x release before it.
+#   * Wrapper support flipped from v1 (three sockets:
+#     wrapper-account-url HTTP, wrapper-m3u8-ip TCP, wrapper-decrypt-ip
+#     TCP) to wrapper-v2 (single HTTP base URL: --wrapper-url with
+#     /health, /me, /playback, /decrypt, /login REST API). MeedyaDL
+#     emits exactly one family per CLI invocation, gated on
+#     `GamdlFeature::WrapperUrl`.
+#   * Codec identifier rename: aac-legacy → aac-web,
+#     aac-he-legacy → aac-he-web. The underlying codec is unchanged on
+#     disk; only the CLI / INI / dispatch identifier changes. Bound
+#     to `SongCodec::to_runtime_cli_string()` via
+#     `GamdlFeature::AacWebCodecRename`. From a fetch-path perspective
+#     the rename is meaningful: codec.is_web → goes through
+#     apple_music_api.get_webplayback() (MusicKit JWT, no wrapper
+#     needed); other codecs hit the m3u8 master URL (may need
+#     wrapper-v2).
+#   * Native muxing + decryption: FFmpeg / MP4Box / mp4decrypt are no
+#     longer invoked by GAMDL itself. The three CLI path options
+#     (--ffmpeg-path, --mp4box-path, --mp4decrypt-path) are REMOVED,
+#     as is --music-video-remux-mode. MeedyaDL still ships these
+#     binaries for its OWN pipeline (FFmpeg → ReplayGain / BPM,
+#     MP4Box + mp4decrypt are now unused dependencies — kept in the
+#     bundle while older GAMDL releases are still in the support
+#     window). Emission gated on `GamdlFeature::NativeMuxing` /
+#     `GamdlFeature::MusicVideoRemuxMode`.
+#   * Interactive credential prompting added at the GAMDL CLI level
+#     (InquirerPy in `cli/interactive_prompts.py`). MeedyaDL must
+#     ensure the wrapper-v2 daemon is pre-authenticated (via its
+#     `POST /login` API) before spawning GAMDL — otherwise GAMDL
+#     would deadlock waiting on stdin. New
+#     `health_check_service::ensure_wrapper_v2_ready()` handles this.
+#   * Improved iTunes compatibility for songs; fixed song codec
+#     priority being ignored — both pure upstream wins with no
+#     MeedyaDL-side change.
+maximum_tested_version = "3.6"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.5.2"
+recommended_version = "3.6"
