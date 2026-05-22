@@ -56,12 +56,27 @@ This changelog is automatically generated from [conventional commits](https://ww
   the shared `download_tool_with_fallback()` path.
 
 
+### 🐛 Bug Fixes
+
+- **(release-please)** Revert manifest 1.10.0 → 1.9.4 (corrects PR #864's 1.11.0 proposal) (#866)
+
+## Summary
+
+  One-line revert of `.release-please-manifest.json` from `1.10.0` back to
+  `1.9.4`. Fixes the misconfiguration introduced by PR #865 that's causing
+  release-please's PR #864 to propose `release 1.11.0` instead of the
+  intended `release 1.10.0`.
+
+  ## What went wrong
+
+
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.9.4 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.10.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ## [1.9.4] - 2026-05-20
 
