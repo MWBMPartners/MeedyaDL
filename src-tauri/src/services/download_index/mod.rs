@@ -214,6 +214,7 @@ impl DownloadIndex {
 }
 
 pub mod ingest;
+pub mod queries;
 
 #[cfg(test)]
 mod tests {

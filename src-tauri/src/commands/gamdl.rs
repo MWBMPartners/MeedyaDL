@@ -351,10 +351,11 @@ pub async fn start_download(
                 settings.duplicate_detection.key_strategy,
             )
         };
-        let history_keys = crate::services::duplicate_detector::collect_history_keys(
+        let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
             &settings.output_path,
             settings.duplicate_detection.scope,
             settings.duplicate_detection.key_strategy,
+            &app,
         );
         if let Some(batch_plan) =
             crate::services::duplicate_detector::plan_batch_deduplication(
@@ -459,11 +460,12 @@ pub async fn start_download(
                         settings.duplicate_detection.key_strategy,
                     )
                 };
-                let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                    &settings.output_path,
-                    settings.duplicate_detection.scope,
-                    settings.duplicate_detection.key_strategy,
-                );
+                let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
                 emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
                 crate::services::duplicate_detector::plan_artist_deduplication(
                     &app,
@@ -685,11 +687,12 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                &settings.output_path,
-                settings.duplicate_detection.scope,
-                settings.duplicate_detection.key_strategy,
-            );
+            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
             emit_app_log(&app, "Checking playlist for duplicate tracks...");
             let plan = crate::services::duplicate_detector::plan_playlist_deduplication(
                 &app,
@@ -774,11 +777,12 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                &settings.output_path,
-                settings.duplicate_detection.scope,
-                settings.duplicate_detection.key_strategy,
-            );
+            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
             // Short-circuit the expensive catalog fetch if there's
             // literally nothing to compare against.
             if queued_keys.is_empty() && history_keys.is_empty() {
@@ -2399,6 +2403,36 @@ pub async fn check_redownload_status(
     app: AppHandle,
     url: String,
 ) -> Result<Option<RedownloadInfo>, String> {
+    // #875 M2 DB-backed fast path. The SQLite download index is an
+    // indexed lookup (~1ms) vs the history.json scan that allocates a
+    // Vec<HistoryEntry> + walks linearly. If the DB lookup succeeds we
+    // return immediately. JSON fallback runs on:
+    //   * any DB error (open / corrupt / locked)
+    //   * Ok(None) from the DB — the row genuinely isn't there yet,
+    //     so we still check history.json in case it's a freshly
+    //     downloaded item that hasn't been ingested or M3-dual-written
+    //     to the DB yet.
+    let db_path = crate::utils::platform::get_app_data_dir(&app).join("meedyadl.db");
+    if db_path.exists() {
+        match crate::services::download_index::queries::find_download_by_url(&db_path, &url) {
+            Ok(Some(row)) => {
+                return Ok(Some(RedownloadInfo {
+                    downloaded_at: row.downloaded_at,
+                    title: row.title,
+                    album: row.album,
+                }));
+            }
+            Ok(None) => {
+                // Fall through to JSON fallback — see comment above.
+            }
+            Err(e) => {
+                log::debug!(
+                    "Download-index lookup for redownload-status failed (non-fatal, falling back to history.json): {e}"
+                );
+            }
+        }
+    }
+
     let history = crate::services::history_service::list_history(&app);
     let previous = history.iter().find(|e| e.url == url && e.status == "success");
 
