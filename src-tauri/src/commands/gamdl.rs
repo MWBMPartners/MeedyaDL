@@ -238,10 +238,17 @@ pub async fn start_download(
 
         if is_library {
             log::info!("Library URL passed through to GAMDL (#546): {url}");
+            // GAMDL v3.7 (#870) extended library URL support to songs +
+            // music-videos + i.* ID prefix (in addition to the existing
+            // playlists/albums + p./l. prefixes). MeedyaDL recognises all
+            // /library/ URLs via substring match in the frontend URL parser
+            // and passes them through to GAMDL untouched. Catalog metadata
+            // enrichment is skipped for library items to avoid noisy 404s
+            // when downloading personal uploads (#871).
             emit_app_log(
                 &app,
                 &format!(
-                    "Library URL detected (#546) — passed through to GAMDL unchanged; no MeedyaDL filename safety net applies: {url}"
+                    "Library URL detected (#546) — passed through to GAMDL unchanged; catalog enrichment skipped (#871 / GAMDL v3.7+ supports /library/{{albums,playlists,songs,music-videos}}/{{p,l,i}}.*): {url}"
                 ),
             );
         }
