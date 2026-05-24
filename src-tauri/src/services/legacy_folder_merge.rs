@@ -788,6 +788,7 @@ mod tests {
             tracks: Vec::new(),
             enrichment: None,
             cross_platform_urls: None,
+            is_library: false,
         });
         let companion_manifest = ManifestFile::new(ManifestSource {
             platform: "apple-music".to_string(),
@@ -799,6 +800,7 @@ mod tests {
             tracks: Vec::new(),
             enrichment: None,
             cross_platform_urls: None,
+            is_library: false,
         });
 
         std::fs::write(

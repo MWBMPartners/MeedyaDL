@@ -24,9 +24,6 @@ import { Modal } from '../common/Modal';
 import type { UpdateChannel } from '@/types';
 
 const CHANNEL_LABELS: Record<UpdateChannel, string> = {
-  nightly: 'Nightly',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
   alpha: 'Alpha',
   beta: 'Beta',
   rc: 'Release Candidate',

@@ -9,7 +9,11 @@
 # "Automatically delete head branches": the setting deletes every merged PR
 # head branch unconditionally, which is usually what we want for `feat/*`
 # and `fix/*` branches but is wrong for cross-channel merges (e.g., merging
-# `nightly` into `weekly` should NOT delete `nightly`).
+# `release-candidate` into `beta` should NOT delete `release-candidate`).
+#
+# Note: the cron-driven nightly/weekly/monthly channels were removed in
+# v1.11.0 along with their branches. The remaining protected channel set
+# is just the active long-lived branches (main / alpha / beta / rc).
 #
 # The `protected-release-branches` ruleset (applied via
 # apply-branch-rulesets.yml) provides the hard guarantee — GitHub will
@@ -49,10 +53,12 @@ jobs:
           fi
 
           # Protected branches that must never be auto-deleted. Keep in sync
-          # with .github/rulesets/protected-stable-branches.json (no bypass)
-          # and .github/rulesets/protected-cron-channels.json (admin bypass).
+          # with .github/rulesets/protected-stable-branches.json (no bypass).
+          # The cron channels (nightly/weekly/monthly) were removed in
+          # v1.11.0; their ruleset file (protected-cron-channels.json) is
+          # also deleted in that PR.
           case "$HEAD_REF" in
-            main|release-candidate|beta|alpha|monthly|weekly|nightly)
+            main|release-candidate|beta|alpha)
               echo "Skipping: '$HEAD_REF' is a protected release channel"
               exit 0
               ;;

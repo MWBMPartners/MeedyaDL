@@ -69,18 +69,31 @@ fn default_replaygain_reference() -> f64 {
 /// accidentally sliding down the stability ladder via a spoofed URL).
 ///
 /// The channel is derived from a release tag's pre-release suffix:
-///   - `v0.32.0-nightly.20260420` → Nightly
-///   - `v0.32.0-weekly.202616`    → Weekly
-///   - `v0.32.0-monthly.202604`   → Monthly
-///   - `v0.32.0-alpha.1`          → Alpha
-///   - `v0.32.0-beta.1`           → Beta
-///   - `v0.32.0-rc.1`             → Rc
-///   - `v0.32.0`                  → Stable
+///   - `v0.32.0-alpha.1` → Alpha
+///   - `v0.32.0-beta.1`  → Beta
+///   - `v0.32.0-rc.1`    → Rc
+///   - `v0.32.0`         → Stable
+///
+/// **Nightly/Weekly/Monthly removed from the producer pipeline in v1.11.0** —
+/// alpha is now the bleeding-edge channel (push-driven on the alpha branch).
+/// The old cron-driven channels generated more conflict-issue noise than user
+/// signal and overlapped functionally with the alpha branch's workflow. The
+/// enum variants are kept for **backwards-compatible settings.json
+/// deserialisation only** (an in-the-wild install with
+/// `"update_channel": "nightly"` must still load cleanly so the v6 → v7
+/// migration can promote them to Alpha). They are HIDDEN FROM THE UI and
+/// `from_tag()` no longer returns them — any tag with those suffixes
+/// classifies as Alpha instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum UpdateChannel {
+    /// Deprecated (#873-era cron-channel removal). Kept ONLY for legacy
+    /// settings.json compatibility; the v6 → v7 migration promotes it
+    /// to Alpha on load. Not exposed in the UI; from_tag() never returns it.
     Nightly,
+    /// Deprecated — same as Nightly above.
     Weekly,
+    /// Deprecated — same as Nightly above.
     Monthly,
     Alpha,
     Beta,
@@ -92,22 +105,35 @@ impl UpdateChannel {
     /// Parses a release tag (with or without leading `v`) and returns the
     /// channel implied by its pre-release suffix. Tags with no suffix or
     /// an unrecognised suffix are treated as Stable.
+    ///
+    /// Legacy `-nightly.*` / `-weekly.*` / `-monthly.*` tags (from before
+    /// the cron channels were removed in v1.11.0) classify as `Alpha` — so
+    /// in-the-wild installs running an old nightly build still see updates
+    /// even though their tag's suffix is no longer a recognised channel.
     pub fn from_tag(tag: &str) -> Self {
         let trimmed = tag.trim_start_matches('v');
         let suffix = match trimmed.split_once('-') {
             Some((_, s)) => s,
             None => return Self::Stable,
         };
-        // Match on the first dotted segment so "nightly.20260420" → "nightly".
+        // Match on the first dotted segment so "alpha.11" → "alpha".
         let label = suffix.split('.').next().unwrap_or("").to_ascii_lowercase();
         match label.as_str() {
-            "nightly" => Self::Nightly,
-            "weekly" => Self::Weekly,
-            "monthly" => Self::Monthly,
-            "alpha" => Self::Alpha,
+            "alpha" | "nightly" | "weekly" | "monthly" => Self::Alpha,
             "beta" => Self::Beta,
             "rc" => Self::Rc,
             _ => Self::Stable,
+        }
+    }
+
+    /// Maps deprecated cron channels (Nightly/Weekly/Monthly) to Alpha;
+    /// passes everything else through unchanged. Called during the
+    /// v6 → v7 settings migration so users on a removed channel get
+    /// gracefully promoted to the closest active equivalent (Alpha).
+    pub fn migrate_deprecated_to_alpha(self) -> Self {
+        match self {
+            Self::Nightly | Self::Weekly | Self::Monthly => Self::Alpha,
+            other => other,
         }
     }
 
@@ -117,11 +143,11 @@ impl UpdateChannel {
         self != Self::Stable
     }
 
-    /// True for the channels that are gated behind Dev Access in the UI:
-    /// Nightly, Weekly, Monthly, Alpha. Beta and Rc are freely selectable
-    /// (with a confirmation warning); Stable is the default.
+    /// True for the channels that are gated behind Dev Access in the UI.
+    /// Currently just Alpha — Beta and Rc are freely selectable (with a
+    /// confirmation warning); Stable is the default.
     pub fn requires_dev_access(self) -> bool {
-        matches!(self, Self::Nightly | Self::Weekly | Self::Monthly | Self::Alpha)
+        matches!(self, Self::Alpha)
     }
 }
 
@@ -1667,7 +1693,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 6;
+pub const CURRENT_SETTINGS_VERSION: u32 = 7;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.

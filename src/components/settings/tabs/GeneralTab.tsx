@@ -138,24 +138,24 @@ const UPDATE_INTERVAL_OPTIONS = [
  * explicit opt-in for early builds.
  */
 const UPDATE_CHANNEL_OPTIONS_FULL = [
-  { value: 'nightly', label: 'Nightly — built daily, may be broken' },
-  { value: 'weekly', label: 'Weekly — integrated weekly, often unstable' },
-  { value: 'monthly', label: 'Monthly — integrated monthly' },
-  { value: 'alpha', label: 'Alpha — feature-complete, expect bugs' },
+  { value: 'alpha', label: 'Alpha — bleeding edge, expect bugs' },
   { value: 'beta', label: 'Beta — pre-RC integration' },
   { value: 'rc', label: 'Release Candidate — near-stable, last validation pass' },
   { value: 'stable', label: 'Stable — production release (recommended)' },
 ];
 
 /**
- * Channel options shown to users without Dev Access. Hides the four
- * experimental channels (nightly/weekly/monthly/alpha) so casual users
- * cannot accidentally subscribe to internal-only builds. Matches
- * `DEV_ACCESS_CHANNELS` in `src/types/index.ts` and the Rust
+ * Channel options shown to users without Dev Access. Hides Alpha so
+ * casual users cannot accidentally subscribe to bleeding-edge builds.
+ * Matches `DEV_ACCESS_CHANNELS` in `src/types/index.ts` and the Rust
  * `UpdateChannel::requires_dev_access()` predicate.
+ *
+ * Nightly/Weekly/Monthly were removed entirely in v1.11.0 (the cron
+ * channels generated more conflict-issue noise than user signal and
+ * overlapped functionally with the alpha branch).
  */
 const UPDATE_CHANNEL_OPTIONS_PUBLIC = UPDATE_CHANNEL_OPTIONS_FULL.filter(
-  (opt) => !['nightly', 'weekly', 'monthly', 'alpha'].includes(opt.value)
+  (opt) => !['alpha'].includes(opt.value)
 );
 
 /**
@@ -289,10 +289,13 @@ export function GeneralTab() {
   const [pendingChannel, setPendingChannel] = useState<UpdateChannel | null>(null);
 
   /**
-   * Filter the channel dropdown by Dev Access. The four most-experimental
-   * channels (Nightly/Weekly/Monthly/Alpha) are hidden from non-dev users
-   * to prevent casual subscription. Existing subscribers keep their channel
-   * even if they later disable Dev Access — they just can't re-pick it.
+   * Filter the channel dropdown by Dev Access. Alpha (the bleeding-edge
+   * channel) is hidden from non-dev users to prevent casual subscription.
+   * Existing subscribers keep their channel even if they later disable
+   * Dev Access — they just can't re-pick it.
+   *
+   * Nightly/Weekly/Monthly were removed entirely in v1.11.0 (cron-channel
+   * cleanup; alpha is now the bleeding-edge channel).
    */
   const channelOptions = devAccessEnabled.value
     ? UPDATE_CHANNEL_OPTIONS_FULL
@@ -715,7 +718,7 @@ export function GeneralTab() {
             enables pre-release checks on the backend. */}
         <Select
           label="Update Channel"
-          description="Controls which release channel you receive updates from. Subscribing to a channel surfaces releases at-or-above that stability tier (e.g. Beta sees Beta, RC, Stable). Nightly/Weekly/Monthly/Alpha are hidden unless Dev Access is enabled. Switching to any pre-release channel requires explicit confirmation."
+          description="Controls which release channel you receive updates from. Subscribing to a channel surfaces releases at-or-above that stability tier (e.g. Beta sees Beta, RC, Stable). Alpha is hidden unless Dev Access is enabled. Switching to any pre-release channel requires explicit confirmation."
           options={channelOptions}
           value={updateChannel.value}
           onChange={(e) => handleChannelChange(e.target.value as UpdateChannel)}

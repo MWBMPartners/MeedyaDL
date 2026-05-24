@@ -227,6 +227,36 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 6;
     }
 
+    // v6 → v7: cron channels (Nightly/Weekly/Monthly) removed.
+    //
+    // The producer-side cron-channel workflows (nightly-release.yml,
+    // weekly-release.yml, monthly-release.yml) were removed alongside
+    // their corresponding GitHub branches + tags + releases in the
+    // v1.11.0 cleanup. The `UpdateChannel` enum still has the three
+    // variants for backwards-compat deserialisation of older
+    // settings.json files — without that, a user upgrading from a
+    // pre-v1.11.0 build with `"update_channel": "nightly"` would fail
+    // settings load entirely.
+    //
+    // This migration promotes any user previously subscribed to a
+    // deprecated cron channel up to Alpha (the closest active channel).
+    // Alpha is the new bleeding-edge channel and is push-driven on
+    // the alpha long-lived branch; from the user's perspective the
+    // build cadence is similar (or slightly slower) but the
+    // conflict-issue noise is gone.
+    if settings.settings_version == 6 {
+        let old_channel = settings.update_channel;
+        settings.update_channel = settings.update_channel.migrate_deprecated_to_alpha();
+        if old_channel != settings.update_channel {
+            log::info!(
+                "Migrated deprecated update channel {:?} → {:?} (v1.11.0 cron-channel cleanup)",
+                old_channel,
+                settings.update_channel
+            );
+        }
+        settings.settings_version = 7;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
