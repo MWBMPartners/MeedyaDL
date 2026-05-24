@@ -355,6 +355,15 @@ pub mod history_service;
 /// is rebuildable from them via `scan_folder_for_manifests`.
 pub mod download_index;
 
+/// Profile Bundle — `.meedyabundle` export/import format (#876 EPIC B).
+///
+/// P1 scaffolding only: pure-Rust ZIP-based format definition +
+/// (de)serialiser primitives. **No IPC, no Settings UI, no credential
+/// encryption yet** — those land in P2 / P3 / P4 of the EPIC. The
+/// format is forward-compatible via `meta.json.contents` enumeration
+/// of OPTIONAL sections.
+pub mod profile_bundle;
+
 /// External queue watchdog (#818).
 ///
 /// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
