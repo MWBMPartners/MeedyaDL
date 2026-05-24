@@ -1419,36 +1419,19 @@ pub fn run() {
             };
             clear_old_logs(&app_data_dir, extra_dir);
 
-            // Start the persistent on-disk activity log writer (#541).
-            // Runs as a background Tokio task consuming events from an
-            // unbounded channel. The shared `ShutdownSignal` trips the
-            // writer into its flush-and-exit path on window close / tray
-            // quit so the final events are not lost.
-            use tauri::Manager;
-            let shutdown = app
-                .state::<services::download_queue::ShutdownSignal>()
-                .flag();
-            let writer_handle =
-                services::activity_log_writer::start(activity_log_dir.clone(), shutdown);
-            utils::activity_log::register_disk_writer(writer_handle);
-            log::info!(
-                "Activity log writer started at {} (retention {}d)",
-                activity_log_dir.display(),
-                services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
-            );
-
             // Compact any duplicate history rows left by older retry behaviour.
             services::history_service::cleanup_duplicate_entries(app.handle());
 
-            // Open the SQLite download index (#875 EPIC A M1+M1b).
+            // Open the SQLite download index (#875 EPIC A M1 + M1b).
             //
-            // M1 opens the DB + applies the v1/v2 schema migrations.
-            // M1b runs the first-startup ingest exactly once per DB,
-            // pulling history.json into `downloads` and the recent
-            // activity-log JSONL files into `activity_events`. After
-            // this, M2/M3 dual-write paths keep the DB current; the
-            // `.meedyadl` manifests on disk remain the source of
-            // truth and can rebuild the DB if it ever goes missing.
+            // Runs BEFORE the activity-log writer because the writer
+            // dual-writes into the DB (#875 M3) and needs the schema
+            // already applied. The migration runner is idempotent so
+            // re-opening the DB inside the writer task is safe even
+            // if the file is created by a concurrent process; this
+            // ordering just avoids the race window where two
+            // independent opens try to apply the v1/v2 schema in
+            // parallel.
             //
             // Errors here are NEVER fatal — the DB is an indexed
             // cache, not a load-bearing dependency. If open or ingest
@@ -1506,6 +1489,33 @@ pub fn run() {
                     );
                 }
             }
+
+            // Start the persistent on-disk activity log writer (#541).
+            // Runs as a background Tokio task consuming events from an
+            // unbounded channel. The shared `ShutdownSignal` trips the
+            // writer into its flush-and-exit path on window close / tray
+            // quit so the final events are not lost.
+            //
+            // #875 M3: the writer also opens the SQLite download index
+            // once and dual-writes every event into `activity_events`
+            // so the activity log is searchable via SQL. JSONL files
+            // remain the forensic record (#541); any DB write failure
+            // is transparent.
+            use tauri::Manager;
+            let shutdown = app
+                .state::<services::download_queue::ShutdownSignal>()
+                .flag();
+            let writer_handle = services::activity_log_writer::start(
+                activity_log_dir.clone(),
+                Some(db_path.clone()),
+                shutdown,
+            );
+            utils::activity_log::register_disk_writer(writer_handle);
+            log::info!(
+                "Activity log writer started at {} (retention {}d)",
+                activity_log_dir.display(),
+                services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
+            );
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);

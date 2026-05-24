@@ -74,8 +74,17 @@ impl ActivityLogWriterHandle {
 ///
 /// The task runs until `shutdown.is_triggered()` returns true (polled
 /// on every select iteration) or the sender half is dropped.
+///
+/// `db_path` (#875 M3) is the path to the SQLite download index. When
+/// `Some` AND the file is openable, every event written to the JSONL
+/// file is ALSO inserted into the `activity_events` table — the M3
+/// dual-write that makes the activity log searchable via SQL. On any
+/// DB open / write failure the task logs a debug line and continues
+/// writing to JSONL only; the JSONL files remain the forensic record
+/// per #541 so DB outage never loses events.
 pub fn start(
     log_dir: PathBuf,
+    db_path: Option<PathBuf>,
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> ActivityLogWriterHandle {
     let (tx, rx) = unbounded_channel::<ActivityLogEvent>();
@@ -90,7 +99,7 @@ pub fn start(
     }
 
     tauri::async_runtime::spawn(async move {
-        writer_task(log_dir, rx, shutdown).await;
+        writer_task(log_dir, db_path, rx, shutdown).await;
     });
 
     ActivityLogWriterHandle { tx }
@@ -104,6 +113,7 @@ pub fn start(
 /// tick and once more at shutdown.
 async fn writer_task(
     log_dir: PathBuf,
+    db_path: Option<PathBuf>,
     mut rx: UnboundedReceiver<ActivityLogEvent>,
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
@@ -112,6 +122,31 @@ async fn writer_task(
     // Skip the immediate tick so we don't flush before the first event.
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     interval.tick().await;
+
+    // #875 M3 — open the SQLite download index once for the task's
+    // lifetime. Per-event opens would cost ~1ms × thousands of events;
+    // single-open + per-event INSERT keeps overhead negligible. DB
+    // failures are NEVER fatal — the JSONL writer keeps running so
+    // events never get lost.
+    let mut db = match db_path.as_ref() {
+        Some(p) => match crate::services::download_index::DownloadIndex::open(p) {
+            Ok(idx) => {
+                log::info!(
+                    "activity_log_writer: dual-writing to DB at {}",
+                    p.display()
+                );
+                Some(idx)
+            }
+            Err(e) => {
+                log::debug!(
+                    "activity_log_writer: DB open at {} failed (continuing JSONL-only): {e}",
+                    p.display()
+                );
+                None
+            }
+        },
+        None => None,
+    };
 
     log::info!(
         "activity_log_writer: started, writing to {} (retention {}d)",
@@ -131,6 +166,17 @@ async fn writer_task(
                         if let Err(e) = write_event(&log_dir, &mut state, &event) {
                             log::warn!("activity_log_writer: write failed: {e}");
                         }
+                        if let Some(idx) = db.as_mut() {
+                            if let Err(e) = write_event_to_db(idx, &event) {
+                                // Non-fatal: log debug and continue. JSONL
+                                // already captured the event so nothing
+                                // is lost. Subsequent events still try
+                                // the DB write.
+                                log::debug!(
+                                    "activity_log_writer: DB insert failed (event preserved in JSONL): {e}"
+                                );
+                            }
+                        }
                     }
                     None => {
                         // Sender dropped — no more events will arrive.
@@ -149,11 +195,44 @@ async fn writer_task(
     // Drain any events already in the queue before exiting.
     while let Ok(event) = rx.try_recv() {
         let _ = write_event(&log_dir, &mut state, &event);
+        if let Some(idx) = db.as_mut() {
+            let _ = write_event_to_db(idx, &event);
+        }
     }
     if let Some(mut s) = state {
         let _ = s.writer.flush();
     }
     log::info!("activity_log_writer: stopped");
+}
+
+/// Inserts a single activity-log event into the SQLite
+/// `activity_events` table (#875 M3 dual-write). The `severity`
+/// enum is mapped to the DB's `level` text column; the
+/// `download_id` is normalised to either the SYSTEM sentinel or the
+/// concrete ID; the `source` column carries the same routing
+/// information as the JSONL `download_id` field for searchability.
+fn write_event_to_db(
+    idx: &mut crate::services::download_index::DownloadIndex,
+    event: &crate::utils::activity_log::ActivityLogEvent,
+) -> Result<(), crate::services::download_index::IndexError> {
+    let level = match event.severity {
+        crate::utils::activity_log::LogSeverity::Info => "INFO",
+        crate::utils::activity_log::LogSeverity::Warning => "WARN",
+        crate::utils::activity_log::LogSeverity::Error => "ERROR",
+    };
+    let source = if event.download_id
+        == crate::utils::activity_log::SYSTEM_LOG_ID
+    {
+        "system".to_string()
+    } else {
+        format!("download:{}", event.download_id)
+    };
+    idx.conn().execute(
+        "INSERT INTO activity_events (timestamp, level, source, message, download_id, metadata_json)
+         VALUES (?1, ?2, ?3, ?4, NULL, NULL)",
+        rusqlite::params![event.timestamp, level, source, event.line],
+    )?;
+    Ok(())
 }
 
 /// State for the currently-open log file.
@@ -347,5 +426,56 @@ mod tests {
         assert!(!day_one.contains("day two"));
         assert!(day_two.contains("day two"));
         assert!(!day_two.contains("day one"));
+    }
+
+    #[test]
+    fn write_event_to_db_inserts_and_maps_fields_correctly() {
+        // #875 M3: the DB dual-write maps `LogSeverity` → `level`
+        // text column, prefixes non-system download IDs with
+        // `download:`, and routes the JSONL `line` into the
+        // `message` column.
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test.db");
+        let mut idx = crate::services::download_index::DownloadIndex::open(&db_path).unwrap();
+
+        // Two events: one system, one per-download. Warning severity
+        // for the second so we exercise the LogSeverity → "WARN"
+        // mapping branch as well as Info → "INFO".
+        let sys = ActivityLogEvent {
+            download_id: crate::utils::activity_log::SYSTEM_LOG_ID.to_string(),
+            stream: "internal",
+            severity: crate::utils::activity_log::LogSeverity::Info,
+            line: "system event".to_string(),
+            timestamp: "2026-05-25T10:00:00Z".to_string(),
+        };
+        let dl = ActivityLogEvent {
+            download_id: "abc12345".to_string(),
+            stream: "stderr",
+            severity: crate::utils::activity_log::LogSeverity::Warning,
+            line: "warning from a download".to_string(),
+            timestamp: "2026-05-25T10:00:01Z".to_string(),
+        };
+        write_event_to_db(&mut idx, &sys).unwrap();
+        write_event_to_db(&mut idx, &dl).unwrap();
+
+        // Inspect: 2 rows, mapped levels + sources match expectations.
+        let mut stmt = idx
+            .conn()
+            .prepare("SELECT timestamp, level, source, message FROM activity_events ORDER BY id")
+            .unwrap();
+        let rows: Vec<(String, String, String, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].1, "INFO");
+        assert_eq!(rows[0].2, "system");
+        assert_eq!(rows[0].3, "system event");
+        assert_eq!(rows[1].1, "WARN");
+        assert_eq!(rows[1].2, "download:abc12345");
+        assert_eq!(rows[1].3, "warning from a download");
     }
 }
