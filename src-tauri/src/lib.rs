@@ -1440,6 +1440,73 @@ pub fn run() {
             // Compact any duplicate history rows left by older retry behaviour.
             services::history_service::cleanup_duplicate_entries(app.handle());
 
+            // Open the SQLite download index (#875 EPIC A M1+M1b).
+            //
+            // M1 opens the DB + applies the v1/v2 schema migrations.
+            // M1b runs the first-startup ingest exactly once per DB,
+            // pulling history.json into `downloads` and the recent
+            // activity-log JSONL files into `activity_events`. After
+            // this, M2/M3 dual-write paths keep the DB current; the
+            // `.meedyadl` manifests on disk remain the source of
+            // truth and can rebuild the DB if it ever goes missing.
+            //
+            // Errors here are NEVER fatal — the DB is an indexed
+            // cache, not a load-bearing dependency. If open or ingest
+            // fails we log and continue; the app's existing
+            // JSON-backed flows keep working.
+            let db_path = app_data_dir.join("meedyadl.db");
+            match services::download_index::DownloadIndex::open(&db_path) {
+                Ok(mut idx) => {
+                    log::info!(
+                        "Download index opened at {} (schema v{})",
+                        db_path.display(),
+                        idx.schema_version().unwrap_or(-1)
+                    );
+                    match services::download_index::ingest::run_first_startup_ingest(
+                        &mut idx,
+                        &app_data_dir,
+                        &activity_log_dir,
+                        services::download_index::ingest::DEFAULT_ACTIVITY_LOG_INGEST_DAYS,
+                    ) {
+                        Ok(summary) if summary.ran => {
+                            log::info!(
+                                "First-startup ingest into download index: {} downloads + {} activity events from {} JSONL file(s)",
+                                summary.downloads_ingested,
+                                summary.activity_events_ingested,
+                                summary.activity_log_files_read,
+                            );
+                            // Surface to the activity log so the user sees the
+                            // bulk migration as a [System] line on the first
+                            // launch where the DB is built.
+                            utils::activity_log::emit_app_log(
+                                app.handle(),
+                                &format!(
+                                    "First-startup migration: ingested {} download record(s) + {} activity event(s) from {} JSONL file(s) into the new SQLite index. Existing history.json + activity-log files remain on disk as the forensic record.",
+                                    summary.downloads_ingested,
+                                    summary.activity_events_ingested,
+                                    summary.activity_log_files_read,
+                                ),
+                            );
+                        }
+                        Ok(_skipped) => {
+                            // Subsequent launches reach this branch — the
+                            // ingest already ran on a prior boot. No log.
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "First-startup ingest into download index failed (non-fatal, will retry next launch): {e}"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Could not open download index at {} (non-fatal — JSON paths remain authoritative): {e}",
+                        db_path.display()
+                    );
+                }
+            }
+
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);
 
