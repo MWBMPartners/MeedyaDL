@@ -13,14 +13,18 @@
 #   - protected-stable-branches.json
 #       Strict protection for main, release-candidate, beta, alpha. No bypass
 #       actors — these branches must never receive a force-push from automation.
-#   - protected-cron-channels.json
-#       Protection for nightly, weekly, monthly with a RepositoryRole admin
-#       bypass so the cron-driven release workflows can do their integration
-#       force-push using RELEASE_PAT.
+#
+# Note: protected-cron-channels.json (formerly covering nightly/weekly/monthly
+# with admin bypass) was removed in v1.11.0 along with the cron channels
+# themselves. The reconciliation logic below will auto-delete the leftover
+# ruleset on the GitHub side the first time this workflow runs after that
+# change merges, because the source-tree no longer contains the
+# `protected-cron-channels` ruleset name.
 #
 # After applying source-tree rulesets, any ruleset on the repo whose name is
 # NOT present in the source tree is deleted. This is what cleans up the legacy
-# `protected-release-branches` ruleset after the split landed.
+# `protected-release-branches` ruleset after the split landed (and now also
+# the legacy `protected-cron-channels` ruleset).
 #
 # Requires: RELEASE_PAT with `administration:write` scope on the repo.
 
