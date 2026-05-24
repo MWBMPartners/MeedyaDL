@@ -1193,6 +1193,12 @@ fn write_manifest(
         // records as each stage completes (Phase 2 wiring).
         enrichment: None,
         cross_platform_urls,
+        // #871: flag personal-library downloads so the Library Scan UI
+        // (#717), the duplicate detector (#510), and the future SQLite
+        // index (#875) can distinguish library items from catalog items.
+        // Library items typically have no catalog counterpart, so
+        // metadata flows differently.
+        is_library: super::apple_music_api::is_library_url(&url),
     };
 
     // Read existing manifest or create new

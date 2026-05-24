@@ -82,6 +82,34 @@ pub struct ManifestSource {
     /// manifests / Odesli misses / lookup disabled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
+
+    /// Whether this download originated from the user's personal Apple
+    /// Music library URL (`/library/...`) rather than from the public
+    /// catalog. Library items often have NO corresponding catalog entry
+    /// (e.g., user-uploaded MP3s, region-restricted items), so catalog
+    /// API enrichment is skipped for them — there's nothing to fetch.
+    ///
+    /// Surfaced as a hint to:
+    ///   * The Library Scan page UI (so it doesn't try to compare
+    ///     `lastModifiedDate` against a non-existent catalog response)
+    ///   * The duplicate detector (library + catalog with the same
+    ///     ISRC are different download instances of the same recording)
+    ///   * Future EPIC A (#875) SQLite index — `downloads.is_library`
+    ///     column maps directly from this field
+    ///
+    /// Defaults to `false` for backwards compatibility — older manifests
+    /// (pre-#871) deserialise with `is_library = false`, which is
+    /// correct because pre-#871 we didn't distinguish library URLs
+    /// from catalog URLs at the manifest layer. (#871)
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_library: bool,
+}
+
+/// Helper for `#[serde(skip_serializing_if = "is_false")]`. Lets the
+/// `is_library` field omit itself from the JSON when `false`, keeping
+/// the on-disk format unchanged for catalog (non-library) manifests.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// Per-stage enrichment completion record (#759).
