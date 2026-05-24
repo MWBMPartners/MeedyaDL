@@ -108,13 +108,13 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 
 | Component | Role | Supported range | Recommended | Source of truth |
 | --- | --- | --- | --- | --- |
-| **Python** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
-| **GAMDL** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.6** | 3.6 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
+| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.6** | 3.6 | `src-tauri/tool-versions.toml` → `[gamdl]` |
 | **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain / BPM analysis) regardless of GAMDL version. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
-| **mp4decrypt** (Bento4) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
-| **N_m3u8DL-RE** | Alternative HLS/DASH downloader used by some codec paths. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
-| **MP4Box** (GPAC) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
-| **MediaInfo** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
+| **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
+| **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
+| **MP4Box** ([GPAC](https://github.com/gpac/gpac)) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
+| **[MediaInfo](https://github.com/MediaArea/MediaInfo)** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
 
 ### How the support window is enforced
 
@@ -128,7 +128,7 @@ If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0)
 
 ## Wrapper Authentication
 
-The **wrapper** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running daemon that handles Apple ID authentication and DRM key exchange directly.
+The **[wrapper](https://github.com/WorldObservationLog/wrapper)** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running daemon that handles Apple ID authentication and DRM key exchange directly.
 
 > **Two wrapper flavours, picked automatically based on your GAMDL version.**
 > MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL ≤ 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
@@ -142,7 +142,7 @@ Most users should stick with **cookie-based authentication** (the default — wo
 - Experience frequent cookie expiration issues
 - Are comfortable running local server software (or — on GAMDL 3.6+ — Docker on macOS/Windows)
 
-### Setup (wrapper-v2, GAMDL 3.6+)
+### Setup ([wrapper-v2](https://github.com/glomatico/wrapper-v2), GAMDL 3.6+)
 
 1. Clone and build [glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2) — this requires Docker on macOS/Windows or a Linux box with `SYS_ADMIN` capabilities. You must also extract Apple Music for Android's `.so` files and stage them per the wrapper-v2 README (the upstream image does **not** ship Apple's binaries).
 2. `docker compose up -d` to run the daemon — exposes `http://localhost:80` by default.
@@ -152,7 +152,7 @@ Most users should stick with **cookie-based authentication** (the default — wo
 
 ### Setup (wrapper-v1, GAMDL ≤ 3.5.x)
 
-1. **Obtain and run the wrapper service** — wrapper-v1 is a separate native binary (Windows / macOS / Linux ports exist via [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) that listens on `http://127.0.0.1:30020` by default
+1. **Obtain and run the wrapper service** — [wrapper-v1](https://github.com/WorldObservationLog/wrapper) is a separate native binary (Windows / macOS / Linux ports exist via [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) that listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
 3. **Configure the URLs** — update the **Wrapper Account URL** (default `http://127.0.0.1:30020`), **Wrapper m3u8 Address** (`127.0.0.1:20020`), and **Wrapper Decryption Address** (`127.0.0.1:10020`) if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
 
@@ -316,10 +316,10 @@ On first launch, the setup wizard will guide you through:
 
 | Tool | Version | Notes |
 | ---- | ------- | ----- |
-| **Node.js** | LTS (20+) | Frontend build toolchain |
-| **npm** | 10+ | Comes with Node.js |
-| **Rust** | Stable (1.77+) | Backend compilation |
-| **Tauri CLI** | 2.x | `npm install` handles this |
+| **[Node.js](https://nodejs.org)** | LTS (20+) | Frontend build toolchain |
+| **[npm](https://www.npmjs.com/)** | 10+ | Comes with Node.js |
+| **[Rust](https://github.com/rust-lang)** | Stable (1.77+) | Backend compilation |
+| **[Tauri CLI](https://tauri.app/)** | 2.x | `npm install` handles this |
 
 #### Linux Additional Dependencies
 
