@@ -367,6 +367,25 @@ sentry-tracing = "0.46"
 # @see https://docs.rs/thiserror/ -- thiserror documentation
 thiserror = "2"
 
+# ---- Embedded SQLite (#875 EPIC A — download index + searchable activity log) ----
+
+# rusqlite -- Embedded SQLite database with statically-linked engine.
+# Used to back the download index (M1+): a fast indexed cache that
+# replaces history.json (1000-entry cap) and powers cross-service
+# dedupe, library gap-fill, and searchable activity-log queries.
+# `.meedyadl` manifests on disk REMAIN the source of truth — the DB
+# is rebuildable from them via scan_folder_for_manifests.
+#
+# Features:
+#   - `bundled` -- ships SQLite source statically, no system dep
+#   - `chrono` -- ISO-8601 timestamp marshalling for activity_events
+# Both required for a zero-deployment-friction story (no system
+# SQLite shared-library lookup; chrono types we already use across
+# the project marshal directly into TEXT columns).
+# @see https://docs.rs/rusqlite/ -- rusqlite documentation
+# @see #875 -- EPIC A: SQLite-backed download index + activity log
+rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+
 # ---- Platform Directories ----
 
 # dirs -- Cross-platform resolution of well-known directories.

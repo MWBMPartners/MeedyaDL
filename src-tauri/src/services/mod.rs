@@ -343,6 +343,18 @@ pub mod mediainfo_service;
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
 
+/// Download Index — SQLite-backed indexed cache (#875 EPIC A).
+///
+/// M1 scaffolding only: opens (or creates) `meedyadl.db` in the app
+/// data dir, applies the v1 schema (7 tables: downloads, recordings,
+/// recording_downloads, manifests, activity_events, known_tracks,
+/// schema_version), runs the migration runner. **Not yet wired into
+/// any user-facing flow** — read/write paths are deferred to M1b/M2.
+///
+/// `.meedyadl` manifests on disk remain the source of truth; this DB
+/// is rebuildable from them via `scan_folder_for_manifests`.
+pub mod download_index;
+
 /// External queue watchdog (#818).
 ///
 /// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
