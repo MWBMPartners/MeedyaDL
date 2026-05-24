@@ -429,6 +429,13 @@ export interface GamdlCapabilities {
   playlist_folder_template: boolean;
   /** ≥2.9.1 — native --song-codec-priority chain accepted */
   native_codec_priority: boolean;
+  /**
+   * `--ffmpeg-path` / `ffmpeg_path` INI key — `true` when `<3.6` (original
+   * tool-path era) OR `>=3.7` (REINSTATED for N_m3u8DL-RE's HLS streaming).
+   * Only `false` on the `3.6.x` line. Used to grey out the FFmpeg-path
+   * input in Settings → Tools when GAMDL 3.6.x is detected. (#867)
+   */
+  ffmpeg_path: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');

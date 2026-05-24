@@ -1053,19 +1053,35 @@ impl GamdlOptions {
 
         // --- Tool Paths ---
         //
-        // GAMDL ≥ v3.6 (#853) dropped FFmpeg/MP4Box/mp4decrypt for native
-        // muxing + decryption. The corresponding CLI options were
-        // removed; passing any of them on v3.6 crashes Click with "no
-        // such option". MeedyaDL still ships these binaries for its own
-        // pipeline (FFmpeg → ReplayGain / BPM analysis; MP4Box +
-        // mp4decrypt were only relied on by GAMDL itself), so emission
-        // is purely conditional on the GAMDL release.
+        // GAMDL v3.6 (#853) dropped FFmpeg/MP4Box/mp4decrypt for native
+        // muxing + decryption. v3.7 (#867) REINSTATED --ffmpeg-path
+        // because N_m3u8DL-RE depends on FFmpeg for HLS streaming.
+        // The other two tool-path options stay removed on v3.6+ — they
+        // were only relied on by GAMDL's music-video pipeline, which now
+        // muxes/decrypts natively.
+        //
+        // Three-version emission table:
+        //   ≤ 3.5.x   → all three emitted
+        //   3.6.x     → none emitted (Click would crash on "no such option")
+        //   ≥ 3.7     → only --ffmpeg-path emitted
+        //
+        // MeedyaDL still ships all three binaries for its own pipeline
+        // (FFmpeg → ReplayGain / BPM analysis; MP4Box + mp4decrypt are
+        // legacy GAMDL dependencies retained for <3.6 users).
         let native_muxing = supports(GamdlFeature::NativeMuxing);
-        if !native_muxing {
+        let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
+        // --ffmpeg-path: emit when the gate says it's accepted (true on
+        // <3.6 OR >=3.7; false only on the 3.6.x line).
+        if ffmpeg_path_supported {
             if let Some(ref path) = self.ffmpeg_path {
                 args.push("--ffmpeg-path".to_string());
                 args.push(path.clone());
             }
+        }
+        // --mp4decrypt-path and --mp4box-path: still controlled by the
+        // original NativeMuxing gate — these options stayed removed on
+        // v3.6+ and were NOT reinstated by v3.7.
+        if !native_muxing {
             if let Some(ref path) = self.mp4decrypt_path {
                 args.push("--mp4decrypt-path".to_string());
                 args.push(path.clone());

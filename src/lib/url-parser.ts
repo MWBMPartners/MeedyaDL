@@ -197,7 +197,16 @@ function detectContentType(url: string): AppleMusicContentType {
     }
 
     /* Library URLs: /library/ path segment (personal library items) */
-    /* e.g., /library/albums/l.8zPXbAv, /library/songs/..., /library/playlists/... */
+    /* Examples (all routed to GAMDL via substring match, no further parsing):
+     *   /library/albums/l.XXXX        — pre-3.6 albums (l. prefix)
+     *   /library/playlists/p.XXXX     — playlists (p. prefix)
+     *   /library/songs/i.XXXX         — songs (i. prefix, GAMDL v3.7+)
+     *   /library/music-videos/i.XXXX  — music videos (i. prefix, GAMDL v3.7+)
+     * GAMDL v3.7 extended its library URL regex from {playlist,albums} to
+     * {playlist,albums,songs,music-videos} and from {p.,l.} IDs to {p.,l.,i.}.
+     * MeedyaDL passes all library URLs through GAMDL untouched — we don't run
+     * catalog-API enrichment on library items (catalog APIs 404 for personal
+     * uploads). See #870 / #871 + audit doc gamdl-v3.7-audit.md. */
     if (path.includes('/library/')) {
       return 'library';
     }

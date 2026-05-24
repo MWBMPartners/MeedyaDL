@@ -888,15 +888,28 @@ fn ini_tool_path_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Note: managed tool paths (installed by dependency_manager.rs) are injected
     // separately via gamdl_service::inject_tool_paths() at command build time.
     //
-    // GAMDL ≥ v3.6 (#853) dropped ffmpeg/mp4box/mp4decrypt for native
-    // muxing/decryption — the corresponding INI keys are no longer
+    // GAMDL v3.6 (#853) dropped ffmpeg/mp4box/mp4decrypt for native
+    // muxing/decryption — the corresponding INI keys were no longer
     // recognised. `cleanup_unknown_params()` would silently drop them,
-    // but we stay explicit and skip emission on v3.6+.
+    // but we stay explicit and skip emission on v3.6.
+    //
+    // GAMDL v3.7 (#867) REINSTATED `ffmpeg_path` because N_m3u8DL-RE
+    // depends on FFmpeg for HLS streaming. The other two stay removed.
+    // Three-version emission table:
+    //   ≤ 3.5.x → all three emitted
+    //   3.6.x   → none emitted
+    //   ≥ 3.7   → only ffmpeg_path emitted
     let native_muxing = supports(GamdlFeature::NativeMuxing);
-    if !native_muxing {
+    let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
+    // ffmpeg_path: gated by FFmpegPath (true on <3.6 OR >=3.7).
+    if ffmpeg_path_supported {
         if let Some(ref path) = settings.ffmpeg_path {
             lines.push(format!("ffmpeg_path = {}", sanitize_ini_value(path)));
         }
+    }
+    // mp4decrypt_path + mp4box_path: still gated by !NativeMuxing
+    // (both stayed removed on v3.6+; v3.7 did not reinstate them).
+    if !native_muxing {
         if let Some(ref path) = settings.mp4decrypt_path {
             lines.push(format!("mp4decrypt_path = {}", sanitize_ini_value(path)));
         }

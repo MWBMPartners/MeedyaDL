@@ -260,7 +260,53 @@ minimum_version = "2.9.1"
 #   * Improved iTunes compatibility for songs; fixed song codec
 #     priority being ignored — both pure upstream wins with no
 #     MeedyaDL-side change.
-maximum_tested_version = "3.6"
+#
+# - 3.7 (2026-05-23 — #867 EPIC). Audit doc:
+#   `.github/audits/gamdl-v3.7-audit.md`. 22 upstream commits, 17 files
+#   touched. Two user-visible features + one regression-of-v3.6:
+#   * **Library URL support extended.** GAMDL now natively downloads from
+#     the user's personal Apple Music library (songs, albums, playlists,
+#     music-videos; `p.` / `l.` / `i.` ID prefixes). MeedyaDL's frontend
+#     URL parser already passes `/library/` URLs through — no code
+#     change required for routing. URL-audit-diagnostic message updated
+#     (#870); enrichment now skipped for `/library/` items to avoid
+#     noisy 404s on catalog APIs (#871).
+#   * **`--ffmpeg-path` REINSTATED.** v3.6 removed all three tool-path
+#     CLI options when switching to native muxing. v3.7 brings back
+#     `--ffmpeg-path` because N_m3u8DL-RE depends on FFmpeg for HLS
+#     streaming. The other two (`--mp4box-path` / `--mp4decrypt-path`)
+#     stay removed. New `GamdlFeature::FFmpegPath` gate (#869) — true
+#     on `<3.6` OR `>=3.7`, only false on the `3.6.x` line. The
+#     existing `GamdlFeature::NativeMuxing` continues to gate the two
+#     STILL-removed tool paths.
+#   * **DRM-free tracks marked explicitly.** Uploaded music videos and
+#     certain library uploads now have `drm_free=True` and skip the
+#     decrypt step server-side. MeedyaDL's stdout/stderr parsing
+#     doesn't strictly require "Decrypting…" lines, so no code change
+#     expected (verification follow-up tracked in #872).
+#   * **Internal-only changes** (no MeedyaDL impact): library API
+#     endpoint constants, `StreamInfo.drm_free` / `AppleMusicMedia.is_library`
+#     dataclass fields, `media_id` sourcing change (uses API response
+#     `id` field), `AppleMusicSongInterface.get_tags` method removed,
+#     new `get_m3u8_master_url` helper.
+#
+# - 3.7.1 (in prep on upstream `main` — admitted to support window as
+#   "Untested" until upstream tags it; gate logic already handles 3.7.1
+#   transparently via `is_version_at_least("3.7.1", "3.7") == true`).
+#   Four-commit bug-fix release:
+#   * `eb9caff8` "Await get_tags_from_asset_info call" — async bug fix
+#   * `50f82b5d` + `141d9cd6` music-video stream fetching refactor
+#   * `5a41dfbd` "Handle missing m3u8 master URL" — graceful degradation
+#   * `7ac33228` "Handle missing webplayback in song stream info" —
+#     graceful degradation for `aac-web` codecs
+#   * `4f910c8e` "Use 'codec' key instead of 'formats' in error" —
+#     internal exception kwarg rename (MeedyaDL's error parser keys on
+#     the human substring `"format is not available"`, not the
+#     structured exception fields; zero impact)
+#   * Same zero-code-change admission shape as v3.3 / v3.5 / v3.5.1 /
+#     v3.5.2. Will bump `maximum_tested_version` to `3.7.1` in a
+#     one-line PR once upstream tags it.
+maximum_tested_version = "3.7"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.6"
+recommended_version = "3.7"

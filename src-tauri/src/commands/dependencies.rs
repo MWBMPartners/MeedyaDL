@@ -375,6 +375,13 @@ pub struct GamdlCapabilities {
     /// Whether the detected GAMDL release supports the native
     /// `--song-codec-priority` chain. `true` for ≥ 2.9.1.
     pub native_codec_priority: bool,
+    /// Whether the detected GAMDL release accepts `--ffmpeg-path`
+    /// (and `ffmpeg_path` INI key). `true` on `<3.6` (original
+    /// tool-path era) OR `>=3.7` (REINSTATED for N_m3u8DL-RE's HLS
+    /// streaming). Only `false` on the `3.6.x` line. Used by the
+    /// future Settings → Tools tab to grey out the FFmpeg-path
+    /// input on v3.6.x where it would crash GAMDL. (#867)
+    pub ffmpeg_path: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -399,6 +406,7 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         wrapper_m3u8_ip: supports(GamdlFeature::WrapperM3u8Ip),
         playlist_folder_template: supports(GamdlFeature::PlaylistFolderTemplate),
         native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
+        ffmpeg_path: supports(GamdlFeature::FFmpegPath),
     }
 }
 
