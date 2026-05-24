@@ -124,8 +124,17 @@ static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// and the closing `]`. The `\s*` tolerances around the slash and
 /// before the close bracket handle that (and any future upstream
 /// spacing change) without breaking the numeric-only total contract.
+///
+/// GAMDL v3.7.1 (upstream commit `1d00e74`+) introduced a `-` placeholder
+/// for the total when `download_item.media.total` is `None` (per
+/// `gamdl/cli/cli.py:240` — `media_total = download_item.media.total or
+/// "-"`). This fires on single-track URLs and any media-fetch path that
+/// hasn't enumerated the total upfront. The regex now accepts `\d+` OR
+/// a literal `-` in the total slot; the v2-event parser maps `-` to
+/// `None` so downstream code (progress bar, queue label) can degrade
+/// gracefully rather than the line being silently ignored.
 static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\[Track\s+(\d+)\s*/\s*(\d+)\s*\]\s+Downloading\s+"?([^"]+)"?"#)
+    Regex::new(r#"(?i)\[Track\s+(\d+)\s*/\s*(\d+|-)\s*\]\s+Downloading\s+"?([^"]+)"?"#)
         .expect("Invalid track info v2 regex")
 });
 
@@ -1032,6 +1041,17 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // common socket-level messages (connection refused, timed out, etc.), and
     // the httpx/httpcore library names themselves (any error from these HTTP
     // transport libraries indicates a network/connectivity issue).
+    //
+    // GAMDL v3.7.1 (upstream commit `1d00e74`) refactored its yt-dlp call
+    // path to use `HlsFD` / `HttpFD` directly and raise bare RuntimeError
+    // strings on failure:
+    //   * "yt-dlp HLS download failed"
+    //   * "yt-dlp HTTP download failed"
+    // These represent transport-level failures (the underlying cause —
+    // 403, connection refused, DNS, etc. — appears in the traceback but
+    // the surface message is just the RuntimeError text). Classify as
+    // network so the existing retry-on-network logic kicks in and the
+    // user sees the right "Check your connection" guidance.
     } else if lower.contains("network")
         || lower.contains("timeout")
         || lower.contains("timed out")
@@ -1040,6 +1060,8 @@ pub fn classify_error(error_message: &str) -> &'static str {
         || lower.contains("dns")
         || lower.contains("httpx")
         || lower.contains("httpcore")
+        || lower.contains("yt-dlp hls download failed")
+        || lower.contains("yt-dlp http download failed")
     {
         "network"
     // Codec/format errors: the requested quality is not available; try fallback.
@@ -1347,6 +1369,50 @@ mod tests {
             GamdlOutputEvent::TrackInfo { title, artist, .. } => {
                 assert_eq!(title, "Bohemian Rhapsody");
                 assert_eq!(artist, "");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_v2_track_info_with_dash_total_from_gamdl_v3_7_1() {
+        // GAMDL v3.7.1 renders `download_item.media.total or "-"` so a
+        // single-track URL produces `[Track 1/-]` instead of `[Track 1/12]`.
+        // Pre-fix TRACK_INFO_V2_REGEX rejected this line outright; the
+        // queue label + progress-bar caption stayed blank for the whole
+        // download. Now the regex matches and `track_total` parses to
+        // None, which downstream consumers already handle.
+        let line = "[INFO     12:34:56] [Track   1/-  ] Downloading \"Anti-Hero\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                title,
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(title, "Anti-Hero");
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, None, "`-` total must parse to None");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_v2_track_info_with_numeric_total_still_works() {
+        // Regression-guard: the v3.7.1 fix must not break the
+        // pre-existing numeric-total path.
+        let line = "[INFO     12:34:56] [Track   2/12 ] Downloading \"Some Track\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                title,
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(title, "Some Track");
+                assert_eq!(track_number, Some(2));
+                assert_eq!(track_total, Some(12));
             }
             other => panic!("Expected TrackInfo, got {:?}", other),
         }
@@ -1787,6 +1853,29 @@ mod tests {
         assert_eq!(classify_error("Cookie file expired"), "auth");
         assert_eq!(classify_error("Authentication failed"), "auth");
         assert_eq!(classify_error("Login required"), "auth");
+    }
+
+    #[test]
+    fn classifies_gamdl_v3_7_1_ytdlp_runtime_errors_as_network() {
+        // GAMDL v3.7.1 (upstream commit `1d00e74`) refactored the yt-dlp
+        // call path to use HlsFD / HttpFD directly and raise bare
+        // RuntimeError strings on failure. Both error shapes must
+        // classify as network so the retry-on-network loop engages
+        // and the user sees "Check your connection" guidance, not the
+        // generic "unknown" fallback.
+        assert_eq!(
+            classify_error("RuntimeError: yt-dlp HLS download failed"),
+            "network"
+        );
+        assert_eq!(
+            classify_error("yt-dlp HTTP download failed"),
+            "network"
+        );
+        // Surface-form variations (different case + extra surrounding context).
+        assert_eq!(
+            classify_error("error: yt-dlp HLS download failed during music-video fetch"),
+            "network"
+        );
     }
 
     #[test]

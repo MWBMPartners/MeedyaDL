@@ -323,7 +323,24 @@ minimum_version = "2.9.1"
 #   * Same zero-code-change admission shape as v3.3 / v3.5 / v3.5.1 /
 #     v3.5.2. Will bump `maximum_tested_version` to `3.7.1` in a
 #     one-line PR once upstream tags it.
-maximum_tested_version = "3.7"
+#
+# 3.7.1 audit (2026-05-24, full-codebase re-audit after upstream tagged
+# the release):
+#   * 17 commits between v3.7 and v3.7.1 — 13 are internal refactors
+#     (mp4.clear cleanup, SONG_CODEC_FLAVOR_MAP → MEDIA_CODEC_FLAVOR_MAP
+#     rename, MusicVideoCodec.fourcc → @property, 447-line streaming-
+#     decrypt refactor, yt-dlp HlsFD/HttpFD direct calls). All
+#     zero-MeedyaDL-surface-impact.
+#   * Two new RuntimeError strings ("yt-dlp HLS download failed" /
+#     "yt-dlp HTTP download failed") — added to MeedyaDL's
+#     `classify_error` network-category matcher.
+#   * v3.7.1 track-info log adds `-` placeholder for unknown total
+#     (`media_total or "-"`) — TRACK_INFO_V2_REGEX widened to accept
+#     `(\d+|-)` for the total slot; downstream parse-to-None path
+#     already handled non-numeric.
+#   * No new CLI flags / INI keys / wrapper-protocol changes / URL
+#     regex changes / metadata-tag changes.
+maximum_tested_version = "3.7.1"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.7"
+recommended_version = "3.7.1"
