@@ -38,6 +38,34 @@ cargo check           # Rust compilation check (in src-tauri/)
 cargo test            # Rust tests (in src-tauri/)
 ```
 
+### Disk-space hygiene (recommended)
+
+A Tauri build produces a 20–40 GB `src-tauri/target/` directory. Combined with
+`node_modules/` (~340 MB) and shared Cargo/npm caches (~4 GB), MeedyaDL's dev
+workspace can claim 40+ GB of disk that's regenerable from source. This repo
+ships two opt-in helpers in `scripts/`:
+
+```bash
+# One-shot cleanup — clears regenerable caches IF the script decides it's needed
+./scripts/cleanup-after-pr.sh                # always clean
+./scripts/cleanup-after-pr.sh --conditional  # only when free disk < 20 GB
+
+# One-time setup: install a post-merge git hook that calls the script
+# in --conditional mode every time you pull (i.e. after a PR merges)
+./scripts/install-dev-hooks.sh
+
+# Customise the threshold via env var (default 20 GB):
+export MEEDYADL_CLEANUP_THRESHOLD_GB=40
+# Add to ~/.zshrc to make it permanent
+```
+
+The hook is local (`.git/hooks/post-merge`), not committed. Each contributor
+runs `install-dev-hooks.sh` once per clone. Re-running it is idempotent.
+
+What gets cleaned: `src-tauri/target/`, `node_modules/`, Vite caches, Cargo
+registry caches, npm cache, pip cache (macOS), Homebrew old versions. Never
+touched: `.git/`, browser data, user app caches, APFS local snapshots.
+
 ## Project Structure
 
 See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture overview including:
