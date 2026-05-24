@@ -647,6 +647,16 @@ const TOOLS: &[ToolInfo] = &[
         required: true,
         description: "Media file analysis for accurate codec detection",
     },
+    // rclone is OPTIONAL: only needed when the user enables direct-to-cloud
+    // upload (M11, #859). `required: false` keeps the setup wizard non-blocking
+    // when rclone is absent. Cloud Destination settings will trigger
+    // `install_tool(app, "rclone")` on-demand when the feature is enabled.
+    ToolInfo {
+        name: "rclone",
+        id: "rclone",
+        required: false,
+        description: "Direct-to-cloud upload (optional; needed only for cloud destinations)",
+    },
 ];
 
 /// Returns the download URL and archive format for a tool on the current platform.
@@ -679,6 +689,7 @@ async fn get_tool_download_url(tool_id: &str) -> Result<(String, archive::Archiv
         "nm3u8dlre" => get_nm3u8dlre_url(os, arch).await,
         "mp4box" => get_mp4box_url(os, arch),
         "mediainfo" => get_mediainfo_url(os, arch),
+        "rclone" => get_rclone_url(os, arch).await,
         _ => Err(format!("Unknown tool: {tool_id}")),
     }
 }
@@ -832,6 +843,56 @@ fn get_mediainfo_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
     // Returning Err here causes download_tool_with_fallback() to fall through
     // to the mirror, which hosts repackaged CLI binaries as tar.gz/zip.
     Err("MediaInfo is installed from the MeedyaDL-Tools mirror".to_string())
+}
+
+/// Returns the rclone download URL for the given platform.
+///
+/// rclone is the cloud-storage transport layer that powers MeedyaDL's
+/// direct-to-cloud upload feature (M11, issue #859). Optional dependency
+/// — only installed when the user enables Cloud Destinations. Source:
+/// official rclone GitHub releases. Mirror fallback: MeedyaSuite/MeedyaDL-Tools
+/// (planned, tracked in MeedyaSuite/MeedyaDL-Tools#17).
+///
+/// Asset naming convention on upstream:
+///   `rclone-vX.YY.Z-osx-arm64.zip`
+///   `rclone-vX.YY.Z-osx-amd64.zip`
+///   `rclone-vX.YY.Z-linux-amd64.zip`
+///   `rclone-vX.YY.Z-linux-arm64.zip`
+///   `rclone-vX.YY.Z-linux-arm.zip`      (ARMv7)
+///   `rclone-vX.YY.Z-windows-amd64.zip`
+///   `rclone-vX.YY.Z-windows-arm64.zip`
+///
+/// The version (`vX.YY.Z`) changes per release, so we use
+/// `resolve_github_release_asset()` to find the platform-matching asset
+/// against the `latest` tag dynamically.
+async fn get_rclone_url(
+    os: &str,
+    arch: &str,
+) -> Result<(String, archive::ArchiveFormat), String> {
+    // rclone uses its own asset-name suffix scheme distinct from .NET RIDs.
+    // Map (os, arch) → rclone's platform-arch suffix.
+    let platform_arch = match (os, arch) {
+        ("macos", "aarch64") => "osx-arm64",
+        ("macos", "x86_64") => "osx-amd64",
+        ("linux", "x86_64") => "linux-amd64",
+        ("linux", "aarch64") => "linux-arm64",
+        ("linux", "arm") => "linux-arm",
+        ("windows", "x86_64") => "windows-amd64",
+        ("windows", "aarch64") => "windows-arm64",
+        _ => {
+            return Err(format!(
+                "No pre-built rclone binary available for {os}/{arch}"
+            ));
+        }
+    };
+
+    // Query upstream's GitHub Releases API for the matching asset.
+    let (url, filename) =
+        resolve_github_release_asset("rclone/rclone", "latest", platform_arch).await?;
+
+    log::info!("Resolved rclone asset: {filename}");
+    // All rclone releases ship as .zip across every platform.
+    Ok((url, archive::ArchiveFormat::Zip))
 }
 
 /// Returns the path to a tool's installation directory.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/schema.json",
   "productName": "MeedyaDL",
-  "version": "1.9.4-alpha.12",
+  "version": "1.10.0",
   "identifier": "io.github.meedyadl",
   "build": {
     "frontendDist": "../dist",
@@ -99,7 +99,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFMDNBMUY3ODFGOUQ3NjEKUldSaDEvbUI5NkVEL3EwcU1nNUFiWWtLelA5WjNXVndHMDNBWGlWcytPTEM0bkhVbWJtQWhJR2MK",
       "endpoints": [
-        "https://github.com/MWBMPartners/MeedyaDL/releases/latest/download/latest.json"
+        "https://github.com/MWBMPartners/MeedyaDL/releases/latest/download/latest.json",
+        "https://github.com/MeedyaSuite/MeedyaDL/releases/latest/download/latest.json"
       ]
     }
   }
