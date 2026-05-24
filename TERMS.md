@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated: 2026-04-10**
+**Last updated: 2026-05-24**
 
 By downloading, installing, or using MeedyaDL ("the Software"), you agree to the following terms.
 
