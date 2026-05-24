@@ -1182,6 +1182,10 @@ pub fn run() {
             commands::backup::list_backups,
             commands::backup::restore_from_backup,
             commands::backup::delete_backup,
+            // SQLite download-index IPC surface (#875 M4)
+            commands::download_index::search_activity_log_db,
+            commands::download_index::list_library_gaps_cmd,
+            commands::download_index::upsert_known_track_cmd,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
