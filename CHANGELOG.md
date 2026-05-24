@@ -8212,6 +8212,8287 @@ Adds the first slice of the multi-channel release pipeline:
 
 ## [0.34.6] - 2026-04-20
 
+### ✨ Features
+
+- **(deps)** Add rclone as optional bundled tool + multi-endpoint updater fallback (prep for #858) (#863)
+
+## Summary
+
+  Two-commit infrastructure-prep PR. No user-visible UI changes; no
+  feature wiring. Pure scaffolding for two upcoming workstreams: the
+  planned MWBMPartners → MeedyaSuite org consolidation, and the
+  cloud-destinations epic (#858 → M11 #859).
+
+  ## What's in this PR
+
+  ### Commit 1 — `chore(updater)+docs`
+
+  - **`src-tauri/tauri.conf.json`**: Tauri updater now lists TWO
+  endpoints. The MWBMPartners URL stays as primary (works today, every
+  existing v1.x install keeps updating normally). The MeedyaSuite URL is
+  added as a fallback that becomes active after the eventual repo
+  transfer. Tauri tries each in order on 404 / network failure, so
+  behaviour is unchanged today and **future-proofed** for whenever the
+  migration day arrives. Zero risk of breaking existing installs.
+
+  - **`.claude/memory/project_meedyasuite_org_migration.md`** (new) +
+  **`.claude/memory/MEMORY.md`** index entry: captures the deferred
+  consolidation plan that came out of recent strategic discussion —
+  secrets inventory (10 items), recommended placement tiers on MeedyaSuite
+  (org-all / org-selected / repo-only), transfer order, the "GitHub does
+  NOT support nested orgs" clarification, and the timing rationale (defer
+  until after v1.10.0-stable). Loaded into every contributor's Claude
+  session via the shared-memory sync script.
+
+  ### Commit 2 — `feat(deps): add rclone as optional external tool`
+
+  Bundles rclone via the existing three-tier resolution chain (system PATH
+  → primary upstream → mirror fallback), same pattern as FFmpeg /
+  mp4decrypt / N_m3u8DL-RE / MP4Box / MediaInfo.
+
+  - **`src-tauri/tool-versions.toml`**: new `[rclone]` section pinning
+  minimum 1.60.0. `binary_name = "rclone"`, `version_flag = "version"`
+  (rclone predates GNU's `--version` convention).
+  - **`src-tauri/src/services/dependency_manager.rs`**: new `ToolInfo`
+  entry with `required: false`, new `get_rclone_url(os, arch)` resolver
+  using upstream's platform suffix convention (`osx-arm64`, `linux-amd64`,
+  `linux-arm` for ARMv7, etc.) via the existing
+  `resolve_github_release_asset()` helper. New dispatch arm in
+  `get_tool_download_url()`. Mirror fallback works automatically through
+  the shared `download_tool_with_fallback()` path.
+
+
+### 🐛 Bug Fixes
+
+- **(release-please)** Revert manifest 1.10.0 → 1.9.4 (corrects PR #864's 1.11.0 proposal) (#866)
+
+## Summary
+
+  One-line revert of `.release-please-manifest.json` from `1.10.0` back to
+  `1.9.4`. Fixes the misconfiguration introduced by PR #865 that's causing
+  release-please's PR #864 to propose `release 1.11.0` instead of the
+  intended `release 1.10.0`.
+
+  ## What went wrong
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.9.4] - 2026-05-20
+
+### 🐛 Bug Fixes
+
+- **(watchdog)** Refresh tracked activity_count after own WARN emission (#851)
+
+#846 (v1.9.2) wired the per-download activity counter into the
+  watchdog snapshot so long activity-log-only passes (e.g. the
+  once-per-item lyrics conversion from #843) wouldn't false-positive
+  as stalls. The fix worked for legitimate progress but created a
+  self-referential bug: the watchdog's own ⚠ WARN emission bumps the
+  counter, so the NEXT poll observed "snapshot changed" and reset
+  the stall timer.
+
+  Sequence (every ~11 min instead of escalating to auto-fail at 20):
+    T+0:        snapshot ac=5 → match → still stalled
+    T+10min:    snapshot ac=5 → secs=600 → emit warn (ac→6)
+    T+11min:    snapshot ac=6 ≠ tracked ac=5 → reset stall_started_at
+                + clear warn_emitted
+    T+21min:    snapshot ac=6 → match → secs=600 → emit warn again
+    ... repeat indefinitely
+
+  User log 2026-05-20 showed this firing 38 times over 8 hours for a
+  single wedged item (disk full on output drive). The hard-fail at
+  20 min never happened, queue slot was never released, downstream
+  items never got their turn.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.3 user-facing release notes draft
+
+Post-publish recovery: PR #850 was merged overnight before the body
+  was rewritten. Live GitHub Release body patched via gh release edit;
+  in-repo draft committed for the historical record.
+
+  [skip ci]
+
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.4 user-facing release notes draft
+
+[skip ci]
+
+
+## [1.9.3] - 2026-05-20
+
+### 🐛 Bug Fixes
+
+- **(activity-log)** Break 'Queued: ...' URL lists across lines (#849)
+
+Third sibling site to #840 / #845. The constructive ("succeeded")
+  enqueue branches at gamdl.rs:609 (artist-mode multi-enqueue) and
+  gamdl.rs:872 (single-mode standard enqueue) still produced the same
+  wall-of-text single-line `, `-joined URL list. Spotted in v1.9.2
+  hand-test on a 356-item batch.
+
+  Same `\n  • {url}` bullet treatment as the previous two fixes. The
+  unused `urls_display = request.urls.join(", ")` binding at line 631
+  goes away too — both consumers now build the bulleted list directly
+  from the URL Vec.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.9.2] - 2026-05-19
+
+### 🐛 Bug Fixes
+
+- **(watchdog)** Count activity-log emissions as progress signal (#846)
+
+The queue watchdog's stall detector compared a tuple of
+  QueueItemStatus fields (progress, processing_label, current_track,
+  completed_tracks) across poll cycles. During long-running passes that
+  don't touch any of those — the once-per-item companion lyrics
+  conversion from #843 is the canonical example, emitting 100s of
+  "converted N TTML" lines without changing the bar or label — the
+  tuple was bit-identical for 10+ minutes and the watchdog issued a
+  false-positive "no progress signal for 10 min" warning even though
+  the item was actively working.
+
+  Add a per-download monotonic counter in utils/activity_log.rs that
+  bumps from inside emit_inner (every emit_download_log /
+  emit_download_warn / emit_download_error / emit_verbose_download_log
+  call) and emit_subprocess_line (every GAMDL stdout/stderr line). The
+  watchdog snapshot now includes the counter — any activity-log event
+  for the item changes the snapshot and resets the stall timer.
+
+  System-level emit_app_log calls deliberately don't bump anything;
+  they're not tied to a specific stalled item.
+
+  Map grows monotonically (one u64 per ever-seen download_id) which
+  is fine — even 10k downloads is ~240 KB.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.9.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.2 user-facing release notes draft
+
+[skip ci]
+
+
+## [1.9.1] - 2026-05-19
+
+### 🐛 Bug Fixes
+
+- **(companion)** Never walk whole output library on missing/empty hints (#839)
+
+When an item's early Apple Music API fetch returned an empty string for
+  artist or album (rare API quirk on featured-artist tracks), the existing
+  match arm computed base.join("").join("") == base, found base.is_dir()
+  true, and ran find_dirs_with_ttml(&base) — walking the user's entire
+  music library and re-running every TTML→LRC/SRT/VTT/ASS conversion on
+  every album dir, once per successful companion tier. Symptom reported on
+  v1.8.1: 25+ minutes stuck on "converting lyrics formats…" for a single
+  queue item, with the activity log showing "Companion: converted N TTML
+  file(s) to Enhanced LRC" firing on hundreds of unrelated albums.
+
+  The fix has three parts:
+    1. Treat Some("") as missing via .filter(|s| !s.is_empty()).
+    2. When hints are present but the scoped path doesn't exist on disk,
+       delegate to find_album_directory — it already handles case-
+       insensitive matching + a bounded deepest-audio-dir scan and is
+       used by the codec-tag pass for the same reason (#816).
+    3. Drop the recursive-walk-over-base fallback entirely. If no specific
+       album dir can be resolved, skip companion lyrics conversion for
+       that item. Missing companion lyrics on one orphan item is far
+       better than 25 minutes of silent CPU/disk on the whole library.
+
+- **(activity-log)** Break long deduplicated-URL log entries across lines (#840)
+
+For batch enqueues with many duplicates the entry became an unreadable
+  single-line wall of ", "-joined URLs. The activity log already renders
+  with `whitespace-pre-wrap`, so emitting "\n  • {url}" per URL produces a
+  neat bulleted list that scales to hundreds of entries.
+
+- **(companion)** Run lyrics conversion once per item, not once per tier (#843)
+
+Pre-fix, run_companion_lyrics_conversion fired inside the per-tier
+  success branch. Multi-tier items that produced files in more than one
+  tier (e.g. Atmos tier 2 + AAC-Legacy tier 4 both succeeding for the
+  same artist URL) re-walked the user's library and re-converted the
+  same TTML files once per successful tier.
+
+  Observed v1.8.1 symptom: Sam Rivera item ran the 484-album-dir scan
+  twice in 50+ minutes (once after tier 2, once after tier 4).
+
+  TTML files don't change between tiers — companions inherit them from
+  the primary download. Hoist the call out of the tier loop and run it
+  exactly once after the loop completes, gated on a new
+  `any_tier_produced_files` flag that flips when any tier writes new
+  audio files to disk. Hints are re-read from the queue item at that
+  point so the enrichment pipeline's API population (which runs
+  concurrently with companions) is picked up if it landed in time.
+
+- **(enrichment)** Scope all enrichment passes to a specific album dir (#842)
+
+For artist URLs the early-metadata API fetch returns None (logs "URL is
+  not an album, skipping API metadata") and the enrichment task fell back
+  to setting album_dir = output_dir (the user's root, e.g. ~/Music/).
+  Every downstream service then walked the entire library:
+
+    Enriched 69 file(s) with metadata tags       (3 expected)
+    Lyrics fallback: 24/73 tracks have lyrics    (3 expected)
+    AcoustID fingerprinting: track 50 of 69      (3 expected)
+    ReplayGain analysed 73 file(s)               (3 expected)
+
+  For a 3-track Forrest Frank artist URL on a 484-album library this
+  turned a 30 s enrichment into a 6-minute walk.
+
+- **(lint)** Collapse nested if in #843 single-run lyrics block
+- **(lint)** Use let-else for output_dir extraction to satisfy clippy 1.95
+
+The collapsed nested if fix in 4ed66b3b still tripped clippy 1.95's
+  collapsible_if lint because the inner `if let Some(output_dir) = ...`
+  wanted to be folded into a let-chain. Let-chains need Rust 2024 edition
+  which we're not on yet. Switch to a `let Some(...) else { return; }`
+  pattern (stable since Rust 1.65) — same behaviour, clean across both
+  the 1.93 local toolchain and the 1.95 CI toolchain.
+
+- **(activity-log)** Break 'Nothing queued for ...' URL lists across lines (#845)
+
+Sibling sites to #840 at gamdl.rs:585 (every-track-already-downloaded)
+  and gamdl.rs:844 (already-in-queue). Same wall-of-text symptom — a
+  batch enqueue of hundreds of duplicates produced an unreadable single
+  visually-wrapped line. ActivityLog already renders whitespace-pre-wrap
+  so emitting "\n  • {url}" per URL renders as a clean bullet list.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.0 [skip ci]
+- **(release)** Add Known Issues banner to v1.8.1 draft
+
+Records the lyrics-conversion loop bug now tracked in #839 so the file
+  in-repo matches the live GitHub Release body. v1.8.1 is flagged as
+  Pre-release on the Releases page until #839 ships.
+
+  [skip ci]
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.1 user-facing release notes draft
+
+[skip ci]
+
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- **(fs)** Bound find_deepest_audio_dir recursion to depth 10 (#844)
+
+The hint-recovery fallback in find_album_directory walked the entire
+  output directory tree with no depth limit. On a 484-album user library
+  this added 30-60 s of pure I/O before any actual enrichment work began,
+  limiting the effectiveness of the #839 lyrics-conversion fix (which
+  routes hint-less items through this scan).
+
+  Cap depth at 10, matching the existing convention used by
+  find_dirs_with_ttml and scan_folder_for_manifests. User libraries
+  naturally fit within 3 levels (Music/Artist/Album/), so 10 is generous
+  headroom for unusual layouts.
+
+
+## [1.9.0] - 2026-05-19
+
+### ✨ Features
+
+- **(v1.9)** Native-toast diagnostics, bulk retry, restart prompt, false-complete fix, 95% peg fix, codec labels, integrity scan (7 closed, 1 partial) (#837)
+
+## What's new
+
+  - **Settings → Templates now warns you when a change needs a restart and
+  offers to do it for you (#833).** Template edits don't take effect for
+  downloads already in flight — GAMDL reads its template config at process
+  spawn. If you change one of the eight template fields and click Save,
+  you now get a clear modal explaining the situation with two buttons:
+  **Restart Now** (cleanly relaunches the app, the queue restores from
+  disk via the existing persistence layer) or **Restart Later** (dismisses
+  with a persistent "Restart pending" pill in the header to remind you).
+  - **New integrity scan in Settings → Advanced → Diagnostics (#537 chunk
+  B).** A "Run Integrity Scan" button walks your output folder looking for
+  historic damage from pre-v1.6 broken builds — `-.mp4` / `-.jpg`
+  empty-tag filenames, `[Unknown]/` folder segments, and zero-byte cover
+  files. Detects and reports only (read-only, never modifies); a
+  quarantine action lands in a follow-up once the detection signatures are
+  proven on real user data.
+
+  ## What's fixed
+
+  - **"Retry All Failed" no longer freezes the UI for minutes on big
+  queues (#835).** Pre-fix, retrying 29 failed items meant 29 sequential
+  IPC round-trips with ~90 queue-mutex acquisitions and 29 file writes —
+  the UI gave zero feedback while it worked. Now it's a single bulk IPC:
+  settings loaded once, smart-retry peek under one read-lock, state
+  transitions under one write-lock, history rewritten once, queue
+  persisted once, `process_queue` kicked once. Plus an immediate "Retrying
+  N…" toast so the click never looks ignored. Per-item completion still
+  emits per-row events so the queue UI updates as before.
+  - **Items no longer show "Complete" when zero tracks actually downloaded
+  (#831).** The success-path recovery that runs when GAMDL >=2.9.1 doesn't
+  emit "Saved to:" lines (a documented post-#452 pattern) could pick up a
+  previously-downloaded album folder and treat its files as evidence this
+  run succeeded. Result: re-running a queue with an unavailable codec
+  chain green-ticked every item even though every track was skipped. Fixed
+  by snapshotting the audio-file count before GAMDL runs and verifying new
+  files actually landed before declaring success — same shape the
+  companion path has used since Phase 3.5h.
+  - **The "stuck at 95%" progress bar during companion downloads finally
+  advances (#836).** The per-track caption update site now also nudges the
+  bar forward by a fractional amount within a reserved 95–99% slice, so
+  multi-tier companion runs (Atmos → ALAC → AC3 fallback chains, 30+
+  minutes on big albums) show visible motion instead of looking frozen.
+  The reserved last 1% (99–100%) is kept for the post-companion advisory
+  pass + final completion.
+  - **Codec-skip activity-log lines no longer leak Python internals or use
+  ugly enum identifiers (#832).** `[<SongCodec.AC3: 'ac3'>]` rendered as
+  `AC3 not available` (proper display label, no Python repr). GAMDL 3.x's
+  verbose `(Unavailable requested format candidates: Dolby Atmos
+  (Experimental) [atmos] -> Lossless (ALAC) (Experimental) [alac] -> …)`
+  parenthetical is stripped entirely — it was 150+ characters of the same
+  codec list repeated with redundant "(Experimental)" annotations. The
+  lowercase comma summary (`atmos, alac, ac3, aac, aac-legacy not
+  available`) is rewritten to proper labels (`Atmos, ALAC, AC3, AAC, AAC
+  Legacy not available`). Defensive: only triggers when every token in the
+  run is a known codec, so unrelated GAMDL warnings sharing a comma-list
+  shape pass through untouched.
+  - **Heartbeat caption no longer duplicates the "Companion:" prefix
+  (#836).** Companion captions already start with `"Companion: "` (set by
+  the per-track caption update), so the heartbeat formatter was producing
+  `"⏳ Still working — Companion: Companion: downloading atmos…"`. Now
+  strips the leading stage prefix from the inner label so users see a
+  clean `"⏳ Still working — Companion: downloading atmos…"`.
+
+  ## Notes
+
+  - **macOS native notifications now log every send attempt to tracing +
+  ship a backend-pipeline test button + diagnostics readout (#834).** This
+  is the **instrumentation half** of the macOS-26.5 native-toast bug — the
+  previous `.ok()` swallowed every plugin failure silently, so we had no
+  signal whether notifications were being dropped at the plugin layer, the
+  OS permission layer, or somewhere else. Now: every
+  `send_desktop_notification` attempt is logged (debug on success,
+  warn-with-error-string on failure); the "Send Test Notification" button
+  in Settings → General routes through the **same Rust path** production
+  downloads use (bypassing only the focus check and throttle) so test
+  results reflect production behaviour; a new diagnostics row in Settings
+  → Advanced → Diagnostics shows desktop_notifications /
+  notification_style / platform / OS permission state in a compact 4-row
+  table. The next bug report from a macOS 26 user will have actionable
+  data; root-cause fix lands once that report comes in.
+  - **5 new backend services / IPC commands** wired across these eight
+  commits: `services/integrity_scan.rs`,
+  `commands/system::run_integrity_scan`,
+  `commands/system::test_desktop_notification`,
+  `commands/system::get_notification_diagnostics`,
+  `commands/gamdl::retry_failed_bulk`. Plus 12 new unit tests (4 humanise
+  / 5 integrity_scan / 3 retry-related coverage) — all 1191 backend tests
+  and 489 frontend tests pass.
+  - **PRs #824 + #826 from the v1.8.1 cycle** (Windows `npm ci` hardening
+  + PR-title workflow structural fix) are already on `main` and shipped in
+  v1.8.1; not in this bundle.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.8.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.9.0 user-facing release notes draft
+
+[skip ci]
+
+
+## [1.8.1] - 2026-05-18
+
+### 🐛 Bug Fixes
+
+- **(v1.8.1)** MacOS startup crash (#827) + {platform} KeyError on every download (#829) (#828)
+
+## P0 hotfix bundle for v1.8.1
+
+  Two unrelated critical bugs surfaced within an hour of v1.8.0
+  publishing. Bundled into a single hotfix release so users only need one
+  update.
+
+  Mitigation already in place: **v1.8.0 + v1.7.0 are now
+  \`isPrerelease=true\`** (v1.7.0 ALSO has bug #829), \`Latest\` points at
+  **v1.6.0**, both release bodies carry a **Known Issues** banner
+  explaining the workaround. v1.6.0 left as Stable because it has the same
+  #829 chip but is the most-recent build that auto-update users had a
+  clean upgrade path TO before the breakage cascade started.
+
+  ## Fix 1 — #827: macOS startup crash
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.8.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add Known Issues banner to v1.7.0 + v1.8.0 drafts
+
+Sync the drafts files with what's now live on the GitHub Releases for
+  v1.7.0 and v1.8.0 — both bodies were updated post-publish with a
+  Known Issues banner explaining the {platform} KeyError (#829) and,
+  for v1.8.0 only, the macOS startup crash (#827).
+
+  Keeping the drafts in sync with the live releases means the next
+  release.released event for these tags (e.g. an idempotent re-trigger
+  via gh release edit) won't accidentally overwrite the banner with
+  stale content. The preserve_release_body workflow's idempotency
+  check (added in #820) compares the live body against the drafts
+  file's first non-empty line — both must reflect the same headline.
+
+  [skip ci]
+
+- **(release)** Add Known Issues banner to v1.6.0 drafts
+
+v1.6.0 was flipped to Pre-release after the v1.8.0 hotfix cycle
+  exposed that #800's `[Platform]` chip auto-addition made the
+  latent #309 substitution bug (#829) mass-discoverable. Same banner
+  as v1.7.0; macOS crash (#827) is not mentioned because that bug
+  was introduced in v1.8.0 via #818 and doesn't affect v1.6.x.
+
+  Sync the drafts file with the live release body so the
+  preserve_release_body workflow's idempotency check (#820) doesn't
+  overwrite the banner on a future re-trigger.
+
+  [skip ci]
+
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.8.1 hotfix release notes draft
+
+User-facing notes for the v1.8.1 hotfix bundle (#828) — focused
+  two-bug release covering #827 (macOS startup crash) and #829
+  ({platform} template KeyError on every download). The
+  preserve_release_body workflow will apply this file to the v1.8.1
+  GitHub Release body on publish.
+
+  [skip ci]
+
+
+### 🔄 CI/CD
+
+- **(825)** Fix recurring PR-title failures — relax length cap + skip release-please branch (#826)
+
+## Summary
+
+  The \`Conventional PR title\` check has been failing recurrently in two
+  distinct ways. This PR addresses both root causes.
+
+  ### Mode 1 — Header length cap rejects descriptive multi-issue titles
+
+  \`@commitlint/config-conventional\`'s default \`header-max-length: 100\`
+  is too tight for the project's [[feedback_pr_squash_titles]] convention.
+  Multi-issue bumper PRs routinely run 110–150 chars:
+
+  | PR | Title | Length | Outcome |
+  |---|---|---|---|
+  | #819 (today) | \`feat(v1.8): queue freeze recovery, Odesli
+  cross-platform lookup, library gap detection, status bar split (10
+  closed)\` | 116 chars | rejected; hand-trimmed to 92 |
+  | v1.5.0–v1.7.0 source PRs | (similar) | varied | all hand-trimmed |
+
+  Trimmed titles ship to end users as the release-notes line via
+  release-please, so the rule was actively degrading release-notes
+  quality.
+
+- **(823)** Harden npm ci against Windows pwsh-swallow-output flake (#824)
+
+## Summary
+
+  CI run #1470
+  ([26049382561](https://github.com/MWBMPartners/MeedyaDL/actions/runs/26049382561))
+  failed at Frontend (windows-latest) → Install dependencies with **zero
+  output between the `npm ci` echo and `Process completed with exit code
+  1`**. A rerun on the same SHA passed; the Backend (windows-latest) job
+  on the same run/SHA/invocation passed first time.
+
+  Root cause: GitHub Actions' default `pwsh -command \". '{0}'\"` shell on
+  Windows runners has a known failure mode where it silently swallows a
+  child process's stdout/stderr when the process exits mid-output-flush.
+  With a cold npm cache (`npm cache is not found` in the preceding
+  setup-node step), `npm ci` had to download all 529 packages while
+  Windows Defender scanned each extracted file, and npm's progress-bar TTY
+  updates were the failure surface.
+
+  This PR applies Option B + C from the diagnosis: switch shell + quiet
+  npm flags.
+
+  ## Changes
+
+  Both `npm ci` invocations in `.github/workflows/ci.yml` (Frontend job
+  step 3 + Backend job step 6) now use:
+
+  ```yaml
+  - shell: bash                                # sidesteps the pwsh dot-source pattern
+    run: npm ci --no-audit --no-fund --no-progress
+  ```
+
+  - **`shell: bash`** works uniformly on all 3 platforms — native bash on
+  Linux/macOS, Git Bash on Windows (bundled with the runner image). No
+  platform-specific branching needed.
+  - **`--no-audit`** because the dedicated \"Security audit\" step at line
+  138 already runs `npm audit --audit-level=high`. No coverage lost.
+  - **`--no-fund`** skips an informational-only network call.
+  - **`--no-progress`** removes the TTY progress-bar that pwsh swallows.
+
+  ## Why both options
+
+  Option B alone (just the flags) would remove the progress-bar
+  interaction but the pwsh dot-source pattern is still in the picture and
+  can swallow output from other npm operations (post-install scripts,
+  etc.). Option C alone (just `shell: bash`) leaves the progress bar
+  pumping unnecessary TTY traffic and the audit/fund network calls slowing
+  CI. Combined, they eliminate the entire class of failure.
+
+  ## Verification
+
+  - ✅ YAML parses (`python3 -c \"import yaml; yaml.safe_load(...)\"`)
+  - ✅ Local `npm ci --no-audit --no-fund --no-progress` runs cleanly in 19
+  s with 529 packages installed.
+  - Plan after merge: 5 consecutive green CI runs on Frontend
+  (windows-latest) before treating this as proven fixed. If the failure
+  recurs, the log will now contain npm's actual error output (no pwsh in
+  the picture).
+
+
+## [1.8.0] - 2026-05-18
+
+### ✨ Features
+
+- **(v1.8)** Queue freeze recovery, Odesli lookup, library gaps, status bar split (10 closed) (#819)
+
+## What's new
+
+  - **Cross-platform URL lookup via Odesli (song.link)** — paste any Apple
+  Music, Spotify, YouTube, Tidal, Deezer, SoundCloud or Bandcamp link and
+  MeedyaDL can resolve the matching Apple Music entry (Phase A — currently
+  surfaced as a backend service ahead of the M9/M10 service rollout,
+  closes #295).
+  - **Library scan: enrichment gap detection** — the Library Scan page now
+  flags album folders that are missing expected sidecars or codec variants
+  so you can re-queue the gaps in one click (Phase 1 MVP, closes #759).
+
+  ## What's fixed
+
+  - **Queue no longer freezes on a stuck filesystem** — the post-companion
+  "Applying [Explicit]/[Clean] suffixes…" stage is now time-bounded. If a
+  network share, cloud mount or pathological directory tree hangs the
+  recursive walk, MeedyaDL warns once and moves on instead of silently
+  stalling the entire queue (closes #815). The visible symptom this fixes
+  is the "stuck at 95% for hours with no log lines" report from a 220-item
+  run.
+  - **External queue watchdog** — a new top-level safety net polls every
+  active item every 60 s and recovers any item whose progress signal
+  hasn't changed for 10 min (warning) or 20 min (auto-transition to Error
+  so the queue slot is released). Catches stuck downloads regardless of
+  root cause, even when the per-item heartbeat dies with its parent task
+  (closes #818).
+  - **Status bar now distinguishes "downloading" from "processing"** —
+  instead of a single lumped counter, the status bar shows separate chips
+  so you can tell at a glance whether an item is actively in GAMDL or in
+  post-companion / enrichment / final-tag stages (closes #817).
+  - **Companion final-tag pass no longer rewrites unrelated folders** —
+  the post-companion advisory rename is now correctly scoped to the album
+  directory of the current item rather than the whole output root,
+  preventing collateral renames on neighbouring albums (closes #816).
+  - **Dependency on meedya-core is now stable** — pinned to a commit
+  rather than a deleted branch ref, so fresh clones build reliably (closes
+  #352, #353, #596).
+
+  ## Notes
+
+  - **Apple Music station URL support (`/station/.../ra.*`)** — Phase 0
+  audit completed; blocked on upstream GAMDL accepting station URLs.
+  Tracker comment landed (#804).
+  - **Filesystem-safety audit v1** — internal audit catalogued 14 rename /
+  129 write / 8 copy sites across the codebase as the precondition for
+  follow-up hardening work (#487).
+  - **MeedyaSuite-core verification rule** — standing convention added:
+  dependency checks against the shared core go via the online repo, never
+  local checkouts. Prevents the class of "works on my machine" failures we
+  hit in the v1.6 cycle.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.7.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Add v1.8.0 user-facing release notes draft
+
+Source of truth for the v1.8.0 release body. The preserve-release-pr-body
+  workflow re-applies this file to PR #822 on every release-please sync,
+  and (after #820 landed) also patches the live GitHub Release body via
+  `gh release edit` when the release is published.
+
+  [skip ci]
+
+
+### 🔄 CI/CD
+
+- **(820)** Preserve workflow now also rewrites the published release body (#821)
+
+## Summary
+
+  v1.5.0, v1.6.0 and v1.7.0 all shipped with **blank release notes** on
+  GitHub. Each had to be rescued post-publish via `gh release edit
+  --notes-file`. Root cause: the existing `preserve-release-pr-body.yml`
+  workflow (from #812) only rewrites the PR body — it doesn't patch the
+  published release object — and it loses a timing race against
+  release-please's auto-merge.
+
+  This PR adds a `release.released` trigger and a sister
+  `preserve_release_body` job that re-applies
+  `.github/release-drafts/v<tag>.md` to the live GitHub Release at publish
+  time. Belt-and-braces: no matter who wins the PR-edit race, the
+  published release body still gets the user-facing content.
+
+  ## What changes
+
+  - New `release.released` workflow trigger on
+  `preserve-release-pr-body.yml`.
+  - New `preserve_release_body` job that runs only on the `release` event.
+  - Existing PR-body job renamed `preserve_pr_body` and gated to skip on
+  `release` so each event drives one job.
+  - `permissions.contents` bumped `read → write` (releases live under the
+  contents scope).
+  - The new job:
+    - Reads `.github/release-drafts/v<tag>.md` from main at publish time.
+  - Skips cleanly if the drafts file is missing (expected for prereleases
+  without a drafts file).
+  - Skips idempotently if the live body already contains the drafts
+  headline (so a `prerelease → released` flip doesn't clobber a body that
+  was manually rewritten in the meantime).
+  - Preserves the existing "Choose your download" footer that
+  `release.yml` appends after the per-platform builds finish.
+    - Applies the rewritten body via `gh release edit --notes-file`.
+
+  ## Why now
+
+  v1.8.0 will publish from `feat/v1.8-bumper-bundle` (PR #819) some time
+  after this lands. Without this patch, v1.8.0 would risk hitting the same
+  race as the previous three releases. Shipping this as a small, focused,
+  non-user-visible chore PR before v1.8 cuts means the v1.8.0 publish
+  event will be covered by the new safety net.
+
+  ## Verification
+
+  - ✅ YAML parses (`python3 -c "import yaml; yaml.safe_load(...)"`).
+  - Manual smoke-test plan after merge (no code path to unit-test):
+  - [ ] Manually flip a recent prerelease to `released` via `gh release
+  edit --prerelease=false`; verify the new job fires and re-applies the
+  drafts file.
+  - [ ] On the next real release publish, confirm the body contains the
+  drafts headline + the "Choose your download" footer.
+
+
+## [1.7.0] - 2026-05-18
+
+### ✨ Features
+
+- **(v1.7)** Queue UX, GAMDL rollback, MV folder routing, auto-backup, diagnostics (13 closed) (#813)
+
+## Summary
+
+  A 22-issue bumper bundle. **13 issues fully closed** (commits below),
+  **9 status-commented and left open** as deferred/ongoing trackers with
+  concrete next-step plans (upstream-blocked, multi-PR sweeps, or
+  quarterly trackers).
+
+  User-facing release notes for v1.7.0 are already drafted in
+  [.github/release-drafts/v1.7.0.md](.github/release-drafts/v1.7.0.md) —
+  the
+  [preserve-release-pr-body.yml](.github/workflows/preserve-release-pr-body.yml)
+  workflow from #812 will apply them automatically when release-please
+  opens the v1.7.0 release PR.
+
+  ## Commits in this PR (12, oldest first)
+
+  1. `b030d8d` — **docs(549)**: decide on Apple Music uploaded-video URL
+  pipeline
+  2. `8f4500c` — **docs(457)**: comprehensive metadata mapping reference
+  3. `3a6caf1` — **feat(522)**: GAMDL version management UI (install
+  specific / rollback)
+  4. `7721147` — **feat(queue)**: search + status filter + bulk select
+  (#462 #463)
+  5. `f1989b0` — **feat(466)**: auto-backup + restore for settings / queue
+  / history
+  6. `fcaac13` — **feat(464)**: persistent lifetime download stats +
+  analytics
+  7. `afa72dd` — **fix(536)**: defensive guard against motion-art URLs in
+  the MV pipeline
+  8. `1510571` — **feat(558)**: MV filename resolution Tier 2 — Apple
+  Music Catalog album linkage
+  9. `088823f` — **feat(559)**: MV filename resolution Tier 3 — parent
+  album context override
+  10. `42476be` — **feat(572)**: Phase 1 MVP diagnostic bundle composer
+  11. (Claude memory + release notes draft)
+
+  ## Issues fully closed (13)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.6.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(release)** Preserve release-please pr body across force-pushes (#812)
+
+## Summary
+
+  - Adds `.github/workflows/preserve-release-pr-body.yml` that re-applies
+  the user-facing PR body to release-please's open release PR after every
+  force-push (release-please regenerates the body from raw commit subjects
+  on every sync, wiping manual rewrites).
+  - Adds `.github/release-drafts/` folder with a README documenting the
+  `vX.Y.Z.md` filename convention and the four-section gold-standard
+  format.
+  - Ships `v1.6.0.md` as the first draft so v1.6.0 (currently in flight on
+  #810) is the first release to benefit.
+  - Closes the recurring failure mode that caused v1.5.0 to ship with the
+  generic `(closes #789, #793)` one-liner (see `.claude/CLAUDE.md` >
+  **MANDATORY: rewrite the release-please PR body before it merges**).
+
+  ## How it works
+
+  1. Maintainer writes `.github/release-drafts/v<version>.md` while the
+  release PR is open.
+  2. Commits to main. The next release-please sync force-pushes #810, then
+  `Preserve Release-Please PR Body` triggers on `workflow_run` completion.
+  3. The workflow extracts the version from the open PR title, looks for
+  the matching drafts file on main, and `gh pr edit`s the body. Missing
+  draft = silent no-op (maintainer hasn't written it yet).
+  4. Manual `workflow_dispatch` is also wired for iterating without
+  waiting for release-please.
+
+  ## Why this approach
+
+  Considered three alternatives:
+  - **Disable release-please body overwrite** — no upstream config option
+  exists.
+  - **Post-sync workflow without a drafts file** — body lives in workflow
+  logic, harder to iterate.
+  - **Manual re-apply via `gh pr edit`** — the status quo, ~30s of toil
+  per force-push.
+
+  The drafts-file approach makes the user-facing notes a first-class repo
+  artifact that survives infra changes.
+
+  ## Test plan
+
+  - [ ] PR merges to main; `Preserve Release-Please PR Body` workflow
+  becomes visible in Actions.
+  - [ ] Next time release-please force-pushes #810, the workflow triggers
+  and re-applies `.github/release-drafts/v1.6.0.md` (verify by editing
+  #810 body manually first, then push any commit to main, then confirm
+  body restores).
+  - [ ] Manually dispatch `Preserve Release-Please PR Body` with
+  `pr_number=810` and confirm it edits the body.
+  - [ ] Confirm a missing drafts file leaves the PR body alone (no
+  failure, just a notice in the run log).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [1.6.0] - 2026-05-17
+
+### ✨ Features
+
+- **(v1.6)** Embed mv cover, canonical mb match, licence checks, vendor rename (30+ issues) (#809)
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.5.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release)** Mandate rewriting release-please PR body before merge (#796)
+
+## Summary
+
+  Captures the standing procedure for ensuring user-visible release notes
+  don't ship as generic conventional-commit one-liners.
+
+  Triggered by v1.5.0 (2026-05-17), which shipped with:
+
+  > * legacy folder merge + colour-coded activity log (closes #789, #793)
+  (#794)
+
+  …instead of the four-section gold-standard format the user has
+  explicitly asked for. The release-please PR body has been rewritten via
+  `gh release edit v1.5.0 --notes-file …` post-publish, but the durable
+  fix is procedural — make sure the release-please PR body is rewritten
+  **before** it merges.
+
+  ## What this PR changes
+
+  - **CLAUDE.md** — new "MANDATORY: rewrite the release-please PR body
+  before it merges" subsection under Release Workflow. Documents the
+  three-step procedure (watch for the open `chore(main): release X.Y.Z` PR
+  → rewrite its body in place → signal the user it's ready to merge), the
+  post-publish recovery path, and the v1.5.0 cautionary precedent.
+  - **project_release_pipeline_gotchas.md** — adds gotcha #5 covering the
+  same root cause for future contributors, plus an additional "How to
+  apply" item directing readers to check for the open release-please PR
+  after every auto-merge of a feat/fix PR.
+
+  ## Why CHANGELOG.md isn't edited
+
+  `CHANGELOG.md` is regenerated by git-cliff from commit subjects on every
+  push to `main` via `changelog.yml`. Manual edits are reverted. The
+  user-facing source of truth is the GitHub Release body, which
+  `commands/updates.rs::release_body` serves verbatim to the in-app
+  updater.
+
+  ## Test plan
+
+  - [x] Markdown lints clean
+  - [x] No code changes — documentation only
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(ci)** Suppress DEP0040 punycode deprecation in CI logs (closes #797) (#798)
+
+## Summary
+
+  Every CI run currently emits a `[DEP0040] DeprecationWarning: The
+  'punycode' module is deprecated.` line during the "Post Cache Rust"
+  step. The warning is cosmetic — neither MeedyaDL nor the action's hot
+  path call `require('punycode')` — but it clutters every Build job's log
+  and was flagged from a v1.5.0 build screenshot.
+
+  Verified our own builds emit zero deprecation warnings (`tsc`, `vite
+  build`, `vitest run` all run cleanly under `node --trace-deprecation`).
+
+  ## Fix
+
+  1. **Bump `Swatinem/rust-cache` SHA pin** from `c19371144` (v2.9.0) to
+  `42dc69e1a` (v2.9.1) across all three workflows. v2.9.1 is a small
+  hash-calculation bugfix; tracks the latest patched SHA per the project's
+  commit-pin policy.
+
+  2. **Add `env: NODE_OPTIONS: --disable-warning=DEP0040`** at the job
+  level for every job containing a `Swatinem/rust-cache` step:
+  - `.github/workflows/ci.yml` — `backend` job (frontend job doesn't use
+  rust-cache)
+     - `.github/workflows/release.yml` — `publish` job (matrix builder)
+     - `.github/workflows/dependency-report.yml` — `report` job
+
+  Job-level env propagates to both the action's main and post steps.
+  Targeted (`--disable-warning=DEP0040`) rather than `--no-deprecation`,
+  so other Node deprecations remain visible.
+
+  `--disable-warning=DEP0040` exists in Node 22.5+; GitHub-hosted runners
+  ship Node 22+ in their action runtime since mid-2024.
+
+  ## Test plan
+
+  - [x] YAML lint clean on all three workflows (`python3 -c 'import yaml;
+  yaml.safe_load(...)'`)
+  - [x] `--disable-warning=DEP0040` flag silences `require('punycode')`
+  warning on local Node 25.6
+  - [ ] CI run on this PR: verify the `(node:XXXXX) [DEP0040]` line is
+  absent from `Post Cache Rust` step output
+
+- **(claude)** Remember third-party licence obligations when bundling (#802)
+- **(claude)** Remember third-party licence obligations (CLAUDE.md convention) (#803)
+
+Companion to the `push_files` commit that already landed the new shared
+  memory file + index hook on `main`. This PR carries just the CLAUDE.md
+  change — the new **Third-party licence obligations when bundling**
+  bullet in the Conventions section that points future contributors at
+  `.claude/memory/project_third_party_licence_obligations.md`.
+
+  Together with the earlier commit this closes out the Claude-side
+  breadcrumb for #802 so we cannot forget the LGPL "written offer for
+  source" requirement when bundling FFmpeg / MP4Box (today) or the GPL
+  "complete corresponding source" requirement when wiring up get_iplayer
+  for M8.
+
+  The diff is `.claude/CLAUDE.md` only — the working branch and `main`
+  already agree on the other two files (identical content / identical
+  index line) so git auto-resolves the overlap.
+
+
+## [1.5.0] - 2026-05-17
+
+### ✨ Features
+
+- Legacy folder merge + colour-coded activity log (closes #789, #793) (#794)
+
+## Summary
+
+  Two user-facing improvements bundled for **v1.4.6**:
+
+  ### 1. Legacy sibling-folder merge (#789)
+  For users with pre-#528 downloads on disk, the **Library** page now has
+  an opt-in **Merge Legacy Folders** tool that reconciles sibling album
+  folders (e.g. `Album` + `Album [Explicit]`) into a single canonical
+  folder, with collision-safe file moves and automatic `.meedyadl`
+  manifest merging.
+
+  - Three-phase API (`detect` → `preview` → `execute`) — no destructive
+  action without explicit confirmation.
+  - Defensive verification: each pair's `[Explicit]` / `[Clean]` suffix is
+  cross-checked against the actual `rtng` atom in the audio files.
+  Mismatches are rejected to avoid mis-merging unrelated folders that
+  happen to share a name pattern.
+  - `.meedyadl` manifest merge dedup key bumped from `(platform, url)` to
+  `(platform, url, codec)` so a folder that contains both ALAC and Atmos
+  downloads of the same album records both source entries instead of
+  clobbering one.
+  - Collision-safe file moves via `fs_safe::safe_rename` with
+  auto-disambiguation (`Cover.jpg` + `Cover.jpg` → `Cover.jpg` + `Cover
+  (1).jpg`).
+  - 11 unit tests covering detection, classification, manifest merge,
+  advisory verification, and collision handling.
+
+  ### 2. Colour-coded Activity Log (#793)
+  Activity Log entries now render in theme-aware colours that reflect
+  their severity — **errors in red, warnings in amber**, info in the
+  default content colour.
+
+  - Uses MeedyaDL's existing design tokens (`text-status-error` /
+  `text-status-warning` / `text-content-primary`), so the colour mapping
+  adapts to light, dark, high-contrast, and colour-blind themes without
+  any per-theme overrides.
+  - New `LogSeverity` enum (`info` / `warning` / `error`) added to
+  `ActivityLogEvent` as an optional field, serialised lowercase. Existing
+  emit sites keep working unchanged (default: `Info`).
+  - Subprocess output gets severity inferred from GAMDL's structlog prefix
+  (`[WARNING HH:MM:SS]`, `[ERROR HH:MM:SS]`, `[CRITICAL …]`). Stderr
+  without a prefix defaults to Warning; stdout defaults to Info.
+  - Four new emit helpers (`emit_download_warn`, `emit_download_error`,
+  `emit_app_warn`, `emit_app_error`) let high-impact failure sites opt in.
+  Five sites migrated: filesystem errors, terminal download failures (both
+  Err and success-path), and music-video lookup warnings.
+  - 9 new unit tests cover severity serialisation, default behaviour,
+  GAMDL prefix detection (WARNING / ERROR / CRITICAL / INFO), and the
+  conservative "no false positives from keyword mentions" guarantee.
+  - Exported activity logs remain plain text. A future HTML-with-CSS
+  export is straightforward to add now that severity is on the event
+  struct.
+
+  ## Test plan
+  - [x] `cargo check` clean
+  - [x] `cargo clippy --lib -- -D warnings` clean
+  - [x] `cargo test --lib` — 201 download_queue tests, 9 activity_log
+  severity tests, 11 legacy_folder_merge tests, 7 manifest tests, 3
+  activity_log_writer tests — all pass
+  - [x] `npx tsc --noEmit` clean
+  - [x] `npm test -- --run` — 482 frontend tests pass
+  - [ ] Manual: open Library page → Merge Legacy Folders → pick a folder
+  with mixed `[Explicit]` siblings → verify preview matches expectation →
+  execute → confirm files moved and manifest merged
+  - [ ] Manual: trigger a download failure (e.g. invalid URL) → confirm
+  Activity Log entry renders in red
+  - [ ] Manual: trigger a GAMDL warning (e.g. fallback codec) → confirm
+  Activity Log entry renders in amber
+  - [ ] Manual: switch UI theme (light/dark/high-contrast/colour-blind) →
+  confirm severity colours remain legible in each
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.5 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.5] - 2026-05-17
+
+### 🐛 Bug Fixes
+
+- Companion sidecar rename + accurate per-item progress bar (#788, #790) (#791)
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.4] - 2026-05-16
+
+### 🐛 Bug Fixes
+
+- Companion folder merge + fully parallel enrichment (#528, #779) (#786)
+
+Two fixes shipping together as v1.4.4:
+
+  | Closes | Title | Commit |
+  |---|---|---|
+  | #528 | fix: companion + advisory suffix no longer produces two sibling
+  folders | `dc579e6` |
+  | #779 | perf: enrichment fully parallel via per-file write locks
+  (Option 2) | `327752a` |
+
+  ## What's new (user-facing)
+
+  - **Companion downloads now merge with the primary album.** When you
+  download an Explicit album with companion codecs enabled (e.g. Atmos
+  primary + ALAC companion), MeedyaDL no longer leaves you with two
+  sibling folders (`Album/` and `Album [Explicit]/`) — both codec variants
+  now land in the single `Album [Explicit]/` folder per the user's
+  expectation. The per-file `[Lossless]` / `[Dolby Atmos]` codec suffixes
+  already prevent filename collisions inside that one folder. (#528)
+
+  - **Enrichment is roughly 40-50% faster on heavy albums.** AcoustID
+  fingerprinting, MusicBrainz ISRC lookup, and ReplayGain analysis now run
+  **fully in parallel** instead of staged. On a 19-track live album with
+  both AcoustID and ReplayGain enabled, total wall time drops from ~210 s
+  → ~120 s. v1.4.3 only parallelised AcoustID + MusicBrainz (Option 1);
+  this PR completes the picture by adding per-file write coordination so
+  ReplayGain can run alongside without racing on `mp4ameta` tag writes.
+  (#779)
+
+  ---
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.4.3] - 2026-05-15
+
+### 🐛 Bug Fixes
+
+- Combined MV / enrichment / queue / UX fixes (11 issues closed) (#781)
+
+Combined PR superseding #777, #778, #780, plus a string of additional MV
+  / enrichment / queue / UX fixes added in the same review window. Closes
+  11 issues.
+
+  | Closes | Title | Commit |
+  |---|---|---|
+  | #774 | fix(downloads): stop the no-op MV cover-art retry | `e17ea81` |
+  | #775 | fix(metadata): real music-video names in activity log |
+  `2660574` |
+  | #776 | perf(enrichment): unified dynamic timeout (tracks + tiers +
+  MVs) | `3d80315` + `0668875` |
+  | #779 | perf(enrichment): parallelise AcoustID + MusicBrainz lookup
+  (Option 1) | `1239b33` |
+  | Cluster #5 | fix: stop claiming MV companions completed when they
+  didn't | `deaef79` |
+  | #771 | fix(release): version-bump.yml now creates the git tag |
+  `b350ac3` |
+  | #568 | fix(parser): rewrite legacy iTunes URLs so GAMDL accepts them |
+  `da640c0` |
+  | #782 | feat(queue): reorder pending items live via right-click |
+  `d2ae5cc` |
+  | #467 | perf: virtualize the queue list for large queues | `5af5654` |
+  | #689 | perf: memoise QueueItem rows with field-aware comparator |
+  `4081628` |
+  | #574 | feat(ux): per-track captions for AcoustID + ReplayGain |
+  `1d207b0` |
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.4.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- Bump release-please manifest to 1.4.2 (#784)
+
+## Why
+
+  `.release-please-manifest.json` was stuck at `1.4.1` because v1.4.2 was
+  tagged and released manually on 2026-05-15 (recovery from the
+  `version-bump.yml` tag-creation gap, since fixed in #771). The manual
+  tag bypassed release-please, so the manifest never got updated.
+
+  ## What broke
+
+  When release-please ran after PR #781 merged, it computed `1.4.1 + 1 fix
+  = 1.4.2` and opened **#783** proposing a duplicate v1.4.2 release. Wrong
+  on two counts:
+
+  - **Version**: v1.4.2 is already published.
+  - **Body**: just the squash-merge subject from #781 — too vague for an
+  in-app changelog.
+
+  #783 closed; this PR fixes the baseline.
+
+  ## What this fixes
+
+  - Bumps `.release-please-manifest.json` from `1.4.1` → `1.4.2` so
+  release-please's next run computes the correct next version (`1.4.3`).
+  - Source-of-truth versions in `package.json` / `tauri.conf.json` /
+  `Cargo.toml` were already at `1.4.2` — only the manifest needed catching
+  up.
+
+  ## After this merges
+
+  I'll trigger the `Release Please` workflow manually so the new v1.4.3 PR
+  opens with a fresh body, then write a richer user-facing changelog
+  directly into that PR's body before merging.
+
+  ## Test plan
+
+  - [x] Single-line manifest edit, no behavioural change.
+  - [ ] CI runs (no functional code touched, but matrix runs anyway for
+  hygiene).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [1.4.2] - 2026-05-15
+
+### 🐛 Bug Fixes
+
+- **(test)** Drop rerender() that flakes on Windows CI (#765)
+
+## Summary
+
+  The Windows GitHub Actions runner has been intermittently timing out on
+  a single ActivityLog test — `'subtitle pluralises lines correctly'` —
+  while macOS and Ubuntu pass cleanly. Latest hit: the v1.4.1 release
+  commit (df6549c) on main, breaking the post-merge CI run.
+
+  ## Root cause
+
+  The test called:
+
+  ```tsx
+  const { rerender } = render(<ActivityLog />);
+  expect(screen.getByText('1 line')).toBeInTheDocument();
+
+  act(() => { useActivityStore.setState({ entries: [...] }); });
+  rerender(<ActivityLog />);
+  expect(screen.getByText('2 lines')).toBeInTheDocument();
+  ```
+
+  The explicit `rerender()` forces a remount-style render. `ActivityLog`
+  uses `@tanstack/react-virtual` which re-measures DOM nodes on remount.
+  jsdom's DOM measurement is slower on the Windows runner than on macOS /
+  Ubuntu (a known win32 Node test-harness quirk), and the remeasure
+  occasionally exceeded the default 5000ms test timeout.
+
+  ## Fix
+
+  Drop the `rerender()` call. The component subscribes to the Zustand
+  activity store via `useActivityStore`, so a `setState` inside `act()`
+  triggers a normal React re-render — no need to remount. Keeps the
+  virtualiser instance stable across the two assertions.
+
+  ## Verification
+
+  - [x] `npm test -- --run src/components/download/ActivityLog.test.tsx` —
+  18 / 18 pass locally.
+  - [ ] CI runs the full Windows + macOS + Ubuntu Frontend matrix on this
+  PR.
+
+  ## Why a separate PR
+
+  Following the new "branch + PR for everything except `[skip ci]`
+  doc/chore" rule established in PR #760's retrospective. The fix is
+  one-test-file but the policy applies uniformly.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(ci)** Pin Backend matrix macos slot to macos-14 + shim guard (#770)
+
+## Summary
+
+  Backend (macos-latest) on every push since the macos-latest → macos-15
+  runner image rotation in mid-2026 has been failing instantly at `cargo
+  check`. The job duration is ~1m, the failure step (`Cargo check`) takes
+  0s, and the error is:
+
+  ```
+  Run cargo check
+  error: error: unexpected argument 'check' found
+  Usage: rustup-init[EXE] [OPTIONS]
+  For more information, try '--help'.
+  Error: Process completed with exit code 1.
+  ```
+
+  ## Root cause
+
+  The macos-15 runner image ships a Homebrew `cargo` shim at
+  `/opt/homebrew/bin/cargo` that proxies to `rustup-init` when rustup
+  isn't fully initialised. The current `dtolnay/rust-toolchain@631a55b`
+  pin installs rustup at `~/.cargo/` and adds `~/.cargo/bin` to
+  `$GITHUB_PATH`, but the Homebrew shim wins the PATH race. When the
+  workflow then runs `cargo check`, the shim invokes `rustup-init check`,
+  which doesn't recognise `check` as a valid arg → instant failure.
+
+  This isn't a project code issue — it's a runner-image regression. Ubuntu
+  and Windows are unaffected (no Homebrew shim). Frontend (macos-latest)
+  is unaffected because that matrix never runs cargo.
+
+  ## Evidence
+
+  - Failed on PR #769 head commit `27b7000` (Backend macOS, 1m9s) — every
+  other backend platform passed against the same code.
+  - Failed again on the post-merge main commit `04a9798` (CI run #1400) —
+  also 1m4s, same `rustup-init` banner.
+  - Two consecutive failures on different shas with the same fingerprint
+  rules out one-shot flake.
+  - Job log screenshot confirms `Setup Node.js` (4s ✓), `Install npm
+  dependencies` (12s ✓), `Build frontend` (8s ✓), `Cargo check` (0s ❌).
+
+  ## Fix
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.4.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(gamdl)** Admit v3.5.2 to support window (#769)
+
+## [1.4.1] - 2026-05-11
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.4.0 [skip ci]
+
+### 🔧 Refactoring
+
+- **(settings)** Finish useSettingsField migration — closes #757 (#763)
+
+## Summary
+
+  Completes the **audit v2 finding #6** migration. With this PR, all 9
+  user-facing settings tabs use the `useSettingsField` hook for per-field
+  Zustand bindings. Replaces the `settings.X` + `updateSettings({ X: v })`
+  lambda pair with `field.value` + `field.set` — each control re-renders
+  only when its bound field changes.
+
+  ## Tabs migrated in this PR (4 of the original 9)
+
+  - **`CookiesTab.tsx`** — single field (`cookies_path`); validation +
+  browser-import handlers all migrate cleanly.
+  - **`QualityTab.tsx`** — 12 fields including the nested
+  `duplicate_detection` object (handled via `dupDetect.set({
+  ...dupDetect.value, key: v })`) and the artist-auto-select pair where
+  the multi-select array AND the legacy scalar both fire `.set()` per
+  change.
+  - **`GeneralTab.tsx`** — 21 fields. `useSettingsStore` retained only for
+  the `loadSettings` action (used by the import flow).
+  - **`AdvancedTab.tsx`** — 20 fields, plus the `DevToolsSection`
+  sub-component which migrates its two MusicKit reads. `useSettingsStore`
+  retained for the two non-field actions: `saveSettings` (setup-wizard
+  reset) and `loadSettings` (dev-access deactivate).
+
+  Combined with the 5 tabs already migrated in 815a0ce (`TemplatesTab`,
+  `FallbackTab`, `CoverArtTab`, `LyricsTab`, `ToolsTab`), all 9 settings
+  tabs are now on the new pattern.
+
+  ## Why useSettingsField wins
+
+  - **Per-field subscriptions** — Zustand re-renders only the controls
+  bound to a field that changed, not the entire tab.
+  - **Type-safe key access** — typos are compile-time errors
+  (`useSettingsField('xyz_typo')` won't compile).
+  - **No key duplication** — the field key is supplied once at the hook
+  call, not twice (read + write).
+  - **Memoised setters** — `.set` is stable across renders so memoised
+  consumers don't re-render on parent re-render.
+
+  ## Verification
+
+  - [x] `npx tsc --noEmit` clean.
+  - [x] `npm test -- --run` — 465 tests pass across 31 files.
+  - [ ] CI runs the full Backend + Frontend matrix on this PR.
+
+  ## Branch base
+
+  This branch was created off `main` BEFORE PR #762 landed the clippy fix.
+  CI will fail on the same Backend clippy lint until #762 merges and this
+  branch rebases. Order of operations:
+
+  1. Merge #762 (clippy fix + Release-As trailer).
+  2. Rebase or merge `main` into this branch.
+  3. CI re-runs and passes.
+  4. Merge this PR.
+
+
+## [1.4.0] - 2026-05-11
+
+### ✨ Features
+
+- **(activity-log)** Emit per-download GAMDL version + capability flags (#755)
+
+Adds a one-liner to each queue item's activity log stream identifying
+  the GAMDL version and active capability flags at the moment that item
+  ran. Surfaces in both the Tauri-event activity log and the on-disk
+  file, so any subsequent crash report can be correlated to the exact
+  GAMDL release that produced it.
+
+  - New `active_capabilities_summary()` in `gamdl_capabilities.rs`
+    returns a compact comma-separated list of currently-supported
+    feature gates ("native_codec_priority, wrapper_m3u8_ip, …").
+  - Reads the existing process-global version cache — no extra
+    subprocess spawn per item.
+  - Emission lives next to the existing "Authentication: …" line for
+    consistent download-start framing.
+  - Three new unit tests cover v3.5, v2.x, and uncached states.
+
+- **(cover-art)** RAW → PNG → JPEG fallback when GAMDL cover write fails (#756)
+
+When `cover_format = raw`, GAMDL occasionally fails the upstream
+  `httpx` cover-bytes fetch and leaves the album folder with no static
+  cover sidecar — though the embedded cover atom inside each M4A is
+  unaffected. The Python traceback noise reported alongside that bug
+  was the visible symptom; the missing `Cover.raw` was the underlying
+  loss.
+
+  This adds a deterministic post-download fallback chain that runs
+  during the enrichment pipeline:
+
+  1. **Fast path**: any `Cover.<ext>` (or user-stem `<X>.<ext>`) ≥ 4 KiB
+     in any of `.raw` / `.png` / `.jpg` is treated as a successful
+     GAMDL write — silent skip, no outbound request.
+  2. **Fallback fetch**: when nothing valid is on disk, the Apple
+     Music artwork URL template (now extracted from the API response
+     into `AlbumMetadata::artwork_url_template` + `_width` + `_height`)
+     is substituted with `{f}=png` and fetched. Failure → retry with
+     `{f}=jpg`. Both write atomically (temp + rename).
+  3. **All-failed path**: surfaced as an activity-log notice, with the
+     reminder that the embedded cover atom in M4A is unaffected.
+
+  Why post-download fetch rather than re-running GAMDL: re-running
+  costs whole-album minutes; a single HTTP GET costs <1 second.
+
+  Why RAW is excluded from the fallback chain: we cannot fabricate a
+  RAW byte stream from the API (which serves PNG / JPEG depending on
+  `{f}`). RAW is preserved on the fast path when GAMDL did write it.
+
+- **(diagnostics)** Capture Python tracebacks as forensic reports (#758)
+
+GAMDL and its Python deps (`httpx`, `async_lru`, `gamdl.interface`)
+  occasionally raise multi-line tracebacks during otherwise-successful
+  downloads — notably during cover-bytes fetch (especially with
+  `cover_format = raw`, see #756), syllable-lyrics requests, and
+  music-video relation lookups. The activity-log filter introduced in
+  #660 suppresses the visual noise, but until now MeedyaDL had no way
+  to aggregate or analyse these latent failures.
+
+  This adds a forensic-capture layer that piggybacks on the existing
+  crash-report infrastructure:
+
+  - New `services/traceback_diagnostic` scans the per-download raw
+    stdout/stderr buffer for traceback groups (header → frames → PEP
+    657 source-code context → exception summary).
+  - Identical groups are deduplicated with an occurrence count, so a
+    19-track album where every track hits the same cover-bytes
+    traceback reports as one entry with `count=19`, not 19 duplicates.
+  - The scanner runs once per GAMDL invocation, on any exit path
+    (success, error, soft-error). The healthy fast path is a single
+    buffer scan + early return when no `Traceback (...)` header was
+    observed — zero cost in the common case.
+  - Captured tracebacks are written as a `CrashReport` with
+    `source = "traceback_diagnostic"` via the existing
+    `save_error_report` path. They surface in Settings → Advanced →
+    Crash Reporting alongside other reports.
+  - The URL stored in the report context is run through the existing
+    `redact_url_query` helper so wrapper auth tokens never land in
+    the diagnostic file.
+  - A one-line activity-log notice is emitted on capture so users
+    know to look in the Crash Reporting section.
+
+  10 unit tests cover: single-group capture, duplicate dedup, PEP 657
+  source-context lines (Python 3.11+), distinct groups stay separate,
+  dangling tracebacks (process killed mid-stream), structlog interrupts
+  mid-group, lone-header discard, and empty-input/no-traceback fast
+  paths.
+
+  New `is_python_exception_summary` helper exposed in `utils/process.rs`
+  so the new module can recognise the closing line of a traceback
+  group without re-implementing `PYTHON_EXCEPTION_REGEX`.
+
+
+### 🐛 Bug Fixes
+
+- **(enrichment)** Skip filesystem sidecars in BPM/lyrics/SRT/VTT/ASS walkers (#577)
+
+The codec-detection (`metadata_tag_service`), ReplayGain
+  (`replaygain_service`), and AcoustID (`acoustid_service`) walkers
+  already filter macOS AppleDouble shadows (`._*`) and other sidecars via
+  the shared `utils::fs_safe::is_filesystem_sidecar` helper. Several
+  sister walkers in the same enrichment pipeline never got the same
+  guard, so on exFAT/FAT32/HFS-formatted external drives they silently
+  processed every `._Track.m4a` / `._Track.ttml` shadow alongside the
+  real file — emitting parse failures, redundant subprocess spawns, and
+  in some cases producing duplicate sidecar outputs.
+
+  Adds the existing helper to the seven previously-unguarded walkers:
+
+  - `bpm_service::analyze_directory_bpm` (silencedetect)
+  - `enhanced_lyrics_service::process_enhanced_lyrics_for_directory`
+  - `ass_subtitle_service::generate_ass_for_directory`
+  - `webvtt_service::generate_webvtt_for_directory`
+  - `rich_srt_service::generate_rich_srt_for_directory` + the
+    embed-srt walker in the same file
+  - `music_video_subtitle_service::copy_lyric_sidecars_for_video`
+  - `download_queue::count_lyrics_files` (lyrics-coverage check)
+
+  The two TTML scanners inside the syllable-lyrics upgrade path
+  (download_queue.rs ~line 7099, ~7154) already filter implicitly via
+  `name.starts_with("{:02} ", track_number)` — AppleDouble shadows
+  start with `._` and never match the track-number prefix, so no
+  explicit guard is needed there.
+
+  No new test fixtures: the `is_filesystem_sidecar` predicate has full
+  test coverage in `utils::fs_safe::tests`. Each walker now delegates to
+  that single source of truth.
+
+- Drop needless borrow on traceback url + override release to v1.3.3 (#762)
+
+## Summary
+
+  Two-in-one fix:
+
+  1. **Clippy `needless_borrow` regression** breaking PR #761's three
+  Backend CI checks. The `url_for_report` binding in
+  [src/services/download_queue.rs:9523](src-tauri/src/services/download_queue.rs#L9523)
+  is already `&str` (because `redact_url_query` returns a borrowed slice
+  of its input), so passing `&url_for_report` created `&&str` and tripped
+  clippy's lint under Rust 1.95 on CI. Local toolchains on rustc 1.93
+  didn't catch this.
+
+  2. **`Release-As: 1.3.3` trailer** — overrides release-please's
+  automatic v1.4.0 calculation. The v1.3.2 batch contained `feat:` commits
+  (#755, #756, #758) which by Conventional Commits semantics demand a
+  minor bump, but the user-facing surface changes are small enough that a
+  patch bump is preferred. Once this lands on main, release-please will
+  recompute PR #761 to use v1.3.3 instead.
+
+  ## Why no PR for the original v1.3.2 batch caught this
+
+  The earlier batch landed via direct push to `main` (no PR-level CI). The
+  v1.3.2 retrospective PR (#760) only diffs a markdown file, so the
+  per-platform Backend matrix didn't run on the affected Rust code. Going
+  forward, the new branch + PR rule should catch this kind of
+  toolchain-specific regression at PR time.
+
+  ## Test plan
+
+  - [x] `cargo clippy -- -D warnings` clean locally on rustc 1.93.
+  - [ ] CI re-runs the three Backend checks on this PR.
+  - [ ] After merge, release-please refreshes PR #761 to title
+  `chore(main): release 1.3.3` and updates the version files in the bot
+  branch.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.3.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.3.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(audits)** Retrospective sign-off for the v1.3.2 batch (#760)
+
+## Summary
+
+  The six commits that landed v1.3.2 (#755, #577, #756, #758, #757
+  partial, version bump) were pushed fast-forward directly to `main`
+  rather than through a PR. This PR is the **retrospective sign-off
+  artifact** — a single reviewable surface for the batch.
+
+  See
+  [`.github/audits/v1.3.2-batch-retrospective.md`](.github/audits/v1.3.2-batch-retrospective.md)
+  for the full breakdown: commit-by-commit summary, test verification,
+  follow-up issues, and the process note explaining why no PR at commit
+  time.
+
+  ## Batch contents
+
+  | SHA | Issue | Summary |
+  | --- | --- | --- |
+  | `169e708` | #755 | Per-download GAMDL version + capability flags in
+  activity log |
+  | `a891067` | #577 | Filesystem-sidecar guard extended to 7 walkers |
+  | `f494a74` | #756 | Cover-art RAW → PNG → JPEG fallback |
+  | `3e60285` | #758 | Python traceback diagnostic capture |
+  | `815a0ce` | #757 partial | 5 of 9 settings tabs migrated to
+  useSettingsField |
+  | `5d30f45` | — | Version bump 1.3.1 → 1.3.2 |
+
+  ## Diff scope
+
+  Single new file: `.github/audits/v1.3.2-batch-retrospective.md`. No
+  production code touched in this PR — the production changes are already
+  on `main` (commits above).
+
+  ## Action requested
+
+  - [ ] Sign-off on the batch as documented.
+  - [ ] Confirm the going-forward rule: branch + PR for feature work,
+  direct-push reserved for `[skip ci]` doc/chore edits.
+
+  ## Test plan
+
+  - [x] Production code already validated on `main` (cargo check +
+  targeted test suites pass — see retrospective doc).
+  - [x] This PR adds only a markdown file; CI runs on it as
+  belt-and-braces.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- **(settings)** Migrate 5 small/medium tabs to useSettingsField (#757)
+
+Audit v2 finding #6 — replaces the `settings.X` + `updateSettings({
+  X: v })` lambda pair with per-field Zustand bindings via the
+  `useSettingsField` hook. Each `useSettingsField('X')` call subscribes
+  to `state.settings.X` only, so a change to an unrelated field no
+  longer re-renders the entire tab.
+
+  Tabs migrated in this batch:
+
+  - `TemplatesTab.tsx` — 10 template + padding fields
+  - `FallbackTab.tsx` — 2 chain bindings
+  - `CoverArtTab.tsx` — 7 cover-art + animated-artwork fields
+  - `LyricsTab.tsx` — 10 lyrics-related toggles (multi-key
+    `handleFormatToggle` retains `updateSettings` for the single-shot
+    pair update; non-trivial dependency between two keys)
+  - `ToolsTab.tsx` — 1 statically-keyed `temp_path` field (the dynamic
+    tool-path map at `TOOL_PATH_KEYS[toolName]` retains `useSettingsStore`
+    because `useSettingsField` requires a compile-time key)
+
+  The remaining 4 tabs (AdvancedTab, GeneralTab, QualityTab,
+  CookiesTab) account for ~3.3 kLOC and ~180 settings sites. They are
+  tracked as a follow-up under #757 — splitting the migration in two
+  PRs keeps each reviewable. No behaviour changes — pure refactor.
+  TypeScript clean.
+
+  Partial — #757 stays open
+
+
+### 🧹 Maintenance
+
+- Bump version 1.3.1 → 1.3.2
+
+Bundles four user-visible improvements landed in this batch:
+
+
+## [1.3.1] - 2026-05-11
+
+### 🐛 Bug Fixes
+
+- **(ui)** Stop stale 'Finalising metadata' label + sync auto-scroll checkbox (#751)
+
+## Summary
+
+  Two related UX bugs reported on 2026-05-11 — both about the
+  queue/activity-log surfaces showing state that doesn't match reality.
+
+  ### Bug 1: Progress bar caption staleness
+
+  The enrichment task ended with `set_label("Finalising metadata...", …)`
+  immediately followed by the "All enrichment stages completed"
+  activity-log line. That label then **persisted as the per-item caption
+  through every subsequent gap** — between enrichment ending and the
+  companion supervisor spawning its first GAMDL, between companion
+  finishing and the post-companion advisory pass starting, etc. Your
+  screenshot caught one of those gaps showing "Finalising metadata…" while
+  the activity log was reporting fresh GAMDL companion track downloads.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.3.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.3.0] - 2026-05-11
+
+### ✨ Features
+
+- **(history)** Tooltip + right-click actions on long error messages (#748)
+
+## Summary
+
+  The History row's error text was truncated at the right edge of the
+  visible area for long messages — notably upstream "GAMDL bug — …"
+  classifier outputs. Reading the full text required widening the window.
+  New shared `ErrorMessageDisplay` component fixes this with three layered
+  affordances:
+
+  - **Hover/focus tooltip** showing the full text
+  - **Right-click → Copy error message** (always)
+  - **Right-click → Report this bug to GAMDL** (only when the message
+  looks like an upstream defect — recognised via the `"GAMDL bug "` prefix
+  that `download_queue.rs` emits). Opens
+  [`glomatico/gamdl/issues/new`](https://github.com/glomatico/gamdl/issues/new)
+  with title + body pre-filled from the failed URL + the error text.
+
+  The pre-filled GitHub URL is **intentionally MeedyaDL-free** — no
+  branding, no "via MeedyaDL" attribution, no internal classifier
+  metadata. Upstream maintainers get a clean repro shaped like a normal
+  GAMDL-user bug report (title strips the classifier prefix so it reads as
+  a user-authored summary; body template has URL / Error output /
+  Environment sections to fill in).
+
+  ## Wiring
+
+  -
+  [`HistoryPage.tsx`](../blob/feat/error-message-tooltip-actions/src/components/download/HistoryPage.tsx)
+  — replaces the inline `line-clamp-2` `<p>`. The URL paragraph below it
+  also gets a native `title={entry.url}` tooltip (same problem class for
+  long Apple Music URLs).
+  -
+  [`QueueItem.tsx`](../blob/feat/error-message-tooltip-actions/src/components/download/QueueItem.tsx)
+  — replaces the inline error `<p>` (no truncation since queue rows are
+  full-width, but tooltip + right-click affordances apply).
+
+  ## Tests
+
+  12 unit tests pin: render + null-on-empty + line-clamp variants,
+  right-click menu open, copy writes to clipboard, "Report" gated on GAMDL
+  prefix, `URL.searchParams.get('body')` contains the error + sourceUrl,
+  title strips the classifier prefix, no MeedyaDL anywhere in the report
+  URL, omitted sourceUrl drops the URL section.
+
+  ## Implementation note
+
+  Imports siblings via `./ContextMenu` / `./Tooltip` rather than the
+  `@/components/common` barrel — the barrel re-exports this very file, so
+  a barrel import would resolve to `undefined` at module-evaluation time
+  and crash with the React "Element type is invalid" runtime error.
+
+  ## Test plan
+
+  - [x] `npm run type-check` clean
+  - [x] `npm run lint` clean
+  - [x] `npm run test` — 465 pass (12 new, 0 regressions)
+  - [ ] CI green
+  - [ ] Manual: in History, hover a long error → tooltip shows full text;
+  right-click → "Copy error message" works; right-click on a "GAMDL bug —
+  …" entry → "Report this bug to GAMDL" appears + opens upstream issue
+  form pre-filled
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.2.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(claude)** Refresh project context for v1.0.0/v1.1.0 + audit v2 + release-pipeline gotchas (#747)
+
+## Summary
+
+  The `.claude/` files had drifted after a busy 2026-04 → 2026-05 run.
+  This PR brings the shared project memory + the CLAUDE.md context file in
+  line with the actual project state as of 2026-05-10.
+
+  ### Memory refreshes
+  -
+  [\`project_v1_rc_prep.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_v1_rc_prep.md)
+  — was stuck at v0.49.1 with two open RC blockers; now reflects v1.0.0 GA
+  + v1.1.0 published as Pre-release pending user testing. Captures the
+  post-rc.1 promotion path, the audit-v2 rollout, and the recent
+  #743/#744/#741/#746 cycle. Adds an explicit pointer to the
+  don't-auto-flip-stable-flags policy.
+
+  ### Memory removals
+  - `project_pr662_user_session_fixes.md` — described an in-flight PR that
+  merged early May. Project memory should describe live state, not
+  historical PR descriptions, so the file is removed rather than marked
+  "historic".
+
+  ### New memory files
+  -
+  [\`project_audit_v2_helpers.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_audit_v2_helpers.md)
+  — catalogue of the 12 internal primitives that landed across audits v1 +
+  v2 (six backend, six frontend), each with its file path + use case.
+  -
+  [\`project_release_pipeline_gotchas.md\`](../blob/docs/refresh-claude-context/.claude/memory/project_release_pipeline_gotchas.md)
+  — the three failure modes the v1.1.0 cut surfaced (\`[skip ci]\`
+  propagation through CHANGELOG bodies, "Release in progress…" placeholder
+  persistence, manual stable tags sitting as drafts) plus recovery
+  patterns and the release-promotion policy.
+
+  ### MEMORY.md index
+  Updated to remove the PR662 entry, add the two new entries, and refresh
+  the v1 RC prep one-liner.
+
+  ### CLAUDE.md additions
+  Three new convention bullets, no restructure of existing content:
+  - "Internal helpers (audits v1 + v2)" — one-line index of the 12
+  primitives with file paths so the right helper is reachable without
+  grepping
+  - "Release pipeline gotchas" — short summary of the three failure modes
+  + recovery commands, with pointer to the dedicated memory file
+  - "Wrapper triangle" — explains the three independent wrapper
+  connections (account / m3u8 / decrypt), all now in AppSettings, with the
+  schema-version-bump-to-5 reference
+
+  Plus markdown lint fixes for two pre-existing list-spacing issues.
+
+  No code changes.
+
+  ## Test plan
+
+  - [x] No code changes — no test gates apply
+  - [x] Markdown linter satisfied (blank lines around lists, valid
+  frontmatter)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- Update CHANGELOG.md [skip ci]
+- **(wrapper)** Explain re-authentication when decryption keeps failing (#750)
+
+## Summary
+
+  Follow-up to the wrapper-on-LAN docs
+  ([#746](https://github.com/MWBMPartners/MeedyaDL/pull/746)). When users
+  see every track in a download skipping with `Decryption is not available
+  for media ID: …` **and** wrapper auth is enabled, the most likely cause
+  is **stale wrapper credentials** — the wrapper appears healthy (sockets
+  accept, pre-flight checks pass) but the Apple Music tokens it cached
+  during initial login have expired and decryption requests silently fail
+  upstream.
+
+  The user can confirm this from the live state: pre-flights all green ✓,
+  manifest fetches succeed, but every per-track decryption WARNING is the
+  same `media ID: …` shape.
+
+  ### What this PR adds
+
+
+  [`help/troubleshooting.md`](../blob/docs/wrapper-reauth/help/troubleshooting.md)
+  gets a new **"Decryption is not available" warnings (wrapper enabled,
+  downloads still skipping)** subsection covering:
+
+  - Exact symptom shape (per-track WARNING lines, every-track-skips vs
+  only-some)
+  - Why it happens (cached tokens go stale)
+  - Step-by-step Docker re-auth: stop container → run in one-shot login
+  mode → enter 2FA if prompted → Ctrl-C → restart. Native install variant
+  noted briefly.
+  - Diagnostic — distinguishing "stale auth" from
+  "track-not-in-this-codec" by skip rate
+  - Other possible causes (wrapper not enabled, withdrawn tracks)
+  - **Explicit "no, Download Mode doesn't help" note** — addresses the
+  common "I switched yt-dlp ↔ N_m3u8DL-RE and it worked" misconception
+  (it's the reset, not the mode)
+
+  [`README.md`](../blob/docs/wrapper-reauth/README.md) gets a mirror
+  summary in the Wrapper Authentication section (between Auto-Retry and
+  Verifying Connectivity) pointing at the in-app help.
+
+  Wrapper login command sourced from upstream
+  `WorldObservationLog/wrapper` README — no MeedyaDL guesswork.
+
+  ### Tone
+
+  Matches the prior wrapper docs PR (#746) — less technical than PR/issue
+  text, step-by-step, no jargon.
+
+  ### Out of scope
+
+  - Detecting "stale auth" automatically and surfacing a one-click
+  suggestion in the activity log — could be a follow-up issue if you want.
+  - Wrapper-side changes (out of scope per project policy — wrapper is
+  upstream).
+
+  ## Test plan
+
+  - [x] `npm run lint` clean
+  - [x] Markdown linter satisfied (asterisk emphasis, blank lines around
+  lists)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- Update CHANGELOG.md [skip ci]
+
+## [1.2.0] - 2026-05-10
+
+### ✨ Features
+
+- **(settings)** Expose wrapper_decrypt_ip — closes #743 (#744)
+
+## Summary
+
+  Implements [#743](https://github.com/MWBMPartners/MeedyaDL/issues/743).
+  MeedyaDL exposed two of GAMDL's three wrapper-related connection targets
+  (\`wrapper_account_url\` + \`wrapper_m3u8_ip\`) but not the third —
+  \`wrapper_decrypt_ip\`. Without this field surfaced in settings,
+  remote-wrapper LAN setups silently failed at the decryption stage
+  because GAMDL fell back to its compile-time default of
+  \`127.0.0.1:10020\` (the user's own loopback, where nothing was
+  listening).
+
+  This PR mirrors the existing \`wrapper_m3u8_ip\` shape exactly across
+  every layer:
+
+  | Layer | Change |
+  |---|---|
+  | Rust settings model | New field + default helper + Default impl +
+  version bump 4→5 |
+  | Settings migration | New v4→v5 step (version-stamp only; serde default
+  fills field) + tests |
+  | Merge layer | `merge_options()` propagates setting → `GamdlOptions`
+  when wrapper on |
+  | Preflight | New `check_wrapper_decrypt_health()` +
+  `PreflightCheck::WrapperDecrypt` enum variant + wired into chain |
+  | TS types | Field + `'wrapper_decrypt'` added to `PreflightCheck` union
+  |
+  | TS store defaults | `DEFAULT_SETTINGS.wrapper_decrypt_ip =
+  '127.0.0.1:10020'` |
+  | Settings UI | New `<Input>` next to the m3u8 input |
+  | Misc | Added to log-redaction list; test fixtures updated |
+
+  **Behaviour for upgrading users:** zero change. The serde default is
+  `127.0.0.1:10020` — the same value GAMDL used at the CLI default.
+  Local-wrapper setups are unaffected.
+
+  **Behaviour for remote-wrapper users:** can now configure the field via
+  Settings > Advanced. The new preflight check surfaces a yellow toast at
+  queue time if the configured host:port is unreachable (instead of
+  silently failing at decryption mid-download).
+
+  ## Out of scope
+
+  - Wrapper-side `compose.yaml` `ports:` section (upstream
+  `WorldObservationLog/wrapper`, not ours to fix per the discussion on
+  #743).
+  - General "remote wrapper setup" help doc — separate issue if wanted.
+
+  ## Test plan
+
+  - [x] `cargo clippy --tests -- -D warnings` clean
+  - [x] `cargo test --lib` — 1009 pass, 1 ignored (1 new for v4→v5
+  migration)
+  - [x] `npm run type-check` clean
+  - [x] `npm run lint` clean
+  - [x] `npm run test` — 453 pass (3 fixture snapshots updated, 0
+  regressions)
+  - [ ] CI green
+  - [ ] Manual smoke (you have the actual Mac → RPi setup):
+  - Settings > Advanced should show a new "Wrapper Decryption Address"
+  input
+  - Setting it to the RPi's IP, with the wrapper service exposing port
+  10020, should make ALAC downloads succeed
+  - Setting it to a non-listening address should produce a yellow
+  preflight toast at queue time
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.1.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Explain remote-wrapper setup (the three-address pattern) (#746)
+
+## Summary
+
+  Follow-up to [#743](https://github.com/MWBMPartners/MeedyaDL/issues/743)
+  / [#744](https://github.com/MWBMPartners/MeedyaDL/pull/744). The new
+  \`wrapper_decrypt_ip\` setting needs documentation explaining when and
+  how to use it. Both
+  [README.md](../blob/docs/wrapper-on-lan-device/README.md) and the in-app
+  help ([Help > Troubleshooting > Wrapper
+  Errors](../blob/docs/wrapper-on-lan-device/help/troubleshooting.md)) now
+  include a "Running the wrapper on a different device on your network"
+  section.
+
+  The new content explains:
+
+  - The wrapper uses **three** connections, not one
+  - A table mapping each setting → what it does → default port
+  - A worked example for a Raspberry Pi at `192.168.1.50` showing all
+  three addresses to update
+  - Common gotchas (container port-forwarding, firewall, forgetting the
+  third address, three-port conflict)
+  - A quick SSH-tunnel alternative for users who'd rather not touch
+  MeedyaDL's defaults
+
+  Tone is intentionally less technical than the issue/PR — no
+  TCP/loopback/outbound jargon. Aimed at a hobbyist who set up a Raspberry
+  Pi.
+
+  The README's existing "Troubleshooting (Remote / Docker)" section is
+  preserved unchanged below the new content.
+
+  ## Test plan
+
+  - [x] No code changes
+  - [x] \`npm run lint\` clean
+  - [x] Markdown linter satisfied (table padding + valid link fragment)
+  - [ ] CI green (only PR title check + CodeQL should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [1.1.1] - 2026-05-10
+
+### 🐛 Bug Fixes
+
+- **(release)** Pipeline cleanup — stop placeholder, halt cadence drift (#741)
+
+## Summary
+
+  Three CI/release fixes addressing user-reported issues:
+
+  ### 1. Stop "Release in progress..." persistence (\`release.yml\`)
+
+  Per-platform build steps create the GitHub Release with \`gh release
+  create --notes "Release in progress..."\` as a race-guard. The "Append
+  download guide" step then appended to that body — leaving the
+  placeholder as the leading line forever in every release that wasn't
+  pre-populated by release-please-action.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.1.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.1.0] - 2026-05-09
+
+### ✨ Features
+
+- **(release)** V1.0.1 prep — GAMDL 3.5.1, activity-log refactor, Library Scan scaffold
+
+16 commits delivering:
+
+  - GAMDL v3.5.1 admission to support window (#711)
+  - Activity-log media-context labels + 30-min walk hang fix + stale progress-bar caption fix (#712)
+  - Phase 3.5 holistic refactor of activity-log + progress-bar emission layer (#714, 9 sub-commits): ProgressStage enum, unified emit_inner facade, shared set_stage helpers callable from both enrichment AND companion tasks, emit_subprocess_line consolidation, sub-stage labels for lyrics + finalising + companion phases, frontend caption extraction, codec-skip-line humaniser, companion file-count verification before claiming complete
+  - GAMDL MV cover-URL bug status documented (not fixed in 3.5.1, workaround tracked in #715)
+  - Codebase unification audit doc with 8 prioritised findings (#716, implementation PRs follow)
+  - Library Scan page scaffold (#717, gap-fill UX sub-features deferred)
+  - Version bump 0.53.3 → 1.0.1
+  - All gates green: cargo check / clippy / fmt / test (975 pass), npm lint / type-check / test (305 pass), npm audit (0 vulns)
+
+  Full PR description: https://github.com/MWBMPartners/MeedyaDL/pull/718
+
+- **(release)** V1.0.2 prep — MV cover workaround + 3 unification helpers + fast-uri patch
+
+6 commits delivering:
+
+- **(release)** V1.0.3 prep — helper migrations + Library Scan diff badges
+
+5 commits delivering:
+
+- **(release)** V1.0.4 prep — per-item MV override + more helper migrations
+
+4 commits delivering:
+
+- **(release)** V1.0.5 prep — Library Scan gap-fill modal + Re-download action
+
+3 commits delivering:
+
+- **(release)** V1.0.6 prep — Library Scan freshness + helper migration (#724)
+
+## Summary
+
+  Sixth in the v1.0.x prep series. Three landings:
+
+  - **#717/5c**: Apple Music \`lastModifiedDate\` freshness check per
+  Library Scan row. New \`check_library_scan_freshness\` IPC +
+  \`LibraryScanFreshness\` tagged union. Frontend dispatches throttled to
+  5 concurrent calls; \`Sparkles\` "Content updated" badge renders
+  alongside the existing diff badge. Re-download button enables for both
+  \`plan\` (missing tracks) AND \`updated\` (content changed upstream —
+  added tracks, Atmos mix, ADM certification).
+  - **#717/5g**: 10 unit tests for \`MvGapFillModal\` covering all four
+  override outcomes in the 2x2 table (ENABLED+Yes→null, ENABLED+No→false,
+  DISABLED+Yes→true, DISABLED+No→null) plus null-manifest gating, prompt
+  copy, and Cancel vs Confirm.
+  - **#716 finding #1** (one more migration):
+  \`scan_dir_for_manifests_recursive\` → \`walk_dir_depth(base, 10,
+  parse_manifest_at_path)\`. ~90 lines of recursive boilerplate gone;
+  behaviour preserved (empty-source manifests still skipped via \`None\`
+  returns).
+
+  Versions bumped 1.0.5 → 1.0.6 across package.json, Cargo.toml,
+  tauri.conf.json, .release-please-manifest.json.
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 993 pass, 1 ignored
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean (sole warning is pre-existing in
+  updateStore.ts)
+  - [x] \`npm run test\` — 315 pass (10 new from MvGapFillModal.test.tsx)
+  - [ ] CI green
+  - [ ] Manual: scan a folder, confirm freshness badge appears for updated
+  albums (or stays absent for users without MusicKit creds)
+  - [ ] Manual: confirm the new helper-migrated scanner still finds
+  manifests at depth 0..10
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(release)** V1.0.7 prep — Zustand async-resource factory primitive (#725)
+
+## Summary
+
+  Seventh in the v1.0.x prep series. One landing:
+
+  - **#716 finding #5**: \`createAsyncResourceStore<T extends
+  object>(config)\` factory in
+  [\`src/lib/createAsyncResourceStore.ts\`](../blob/feat/v1.0.7-prep/src/lib/createAsyncResourceStore.ts).
+  Returns a Zustand hook with the standard
+  \`data\`/\`isLoading\`/\`isDirty\`/\`error\` reactive state and
+  \`load\`/\`save\`/\`debouncedSave\`/\`update\`/\`reset\` actions.
+  Read-only stores (no \`save\` config) get silent no-ops on save paths.
+  Default debounce window 300ms.
+  - **15 unit tests** covering initial defaults, load
+  happy/error/non-Error rejections, save happy/error/re-throw, debounce
+  batching + default-300ms + read-only-noop + error surfacing, update
+  shallow-merge + reference equality, reset.
+  - Audit doc finding #5 marked **primitive landed; opt-in migration
+  deferred**.
+
+  **No existing store migrated in this PR.** Each existing store has 30+
+  component consumers using per-store API names (\`settings\`,
+  \`loadSettings\`, \`saveSettings\`, etc.); migrating those is a separate
+  cycle whose value is debatable for already-working code. The primary
+  consumer is the M8/M9/M10 per-service settings stores when those land.
+
+  Versions bumped 1.0.6 → 1.0.7.
+
+  ## Test plan
+
+  - [x] \`cargo check\` clean (Cargo.lock refresh only)
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean (sole warning is pre-existing in
+  updateStore.ts)
+  - [x] \`npm run test\` — 330 pass (15 new from
+  createAsyncResourceStore.test.ts)
+  - [ ] CI green
+  - [ ] (Manual not applicable — additive primitive, no UI surface)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(release)** V1.0.8 prep — four more recursive walker migrations (#726)
+
+## Summary
+
+  Eighth in the v1.0.x prep series. Four more recursive walker callsites
+  migrated to \`walk_dir_depth\` (#716 finding #1).
+
+  | File | Function | Before | After | Notes |
+  |---|---|---|---|---|
+  | services/duplicate_detector.rs | walk_manifests | depth=10, manual |
+  depth=10, walk_dir_depth | side-effects into HashSet (0..N keys per
+  manifest) |
+  | services/acoustid_service.rs | collect_m4a_recursive | **UNBOUNDED** |
+  depth=3 | AcoustID fingerprinting is per-album |
+  | services/replaygain_service.rs | collect_audio_recursive |
+  **UNBOUNDED** | depth=3 | FFmpeg loudness analysis is per-album |
+  | services/metadata_tag_service.rs | tag_directory_recursive |
+  **UNBOUNDED** | depth=3 | covers Album/Disc N/file split |
+
+  The three previously-unbounded walkers were latent #712 risks — if ever
+  called against the user's full music root rather than an album dir,
+  they'd produce the same 30-minute hang reproduction. Capping at depth 3
+  makes that impossible without affecting happy-path behaviour (every
+  actual album dir is well under 3 deep).
+
+  Filesystem-sidecar skipping (\`._*\`, \`.DS_Store\`, \`Thumbs.db\`)
+  preserved in all four — same #577 rationale (avoid \`mp4ameta\` /
+  \`ffmpeg\` / \`chromaprint\` errors on non-audio binaries).
+
+  Net -36 lines.
+
+  Versions bumped 1.0.7 → 1.0.8.
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 993 pass, 1 ignored
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run test\` — 330 pass
+  - [ ] CI green
+  - [ ] (Manual smoke: depth=3 covers Artist/Album/Disc/file — check no
+  regression on multi-disc albums)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(release)** V1.0.9 prep — walk_dir_find_first + last two walker migrations (#727)
+
+## Summary
+
+  Ninth in the v1.0.x prep series. Closes out the recursive-walker
+  consolidation (#716 finding #1).
+
+  **New helper:** \`walk_dir_find_first<T, F>(base, max_depth, visitor) ->
+  Option<T>\` in
+  [\`utils/fs_walk.rs\`](../blob/feat/v1.0.9-prep/src-tauri/src/utils/fs_walk.rs).
+  Find-first companion to \`walk_dir_depth\` — short-circuits as soon as
+  the visitor matches. 6 unit tests covering depth-zero match,
+  descend-into-subdirs, no-match, max_depth, short-circuit (call counter),
+  missing dir.
+
+  **Migrations** (the last two hand-rolled recursive walkers):
+
+  | Function | Was | Now |
+  |---|---|---|
+  | find_binary_recursive (dependency_manager.rs) | UNBOUNDED | depth=5,
+  walk_dir_find_first |
+  | find_file_recursive (dependency_manager.rs) | UNBOUNDED | depth=5,
+  walk_dir_find_first |
+
+  Both signatures cleaned: \`&PathBuf\` → \`&Path\` (clippy::ptr_arg); one
+  \`&tool_dir.to_path_buf()\` call simplified.
+
+
+### 🐛 Bug Fixes
+
+- **(ci)** Stop release-channel workflow self-trigger loop ([skip ci])
+
+The push-driven release workflows for the alpha / beta / release-candidate
+  channels each commit a version bump and push it back to the same branch
+  that triggered them. The job-level
+  `if: github.actor != 'github-actions[bot]'` guard was meant to prevent the
+  bot push from re-triggering the workflow, but it does not work in this
+  repo because the bot uses `RELEASE_PAT` rather than the default
+  `GITHUB_TOKEN`, and GitHub attributes PAT-authenticated pushes to the PAT
+  owner (a real user account) not to `github-actions[bot]`.
+
+  Net effect on 2026-05-08: a single human push to `release-candidate`
+  spawned 21 sequential RC tags (v1.0.0-rc.1 through v1.0.0-rc.21) and
+  6 published + 5 draft GitHub Releases before the loop was caught and
+  killed by hand. Spurious tags and releases have been deleted; only the
+  intended v1.0.0-rc.1 remains.
+
+  The fix appends `[skip ci]` to the bot's commit message in all three
+  push-driven release-channel workflows. GitHub parses this marker at the
+  trigger layer, so the workflow is not even queued for the bot's own
+  push. The pre-existing actor guard is kept as belt-and-braces.
+
+  Files touched (commit-message string only, no behavioural change):
+    - .github/workflows/alpha-release.yml
+    - .github/workflows/beta-release.yml
+    - .github/workflows/release-candidate-release.yml
+
+  The cron-driven workflows (nightly, weekly, monthly) do NOT have `push:`
+  triggers, so they were never affected — verified.
+
+- **(ci)** Stop release-channel workflow self-trigger loop ([skip ci]) (#713)
+
+## Incident
+
+  Single human push to \`release-candidate\` on 2026-05-08 09:38 UTC
+  spawned **21 sequential RC tags** (\`v1.0.0-rc.1\` through
+  \`v1.0.0-rc.21\`) and 6 published + 5 draft GitHub Releases before the
+  loop was caught and killed by hand. Spurious tags + releases have been
+  deleted; only the intended \`v1.0.0-rc.1\` remains.
+
+  ## Root cause
+
+  The push-driven release workflows for \`alpha\` / \`beta\` /
+  \`release-candidate\` each commit a version bump and push it back to the
+  same branch that triggered them. The job-level guard
+
+  \`\`\`yaml
+  if: github.actor != 'github-actions[bot]' || github.event_name ==
+  'workflow_dispatch'
+  \`\`\`
+
+  was meant to skip the bot's own push, **but does not work in this repo**
+  because:
+
+  - The bot uses \`secrets.RELEASE_PAT\` (not the default
+  \`GITHUB_TOKEN\`) for the push.
+  - GitHub attributes PAT-authenticated pushes to the **PAT owner's user
+  account**, not to \`github-actions[bot]\`.
+  - So \`github.actor\` is the human user; the check is always true; the
+  workflow re-runs every push.
+
+  Each iteration: \`BASE = \"1.0.0\"\`, \`MAX\` increments because the
+  previous run created \`v1.0.0-rc.N\`, \`NEXT = MAX + 1\`, version
+  manifests patched + committed + tagged, push to \`release-candidate\`
+  triggers the workflow again. Loop only stops when the PAT runs out of
+  API quota or someone cancels in-progress runs.
+
+  ## Fix
+
+  Append \`[skip ci]\` to the bot's commit message in all three
+  push-driven release-channel workflows:
+
+  - \`.github/workflows/alpha-release.yml\`
+  - \`.github/workflows/beta-release.yml\`
+  - \`.github/workflows/release-candidate-release.yml\`
+
+  GitHub parses \`[skip ci]\` at the **trigger layer** — the workflow is
+  not even queued for the bot's own push. The pre-existing actor guard is
+  kept as belt-and-braces.
+
+  ## Why this fix is safe
+
+  - Only the bot's own commit message changes; no behavioural difference
+  for any human contributor.
+  - \`[skip ci]\` is parsed by GitHub natively, no custom logic required.
+  - Cron-driven workflows (\`nightly\` / \`weekly\` / \`monthly\`) have
+  \`on: schedule\` but no \`on: push\` — they were never affected.
+  Verified via \`grep -A 5 \"^on:\"
+  .github/workflows/{nightly,weekly,monthly}-release.yml\`.
+
+  ## Verification
+
+  - [x] Three workflow files updated — diff is one-line per file, commit
+  message string only
+  - [x] \`grep \"\\[skip ci\\]\"
+  .github/workflows/{alpha,beta,release-candidate}-release.yml\` confirms
+  presence in all three
+  - [ ] After merge: smoke-test by triggering one push to \`alpha\`
+  (separate, low-risk channel) and confirming exactly **one** \`alpha\`
+  tag is produced
+  - [ ] After successful smoke-test, can resume \`v1.0.1-prep\` work
+  without fear of re-runaway
+
+  ## Cleanup already done out-of-band
+
+  - \`v1.0.0-rc.2\` through \`v1.0.0-rc.21\` tags deleted (\`gh release
+  delete --cleanup-tag\` for rc.2-rc.11, \`git push origin --delete\` for
+  rc.12-rc.21 which only had tags).
+  - All in-progress / queued \`release.yml\` runs for the spurious tags
+  cancelled (saves GHA minutes).
+  - \`release-candidate\` branch HEAD is currently at the bot's
+  \`chore(rc): 1.0.0-rc.21\` commit. Not reset (force-push protected) —
+  the next legitimate RC bump will compute \`MAX=1\` from remaining tags
+  and produce \`v1.0.0-rc.2\` correctly.
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.53.3 [skip ci]
+- **(security)** Update supported versions to 1.0.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.5 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.6 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.7 [skip ci]
+- **(security)** Update supported versions to 1.0.8 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.9 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.0.10 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(audit)** Codebase unification audit v2 — 8 new consolidation findings (#732)
+
+## Summary
+
+  Second consolidation pass after [audit
+  v1](.github/audits/codebase-unification-audit-v1.md) closed out (#716,
+  completed in v1.0.9).
+
+  Eight new findings, each scored on LOC impact, risk, and multi-service
+  relevance:
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(commands)** Authoring guide — audit v2 #8 (#738)
+
+## Summary
+
+  Sixth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #8
+  (state injection docs).
+
+  Tauri's \`#[tauri::command]\` DI macro requires explicit parameter
+  signatures, so \`State<'_, T>\` boilerplate is unavoidable per-command.
+  The audit's recommendation was **documentation, not refactor** — codify
+  the pattern so M8/M9/M10 command modules stay aligned with what already
+  exists.
+
+  **New**
+  [\`src-tauri/src/commands/README.md\`](../blob/docs/audit-v2-commands-pattern/src-tauri/src/commands/README.md)
+  covers:
+
+  - Anatomy of a command (signature, doc comment, return type)
+  - Parameter conventions (AppHandle first when present, \`State<'_, T>\`
+  next, request payload last)
+  - Adding new managed state types (tie-back to \`lib.rs::run()\`
+  \`.manage()\`)
+  - Async vs sync (\`spawn_blocking\` for CPU-bound work)
+  - Error handling (\`Result<T, String>\` + context-bearing \`map_err\`
+  prefix, no internal type names)
+  - Registration in \`lib.rs::generate_handler!\` + frontend wrapper in
+  \`src/lib/tauri-commands.ts\`
+  - Naming conventions
+  - Per-service module layout for M8/M9/M10
+  - References to clean small + full-featured examples
+
+  Pure docs — no code changes.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (#737)
+  6. ✅ #8 commands README (this PR)
+  7. #2 useAsyncTask hook (next)
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] No code changes — no test gates apply
+  - [ ] CI green (only the markdown linter / PR title check should run)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- **(testing)** Centralised fixture builders — audit v2 #4 (#733)
+
+## Summary
+
+  First implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #4
+  (test fixture builders).
+
+  **New module**
+  [\`src/testing/fixtures.ts\`](../blob/refactor/audit-v2-test-fixtures/src/testing/fixtures.ts):
+  - \`makeFixture<T>(defaults)\` generic factory
+  - \`makeQueueItem\` — \`QueueItemStatus\` builder
+  - \`makeActivityEntry\` — \`ActivityLogEntry\` builder
+  - \`makeScannedManifest\` — \`ScannedManifest\` builder
+
+  **9 tests** pin the helper contract + per-builder default shape so a
+  future change to a domain type that breaks the defaults is caught here
+  before cascading.
+
+  **Three call sites migrated:**
+  - \`DownloadQueue.test.tsx\` — inline \`makeItem\` builder removed (~25
+  LOC)
+  - \`ActivityLog.test.tsx\` — inline \`makeEntry\` builder removed (~10
+  LOC)
+  - \`MvGapFillModal.test.tsx\` — 13-line \`baseManifest\` literal →
+  \`makeScannedManifest()\`
+
+  All 22 + 18 + 10 tests in the migrated files still pass without
+  modification.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (this PR)
+  2. #1 useAsyncWithToast helper (next)
+  3. #3 confirmation modal factory hook
+  4. #6 settings field hook
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 409 pass (9 new, 0 regressions in 3 migrated
+  files)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(lib)** WithErrorToast helper — audit v2 #1 (#734)
+
+## Summary
+
+  Second implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #1
+  (async error → toast emission shape).
+
+  **New helper**
+  [\`src/lib/withErrorToast.ts\`](../blob/refactor/audit-v2-with-error-toast/src/lib/withErrorToast.ts):
+
+  \`\`\`ts
+  await withErrorToast(() => ipc(), {
+    successMsg: 'Success!',
+    errorMsg: (err) => \`Failed to X: \${err}\`,
+  suppressOn: ['cancel'], // optional — silently swallow expected
+  rejections
+  });
+  \`\`\`
+
+  Reads \`addToast\` via \`useUiStore.getState()\` so it works from any
+  context (component handlers, store actions, async effects) without being
+  a hook itself.
+
+  **13 unit tests** cover: success/error paths, static-string vs
+  function-typed errorMsg, default vs 'info' successVariant, suppressOn
+  case-insensitive matching against the displayed (post-errorMsg) text.
+
+  **Three call sites migrated** as proof:
+  - \`SettingsPage.tsx\` \`handleSave\` (7 LOC → 4)
+  - \`CrashReportSection.tsx\` \`handleDelete\` + \`handleDeleteAll\` (16
+  → 11)
+  - \`DownloadQueue.tsx\` 5 handlers (50 → 35)
+
+  All migrated sites' tests pass without modification.
+
+  Remaining ~25 call sites can opt in incrementally; no big-bang refactor.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 useAsyncWithToast / withErrorToast (this PR)
+  3. #3 confirmation modal factory hook (next)
+  4. #6 settings field hook
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 422 pass (13 new, 0 regressions in 3 migrated
+  files)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(lib)** UseConfirmation hook — audit v2 #3 (#735)
+
+## Summary
+
+  Third implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #3
+  (confirmation modal factory).
+
+  **New hook**
+  [\`src/lib/useConfirmation.tsx\`](../blob/refactor/audit-v2-use-confirmation/src/lib/useConfirmation.tsx):
+
+  \`\`\`ts
+  const confirmDelete = useConfirmation({
+    title: 'Delete crash report',
+    description: 'This cannot be undone.',
+    confirmLabel: 'Delete',
+    onConfirm: () => deleteCrashReport(id),
+  });
+
+  return (
+    <>
+      <Button onClick={confirmDelete.open}>Delete</Button>
+      {confirmDelete.modal}
+    </>
+  );
+  \`\`\`
+
+  The hook owns open/close state. \`description\` accepts \`ReactNode\` so
+  callers can include item details, secondary checkboxes (bound to parent
+  state), or multi-paragraph copy. Auto-closes on successful
+  \`onConfirm\`; **stays open if \`onConfirm\` throws** so the user can
+  retry — \`onConfirm\` is expected to surface its own error toast
+  (natural pairing with \`withErrorToast\`).
+
+  **11 unit tests** pin: default visibility, open(), confirm + auto-close,
+  stay-open-on-reject, cancel/escape fire onCancel, programmatic close(),
+  custom labels, rich ReactNode description with parent-state checkbox.
+
+  **Two DownloadQueue modals migrated** as proof:
+  - "Retry All Failed" (#665) — ~25 LOC of inline modal JSX gone
+  - "Clear All" — ~28 LOC gone
+
+  Two modals deliberately deferred:
+  - Per-item Delete (#685) — needs \`deleteTarget\` snapshot in
+  description
+  - Abort Queue (#620) — has "don't ask again" checkbox bound to separate
+  state
+
+  Both could migrate (hook supports both via rich descriptions) but are
+  slightly off the happy path.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (this PR)
+  4. #6 settings field hook (next, before M8)
+  5. #5 subprocess reader abstraction
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 433 pass (11 new, 0 regressions in 2 migrated
+  modals)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(hooks)** UseSettingsField — audit v2 #6 (#736)
+
+## Summary
+
+  Fourth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #6
+  (settings tab boilerplate).
+
+  **New hook**
+  [\`src/hooks/useSettingsField.ts\`](../blob/refactor/audit-v2-settings-field-hook/src/hooks/useSettingsField.ts):
+
+  \`\`\`ts
+  const acoustid = useSettingsField('acoustid_enabled');
+  <Toggle checked={acoustid.value} onChange={acoustid.set} />
+  \`\`\`
+
+  The key is supplied once. TypeScript narrows \`value\` and \`set\` to
+  the field's actual type (\`boolean\` / \`string\` / \`number\` / union)
+  automatically. Each call subscribes to \`state.settings.X\` only —
+  re-renders only on that field's change, preserving audit-v1's
+  per-selector pattern. \`set\` is \`useCallback\`-stable.
+
+  **11 unit tests** pin: read for each field type, reactive updates from
+  external store mutations, set writes via updateSettings without touching
+  other fields, set works for union-typed fields, set is referentially
+  stable per key.
+
+  **MetadataTab migrated** as proof — 7 controls converted from the inline
+  \`(checked) => updateSettings({ X: checked })\` lambda pattern. Net ~25
+  LOC saved on this single tab.
+
+  **Multi-service relevance: very high.** M8/M9/M10 per-service settings
+  tabs (BBC iPlayer session, Spotify credentials, YouTube API key) will
+  land ~20 controls each. Without this hook: ~60 LOC of identical lambdas
+  per service. With it: ~10 LOC. Direct enabler for M8.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (this PR)
+  5. #5 subprocess reader abstraction (next, before M9/M10)
+  6. #8 state injection docs
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 444 pass (11 new, 0 regressions)
+  - [ ] CI green
+  - [ ] (Manual: open Settings > Metadata, toggle every control, save,
+  reload — confirm values round-trip)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(utils)** Spawn_line_reader helper — audit v2 #5 (#737)
+
+## Summary
+
+  Fifth implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #5
+  (subprocess reader abstraction).
+
+  **Honest scope assessment:** the audit estimated ~120 LOC saved across 4
+  reader sites. After surveying the actual code, that estimate was
+  optimistic — companion_supervisor and download_queue carry per-stream
+  state (watchdog timestamps, mutex accumulators, last-clean return-value
+  threading) that doesn't generalise into a clean visitor signature
+  without making the abstraction bigger than the inline code it replaces.
+
+  **What this PR ships:**
+  - New helper
+  [\`utils/subprocess_reader.rs\`](../blob/refactor/audit-v2-subprocess-reader/src-tauri/src/utils/subprocess_reader.rs)
+  with one primitive: \`spawn_line_reader(stream, async_visitor) ->
+  JoinHandle<()>\`
+  - 4 unit tests pinning the contract: reads-until-close,
+  partial-final-line, empty-stream, visitor mutable-state sharing (proves
+  the helper *could* host the more complex sites if a future audit decides
+  it's worth it)
+  - engine_runner's two readers migrated — they were byte-identical except
+  for the stream label. Net ~25 LOC saved on this single site
+  - companion_supervisor and download_queue **stay inline**; the
+  file-level docstring documents why honestly
+
+  **Real long-term value:** the primitive is a clean foundation for M9
+  (Votify) and M10 (yt-dlp) pip-engines, which will follow the
+  engine_runner pattern. They can adopt this from day one rather than
+  re-implementing the BufReader+next_line scaffold.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (this PR)
+  6. #8 state injection docs (next)
+  7. #2 useAsyncTask hook
+  8. #7 context_err! macro
+
+  ## Test plan
+
+  - [x] \`cargo clippy --tests -- -D warnings\` clean
+  - [x] \`cargo test --lib\` — 1003 pass, 1 ignored (4 new)
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run test\` — 444 pass (unchanged)
+  - [ ] CI green
+  - [ ] (Manual smoke: start a download, confirm engine output still
+  streams to UI / activity log via both event channels)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(hooks)** UseAsyncTask — audit v2 #2 (#739)
+
+## Summary
+
+  Seventh implementation cycle of [audit
+  v2](.github/audits/codebase-unification-audit-v2.md). Closes finding #2
+  (component-local async lifecycle).
+
+  **New hook**
+  [\`src/hooks/useAsyncTask.ts\`](../blob/refactor/audit-v2-use-async-task/src/hooks/useAsyncTask.ts)
+  — the component-local sibling of \`createAsyncResourceStore\` (which
+  covers the store-level shape).
+
+  \`\`\`ts
+  const submit = useAsyncTask(runPreflight);
+  <Button loading={submit.isRunning} onClick={() =>
+  submit.run()}>Submit</Button>
+  {submit.error && <p className="text-status-error">{submit.error}</p>}
+  \`\`\`
+
+  - Args forwarded through \`run(...args)\` — wrapped fn can take
+  arbitrary parameters
+  - Wrapped fn captured fresh on every render via a ref → no stale-closure
+  bugs
+  - \`run\` is referentially stable → safe to pass to onClick without
+  \`useCallback\`
+  - Composes naturally with \`withErrorToast\` when callers want a toast
+  on top
+
+  **9 unit tests** pin the contract: initial state, value/error/undefined
+  returns, isRunning toggle timing, prior-error clearing on new run, args
+  forwarding, run reference stability, **always invokes the latest
+  closure** (the captured-by-ref pattern — captured run from render 1
+  still calls render 2's fn).
+
+  **DownloadForm migrated** as proof — replaced the hand-rolled
+  \`isChecking\` boolean + handleSubmit's try/finally toggle with
+  \`submitTask.isRunning\` + \`submitTask.run()\`. The lambda wrapper \`()
+  => runPreflightAndSubmit()\` is required because the wrapped fn is
+  declared after the hook call (TS2448 TDZ otherwise) — captures the
+  binding lazily so click-time the binding is initialised.
+
+  **Audit v2 PR plan:**
+  1. ✅ #4 fixtures (#733)
+  2. ✅ #1 withErrorToast (#734)
+  3. ✅ #3 useConfirmation (#735)
+  4. ✅ #6 useSettingsField (#736)
+  5. ✅ #5 subprocess reader (#737)
+  6. ✅ #8 commands README (#738)
+  7. ✅ #2 useAsyncTask (this PR)
+  8. #7 context_err! macro (last one)
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 453 pass (9 new, 0 regressions in
+  DownloadForm's 15 tests)
+  - [ ] CI green
+  - [ ] (Manual smoke: paste an Apple Music URL, confirm Add to Queue
+  button shows loading state during preflight + clears on completion)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(utils)** Context_err! macro — audit v2 #7 (closes audit v2) (#740)
+
+## Summary
+
+  **Final audit v2 cycle.** Closes finding #7 (Tauri command
+  error-wrapping macro). With this PR merged, **all 8 audit v2 findings
+  ship**.
+
+  **New macro**
+  [\`src-tauri/src/utils/error_context.rs\`](../blob/refactor/audit-v2-context-err-macro/src-tauri/src/utils/error_context.rs):
+
+  \`\`\`rust
+  use crate::context_err;
+
+  let entry = context_err!(
+      keyring::Entry::new(SERVICE_NAME, &key),
+      "Failed to create keyring entry"
+  )?;
+  \`\`\`
+
+  Expands to \`result.map_err(|e| format!("...: {e}"))?\`. Format args
+  resolve against the surrounding scope. Exported via \`#[macro_export]\`
+  so the call site is \`crate::context_err!\`.
+
+  **Honest scope assessment.** Per-site savings are modest (~30 chars).
+  The real value: one place to evolve error formatting (separator change,
+  structured logging, migration to a \`CommandError\` enum) — without the
+  macro, that's a 40-site search-and-replace.
+
+  **5 unit tests** pin: Ok pass-through, static prefix, format args from
+  scope, function-body usage with \`?\`, Display preservation.
+
+  **Three credentials.rs sites migrated** as proof. \`commands/README.md\`
+  updated to point new code at the macro.
+
+  ## Audit v2 — final scoreboard
+
+
+### 🧪 Testing
+
+- **(downloadform)** Focused unit tests — first installment of #232 (#728)
+
+## Summary
+
+  First installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — DownloadForm covered.
+
+  15 tests landed in
+  [\`src/components/download/DownloadForm.test.tsx\`](../blob/feat/v1.0.10-prep/src/components/download/DownloadForm.test.tsx):
+
+  - Smoke render + label/input wiring + helper hint
+  - Single URL: typing → store update + validation, content-type badge,
+  error message
+  - Multi-URL: count badge with pluralisation, "(N invalid)" suffix,
+  all-invalid error
+  - Submit button gating across 4 states (empty / invalid single / valid
+  single / mixed batch)
+  - Quality Overrides toggle render + click
+
+  **Deferred to a follow-up PR**: the full \`handleSubmit\` preflight
+  chain (4 IPCs — internet / output path / wrapper / cookies). Each
+  preflight has its own toast/error/redirect surface and warrants
+  dedicated fixture setup. Submit-disabled gating is tested without
+  clicking the button.
+
+- **(downloadqueue)** Focused unit tests — #232 part 2 (#729)
+
+## Summary
+
+  Second installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — DownloadQueue covered.
+
+  22 tests landed in
+  [\`src/components/download/DownloadQueue.test.tsx\`](../blob/test/232-downloadqueue/src/components/download/DownloadQueue.test.tsx):
+
+  - Empty state (icon + helper text + 0-items subtitle)
+  - Header subtitle pluralisation (0 / 1 / 2 items)
+  - Per-row rendering via QueueItem (mocked to a placeholder)
+  - \`role=list\` accessibility landmark
+  - Stats bar segments — non-zero only
+  - Conditional action buttons:
+    - Refresh / Import always
+    - Start Queue: queued > 0 AND active === 0
+    - Clear Completed: only when finished items exist
+    - Retry All Failed: only when failed > 0
+    - Abort Queue: hides when only terminal items remain
+  - Export: present when queue has items, count of active+queued in label
+  - Confirmation modals open on click (Retry All, Clear All, Abort)
+  - \`refreshQueue\` called on mount (polling start)
+  - DownloadState exhaustiveness sanity check
+
+  QueueItem mocked as a stable placeholder so this file exercises the
+  queue *controller* (header, stats, actions, modals, empty state) — not
+  the row component, which warrants its own test file.
+
+  **No version bump in this PR** — per-cycle internal version bumps were
+  confusing the picture. Release-please PR #719 accumulates everything
+  into the next bumper release.
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 367 pass (22 new)
+  - [ ] CI green
+  - [ ] (Manual not applicable — pure test addition, no behaviour change)
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+- **(activitylog)** Focused unit tests — #232 part 3 (#730)
+- **(setupwizard)** Focused unit tests — #232 part 4 (closes controller scope) (#731)
+
+## Summary
+
+  Fourth and final installment of #232 (frontend tests for DownloadForm,
+  DownloadQueue, ActivityLog, SetupWizard) — SetupWizard controller
+  covered.
+
+  15 tests landed in
+  [\`src/components/setup/SetupWizard.test.tsx\`](../blob/test/232-setupwizard/src/components/setup/SetupWizard.test.tsx):
+
+  - Progress bar renders all 6 step labels
+  - Future-step circles show 1-based index
+  - Past steps render as ✓ checkmarks
+  - StepComponent dispatches to the correct mock per \`currentStep\`
+  - Exhaustive sanity check: every SETUP_STEPS entry maps to its expected
+  mock
+  - Back button hidden on first step, present from step 2
+  - Back click invokes \`prevStep\`
+  - Continue disabled when current step ∉ \`completedSteps\`, enabled
+  otherwise
+  - Continue click invokes \`nextStep\`
+  - Last step: Continue → "Get Started"
+  - Get Started fires the full finish flow (\`finishSetup\` +
+  \`updateSettings\` + \`setShowSetupWizard(false)\`)
+  - SETUP_STEPS contract test pins the documented order
+
+  **Each step component mocked** as a tiny placeholder so tests assert on
+  the controller's dispatch + navigation gating without exercising 1700+
+  lines of step behaviour. Per-step tests (CookiesStep, DependenciesStep,
+  etc.) remain as follow-ups in their own dedicated test files.
+
+  \`goToStep(idx, completedSteps)\` helper mutates the setupStore directly
+  so tests can jump to any wizard position without going through the
+  per-step UX.
+
+  **This is the final installment of #232's controller-level scope** — all
+  four target components now have focused unit test files. Per-row /
+  per-step deep-dive coverage is its own follow-up.
+
+  Frontend test count: **400 total** (15 new in this PR).
+
+  ## Test plan
+
+  - [x] \`npm run type-check\` clean
+  - [x] \`npm run lint\` clean
+  - [x] \`npm run test\` — 400 pass (15 new)
+  - [ ] CI green
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [0.53.3] - 2026-05-08
+
+### 🐛 Bug Fixes
+
+- **(queue)** Identify content in codec-exhaustion activity log messages
+
+When GAMDL exhausts the priority chain, the activity log used to say
+  "none available for this content" / "All audio formats exhausted" with
+  no indication of *which* queued item failed — confusing once the queue
+  is more than one item deep. Each of the three exhaustion sites in
+  process_queue() now appends "for {Artist — Album — Track}" (or the
+  redacted URL when the API metadata fetch hadn't populated names yet),
+  sourced from the queue item under its existing lock.
+
+- **(queue)** Scale companion-phase timeout by tier count (#705)
+
+The completion task was reusing compute_completion_timeout (sized for
+  enrichment alone) as the deadline for the companion-wait branch. With
+  multi-tier companion modes (e.g. Atmos→ALAC→AAC→AAC-Legacy = 4 full
+  GAMDL re-downloads), the 22-minute hard timeout was firing while tier
+  2 or 3 of 4 was still legitimately running.
+
+  - New compute_companion_timeout(track_count, tier_count): adds 8 min
+    per planned tier on top of the enrichment budget, same 4-hour cap.
+  - CompanionTaskHandle::tier_count() exposes the already-tracked
+    planned_tiers length (no new state).
+  - Soft/hard companion + enrichment timeout messages now identify the
+    affected item by Artist — Album (URL fallback), matching the
+    pattern from c7ed212. Same fix applied via format_content_label.
+  - 5 new unit tests cover zero/single/four-tier scaling, the cap, and
+    monotonicity in tier count. Existing 7 enrichment timeout tests
+    unchanged and still passing.
+
+- **(queue)** Enforce strictly-serial post-processing via ActiveSlotGuard (#706)
+
+The success path used to call q.on_task_finished() at line 6246 (pre-fix)
+  — right after primary GAMDL exited but BEFORE the completion task took
+  over. That early decrement freed the queue slot while companions and
+  enrichment were still running, so any subsequent process_queue invocation
+  (user IPC, fallback retry, lib.rs startup recovery) could pick up the
+  next item and run its primary GAMDL in parallel with the previous item's
+  post-processing. The status bar showed "2 downloading" with max_concurrent: 1,
+  and two completion tasks could fire their hard timeouts in the same
+  wall-clock second — exactly the cross-contamination scenario #455 / #452
+  were designed to prevent.
+
+  The fix moves the slot release into the completion task, atomic with
+  set_complete inside the same lock acquisition. To make sure a panic,
+  abort, or runtime shutdown inside the completion task cannot leak the
+  slot (and stall the queue forever), the task takes ownership of an
+  ActiveSlotGuard RAII guard on spawn:
+
+    - Happy path: explicit q.on_task_finished() then guard.disarm() →
+      Drop is a no-op, slot released exactly once.
+    - Panic / abort path: Drop fires a fire-and-forget tokio::spawn to
+      acquire the lock and decrement active_count.
+
+  The other 7 on_task_finished() call sites (5898, 6092, 7998, 8073, 8119,
+  8154, 8171) all live on terminal error paths that never spawn a
+  completion task, so they keep their existing behaviour.
+
+  3 new unit tests:
+    - active_slot_guard_disarm_does_not_release
+    - active_slot_guard_drop_releases_slot
+    - on_task_finished_saturates_at_zero (defence in depth — even if a
+      double-release ever slips through, active_count cannot underflow)
+
+  Full suite: 965 passed (962 + 3), 1 ignored, 0 failed. Clippy clean.
+
+- **(queue)** Serial post-processing + per-tier timeouts + content labels (#707)
+
+## Summary
+
+  Three independent download-queue reliability fixes, bundled because they
+  were discovered in one debugging session and share the same area of
+  `download_queue.rs`:
+
+  - **#706 — Strictly-serial post-processing.** The success path used to
+  call `q.on_task_finished()` immediately after primary GAMDL exit,
+  decrementing the slot while companions and enrichment were still
+  running. That let any concurrent `process_queue` invocation (user IPC,
+  fallback retry, startup recovery) start the next item in parallel,
+  violating the #455 contract and re-introducing the metadata
+  cross-contamination risk #452 was designed to prevent. Fixed by moving
+  the slot release into the completion task and adding an
+  `ActiveSlotGuard` RAII guard so a panic / abort / shutdown cannot leak
+  the slot.
+
+  - **#705 — Companion-phase timeout scales with tier count.**
+  `compute_completion_timeout()` was sized for enrichment alone (10 min
+  base + 10 s/track) and reused for the companion-wait branch. With
+  multi-tier modes (Atmos → ALAC → AAC → AAC-Legacy = 4 full GAMDL
+  re-downloads), the 22 min hard timeout was firing while tier 2 of 4 was
+  still legitimately running. New `compute_companion_timeout(track_count,
+  tier_count)` adds 8 min × tier_count on top of the enrichment budget.
+  `CompanionTaskHandle::tier_count()` reads the already-tracked
+  `planned_tiers.len()` — no new state.
+
+  - **Content labels in activity-log timeout / exhaustion messages.** Six
+  previously ambiguous messages (3 codec-exhaustion at lines
+  5728/5769/7885 pre-fix, 3 timeouts at the soft companion / hard
+  companion / enrichment sites) now identify the affected item by Artist —
+  Album (URL fallback) via `format_content_label(&QueueItemStatus)`.
+  Useful when a 51-item queue has multiple items in flight.
+
+  ## Commits
+
+  | Hash | Title |
+  |---|---|
+  | `af7d48b` | fix(queue): identify content in codec-exhaustion activity
+  log messages |
+  | `58c97df` | fix(queue): scale companion-phase timeout by tier count
+  (#705) |
+  | `ab0214c` | fix(queue): enforce strictly-serial post-processing via
+  ActiveSlotGuard (#706) |
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Serialise changelog/release-please workflows + install git-cliff binary
+- Serialise changelog/release-please workflows + install git-cliff binary (#703) (#704)
+
+## Summary
+
+
+## [0.53.2] - 2026-05-06
+
+### 🐛 Bug Fixes
+
+- **(queue)** Stop classifying per-track codec skips as download failures
+- **(queue)** Stop classifying per-track codec skips as download failures (#698) (#699)
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(changelog)** Regenerate from clean state on each retry attempt
+- **(changelog)** Regenerate from clean state on each retry attempt (#700) (#701)
+
+### 🧹 Maintenance
+
+- **(deps-dev)** Bump ip-address from 10.1.0 to 10.2.0
+
+Bumps [ip-address](https://github.com/beaugunderson/ip-address) from 10.1.0 to 10.2.0.
+  - [Commits](https://github.com/beaugunderson/ip-address/commits)
+
+  ---
+  updated-dependencies:
+  - dependency-name: ip-address
+    dependency-version: 10.2.0
+    dependency-type: indirect
+  ...
+
+- **(deps-dev)** Bump ip-address from 10.1.0 to 10.2.0 (#695)
+
+Bumps [ip-address](https://github.com/beaugunderson/ip-address) from
+  10.1.0 to 10.2.0.
+  <details>
+  <summary>Commits</summary>
+  <ul>
+  <li>See full diff in <a
+  href="https://github.com/beaugunderson/ip-address/commits">compare
+  view</a></li>
+  </ul>
+  </details>
+  <br />
+
+
+  [![Dependabot compatibility
+  score](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=ip-address&package-manager=npm_and_yarn&previous-version=10.1.0&new-version=10.2.0)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)
+
+  Dependabot will resolve any conflicts with this PR as long as you don't
+  alter it yourself. You can also trigger a rebase manually by commenting
+  `@dependabot rebase`.
+
+- **(security)** Suppress glib-0429 advisory and prune stale entries
+
+Identified during the post-#688 security audit (#693).
+
+  `cargo audit` flags 20 RustSec advisories; all 20 are non-exploitable
+  in MeedyaDL's threat model and either already suppressed in deny.toml
+  or now added in this commit.
+
+- **(security)** Suppress glib-0429 advisory and prune stale entries (#693) (#697)
+
+## Summary
+
+  Post-#688 security audit. Closes #693.
+
+  \`cargo audit\` flags 20 RustSec advisories; **all 20 are
+  non-exploitable in MeedyaDL's threat model** and either
+  already-suppressed in [\`deny.toml\`](src-tauri/deny.toml) or now added
+  in this PR. \`npm audit\` is clean (0 vulnerabilities).
+
+  ## What changed
+
+  - **Added \`RUSTSEC-2024-0429\` suppression** — glib::VariantStrIter
+  Iterator/DoubleEndedIterator unsoundness. Linux-only (transitive via
+  \`webkit2gtk → wry → tauri\`); trigger condition (constructing a
+  VariantStrIter and iterating it) is not user-reachable from MeedyaDL's
+  code paths. Patch requires glib 0.20+, blocked by upstream Tauri's
+  pending GTK4 migration. Tracked in #696.
+  - **Removed two stale suppressions** — \`RUSTSEC-2025-0057\` (fxhash)
+  and \`RUSTSEC-2026-0097\` (rand 0.7.3 build-only). Upstream
+  \`tauri-utils\` dropped both chains; \`cargo deny\` now reports them as
+  \`advisory-not-detected\`. Pruned to keep the suppression list honest.
+  The detailed reachability block for the rand entry is removed since it's
+  no longer relevant; the carve-out (b) policy comment remains as guidance
+  for any future entries.
+
+  ## Manual security review (no findings)
+
+  A targeted Explore-agent audit verified the security baseline against
+  drift:
+
+  | Threat class | Result |
+  | --- | --- |
+  | Path traversal (\`validate_path_safe()\` guards on every IPC accepting
+  paths) | ✅ intact |
+  | Subprocess argument handling (zero \`sh -c\` patterns; all \`.arg()\`
+  parameterised; URL scheme validation before GAMDL) | ✅ intact |
+  | IPC rate limiting (\`start_download\` 10/min, \`check_all_updates\`
+  1/min, \`download_and_install_app_update\` 1/min,
+  \`import_cookies_from_browser\` 3/min) | ✅ intact |
+  | Credential storage (keychain-only via \`keyring\` crate; nothing in
+  \`settings.json\`) | ✅ intact |
+  | Wrapper-URL redaction in logs (\`redact_url_query()\` + verbose-only
+  \`[REDACTED]\` strip) | ✅ intact |
+  | Settings/queue file integrity (SHA-256 checksum on \`settings.json\`;
+  atomic temp+rename writes; settings migration v0→v4) | ✅ intact |
+  | Tauri capability scope (\`shell:allow-open\` only — not the broader
+  \`shell:default\`; \`fs:default\` is app-scoped in Tauri 2.x) | ✅ intact
+  |
+  | Newly-added IPC commands from #685 (\`delete_queue_item\`,
+  \`delete_history_entry\`) | ✅ both accept only typed UUIDs, no
+  paths/URLs/shell args |
+
+  ## Verification
+
+  - \`cargo deny check\` — \`advisories ok, bans ok, licenses ok, sources
+  ok\`.
+  - \`cargo audit\` — 0 vulnerabilities, all 20 advisories explicitly
+  handled.
+  - \`npm audit --audit-level=low\` — 0 vulnerabilities.
+  - \`cargo clippy --all-targets -- -D warnings\` — clean.
+  - \`cargo test --lib\` — 951 / 0.
+
+  ## Out of scope (filed as follow-ups)
+
+  - **#696** — track upstream Tauri's GTK4 migration. This is the root
+  cause for 12+ of the suppressed advisories; resolving it removes them
+  all in one go.
+
+  ## Test plan
+
+  - [ ] CI \`cargo deny\` job passes on Linux, macOS, Windows.
+  - [ ] No regressions in existing security paths (path validation,
+  subprocess argument handling, settings migration).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [0.53.1] - 2026-05-05
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.53.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### ⚡ Performance
+
+- Cache regexes on hot paths and clean clippy test warnings
+
+Identified during the post-#685 audit (#688). Two perf bugs fixed +
+  clippy clean across the test tree.
+
+  Perf — Rust regex caching (hot paths):
+
+  - dependency_manager.rs: 6 distinct regex::Regex::new() calls inside
+    parse_version_tuple() and extract_version_from_output() compiled
+    fresh on every invocation. Both run on every app startup and every
+    "Check for updates" click. Hoisted to LazyLock statics
+    (VERSION_TUPLE_RE, SEMVER_RE, MP4BOX_RE, MP4DECRYPT_RE, NM3U8DL_RE,
+    MEDIAINFO_RE) — same pattern as apple_music_api.rs and process.rs.
+  - update_checker.rs: check_component_update() compiled the same
+    semver-extraction regex on every poll. Hoisted to a SEMVER_EXTRACT_RE
+    LazyLock.
+
+  Clippy — test-tree warnings (8 total, all in test code):
+
+  - update_checker.rs::test_channel_filter_promotion: 4 nested-not asserts
+    (assert!(!(x >= y))) rewritten as assert!(x < y) — what they actually
+    mean.
+  - process.rs: 4 single-arm `match parse_gamdl_output(...) { TrackInfo
+    { .. } => panic!(...), _ => {} }` rewritten as `if let TrackInfo { .. }
+    = parse_gamdl_output(...) { panic!(...) }`.
+
+- Cache version-detection regexes on hot paths (#688) (#692)
+
+## Summary
+
+  Post-#685 code-quality + performance sweep. Two perf fixes on hot Rust
+  paths plus a clippy cleanup so the test tree builds clean under \`-D
+  warnings\`. Three larger findings deferred to dedicated follow-up issues
+  with full root-cause analysis.
+
+
+## [0.53.0] - 2026-05-05
+
+### ✨ Features
+
+- **(queue,history)** Add per-item delete to Queue and History
+- **(queue,history)** Add per-item delete (#685) (#686)
+
+## Summary
+
+  Adds per-item delete to the Download Queue and Download History pages,
+  filling the gap where the only removal options were bulk Clear Finished
+  / Clear All / Clear History. Common use case: purge a stubbornly-failing
+  entry without nuking the rest.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.4] - 2026-05-04
+
+### 🐛 Bug Fixes
+
+- **(release)** Require conventional PR titles
+- **(release)** Require conventional PR titles (#683)
+
+## Summary
+  - add a PR Title workflow that validates pull request titles with the
+  existing commitlint Conventional Commit config
+  - prevent squash-merge titles like 'Fix retry dedupe...' or 'Make
+  companion timeout...' from being merged and then ignored by Release
+  Please
+  - make this fix itself a conventional commit so Release Please has a
+  releasable commit after this PR lands
+
+  ## Root Cause
+  Release Please is not failing. The latest Release Please logs show it
+  skipped release creation because it could not parse recent merged commit
+  titles and then reported: 'No user facing commits found since v0.52.3'.
+  The recent PRs were merged with non-conventional squash titles, so
+  Release Please ignored them.
+
+  ## Expected Flow After Merge
+  1. This PR merges with a conventional squash title.
+  2. Release Please sees fix(release): require conventional PR titles.
+  3. Release Please creates or updates the release PR for the next patch
+  version.
+  4. Merging that release PR creates the tag/GitHub Release and triggers
+  the Release workflow.
+
+  ## Verification
+  - printf '%s\n' 'fix(release): require conventional PR titles' | npx
+  commitlint
+  - printf '%s\n' 'Make companion timeout advisory before hard abort' |
+  npx commitlint (fails as expected)
+  - git diff --check
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.3] - 2026-05-03
+
+### 🐛 Bug Fixes
+
+- **(release)** Avoid parallel updater manifest uploads
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(config)** Isolate GAMDL wrapper capability checks
+
+## [0.52.2] - 2026-05-02
+
+### 🐛 Bug Fixes
+
+- **(queue)** Unblock #666 storefront fallback on GAMDL v3.4+ + detect MV cover bug
+
+Two related fixes for failure shapes seen in real user runs (2026-05-02
+  session: 78-error visualizer album, 77 distinct AMP `Resource Not Found`
+  hits, zero storefront-fallback firings).
+
+- Unblock #666 storefront fallback on GAMDL v3.4+ + detect MV cover bug (#674)
+
+## Summary
+
+  Two fixes that came out of investigating today's user-reported failures
+  (queue with 8 failed items, all `GAMDL reported N per-track error(s)
+  even though the process exited 0`).
+
+  | Issue | What | One-line fix |
+  | --- | --- | --- |
+  | **#672** | #666 storefront fallback was a no-op on GAMDL v3.4+ | The
+  detector buffer (`raw_stderr_lines`) was only fed by stderr. GAMDL v3.4
+  moved logging to stdout, so the buffer stayed empty. Renamed to
+  `raw_output_lines` and have both readers append to it. |
+  | **#673** | Music-video albums fail every track with a confusing
+  generic error | Added `is_gamdl_mv_cover_template_bug` detector and a
+  focused user-facing message replacing the generic per-track-error count.
+  |
+
+  ## Captured user evidence
+
+  Today's session log (1-day window) shows:
+  - **77 distinct AMP "Resource Not Found" 404s** — these should have
+  triggered the auto-retry-with-account-region path from #666 but didn't.
+  - **78 `httpx.HTTPStatusError: 400 Bad Request`** for
+  `mzstatic.com/Video.../{w}x{h}mv.jpg` URLs — every track of a 78-track
+  music-video album failed because GAMDL didn't substitute the cover-URL
+  placeholders.
+  - **Zero** activity-log lines mentioning `Storefront fallback` or
+  `account region` for the same window.
+
+  Both root causes confirmed at the source:
+  - #672: `raw_stderr_lines` declared at `download_queue.rs:8088` was only
+  written from the stderr task. GAMDL v3.4+'s `structlog` migration to
+  stdout (documented in `CLAUDE.md` and
+  `.github/audits/gamdl-v3.4-v3.5-audit.md`) means the buffer is empty
+  when `is_storefront_mismatch_error` runs at line 8508.
+  - #673: Real captured error: ``httpx.HTTPStatusError: Client error '400
+  Bad Request' for url
+  'https://a1.mzstatic.com/Video221/v4/.../%7Bw%7Dx%7Bh%7Dmv.jpg'`` —
+  `%7Bw%7Dx%7Bh%7D` is URL-encoded `{w}x{h}`, the literal placeholder
+  GAMDL was supposed to substitute.
+
+  ## What changed
+
+  - `src-tauri/src/services/download_queue.rs`
+  - Renamed `raw_stderr_lines` → `raw_output_lines` and added a clone +
+  push from the stdout reader so both streams feed the consumer buffer.
+  - Soft-error path now checks `is_gamdl_mv_cover_template_bug` BEFORE the
+  storefront detector, returning a focused upstream-bug message that names
+  the cause + links to the GAMDL issue tracker + warns that no audio
+  downloaded.
+  - `src-tauri/src/utils/process.rs`
+  - New `is_gamdl_mv_cover_template_bug(error_message)` requiring all
+  three signals (`400 Bad Request` + `mzstatic.com/Video` + raw or
+  URL-encoded `{w}x{h}` template). Won't match generic 400s, won't match
+  the storefront 404 shape.
+  - 4 new unit tests for the cover-template detector.
+
+  ## Tests
+
+  - 8 targeted tests pass (4 storefront-mismatch, 4 cover-template).
+  - `cargo clippy -- -D warnings` clean.
+  - Frontend: 303 tests pass, type-check clean.
+
+  **Note on the parallel-test flake.** Adding any new tests to the suite
+  reshuffles the scheduler and exposes a pre-existing race against
+  `gamdl_capabilities`'s global version cache
+  (`ini_includes_wrapper_m3u8_ip_on_v31` flakes when run in parallel with
+  sibling `ini_omits_wrapper_m3u8_ip_on_v30`). Both pass in isolation;
+  tracked separately for a `serial_test`-style fix.
+
+  ## Test plan
+
+  - [ ] **#672 verify:** Queue a `/us/album/X` URL that you know is
+  region-locked away from the US, on a `gb` account. Activity log should
+  now show `Storefront 'us' returned no catalog entry — retrying with your
+  account region 'gb'…` and the retry should land.
+  - [ ] **#673 verify:** Queue a music-video-heavy album (e.g. an
+  Anniversary Edition with visualizers). When it fails, the queue item's
+  error text should now read the focused `GAMDL bug — music-video cover
+  URL not templated…` message instead of `GAMDL reported N per-track
+  error(s) even though the process exited 0`.
+
+  ## Closes
+
+  - Closes #672
+  - Closes #673
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.1] - 2026-04-30
+
+### 🐛 Bug Fixes
+
+- **(deps)** Bump @tauri-apps/api + cli to 2.11.0 to match Rust crate
+
+The Release workflow for v0.52.0 failed on every platform with:
+
+    Found version mismatched Tauri packages.
+    tauri (v2.11.0) : @tauri-apps/api (v2.10.1)
+
+  `Cargo.toml` had `tauri = "2"` which cargo resolved to the latest
+  2.11.0 release. `package.json` had `@tauri-apps/api` and
+  `@tauri-apps/cli` pinned to `^2.10.1`, so the npm lockfile stuck on
+  2.10.1 even after Tauri 2.11.0 dropped. The newer tauri-cli's
+  preflight mismatch check then refused to build.
+
+  Bumped both npm pins to `^2.11.0` and refreshed `package-lock.json`.
+  `npx tauri info` now reports tauri / @tauri-apps/api /
+  @tauri-apps/cli all on 2.11.0.
+
+  The accompanying `src-tauri/gen/schemas/*.json` updates are the
+  expected 2.11.0 schema diff — adds the new
+  `core:app:allow-supports-multiple-windows` permission. No
+  capability/.json file in this repo references the new permission
+  yet; the schema bump is metadata-only.
+
+  Verified locally: `npm run type-check`, `npm run build`, `npm run
+  test` (303 pass), `cargo test --lib` (930 pass), `cargo clippy
+  -- -D warnings` clean.
+
+  Fixes the Release workflow failure for v0.52.0.
+
+- **(deps)** Bump @tauri-apps/api + cli to 2.11.0 (unblock v0.52 Release) (#670)
+
+## Summary
+
+  The **Release** workflow for **v0.52.0** failed on every platform (run
+  [25191197362](https://github.com/MWBMPartners/MeedyaDL/actions/runs/25191197362))
+  at the `npm run tauri build` step with:
+
+  \`\`\`
+  Found version mismatched Tauri packages.
+  Make sure the NPM package and Rust crate versions are on the same
+  major/minor releases:
+  tauri (v2.11.0) : @tauri-apps/api (v2.10.1)
+  \`\`\`
+
+  ## Root cause
+
+  - `Cargo.toml` had `tauri = "2"` → cargo resolved to the latest 2.11.0
+  release.
+  - `package.json` had `@tauri-apps/api` / `@tauri-apps/cli` pinned to
+  `^2.10.1` → the npm lockfile stayed on 2.10.1 even after Tauri 2.11.0
+  dropped.
+  - The newer tauri-cli's preflight mismatch check refused to build.
+
+  ## Fix
+
+  - `package.json`: bumped both `@tauri-apps/api` and `@tauri-apps/cli`
+  pins to `^2.11.0`.
+  - `package-lock.json`: refreshed via `npm install`.
+  - `src-tauri/gen/schemas/*.json`: regenerated by tauri-cli on the bump —
+  adds the new `core:app:allow-supports-multiple-windows` permission. No
+  capability/.json file in this repo references it yet; the schema bump is
+  metadata-only.
+
+  `npx tauri info` now reports tauri / @tauri-apps/api / @tauri-apps/cli
+  all on **2.11.0**.
+
+  ## Verified locally
+
+  - `npm run type-check`: clean
+  - `npm run build`: succeeds
+  - `npm run test`: **303 pass**
+  - `cargo test --lib`: **930 pass, 1 ignored**
+  - `cargo clippy -- -D warnings`: clean
+
+  ## Test plan
+
+  - [ ] CI on this PR is green on all platforms.
+  - [ ] After merge, manually re-trigger the Release workflow against the
+  `v0.52.0` tag (or it will pick up automatically on the next tag).
+
+  ## Follow-up — should we widen the cargo pin?
+
+  `tauri = "2"` is intentionally permissive. The mismatch only happens
+  when the upstream cuts a minor *between* our last npm-install and our
+  next release build. We could pin both sides to `~2.11` for tighter
+  coupling, but that just defers the problem to the next minor bump and
+  adds a manual step. Alternative: a CI job on a daily cron that runs `npx
+  tauri info` and opens a PR if the two sides drift. Tracked separately
+  (no issue yet — file if you want me to).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.52.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.52.0] - 2026-04-30
+
+### ✨ Features
+
+- **(queue)** Auto-retry failed downloads with account region storefront (#666)
+
+When a user pastes a URL with a storefront other than their account
+  region (e.g. /us/album/X on a GB account) and the download fails
+  because the album either isn't in the URL's catalog or the user's
+  account can't license it from there, MeedyaDL now retries once with
+  the user's account-region storefront. The original-URL behaviour is
+  preserved when it works — the user may legitimately want the US
+  version for bonus tracks / mix variants / regional licensing.
+
+  Captured user evidence drove this: a queue with 12 failed items, 5 of
+  them /us/ URLs against a GB account, all marked failed with
+  "GAMDL reported N per-track error(s) even though the process exited 0".
+  The underlying tracebacks contained the AMP API "Resource Not Found"
+  shape — i.e. the catalog probe found no match in the URL's storefront.
+
+- **(queue)** Smart manifest-driven retry — only re-fetch missing tracks (#667)
+
+Today's retry path resets the queue item to Queued and re-runs the
+  full GAMDL command. GAMDL's `overwrite=false` keeps already-downloaded
+  files (correct), but it wastes wall time on a fresh metadata fetch for
+  every track, re-evaluates the whole companion-tier loop, and re-runs
+  every enrichment stage (ReplayGain, AcoustID, MusicBrainz) against
+  files we already tagged.
+
+  This change reads the `manifest.meedyadl` written at end-of-pipeline,
+  diffs the expected track set against on-disk audio files, and replaces
+  the queue item's URL list with a precise per-track URL set
+  (`album_url?i={song_id}`) covering only the tracks that actually
+  failed. The retry call then runs a single targeted GAMDL invocation.
+
+- **(retry)** Per-item + right-click + bulk retry UX on History and Queue (#665)
+
+History page had no retry path at all — failed and partially-failed
+  downloads were dead-ends until the user manually copied the URL back
+  into the Download form. Queue page had per-item retry but no bulk
+  option, so re-running 12 failed items took 12 clicks. This adds:
+
+  History page:
+    * Per-row Retry button (RotateCcw icon) on every entry whose
+      `status !== 'success'`. Calls `startDownload({ urls: [entry.url] })`
+      to re-enqueue (the original queue item is gone after the history
+      write). Toast confirms success/failure.
+    * Right-click context menu on every row with Copy URL (always),
+      Retry Download (failed only), Open Folder (when path exists).
+      Same set as the inline buttons — keyboard / power-user parity.
+    * "Retry All Failed (N)" header button shown only when failed
+      entries exist AND the user is not in a search context. Confirms
+      via modal with the count, dedupes URLs (12 failed entries for the
+      same URL → 1 re-enqueue), submits a single batched
+      `startDownload` call. Toast summary reports duplicates skipped.
+
+  Queue page:
+    * "Retry All Failed (N)" header button. Confirms via modal,
+      iterates errored items, calls `retryDownload` per item via
+      `Promise.allSettled` so one bad item doesn't abort the batch.
+      Each retry passes through the smart manifest planner (#667), so
+      already-downloaded tracks are skipped at the planner layer —
+      bulk retry of 12 album items only re-fetches the actually-failed
+      tracks across them.
+
+  Failed scope deliberately covers both:
+    * Hard failures (network, auth, terminal codec exhaustion, etc.)
+    * Partial-success failures (`GAMDL reported N per-track error(s)
+      even though the process exited 0`) — the dominant failure mode
+      in captured user evidence.
+
+  Updated `settingsStore.test.ts` mocks to include the new
+  `storefront_fallback_on_failure: true` field that landed in #666.
+
+- **(settings)** Expose Track/Disc Number Padding controls (#587)
+
+Settings audit found these two `AppSettings` fields had no UI surface
+  at all — they were only configurable by hand-editing settings.json.
+  Both govern the `{track}` / `{disc}` placeholder padding in filename
+  templates and were added in #587 to fix box-set sort order
+  (`100 Track.m4a` after `099 Track.m4a` instead of after `09 Track.m4a`).
+
+  Mirrored as TypeScript types `TrackNumberPadding` and
+  `DiscNumberPadding`, defaulted in settingsStore to `'auto'`, and
+  surfaced as Select controls at the bottom of Settings > Templates >
+  File Templates with descriptions explaining when each option matters.
+  Updated settingsStore.test.ts mock to include the new fields.
+
+  Other audit findings reviewed and confirmed already covered in UI:
+  cover_art_name + cover_format (CoverArtTab), default_video_resolution
+  (QualityTab), ffmpeg_path / mediainfo_path (ToolsTab),
+  companion_lyrics_formats / synced_lyrics_format (LyricsTab),
+  colour_blind_mode + theme_override (GeneralTab), wrapper_m3u8_ip
+  (AdvancedTab), artist_auto_select_multi (QualityTab).
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.51.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(claude)** Record PR #662 fixes in Context, Memory, and Prompts
+
+Updates the four Claude collateral files in .claude/ to capture the
+  six user-reported v0.50.1 fixes shipped on PR #662:
+
+  - CLAUDE.md (Claude Context): six new convention bullets covering the
+    notification permission preflight + style gating + Test button (#658),
+    the FallbackChainList.allItems remove/re-add API (#659), the
+    TracebackFrame variant + is_python_traceback_noise helper (#660),
+    the set_complete/set_error terminal-state guards (#661), and the
+    CompanionTaskHandle cooperative-cancel pattern (#663). Also amends
+    the duplicate-URL toast note (#657) and updates the existing
+    Companion downloads bullet to reference the new handle wrapper.
+
+  - memory/project_pr662_user_session_fixes.md (Claude Memory + History):
+    new project memory file recording the in-flight PR, the live state
+    at session end, the architectural learnings (macOS notification
+    permission once-per-bundle quirk; tokio JoinHandle::abort cannot
+    preempt sync code; cooperative-cancel flag pattern; doc-list lint
+    trap; lucide-react test-mock alignment) and the user's predictive QA
+    cycle.
+
+  - memory/MEMORY.md: indexes the new file with a one-line hook.
+
+  - ProjectBrief_Chat.claude (Claude Prompts): appends a new "Session
+    Prompts Archive" section below a sentinel divider, leaving the
+    original frozen genesis brief intact above. Captures this session's
+    user prompts in chronological order so future sessions can reload
+    context without re-reading every commit.
+
+- **(help)** Cover retry UX, storefront fallback, smart retry, padding
+
+Bundles the help-doc updates for the features landing in this PR (#665
+  retry UX, #666 storefront fallback, #667 smart manifest retry) plus
+  the previously-undocumented Track/Disc Number Padding controls (#587).
+
+  Files updated:
+
+  - help/troubleshooting.md
+    * New "Storefront Mismatch" subsection under Not Found errors,
+      explaining the auto-retry-with-account-region behaviour and the
+      settings escape hatch.
+    * New "Retrying Failed or Partial Downloads" section covering per-
+      item retry, right-click context menu, bulk Retry All Failed, and
+      the smart manifest-driven retry path (with the "all tracks already
+      on disk → refused" outcome explained).
+
+  - help/faq.md
+    * Expanded "Can I download content from regions other than my own?"
+      to cover the auto-retry-with-account-region path and how to opt out.
+    * New Q&A "How do I retry a failed download?" covering all three
+      paths (per-item, History, bulk) and the smart-retry behaviour.
+
+  - help/fallback-quality.md
+    * "Reordering the Fallback Chain" rewritten to match the actual UI
+      (up/down arrows, × remove, Available panel, + re-add). Old text
+      described drag-and-drop which was never implemented.
+    * Documents the safety guard that prevents removal of the last item.
+
+  - help/downloading-music.md
+    * New "Track and Disc Number Padding" subsection in File Naming
+      explaining the Auto/None/2/3/4-digit options and the sort-order
+      bug they fix on >99-track albums.
+    * Queue actions list expanded: smart-retry behaviour on Retry,
+      Retry without Wrapper, Retry All Failed header button, right-
+      click context menu, and the History-page parity.
+
+  - help/getting-started.md
+    * Added a "If a download fails" tip after the basic-usage steps so
+      new users discover the retry affordances early.
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.51.0] - 2026-04-29
+
+### ✨ Features
+
+- **(settings)** Allow removing/re-adding codecs in fallback chains (#659)
+
+The Audio Fallback and Video Fallback chains in Settings > Fallback
+  only supported reordering, so users could not exclude codecs they did
+  not want MeedyaDL to try (e.g. Binaural for users without binaural
+  headphones, Atmos/AC3 for cookie-only users without the wrapper).
+
+  Extends FallbackChainList with an optional `allItems` prop. When
+  supplied, each row gets an X (remove) button and an "Available
+  (not in chain)" panel renders below the active chain with + buttons
+  to re-add previously removed entries. The remove button on the only
+  remaining row is disabled — an empty chain would block every download.
+
+  No settings schema migration needed: the chain remains a Vec<SongCodec>
+  / Vec<VideoResolution> serialised as today; removed items are simply
+  absent from the array. The Rust priority builder
+  (merge_options/try_fallback) already handles arbitrary chain lengths.
+
+  QualityTab callers (artist auto-select, video codec priority) do not
+  pass `allItems` and continue to render as pure-reorder lists.
+
+
+### 🐛 Bug Fixes
+
+- **(toast)** Auto-dismiss duplicate-URL warning (#657)
+
+The duplicate-URL toast emitted by DownloadForm was typed as 'warning',
+  which the uiStore treats as persistent (duration = 0). Since the download
+  is still queued and no user action is required, switch the type to 'info'
+  so the toast picks up notification_auto_dismiss_seconds (default 5s).
+
+- **(notifications)** Make native OS notifications actually fire (#658)
+
+Native macOS notifications never appeared even with "Native + In-app"
+  selected. Three root causes addressed:
+
+  1. Permission silently never asked. requestPermission() only triggers
+     the macOS system prompt the first time it's called per bundle ID;
+     if the user dismissed the original prompt, all subsequent calls
+     resolved with 'default' and sendNotification became a no-op.
+     Added a startup preflight that runs once after settings load so
+     the prompt appears at a predictable, visible moment.
+
+  2. Errors swallowed. uiStore's notification path used .catch(() => {}),
+     giving zero diagnostic signal. Replaced with console.warn lines that
+     surface the resolved status / underlying error.
+
+  3. Backend ignored notification_style. send_desktop_notification only
+     gated on desktop_notifications:bool, so the user's in_app_only
+     choice was disregarded by the Rust completion path. Added a
+     notification_style != "in_app_only" gate.
+
+  Also adds a "Send Test Notification" button to Settings > General >
+  Notifications so users can verify the OS pipeline on demand.
+
+- **(activity-log)** Suppress Python traceback noise in non-verbose mode (#660)
+
+GAMDL (and its dependencies — httpx, async_lru, gamdl.interface) raise
+  Python exceptions on certain code paths (notably music-video cover-art
+  fetch), printing multi-line tracebacks to stdout. The Activity Log was
+  showing two red error entries per traceback:
+
+    1. The "Traceback (most recent call last):" header — caught by the
+       legacy `traceback` keyword in Priority 7 of parse_gamdl_output.
+    2. The exception summary line ("TypeError: ...") — caught by
+       PYTHON_EXCEPTION_REGEX (Priority 4b).
+
+  (1) was duplicate noise, since (2) is the meaningful one. Multiplied
+  across 20+ retries on a music-video heavy album, this produced 40+
+  red lines for what was actually a single, recurring upstream bug.
+
+  The fix is layered:
+
+  - New GamdlOutputEvent::TracebackFrame variant captures the header,
+    `File "..."` stack frames, and caret highlight lines explicitly so
+    the consumer can route them to a separate sink. The `traceback`
+    keyword is removed from Priority 7 — the explicit variant supersedes
+    it without leaving a duplicate-classification path.
+
+  - New process::is_python_traceback_noise() is a cheap (no-regex)
+    twin of the Priority 3c branch that the stdout/stderr readers use
+    to gate the per-line `activity-log` Tauri event in non-verbose mode.
+    The on-disk activity-log writer still records every line, so support
+    requests stay debuggable.
+
+  - The exception summary line (TypeError, ConnectError, etc.) is
+    unchanged — it remains a real Error event and stays visible.
+
+  These tracebacks originate inside upstream Python; MeedyaDL cannot
+  prevent them being printed. What MeedyaDL *can* do is stop classifying
+  benign noise as errors.
+
+- **(queue)** Block terminal-state revival + clarify timeout messaging (#661)
+
+The per-item completion task at the bottom of the download pipeline
+  always called set_complete() after the post-companion advisory pass,
+  even if the download itself had failed minutes earlier. Captured logs
+  showed items moving Error -> Complete silently, contradicting the
+  prior error toast and red activity-log entry.
+
+  Three changes:
+
+  1. set_complete() now refuses to overwrite Error or Cancelled. The
+     completion task can call it safely; failed/cancelled items stay
+     in their terminal state. Five new unit tests pin the behaviour:
+     - set_complete_does_not_revive_errored_item
+     - set_complete_does_not_revive_cancelled_item
+     - set_error_does_not_overwrite_cancelled_item
+     - set_error_does_not_overwrite_complete_item
+     (plus the original happy-path tests which still pass)
+
+  2. set_error() now refuses to overwrite Cancelled or Complete. The
+     cancellation path explicitly transitions to Cancelled first; a
+     late-arriving subprocess error during teardown must not flip
+     that to Error and must not poison the error field.
+
+  3. The companion-timeout activity-log message no longer claims
+     "marking complete" — that wording was misleading because
+     set_complete() does not actually run until after the post-
+     companion advisory pass, which can take many additional minutes
+     on large box sets. Replaced with "skipping remaining companions;
+     final tag pass still to run". A new "Final tag pass:
+     applying [Explicit]/[Clean] suffixes…" log entry fires at the
+     start of the advisory pass so the long silent gap becomes visible.
+
+  Also adds Bell + Plus to the lucide-react test mock to support the
+  icons added by #658 and #659.
+
+- **(lint)** Indent sub-bullets in parse_gamdl_output priority list
+
+Clippy's `doc_lazy_continuation` rejected the unindented `3c.` and `4b.`
+  lines I added in #660 — they were treated as continuation text of the
+  preceding `3.` and `4.` items rather than separate bullets. Indented
+  them as proper sub-bullets so clippy + rendered docs both stay clean.
+
+- **(queue)** Cooperative-cancel companion task on completion-task abort (#663)
+
+After the 10-minute companion-download deadline fired and handle.abort()
+  was called, the activity log went silent — and then sprang back to life
+  5–15 minutes later with a burst of "Companion: converted N TTML file(s)"
+  events for the same download_id. Captured timeline:
+
+    22:08:26  ⚠ Companion downloads timed out — handle.abort() called
+    22:19:50  Companion: converted 1 TTML file(s) to Enhanced LRC
+    22:19:50  Companion: converted 5 TTML file(s) to Enhanced LRC
+    …       (one line per album dir, for the next several seconds)
+
+  Root cause: run_companion_lyrics_conversion is a *synchronous* function
+  called from inside the async companion task. tokio::task::JoinHandle::
+  abort() only takes effect at .await points; it cannot preempt sync code.
+  The conversion runs to completion (multi-minute recursive walk over the
+  output library + per-album-dir conversions), emitting log lines all the
+  way through.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.50.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.50.1] - 2026-04-28
+
+### 🐛 Bug Fixes
+
+- **(ux)** Missing 'to' in untested-GAMDL warning message
+
+The Updates page warning shown to users when a GAMDL release
+  post-dates the last MeedyaDL validation read:
+
+    "or wait for the next MeedyaDL version validate it."
+
+  It should be:
+
+    "or wait for the next MeedyaDL version to validate it."
+
+  One-character fix (well, three-character — " to"). Spotted while
+  auditing the orphan chore/claude-shared-memory branch's local-only
+  commits, which had attempted earlier wording iterations on this
+  same paragraph but never got pushed because upstream already
+  rewrote the surrounding prose.
+
+- **(ux)** Missing 'to' in untested-GAMDL warning message (#655)
+
+One-word typo fix in
+  [UpdatesPage.tsx#L399](src/components/updates/UpdatesPage.tsx#L399).
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.50.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Describe the seven-channel release ladder in README + Project_Plan (#635)
+
+The previous README.md "Release channels" table was stale:
+  - Claimed six channels; we have seven (RC tier missing).
+  - Said Weekly tags were `-weekly.YYYYWW` and Monthly were `-monthly.YYYYMM`,
+    but the actual workflows produce `YYYYMMDD` for both.
+  - Said "Stable | Release-please merge" — the prose buried the actual
+    trigger mechanism and ignored the version-bump.yml hotfix path.
+  - Didn't mention the dev-access gating that hides the four most
+    experimental tiers from the channel selector by default.
+  - Didn't explain that channel discovery uses `>=` for promotion, so
+    e.g. a Beta user also sees RC + Stable.
+
+  Project_Plan.md's "Release channel ladder + nightly auto-release"
+  entry was similarly stale — it said "six-tier" with weekly/monthly
+  "to follow the same template" as a future item, even though the
+  workflows are now shipped (PR #652 / #628). It also didn't mention
+  the RC tier, the push-driven alpha/beta/rc workflows (#631), the
+  split branch rulesets (#629), the channel-bump UI restrictions
+  (#632), the `release.yml` auto-publish behaviour (#646), the
+  `version-bump.yml` race-condition fix (#645), the security-policy
+  auto-update (#633), or the realign-alpha helper (#634).
+
+  Both docs now describe the actual current state:
+  - README.md table updated to seven rows, correct suffixes, correct
+    triggers, and a paragraph explaining the dev-access gating + the
+    channel-promotion semantics.
+  - Project_Plan.md entry rewritten as a single comprehensive
+    paragraph that cross-references every shipped child issue.
+  - Project_Plan.md "Last updated" bumped to 2026-04-28.
+
+- Describe the seven-channel release ladder in README + Project_Plan (#654)
+
+## Summary
+
+  Closes the docs half of #635 — the CLAUDE.md half landed in PR #650, and
+  PR #652 added the actual weekly/monthly workflows. With both shipped,
+  README.md and Project_Plan.md can finally describe the ladder
+  accurately.
+
+  ## What changed
+
+  ### README.md \"Release channels\" section
+
+  | Before | After |
+  | --- | --- |
+  | \"six channels\" | \"seven channels\" |
+  | (no RC row) | New row: \"**RC** \\| Ad-hoc \\| push to
+  \`release-candidate\` branch \\| \`-rc.N\` (monotonic)\" |
+  | Weekly suffix \`-weekly.YYYYWW\` (wrong) | \`-weekly.YYYYMMDD\`
+  (matches what the workflow actually emits) |
+  | Monthly suffix \`-monthly.YYYYMM\` (wrong) | \`-monthly.YYYYMMDD\` |
+  | \"Stable \\| Release-please merge\" | \"Stable \\| Per-version \\|
+  release-please-action merge or \`version-bump.yml\` \\| *no suffix*\" |
+  | (no mention of dev-access gating) | New paragraph: the four
+  most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated
+  behind \`dev_access_enabled\` |
+  | (no mention of channel promotion semantics) | New sentence: discovery
+  filter uses \`>=\`, so e.g. a Beta user also sees RC + Stable |
+
+  ### Project_Plan.md \"Release channel ladder\" entry
+
+  Rewritten from the original \"six-tier with weekly/monthly to follow\"
+  pre-#628 wording into a single comprehensive paragraph describing the
+  actual current state — seven channels, three cron-driven, three
+  push-driven, plus stable. Cross-references every shipped child issue:
+  #628, #629, #630, #631, #632, #633, #634, #645, #646, plus PRs #647 /
+  #648 / #650 / #652.
+
+  \"Last updated\" timestamp bumped from 2026-04-11 to 2026-04-28.
+
+  ## Verification
+
+  - Verified Weekly Release and Monthly Release dry-runs succeed
+  end-to-end (workflow runs
+  [25045099333](https://github.com/MWBMPartners/MeedyaDL/actions/runs/25045099333)
+  and
+  [25046735408](https://github.com/MWBMPartners/MeedyaDL/actions/runs/25046735408)
+  — both completed in <40 seconds, no errors).
+  - Both \`weekly\` and \`monthly\` long-lived branches now exist on
+  origin at \`6b98aa4\`.
+
+  ## Test plan
+
+  - [x] Manual diff check — every claim cross-referenced against the
+  actual workflow files / settings.rs / update_checker.rs /
+  GeneralTab.tsx.
+  - [x] No code changes — pure docs.
+  - [ ] Maintainer eyeball review.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.50.0] - 2026-04-28
+
+### ✨ Features
+
+- **(release)** Weekly + monthly cron workflows + branches (#628)
+
+The seven-tier UpdateChannel enum has had Weekly and Monthly variants
+  since the channel-ladder PR landed, but the producer-side automation
+  was never created — users selecting those channels in the in-app
+  selector would never receive a build because no `weekly-release.yml`
+  / `monthly-release.yml` existed and no `weekly` / `monthly` long-lived
+  branches existed on origin.
+
+  This commit closes that gap. The two new workflows are line-by-line
+  copies of `nightly-release.yml` with channel-specific substitutions
+  (name, cron schedule, branch, tag suffix, concurrency group, conflict
+  label, log strings). Keeping them as parallel siblings instead of
+  parametrising a single workflow keeps the diff vs nightly small and
+  each cron's behaviour explicit.
+
+- **(release)** Weekly + monthly cron workflows (#652)
+
+## Summary
+
+  Closes the producer-side gap for the \`Weekly\` and \`Monthly\` channel
+  variants. Until now, the \`UpdateChannel\` enum had seven ordered
+  variants but only five had build automation — anyone picking Weekly or
+  Monthly in the in-app channel selector would never receive a build
+  because no cron workflow / long-lived branch existed for them.
+
+  ## What changed
+
+  | File | Change |
+  | --- | --- |
+  | \`.github/workflows/weekly-release.yml\` | New. Line-by-line clone of
+  \`nightly-release.yml\` with channel-specific substitutions. Cron \`0 0
+  * * 0\` (Sundays). |
+  | \`.github/workflows/monthly-release.yml\` | New. Same template. Cron
+  \`0 0 1 * *\` (1st of month). |
+  | \`.claude/CLAUDE.md\` | Drops the \"aspirational / tracked in #628\"
+  caveat from the release-channels paragraph. |
+
+  ## What was already in place (no change needed)
+
+  - \`.github/rulesets/protected-cron-channels.json\` already includes
+  \`refs/heads/weekly\` and \`refs/heads/monthly\` with admin-bypass for
+  cron pushes.
+  - \`.github/workflows/auto-delete-merged-branches.yml\` regex (line 55)
+  already includes \`weekly|monthly\` in the channel exempt list.
+  - \`UpdateChannel\` enum already has both variants and \`from_tag()\`
+  recognises them.
+  - \`release.yml\`'s #646 auto-publish step recognises any \`vX.Y.Z-*\`
+  tag suffix, so the first weekly / monthly draft will auto-publish.
+
+  ## Out-of-band
+
+  The \`weekly\` and \`monthly\` long-lived branches don't exist on origin
+  yet — they need to be created from \`main\` once this PR merges. I'll do
+  that immediately post-merge with:
+
+  \`\`\`bash
+  git push origin main:refs/heads/weekly
+  git push origin main:refs/heads/monthly
+  \`\`\`
+
+  The first scheduled cron run after that will force-push the integrated
+  state.
+
+  ## Why two parallel files instead of a single parametrised workflow
+
+  Keeping nightly / weekly / monthly as parallel siblings means each
+  cron's behaviour is explicit, the diff vs nightly is tiny, and a
+  maintainer reading any one of them sees the full pipeline without
+  chasing variables. If the three workflows ever drift in non-trivial
+  ways, parametrising can come later.
+
+  ## Test plan
+
+  - [x] Diff verified against nightly-release.yml — only channel-specific
+  substitutions changed (name, cron, branch, tag suffix, concurrency
+  group, conflict label, log strings). No changes to logic, regex, or jq
+  queries.
+  - [ ] Smoke: next Sunday 00:00 UTC, Weekly Release fires and produces a
+  published \`v0.49.X-weekly.YYYYMMDD\` release with all 20 platform
+  installers.
+  - [ ] Smoke: next 1st of month 00:00 UTC, Monthly Release fires and
+  produces a published \`v0.49.X-monthly.YYYYMMDD\` release.
+  - [ ] Manual smoke (faster): \`gh workflow run \"Weekly Release\" --ref
+  main -f dry_run=true\` to validate the merge + bump dry-run path before
+  the first scheduled run.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 0.49.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.49.3] - 2026-04-28
+
+### 🐛 Bug Fixes
+
+- **(ci)** Auto-publish prerelease drafts at the end of release.yml (#646)
+
+`tauri-action` creates a draft GitHub Release and never publishes it.
+  For STABLE tags (`vX.Y.Z`), `release-please-action` publishes the
+  release object itself before `release.yml` runs, so the draft state is
+  irrelevant. For PRERELEASE tags (`vX.Y.Z-nightly.YYYYMMDD`,
+  `-alpha.N`, `-beta.N`, `-rc.N`, etc.) there is no `release-please-
+  action` involvement — the draft sits unpublished forever, and
+  end-users see only the source-archive auto-attachments on the public
+  tag page.
+
+  This commit adds an idempotent step at the end of the
+  `finalize-release` job that detects prerelease tags by hyphen suffix
+  and flips `draft=false`. Stable tags are deliberately left alone —
+  `version-bump.yml`'s gap is addressed separately in #645 (pre-create
+  the GitHub Release object before the tag push so platform jobs can't
+  race to create separate drafts).
+
+  Verified pattern matches against the existing tag corpus:
+
+    v0.49.2-nightly.20260428      → prerelease (auto-publishes)
+    v0.49.0-nightly.20260427      → prerelease (auto-publishes)
+    v0.49.0-nightly-build-46      → prerelease (auto-publishes)
+    v0.35.0-nightly.20260421      → prerelease (auto-publishes)
+    v0.49.2                       → stable (left alone)
+    v0.49.1                       → stable (left alone)
+    v0.49.0                       → stable (left alone)
+
+  Existing draft nightlies are not retroactively published by this
+  workflow change — that requires manual `gh release edit --draft=false`
+  calls, which will follow in this PR's commentary.
+
+- **(ci)** Auto-publish prerelease drafts at the end of release.yml (#647)
+
+## Summary
+
+  Fixes the bug where nightly (and weekly / monthly / alpha / beta / rc)
+  GitHub Releases were stuck as unpublished drafts forever — end-users saw
+  only \`Source code (zip/tar.gz)\` on the public tag page despite all 20
+  platform installer assets being built and uploaded.
+
+  ## Root cause
+
+  \`release.yml\`'s \`finalize-release\` job ends by appending a download
+  guide via \`gh release edit --notes\`, but it never flips the \`draft\`
+  flag. For stable releases driven by \`release-please-action\`, that
+  action publishes the release object itself before \`release.yml\` runs,
+  so the draft state is irrelevant. For **prereleases**, there's no
+  equivalent — \`nightly-release.yml\` (and friends) just push the tag and
+  rely on \`release.yml\` to do the rest, and \`release.yml\` never
+  publishes.
+
+  ## Fix
+
+  Adds an idempotent step at the end of \`finalize-release\` that:
+
+  1. Detects prerelease tags by the hyphen suffix after \`vX.Y.Z\`
+  (matches \`-nightly.YYYYMMDD\`, \`-alpha.N\`, \`-beta.N\`, \`-rc.N\`,
+  \`-weekly.N\`, \`-monthly.N\`).
+  2. Skips stable tags (\`vX.Y.Z\` exact) — \`release-please-action\`
+  handles them on the standard path; \`version-bump.yml\`'s gap is
+  addressed separately in #645.
+  3. Skips already-published releases (idempotent re-runs).
+  4. Calls \`gh release edit --draft=false\` to publish the prerelease.
+
+  ## Pattern verification against the tag corpus
+
+  | Tag | Classification | Action |
+  | --- | --- | --- |
+  | \`v0.49.2-nightly.20260428\` | prerelease | auto-publishes |
+  | \`v0.49.0-nightly.20260427\` | prerelease | auto-publishes |
+  | \`v0.35.0-nightly.20260421\` | prerelease | auto-publishes |
+  | \`v0.49.2\` | stable | left alone |
+  | \`v0.49.1\` | stable | left alone |
+  | \`v0.49.0\` | stable | left alone |
+
+  ## Existing draft nightlies
+
+  This workflow change only affects the **next** nightly release. Existing
+  stranded draft nightlies (\`v0.49.2-nightly.20260428\` etc.) need a
+  one-time backfill via \`gh release edit \"$TAG\" --draft=false\` per
+  tag, or via the GitHub UI. I'll do this manually after the PR merges.
+
+  ## Test plan
+
+  - [x] Pattern regex \`^v[0-9]+\\.[0-9]+\\.[0-9]+-\` verified against 6
+  historical tags (4 prerelease, 3 stable).
+  - [x] Idempotent — re-running on an already-published release exits
+  cleanly with \"already published\" log.
+  - [x] Stable tags hit the early-exit branch with a clear log message
+  about why.
+  - [ ] End-to-end smoke: next scheduled nightly (00:00 UTC tonight)
+  produces a *published* prerelease visible on its tag page.
+
+- **(ci)** Version-bump.yml pre-creates GitHub Release to prevent draft fragmentation (#645)
+
+When releases are cut via `version-bump.yml` (the manual override / hotfix
+  path), `release.yml`'s six platform-build jobs all run in parallel and each
+  calls `tauri-action`. tauri-action's "create-or-update" logic checks for an
+  existing release; if none exists, it falls back to `gh release create
+  --draft "Release in progress..."`. When two jobs hit that fallback within
+  the same few hundred milliseconds, GitHub's API races them and creates two
+  separate draft releases for the same tag, fragmenting installer assets
+  across them.
+
+  Evidence from the v0.49.1 / v0.49.2 audit (#645):
+
+  - v0.49.1 ended up with a published release (6 of 20 assets) plus an
+    orphan draft (14 of 20 assets) that sat unmerged for ~11 hours, leaving
+    Windows / Linux x64 / Linux ARM64 users with no installer.
+  - v0.49.2 ended up split across THREE separate drafts (10 + 7 + 5 assets),
+    none of which were published, so the public tag page showed only source
+    archives until the manual consolidation on 2026-04-28.
+
+  The fix swaps the local `git tag -a` + `git push origin <tag>` sequence
+  for `gh release create <tag> --target <commit_sha> --draft`. That single
+  API call atomically:
+
+    1. Creates the tag on the remote (no `git push origin <tag>` needed).
+    2. Creates the draft GitHub Release object.
+
+  When `release.yml` triggers from the resulting tag-create event, every
+  platform job's `gh release view` finds the same existing draft and
+  attaches its assets to it. No race, no fragmentation.
+
+  Notes are intentionally a short placeholder. `release.yml`'s
+  `Finalize Release Notes` step appends a download guide at the end of
+  the build, and `changelog.yml` regenerates CHANGELOG.md on the next
+  commit. Maintainers running version-bump.yml manually can
+  `gh release edit "$TAG" --notes "…"` post-build for richer notes —
+  this is the manual / hotfix path, not the standard release-please flow.
+
+  Stable releases continue to land as drafts so the maintainer can review
+  platform artifacts before publishing. (Prerelease auto-publishing is
+  handled separately by #646 in `release.yml`'s finalize-release job.)
+
+- **(ci)** Version-bump.yml pre-creates GitHub Release to prevent draft fragmentation (#648)
+
+## Summary
+
+  Fixes the race-condition documented in #645 where manual releases cut
+  via \`version-bump.yml\` end up split across two or three competing
+  draft GitHub Releases — fragmenting installer assets so users see only
+  some platforms (or none) on the public tag page.
+
+  ## Root cause
+
+  \`release.yml\` runs six platform-build jobs in parallel via
+  \`tauri-action\`. Each one's \"create-or-update\" logic checks whether a
+  release exists for the tag; if not, it falls back to \`gh release create
+  --draft \"Release in progress...\"\`. When two jobs hit that fallback in
+  the same few hundred milliseconds, GitHub's API races them and produces
+  two separate draft releases, partitioning assets across them by
+  platform-job timing.
+
+  The standard release-please flow is unaffected because
+  \`release-please-action\` creates the release object before
+  \`release.yml\` ever runs. The manual \`version-bump.yml\` path skipped
+  that pre-creation entirely.
+
+  ## Evidence (from #645 audit)
+
+  - **v0.49.1** — ended up with one published release (6/20 assets) and
+  one orphan draft (14/20 assets) that sat unmerged for ~11 hours. Windows
+  / Linux x64 / Linux ARM64 users had no installer.
+  - **v0.49.2** — split across **three** separate drafts (10 + 7 + 5
+  assets), none published, so the public tag page showed only source
+  archives until manually consolidated on 2026-04-28.
+
+  ## Fix
+
+  Swap the local \`git tag -a\` + \`git push origin <tag>\` sequence for
+  \`gh release create <tag> --target <commit_sha> --draft\`. That single
+  API call atomically:
+
+  1. Creates the tag on the remote (no separate tag push needed).
+  2. Creates the draft GitHub Release object.
+
+  When \`release.yml\` triggers from the tag-create event, every platform
+  job's \`gh release view\` finds the same existing draft and attaches its
+  assets to it. No race, no fragmentation.
+
+  ## Why notes are a short placeholder
+
+  \`release.yml\`'s \`Finalize Release Notes\` step appends a download
+  guide. \`changelog.yml\` regenerates \`CHANGELOG.md\` with full
+  git-cliff content. Maintainers running version-bump.yml manually can
+  \`gh release edit \"$TAG\" --notes \"…\"\` post-build for richer notes —
+  version-bump.yml is the *manual override / hotfix path*, not the
+  standard automated release path. The standard \`release-please-action\`
+  path produces auto-generated changelog notes already.
+
+  ## Why drafts stay as drafts
+
+  Stable releases continue to land as drafts so the maintainer can review
+  platform artifacts before publishing. **Prerelease auto-publishing is
+  handled separately by #646** in \`release.yml\`'s \`finalize-release\`
+  job (auto-publishes nightlies / weeklies / monthlies / alphas / betas /
+  rcs).
+
+  ## Test plan
+
+  - [x] Diff verified — \`git tag -a\` + \`git push origin <tag>\`
+  removed; \`gh release create --target <sha> --draft\` step added.
+  - [x] \`steps.commit.outputs.sha\` correctly threaded into the
+  \`--target\` flag (the version-bump commit's exact SHA, before any
+  subsequent \`[skip ci]\` activity).
+  - [x] RELEASE_PAT used for \`gh\` (so the tag-create event triggers
+  \`release.yml\`).
+  - [ ] End-to-end smoke: next manual \`version-bump.yml\` run produces
+  exactly **one** GitHub Release object with all 20 platform assets
+  (matches v0.49.0's complete-release baseline).
+
+  ## Related
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.49.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(claude)** Update release-channels paragraph to reflect current state (#635)
+
+The previous "six-tier ladder" description was stale — it claimed all
+  six channels (nightly / weekly / monthly / alpha / beta / stable) had
+  matching cron-driven workflows and long-lived branches. Audit (2026-04-28)
+  confirmed:
+
+  - Long-lived branches that exist: nightly, alpha, beta, release-candidate
+    (RC is a real channel that wasn't even mentioned in the old text).
+  - Long-lived branches that don't exist: weekly, monthly. The
+    UpdateChannel enum still has Weekly and Monthly variants but
+    there's no producer-side automation for them, so users selecting
+    those channels in Settings will never receive a build. Tracking
+    in #628.
+  - Push-driven channel workflows (alpha-release.yml, beta-release.yml,
+    release-candidate-release.yml) were never described.
+  - Branch ruleset is now SPLIT into protected-stable-branches.json
+    (no bypass) and protected-cron-channels.json (admin bypass for
+    cron) — the old text referenced the singular pre-split file.
+  - realign-alpha.yml and update-security-policy.yml weren't mentioned.
+  - release.yml's dynamic prerelease detection and (post-#646)
+    auto-publishing weren't mentioned.
+  - Channel discovery uses `>=` for promotion, not exact-match — the
+    old text said the opposite.
+
+  Updated paragraph captures the actual current state without inventing
+  behaviour. Project_Plan.md and README.md don't currently describe
+  channels at this depth, so no updates needed there.
+
+  Partially addresses #635 — the rest of #635 (Project_Plan.md /
+  README.md updates, in-app help docs) stays open until #628's weekly/
+  monthly question is decided, since the docs need to either describe
+  seven channels (if weekly/monthly cron workflows ship) or five (if
+  they're dropped).
+
+- **(claude)** Update release-channels paragraph to reflect current state (#650)
+
+## Summary
+
+  The CLAUDE.md "Release Channels (six-tier ladder)" section was stale.
+  Audit (2026-04-28) found:
+
+  - It claimed all six channels (nightly / weekly / monthly / alpha / beta
+  / stable) had matching cron workflows. **Weekly and monthly cron
+  workflows don't exist**; tracking in #628.
+  - It described a single combined branch ruleset, but the rules have
+  since been split into \`protected-stable-branches.json\` (no bypass) and
+  \`protected-cron-channels.json\` (admin bypass for cron pushes).
+  - It didn't mention the \`Rc\` channel variant or the push-driven
+  \`alpha-release.yml\` / \`beta-release.yml\` /
+  \`release-candidate-release.yml\` workflows.
+  - It didn't mention \`realign-alpha.yml\` or
+  \`update-security-policy.yml\`.
+  - It said channel discovery is exact-match, but \`update_checker.rs\`
+  actually uses \`>=\` for channel promotion.
+
+  This patch rewrites the section to describe the current actual state,
+  marks \`Weekly\` / \`Monthly\` as aspirational variants pending #628's
+  resolution, and links to the relevant follow-up issues.
+
+  ## Why partial-close, not full-close, of #635
+
+  #635 covers Project_Plan.md and README.md updates too. Those should
+  reflect either a seven-channel or five-channel ladder depending on how
+  #628 (weekly/monthly cron workflows) is resolved. Updating them now
+  would just need to be redone post-#628. CLAUDE.md is the most
+  actively-consulted doc and was actively misleading; the rest can wait.
+
+  ## Test plan
+
+  - [x] Manual diff check — every claim in the new paragraph
+  cross-referenced against the actual files (\`alpha-release.yml\`,
+  \`beta-release.yml\`, \`release-candidate-release.yml\`,
+  \`update_checker.rs\`, \`GeneralTab.tsx\`, the two ruleset JSONs).
+  - [x] No code changes — pure docs edit.
+  - [ ] Maintainer eyeball review.
+
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(claude)** Share project Claude memory across dev machines (#643)
+
+Until now, Claude Code's per-project memory store has lived only at
+  `~/.claude/projects/<sanitised-repo-path>/memory/` — a per-user,
+  per-machine location that can't be loaded directly from inside the
+  repo. Every contributor's Claude session has therefore been starting
+  blind to project context like the v1 RC milestone state, the
+  multi-service groundwork status, the macOS updater bug history, the
+  GAMDL audit cadence, etc.
+
+  This commit adds:
+
+  - `.claude/memory/` — canonical project-scoped memory files
+    (`type: project`) plus a shared `MEMORY.md` index and a
+    README documenting the convention. Six files seeded from the
+    current memory store: macOS updater bug, GitHub orgs,
+    meedyadl-v2 archive, v1 RC prep, multi-service groundwork,
+    GAMDL release cadence.
+  - `scripts/sync-claude-memory.sh` — POSIX shell script that
+    computes the sanitised path for the dev's clone and copies
+    every shared memory file into the dev's local memory dir.
+    Merges the shared `MEMORY.md` hooks under sentinel markers
+    (`<!-- claude-memory:shared:start/end -->`) so re-runs are
+    idempotent and personal hooks above/below the block are
+    preserved. Strips outside-block references to shared
+    filenames so contributors who hand-edited their index before
+    this convention existed don't end up with duplicates.
+  - `.claude/CLAUDE.md` — new "Shared Claude memory" convention
+    entry pointing at the script and the README.
+
+  Scope is intentionally project-only. `type: user` and
+  `type: feedback` memory stays personal in each contributor's
+  home dir — committing one contributor's git-workflow
+  preferences or user profile would force every other
+  contributor's Claude session to inherit them, which is the
+  wrong scope.
+
+  Sync direction is intentionally repo→home only. Local edits to
+  the home memory don't propagate back; to share a change, edit
+  the file under `.claude/memory/` in the repo and commit. This
+  keeps the repo as the deliberate source of truth and avoids
+  silent drift on individual machines.
+
+  Verified locally:
+
+  - Fresh-install path: when no personal `MEMORY.md` exists,
+    the script writes the marker block as the entire file.
+  - Update path: on re-runs, the personal file is filtered
+    (block stripped, duplicate references to shared filenames
+    removed) and the fresh block appended.
+  - Idempotency: third consecutive run produces a byte-identical
+    file (md5 verified).
+  - Cross-shell portability: avoids `case` inside `$()`
+    (POSIX-mode bash 3.x on macOS misparses) and avoids
+    multi-line `awk -v` (BSD awk rejects).
+
+- **(claude)** Share project Claude memory across dev machines (#644)
+
+## Summary
+
+  - Commits the `type: project` subset of Claude Code memory into
+  `.claude/memory/` so every contributor's Claude session loads the same
+  project context (RC milestone state, multi-service groundwork, GAMDL
+  audit cadence, macOS updater bug, GitHub org structure, meedyadl-v2
+  archive).
+  - Adds `scripts/sync-claude-memory.sh` — a POSIX shell script that
+  copies the shared memory files into the dev's local Claude memory dir
+  (`~/.claude/projects/<sanitised-path>/memory/`) and merges shared
+  `MEMORY.md` hooks under sentinel markers, idempotent, repo→home only.
+  - Adds `.claude/memory/README.md` documenting the convention and
+  `.claude/CLAUDE.md` gets a short \"Shared Claude memory\" entry pointing
+  at the script.
+
+  ## Scope choice: project-only
+
+
+## [0.49.2] - 2026-04-27
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 0.49.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(gamdl)** Admit v3.4 and v3.5 to the support window (#641)
+
+Audit of upstream GAMDL v3.4 (3.3..3.4: 11 commits, 9 files) and v3.5
+  (3.4..3.5: 4 commits, 3 files) confirms zero MeedyaDL-facing surface
+  change. No CLI flags added/removed, no INI keys changed, no
+  output-format regressions, no `GamdlFeature` gate adjustments.
+
+  v3.4 swapped GAMDL's logging output stream from stderr to stdout
+  (`logging.StreamHandler` → `structlog.PrintLoggerFactory(file=
+  CustomOutputWriter([sys.stdout]))`). Benign — both reader tasks in
+  `download_queue.rs` parse identically via `parse_gamdl_output()`. As
+  a free side effect, the latent `──── [Track N/M] Downloading
+  "Title" ────` cosmetic separator (only emitted from the stdout
+  reader) starts firing reliably from 3.4+ because TrackInfo lines
+  now arrive on stdout instead of stderr. v3.4 also enriched the
+  subprocess-failure message format to embed the failing subtool's
+  own stderr, which strictly improves `process::classify_error()`
+  accuracy.
+
+  v3.5 is a 4-commit fix to GAMDL's iTunes lookup HTTP layer
+  (`follow_redirects=True`, `X-Apple-Store-Front` header tweak,
+  `storefront_id=None` for non-US storefronts). Pure upstream win for
+  music-video metadata coverage, especially for non-US users.
+
+- **(gamdl)** Admit v3.4 and v3.5 to the support window (#642)
+
+## Summary
+
+  - Audited GAMDL v3.4 (3.3..3.4: 11 commits, 9 files) and v3.5 (3.4..3.5:
+  4 commits, 3 files) against MeedyaDL's integration surface — zero
+  CLI/INI/output-format surface change, no `GamdlFeature` gate
+  adjustments, no parser regression.
+  - Bumped `tool-versions.toml` `maximum_tested_version` and
+  `recommended_version` from 3.3 → 3.5; added inline 3.4 + 3.5 narratives
+  mirroring the existing 3.2 / 3.3 paragraphs.
+  - New audit document at `.github/audits/gamdl-v3.4-v3.5-audit.md`
+  following the `gamdl-v3.2-audit.md` structure (capability gate matrix,
+  finding-by-finding analysis, floor analysis, conclusion).
+  - README.md Component Support Matrix bumped to `2.9.1 – 3.5`
+  (recommended 3.5).
+  - CLAUDE.md version-aware GAMDL dispatch paragraph appends 3.4 + 3.5
+  audit notes inline.
+
+  ## Notable findings
+
+  **v3.4 logging stream swap stderr → stdout** (`logging.StreamHandler()`
+  →
+  `structlog.PrintLoggerFactory(file=CustomOutputWriter([sys.stdout]))`):
+  benign because both `stdout_task` and `stderr_task` in
+  `download_queue.rs` call `parse_gamdl_output()` identically. **Free UX
+  win**: the cosmetic `──── [Track N/M] Downloading \"Title\" ────`
+  separator (only emitted from the stdout reader) was a latent no-op
+  pre-3.4 because TrackInfo log lines came from stderr; from 3.4+ it fires
+  reliably.
+
+  **v3.4 subprocess error format change** (`'\"<cmd>\" exited with code
+  N'` → `'Exited with code N: <args>\\nstdout:\\n…\\nstderr:\\n…'`):
+  strictly improves `process::classify_error()` accuracy because it now
+  embeds the failing subtool's own stderr (network keywords, codec
+  keywords, etc.).
+
+  **v3.5 iTunes HTTP fixes** (`follow_redirects=True`,
+  `X-Apple-Store-Front` header tweak, `storefront_id=None` for non-US
+  storefronts): pure upstream win for music-video metadata coverage.
+
+  Database overwrite (3.4) is scoped to `--database-path` users only —
+  MeedyaDL never sets that flag.
+
+  Full per-finding analysis lives in the audit document.
+
+  ## Test plan
+
+  - [x] `cargo test --lib gamdl_capabilities` — 20/20 tests pass with the
+  bumped 3.5 ceiling (support window parses, recommended-inside-range
+  invariant holds, classify-above-ceiling/below-floor/inside-window all
+  green).
+  - [ ] Manual smoke: fresh install → setup wizard installs GAMDL →
+  confirm `pip install --upgrade 'gamdl>=2.9.1,<=3.5'` resolves to 3.5.
+  - [ ] Manual smoke: existing 3.3 install → "Update GAMDL" → confirm
+  install path lands on 3.5.
+  - [ ] Manual smoke: download an album on 3.4+ → confirm the new `────
+  [Track N/M] Downloading ────` separator appears in the activity log (was
+  latent pre-3.4).
+  - [ ] Manual smoke: download a non-US (e.g. GB / AU) artist with music
+  videos → confirm 3.5 iTunes redirect fix unblocks previously-broken
+  music-video metadata.
+
+
+## [0.49.1] - 2026-04-27
+
+### 🐛 Bug Fixes
+
+- **(ci)** Remove duplicate fi in update-security-policy workflow
+
+The Compute supported-versions table step had a stray duplicate `fi`
+  after the if/else/fi block, causing the shell to exit with code 2
+  ("syntax error near unexpected token").
+
+- **(ci)** Remove duplicate `fi` in update-security-policy workflow (#638)
+
+## Summary
+
+  The `Compute supported-versions table` step in
+  `.github/workflows/update-security-policy.yml` has a stray duplicate
+  `fi` immediately after the `if/else/fi` block. With `set -euo pipefail`
+  the shell exits with code 2 (`syntax error near unexpected token
+  \`fi\``), failing every Update Security Policy run.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.49.0] - 2026-04-26
+
+### ✨ Features
+
+- **(release)** Seven-tier release-channel ladder + push-driven alpha/beta/rc
+
+Adds a Release Candidate tier between Beta and Stable, splits the channel
+  branch protection into stable (no bypass) vs. cron (admin bypass), wires
+  push-driven version-bump-and-tag workflows for alpha/beta/release-candidate,
+  gates Nightly/Weekly/Monthly/Alpha behind Dev Access in the settings UI, and
+  auto-regenerates the SECURITY.md supported-versions table on version bumps.
+
+  - UpdateChannel: add Rc tier between Beta and Stable; ordering Nightly <
+    Weekly < Monthly < Alpha < Beta < Rc < Stable. Add is_pre_release() and
+    requires_dev_access() predicates. Update tests to cover the new tier.
+  - update_checker: filter releases by tag_channel >= user_channel (was ==),
+    so Beta subscribers auto-promote to Rc/Stable releases without seeing
+    Alpha-or-below.
+  - GeneralTab: hide Nightly/Weekly/Monthly/Alpha from non-dev users; add
+    ChannelSwitchWarning modal for any pre-release switch.
+  - Branch rulesets: split protected-release-branches.json into
+    protected-stable-branches.json (main/release-candidate/beta/alpha, no
+    bypass) and protected-cron-channels.json (nightly/weekly/monthly, admin
+    bypass for cron-driven force-pushes). apply-branch-rulesets.yml now
+    reconciles by deleting unmanaged branch rulesets.
+  - New workflows: alpha-release.yml / beta-release.yml /
+    release-candidate-release.yml — push-triggered, monotonic counter across
+    base versions, fast-forward push of branch + tag.
+  - realign-alpha.yml: one-shot manual workflow to hard-reset alpha to main.
+  - update-security-policy.yml: regenerates SECURITY.md supported-versions
+    table between sentinel comments on every version bump.
+  - release.yml: derive prerelease flag from tag suffix (was hard-coded true).
+  - auto-delete-merged-branches.yml: add release-candidate to exempt list.
+  - Bump version to 0.48.0 across package.json, tauri.conf.json, Cargo.toml,
+    Cargo.lock, .release-please-manifest.json.
+
+- **(release)** Seven-tier release-channel ladder + push-driven alpha/beta/rc (#636)
+
+## Summary
+
+  - Adds a **Release Candidate** tier between Beta and Stable
+  (`UpdateChannel::Rc`), making the ladder seven tiers: `Nightly < Weekly
+  < Monthly < Alpha < Beta < Rc < Stable`.
+  - Switches update discovery from `tag_channel == user_channel` to
+  `tag_channel >= user_channel`, so a Beta subscriber auto-promotes to
+  Rc/Stable releases without seeing Alpha-or-below.
+  - Splits branch protection: `protected-stable-branches` (main /
+  release-candidate / beta / alpha — no bypass actors) vs.
+  `protected-cron-channels` (nightly / weekly / monthly — admin bypass for
+  cron force-pushes). `apply-branch-rulesets.yml` now reconciles by
+  deleting unmanaged branch rulesets.
+  - Adds push-driven `alpha-release.yml` / `beta-release.yml` /
+  `release-candidate-release.yml` workflows with a monotonic counter that
+  never resets across base-version bumps (`0.48.0-alpha.1`,
+  `0.48.0-alpha.2`, `0.49.0-alpha.3`, …).
+  - Gates **Nightly / Weekly / Monthly / Alpha** behind Dev Access in the
+  settings dropdown; Beta and RC remain freely selectable but trigger a
+  `ChannelSwitchWarning` confirmation modal.
+  - `release.yml` now derives the GitHub Release `prerelease` flag from
+  the tag suffix (was hard-coded `true`), so stable `vX.Y.Z` tags publish
+  as full releases.
+  - New `update-security-policy.yml` regenerates the SECURITY.md
+  supported-versions table between sentinel comments on every version bump
+  (pre-1.0 → "current latest 0.x.y or newer"; 1.0+ → "current full release
+  only").
+  - New `realign-alpha.yml` one-shot manual workflow to hard-reset `alpha`
+  to `main` (used during this overhaul; remains checked in for any future
+  cleanup).
+  - Bumps version to **0.48.0** across `package.json`,
+  `package-lock.json`, `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`,
+  `.release-please-manifest.json`.
+
+  ## Test plan
+
+  - [ ] CI green on this branch (Rust + frontend)
+  - [x] `npm run type-check` clean (verified locally)
+  - [x] `npm run test` — 19 files / 303 tests passing (verified locally)
+  - [ ] `cargo check` — needs CI / Linux dev box with GTK system libs
+  (sandbox lacks `libgtk-3-dev`, `libatk1.0-dev`, etc.)
+  - [ ] After merge: trigger `Apply Branch Rulesets` workflow to install
+  the split rulesets and clean up the legacy `protected-release-branches`
+  ruleset
+  - [ ] After merge: trigger `Realign Alpha with Main` (with the temporary
+  admin bypass on `protected-stable-branches`) to put `alpha` in sync,
+  then remove the bypass
+
+  ## Notes for review
+
+  - The `alpha` realignment must happen **after** the new rulesets land.
+  Procedure documented in `realign-alpha.yml`'s header.
+  - Existing channel subscribers (anyone currently on
+  Nightly/Weekly/Monthly/Alpha) will keep their channel even if Dev Access
+  is later disabled — the gate only affects the dropdown options, not the
+  persisted setting.
+  - `update_checker.rs` test suite extended to cover the new ordering, the
+  `>=` filter, and `requires_dev_access()`.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.47.1] - 2026-04-26
+
+### 🐛 Bug Fixes
+
+- **(updates)** GAMDL upgrade follow-ups — surface real pip error + don't conflate refresh failure with upgrade failure (#626)
+
+## Summary
+
+  Two follow-up fixes to PR #624 (the GAMDL "Untested" upgrade flow), both
+  motivated by a real reproduction in v0.47.0: the user clicked Upgrade,
+  pip succeeded ("GAMDL upgraded to v3.3" appeared in the activity log),
+  but the toast showed a generic "Failed to upgrade GAMDL" error.
+
+  ### 1. Don't conflate post-upgrade refresh failure with upgrade failure
+  (`008cae8`)
+
+  The `upgradeGamdl` Zustand action wrapped both the pip upgrade and the
+  post-upgrade `checkAllUpdates()` refresh in a single try/catch. The
+  `check_all_updates` IPC has a 1/min rate limiter — when a user clicks
+  Upgrade within 60s of the startup update check (very common), pip
+  succeeds in ~1s (cached wheel) but the refresh hits the rate limiter,
+  the rate-limit error gets caught by the outer try/catch, and the action
+  re-throws it as if the upgrade itself failed.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.47.0] - 2026-04-25
+
+### ✨ Features
+
+- **(updates)** Surface above-ceiling GAMDL updates as untested + admit v3.3
+
+The update check previously hard-capped `is_compatible` at
+  `maximum_tested_version`, so any GAMDL release shipped above the
+  support-window ceiling was silently filtered out of the Updates page —
+  operators had no signal that a new build was waiting for validation,
+  which blocked us from testing v3.2 and v3.3 against MeedyaDL until we
+  shipped a new release of our own.
+
+  Split the two concerns:
+  * `gamdl_capabilities::should_offer_upgrade` now only rejects
+    unparseable strings (above-ceiling versions DO surface).
+  * New `gamdl_capabilities::is_above_tested_ceiling` plus
+    `ComponentUpdate.is_untested` carry the warning state to the UI.
+  * `UpdateBanner` and `UpdatesPage` render an amber "Untested" badge +
+    disclaimer when `is_untested` is set.
+  * `pip_target_spec(target)` + `install_gamdl(app, Some(target))` give
+    the user-explicit Upgrade path an exact pin so pip lands on the
+    version the banner advertised, instead of silently resolving down to
+    the bounded `[minimum, maximum_tested]` spec.
+
+  Also audited and admitted GAMDL v3.3 to the support window. The entire
+  3.2 → 3.3 delta is one internal commit (`c83e47d`) that drops a stale
+  `total=` kwarg from two `_get_*_media` calls inside
+  `interface.py::_get_playlist_media` — a pure playlist-download bugfix
+  with zero CLI / INI / output / regex surface changes, so admission
+  needs no `GamdlFeature` gate adjustments.
+
+  20 gamdl_capabilities tests + 10 update_checker tests + 891 total
+  backend tests + 303 frontend tests all pass.
+
+- **(updates)** Surface above-ceiling GAMDL updates as Untested + admit v3.3 (#624)
+
+## Summary
+
+  Two related fixes:
+
+  1. **MeedyaDL was silently hiding GAMDL updates above the validated
+  ceiling.** `update_checker::is_gamdl_compatible` was a thin wrapper over
+  `gamdl_capabilities::should_offer_upgrade`, which hard-capped at
+  `maximum_tested_version`. The frontend's `getActiveUpdates()` filters by
+  `is_compatible`, so any PyPI release above the ceiling never reached the
+  Updates page — operators had no signal that a new GAMDL build was
+  waiting for validation, which created a chicken-and-egg problem (we
+  couldn't validate until we shipped, and we couldn't see the upgrade
+  until we'd validated).
+  2. **GAMDL v3.3 audited and admitted.** Upstream shipped 3.3 the same
+  day as 3.2.
+
+  ## Fix details
+
+  ### Architectural fix: surface untested upgrades, don't hide them
+
+  - `gamdl_capabilities::should_offer_upgrade` now only rejects
+  unparseable semver strings — above-ceiling versions DO surface.
+  - New `gamdl_capabilities::is_above_tested_ceiling(version)` helper.
+  - New `ComponentUpdate.is_untested: bool` field on the IPC payload
+  (mirrored in TypeScript types).
+  - `UpdateBanner.tsx` and `UpdatesPage.tsx` render an amber
+  **"Untested"** badge + a short disclaimer paragraph for above-ceiling
+  GAMDL releases.
+  - The Upgrade button on those rows passes the explicit `latest_version`
+  through `upgradeGamdl(targetVersion)` → `upgrade_gamdl` IPC →
+  `install_gamdl(app, Some(target))` → `pip_target_spec`
+  (`gamdl=={target}`), so pip lands on exactly the version the banner
+  advertised instead of silently resolving down to the bounded `[min,
+  maximum_tested]` spec.
+  - Routine "Upgrade tested" clicks still go through `pip_version_spec`
+  (no target argument), so an unaudited release can never sneak in via a
+  future-version `--upgrade` resolution.
+
+  ### GAMDL v3.3 audit
+
+  - Reviewed the entire 3.2 → 3.3 diff: it's a single internal commit
+  (`c83e47d`, "Remove total arg from media fetch calls") that drops a
+  stale `total=...` kwarg from two `_get_*_media` calls inside
+  `interface.py::_get_playlist_media`.
+  - Pure playlist-download bugfix — **zero CLI flag changes, zero INI key
+  changes, zero output/regex/format changes**.
+  - `maximum_tested_version` and `recommended_version` bumped to `3.3` in
+  `tool-versions.toml`. No `GamdlFeature` gate adjustments needed.
+
+  ## Test plan
+
+  - [x] `cargo test --lib gamdl_capabilities` — 20 tests pass (added
+  `is_above_tested_ceiling_flags_future_versions`,
+  `pip_target_spec_pins_exact_version`, updated
+  `should_offer_upgrade_above_ceiling`)
+  - [x] `cargo test --lib update_checker` — 10 tests pass
+  (`test_is_gamdl_compatible` semantics updated)
+  - [x] `cargo test --lib` — 891 tests pass
+  - [x] `npm test` — 303 tests pass
+  - [x] `cargo check` — clean
+  - [x] `npm run type-check` — clean
+  - [x] `npm run build` — clean
+  - [ ] Manual smoke test: launch the app with GAMDL 3.0 installed,
+  confirm Updates page shows GAMDL → v3.3 row with no "Untested" badge
+  (3.3 is now inside the window)
+  - [ ] Manual smoke test: temporarily lower `maximum_tested_version` to
+  "3.2" locally, confirm the GAMDL → v3.3 row gains the amber "Untested"
+  badge + disclaimer, and the Upgrade button installs exactly v3.3 (not
+  v3.2)
+
+  ## Files changed
+
+  - `src-tauri/tool-versions.toml` — admit v3.3
+  - `src-tauri/src/services/gamdl_capabilities.rs` — split
+  `should_offer_upgrade` from ceiling check; add `is_above_tested_ceiling`
+  and `pip_target_spec`
+  - `src-tauri/src/services/gamdl_service.rs` — `install_gamdl` accepts
+  optional explicit-version target
+  - `src-tauri/src/services/update_checker.rs` — add
+  `ComponentUpdate.is_untested`; populate for GAMDL above ceiling
+  - `src-tauri/src/commands/updates.rs` — `upgrade_gamdl` IPC accepts
+  `target_version`
+  - `src-tauri/src/commands/dependencies.rs` — pass `None` (routine setup)
+  - `src/types/index.ts` — add `is_untested` to `ComponentUpdate`
+  - `src/lib/tauri-commands.ts` — `upgradeGamdl(targetVersion?)` signature
+  - `src/stores/updateStore.ts` — `upgradeGamdl(targetVersion?)` action
+  - `src/components/common/UpdateBanner.tsx` — "Untested" badge +
+  disclaimer + target-version pin on Upgrade
+  - `src/components/updates/UpdatesPage.tsx` — same as banner
+  - `.claude/CLAUDE.md` — audit + fix notes
+
+
+### 🐛 Bug Fixes
+
+- **(updates)** Surface real pip error when GAMDL upgrade fails
+
+A failed Upgrade click was collapsing into a generic "Failed to upgrade
+  GAMDL" toast, hiding the actual pip stderr the Rust handler had
+  returned. This made upgrade failures un-diagnosable in the field.
+
+- **(updates)** Don't surface post-upgrade refresh failure as an upgrade failure
+
+The `upgradeGamdl` action wrapped both `commands.upgradeGamdl()` and
+  the post-upgrade `commands.checkAllUpdates()` refresh in a single
+  try/catch. When pip succeeded but the refresh hit the
+  `check_all_updates` IPC's 1/min rate limiter (typical when a user
+  clicks "Upgrade" within 60s of the startup update check), the rate
+  limit error was caught and re-thrown as if the upgrade itself had
+  failed. The toast read "Failed to upgrade GAMDL" while the activity
+  log showed a successful "GAMDL upgraded to v3.3" entry — confusing
+  contradiction reported in #624 review feedback.
+
+  Split the two operations:
+  * The pip upgrade keeps its existing try/catch and rejection contract,
+    so genuine upgrade failures still surface in the toast.
+  * The post-upgrade refresh runs in its own try block. On failure we
+    `console.warn`, patch `lastResult` locally (mark GAMDL's
+    `current_version` to the new value and clear `update_available`),
+    and clear `isUpgrading`. The next periodic refresh catches up.
+
+  Net effect: a successful pip upgrade always reports success, and the
+  Updates page reflects the new version immediately even when the
+  refresh is rate-limited.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.46.0] - 2026-04-25
+
+### ✨ Features
+
+- **(queue)** Abort-all destructive action (#620)
+
+Adds a one-click "Abort Queue" escape hatch that stops every active
+  and queued download in a single IPC call — faster and more decisive
+  than today's per-item cancel flow.
+
+  Backend (`download_queue.rs` + `commands/gamdl.rs`):
+
+    * New `AbortSummary` serialisable struct (queued_cancelled,
+      downloading_stopped, processing_stopped).
+    * New `DownloadQueue::abort_all()` method transitioning every
+      non-terminal item to `Cancelled` and returning the summary.
+      Terminal items (Complete/Cancelled/Error) are untouched so the
+      user keeps their history.
+    * New `abort_all_downloads` IPC command — persists the updated
+      queue, emits a `downloads-aborted` event, writes a `[System]`
+      activity-log entry. Rides the existing cancellation-poll loops
+      to reap subprocesses (already `kill_on_drop(true)`).
+    * Three new unit tests covering empty queue, mixed pre-states,
+      and terminal-only queue.
+
+  Frontend (`tauri-commands.ts`, `downloadStore.ts`, `DownloadQueue.tsx`):
+
+    * `abortAllDownloads()` IPC wrapper + `AbortSummary` TS interface.
+    * `downloadStore.abortAll()` action with refresh + summary toast.
+    * Red-styled "Abort Queue" button in the queue header, shown only
+      when there's something to abort. Confirmation modal mirrors the
+      existing "Clear All" pattern.
+
+  Remaining UX polish tracked in the issue's acceptance criteria:
+  status-bar affordance, Cmd/Ctrl+Shift+. shortcut, "don't ask again",
+  post-queue-action suppression, manual mid-batch abort test.
+
+- **(gamdl)** Wire --playlist-folder-template (GAMDL v3.0+, #618)
+
+Adds playlist-specific folder template support with mandatory version
+  gating so v2.9.x users don't receive a flag that crashes Click.
+
+- **(settings)** Settings UI for playlist_folder_template (#618)
+
+Follow-up on #618. Adds a `TemplateBuilder` entry under Settings >
+  Templates > Folder Templates for the new `playlist_folder_template`
+  field, with `variableCategories={['playlist']}` so the variable-picker
+  chips narrow to the playlist-scoped tokens (`{playlist_artist}`,
+  `{playlist_title}`, `{playlist_id}`) already present in
+  `TEMPLATE_VARIABLES`.
+
+  The description makes the GAMDL v3.0+ requirement explicit — users on
+  v2.9.x see the value persist but GAMDL falls back to the upstream
+  default layout until they upgrade. This is the expectation-setting
+  pattern used for `wrapper_m3u8_ip` in the Advanced tab.
+
+- **(queue)** Abort-all UX polish — shortcut, status-bar, don't-ask, suppression (#620)
+
+Ships the four outstanding items from #620's original acceptance
+  criteria:
+
+    1. `abort_queue_confirm` setting (default true) — user-facing
+       "Don't ask again" checkbox on the confirmation modal. When
+       ticked, `updateSettings({ abort_queue_confirm: false })`
+       persists before the abort IPC fires, so subsequent aborts
+       skip the modal entirely.
+
+    2. Status-bar global abort affordance — red `Square` icon +
+       "Abort" label, shown whenever there's a non-terminal item.
+       Honours `abort_queue_confirm` via `window.confirm()` since
+       StatusBar doesn't own the shared Modal component; the
+       queue-page modal remains the canonical rich confirmation.
+
+    3. Cmd/Ctrl+Shift+. keyboard shortcut. Shift-gated to avoid
+       colliding with macOS Cmd+. platform interrupt. Honours the
+       confirm setting the same way the StatusBar does.
+
+    4. Post-queue-action suppression — new one-shot `recently_aborted`
+       flag on DownloadQueue, armed by `abort_all()` on non-zero
+       summaries, consumed by `take_recently_aborted()` at the
+       post-action dispatch site. Auto-clears so subsequent
+       legitimate drains still fire the configured action. New
+       unit test locks the one-shot semantics.
+
+  Type-check passes. Manual mid-batch abort test deferred to a live
+  environment (sandbox can't run Tauri).
+
+
+### 🐛 Bug Fixes
+
+- **(gamdl)** Always emit --song-codec-priority, never --song-codec (#614)
+
+The `--song-codec` single-codec flag was removed when GAMDL split
+  `cli.py` into `cli/cli_config.py` in v2.9.1 — it doesn't exist in
+  any release in our support window (2.9.1–3.2). MeedyaDL's
+  `else if self.song_codec` fallback in `audio_cli_args()` crashed the
+  subprocess with `Error: No such option: --song-codec` whenever a
+  user disabled the fallback chain on any supported GAMDL version.
+
+  Collapse the two emission paths into one: when `song_codec_priority`
+  is unset, promote the scalar `song_codec` field into a one-element
+  `--song-codec-priority` CSV. Safe across v2.9.1+ because the flag
+  accepts `Csv(SongCodec)` and a single codec is a valid one-element
+  list.
+
+  Tests added: `song_codec_promotes_to_priority_csv`,
+  `song_codec_priority_wins_over_scalar`, `song_codec_both_none_emits_nothing`,
+  `song_codec_promotes_when_priority_unset`. `multiple_options_combined`
+  updated to assert the new emission shape.
+
+- **(config)** Drop vestigial song_codec / song_codec_priority INI keys (#617)
+
+Neither key round-trips through GAMDL's INI loader on any release in
+  our support window (v2.9.1 → v3.2):
+
+    * `song_codec` was removed from the CLI in the v2.9.1 restructure; it
+      never registered in the Click param set, so `cleanup_unknown_params()`
+      silently drops our emission.
+    * `song_codec_priority` is declared upstream as `song_codec_piority`
+      (missing the `r`). `dataclass_click` propagates the Python field name
+      to `click.Parameter.name`, which GAMDL uses to key INI lookups.
+      Our correctly-spelled key was therefore also silently dropped.
+
+  Codec preference reaches GAMDL via `--song-codec-priority` (emitted by
+  `GamdlOptions::audio_cli_args`), which is authoritative and unaffected.
+  `ini_audio_section` is now intentionally empty and kept as a section
+  anchor for future audio INI keys that do round-trip through Click.
+
+  Tests updated to assert both keys are absent (negative assertions
+  covering the upstream typo form as well). File-level doc example
+  updated to point at the CLI-authoritative path.
+
+- **(config)** Drop stale song_codec_priority tests + unused import (#617, PR #621)
+
+Two pre-existing follow-up bugs from #617 ("Drop vestigial song_codec /
+  song_codec_priority INI keys") that were missed when that commit landed
+  and surfaced as backend CI failures on PR #621:
+
+  1. **Unused import** — `crate::models::gamdl_options::SongCodec` was
+     left at the top of `config_service.rs` after #617 emptied
+     `ini_audio_section()`. With CI running `cargo clippy -- -D warnings`,
+     the unused import promoted to a hard error on every backend
+     platform (macos / windows / ubuntu).
+
+  2. **Stale `cargo test` assertions** — two tests in the
+     `settings_to_ini: song_codec_priority` block still asserted the
+     pre-#617 invariant ("INI must contain `song_codec_priority =`"). The
+     new invariant (key never emitted regardless of `fallback_enabled`)
+     is already locked in by `ini_does_not_emit_song_codec` and
+     `ini_does_not_emit_song_codec_priority` further up in the file, so
+     the obsolete tests are removed entirely (with a comment pointing at
+     the canonical replacements).
+
+  Verified locally: `cargo clippy -- -D warnings` clean, `cargo test --lib`
+  shows 889 passed / 0 failed, all six v32_fixture_* tests green against
+  the synthesised fixtures shipped earlier in this branch.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(audit)** GAMDL v3.2 audit scaffold + #614 verification
+
+Adds `.github/audits/gamdl-v3.2-audit.md` capturing the verified facts
+  behind the GAMDL v3.2 audit finding set (issues #613–#619). The #614
+  section records the v2.9.1–v3.2 cross-version check that confirms
+  `--song-codec` has never existed in our support window and
+  `--song-codec-priority` is safe on every release we ship against, so
+  no support-floor change is needed.
+
+- **(audit)** GAMDL v3.2 #615 parser-validation findings
+
+Records the audit verification that MeedyaDL's `TRACK_INFO_V2_REGEX` and
+  `classify_error()` are unaffected by v3.2's conditional `Downloading`
+  log line and the `GamdlDownloaderFlatFilterExcludedError` →
+  `GamdlInterfaceFlatFilterExcludedError` rename. The rename is invisible
+  to our parser (no class-name matching), so the rename is a cleanup and
+  not a regression. Real-sample fixtures still need to be captured from
+  a live v3.2 run.
+
+- **(audit)** GAMDL v3.2 #616 sequential-fetch observability notes
+
+Records the alignment between upstream's v3.2 concurrency 5 → 1 default
+  flip and MeedyaDL's own serial-queue decision (#455). Docs-only follow-up:
+  CHANGELOG entry + help FAQ when the tool-versions.toml 3.2 bump (#619)
+  ships, no code change.
+
+- **(audit)** GAMDL v3.2 #617 INI-typo analysis
+
+Records verification that upstream's `song_codec_piority` (misspelled)
+  dataclass field — combined with `dataclass_click`'s param-name
+  propagation rule — means MeedyaDL's correctly-spelled
+  `song_codec_priority` INI line has been silently dropped by every
+  GAMDL release since v2.9.1. CLI emission is authoritative and remains
+  unaffected. Recommended resolution is Option D (drop the INI codec
+  block entirely); the CLI path has always been the one doing the work.
+
+- **(audit)** GAMDL v3.2 #618 playlist_folder_template gating
+
+Records the cross-version check of `--playlist-folder-template` — v3.0+
+  only CLI flag — and promotes the capability-gate requirement from
+  optional (as originally framed in #516's deferral) to mandatory.
+  v2.9.1–v2.9.3 users would otherwise see a Click `no such option` crash.
+  Feature-gate pattern mirrors `GamdlFeature::WrapperM3u8Ip` from #605.
+
+- **(audit)** GAMDL v3.2 #619 support-window bump analysis
+
+Records that `minimum_version = \"2.9.1\"` remains correct for v3.2 —
+  every capability MeedyaDL depends on is present across the full
+  2.9.1–3.2 window. The pre-existing latent bugs (#614, #617) affect
+  every release in that window and don't constrain the floor, so the
+  bump can proceed as soon as #614/#615 land.
+
+- **(audit)** GAMDL v3.2 #613 umbrella roll-up
+
+Closes the audit trail for the v3.2 compatibility umbrella. Post-audit
+  verification found that #614 (`--song-codec` crash) and #617 (INI-key
+  typo) are pre-existing since v2.9.1, not v3.x regressions. The v2.9.1
+  floor stays intact, and the `--song-codec-priority`-only fix strategy
+  unlocks both bugs in one coherent change. Aligns with MeedyaDL's own
+  serial-queue decision (#455).
+
+- **(audit)** Link abort-button feature request (#620) to v3.2 audit
+
+Records the rationale for the user-requested abort-button feature
+  (#620) in the audit trail. Scenarios uncovered by the audit — such as
+  the v2.9.1+ `--song-codec` crash (#614) in the `fallback_enabled=false`
+  path — are exactly when a one-click abort becomes most valuable, since
+  per-item cancel doesn't scale to large batch queues. No GAMDL-side
+  change; pure MeedyaDL UX. Existing `ShutdownSignal` is a model for a
+  narrower queue-level `AbortSignal`.
+
+- GAMDL v3.2 sequential metadata fetch + capability notes (#616)
+
+Adds a user-facing FAQ entry explaining why album metadata phase
+  may feel slower after upgrading to GAMDL 3.2 (upstream changed the
+  AppleMusicInterface concurrency default from 5 → 1, trading
+  throughput for reliability against AMP API rate-limits). Highlights
+  the alignment with MeedyaDL's own serial-queue decision (#455) so
+  the design consistency is discoverable.
+
+  Extended the existing "Version-aware GAMDL dispatch" CLAUDE.md
+  bullet with the v3.2 behaviour + cross-references to the new
+  `song_codec` / `song_codec_priority` emission rules (#614, #617),
+  the playlist_folder_template gate (#618), and the abort-all queue
+  action (#620). Each pulls a thread to the audit trail in
+  `.github/audits/gamdl-v3.2-audit.md` for full rationale.
+
+  CHANGELOG.md intentionally not edited — it's generated from
+  conventional commits via git-cliff.
+
+- **(audit)** GAMDL v3.2 umbrella closure roll-up (#613)
+
+All seven child issues of the v3.2 audit umbrella (#614–#620) have
+  landed on this branch. Records the per-issue commit hash + kind, and
+  lists the non-blocking follow-ups tracked in their respective children
+  (real-sample fixtures, Settings UI control, abort-button UX polish,
+  manual smoke test). Umbrella is ready to close pending those
+  follow-ups being addressed or spun out to new tickets.
+
+- **(audit)** GAMDL v3.2 release smoke-test procedure (#619)
+
+Committed prescriptive manual-verification checklist for whoever cuts
+  the first MeedyaDL release that includes the v3.2 support-window bump.
+  Covers seven scenarios with pass criteria:
+
+    A. Fresh install resolves gamdl==3.2
+    B. Existing v3.1 user sees the upgrade offer
+    C. Existing v2.9.x user remains Supported (floor intact)
+    D. Fallback-disabled codec path (#614 regression guard)
+    E. Playlist folder template gate (#618, v3.0+ only)
+    F. Abort queue end-to-end (#620) — button, status-bar, shortcut,
+       "don't ask again", post-queue-action suppression
+    G. Sequential metadata fetch FAQ entry (#616)
+
+  Plus a failure-reporting template and sign-off rubric. Document can
+  be forked as a template for future GAMDL version bumps.
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(parser)** Regression tests for GAMDL v3.2 output shapes (#615)
+
+Synthesised tests covering the v3.2 parser-adjacent changes derived
+  from the source-tree diff between the 3.1 and 3.2 tags:
+
+    * Conditional `track_log.info(f'Downloading "{media_title}"')` —
+      only fires for partial media of specific types (songs, MVs,
+      uploaded videos). Wrapper entities (albums, playlists, artists)
+      no longer emit it. Positive tests confirm song + MV lines still
+      parse as TrackInfo; negative tests confirm banner-style lines
+      don't.
+    * `GamdlInterfaceFlatFilterExcludedError` rename — both the old
+      and new class names classify identically via `classify_error()`
+      and fall through to `unknown`, not a real error bucket.
+
+  Also adds `.github/audits/fixtures/gamdl-3.2/` with a `README.md`
+  documenting the capture workflow + redaction checklist, so real-sample
+  captures can land later without re-deriving the procedure.
+
+- **(parser)** Synthesised v3.2 fixture files + fixture-driven tests (#615)
+
+Follow-up on #615. Previously the v3.2 regression tests used inline
+  string literals that pinned exact whitespace. Extracted five realistic
+  scenarios into committed `.log` files under
+  `.github/audits/fixtures/gamdl-3.2/` (album, single song, music video,
+  playlist, flat-filter-excluded WARNING line), derived structurally
+  from the v3.2 upstream source (`cli/utils.py` +  `cli.py`).
+
+  New test helpers load the fixtures relative to `CARGO_MANIFEST_DIR`;
+  six new fixture-driven tests assert counter values and event counts
+  rather than whitespace so real-sample replacements drop in cleanly.
+
+  Original inline-string tests preserved — they still pin exact
+  alignment as a belt-and-braces check. The fixtures README documents
+  the drop-in replacement workflow for anyone with a live v3.2
+  environment.
+
+- **(parser)** Add missing v3.2 stderr fixture .log files (#615, PR #621)
+
+The v3.2 fixture-driven parser tests added in PR #621 (v32_fixture_*)
+  load five `.log` files from `.github/audits/fixtures/gamdl-3.2/`, but
+  only the README.md actually shipped — the `.log` files were silently
+  dropped on commit by `.gitignore`'s blanket `*.log` rule.
+
+
+### 🔄 CI/CD
+
+- Harden changelog push race + document GHAS posture (#544, #564)
+
+Wrap the changelog workflow's final git push in a pull-rebase +
+  bounded-retry loop so concurrent pushes to main (release-please merges,
+  fast-follow changelog runs) no longer surface cosmetic non-fast-forward
+  failures.
+
+  Expand SECURITY.md's "Reporting a Vulnerability" section to advertise
+  the GitHub Private Vulnerability Reporting form as the preferred
+  channel, and list the newly-enabled GHAS features (PVR, secret scanning
+  + push protection, Dependabot security updates) alongside the already-
+  live CodeQL security-and-quality query suite.
+
+- Harden changelog push race + document GHAS posture (#544, #564) (#622)
+
+### 🧹 Maintenance
+
+- **(gamdl)** Bump support window to GAMDL 3.2 (#619)
+
+All gating child issues for the v3.2 umbrella (#613) have landed on
+  this branch:
+
+    * #614 — --song-codec crash fix
+    * #615 — parser regression tests
+    * #616 — sequential-fetch docs
+    * #617 — INI codec-block cleanup
+    * #618 — --playlist-folder-template wiring
+    * #620 — abort-all queue action
+
+  `install_gamdl()` now resolves `pip install --upgrade 'gamdl>=2.9.1,<=3.2'`,
+  classify() reports Supported for v3.2, and `is_gamdl_compatible("3.2")`
+  returns true so the UpdatesPage surfaces the new release.
+
+  README Component Support Matrix bumped to reflect the new ceiling.
+  CLAUDE.md was already updated in #616 with the v3.2 behaviour notes
+  + cross-references to the new capability gates.
+
+  Manual smoke test (fresh install resolves gamdl==3.2, v3.1 user sees
+  the upgrade offer) is deferred to whoever cuts the release — the
+  sandbox can't run Tauri.
+
+
+## [0.45.0] - 2026-04-24
+
+### ✨ Features
+
+- **(gamdl)** Add wrapper_m3u8_ip CLI/INI/UI support for GAMDL v3.1 (#605)
+
+GAMDL v3.1 introduced --wrapper-m3u8-ip (default 127.0.0.1:20020) and
+  changed wrapper semantics: when --use-wrapper is set on v3.1+, the HLS
+  master playlist URL is fetched from a TCP socket on this address instead
+  of from Apple's API response. Users running a wrapper must now expose an
+  m3u8 service on the configured host:port.
+
+  - GamdlFeature::WrapperM3u8Ip capability gate (is_version_at_least 3.1).
+  - GamdlOptions + AppSettings field wrapper_m3u8_ip with
+    #[serde(default)] so pre-v3.1 settings.json files get the upstream
+    default 127.0.0.1:20020 on load (no schema migration needed).
+  - ini_advanced_section emits wrapper_m3u8_ip only when use_wrapper=true
+    AND the gate passes; merge_options() propagates the CLI arg under the
+    same conditions. retry_without_wrapper() clears the new field along
+    with the existing wrapper fields.
+  - New preflight health check (check_wrapper_m3u8_health) does a 3-second
+    TCP connect, emits PreflightCheck::WrapperM3u8 toast on failure.
+  - Settings > Advanced > Wrapper UI exposes the field when wrapper is on.
+  - Import sanitisation truncates to 64 chars; diff-logging redacts.
+
+  Part of #604.
+
+- **(ux)** Surface GAMDL v3.1 track counter + suppress 1-of-1 (#609)
+
+GAMDL v3.1 now emits `[Track 1/1]` for single-song URLs, and
+  `AppleMusicMedia.index/total` are populated across every download path
+  (artist buckets, single songs, music videos). MeedyaDL's parser was
+  already capturing `track_number`/`track_total` from TrackInfo events,
+  but `update_item_progress()` discarded them — the QueueItemStatus
+  fields existed as dead letters.
+
+  Wire the parsed counters through to the queue item and gate the
+  frontend "(Track N of M)" span on `total_tracks > 1` so single-song
+  downloads show the track name only (no redundant "1 of 1").
+
+  - update_item_progress() propagates track_number → completed_tracks,
+    track_total → total_tracks on TrackInfo events.
+  - QueueItem.tsx gates the counter span on total_tracks > 1.
+  - Two new tests cover the 3/12 album case and the 1/1 single-song case.
+
+  Part of #604.
+
+
+### 🐛 Bug Fixes
+
+- **(gamdl)** Stop emitting --no-exceptions on GAMDL v3.1 (#606)
+
+Upstream commit dc6f2e8 removed every traceback.print_exc() call and
+  routes exceptions through structlog's ExceptionPrettyPrinter unconditionally,
+  making --no-exceptions a no-op. The flag is still accepted by the CLI
+  parser but nothing consumes it.
+
+  Keep emitting the flag on v2.x / v3.0 (where it still suppresses raw
+  tracebacks) and on unknown versions (safe default — the flag is accepted
+  everywhere since 2.x). Drop it only when we've positively detected 3.1+.
+
+  - GamdlFeature::NoExceptionsFlag capability gate
+    (!is_version_at_least(version, "3.1")).
+  - merge_options() clears options.no_exceptions = None when detected
+    version is >= 3.1.
+  - verbose_gamdl_exceptions setting doc updated with v3.1 note.
+
+  Part of #604. The companion parser work for ExceptionPrettyPrinter
+  output is tracked in #607.
+
+- **(parser)** Handle GAMDL v3.1 ExceptionPrettyPrinter output ordering (#607)
+
+GAMDL v3.1's switch from traceback.print_exc() to structlog's
+  ExceptionPrettyPrinter processor changes the stderr line ordering: the
+  traceback now appears BEFORE its accompanying [ERROR HH:MM:SS ...] log
+  line because the processor runs earlier in structlog's pipeline than
+  custom_structlog_formatter.
+
+  extract_python_exception() previously walked forward from the last
+  Traceback header capturing the "last non-empty, non-indented line", so
+  on v3.1 it would pick up the trailing [ERROR ...] structlog entry
+  instead of the actual exception (e.g. KeyError: 'title').
+
+- **(parser)** Use strip_prefix in is_structlog_line_start (clippy::manual_strip)
+
+CI failure on PR #611 — `cargo clippy -- -D warnings` flagged the
+  manual `&inside[level.len()..]` prefix-strip introduced in #607's
+  is_structlog_line_start helper. Swap to the idiomatic
+  `inside.strip_prefix(level)` pattern. No behaviour change — the two
+  is_structlog_line_start tests still pass unchanged.
+
+  Detected in the v3.1 rollout's ExceptionPrettyPrinter parser fix (#607),
+  but is a local style cleanup rather than a separate issue.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(parser)** Regression tests for GAMDL v3.1 Track/URL brackets + WARNING→ERROR (#608)
+
+Adding v3.1 parser regression tests exposed a latent bug in
+  TRACK_INFO_V2_REGEX: the pattern did not tolerate the trailing space
+  that GAMDL's `action=f"Track {index:>3}/{total:<3}"` emits for padded
+  totals (e.g. `15 ` before `]`). The regex required a bare `\]`, so the
+  `Downloading "..."` line silently routed to Unknown. Existing v3.0
+  tests only asserted "no Error events", so the bug went undetected.
+
+  Extend TRACK_INFO_V2_REGEX with `\s*` tolerance around the slash and
+  before the closing bracket. Works on v2.9.x, v3.0, and v3.1 alike.
+
+  Seven new tests cover:
+  - Padded bracket formats `[Track   1/15 ]` and `[Track   1/1  ]`.
+  - Dash-total fallback `[Track   1/-  ]` (media_total or "-" in v3.1)
+    — must NOT parse as TrackInfo with a bogus numeric total.
+  - WARNING→ERROR upgrade for URL parse errors (commit fd3b621).
+  - `[ERROR ...] [URL   1/1  ] ...` and `[ERROR ...] [Track   1/1  ] ...`
+    captured via ERROR_PREFIX_REGEX.
+  - classify_error() on URL parse errors does not fall into the
+    httpx/httpcore "network" bucket (#521 regression guard).
+
+  Part of #604. No regression in the 82 utils::process::tests.
+
+
+### 🧹 Maintenance
+
+- **(gamdl)** Bump support window to GAMDL 3.1 (#610)
+
+Closes the final child of #604. All sibling changes have landed on this
+  branch:
+    * #605 wrapper_m3u8_ip CLI/INI/UI
+    * #606 --no-exceptions suppressed on v3.1 (no-op upstream)
+    * #607 extract_python_exception() handles ExceptionPrettyPrinter
+      output ordering
+    * #608 TRACK_INFO_V2_REGEX + ERROR_PREFIX_REGEX regression tests for
+      v3.1 padded brackets + URL parse ERROR upgrade
+    * #609 QueueItem counter wiring + single-song 1/1 suppression
+
+- **(scripts)** Remove unused variables flagged by CodeQL
+
+Three dead declarations flagged by CodeQL code scanning on main
+  (findings #16/#17/#18, all Note-severity):
+
+    * scripts/generate-icons.mjs:132 — const map (stale size pairing,
+      superseded by const entries on the next line)
+    * scripts/generate-icons.mjs:133 — const names (unused filename list)
+    * scripts/svg-to-apng.mjs:103   — const modeParam (query-param
+      string built but never interpolated — the HTML template below
+      uses modeConfig.mode directly in an inline <script> block)
+
+  All three were left over from earlier iterations of the build scripts
+  and have zero runtime impact. Output icons + APNGs are unaffected.
+
+- **(scripts)** Remove unused variables flagged by CodeQL (#603)
+
+## Summary
+
+  Cleans up three unused-variable Note-level findings raised by CodeQL on
+  `main` (findings #16/#17/#18 in the Code Scanning dashboard). All three
+  are stale declarations with zero runtime impact.
+
+  | File | Line | Variable | Why it was unused |
+  |---|---|---|---|
+  | `scripts/generate-icons.mjs` | 132 | `const map` | Superseded by
+  `const entries` on the very next line |
+  | `scripts/generate-icons.mjs` | 133 | `const names` | Filename list
+  that was never consumed |
+  | `scripts/svg-to-apng.mjs` | 103 | `const modeParam` | Built as a
+  `?mode=...` query string, but the HTML template below uses
+  `modeConfig.mode` directly in an inline `<script>` block — the param was
+  never interpolated |
+
+  ## Test plan
+
+  - [x] `node --check scripts/generate-icons.mjs` — clean
+  - [x] `node --check scripts/svg-to-apng.mjs` — clean
+  - [ ] Manual run of the icon generator produces identical output (not
+  run in-session; these scripts need `sharp` + `iconutil` + Puppeteer)
+  - [ ] CodeQL rescan on this PR clears findings #16/#17/#18
+
+  ## Risk
+
+  Zero. Dead locals only — no exports, no side effects, no references
+  anywhere else in the repo (verified by `grep`). Output icons and APNGs
+  are unaffected.
+
+
+## [0.44.2] - 2026-04-24
+
+### 🐛 Bug Fixes
+
+- **(settings)** Make Settings panel fill horizontal space + wrap long checkbox labels (#601)
+
+## Summary
+
+  Settings panel now fills available horizontal space + long checkbox
+  labels no longer truncate. Addresses the UI reported in-session:
+  Settings > Quality > Audio Quality > Custom Companion Codecs had "AAC
+  (256kbps) Binaural (Experi..." cut off with an ellipsis, and the whole
+  Settings panel was capped at 576px leaving a large empty gutter on
+  anything bigger than a small laptop window.
+
+  ## Changes
+
+  Two surgical 1-line edits, applied across 11 files:
+
+  1. **`max-w-xl` removed from all 10 settings tab wrappers.** The
+  responsive chain (`MainLayout > main (flex-1) > SettingsPage > tab area
+  (flex-1)`) already fills available width — the `max-w-xl` (576px) was
+  the only constraint. With it gone, the Settings panel dynamically
+  expands/shrinks with the window.
+
+  2. **`CheckboxGroup` label span changed from `truncate` → `leading-tight
+  break-words`.** Long labels now wrap within the checkbox cell instead of
+  being cut off with an ellipsis. This fixes the truncation at the default
+  window width, and the wrap behaviour remains correct when cells expand
+  on wider windows.
+
+  ## Affected files
+
+  - `src/components/common/CheckboxGroup.tsx` — label wrap
+  -
+  `src/components/settings/tabs/{Advanced,Cookies,CoverArt,Fallback,General,Lyrics,Metadata,Quality,Templates,Tools}Tab.tsx`
+  — 10 × remove `max-w-xl`
+
+  ## Test plan
+
+  - [x] `npm run type-check` — clean
+  - [x] `npm run test -- --run` — 303 passed / 0 failed
+  - [ ] Visual check: Settings panel fills window width at multiple sizes
+  - [ ] Visual check: Custom Companion Codecs grid shows full labels at
+  default width
+  - [ ] Visual check: labels wrap gracefully when cells are narrow (e.g.,
+  Settings sidebar hidden or small window)
+  - [ ] No regression on any other settings tab
+
+  ## Not included
+
+  No design-level refactor of the responsive grid breakpoints on
+  `CheckboxGroup` — on ultra-wide windows, the 2-column grid will have
+  very wide cells. If that looks wrong in practice we can bump the column
+  count at larger breakpoints as a follow-up.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.44.1] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(settings)** Make Settings panel fill horizontal space + wrap long checkbox labels
+
+The Settings page was capped at max-w-xl (576px), leaving a wide empty
+  right-hand gutter on anything bigger than a small laptop window. On top
+  of that, CheckboxGroup's labels were `truncate`d at the cell edge, so
+  labels like "AAC (256kbps) Binaural (Experimental)" in Settings >
+  Quality > Audio Quality > Custom Companion Codecs got cut off with an
+  ellipsis even at the default window width.
+
+  Two surgical changes:
+
+  1. Remove `max-w-xl` from all 10 settings tab wrappers. The Settings
+     content area now expands to fill the available horizontal space and
+     shrinks with the window — the responsive chain of flex-1 parents
+     handles everything.
+
+  2. Replace `truncate` with `leading-tight break-words` on the
+     CheckboxGroup label span. Long labels now wrap within their cell
+     instead of being cut off, eliminating the ellipsis at narrow widths
+     while still looking clean when cells expand.
+
+- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521)
+
+The live-fire capture for #521 revealed that GAMDL v3.0 emits
+  per-track/per-URL errors with two stacked bracket groups:
+
+      [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
+
+  `ERROR_PREFIX_REGEX` required the error keyword to immediately follow
+  the optional structlog banner, so the `[Track ...]` infix pushed the
+  line out of the regex's match space. Priority-7 keyword matching
+  doesn't list "error" on its own, so these lines fell through to
+  `GamdlOutputEvent::Unknown` — silently losing every track-scoped error
+  from the activity log.
+
+  The regex now permits zero or more `[...]` infixes between the banner
+  and the error keyword.
+
+  Also refines the v3.0 test fixtures with verbatim patterns from the
+  captures (Starting Gamdl 3.0, `[URL   1/1  ]`, `[Track   N/M ]`, double
+  traceback with `During handling of the above exception, another
+  exception occurred:`, `gamdl.api.exceptions.GamdlApiResponseError`),
+  and adds 7 regression tests covering:
+
+    - bracketed [Track N/M] Error downloading lines
+    - bracketed [URL N/M] Error processing lines
+    - nested-exception marker captured as Error
+    - multi-dot-module-path GamdlApiResponseError via PYTHON_EXCEPTION_REGEX
+    - full double-traceback fixture → complete Error chain
+    - Finished-with-N-errors summary survives interleaved traceback
+    - experimental-codec WARNING is not misclassified as Error
+
+  The codec-skip fixture remains synthetic — none of the four live-fire
+  captures exercised a real codec-unavailable scenario (all errored on
+  cover-fetch or catalog 404 before reaching a track-download stage).
+
+- **(parser)** Capture GAMDL v3.0 bracketed Track/URL error lines (#521) (#599)
+
+## Summary
+
+  - Fix a latent regression in every MeedyaDL release against GAMDL v3.0
+  where track-scoped errors (`[ERROR HH:MM:SS] [Track N/M ] Error
+  downloading "..."`) fell through to `Unknown` and silently disappeared
+  from the activity log.
+  - Refine v3.0 test fixtures with verbatim patterns from the #521
+  live-fire capture (2026-04-23).
+  - Add 7 regression tests pinning the newly observed v3.0 formatting
+  invariants.
+
+  ## The bug
+
+  The live-fire capture on #521 revealed that GAMDL v3.0 emits per-track
+  errors with **two stacked bracket groups**:
+
+  ```
+  [ERROR    23:02:03] [Track   1/14 ] Error downloading "Lavender Haze"
+  ```
+
+  `ERROR_PREFIX_REGEX` required the `Error` keyword to immediately follow
+  the optional structlog banner, so the `[Track 1/14 ]` infix pushed the
+  whole line out of the regex's match space. Priority-7 keyword matching
+  doesn't list `error` on its own, so these lines fell through to
+  `GamdlOutputEvent::Unknown` — **silently losing every track-scoped
+  error** from the activity log on v3.0.
+
+  ## The fix
+
+  ```diff
+  -r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:ERROR|error|Error):?\s+(.+)"
+  +r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)"
+  ```
+
+  The new `(?:\[[^\]]+\]\s*)*` group allows zero or more bracketed infixes
+  between the structlog banner and the error keyword. Covers both the
+  `[Track N/M ]` and `[URL N/M ]` variants observed in the capture.
+
+  ## Fixtures updated with real data
+
+  | Fixture | Status |
+  |---|---|
+  | `FIXTURE_V3_SUCCESSFUL_ALBUM` | Refreshed with verbatim v3.0
+  formatting (`Starting Gamdl 3.0`, `[URL 1/1 ]`, `[Track N/M ]`) |
+  | `FIXTURE_V3_AUTH_ERROR` | Replaced with the full double-traceback from
+  capture D (httpx.HTTPStatusError → `During handling of the above
+  exception` → `gamdl.api.exceptions.GamdlApiResponseError`) |
+  | `FIXTURE_V3_CODEC_SKIPS` | Still synthetic — no capture exercised a
+  real codec-unavailable scenario (all four errored on cover-fetch or
+  catalog 404 pre-download) |
+  | `FIXTURE_V3_NETWORK_TRACEBACK` | Unchanged (synthetic; no network
+  timeout observed) |
+
+  ## New regression tests
+
+  ```
+  v3_real_bracketed_track_error_is_captured_as_error
+  v3_real_bracketed_url_error_is_captured_as_error
+  v3_real_nested_exception_marker_captured_by_keyword_match
+  v3_real_gamdl_api_response_error_captured_by_python_regex
+  v3_real_auth_fixture_produces_full_error_chain
+  v3_real_finished_summary_survives_nested_traceback
+  v3_real_experimental_codec_warning_is_not_misclassified_as_error
+  ```
+
+  ## Test plan
+
+  - [x] `cargo test --lib` — 850 passed, 0 failed
+  - [x] `cargo clippy --lib --tests -- -D warnings` — clean
+  - [ ] CI passes on the PR
+  - [ ] No spurious errors on successful v3.0 download (activity log
+  check)
+
+  ## Still open on #521
+
+  Codec-skip / gap-fill / `find_album_directory` remain untested against
+  real v3.0 — need a successful-download capture. Likely blocked by a
+  separate upstream GAMDL v3.0 cover-URL template-substitution regression
+  surfaced by the same captures (see #521 analysis comment).
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.44.0] - 2026-04-23
+
+### ✨ Features
+
+- **(progress-bar)** Intra-Processing progress fraction (#576)
+
+Queue-level progress bar now shows visible forward motion DURING the
+  enrichment phase, not a flat partial-credit value for 15–40 minutes
+  on large box sets. Complements #574 (per-item caption labels) — both
+  halves of the "RC polish for the download-progress surface" item land
+  together.
+
+  ### Backend
+
+  - `QueueItemStatus` gains `processing_progress: Option<f32>` (nullable,
+    serde-defaulted so old persistence files load unchanged).
+  - `DownloadQueue::set_processing_progress(dl_id, progress)` clamps to
+    [0.0, 1.0] and stores.
+  - New `PROGRESS_*_STAGE` constants near `compute_completion_timeout`
+    defining cumulative weights per enrichment stage (metadata 0.05,
+    word-lyrics 0.15, LRC conversion 0.25, animated artwork 0.40,
+    AcoustID 0.55, ReplayGain 0.75). Deliberately monotonic; rebalance
+    later as real-world timing data from #579 repros accumulates.
+  - `set_label` closure signature changes from `(label)` to
+    `(label, progress)`. All 7 existing call sites updated to pass the
+    corresponding stage weight. Each call still emits `queue-updated`
+    (shipped in #590) so the frontend refreshes in real time.
+
+  ### Frontend
+
+  - `QueueItemStatus` TS type gains `processing_progress: number | null`.
+  - `GlobalProgressBar.tsx` queue-level aggregation rewritten: instead
+    of counting `processing` items as a flat 1.0, it now sums the
+    weighted contribution per state:
+      - complete / error / cancelled → 1.0
+      - processing → `processing_progress ?? 0.5` (clamped)
+      - downloading / queued → 0.0
+    Integer "N of M complete" caption kept as-is (processing still
+    counts as "done" in the integer display; the fractional upgrade
+    only affects the bar fill).
+
+  ### Why processing_progress defaults to 0.5 when null
+
+  An item in `processing` state has produced its primary files (audio
+  on disk) but hasn't yet seen its first enrichment stage emit. 0.5 is
+  the same flat partial-credit value the pre-#576 UI showed; the
+  upgrade from 0.5 to the stage weight is additive, never regressive.
+
+  ### Test fixtures updated
+
+  - `src/stores/downloadStore.test.ts` — QueueItemStatus fixture.
+  - `src/components/layout/StatusBar.test.tsx` — QueueItemStatus fixture.
+  - 3 backend default-construction sites in models/download.rs
+    and 2 in services/download_queue.rs (MembershipFixture /
+    retry-insert / from_persisted).
+
+  ### Verified locally
+
+  - tsc --noEmit clean
+  - npx vitest run = 303 passed, 0 failed
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib = 825 passed, 0 failed
+
+- **(naming)** User-configurable disc + track number padding (#587)
+
+Settings gain two new enums — `TrackNumberPadding` and `DiscNumberPadding`
+  — that control how bare `{track}` / `{disc}` tokens in filename templates
+  are padded with leading zeros. Closes #587's "I'd like more control over
+  padding" UX request from the #547 audit (100-track Beethoven box set
+  where track 100 sorted between 10 and 11 lexicographically).
+
+  ### Core change
+
+  - Two new enum settings (both default `Auto`):
+    - `TrackNumberPadding::{Auto, None, TwoDigits, ThreeDigits, FourDigits}`
+    - `DiscNumberPadding::{Auto, None, OneDigit, TwoDigits}`
+  - Both enums expose `resolve_width(total) -> usize` that returns the
+    number of padding digits for a given total. `Auto` derives width
+    from the album's `track_total` / `disc_total`; fixed modes ignore
+    the argument and return their constant width.
+  - New `apply_padding_to_template()` pure function in `download_queue.rs`
+    that rewrites bare `{track}` / `{disc}` placeholders to
+    `{track:{width}d}` / `{disc:{width}d}`. Tokens with an explicit
+    format spec (`{track:02d}`) are left untouched — the user's template
+    always wins. Similar-looking tokens like `{track_total}` are
+    correctly distinguished.
+  - `merge_options()` now applies the padding to `single_disc_file_template`
+    and `multi_disc_file_template` at merge time so GAMDL sees the
+    already-formatted template.
+
+  ### Defaults preserve existing behaviour
+
+  - `Auto` with no album metadata known yet → 2-digit track, 0-digit
+    disc. Matches pre-#587 `{track:02d}` / `{disc}-` exactly.
+  - Users who've customised their templates with explicit format specs
+    (`{track:03d}`) keep working identically — `apply_padding_to_template`
+    is a no-op on explicit specs.
+
+  ### Auto mode and album metadata
+
+  `merge_options()` runs before the Apple Music API prefetch returns
+  `track_total` / `disc_total`, so `Auto` currently resolves with
+  `None` → fallback defaults. Upgrading `Auto` to consult the actual
+  album totals (producing `001` for 200-track box sets, `01` for 12-track
+  albums) is a follow-up that requires threading the totals through the
+  pipeline. Fixed widths (`TwoDigits` / `ThreeDigits` / `FourDigits`)
+  take effect immediately for users who want library-wide consistency
+  without waiting for that follow-up.
+
+  ### Tests
+
+  Eight new unit tests in `download_queue::tests`:
+
+  - `padding_leaves_explicit_format_spec_untouched`
+  - `padding_substitutes_bare_track_token`
+  - `padding_substitutes_bare_disc_and_track_tokens`
+  - `padding_width_zero_emits_bare_placeholder`
+  - `padding_leaves_similar_but_distinct_tokens_alone` (e.g. `{track_total}`)
+  - `padding_auto_mode_derives_width_from_track_total`
+  - `padding_fixed_modes_ignore_track_total`
+  - `padding_disc_auto_mode_stays_unpadded_for_small_sets`
+
+  ### Out of scope
+
+  - Settings UI for the new controls (radio buttons / dropdowns). Backend
+    infrastructure ships first; UI follows in a separate PR so this one
+    stays reviewable.
+  - `Auto` mode reading real album metadata at enrichment time — requires
+    plumbing that isn't strictly necessary for the user's immediate ask
+    (fixed widths already solve the box-set problem).
+  - Settings migration bumping the default template to use `{track:03d}`
+    — left as a future micro-PR if it turns out users don't discover
+    the new setting.
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean (one narrowly-scoped allow on
+    merge_options itself for the field_reassign_with_default lint —
+    rewriting a 50-field builder function as a struct literal would
+    destroy its readability).
+  - cargo test --lib = 833 passed, 0 failed (8 new + 825 existing).
+
+
+### 🐛 Bug Fixes
+
+- **(errors)** Classify GAMDL playlist-title KeyError with actionable guidance (#588)
+
+Apple Music Classical cross-work playlists hit a GAMDL upstream
+  bug (#547 scenario 4 repro, 2026-04-23) where the playlist template
+  renderer unconditionally dereferences `kwargs["title"]` even when
+  the track's catalog entry lacks a `name` attribute, raising
+  `KeyError: 'title'` on every affected track. The error cascades
+  through GAMDL's async framework and lands in MeedyaDL's stderr
+  buffer as a Python traceback. Pre-#588 it was mis-classified as
+  `"unknown"` and the user saw only a generic "check the log" toast.
+
+  ### Fix
+
+  New classifier branch in `utils::process::classify_error`:
+  `is_playlist_title_keyerror(error_message)` matches the exact
+  signature (both the `KeyError: 'title'` string AND a GAMDL
+  playlist-renderer frame like `get_playlist_file_path` or
+  `downloader_base`) so unrelated `KeyError: 'title'` failures
+  don't false-positive as playlist bugs.
+
+  New `error_guidance` arm `"playlist_title_keyerror"` emits a
+  user-friendly message with:
+  - Specific framing ("this is a known upstream GAMDL limitation
+    with certain Apple Music Classical playlists").
+  - Actionable workaround ("try downloading the individual albums
+    instead").
+  - Upstream escalation link (https://github.com/glomatico/gamdl/issues).
+
+  ### Out of scope
+
+  - Fixing the upstream bug in GAMDL itself.
+  - Auto-retry or fallback to per-track downloads when the classifier
+    fires (separate follow-up if desired).
+  - MusicBrainz / Discogs playlist-title resolution as a workaround.
+
+  ### Tests
+
+  Three new unit tests in `utils::process`:
+  - `classifies_gamdl_playlist_title_keyerror` — canonical traceback
+    routes correctly.
+  - `classifies_unrelated_keyerror_title_as_unknown` — regression
+    canary: a `KeyError: 'title'` without a playlist-renderer frame
+    stays in "unknown".
+  - `playlist_keyerror_guidance_points_users_upstream` — validates
+    the user-visible message.
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib utils::process = 68 passed (3 new + 65 existing)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(naming)** Multi-disc + padding interaction unit tests (#589)
+
+Adds seven unit tests covering the interaction between multi-disc
+  filename templates and the new #587 padding settings. Closes #589's
+  test-tracker ask now that the #587 infrastructure is in place.
+
+  Scenarios covered:
+
+  1. **Typical 2-disc album with Auto** — baseline: unpadded disc,
+     2-digit track.
+  2. **10-disc box set with Auto** — disc count ≥ 10 forces
+     2-digit disc padding so `10-01` sorts after `9-01` correctly.
+     The originating case from the #587 discussion.
+  3. **Deep classical box set (200 discs × 120 tracks each)** —
+     pathological Brilliant-Classics-style case. Auto correctly
+     produces 3-digit disc AND 3-digit track.
+  4. **User mixes fixed ThreeDigits track + Auto disc** — settings
+     can be independently configured; small-disc album with fixed
+     3-digit track produces `{disc}-{track:03d}`.
+  5. **User explicit `{disc:02d}` spec takes precedence** — regression
+     canary: user's explicit format always wins over the setting.
+  6. **Direct song URL (no album metadata)** — `None` passed to
+     `resolve_width` triggers Auto's safe default (2-digit track,
+     unpadded disc), matching pre-#587 behaviour.
+  7. **Compilation folder template with `{album_id}`** — padding
+     applies to tracks only; `{album_id}` and other non-track
+     placeholders are untouched.
+
+  ### Verified locally
+
+  - cargo test --lib services::download_queue::tests::multidisc = 7 passed
+  - cargo test --lib (full) = 843 passed, 0 failed (7 new + 836 existing)
+
+
+## [0.43.0] - 2026-04-23
+
+### ✨ Features
+
+- **(ux)** Add "Open folder" button alongside Browse in Diagnostics (#581)
+
+Settings → Advanced → Diagnostics → On-disk activity log location now
+  has three buttons: Browse… (change the folder), Open folder (reveal
+  in OS file viewer), Reset (revert to default).
+
+  The Open folder button reuses the existing `get_logs_folder_path` IPC
+  command + `@tauri-apps/plugin-shell`'s `open()` — the same pattern
+  that powers the Activity Log page's "Reveal" button (line 297 of
+  `src/components/download/ActivityLog.tsx`). No new Rust code needed;
+  behaviour is consistent across the two entry points.
+
+  Failures surface via a toast (`Failed to open logs folder: {error}`)
+  using the existing `useUiStore.addToast()`. Same failure-handling
+  shape as the Activity Log page.
+
+  No backend changes. No new dependencies. One new import (`getLogsFolderPath`),
+  one new button, one toast import.
+
+  Verified locally: tsc --noEmit clean; npx vitest run = 303 tests.
+
+- **(ux)** Add "Open folder" button alongside Browse in Diagnostics (#581) (#594)
+
+## Summary
+
+  Closes **#581**. Settings → Advanced → Diagnostics → *On-disk activity
+  log location* gets a new **Open folder** button between the existing
+  **Browse…** and **Reset** buttons.
+
+  ## Reviewer ask
+
+  > *"In Settings > Advanced > Diagnostics > On-Disk Activity Log
+  location, add a button to open the on-disk activity log location in the
+  OS set/native directory viewer. We have a Browse button to set the
+  folder, but we also should have a simple way to open the folder for
+  quick access to logs."*
+
+  ## Implementation
+
+  Reuses the existing `get_logs_folder_path` IPC command +
+  `@tauri-apps/plugin-shell`'s `open()` — the identical pattern that
+  powers the Activity Log page's "Reveal" button (see
+  `src/components/download/ActivityLog.tsx:297`). No new Rust code;
+  behaviour is consistent across the two entry points, which was the
+  express ask.
+
+  ```tsx
+  <Button
+    variant="secondary"
+    size="sm"
+    onClick={async () => {
+      const addToast = useUiStore.getState().addToast;
+      try {
+        const path = await getLogsFolderPath();
+        const { open } = await import('@tauri-apps/plugin-shell');
+        await open(path);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        addToast(`Failed to open logs folder: ${msg}`, 'error');
+      }
+    }}
+  >
+    Open folder
+  </Button>
+  ```
+
+  Failure path: errors surface as a toast via `useUiStore.addToast` with
+  the same failure-handling shape as the Activity Log page. Silent success
+  (the OS file viewer popping open).
+
+  ## Placement
+
+  Button order (left to right): **Browse…** / **Open folder** / **Reset**.
+  Matches natural action order — change the folder (Browse), visit the
+  folder (Open), reset back (Reset).
+
+  ## Diff summary
+
+  Single file changed (`src/components/settings/tabs/AdvancedTab.tsx`),
+  +29 / -0:
+
+  - 1 new import: `getLogsFolderPath` (already a public IPC).
+  - 1 new import: `useUiStore` (for the error-case toast).
+  - 1 new `<Button>` (Open folder).
+
+  No backend changes. No new dependencies. No schema changes.
+
+  ## Acceptance criteria from #581
+
+  - [x] **Open folder** button added between Browse and Reset.
+  - [x] Reuses the existing `get_logs_folder_path` IPC command.
+  - [x] Reuses `@tauri-apps/plugin-shell`'s `open()`.
+  - [x] Placement: Browse / Open / Reset.
+  - [x] Consistent with the Activity Log page's "Reveal" button pattern.
+  - [x] Honours the `activity_log_path_override` setting
+  (`get_logs_folder_path` already does).
+  - [x] Error toast on failure.
+
+  Labelling choice: "Open folder" rather than "Reveal" — the Activity Log
+  page uses "Reveal" to match macOS-native Finder terminology, but in a
+  Settings panel "Open folder" is more immediately understandable to
+  non-Mac users. This is a minor label divergence; if consistency
+  preference flips the other way, trivial rename either place.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                  ✓ clean
+  npx vitest run                303 tests passed, 0 failed (no new tests; UI-only change)
+  ```
+
+  ## Test plan (post-merge)
+
+  - [ ] Open Settings → Advanced → Diagnostics. The On-disk activity log
+  location row shows three buttons in order.
+  - [ ] Click **Open folder** with default path (blank override). System
+  file viewer opens at the default app data logs directory.
+  - [ ] Set a custom path via **Browse…**, click **Open folder**. File
+  viewer opens at the custom path.
+  - [ ] Set an invalid path (e.g. a removed external drive), click **Open
+  folder**. Toast shows "Failed to open logs folder: ..." with a clear
+  error.
+  - [ ] Cross-platform: macOS Finder, Windows Explorer, Linux Nautilus /
+  Files — all open the folder.
+
+  ## Related
+
+  - **#581** — closed by this PR.
+  - **CLAUDE.md** — Activity Log section documents the
+  `get_logs_folder_path` + `plugin-shell` pattern this reuses.
+
+
+### 🐛 Bug Fixes
+
+- **(ux)** Replace 'Pre-flight checks passed' with plain-English activity-log messages (#578)
+
+User feedback on 2026-04-23: the phrase was jargon-first — "even I (as
+  a dev) thought something was broke when the progress bars disappeared.
+  For a moment I didn't realise this vague statement meant ALL actions
+  completed successfully."
+
+  ### Changes to `services/download_queue.rs` pre-flight block
+
+  Three string updates:
+
+  1. **Before the checks run**: new activity-log emit announcing what's
+     about to happen — "Checking internet connection, output folder,
+     and account..." So users see the app pause, know what it's doing,
+     then get a matching answer.
+
+  2. **All-clear message**: "Pre-flight checks passed" → "Ready to
+     download — internet, output folder, and account all verified".
+     Leads with the user-facing action (what happens next), enumerates
+     the verified prerequisites in plain English, no aviation jargon.
+
+  3. **Warning message**: "Pre-flight: {message}" → "Pre-flight warning:
+     {message}". Keeps the prefix (the word "warning" gives more context
+     than the technical phrase alone) but makes it explicit that this is
+     a problem the user should act on.
+
+  ### Not changed
+
+  - The RUST log::warn! in the warning path keeps "Pre-flight warning"
+    as it's aimed at log-file inspection (dev-facing), not the
+    activity-log UI.
+  - The existing `preflight-warning` / `preflight-cleared` event names
+    are left alone — they're internal wire-protocol identifiers the
+    frontend listens for.
+  - Out of scope: broader audit of every [System] activity-log string
+    (the issue mentions this as a follow-up; scope kept tight to the
+    specific symptom reported).
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings clean
+  - cargo test --lib services::download_queue::tests = 120 passed
+
+- **(ux)** Replace "Pre-flight checks passed" jargon with plain-English activity log (#578) (#593)
+
+## Summary
+
+  Closes **#578**. Replaces the jargon-first `[System] Pre-flight checks
+  passed` activity-log message with plain-English before/after pair so
+  users know what was verified and what happens next.
+
+  ## Reviewer feedback
+
+  > *"It needs to be something meaningful to the end user! This is partly
+  why even I (as a dev) thought something was broken when the progress
+  bars disappeared. For a moment I didn't realise this vague statement
+  meant ALL actions completed successfully."*
+
+  ## Changes
+
+  Three string tweaks in the pre-flight block of
+  `services/download_queue.rs`:
+
+  ### 1. New "before" message
+
+  Emitted at the moment pre-flight checks begin, so the activity log has a
+  clear question-and-answer shape:
+
+  ```
+  [System] Checking internet connection, output folder, and account...
+  ```
+
+  ### 2. "All-clear" message
+
+  ```diff
+  - [System] Pre-flight checks passed
+  + [System] Ready to download — internet, output folder, and account all verified
+  ```
+
+  Leads with the user-facing action ("Ready to download"), enumerates the
+  verified prerequisites in plain English, no aviation jargon.
+
+  ### 3. Warning message prefix
+
+  ```diff
+  - [System] Pre-flight: {message}
+  + [System] Pre-flight warning: {message}
+  ```
+
+  Kept the "Pre-flight" prefix because adding "warning" makes it explicit
+  that this is a problem the user should act on; removing the prefix
+  entirely would drop useful context. (The backend `preflight-warning`
+  event that drives the user-visible toast is also left alone — it's a
+  wire-protocol identifier, not a UI string.)
+
+  ## Not in scope
+
+  - Broader audit of every `[System]` activity-log string for similar
+  jargon (the issue body mentions this as a follow-up). Done separately if
+  the pattern recurs.
+  - The Rust `log::warn!` line keeps the old phrasing — that's aimed at
+  log-file inspection for support / dev debugging, not the user-facing
+  activity log.
+
+  ## Before / after (typical happy path)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.3] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(enrichment)** Skip macOS AppleDouble + known filesystem sidecars in audio walkers (#577)
+
+When the user's output path is on a non-native filesystem (exFAT /
+  FAT32 / HFS on external drives, SMB / NFS shares), macOS creates
+  AppleDouble `._*` sidecar files alongside every real file to store
+  resource-fork metadata the underlying filesystem can't natively
+  represent. Similar sidecars exist on other platforms: `.DS_Store`,
+  `Thumbs.db` / `thumbs.db`, `desktop.ini`.
+
+  Every enrichment walker that iterates audio extensions was processing
+  these sidecars too — running ffprobe / MediaInfo / Chromaprint /
+  FFmpeg loudness analysis / mp4ameta on non-audio binaries, failing
+  noisily, and contributing hundreds of spurious warning lines to the
+  activity log on a large album. Captured live 2026-04-23 on a 200-track
+  Beethoven box set download to an exFAT USB drive.
+
+  ### Fix
+
+  New shared predicate `utils::fs_safe::is_filesystem_sidecar(path)`
+  returning `true` for:
+    - `._*` prefix (macOS AppleDouble — the dominant case)
+    - `.DS_Store` (macOS Finder metadata)
+    - `Thumbs.db` / `thumbs.db` (Windows thumbnail cache)
+    - `desktop.ini` (Windows folder customisation)
+
+  Applied as a guard at every enrichment walker call site:
+
+    - `download_queue::has_direct_audio_files` — non-recursive check;
+      now ignores sidecars when deciding if a dir has "real" content.
+      Via inheritance, `find_deepest_audio_dir` gets the same filter.
+    - `download_queue::count_audio_files_in_directory` — recursive
+      counter used by the completion-task timeout (#579).
+    - `download_queue::count_media_files` — audio-vs-video split
+      counter.
+    - `acoustid_service::collect_m4a_recursive` — Chromaprint
+      fingerprinting walker.
+    - `replaygain_service::collect_audio_recursive` — FFmpeg loudness
+      walker.
+    - `metadata_tag_service::tag_directory_recursive` — mp4ameta atom
+      writer.
+    - `metadata_tag_service::collect_m4a_depth_limited` — codec
+      detection + API-tag injection walker (#452).
+
+  Seven new unit tests on the predicate lock in the positive cases
+  (`._track.m4a`, `.DS_Store`, `Thumbs.db`, `thumbs.db`, `desktop.ini`)
+  and the regression canaries (real audio files, files with legal
+  leading dots/underscores not misclassified, paths without basenames
+  return false).
+
+  ### Observable result
+
+  On a 100-track album download to an exFAT USB drive, the activity
+  log previously emitted ~100 `ffprobe failed for ._N - Title.m4a` +
+  MediaInfo fallback warnings during codec detection. After this fix:
+  zero. Bonus: faster enrichment (no wasted ffprobe subprocess spawns)
+  and less activity-log burst pressure (which complements the #575
+  virtualiser keying fix).
+
+  ### Verified locally
+
+  - cargo clippy -- -D warnings  ✓ clean
+  - cargo test --lib             825 passed, 0 failed (7 new sidecar
+    tests + inheritance through every existing walker test)
+
+- **(progress-bar)** Emit queue-updated event on enrichment label changes (#574)
+
+The per-item progress bar kept showing `DOWNLOADING...Artist — Album — Track` for
+  the entire enrichment phase of a download, even though the backend was correctly
+  updating `processing_label` at every enrichment stage start (metadata, lyrics,
+  artwork, AcoustID, ReplayGain) via `set_processing_label()`.
+
+  ### Root cause
+
+  The frontend's `refreshQueue()` in App.tsx is only wired to lifecycle events —
+  `download-complete`, `download-error`, `download-queued`, `download-cancelled`.
+  There is no periodic poll of `get_queue_status()`. During enrichment, the backend
+  mutates `processing_label` on the queue item, but no lifecycle event fires, so
+  the frontend never re-fetches. The progress-bar caption stays locked on the
+  last known state (the final "DOWNLOADING..." from the primary GAMDL download)
+  until `download-complete` finally fires at the very end.
+
+  `GlobalProgressBar.tsx` already correctly reads `activeItem.processing_label`
+  and prioritises it over the download caption (line 278) — the labels just
+  never reach it.
+
+  ### Fix
+
+  Two changes, single commit:
+
+  1. **Backend** (`services/download_queue.rs`): the `set_label` closure in the
+     enrichment task now emits a `queue-updated` event after mutating the label.
+     Stage transitions are low-frequency (typically <15 per download); no
+     throttling needed.
+
+  2. **Frontend** (`App.tsx`): new `queue-updated` event listener that calls
+     `refreshQueue()`. The listener is registered alongside the existing
+     `download-queued` listener (similar pattern, same cleanup path).
+
+  ### Observable result
+
+  During the enrichment phase of a download, the progress-bar caption now cycles
+  through the existing labels in real time:
+    - "Enriching metadata tags..."
+    - "Fetching word-level lyrics..."
+    - "Converting lyrics (Enhanced LRC)..."
+    - "Downloading animated artwork..."
+    - "AcoustID fingerprinting..."
+    - "ReplayGain loudness analysis..."
+
+  Previously these were all invisible — the caption stayed on
+  "DOWNLOADING...{last track}" until `download-complete` fired.
+
+  ### Scope
+
+  This PR fixes only #574 (visible caption stagnation). **#576** (queue-level
+  partial progress — showing >0% while in Processing state) needs a separate
+  architectural change: a new `processing_progress: Option<f32>` field on
+  `QueueItemStatus`, new emit sites per stage, and a rewrite of
+  `GlobalProgressBar.tsx`'s queue-level aggregation to use it. Deferred to a
+  follow-up PR to keep this change tight.
+
+  ### Verified locally
+
+  - tsc --noEmit clean
+  - npx vitest run = 303 tests passed across 19 files
+  - cargo clippy -- -D warnings clean
+
+- **(progress-bar)** Emit queue-updated event so enrichment labels reach the UI (#574) (#590)
+
+## Summary
+
+  Closes **#574** — the per-item progress bar caption stagnating on
+  `DOWNLOADING...Artist — Album — Track` for the entire enrichment phase,
+  even though the backend was updating `processing_label` at every stage.
+
+  **Not** closing **#576** (queue-level partial progress during
+  enrichment) — that needs a larger architectural change I want to keep in
+  its own PR.
+
+  ## Root cause
+
+  `GlobalProgressBar.tsx` already reads `activeItem.processing_label`
+  correctly and prioritises it over the download caption (line 278). The 5
+  existing enrichment stages (metadata, word-lyrics, lyrics-conversion,
+  animated-artwork, AcoustID, ReplayGain) all call
+  `set_processing_label()` with human-readable strings.
+
+  **The labels weren't reaching the frontend.** `App.tsx`'s
+  `refreshQueue()` is only triggered by four lifecycle events
+  (`download-complete`, `download-error`, `download-queued`,
+  `download-cancelled`) — there's **no periodic poll** of
+  `get_queue_status()`. During enrichment, `set_processing_label()`
+  mutates backend queue state but emits no event, so the frontend never
+  re-fetches. The caption stays frozen on the last known state (the final
+  `DOWNLOADING...{last track}` from the primary GAMDL download) until
+  `download-complete` finally fires at the very end.
+
+  Captured live 2026-04-23 on a 200-track Beethoven box set, where
+  enrichment takes 20+ minutes and the user sees `DOWNLOADING...Piano
+  Sonata No. 32 in C Minor, Op. 111...` frozen for the entire time.
+
+  ## Fix
+
+  Two surgical changes, one commit:
+
+  ### Backend — `src-tauri/src/services/download_queue.rs`
+
+  The `set_label` closure in the enrichment task now emits a
+  `queue-updated` event after mutating the label:
+
+  ```rust
+  let label_app = enrich_app.clone();
+  let set_label = move |label: &str| {
+      if let Ok(mut q) = label_queue.try_lock() {
+          // ...existing label mutation...
+          q.set_processing_label(&label_dl_id, &full_label);
+      }
+      let _ = label_app.emit("queue-updated", &label_dl_id);
+  };
+  ```
+
+  Stage transitions are low-frequency (~5–15 per download, driven by
+  human-observable enrichment boundaries). No throttling needed.
+
+  ### Frontend — `src/App.tsx`
+
+  New `queue-updated` event listener alongside the existing four lifecycle
+  listeners:
+
+  ```typescript
+  unlistenQueueUpdated = await listen('queue-updated', () => {
+    try {
+      refreshQueue();
+    } catch (err) {
+      console.error('Error in queue-updated handler:', err);
+    }
+  });
+  ```
+
+  Declared, cleaned up, and registered using the exact same pattern as the
+  four existing unlisteners. Zero structural change to the listener setup.
+
+  ## Observable result
+
+  During enrichment, the progress-bar caption now cycles through the
+  existing labels in real time:
+
+  - "Enriching metadata tags..."
+  - "Fetching word-level lyrics..."
+  - "Converting lyrics (Enhanced LRC)..."
+  - "Downloading animated artwork..."
+  - "AcoustID fingerprinting..."
+  - "ReplayGain loudness analysis..."
+
+  Previously these were all invisible — the caption stayed on
+  `DOWNLOADING...{last track}` until `download-complete` fired 10–20
+  minutes later on large albums.
+
+  ## Out of scope (deferred to follow-up)
+
+  - **#576 queue-level partial progress** — the "0 of 1 complete, 0%"
+  screen caption from the same #547 repro. Needs: new
+  `processing_progress: Option<f32>` field on `QueueItemStatus`, per-stage
+  progress emit sites, rewrite of `GlobalProgressBar.tsx`'s queue-level
+  aggregation formula. Deferred to a follow-up PR because it changes data
+  model + a non-trivial fraction of the progress-bar rendering logic.
+  - **Labels for the 10+ enrichment stages that currently don't call
+  `set_label`** (lyrics fallback, WebVTT, Rich SRT, ASS, subtitle embed,
+  artist promo, BPM, MV companion discovery, MusicBrainz, advisory rename,
+  cover rename, manifest write). Each would be a one-line addition but
+  proliferation of call sites is best done alongside the #576 work where
+  the stage taxonomy gets consolidated into a single source of truth.
+  - **"ENRICHMENT..." prefix** proposed in #574 body. Current labels are
+  already self-descriptive (`"ReplayGain loudness analysis..."`);
+  prefixing would add noise. If desired, trivial follow-up — prepend in
+  `GlobalProgressBar.tsx` when `activeItem.state === 'processing'`.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                 ✓ clean
+  npx vitest run (all files)   303 tests passed across 19 files
+  cargo clippy -- -D warnings  ✓ clean
+  ```
+
+  ## Risk
+
+  Low. Backend change is an additive `app.emit()` call inside an existing
+  closure; errors non-fatal (swallowed with `let _ =`). Frontend change is
+  an additive listener following the existing four-listener pattern
+  exactly. No data model changes, no migration, no behavioural change
+  beyond the intended one.
+
+  ## Test plan (post-merge)
+
+  - [ ] Download a typical album. During enrichment phase, progress-bar
+  caption should transition through the stage labels ("Enriching metadata
+  tags..." → "AcoustID fingerprinting..." → "ReplayGain loudness
+  analysis..."). No more frozen-on-DOWNLOADING.
+  - [ ] Download a large box set (e.g. #547's 100-track Beethoven). Over
+  ~15 minutes of enrichment, the caption visibly changes at each stage
+  boundary.
+  - [ ] Cancel a download mid-enrichment. No spurious events, no memory
+  leaks (listener cleaned up on unmount via existing pattern).
+  - [ ] Queue with multiple items. Each item's enrichment updates only its
+  own caption; queue progress-bar unaffected (that's #576 territory).
+
+  ## Related
+
+  - **#574** — this PR closes it.
+  - **#576** — separate follow-up for queue-level partial progress.
+  - **#582** — recently-shipped empty-output guard + timeout scaling; also
+  lives in the completion-task area.
+  - **CLAUDE.md** — "Global progress bars" section documents the
+  `processing_label` infrastructure this PR finally makes visible.
+
+- **(enrichment)** Skip macOS AppleDouble + known filesystem sidecars in audio walkers (#577) (#591)
+
+## Summary
+
+  Closes **#577**. Every enrichment walker that iterates audio-file
+  extensions now skips filesystem sidecars: macOS `._*` AppleDouble files,
+  `.DS_Store`, Windows `Thumbs.db` / `desktop.ini`. Captured live
+  2026-04-23 on a 200-track Beethoven box set download to an exFAT USB
+  drive — ~100 spurious `ffprobe failed for ._N - Title.m4a` warnings per
+  album, now zero.
+
+  ## Why this happens
+
+  When the user's output path is on a non-native filesystem (exFAT / FAT32
+  / HFS on external drives, SMB / NFS shares), macOS automatically creates
+  **AppleDouble** `._{filename}` sidecar files alongside every real file.
+  These sidecars hold resource-fork metadata (extended attributes, Finder
+  tags, `com.apple.quarantine` flags) that the underlying filesystem can't
+  natively represent. They share the real file's extension (`._track.m4a`
+  sits next to `track.m4a`) but contain binary metadata, not audio.
+
+  Every enrichment walker that filters by extension (`.m4a` / `.mp4` /
+  `.m4v` / `.flac` / `.mp3`) was processing these sidecars:
+
+  - `ffprobe` / MediaInfo tried to detect codec on them → failed noisily →
+  fallback codec used.
+  - Chromaprint tried to fingerprint them → failed.
+  - FFmpeg loudness analysis (ReplayGain) tried to analyse them → failed.
+  - `mp4ameta` tried to write atoms to them → failed.
+
+  On a 100-track album, that's ~500 spurious errors across the enrichment
+  stages, cluttering the activity log and wasting CPU on subprocess
+  spawns.
+
+  Same class of sidecar exists on Windows (`Thumbs.db`, `desktop.ini`) and
+  even on macOS itself (`.DS_Store` for Finder metadata).
+
+  ## Fix — one predicate, seven call sites
+
+  ### New shared predicate
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.2] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(parser)** Accept /recording/ URLs as submittable (revert #573 rejection UX)
+
+#573 classified Classical recording URLs as `recording` content type
+  and set `isValid: false` on the grounds that GAMDL's URL vocabulary
+  doesn't include `/recording/` paths, so passing them through would
+  hit the misleading-success cascade documented in #567/#548 (primary
+  download produces zero files → lyrics companion pipeline runs anyway
+  → activity log reports fake success).
+
+  Reviewer feedback on 2026-04-23:
+
+    "why are we showing a notice/error for Apple Music Classical
+    /recording/ URLs if theyre valid? why not just accept them?
+    Asking the user to enter another is not user friendly!"
+
+  Fair call. Two things changed since #573 that make pre-emptive
+  rejection the wrong UX:
+
+  1. PR #582 broadened #567's guard from "skip lyrics companion when
+     primary produced no audio" to "skip the ENTIRE enrichment pipeline
+     when primary produced zero output files". So if GAMDL rejects a
+     recording URL, the user now sees ONE clean "Enrichment skipped —
+     primary download produced no output files" activity-log line
+     instead of 5+ cascading fake successes.
+
+  2. Recording URLs ARE Apple Music Classical URLs — the user's mental
+     model is that if they copied the link from the Apple Music
+     Classical app, it should work. Forcing them to navigate back to
+     the app and find the containing album URL is paternalistic.
+
+- **(parser)** Accept Apple Music Classical `/recording/` URLs as submittable (revert #573 rejection UX) (#583)
+
+## Summary
+
+  Reverses the reject-at-validator UX from #573 for Apple Music Classical
+  `/recording/` URLs. Recording URLs are now treated like any other
+  recognised Apple Music URL — the user can paste and submit, GAMDL
+  attempts the download, the pipeline gives a clean outcome.
+
+  ## Reviewer feedback that drove this change
+
+  > *"why are we showing a notice/error for Apple Music Classical
+  /recording/ URLs if theyre valid? why not just accept them? Asking the
+  user to enter another is not user friendly!"*
+
+  Fair call. Two things changed since #573 that make pre-emptive rejection
+  the wrong UX:
+
+  1. **PR #582** (currently in CI) broadened #567's guard from *"skip
+  lyrics companion when primary produced no audio"* to *"skip the ENTIRE
+  enrichment pipeline when primary produced zero output files"*. So if
+  GAMDL rejects a recording URL, the user now sees **one** clean
+  `Enrichment skipped — primary download produced no output files`
+  activity-log line instead of 5+ cascading fake "success" lines.
+  2. **Recording URLs ARE Apple Music Classical URLs** — the user's mental
+  model is that if they copied the link from the Apple Music Classical
+  app, it should work. Forcing them to navigate back to the app and find
+  the containing album URL is paternalistic UX.
+
+  ## Changes
+
+  ### `src/lib/url-parser.ts`
+
+  `parseAppleMusicUrl()`: removes the `contentType !== 'recording'`
+  exclusion from the `isValid` calculation. Recording URLs now return
+  `isValid: true`. The docstring block explaining the old rationale is
+  replaced with the new one.
+
+  **Before** (merged in #573):
+  ```ts
+  const isSubmittable = contentType !== 'unknown' && contentType !== 'recording';
+  return { url: trimmed, contentType, isValid: isSubmittable };
+  ```
+
+- **(activity-log)** Stable key + stable measureElement to prevent row overlap (#575)
+
+The activity-log virtualiser renders overlapping text during dense
+  log bursts — captured live 2026-04-23 on a 200-track box set
+  download to an external USB volume, hundreds of ffprobe / MediaInfo
+  verbose lines per second. Class of bug is the same as #442 (closed
+  2026-04-12 by adding `measureElement`), but #442's fix was
+  incomplete — the regression resurfaces under real workloads.
+
+  ### Root cause (this PR fixes it)
+
+  Two related gaps in the `useVirtualizer` config:
+
+  1. **No `getItemKey` option** — TanStack virtual defaults to keying
+     its measurement cache by positional index. Any event that shifts
+     positions — the 10,000-entry trimming cap firing, filter toggles
+     changing `filteredEntries.length`, RAF-batched bursts inserting
+     new entries — causes cached row heights to attach to the wrong
+     entries. Rows then get laid out at `translateY(start)` values
+     computed from mis-keyed heights, producing the visual overlap.
+  2. **Inline `measureElement` closure** — re-created on every render.
+     At ~60 flushes/sec from App.tsx's RAF batching, that's a lot of
+     reference thrash in the virtualiser's internal config sync.
+
+  ### Fix
+
+  - **`getItemKey`**: wrap in `useCallback`, return `filteredEntries[index]?._id`
+    with a fallback to the positional index. `_id` is the auto-
+    incrementing ID set by `activityStore.addEntries()` (per CLAUDE.md),
+    so it's stable across filter toggles, trim cycles, and burst inserts.
+  - **`measureElement`**: extract from the config object and wrap in
+    `useCallback` with an empty dep list. One stable function for the
+    component's lifetime.
+
+  No other changes — the `estimateSize`, `overscan`, row rendering
+  (JSX, refs, CSS), filter logic, and RAF batching are all left alone.
+
+  Verified locally: tsc --noEmit clean; npx vitest run = 303 tests
+  passed across 19 files.
+
+- **(activity-log)** Stable key + stable measureElement to prevent row overlap (#575) (#585)
+
+## Summary
+
+  Closes **#575**. Fixes the activity-log overlapping-text regression
+  captured live 2026-04-23 during the Beethoven box-set download. The
+  virtualiser was laying out rows at stale `translateY()` offsets during
+  burst log ingestion, producing visual overlap between consecutive
+  entries whose wrapped heights didn't match what the cache thought they
+  should be.
+
+  #442 (closed 2026-04-12) was the original fix for the same symptom — it
+  added `measureElement` so that dynamic row heights were actually
+  measured. That fix was necessary but not sufficient; under real
+  workloads the bug recurs because TanStack virtual's measurement cache is
+  keyed by **index** by default, and indices shift whenever the filtered
+  entry list changes.
+
+  ## Root cause analysis
+
+  Two related gaps in the `useVirtualizer` config in
+  `src/components/download/ActivityLog.tsx`:
+
+  ### Gap 1 — no `getItemKey`
+
+  Without `getItemKey`, TanStack virtual uses the positional index as the
+  cache key. Every time the entry list changes position:
+
+  - **10 000-entry trimming cap** (per CLAUDE.md) — oldest entries drop,
+  remaining entries shift down by N.
+  - **Filter toggles** (System / Download / Verbose) —
+  `filteredEntries.length` changes; a row that was index 47 in the
+  all-visible set is index 12 in the filtered set.
+  - **RAF-batched bursts** — App.tsx feeds entries in batches at ~60
+  flushes/sec; during a dense burst (200+ entries/sec from MediaInfo codec
+  detection on a 200-track album) the virtualiser sees rapid `count`
+  deltas.
+
+  Every shift invalidates the index→height mapping. Cached heights for
+  entry-at-index-47 get applied to the new-entry-at-index-47, which has
+  completely different content (and therefore different wrapped height).
+  `translateY(row.start)` for subsequent rows computes using stale
+  heights, and rows overlap.
+
+  ### Gap 2 — inline `measureElement`
+
+  ```typescript
+  // Before:
+  const virtualizer = useVirtualizer({
+    ...
+    measureElement: (element) => element?.getBoundingClientRect().height ?? 26,
+  });
+  ```
+
+  Inline arrow function — re-created on every render. At 60 flushes/sec,
+  that's 60 new function references per second, each one syncing into the
+  virtualiser's internal config. TanStack's behaviour when the
+  `measureElement` reference changes is to re-walk its cache; in a tight
+  burst scenario this was observed to interact with the index-based keying
+  to produce worse overlap than either issue alone.
+
+  ## Fix
+
+  - **`getItemKey`** added, wrapped in `useCallback`. Keys by
+  `filteredEntries[index]?._id` (the stable auto-incrementing ID set by
+  `activityStore.addEntries()` per CLAUDE.md), falls back to index when
+  `_id` is absent (defensive; shouldn't trigger in normal flow).
+  - **`measureElement`** extracted from the inline config and wrapped in
+  `useCallback([])`. One stable function for the component's lifetime.
+
+  Full change is **45 lines added, 1 removed, single file**:
+
+  ```typescript
+  const measureElement = useCallback(
+    (element: Element | null | undefined) =>
+      element?.getBoundingClientRect().height ?? 26,
+    [],
+  );
+
+  const getItemKey = useCallback(
+    (index: number) => filteredEntries[index]?._id ?? index,
+    [filteredEntries],
+  );
+
+  const virtualizer = useVirtualizer({
+    count: filteredEntries.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 26,
+    overscan: 50,
+    measureElement,
+    getItemKey,
+  });
+  ```
+
+  No other changes. `estimateSize`, `overscan`, JSX row rendering (still
+  uses `ref={virtualizer.measureElement}`), CSS classes, filter logic, and
+  App.tsx's RAF batching are all left alone.
+
+  ## Why this completes #442's intended fix
+
+  #442 added the missing `measureElement` option. That made the
+  virtualiser *capable* of measuring dynamic heights, but the measurements
+  were then stored against volatile keys. The fix works when the entry
+  list is static, but fails under the exact workloads MeedyaDL encounters
+  in practice — box-set downloads, external USB filesystems, MediaInfo
+  verbose streams. This PR is the belt-and-braces completion: dynamic
+  measurements stored against stable keys.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                 ✓ clean
+  npx vitest run (all files)   303 tests passed across 19 files
+  ```
+
+  ## Post-merge test plan
+
+  Reproducing the original #575 observation requires the exact conditions
+  captured 2026-04-23:
+
+  - Output path on an external exFAT / FAT32 / HFS USB drive (forces macOS
+  to create `._*` AppleDouble sidecars, which inflate the ffprobe-failure
+  log volume and trigger the rapid-burst path).
+  - Verbose activity log enabled.
+  - 100+ track album download (forces MediaInfo codec detection to iterate
+  many files rapidly).
+  - Watch Activity Log during enrichment phase — no row overlap should
+  occur.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.1] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(enrichment)** Skip all enrichments on empty output + scale timeout by track count (#567 #579)
+
+Two related completion-task fixes that share infrastructure in
+  `services/download_queue.rs`:
+
+- **(enrichment)** Skip all enrichments on empty output + scale completion timeout by track count (#567 #579) (#582)
+
+## Summary
+
+  Two related completion-task fixes, one PR because they live in the same
+  ~100-line region of `services/download_queue.rs`:
+
+  - **Closes #567** (broadened): skip **all** post-GAMDL enrichment stages
+  when the primary download produced zero output files.
+  - **Closes #579**: scale the completion-task timeout by output track
+  count so large box sets don't hit the fixed 10-minute deadline
+  mid-ReplayGain.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.42.0] - 2026-04-23
+
+### ✨ Features
+
+- **(parser)** Recognise Apple Music Classical `/recording/` URLs with helpful error
+
+Apple Music Classical's 2026 rollout introduced a new content type path
+  segment, `/recording/`, which identifies a specific performance of a
+  classical work (distinct from the album release that contains it).
+  Example URL shape from the Apple Music Classical app Share → Copy Link:
+
+    https://classical.music.apple.com/gb/recording/
+      gustav-mahler-1860-pp1-1452377808?l=en-GB
+
+  Previous behaviour: frontend `detectContentType()` did not recognise
+  `/recording/`, returned `'unknown'`, and the UI showed the generic red
+  error "Please enter a valid Apple Music URL" — no actionable guidance.
+
+  New behaviour: recording URLs are classified as a new content type,
+  `recording`. `parseAppleMusicUrl()` marks them `isValid: false` (since
+  GAMDL's URL vocabulary doesn't include `/recording/` paths, attempting
+  to download would hit the misleading-success bug documented in #567 /
+  #568). The DownloadForm shows a specific actionable message:
+
+    "Apple Music Classical *recording* URLs aren't supported yet. Open
+     the recording in Apple Music Classical, then use **Go to Album**
+     and share that URL instead."
+
+  Also adds `Classical Recording` label for display in the content-type
+  badge UI elements (`CONTENT_TYPE_LABELS`, `CONTENT_TYPE_ICONS`,
+  `getContentTypeLabel`).
+
+- **(parser)** Recognise Apple Music Classical `/recording/` URLs with helpful error message (#573)
+
+## Summary
+
+  Apple Music Classical's 2026 rollout introduced a new content type,
+  `/recording/`, which represents a specific performance of a classical
+  work (distinct from the album release that contains it). User
+  encountered it whilst collecting #547 audit data on 2026-04-23 — the URL
+  they pasted was:
+
+  ```
+  https://classical.music.apple.com/gb/recording/gustav-mahler-1860-pp1-1452377808?l=en-GB
+  ```
+
+  **Current behaviour on `main`**: frontend `detectContentType()` doesn't
+  recognise `/recording/`, returns `'unknown'`, and the UI shows the
+  generic red error *"Please enter a valid Apple Music URL"* — no
+  actionable guidance.
+
+  **New behaviour with this PR**: recording URLs are classified as a new
+  content type, `recording`. `parseAppleMusicUrl()` marks them `isValid:
+  false` so the submit button stays disabled. The DownloadForm shows a
+  specific actionable message:
+
+  > *"Apple Music Classical **recording** URLs aren't supported yet. Open
+  the recording in Apple Music Classical, then use **Go to Album** and
+  share that URL instead."*
+
+  ## Why not pass to GAMDL and let it try?
+
+  GAMDL's URL regex vocabulary does not include `/recording/`. Attempting
+  to download would hit the exact misleading-success bug documented in
+  #567 / #568: GAMDL emits *"Could not parse URL, skipping"*, exits 0,
+  MeedyaDL's lyrics companion pipeline runs and claims success, but no
+  files land on disk. Frontend rejection with a helpful message is the
+  honest UX until we know how to handle recordings properly.
+
+  If we ever add a proper `/recording/` download pipeline (e.g. by
+  resolving recording → album via the Apple Music Catalog API and
+  rewriting the URL), flipping `isValid: true` re-enables submission — the
+  type system is already in place.
+
+  ## Changes
+
+  ### `src/types/index.ts`
+  Add `recording` to the `AppleMusicContentType` union.
+
+  ### `src/lib/url-parser.ts`
+  - `detectContentType()`: recognise `/recording/` path segment and return
+  `'recording'`.
+  - `parseAppleMusicUrl()`: new `isSubmittable` guard that excludes
+  `recording` (and still excludes `unknown`) from `isValid: true`.
+  Detailed docstring explaining why.
+  - `getContentTypeLabel()`: add `"Classical Recording"` label for the new
+  type.
+
+  ### `src/components/download/DownloadForm.tsx`
+  - `CONTENT_TYPE_ICONS` / `CONTENT_TYPE_LABELS` registries: add entries
+  for `recording`.
+  - Validation feedback block: when `urlContentType === 'recording'`, show
+  the specific actionable message; generic "Please enter a valid Apple
+  Music URL" still fires for truly unrecognised URLs.
+
+  ### `src/lib/url-parser.test.ts`
+  Four new tests in a dedicated `parseAppleMusicUrl - classical recording
+  URLs` describe block:
+
+  1. `classifies recording URLs as 'recording' content type`
+  2. `marks recording URLs as NOT submittable` (the critical guard)
+  3. `classifies recording URL with locale query param` (real-world shape,
+  `?l=en-GB`)
+  4. `does not misclassify album URLs as recordings` (regression canary
+  against detection-order mistakes)
+
+  Plus an extended assertion on the existing `getContentTypeLabel`
+  exhaustive test.
+
+  ## Backend parser — intentionally NOT touched
+
+  Recording URLs are blocked at the frontend now, so they never reach the
+  Rust side during normal flow. If a recording URL bypasses the frontend
+  (deep-link, drag-drop, manifest import), the existing `#549 catch-all
+  WARN` in `start_download` will flag it. Adding a backend regex branch
+  for `/recording/` would add complexity with no observed benefit —
+  keeping the surface small.
+
+  ## Local verification
+
+  ```
+  tsc --noEmit                   ✓ clean
+  npx vitest run url-parser      49 tests passed (45 existing + 4 new)
+  npx vitest run (all files)     303 tests passed across 19 files
+  ```
+
+  ## Risk
+
+  Very low. Purely additive frontend classification:
+
+  - Existing URL shapes still parse identically (unchanged detection
+  order; `/recording/` check inserted *after* the other 6 path-type
+  checks).
+  - No backend changes.
+  - New content type exclusion from `isValid` means one specific URL shape
+  is *rejected* rather than *accepted* — strictly safer than current
+  behaviour (which was also rejecting it, just with a worse message).
+
+  ## Test plan (post-merge)
+
+  - [ ] Paste the URL from the bug report — UI shows the specific "Go to
+  Album" message instead of "Please enter a valid Apple Music URL".
+  - [ ] Paste any `/album/` URL on `classical.music.apple.com` — still
+  works (no regression).
+  - [ ] Paste the recording URL with whitespace around it — still detected
+  and rejected correctly (trim still runs first).
+  - [ ] Unblocks #547 repro — users can now share-link to a recording, see
+  the helpful message, tap "Go to Album" in the app, and get the album URL
+  for the actual download.
+
+  ## Out of scope
+
+  - Downloading classical recordings. Separate future work; needs Apple
+  Music Catalog API investigation
+  (`/v1/catalog/{sf}/recordings/{id}?include=albums`?) to resolve
+  recording → album before GAMDL handoff.
+  - Other Classical-specific path segments (`/work/`, `/composer/`,
+  `/ensemble/`, `/conductor/`). These haven't appeared in the wild yet; if
+  they do, the #549 catch-all WARN will flag them and we can extend the
+  same pattern.
+
+  ## Related
+
+  - **#547** — manual repro blocked on this URL shape being unparseable;
+  clicking "Go to Album" per the new error message produces a URL that
+  works.
+  - **#567** — why we block at validator instead of passing through
+  (misleading-success bug).
+  - **#568** — similar rationale for rewriting iTunes URLs rather than
+  passing them raw.
+  - **#549** — catch-all WARN in `start_download` for any URL that
+  bypasses frontend validation.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.41.1] - 2026-04-23
+
+### 🐛 Bug Fixes
+
+- **(parser)** Accept classical.music.apple.com + slug-less Share URLs
+
+Apple migrated Apple Music Classical to the `classical.music.apple.com`
+  subdomain in 2026 and dropped the human-readable slug segment from
+  Share-link URLs. The new shape is `/{sf}/{type}/{id}` instead of the
+  classic `/{sf}/{type}/{slug}/{id}`, often with a `?l=en-GB` locale
+  hint appended. Both changes broke MeedyaDL's URL validators, which is
+  a live production regression — classical downloads via the Apple Music
+  Classical Share button were rejected with "Please enter a valid Apple
+  Music URL".
+
+- **(parser)** Accept classical.music.apple.com + slug-less Share URLs (urgent live regression) (#565)
+
+## Urgent production regression fix
+
+  Apple migrated Apple Music Classical to the `classical.music.apple.com`
+  subdomain in 2026 and dropped the slug segment from Share-link URLs.
+  **Current state on `main`**: pasting a Classical Share link into
+  MeedyaDL is rejected with `"Please enter a valid Apple Music URL"` —
+  classical downloads via the native Share button are unreachable.
+
+  Captured live 2026-04-23 from the Apple Music Classical app Share → Copy
+  Link:
+
+  ```
+  https://classical.music.apple.com/gb/album/1844602145?l=en-GB
+  ```
+
+  Two axes of breakage:
+
+  1. **Domain**: `classical.apple.com` → `classical.music.apple.com` (a
+  sub-subdomain of `music.apple.com`).
+  2. **Path shape**: `/album/{slug}/{id}` → `/album/{id}` — the
+  human-readable slug is gone.
+
+  Cosmetically there's also a `?l=en-GB` locale hint our `?i=` capture
+  group harmlessly ignores.
+
+  ## Changes
+
+  ### Frontend (`src/lib/url-parser.ts`)
+
+  - `isAppleMusicUrl()` adds `classical.music.apple.com` to the accepted
+  hostname list.
+  - `SERVICE_DOMAINS` routing list gets the same domain so
+  `detectService()` returns `apple-music`.
+
+  ### Backend (`src-tauri/src/services/apple_music_api.rs`)
+
+  All five entity regexes (album, song, music-video, artist,
+  catalog-playlist) + `NON_GEO_RE` updated:
+
+  - Domain alternation `(?:classical|music|itunes)` →
+  `(?:classical(?:\.music)?|music|itunes)`. Covers all four hostnames:
+  `music.apple.com`, `classical.apple.com`, `classical.music.apple.com`,
+  `itunes.apple.com`.
+  - Slug segment `[^/]+/` → `(?:[^/]+/)?`, making it optional. Both
+  classic `/album/slug/id` and new `/album/id` forms parse.
+  - Docstrings on `parse_apple_music_url` and `normalize_apple_music_url`
+  updated.
+
+  ### Backend (`src-tauri/src/commands/gamdl.rs`)
+
+  **No change** — `SUPPORTED_HOSTS` already allows subdomains via
+  `strip_suffix` at line 174, so `classical.music.apple.com` passes host
+  validation. Only the parser regexes needed fixing.
+
+  ## Test coverage
+
+  **Rust** — 9 new tests in `apple_music_api::tests`:
+
+  - `parse_new_classical_album_url_without_slug`
+  - `parse_new_classical_album_url_with_locale_query` (`?l=en-GB`)
+  - `parse_new_classical_album_url_with_track_id` (`?i=`)
+  - `parse_new_classical_song_url_without_slug`
+  - `parse_new_classical_music_video_url_without_slug`
+  - `parse_new_classical_artist_url_without_slug`
+  - `parse_new_classical_playlist_url_without_slug`
+  - `parse_new_classical_album_url_with_slug_still_works` (defensive — if
+  Apple keeps emitting slugged URLs for back-compat, we're covered)
+  - `parse_classic_slugless_form_on_music_apple_com` (defensive — if Apple
+  rolls slug-less out to main domain, we're covered)
+
+  Plus 2 normalize tests:
+
+  - `normalize_new_classical_url_without_storefront` — storefront
+  injection on the new domain
+  - `normalize_new_classical_url_with_storefront_unchanged` — idempotency
+  check
+
+  **TypeScript** — 4 new tests in `url-parser.test.ts`:
+
+  - `accepts classical.apple.com URLs` (filled in missing legacy coverage
+  while I was there)
+  - `accepts classical.music.apple.com URLs`
+  - `accepts classical.music.apple.com URLs with slug-less path + locale
+  query` (the live shape)
+  - `classifies new classical.music.apple.com album URLs (slug-less)`
+  - `classifies new classical.music.apple.com album URL with ?l= locale
+  query`
+  - `classifies new classical.music.apple.com song URL with ?i= track id`
+
+  ## Local verification
+
+  ```
+  cargo clippy -- -D warnings  ✓ clean
+  cargo test --lib services::apple_music_api::tests  65 passed, 0 failed
+  npx vitest run url-parser.test.ts  45 passed
+  ```
+
+  ## Risk
+
+  Low. All changes are additive in regex alternation (existing URL shapes
+  still parse identically; new shapes gain coverage). No behaviour change
+  for the three hostnames that were already supported. Regex correctness
+  is covered by the existing 65-test suite plus the new 9 tests.
+
+  ## Related
+
+  - **#547** — Apple Music Classical movement-title collision audit was
+  blocked on this same regression (can't paste a Classical URL to
+  reproduce). With this PR merged, the #547 repro is unblocked.
+  - **#560** — independent PR with orthogonal classical-URL diagnostic
+  logging. No conflict; this fix landing on main first will cleanly merge
+  into #560.
+
+  ## Test plan (post-merge)
+
+  - [ ] Paste the URL from the original bug report into MeedyaDL —
+  download starts (auth permitting)
+  - [ ] Paste a slugged classical URL from the old app — still parses
+  - [ ] Paste a regular `music.apple.com` URL — no regression
+  - [ ] Proceed with #547 manual repro (unblocked)
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(codeql)** Enable security-and-quality query suite (#564)
+
+Adds CodeQL code quality queries alongside the existing security
+  queries for the actions and javascript-typescript language matrix.
+  Surfaces code-quality findings in the Security tab.
+
+  Rust remains excluded from CodeQL (see workflow header); clippy
+  covers Rust quality in ci.yml.
+
+
+## [0.41.0] - 2026-04-23
+
+### ✨ Features
+
+- **(logging)** Trace Apple Music library URL submissions (#546)
+
+Library URLs (e.g. music.apple.com/{sf}/library/albums/l.XXXX) pass the
+  backend URL validator's host allowlist but are not matched by
+  parse_apple_music_url or normalize_apple_music_url, so they fall through
+  to GAMDL with no MeedyaDL-side metadata prefetch or filename safety net.
+
+  Whether GAMDL's iTunes Lookup resolves l.XXXX library IDs is unverified.
+  Emit a log line at start_download so downstream behaviour (album folder
+  vs. no_album_* template fallback vs. outright rejection) can be
+  correlated with the URL class without re-running the download.
+
+  Investigation only; no behaviour change.
+
+- **(logging)** Trace Apple Music Classical URL submissions (#547)
+
+classical.apple.com URLs are treated identically to music.apple.com in
+  parse_apple_music_url and normalize_apple_music_url (shared regex
+  alternation at apple_music_api.rs:430-460) and share every filename
+  template, metadata prefetch path, and artwork fetch.
+
+  Classical movement titles ("Allegro", "Andante", "Adagio", "Finale",
+  "Intermezzo", ...) are extremely non-unique. Within a single symphony,
+  {disc}-{track:02d} prefixes disambiguate; but when album context is lost
+  (direct song URL, curated cross-work playlist, no_album_* fallback),
+  identical movement names collide.
+
+  Emit a log line so support can correlate downstream filename-path
+  behaviour with classical-vs-pop content without replaying the download.
+  Investigation only; no behaviour change.
+
+- **(logging)** Warn on legacy itunes.apple.com URL submissions (#548)
+
+itunes.apple.com is in SUPPORTED_HOSTS (validator passes) and in the
+  NON_GEO_RE alternation (storefront injection works). But the main
+  parse_apple_music_url regexes (apple_music_api.rs:430, 437, 443, 449,
+  460) only alternate `(?:classical|music)` — iTunes URLs fail every
+  parser branch, so they reach GAMDL raw with no metadata prefetch.
+
+  Whether GAMDL's own URL regex accepts iTunes Store URLs is unverified;
+  if it rejects silently, the download errors mid-pipeline with no
+  user-facing "this URL format is legacy" hint. Emit a WARN so the audit
+  can classify outcomes and decide whether to reject at the validator
+  with a clear message.
+
+  Investigation only; no behaviour change.
+
+- **(logging)** Warn on unrecognised Apple Music URL shapes (#549)
+
+Catch-all for any URL that passes the host allowlist but is not matched
+  by parse_apple_music_url after normalisation — i.e. neither an
+  album / song / music-video / artist / catalog-playlist URL nor a
+  `/library/` URL (those already have a #546 trace).
+
+  Uploaded / "post" videos (backstage clips, live sessions, interviews)
+  are the concrete case #549 tracks, and the exact URL path Apple uses
+  for them isn't documented anywhere MeedyaDL can rely on. Rather than
+  guess a path substring to match, catch every unrecognised shape in a
+  single WARN log. Gives the audit the telemetry to decide between
+  rejecting at the validator (A) and building a parser/pipeline for the
+  unrecognised class (B), without having to reproduce the specific URL
+  shape first.
+
+  Investigation only; no behaviour change.
+
+- **(filename-safety)** Engine-contract trait scaffold (#551)
+
+Introduces `services::filename_safety` — a design-time invariant
+  checker every engine integration must satisfy before being wired
+  into the download pipeline.
+
+  Trait `FilenameSafetyContract` codifies four invariants:
+  1. stable_unique_id_placeholder is declared in supported_placeholders
+  2. fallback_file_template contains the stable unique ID placeholder
+     in the engine's native syntax (prevents the #527 empty-{title}
+     class of bug)
+  3. fallback_folder_template is not a bare [Unknown] / Unknown Album
+     sentinel (prevents the #531 class)
+  4. Neither template is empty
+
+  `verify_contract()` enforces these statically — suitable for unit
+  tests in each engine's test module. Not a runtime guard; runtime
+  filename safety remains in utils::fs_safe.
+
+  Four conformance impls ship with this commit:
+
+  - GamdlFilenameSafety — the reference implementation, mirrors
+    MV_NO_ALBUM_FILE_TEMPLATE / MV_NO_ALBUM_FOLDER_TEMPLATE in
+    download_queue.rs with a lockstep test that fails if either
+    constant drifts from the contract declaration.
+  - VotifyFilenameSafety, YtdlpFilenameSafety,
+    GetIplayerFilenameSafety — stubs for #101 / #102 / #103 / #104
+    with placeholder syntax hooks (CurlyBraces / PercentParens /
+    AngleBrackets). Must be tightened when each engine is actually
+    wired into engine_runner::get_command_builder.
+
+  DEV_NOTES.md gets a new "Engine Integration Checklist (#551)"
+  section with the reviewer checklist from the issue body, plus
+  instructions for adding a new engine's contract.
+
+- **(filename-safety)** Engine filename-safety contract (#551)
+
+Design-review trait every new engine integration (votify, yt-dlp,
+  get_iplayer) is expected to implement. Four default conformance checks
+  catch the #527/#531/#537 class of bug: stable-ID-less filenames,
+  [Unknown]-sentinel folders, empty-metadata renders, same-filename dedup
+  collisions. Ships GAMDL's music-video fallback as the first conformance
+  example plus a reviewer checklist in DEV_NOTES.md.
+
+
+### 🐛 Bug Fixes
+
+- **(parser)** Accept itunes.apple.com in parse_apple_music_url (#548)
+
+parse_apple_music_url's five entity regexes (album, song, music-video,
+  artist, catalog playlist) only alternated `(?:classical|music)` — legacy
+  `itunes.apple.com` URLs fell through every branch despite passing the
+  backend host allowlist and the NON_GEO_RE storefront-injection check.
+  Net effect: iTunes URLs missed metadata prefetch, missed Tier 4 safety
+  net candidacy, and reached GAMDL with no MeedyaDL-side preparation.
+
+  Extend each alternation to `(?:classical|music|itunes)` so iTunes URLs
+  ride the same prefetch + normalisation rails as the other two domains.
+  GAMDL still receives the iTunes URL verbatim (we don't rewrite the
+  domain); the #548 WARN log in start_download stays in place to flag
+  downloads where GAMDL itself may reject the legacy scheme.
+
+  Adds six unit tests locking the fix in (album, album+track, song,
+  music-video, artist, catalog playlist), mirroring the existing
+  classical-domain test coverage.
+
+- **(ci)** Clippy doc_lazy_continuation + verifier check ordering
+
+Two CI-breaking issues from the initial #551 scaffold:
+
+  1. `gamdl_options.rs:603` — the uploaded-video docstring started a
+     line with `+ interface_uploaded_video.py` which clippy's
+     doc_lazy_continuation lint interprets as an un-indented Markdown
+     list continuation. Reword `+` to `and` so the bullet-list parse
+     doesn't trigger.
+
+  2. `filename_safety::verify_contract` — the empty-template check
+     ran AFTER the "template contains ID placeholder" check, so an
+     empty `fallback_file_template` got the confusing "does not
+     contain '{id}'" error instead of the intended "must not be
+     empty". The `verifier_rejects_empty_templates` test explicitly
+     asserted the clearer message; it was catching a real UX bug in
+     the verifier. Move the emptiness checks above the contains
+     check so diagnostics are clearest.
+
+  Verified locally: cargo clippy -- -D warnings passes; cargo test
+  --lib reports 810 passed, 0 failed.
+
+- **(filename-safety)** Scope HashSet import to tests module
+
+clippy -D warnings rejected the top-level `use std::collections::HashSet`
+  because the type is only referenced inside `#[cfg(test)] mod tests`. Move
+  the import under the tests module to silence `unused_imports` without
+  touching runtime code.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(lyrics)** Document sidecar regeneration policy (#550)
+
+The four lyric/subtitle generators have non-uniform write behaviour:
+  .lrc and .srt overwrite unconditionally, .ttml is overwritten by the
+  syllable-lyrics upgrade path, while .vtt and .ass already skip when
+  the target file exists. Hand-edited .lrc/.srt/.ttml sidecars are
+  therefore silently replaced on the next enrichment pass.
+
+  After considering four policies (status quo + docs / content-hash
+  skip / opt-in preservation / .bak backup), the audit settled on
+  Option A: document the behaviour so users with hand-edited sidecars
+  know to rename or disable the generator before re-running enrichment.
+
+  - Add "Lyric Sidecar Regeneration" section to help/lyrics-and-metadata.md
+    with a per-generator behaviour table and workaround guidance.
+  - Add "Lyric Sidecar Regeneration Policy (#550)" section to DEV_NOTES.md
+    with file:line anchors for every write site and a note on what a
+    future guard would need to change.
+
+  No code changes — behaviour is unchanged from current releases.
+
+- **(lyrics)** Document sidecar regeneration policy (#550) (#556)
+
+## Summary
+
+- Update CHANGELOG.md [skip ci]
+- Document uploaded-video pipeline gap (#549)
+
+Apple Music ships label/artist-uploaded videos (backstage, live
+  sessions, interviews) with their own GAMDL entry points
+  (downloader_uploaded_video.py / interface_uploaded_video.py) and a
+  sparse tag shape — {artist, date, title, title_id, storefront}, no
+  album/disc/track/album_artist.
+
+  MeedyaDL has no URL detection, no routing through
+  download_music_video_by_url(), and no UI surface for uploaded videos.
+  The MV-safe MV_NO_ALBUM_*_TEMPLATE constants therefore never apply to
+  them — if an uploaded-video URL reaches GAMDL (deep link, drag-drop,
+  direct IPC), it inherits the audio-oriented no_album_* templates and
+  loses the {title_id} uniqueness guarantee. Same class as #527/#531,
+  different URL scheme.
+
+  Annotate both the `uploaded_video_quality` field and the
+  `MV_NO_ALBUM_FOLDER_TEMPLATE` constant so the gap is visible from the
+  code; implementation follow-up tracked in #549.
+
+  Documentation only; no behaviour change.
+
+- **(claude)** Document URL audit diagnostics (#546/#547/#548/#549)
+
+Records the four URL-classification logs added to start_download as
+  part of the #487 audit umbrella, and notes that the parse_apple_music_url
+  regex alternation now includes itunes consistently across all five
+  entity patterns.
+
+- Document lyrics sidecar overwrite behaviour (#550)
+
+Add intentional-generator note to DEV_NOTES.md and end-user warning to
+  help/lyrics-and-metadata.md. Sidecar writers (.lrc .srt .vtt .ass) and
+  the syllable-lyrics TTML upgrade path all overwrite unconditionally by
+  design; manual edits are not preserved across re-enrichment.
+
+- Update CHANGELOG.md [skip ci]
+
+### 🔧 Refactoring
+
+- **(gamdl)** Merge four URL audit loops into one (#546/#547/#548/#549)
+
+The per-class diagnostic logs introduced earlier this session each ran
+  their own `for url in &request.urls` iteration, producing four
+  near-identical loops over the same slice. Consolidate into a single
+  loop that classifies each URL against all four conditions in order,
+  preserving the exact set of log lines emitted for every URL class
+  (library, iTunes, classical, unrecognised) — same messages, same
+  levels, same sequencing.
+
+  - Reduces per-enqueue iteration count from 4×N to 1×N.
+  - Caches `is_library` so the #549 catch-all guard doesn't re-check the
+    path substring.
+  - Replaces the "Already logged by #546 trace above" continue+comment
+    with a structural `!is_library` guard inside the catch-all branch.
+
+  No behaviour change — the set of log entries per URL is identical.
+
+
+## [0.40.1] - 2026-04-22
+
+### 🐛 Bug Fixes
+
+- **(playlist)** Add {playlist_id} to default template + settings migration (#545)
+
+Two playlists sharing `{playlist_artist}` + `{playlist_title}` silently
+  overwrote each other's `.m3u8` file under GAMDL's default template
+  `"Playlists/{playlist_artist}/{playlist_title}"`. Heal by adding Apple
+  Music's stable numeric `{playlist_id}` — deterministic across
+  re-downloads, unique per playlist, no datetime foot-guns (same
+  rationale as the MV `{title_id}` fix in #531).
+
+- **(compilation)** Add {album_id} to default template + extend v3→v4 migration (#552)
+
+Two Various-Artists compilations sharing the same `{album}` name
+  (e.g., two different `"Greatest Hits"`) silently intermixed in a
+  shared `Compilations/Greatest Hits/` folder under GAMDL's default
+  `"Compilations/{album}"` template. Tracks with different titles
+  co-located; tracks with identical titles silently skipped under
+  `overwrite=false`; `manifest.meedyadl` overwritten by the last
+  download — breaking smart-redownload detection for both albums.
+
+  Heal by adding `{album_id}` (Apple Music's stable numeric album ID)
+  — same pattern as #545's `{playlist_id}` fix. Both are bundled under
+  the same v3 → v4 migration since they close at the same version
+  boundary.
+
+- **(fs-safe)** Content-aware dedup for API JSON dumps (#553, supersedes #492)
+
+The verbose-mode API response dump (`{album}-applemusic-data.json`) was
+  wrapped in `write_non_clobbering` at `download_queue.rs:5433`, so it
+  never silently overwrote a prior dump — but it did create `.1.json`,
+  `.2.json`, ... on every re-download, even when the API response was
+  byte-identical to the previous run. Disk bloat on repeat runs.
+
+  Add `fs_safe::write_deduped(dir, name, contents)` — compares bytes to
+  any existing file first:
+  - absent                    → normal write
+  - present + identical bytes → no-op, returns existing path
+  - present + different bytes → disambiguates to `.1`, `.2`, ...
+
+  This keeps the collision-proof invariant (never silently replace a
+  file that differs) while avoiding the pointless-duplicate sprawl.
+
+  Swap the API-dump call site from `write_non_clobbering` to
+  `write_deduped`. Future callers with the same idempotent-content
+  pattern (cached metadata, deterministic exports) can opt in too.
+
+  Tests (4 new):
+  - Creates file when absent
+  - No-op when bytes identical; directory count stays at 1
+  - Disambiguates to `.1.ext` when bytes differ; both files preserved
+  - Repeat-identical stress case: 5 writes leave 1 file on disk
+
+- Playlist + compilation + API-dump filename collisions (#545, #552, #553) (#554)
+
+## Summary
+
+  Three filename-collision fixes from the #487 audit pass, each closing
+  its own ticket, unified by a single **settings schema v3 → v4**
+  migration. All concrete-fix-ready risks from the audit; the remaining
+  six investigation/architecture tickets (#546, #547, #548, #549, #550,
+  #551) stay open for follow-up.
+
+  3 commits, 7 files, +218 / −28.
+
+  ## What changed
+
+  ### `b4bf8cd` — Playlist `.m3u8` collision (#545)
+  Two playlists with the same `{playlist_artist}` + `{playlist_title}`
+  silently overwrote each other's `.m3u8`. Default now
+  `"Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"`.
+  `{playlist_id}` is Apple Music's stable numeric ID — unique +
+  deterministic (same pattern as MV `{title_id}` in #531).
+
+  ### `a4bdaa0` — Compilation folder collision (#552)
+  Two Various-Artists compilations with the same `{album}` name intermixed
+  in a shared `Compilations/{album}/` folder (silent track skips under
+  `overwrite=false`, manifest.meedyadl overwritten). Default now
+  `"Compilations/{album} ({album_id})"`. `{album_id}` gives per-release
+  uniqueness with the same semantics.
+
+  ### `6d3255e` — API JSON dump dedup (#553, supersedes #492)
+  Verbose-mode API response dump accumulated `.1.json`, `.2.json`, ... on
+  every re-download even when bytes were identical. Added
+  `fs_safe::write_deduped(dir, name, contents)`:
+
+  | Target state | Action |
+  |---|---|
+  | Absent | Normal write |
+  | Present + bytes identical | No-op (return existing path) |
+  | Present + bytes differ | Disambiguate to `.1.{ext}` |
+
+  Swapped the API-dump call site from `write_non_clobbering` →
+  `write_deduped`. Future idempotent-content writers (cached metadata,
+  deterministic exports) can opt in.
+
+  ## Settings migration v3 → v4
+
+  Bundled under one migration since both #545 and #552 close at the same
+  version boundary. Exact-match heal on the legacy defaults; custom user
+  values preserved. `CURRENT_SETTINGS_VERSION` bumped 3 → 4. Stale test
+  assertions that hard-coded `version == 3` updated to
+  `CURRENT_SETTINGS_VERSION` so they track future bumps.
+
+  ## Frontend
+
+  `TEMPLATE_VARIABLES` in `src/lib/template-parser.ts` now exposes
+  `{playlist_id}` and `{album_id}` in the visual template builder with
+  collision-safety descriptions. Sample-data block extended with
+  representative IDs so the live preview works.
+
+  ## Test plan
+
+  - [x] `cargo test --lib` — 788 passed (780 pre-fix + 8 new)
+  - [x] `cargo clippy --lib --all-targets` — clean
+  - [x] 11 new unit tests across all three fixes (migration heal +
+  preserve-custom + v0→current end-to-end + default-template invariants +
+  `write_deduped` behaviour including a 5-repeat-writes stress case)
+  - [ ] Manual: download two playlists with matching artist+title on macOS
+  (real Apple Music account) and verify no `.m3u8` overwrite — needs
+  maintainer verification
+  - [ ] Manual: download two Various-Artists compilations with matching
+  album name; verify separate folders
+  - [ ] Manual: upgrade from a v3-era settings.json and confirm
+  `playlist_file_template` + `compilation_folder_template` heal on first
+  launch
+
+  ## Follow-up
+
+  Open on #487 umbrella:
+  - #546 — library URL audit
+  - #547 — Classical movement collision audit
+  - #548 — iTunes legacy URL audit
+  - #549 — uploaded-video pipeline
+  - #550 — lyrics sidecar overwrite (docs vs. guard)
+  - #551 — platform-agnostic `FilenameSafetyContract` trait (pre-flight
+  before M8 BBC iPlayer work)
+
+  Auto-closes on merge: #492, #545, #552, #553.
+
+
+  ---
+  _Generated by [Claude
+  Code](https://claude.ai/code/session_01Piay1zSSu6z2uWMsSWNzsA)_
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.40.0] - 2026-04-22
+
+### ✨ Features
+
+- **(activity-log)** Persistent on-disk activity log for bug hunting (#541)
+
+Adds a daily-rotating `activity-YYYY-MM-DD.log` file under the logs
+  directory that mirrors every `ActivityLogEvent` as it happens — the
+  complete forensic record for bug hunting, unaffected by the 10,000-line
+  in-memory cap or the Verbose UI filter.
+
+  Implementation highlights:
+
+  - New `services/activity_log_writer.rs` — buffered Tokio background task
+    fed via an unbounded `mpsc` channel. Uses `BufWriter<File>` with a
+    500ms flush tick and UTC date rollover detection. Polls the shared
+    `ShutdownSignal` to flush and drain on window close / tray quit.
+  - `utils/activity_log.rs` — new `register_disk_writer()` + `write_to_disk()`
+    helpers backed by a `OnceLock`. All four `emit_*` helpers fan out to
+    disk after emitting the Tauri event; verbose events persist to disk
+    regardless of the UI filter (the file is the forensic record).
+  - `services/download_queue.rs` — the four direct-emit sites
+    (`emit_companion_stream_line`, stdout/stderr readers, track separator)
+    now call `write_to_disk(&event)` alongside `app.emit(...)`.
+  - No change to the in-memory activity store, virtualiser, or RAF
+    batching. No hot-path disk I/O. No risk of reintroducing the 14 GB
+    WebView RAM leak (#370).
+
+  Frontend UX:
+
+  - **Export Disk** — concatenates the last 3 daily files via
+    `export_disk_activity_log` IPC, opens a native save dialog.
+  - **Reveal** — opens the logs folder via `@tauri-apps/plugin-shell`'s
+    `open()` using the path returned by `get_logs_folder_path` IPC.
+  - Existing **Export** (in-memory view, respects filters) preserved.
+
+  User-configurable location:
+
+  - New `activity_log_path_override: String` setting (empty = default
+    `{app_data_dir}/logs/`).
+  - `lib.rs::resolve_activity_log_dir()` validates the override via
+    `create_dir_all`; falls back to default with `log::warn!` if
+    unwritable.
+  - UI: Browse + Reset buttons in Settings > Advanced > Diagnostics.
+    Applies on next app restart (writer owns the file handle).
+  - `clear_old_logs()` scans the override dir too, honouring the 7-day
+    retention.
+
+- **(activity-log)** Persistent on-disk activity log for bug hunting (#541) (#542)
+
+### 🐛 Bug Fixes
+
+- **(lyrics)** Rename sidecars alongside codec-suffixed audio (#535)
+
+When native --song-codec-priority is active, GAMDL writes audio and
+  lyrics/subtitle sidecars on a clean stem because the actual codec is
+  unknown until the download finishes. The post-enrichment codec-suffix
+  rename only touched the audio file, so .ttml/.lrc/.srt/.vtt/.ass
+  sidecars stayed on the clean stem — leaving Dolby Atmos tracks with no
+  lyrics once an overlapping companion tier with a clean-filename slot
+  took over those files.
+
+  Add rename_matching_sidecars() to move all five sidecar formats in
+  lockstep with the audio rename. Idempotent: skips missing sources and
+  existing suffixed targets so safe_rename's auto-disambiguation can't
+  produce "[Dolby Atmos] (1).ttml" noise files when an overlapping run
+  has already written a suffixed sidecar.
+
+- **(lyrics)** Rename sidecars alongside codec-suffixed audio (#540)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.39.0] - 2026-04-22
+
+### ✨ Features
+
+- **(activity-log)** Emit dedup settings in startup summary (#530)
+
+Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
+  `emit_startup_settings_summary`. Surfaces all three duplicate-detection
+  configuration knobs on the `[System]` channel at every app launch:
+
+  - `scope` — off / intra_session / intra_and_queued (default) /
+  intra_and_queued_and_history
+  - `key_strategy` — song_id+isrc_fallback (default) / isrc_only /
+  song_id_only
+  - `preference_order` — the artist-auto-select mode priority, rendered as
+  a `>`-joined CLI-style list (e.g.
+  `main-albums>singles-eps>compilation-albums>live-albums>top-songs`)
+
+  Without this, diagnosing "why did my second album redownload tracks I
+  already had?" requires digging into settings.json by hand. Companion to
+  the per-download `Album dedup: kept N, skipped M` / `Checking album
+  against already-queued ...` lines that already emit from
+  `commands::gamdl::start_download` whenever dedup fires.
+
+
+### 🐛 Bug Fixes
+
+- **(download)** Force MV-safe no-album templates + heal legacy defaults (#531)
+
+Music video companion downloads were landing as `-.mp4` inside
+  `{artist}/[Unknown]/` folders for users upgrading from pre-v2 settings.
+  Two causes, one bug:
+
+  1. `download_music_video_by_url()` inherited the user's audio-oriented
+     `no_album_folder_template` / `no_album_file_template`. A direct
+     `/music-video/` URL has no album context, so GAMDL routes through the
+     no-album template path. Override those two fields with fixed MV-safe
+     values (`{artist}/Music Videos` + `{title}`) regardless of user
+     settings — MVs never have a `{disc}` or `{album}` context, so audio
+     templates are never the right fit.
+
+  2. Pre-v2 MeedyaDL shipped `no_album_folder_template` as
+     `"{artist}/[Unknown]"` and `no_album_file_template` as `"{disc} - "`.
+     Serde only fills missing fields with defaults, so upgraders kept the
+     original broken values. Add a v2 → v3 settings migration that heals
+     exact matches of those legacy defaults to the current defaults
+     (`{artist}/Unknown Album` + `{title}`); custom values are preserved.
+
+  Adds 7 unit tests (762 → 769 passing).
+
+- **(download)** MV filename uniqueness + motion-art renaming pass (#527 #536 #537)
+
+Follow-up to the MV no-album template fix. Three coordinated changes plus
+  the documentation that specifies the resolution order for future tiers.
+
+  1. **MV filename uniqueness** — last-resort template
+     `MV_NO_ALBUM_FILE_TEMPLATE` tightened from `"{title}"` to
+     `"{title} ({title_id})"`. `{title_id}` is Apple Music's numeric MV ID:
+     deterministic across re-downloads (dedupe survives) and unique per MV
+     (same-title cuts — Clean/Explicit, remixes, live versions — no longer
+     silently collide under GAMDL `overwrite=false`). Datetime was
+     deliberately rejected as a disambiguator because it would cause every
+     re-download to create a new file.
+
+     The four-tier resolution spec now lives in `DEV_NOTES.md` under
+     "Music-Video Filename & Folder Resolution". This PR only implements
+     Tier 4 (the safety net); Tiers 2 (Apple Music Catalog `include=albums`)
+     and 3 (MeedyaDL-known parent album context) are tracked in #537 and
+     land in a separate PR. Tier 1 (GAMDL's native iTunes Lookup) already
+     works upstream and is unchanged.
+
+  2. **Motion artwork rename** — `PortraitCover.mp4` →
+     `FrontCoverPortrait.mp4`. The two album-motion variants now sort
+     adjacent (`FrontCover` + `FrontCoverPortrait`) in any alphabetical
+     listing, and the portrait filename is self-describing. No
+     auto-migration of legacy files on disk — renaming without consent is
+     risky; users who want a clean sweep can delete `PortraitCover.mp4`
+     before re-running animated artwork on an album.
+
+  3. **Artist Spotlight priority reorder** —
+     `fetch_artist_promo_video()` now consults only the two 16:9
+     artist-framed feeds (`motionArtistFullscreen16x9` →
+     `motionArtistWide16x9`), with Fullscreen preferred for its typically
+     higher source resolution and full-bleed framing. The previous chain
+     fell through to `motionDetailSquare` / `motionDetailTall`, but those
+     album-detail feeds are tightly cropped around cover art and look
+     visually wrong used as an artist-page hero. Prefer skipping the
+     download over a mismatched fallback.
+
+  Docs updated across DEV_NOTES.md (new "Music-Video Filename & Folder
+  Resolution" section, updated motion-artwork table), CLAUDE.md
+  (animated-artwork and artist-promo bullet points plus a new MV
+  resolution bullet), README.md, Project_Plan.md, help/animated-artwork.md
+  (including stale `ArtistCover.mp4` → `ArtistSpotlightCover.mp4` fixups),
+  and inline docstrings on every touched symbol.
+
+  Test updates: new assertion that `MV_NO_ALBUM_FILE_TEMPLATE` contains
+  `{title_id}` (hard invariant — removing it re-opens the silent-collision
+  regression). All 769 Rust tests pass, clippy clean.
+
+  Follow-ups tracked:
+  - #537 Tiers 2 & 3 (Apple Music Catalog + parent-album context wiring)
+  - New issue (to file): `AlbumSpotlightCover.mp4` — when an album's own
+    `editorialVideo` includes a `motionArtist*` 16:9 feed (as opposed to
+    the artist-page feed), save it to the album folder with that filename
+    so it's distinguishable from the artist-wide spotlight.
+
+- **(download)** MV naming uniqueness + motion-art rename + settings migration (#539)
+
+## Summary
+
+  RC-blocker fix for #527 + motion-art polish pass (#536 partial). Two
+  commits, 14 files, +293 / −49.
+
+  - **`2fff25e`** — force MV-safe no-album templates + v2→v3 settings
+  migration heals legacy broken defaults (#531)
+  - **`b70e200`** — MV filename uniqueness via `{title_id}` +
+  `PortraitCover.mp4` → `FrontCoverPortrait.mp4` rename + Artist Spotlight
+  priority trim + full spec in `DEV_NOTES.md`
+
+  ## What changed
+
+  ### 1. Music-video filename bug (#527) — RC blocker, resolved
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.38.0] - 2026-04-21
+
+### ✨ Features
+
+- **(gamdl)** V3.0 compatibility + long-term version management (#525)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.37.0] - 2026-04-21
+
+### ✨ Features
+
+- **(dedup)** Pre-queue track-level duplicate detection for artist URLs (#510)
+
+When an Apple Music artist URL is fanned out across multiple
+  artist_auto_select_multi modes (e.g. main-albums + singles-eps +
+  compilation-albums), the same song would previously be downloaded
+  multiple times at the same quality because each mode spawned an
+  independent GAMDL subprocess with no cross-process awareness.
+
+  Fetch each mode's track list via the Apple Music catalog API
+  before enqueueing, then skip duplicates according to a
+  user-configurable preference hierarchy (default: main-albums >
+  singles-eps > compilation-albums > live-albums > top-songs). The
+  winning mode's queue item is rewritten to explicit per-track
+  URLs; modes with zero unique tracks are suppressed entirely. API
+  failures fall back to the original artist URL so downloads are
+  never blocked.
+
+  Scope is configurable (off / intra-session / intra+queued /
+  intra+queued+history) and match key strategy can be swapped
+  between song_id (with ISRC fallback), ISRC-only, or song_id-only.
+  Companion-format downloads are unaffected — a song chosen from
+  one mode still runs the full ALAC/Atmos/AAC companion chain.
+
+- **(dedup)** Skip playlist tracks that overlap queue or history (#512)
+
+When a user queues an Apple Music playlist URL, fetch the playlist's
+  tracks via the catalog API and trim it to the subset that isn't already
+  present in the active queue or in existing manifest.meedyadl files
+  (per the duplicate_detection.scope setting). All tracks duplicated →
+  the playlist isn't enqueued at all.
+
+  - Extend ParsedAppleMusicUrl with a playlist_id field and add a catalog
+    PLAYLIST_RE matcher (library playlists deliberately skipped — they'd
+    need Music-User-Token auth and a different endpoint).
+  - Add fetch_playlist_tracks() to apple_music_api.rs (paginated, 50-page
+    cap matching fetch_artist_albums).
+  - Add plan_playlist_deduplication() + PlaylistPlan / PlaylistDedupPlan
+    public types to duplicate_detector.rs, reusing the existing
+    build_track_key_from_parts / build_track_url / resolve_jwt helpers.
+  - Wire the planner into start_download's single-URL path (single
+    playlist URLs only; batch pastes will be covered by #513).
+  - Intra-playlist dedup: a song listed twice in the same playlist is
+    also collapsed to one download.
+  - Graceful fallback on any failure path (missing token, API error,
+    library playlist, zero usable tracks) — never blocks a download.
+
+- **(dedup)** Skip album tracks already in queue or history (#514)
+
+When a single album URL is queued, cross-check its tracks against the
+  active queue and (per duplicate_detection.scope) existing manifest.meedyadl
+  files in the output directory. Tracks already present are dropped; the
+  remaining subset is enqueued as per-track URLs. If every track is a
+  duplicate, nothing is enqueued and the caller receives a duplicate_warning
+  surfacing the "everything already downloaded" state.
+
+  - Add plan_album_deduplication() + AlbumPlan / AlbumDedupPlan in
+    duplicate_detector.rs, reusing build_track_key / build_track_url /
+    resolve_jwt from the artist + playlist planners.
+  - Wire into start_download's single-URL path (batch pastes will be
+    handled by #513). Album URLs with ?i=song_id are passed through
+    unchanged — those are explicit single-song requests.
+  - Short-circuit the catalog API call when there's nothing to compare
+    against (empty queue + history).
+  - No dedup runs → the original album URL is kept unchanged (more
+    efficient than switching to per-track URLs for no gain).
+
+  Graceful fallback on API / credential failures; never blocks a
+  download.
+
+  Interaction with smart re-download (#263): both signals can surface
+  simultaneously for now; refinement (suppressing dedup when
+  lastModifiedDate differs) deferred to a follow-up.
+
+- **(dedup)** Cross-URL batch deduplication (#513)
+
+When multiple URLs are pasted in a single request (e.g. album + playlist
+  + song URLs that overlap), walk every classifiable album and playlist
+  track list and apply a source-priority filter so each track is claimed
+  by exactly one URL. Albums claim tracks before playlists (an album is
+  the more canonical source). Song URLs and album?i=song_id URLs are
+  treated as explicit picks and claim their song_ids up-front. Artist,
+  music-video, and unrecognised URLs pass through unchanged.
+
+  - Add plan_batch_deduplication() + BatchUrlAction / BatchDedupPlan in
+    duplicate_detector.rs. Reuses the existing JWT resolver, track-key
+    builder, and per-track URL builder.
+  - Wire into start_download BEFORE the single-URL planners (#510, #512,
+    #514) so the later planners see the already-trimmed URL list.
+  - Skip the expensive fetch when urls.len() < 2 or no album/playlist
+    URL is present in the batch.
+  - When every URL in the batch is fully deduped, return a
+    duplicate_warning and don't enqueue anything.
+
+  Rename parse_playlist_url_returns_none to parse_playlist_url_extracts_id
+  (now that #512 made playlist URLs parseable) and add a matching
+  parse_library_playlist_url_returns_none check.
+
+  All 728 lib tests + 293 frontend tests pass. Rust compiles clean.
+
+- **(dedup)** Pre-queue duplicate detection for artist, playlist, album, and batch URLs (#511)
+
+## Summary
+
+  Comprehensive pre-queue duplicate-detection across **every URL type**
+  MeedyaDL handles. Before any URL hits GAMDL, the Apple Music catalog API
+  is consulted to identify tracks that would otherwise be downloaded
+  multiple times at the same quality — whether across artist auto-select
+  modes, inside a playlist, inside the download history, or across a batch
+  of pasted URLs. A user-configurable priority hierarchy + scope + key
+  strategy decides which copy wins; the rest are skipped with an Activity
+  Log entry naming the kept and skipped sources.
+
+  **Scope guarantee (unchanged across all 4 issues):** operates on **track
+  identity** only. Companion-format downloads (ALAC / Atmos / AAC etc.)
+  are untouched — a song chosen by dedup still runs the full
+  `companion_mode` chain.
+
+- **(gamdl)** Version-aware CLI/INI dispatch for GAMDL v2.9.1 — v3.x
+
+GAMDL v3.0 removed the --fetch-extra-tags CLI flag (upstream commit
+  61ea24b, "Remove extra tags fetching and preview parsing") and migrated
+  user-facing logging to structlog. Unconditionally emitting the old flag
+  crashes the subprocess on v3+, and the new "[LEVEL    HH:MM:SS] ..."
+  line prefix used to slip past Priority-4 error classification.
+
+  Introduce a shared gamdl_capabilities module that caches the detected
+  GAMDL version in a process-global RwLock and exposes supports(feature)
+  queries. The cache is refreshed by install_gamdl() and get_gamdl_version().
+  merge_options() and ini_metadata_section() now gate fetch_extra_tags on
+  GamdlFeature::FetchExtraTags so the flag and INI key are only emitted on
+  v2.x. Unknown-version queries return false so a freshly installed v3.0
+  never sees the removed option. Tested across v2.9.1, v2.9.3, v3.0, v3.1.2,
+  and None.
+
+  Update ERROR_PREFIX_REGEX to optionally strip structlog's
+  "[LEVEL    HH:MM:SS]" banner so v3.0 "Error processing ..." lines are
+  still classified as GamdlOutputEvent::Error rather than Unknown.
+
+- **(gamdl)** Compile-time version support window with pinned installer + gated upgrade prompts
+
+MeedyaDL now declares an explicit `[minimum, maximum_tested, recommended]`
+  range for GAMDL in `src-tauri/tool-versions.toml` → `[gamdl]`. The range
+  is the single source of truth for four things:
+
+  1. The installer. `install_gamdl()` now runs
+     `pip install --upgrade 'gamdl>={min},<={max}'` instead of the
+     unbounded `pip install --upgrade gamdl`, so first-time setup and
+     in-app "Update GAMDL" clicks can never pull a release we haven't
+     validated.
+
+  2. The update banner. `update_checker::is_gamdl_compatible` is now a
+     thin wrapper over `gamdl_capabilities::should_offer_upgrade`, which
+     returns `false` for PyPI advertisements above `maximum_tested_version`.
+     The frontend's `updateStore.getActiveUpdates()` already filters by
+     `is_compatible`, so those updates disappear from the UI without
+     any frontend plumbing.
+
+  3. Startup diagnostics. `commands::dependencies::log_component_versions_to_activity`
+     now emits a `[System]` activity-log line classifying the installed
+     GAMDL version as NotInstalled / Supported / Unsupported / Untested
+     against the window. Unsupported / Untested cases additionally hit
+     `log::warn!` so they land in the rotated tracing log for crash reports.
+
+  4. User-facing documentation. README has a new "Component Support
+     Matrix" section listing the validated ranges for every component;
+     SECURITY.md references it as the canonical support policy.
+
+  New surface in `services::gamdl_capabilities`:
+  - `GamdlSupportWindow { minimum, maximum_tested, recommended }`
+  - `VersionSupport::{NotInstalled, Supported, Unsupported, Untested}` +
+    `is_supported()`
+  - `support_window()`, `classify(Option<&str>)`,
+    `should_offer_upgrade(&str)`, `pip_version_spec()`
+
+- **(ci)** Weekly PyPI watcher that tickets GAMDL releases above our tested ceiling
+
+Adds `.github/workflows/upstream-gamdl-watch.yml`, a Monday 08:00 UTC cron
+  that compares PyPI's latest GAMDL release against the `maximum_tested_version`
+  declared in `tool-versions.toml`. When upstream ships past the ceiling, the
+  workflow opens (or updates) a GitHub Issue labelled `upstream-bump` with a
+  triage checklist covering release-notes review, commit diff review, local
+  install + smoke test, and the ceiling-bump path.
+
+  Dedupe is by exact title match on open `upstream-bump` tickets, so the
+  weekly cron updates the same ticket instead of spamming 52 fresh ones
+  across a year where upstream stays above the ceiling. Label creation is
+  idempotent via `gh label create --force`, so fresh clones of the repo
+  don't fail on the missing label.
+
+- **(gamdl)** Emit --no-exceptions by default to clean up v3.0 mixed stderr
+
+GAMDL v3.0 migrated logging to structlog but still lets Python print raw
+  tracebacks when --no-exceptions is not set. The resulting stderr is an
+  unreadable blob — structlog-formatted lines interleaved with multi-line
+  tracebacks — that clutters the activity log and fools classify_error()
+  into matching "Error" in frame paths like httpx/_transports/default.py
+  line 118 in map_httpcore_exceptions.
+
+  Default merge_options() to set options.no_exceptions = Some(true) so
+  each download gets a single user-facing error line per failure. Users
+  debugging upstream GAMDL issues can flip a new AppSettings field
+  `verbose_gamdl_exceptions` (default false) from Settings > Advanced >
+  Diagnostics to restore the full traceback.
+
+- **(activity-log)** Emit dedup settings in startup summary
+
+Adds a fourth `Dedup: scope=..., key=..., preferences=...` line to
+  `emit_startup_settings_summary`. Surfaces all three duplicate-detection
+  configuration knobs on the `[System]` channel at every app launch:
+
+  - `scope` — off / intra_session / intra_and_queued (default) /
+    intra_and_queued_and_history
+  - `key_strategy` — song_id+isrc_fallback (default) / isrc_only /
+    song_id_only
+  - `preference_order` — the artist-auto-select mode priority, rendered
+    as a `>`-joined CLI-style list (e.g.
+    `main-albums>singles-eps>compilation-albums>live-albums>top-songs`)
+
+  Without this, diagnosing "why did my second album redownload tracks I
+  already had?" requires digging into settings.json by hand. Companion
+  to the per-download `Album dedup: kept N, skipped M` / `Checking album
+  against already-queued ...` lines that already emit from
+  `commands::gamdl::start_download` whenever dedup fires.
+
+
+### 🐛 Bug Fixes
+
+- **(dedup)** Appease clippy::question_mark lint
+
+Replace `let Some(playlist_id) = parsed.playlist_id.as_deref() else {
+  return None; }` with `let playlist_id = parsed.playlist_id.as_deref()?;`
+  — the function already returns Option<PlaylistDedupPlan>, so the `?`
+  operator is equivalent and preferred by clippy in this codebase
+  (CI runs `cargo clippy -- -D warnings`).
+
+  Backend CI on all 3 OSes failed on this single lint; no other issues.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧪 Testing
+
+- **(gamdl)** Synthetic v3.0 output fixtures + parser integration coverage
+
+Captures what we believe GAMDL v3.0 writes to stderr based on the
+  upstream source at the v3.0 tag (cli/utils.py::custom_structlog_formatter
+  plus the INFO/WARNING/ERROR strings in cli/cli.py), and exercises every
+  parser that consumes GAMDL output end-to-end against those fixtures.
+
+  Four scenarios are represented:
+
+  1. Happy-path album download — pins the invariant that no structlog-
+     prefixed INFO line is ever misclassified as an Error.
+  2. Codec skips — the exact wording we believe triggers gap-fill retry.
+     Tests lock in that count_codec_skip_warnings + is_codec_error see
+     past the [WARNING  HH:MM:SS] prefix, and that build_gapfill_priority_chain
+     still produces a usable fallback chain when experimental codecs are
+     dropped.
+  3. Auth / 404 error — the new ERROR_PREFIX_REGEX (from #517) must
+     preserve URL and reason through classification, and classify_error
+     must bucket "404 Not Found" as `not_found`.
+  4. Network failure + traceback — covers the verbose_gamdl_exceptions
+     opt-in path. Interleaved structlog + raw traceback must still land
+     in the `network` classify bucket, traceback frames must not be
+     captured as errors, and the final exception line must be.
+
+  Bonus fix: PYTHON_EXCEPTION_REGEX now also accepts `Timeout` as a
+  class-name suffix. Without it httpx's typed timeout hierarchy
+  (ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout) silently
+  fell through to GamdlOutputEvent::Unknown — a pre-existing regression
+  for every network timeout raised by GAMDL's HTTP stack.
+
+  Fixtures are best-effort synthesis. Real v3.0 output samples should
+  refine the skip-warning wording and any structlog-action prefixes —
+  see issue #521 for the follow-up.
+
+  Part of #521. Part of #516.
+
+
+## [0.36.0] - 2026-04-21
+
+### ✨ Features
+
+- Companion-download resilience — soft errors, watchdog, scoping, audioTraits gate
+
+Wraps every companion-tier GAMDL spawn in a new
+  `services::companion_supervisor` so the queue stops being misled by
+  GAMDL's per-track exception handling, and stops looking frozen during
+  genuine post-processing.
+
+  - **Soft-error detection (closes #500).** New `process::parse_gamdl_error_count`
+    + `classify_gamdl_traceback` parse `Finished with N error(s)` and
+    recognise the `NoneType.audio_track` traceback. Companion supervisor
+    downgrades a soft-error exit-0 to a tier failure and logs
+    "<codec> not available for this track on Apple Music — skipping"
+    instead of dumping the raw traceback.
+
+  - **Real abort with `kill_on_drop` (closes #501).** Supervisor sets
+    `kill_on_drop(true)` on the GAMDL Command so when the 10-minute
+    completion-task timeout aborts the supervising tokio task the GAMDL
+    child is reaped instead of leaking as a zombie that keeps writing
+    hours later. (`tokio::JoinHandle::abort()` on its own only fires at
+    await points; combined with #502 the synchronous tail is now short
+    enough that abort fully covers it.)
+
+  - **Scoped lyrics conversion (closes #502).** `run_companion_lyrics_conversion`
+    now takes `artist_hint` / `album_hint`. Targeted
+    `{output_dir}/{artist}/{album}/` resolution wins; the previous
+    recursive walk over the entire library is the fallback only when
+    hints aren't available. Fixes the "TTML conversion of every album in
+    the library" perceived hang.
+
+  - **Post-processing indicator (closes #503).** Supervisor flips an
+    `is_post_processing` flag once it sees a `100% of` line. New
+    `DownloadQueue::clear_processing_label`. Queue UI now switches to
+    "Post-processing companion (codec): remux / decrypt" while
+    mp4decrypt / ffmpeg / mp4box run silently.
+
+  - **audioTraits-aware tier filter (closes #504).**
+    `SongCodec::required_audio_trait()` maps each codec to the API trait
+    that must be present on the track. New `filter_tiers_by_audio_traits`
+    drops tiers whose codec the catalog response says isn't offered for
+    the track. `QueueItemStatus.audio_traits` carries the union across
+    the download's tracks; populated during the early metadata fetch.
+    No-op when API metadata isn't reachable.
+
+  - **Idle watchdog (closes #505).** Supervisor polls `child.try_wait()`
+    every 200 ms; if no stdout/stderr line has arrived for
+    `gamdl_idle_timeout_minutes` (default 5) and we are NOT in
+    post-processing, it kills the child and reports a watchdog failure
+    to the activity log. New `gamdl_idle_timeout_minutes: u32` setting.
+
+- Expose gamdl_idle_timeout_minutes in Settings > Advanced
+
+Adds a 'GAMDL Idle Timeout' Select to Settings > Advanced > Processing
+  with preset options (2 / 5 / 10 / 15 / 30 min) and an explanation of
+  how the watchdog interacts with the post-processing phase. The control
+  binds to the existing settings.gamdl_idle_timeout_minutes field added
+  in #505; no backend changes needed.
+
+- Wrap primary GAMDL spawn in supervisor safety nets
+
+Extends the resilience net from the companion tiers to the primary
+  GAMDL invocation in run_download_with_events. Same four guarantees,
+  implemented inline since the primary's rich output parser (progress
+  events, track info, ANSI stripping, \r coalescing, dedup) is tightly
+  coupled with queue state in ways the generic supervisor module
+  doesn't host today.
+
+  - kill_on_drop(true) on the Command so app shutdown or the queue's
+    10-min completion timeout reaps GAMDL instead of leaking a zombie.
+  - Idle watchdog in the cancellation poll loop: tracks last
+    stdout/stderr timestamp, kills the child after
+    gamdl_idle_timeout_minutes (default 5) of silence, and stands down
+    while the post-processing flag is set so a slow remux on a network
+    volume doesn't trip it.
+  - Soft-error detection: parses 'Finished with N error(s)' on stdout
+    and, when status.success() && N > 0, downgrades to an error with
+    a classified message.
+  - Friendly traceback translation: primary error path now runs
+    process::classify_gamdl_traceback on the combined raw stderr BEFORE
+    falling back to extract_python_exception, so
+     surfaces as 'this codec is not available for
+    this track on Apple Music — skipping' instead of a Python dump.
+  - Post-processing indicator: stdout reader flips a shared flag on
+    ProcessingStep events or '100% of' progress lines, and sets the
+    queue's processing_label to 'Post-processing (remux / decrypt)'
+    so the UI caption doesn't look frozen during the silent phase.
+
+- Companion-download resilience — soft errors, watchdog, scoping, audioTraits gate (#506)
+
+### 🐛 Bug Fixes
+
+- **(clippy)** Allow too_many_arguments on spawn_companion_downloads
+
+The new function signature is 9 params after adding queue + audio traits
+  for the #504 gate. All of them are genuinely needed inside the spawned
+  task and a struct wrapper just moves repetition to call sites. Suppress
+  the lint with an explanatory comment.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [0.35.0] - 2026-04-20
+
+### ✨ Features
+
+- Nightly release channel with channel-aware update guard
+
+Adds the first slice of the multi-channel release pipeline:
+
+  - New `nightly-release.yml` workflow runs daily at 00:00 UTC. It resets
+    `nightly` to `main`, merges every `feat/*` branch (skipping conflicts
+    and opening an issue for them), bumps to `X.Y.Z-nightly.YYYYMMDD`
+    across package.json / tauri.conf.json / Cargo.toml, and pushes the
+    tag to trigger the existing `release.yml`.
+  - `UpdateChannel` enum + `update_channel` setting. `UpdateChannel::from_tag`
+    parses release-tag suffixes (-nightly, -weekly, -monthly, -alpha, -beta,
+    stable). `check_all_updates` filters GitHub releases to the user's
+    channel, and `download_and_install_app_update` refuses to install a
+    tag whose channel is less stable than the user's selection — the
+    guard for "option 2" client-side channel safety.
+  - Settings > General > Updates gains an Update Channel dropdown.
+  - `.github/rulesets/protected-release-branches.json` + apply workflow
+    keep `main`, `beta`, `alpha`, `monthly`, `weekly`, `nightly`
+    undeletable even with repo-wide auto-delete on.
+  - `auto-delete-merged-branches.yml` deletes merged PR head branches
+    except the protected channels.
+
+  Weekly/monthly channels fall out of the same pattern once this lands.
+
+- Release-channel ladder, nightly auto-release, and update-channel guard (#498)
+
+## Summary
+
+  Introduces a six-tier release-channel ladder with automated nightly
+  integration, branch protection, and an in-app update-channel guard.
+
+  **Channel hierarchy** (least → most stable):
+
+  ```
+  feat/* → nightly → weekly → monthly → alpha → beta → main (stable)
+  ```
+
+  ### Pipeline
+
+  - **`.github/workflows/nightly-release.yml`** — cron `0 0 * * *`. Resets
+  `nightly` to `main`, merges every `origin/feat/*` (skips conflicts,
+  opens an issue listing them), bumps version to `X.Y.Z-nightly.YYYYMMDD`
+  across `package.json` / `tauri.conf.json` / `Cargo.toml`, force-pushes
+  `nightly`, and creates an annotated tag that triggers the existing
+  `release.yml`. `workflow_dispatch` supports a `dry_run` flag.
+  Weekly/monthly follow the same template (crons `0 0 * * 0` and `0 0 1 *
+  *`).
+  - **`.github/rulesets/protected-release-branches.json`** +
+  **`.github/workflows/apply-branch-rulesets.yml`** — ruleset committed as
+  JSON; workflow idempotently applies it (PUT on match, POST otherwise).
+  Blocks deletion + non-fast-forward on `main` / `beta` / `alpha` /
+  `monthly` / `weekly` / `nightly`.
+  - **`.github/workflows/auto-delete-merged-branches.yml`** — on merged
+  PRs, deletes head branches except the six protected channel names.
+
+  ### In-app update-channel guard (option 2)
+
+  - `UpdateChannel` enum in `src-tauri/src/models/settings.rs` — ordered
+  `Nightly < Weekly < Monthly < Alpha < Beta < Stable` (`PartialOrd`).
+  - `UpdateChannel::from_tag()` parses pre-release suffixes
+  (`-nightly.YYYYMMDD`, `-weekly.YYYYWW`, `-monthly.YYYYMM`, `-alpha.N`,
+  `-beta.N`/`-rc.N`, stable).
+  - `update_channel: UpdateChannel` persisted in `AppSettings`, exposed as
+  the **Update Channel** dropdown in Settings > General > Updates.
+  - `check_all_updates` filters releases to the user's channel.
+  `download_and_install_app_update` refuses tags whose channel is less
+  stable than the user's selection — enforcement point: even a tampered
+  manifest or stale deep link cannot downgrade stability. Switching
+  channel is always an explicit action in Settings.
+
+  ### Docs
+
+  - `DEV_NOTES.md` — workflow table expanded to 7 workflows; new "Release
+  Channels" section.
+  - `README.md` — roadmap bullet + new "Release channels" table in Quick
+  Start.
+  - `Project_Plan.md` — completed bullet for the release-channel ladder +
+  guard.
+  - `CONTRIBUTING.md` — new "Branching Model" section.
+  - `CLAUDE.md` — "Release Workflow" + "Conserving GitHub Actions Minutes"
+  updated; note about `workflow_dispatch` UI visibility.
+  - `help/release-channels.md` (new) + linked from `help/index.md`, plus
+  matching in-app topic in `HelpViewer.tsx` and a new FAQ section.
+
+  ## Test plan
+
+  - [ ] After merging, run `gh workflow run "Apply Branch Rulesets" --ref
+  main` to apply the protected-branch ruleset (needs `RELEASE_PAT` with
+  `administration:write`).
+  - [ ] Enable repo setting **Settings → General → Automatically delete
+  head branches**.
+  - [ ] Manually trigger `Nightly Release` with `dry_run=true` to verify
+  the merge + version-bump steps without pushing a tag.
+  - [ ] Once dry-run is clean, let the cron fire (or dispatch with
+  `dry_run=false`) to produce the first `-nightly.YYYYMMDD` build.
+  - [ ] In an installed build, confirm Settings > General > Updates shows
+  the **Update Channel** dropdown and changing it triggers an update
+  check.
+  - [ ] Confirm `cargo test --lib services::update_checker` passes (10
+  tests incl. new `test_update_channel_from_tag`).
+  - [ ] Confirm `npm test` passes (293 tests).
+
+  ## Follow-up (separate PRs)
+
+  - Weekly / monthly workflows (near-copies of `nightly-release.yml` with
+  different cron + source branch).
+  - macOS installer refinements for pre-release channel badging in the
+  update banner.
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Release channels + branch protection + update-channel guard
+
+- DEV_NOTES.md: expand Release Workflow table to 7 workflows; replace
+    "Pre-Release Channel" with a full "Release Channels" section covering
+    the six-tier ladder, auto-merge pipeline, option 2 in-app guard, and
+    branch-protection tooling.
+  - README.md: roadmap bullet reflects the six-channel ladder; new
+    "Release channels" section under Quick Start with the channel table.
+  - Project_Plan.md: new bullet for the release-channel ladder + guard.
+  - CONTRIBUTING.md: new "Branching Model" section; clarify feat/* naming
+    and auto-delete of merged head branches.
+  - CLAUDE.md: document the ladder, enum ordering, and per-call guard in
+    the "Release Workflow" section; list new workflows under "Conserving
+    GitHub Actions Minutes" with a note about workflow_dispatch UI.
+  - help/: new release-channels.md page with channel table, switching
+    guide, and guard explanation; linked from help/index.md.
+  - help/faq.md: new FAQ section about channels, downgrade behaviour, and
+    cadence.
+  - HelpViewer.tsx: add matching in-app help topic (id: release-channels)
+    with the same content as the sidecar markdown.
+
+- Update CHANGELOG.md [skip ci]
+
+## [0.34.6] - 2026-04-20
+
 ### 🐛 Bug Fixes
 
 - **(fs)** Collision-proof every rename/write path (generalise #483 invariant) (#494)
