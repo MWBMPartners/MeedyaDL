@@ -252,6 +252,7 @@ mod tests {
             enrichment: None,
             cross_platform_urls: None,
             is_library: false,
+            companion_tiers: None,
         }
     }
 

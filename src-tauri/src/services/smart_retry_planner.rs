@@ -802,6 +802,9 @@ mod tests {
                 vec!["alac".to_string()],
                 vec!["aac-hq".to_string(), "aac-mq".to_string()],
             ]),
+            enrichment: None,
+            cross_platform_urls: None,
+            is_library: false,
             tracks: vec![
                 track(1, 1, "1001", url),
                 track(2, 1, "1002", url),
@@ -930,6 +933,9 @@ mod tests {
                 codec: None,
                 last_modified_date: None,
                 companion_tiers: None,
+                enrichment: None,
+                cross_platform_urls: None,
+                is_library: false,
                 tracks: vec![
                     track(1, 1, "1001", url),
                     track(2, 1, "1002", url),
@@ -970,6 +976,9 @@ mod tests {
                     // doesn't recognise — skipped silently.
                     vec!["dts-x".to_string()],
                 ]),
+                enrichment: None,
+                cross_platform_urls: None,
+                is_library: false,
                 tracks: vec![track(1, 1, "1001", url)],
             },
         );
