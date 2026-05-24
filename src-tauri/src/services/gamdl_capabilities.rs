@@ -487,6 +487,53 @@ pub enum GamdlFeature {
     /// for the two STILL-removed tool paths (`--mp4box-path`,
     /// `--mp4decrypt-path`).
     FFmpegPath,
+
+    /// GAMDL's URL regex (`gamdl/.../constants.py::VALID_URL_PATTERN`)
+    /// accepts `https://(?:classical\.)?music.apple.com/...` but rejects
+    /// the bare legacy `https://classical.apple.com/...` form. Apple
+    /// Music Classical originally lived at the bare host before migrating
+    /// to `classical.music.apple.com`; the legacy form is still in the
+    /// wild from older builds + bookmarks. MeedyaDL's frontend URL parser
+    /// accepts both, but when this capability is `true` the legacy form
+    /// must be rewritten to `classical.music.apple.com` before being
+    /// handed to GAMDL or the subprocess immediately exits with
+    /// "Could not parse URL" (#880).
+    ///
+    /// Three-version classification:
+    /// * `< 2.9.1`: `false` (regex was even stricter — `r"https://music\.apple\.com"`,
+    ///   no classical prefix accepted at all; rewriting wouldn't help, the
+    ///   URL still fails). MeedyaDL doesn't support pre-2.9.1 so this branch
+    ///   is theoretical — pre-#880 unconditional-no-op behaviour is preserved.
+    /// * `>= 2.9.1`: `true` (regex relaxed to `r"https://(?:classical\.)?music\.apple\.com"`
+    ///   — the classical.music.apple.com host is accepted but the bare
+    ///   classical.apple.com is not).
+    ///
+    /// Effective for the entire MeedyaDL support window. The gate exists
+    /// so the unknown-version default (`false`) preserves the pre-#880
+    /// pass-through behaviour rather than producing a rewrite that might
+    /// be wrong on an unaudited future GAMDL.
+    ClassicalMusicHostRequired,
+
+    /// GAMDL strips unknown INI keys from its `config.ini` via
+    /// `gamdl/cli/config_file.py::cleanup_unknown_params()` on every load.
+    /// `storefront` is NOT in GAMDL's `CliConfig` on any release in our
+    /// support window (2.9.1+) — the storefront is derived from the URL
+    /// path itself (`/us/album/...` → "us") by the URL regex, not from
+    /// the INI. MeedyaDL has been writing `storefront = us` into the INI
+    /// for legacy reasons; the value is silently discarded on read.
+    ///
+    /// When this capability is `true` MeedyaDL omits the dead INI write
+    /// to keep the config tidy + avoid forcing GAMDL's cleanup to do
+    /// unnecessary work (#881).
+    ///
+    /// Three-version classification:
+    /// * `>= 2.9.1`: `true` (every supported release strips `storefront`)
+    /// * unknown / out-of-window: `false` — MeedyaDL preserves the
+    ///   pre-#881 behaviour of emitting the key, on the principle that
+    ///   we never know what an unaudited GAMDL is keying off. If a
+    ///   future GAMDL re-adds storefront as a real CLI/INI option we
+    ///   adjust the gate then.
+    StorefrontIniKeyStripped,
 }
 
 impl GamdlFeature {
@@ -528,6 +575,14 @@ impl GamdlFeature {
             Self::FFmpegPath => {
                 !is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7")
             }
+            // GAMDL >= 2.9.1 (#880): classical.apple.com URLs must be
+            // rewritten to classical.music.apple.com before being handed
+            // to GAMDL. Effective on the entire support window.
+            Self::ClassicalMusicHostRequired => is_version_at_least(version, "2.9.1"),
+            // GAMDL >= 2.9.1 (#881): `storefront` INI key is stripped on
+            // every release via `cleanup_unknown_params()`. Effective on
+            // the entire support window.
+            Self::StorefrontIniKeyStripped => is_version_at_least(version, "2.9.1"),
         }
     }
 }
@@ -570,6 +625,8 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::NativeMuxing, "native_muxing"),
         (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
         (GamdlFeature::FFmpegPath, "ffmpeg_path"),
+        (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
+        (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
     ];
 
     let active: Vec<&str> = all
@@ -1001,6 +1058,75 @@ mod tests {
         assert!(
             supports(GamdlFeature::FFmpegPath),
             "3.7.1: still on the >=3.7 line, --ffmpeg-path still emitted"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `ClassicalMusicHostRequired` returns `true` on every supported
+    /// GAMDL version (>= 2.9.1) so MeedyaDL rewrites legacy
+    /// `classical.apple.com` URLs to `classical.music.apple.com`. On
+    /// unknown / unparseable versions the gate is `false` so MeedyaDL
+    /// preserves the pre-#880 pass-through behaviour — never rewrite
+    /// when we can't audit the target version (#880).
+    #[test]
+    fn classical_music_host_required_gate_covers_support_window() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::ClassicalMusicHostRequired),
+                "{v}: classical.music.apple.com host required, rewrite must engage"
+            );
+        }
+
+        // Pre-2.9.1 — out of support window, gate must be off.
+        set_detected_version(Some("2.9".to_string()));
+        assert!(
+            !supports(GamdlFeature::ClassicalMusicHostRequired),
+            "2.9: pre-support-window, rewrite must NOT engage"
+        );
+
+        // Unknown / unparseable — gate off, pass-through preserved.
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::ClassicalMusicHostRequired),
+            "None: unknown version, rewrite must NOT engage"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `StorefrontIniKeyStripped` returns `true` on every supported
+    /// GAMDL version (>= 2.9.1) — `cleanup_unknown_params()` has been
+    /// silently stripping the key since 2.9.1 and there's no version
+    /// in our support window where it's a real CLI/INI option. On
+    /// unknown versions the gate is `false` so MeedyaDL keeps emitting
+    /// the key, preserving pre-#881 behaviour for unaudited installs
+    /// (#881).
+    #[test]
+    fn storefront_ini_key_stripped_gate_covers_support_window() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::StorefrontIniKeyStripped),
+                "{v}: storefront INI key is stripped by GAMDL, MeedyaDL must omit"
+            );
+        }
+
+        set_detected_version(Some("2.9".to_string()));
+        assert!(
+            !supports(GamdlFeature::StorefrontIniKeyStripped),
+            "2.9: out of window, omit-storefront-INI optimisation must NOT engage"
+        );
+
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::StorefrontIniKeyStripped),
+            "None: unknown version, omit-storefront-INI optimisation must NOT engage"
         );
 
         set_detected_version(None);

@@ -1855,6 +1855,44 @@ pub fn normalize_apple_music_url(url: &str) -> String {
     };
     let url = url_owned.as_str();
 
+    // Second pass: rewrite legacy `classical.apple.com` URLs to the
+    // current `classical.music.apple.com` host (#880).
+    //
+    // GAMDL's URL parser (`gamdl/interface/constants.py`
+    // `VALID_URL_PATTERN`) accepts `music.apple.com` with an OPTIONAL
+    // `classical.` prefix — i.e., `classical.music.apple.com` ✓ but
+    // **NOT** the bare legacy `classical.apple.com` host (which lacks
+    // the `music.` segment). MeedyaDL's own parser is more permissive
+    // and still accepts the legacy form, so users who paste a
+    // `classical.apple.com` URL get past the frontend gate; the
+    // download then fails inside GAMDL with "Could not parse URL".
+    //
+    // The catalog IDs are shared across the two hosts (Apple Music
+    // Classical migrated the host but kept the IDs), so the rewrite
+    // is silent and lossless. Identical pattern to the iTunes rewrite
+    // above — see #568 / #880 for rationale.
+    //
+    // Gated behind `GamdlFeature::ClassicalMusicHostRequired` so we
+    // never apply the rewrite on an unaudited GAMDL version. The gate
+    // is `true` for the entire MeedyaDL support window (>= 2.9.1) but
+    // `false` for unknown / out-of-window installs, which preserves
+    // the pre-#880 pass-through behaviour in those edge cases.
+    let url_owned = if super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::ClassicalMusicHostRequired,
+    ) {
+        if let Some(rewritten) = rewrite_classical_legacy_url(url) {
+            log::info!(
+                "Rewrote legacy classical.apple.com URL: {url} → {rewritten}"
+            );
+            rewritten
+        } else {
+            url.to_string()
+        }
+    } else {
+        url.to_string()
+    };
+    let url = url_owned.as_str();
+
     // If the URL already has a storefront (existing regex matches), return as-is.
     if parse_apple_music_url(url).is_some() {
         return url.to_string();
@@ -2006,6 +2044,41 @@ fn rewrite_itunes_url(url: &str) -> Option<String> {
     Some(format!(
         "{scheme}music.apple.com{storefront_segment}/{content_type}/{slug_segment}{normalised_id}{query}{fragment}"
     ))
+}
+
+/// Rewrite a legacy `classical.apple.com` URL to the current
+/// `classical.music.apple.com` host (#880).
+///
+/// Apple Music Classical originally lived at `classical.apple.com` and
+/// later moved to `classical.music.apple.com`. Both URL forms are
+/// still in the wild (deep links from older builds, bookmarks, blog
+/// posts) but GAMDL v3.7.1's `VALID_URL_PATTERN` only accepts the
+/// new form. The legacy hostname → new hostname rewrite is silent
+/// because the storefront, content type, slug, and numeric ID are all
+/// preserved unchanged.
+///
+/// Returns `None` for URLs that don't carry the legacy `classical.apple.com`
+/// hostname so the caller can use this helper as part of a chain of
+/// normalisation passes without an explicit `is_legacy_classical` check
+/// at the call site.
+#[must_use]
+fn rewrite_classical_legacy_url(url: &str) -> Option<String> {
+    use std::sync::LazyLock;
+
+    // Captures the optional scheme separator + the rest of the URL
+    // after the legacy hostname. We don't dissect the path because
+    // GAMDL parses the path itself once the hostname is correct;
+    // anything that's syntactically valid on the legacy host is
+    // syntactically valid on the new host.
+    static CLASSICAL_LEGACY_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"^(https?://)classical\.apple\.com(/.*)?$")
+            .expect("Invalid classical-legacy-rewrite regex")
+    });
+
+    let caps = CLASSICAL_LEGACY_RE.captures(url)?;
+    let scheme = caps.get(1).map_or("https://", |m| m.as_str());
+    let path = caps.get(2).map_or("", |m| m.as_str());
+    Some(format!("{scheme}classical.music.apple.com{path}"))
 }
 
 /// Rewrite an Apple Music URL to use a different storefront code (#666).
@@ -3825,12 +3898,103 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         assert_eq!(normalize_apple_music_url(url), url);
     }
 
+    // #880: The classical-host rewrite is gated behind
+    // `GamdlFeature::ClassicalMusicHostRequired`. Tests that exercise
+    // the rewrite must set the detected GAMDL version first; tests
+    // that exercise the unknown-version pass-through path clear the
+    // cache first. A small RAII guard makes the
+    // set-version-then-restore-on-drop pattern obvious at the call
+    // site so parallel tests don't leak state into each other.
+    struct VersionGuard {
+        previous: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl VersionGuard {
+        fn new(version: Option<&str>) -> Self {
+            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+            let lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            let previous = crate::services::gamdl_capabilities::detected_version();
+            crate::services::gamdl_capabilities::set_detected_version(
+                version.map(ToString::to_string),
+            );
+            Self {
+                previous,
+                _lock: lock,
+            }
+        }
+    }
+
+    impl Drop for VersionGuard {
+        fn drop(&mut self) {
+            crate::services::gamdl_capabilities::set_detected_version(self.previous.take());
+        }
+    }
+
     #[test]
-    fn rewrite_does_not_touch_classical_apple_com() {
-        let url = "https://classical.apple.com/us/album/some-classical/123456";
-        // classical.apple.com is recognised by parse_apple_music_url —
-        // normalize returns it unchanged.
+    fn normalize_rewrites_classical_apple_com_on_supported_gamdl() {
+        let _g = VersionGuard::new(Some("3.7.1"));
+        // #880: GAMDL >= 2.9.1's URL regex requires `classical.music.apple.com`
+        // (note the `music.` segment). The bare legacy host
+        // `classical.apple.com` was accepted by MeedyaDL's own parser
+        // but rejected by GAMDL. `normalize_apple_music_url` now rewrites
+        // the legacy host silently so the downstream subprocess accepts
+        // the URL.
+        assert_eq!(
+            normalize_apple_music_url(
+                "https://classical.apple.com/us/album/some-classical/123456"
+            ),
+            "https://classical.music.apple.com/us/album/some-classical/123456",
+        );
+    }
+
+    #[test]
+    fn normalize_rewrites_classical_apple_com_preserving_track_query() {
+        let _g = VersionGuard::new(Some("3.7.1"));
+        // The `?i=` query identifies a single track inside an album.
+        // Must survive the rewrite or per-track retries lose their target.
+        assert_eq!(
+            normalize_apple_music_url(
+                "https://classical.apple.com/gb/album/beethoven-symphony-9/123456?i=789"
+            ),
+            "https://classical.music.apple.com/gb/album/beethoven-symphony-9/123456?i=789",
+        );
+    }
+
+    #[test]
+    fn normalize_does_not_touch_classical_music_apple_com() {
+        let _g = VersionGuard::new(Some("3.7.1"));
+        // The CURRENT classical host (with `.music.` segment) must NOT
+        // be rewritten — it's already in the form GAMDL accepts.
+        let url = "https://classical.music.apple.com/us/album/foo/123";
         assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn normalize_does_not_rewrite_classical_apple_com_when_gamdl_version_unknown() {
+        // Pre-#880 pass-through behaviour: on an unaudited GAMDL (None
+        // version cached) MeedyaDL must NOT rewrite, preserving exactly
+        // the URL the user pasted. Per the user's note when filing #880:
+        // "older versions should still be supported".
+        let _g = VersionGuard::new(None);
+        let url = "https://classical.apple.com/us/album/some-classical/123456";
+        assert_eq!(normalize_apple_music_url(url), url);
+    }
+
+    #[test]
+    fn rewrite_classical_legacy_url_returns_none_for_non_legacy_hosts() {
+        // Direct helper-level test: the rewrite must be a strict no-op
+        // for every non-legacy-classical URL form so it's safe to use
+        // in the normalisation chain unconditionally. This test does
+        // NOT need a VersionGuard because the helper is pure — the
+        // gate is enforced one level up in `normalize_apple_music_url`.
+        assert!(rewrite_classical_legacy_url("https://music.apple.com/us/album/foo/123").is_none());
+        assert!(rewrite_classical_legacy_url(
+            "https://classical.music.apple.com/us/album/foo/123"
+        )
+        .is_none());
+        assert!(rewrite_classical_legacy_url("https://itunes.apple.com/us/album/foo/123").is_none());
+        assert!(rewrite_classical_legacy_url("https://example.com").is_none());
     }
 
     /// Non-Apple URLs are completely untouched.
@@ -3918,9 +4082,16 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
     #[test]
     fn normalize_classical_url_without_storefront() {
+        // Updated for #880: when a known-supported GAMDL is detected the
+        // legacy `classical.apple.com` host is also rewritten to
+        // `classical.music.apple.com` before storefront injection. So
+        // the result starts with the NEW host, not the legacy one. The
+        // assertion still anchors on the slug+ID + the "different from
+        // input" property; both still hold.
+        let _g = VersionGuard::new(Some("3.7.1"));
         let url = "https://classical.apple.com/album/beethoven-symphony/1234567890";
         let result = normalize_apple_music_url(url);
-        assert!(result.starts_with("https://classical.apple.com/"));
+        assert!(result.starts_with("https://classical.music.apple.com/"));
         assert!(result.contains("/album/beethoven-symphony/1234567890"));
         assert_ne!(result, url);
     }
