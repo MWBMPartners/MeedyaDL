@@ -463,6 +463,30 @@ pub enum GamdlFeature {
     /// for backwards-compat with saved queues / settings; the CLI arg
     /// builder gates emission behind this capability.
     MusicVideoRemuxMode,
+
+    // ---------------------------------------------------------------------
+    // GAMDL v3.7 capability gates (#867)
+    // ---------------------------------------------------------------------
+    /// `--ffmpeg-path` CLI option + `ffmpeg_path` INI key.
+    ///
+    /// v3.6 removed all three tool-path CLI options (`--ffmpeg-path`,
+    /// `--mp4box-path`, `--mp4decrypt-path`) when GAMDL switched to native
+    /// muxing + decryption for music videos (covered by
+    /// [`Self::NativeMuxing`]). v3.7 **reinstated `--ffmpeg-path`**
+    /// because N_m3u8DL-RE depends on FFmpeg at HLS download time; the
+    /// other two stay removed. See `.github/audits/gamdl-v3.7-audit.md`
+    /// for the full upstream commit chain (`92b8220c` + `bd59bb7c`).
+    ///
+    /// Three-version classification:
+    /// * `< 3.6`: ✓ (original tool-path era — emitted)
+    /// * `3.6.x`: ✗ (native muxing era — all three suppressed)
+    /// * `>= 3.7`: ✓ (FFmpeg path back; mp4box / mp4decrypt still gone)
+    ///
+    /// In other words: `true` when ANY of `<3.6` OR `>=3.7` — only `false`
+    /// on the `3.6` line. The `Self::NativeMuxing` gate is now used ONLY
+    /// for the two STILL-removed tool paths (`--mp4box-path`,
+    /// `--mp4decrypt-path`).
+    FFmpegPath,
 }
 
 impl GamdlFeature {
@@ -495,6 +519,15 @@ impl GamdlFeature {
             // --music-video-remux-mode REMOVED in v3.6.
             // Returns true when the option is STILL available (i.e. on <3.6).
             Self::MusicVideoRemuxMode => !is_version_at_least(version, "3.6"),
+            // GAMDL v3.7 family (#867):
+            // --ffmpeg-path was REMOVED in v3.6 (with mp4box-path /
+            // mp4decrypt-path) then REINSTATED in v3.7 because N_m3u8DL-RE
+            // depends on FFmpeg. The other two stay removed. So the gate
+            // is true when EITHER < 3.6 (original tool-path era) OR >= 3.7
+            // (FFmpeg-only reinstatement era). Only false on the 3.6.x line.
+            Self::FFmpegPath => {
+                !is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7")
+            }
         }
     }
 }
@@ -536,6 +569,7 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::AacWebCodecRename, "aac_web_codec_rename"),
         (GamdlFeature::NativeMuxing, "native_muxing"),
         (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
+        (GamdlFeature::FFmpegPath, "ffmpeg_path"),
     ];
 
     let active: Vec<&str> = all
@@ -915,6 +949,60 @@ mod tests {
         assert!(supports(GamdlFeature::MusicVideoRemuxMode));
         set_detected_version(Some("3.6".to_string()));
         assert!(!supports(GamdlFeature::MusicVideoRemuxMode));
+        set_detected_version(None);
+    }
+
+    /// `--ffmpeg-path` has a UNIQUE three-version life: present on <3.6,
+    /// REMOVED on 3.6 alongside the other tool-paths, REINSTATED on 3.7
+    /// because N_m3u8DL-RE depends on FFmpeg. So the gate is true on
+    /// either side of the 3.6 valley — only false on the 3.6.x line.
+    ///
+    /// Pre-release v3.7.1 (currently on upstream `main`) inherits >=3.7
+    /// behaviour cleanly because `is_version_at_least("3.7.1", "3.7")`
+    /// is true.
+    #[test]
+    fn ffmpeg_path_gate_three_version_classification() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+
+        // Era 1: <3.6 (original tool-path era — flag accepted)
+        set_detected_version(Some("2.9.3".to_string()));
+        assert!(
+            supports(GamdlFeature::FFmpegPath),
+            "<3.6: --ffmpeg-path is accepted, must emit"
+        );
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(
+            supports(GamdlFeature::FFmpegPath),
+            "3.5.2: --ffmpeg-path is accepted, must emit"
+        );
+
+        // Era 2: 3.6.x (native muxing era — flag REMOVED, would crash Click)
+        set_detected_version(Some("3.6".to_string()));
+        assert!(
+            !supports(GamdlFeature::FFmpegPath),
+            "3.6: --ffmpeg-path was REMOVED, must suppress"
+        );
+        set_detected_version(Some("3.6.5".to_string()));
+        assert!(
+            !supports(GamdlFeature::FFmpegPath),
+            "3.6.5: still on 3.6 line, --ffmpeg-path still removed"
+        );
+
+        // Era 3: >=3.7 (REINSTATED — N_m3u8DL-RE needs FFmpeg)
+        set_detected_version(Some("3.7".to_string()));
+        assert!(
+            supports(GamdlFeature::FFmpegPath),
+            "3.7: --ffmpeg-path REINSTATED, must emit again"
+        );
+        // v3.7.1 prep is already on upstream main; we'll admit it to the
+        // support window after release, but the gate logic must already
+        // handle it transparently.
+        set_detected_version(Some("3.7.1".to_string()));
+        assert!(
+            supports(GamdlFeature::FFmpegPath),
+            "3.7.1: still on the >=3.7 line, --ffmpeg-path still emitted"
+        );
+
         set_detected_version(None);
     }
 }
