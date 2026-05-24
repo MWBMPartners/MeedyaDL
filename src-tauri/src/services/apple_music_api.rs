@@ -4150,4 +4150,50 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         assert_eq!(result.unwrap(), Some("TOKEN_AFTER_COMMENTS".to_string()));
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    // ----------------------------------------------------------
+    // is_library_url tests (#871)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_library_url_matches_library_song() {
+        assert!(is_library_url(
+            "https://music.apple.com/us/library/songs/i.GxEKn7nhdVeR93o"
+        ));
+    }
+
+    #[test]
+    fn is_library_url_matches_library_album() {
+        assert!(is_library_url(
+            "https://music.apple.com/gb/library/albums/l.MGoVNk0"
+        ));
+    }
+
+    #[test]
+    fn is_library_url_matches_library_music_video() {
+        assert!(is_library_url(
+            "https://music.apple.com/us/library/music-videos/i.aB3yX9k"
+        ));
+    }
+
+    #[test]
+    fn is_library_url_rejects_catalog_album() {
+        assert!(!is_library_url(
+            "https://music.apple.com/us/album/abbey-road/1441164426"
+        ));
+    }
+
+    #[test]
+    fn is_library_url_rejects_catalog_playlist() {
+        assert!(!is_library_url(
+            "https://music.apple.com/gb/playlist/chill-mix/pl.u-XkD0NgYI2DRm5"
+        ));
+    }
+
+    #[test]
+    fn is_library_url_rejects_artist_url() {
+        assert!(!is_library_url(
+            "https://music.apple.com/us/artist/the-beatles/136975"
+        ));
+    }
 }

@@ -8231,10 +8231,37 @@ pub fn process_queue(
                                     album_dir,
                                 ),
                             );
+                            // #871: detect Apple Music personal-library URLs
+                            // (`/library/songs/i.XXX`, `/library/albums/l.XXX`,
+                            // `/library/music-videos/i.XXX`). Library IDs are
+                            // NOT valid against the catalog endpoints — calls
+                            // return 404 and waste round-trips. We short-circuit
+                            // every catalog-dependent enrichment step (iTunes
+                            // Lookup, Apple Music Catalog, syllable-lyrics,
+                            // animated artwork, music-video relations, artist
+                            // promo video) by gating them on this flag and by
+                            // forcing `try_fetch_metadata` to return None inside
+                            // `apply_enriched_metadata_tags`. AcoustID,
+                            // ReplayGain, codec/channel/source tag writes, and
+                            // MusicBrainz lookup are local/non-Apple-catalog
+                            // and still run unaltered.
+                            let is_library = enrich_urls
+                                .iter()
+                                .any(|u| super::apple_music_api::is_library_url(u));
+                            if is_library {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Library item detected — skipping Apple Music catalog enrichment (iTunes Lookup, catalog metadata, syllable lyrics, animated artwork). AcoustID + ReplayGain + local tags still run.",
+                                );
+                            }
+
                             // --- Step 0: iTunes Lookup API enrichment (#454) ---
                             // Run FIRST (no auth required). Writes baseline metadata
                             // (country, disc count) that Apple Music API can overwrite.
-                            {
+                            // Skipped for library URLs (#871) — iTunes Lookup keys
+                            // off the catalog album ID, which library IDs are not.
+                            if !is_library {
                                 let album_id = enrich_urls.iter()
                                     .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
                                     .map(|p| p.album_id);
@@ -8284,10 +8311,11 @@ pub fn process_queue(
                                     &album_dir,
                                     codec,
                                     &enrich_urls,
-                                    None, // No pre-fetched metadata; will fetch from API if possible
+                                    None, // No pre-fetched metadata; will fetch from API if possible (skipped for library)
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
                                     enrich_settings.content_advisory_in_filenames,
+                                    is_library,
                                 )
                                 .await
                                 {
