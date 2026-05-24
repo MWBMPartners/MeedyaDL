@@ -994,6 +994,10 @@ impl GamdlOptions {
                 }
             }
         }
+        if let Some(ref ip) = self.wrapper_m3u8_ip {
+            args.push("--wrapper-m3u8-ip".to_string());
+            args.push(ip.clone());
+        }
 
         // --- Metadata (string-valued) ---
         if let Some(ref lang) = self.language {

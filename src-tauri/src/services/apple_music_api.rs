@@ -450,6 +450,49 @@ pub async fn fetch_itunes_lookup(
 ///
 /// Panics if the hardcoded regex patterns are invalid (should never happen).
 ///
+/// Returns `true` if the URL is an Apple Music **personal library**
+/// URL (`/library/...` path segment), not a public catalog URL.
+///
+/// Library URLs route through GAMDL's `/v1/me/library/...` endpoints
+/// (Music-User-Token-bound) and refer to items in the signed-in user's
+/// own library — including content that may not exist in the public
+/// catalog at all (e.g., user-uploaded MP3s, region-restricted items).
+///
+/// MeedyaDL skips catalog API enrichment (iTunes Lookup + Apple Music
+/// Catalog + syllable-lyrics + animated artwork + music-video relations)
+/// for library items because the catalog APIs have nothing to return
+/// for personal uploads — 404s pile up noisily in the activity log
+/// without contributing useful metadata.
+///
+/// AcoustID fingerprinting + ReplayGain still run normally (they work
+/// on any audio file regardless of provenance).
+///
+/// GAMDL v3.7 extended its library URL regex to recognise
+/// `/library/{albums,playlists,songs,music-videos}/` with
+/// `{p.,l.,i.}*` ID prefixes. This helper matches the broader
+/// substring shape — any URL containing `/library/` is treated as
+/// library — so it stays correct as GAMDL's regex evolves further.
+///
+/// # Examples
+/// ```
+/// # use meedyadl::services::apple_music_api::is_library_url;
+/// // Personal library URLs:
+/// assert!(is_library_url("https://music.apple.com/us/library/albums/l.foo123"));
+/// assert!(is_library_url("https://music.apple.com/gb/library/songs/i.bar456"));
+/// assert!(is_library_url("https://music.apple.com/library/music-videos/i.mv789"));
+/// assert!(is_library_url("https://music.apple.com/us/library/playlists/p.qux"));
+///
+/// // Public catalog URLs — NOT library:
+/// assert!(!is_library_url("https://music.apple.com/us/album/abbey-road/1441164426"));
+/// assert!(!is_library_url("https://music.apple.com/gb/playlist/.../pl.abc"));
+/// ```
+///
+/// (#871 — part of #867 GAMDL v3.7 EPIC)
+#[must_use]
+pub fn is_library_url(url: &str) -> bool {
+    url.contains("/library/")
+}
+
 /// # Returns
 /// * `Some(ParsedAppleMusicUrl)` - URL matched an Apple Music pattern
 /// * `None` - URL doesn't match any supported Apple Music pattern

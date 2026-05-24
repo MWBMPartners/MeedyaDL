@@ -1193,6 +1193,12 @@ fn write_manifest(
         // records as each stage completes (Phase 2 wiring).
         enrichment: None,
         cross_platform_urls,
+        // #871: flag personal-library downloads so the Library Scan UI
+        // (#717), the duplicate detector (#510), and the future SQLite
+        // index (#875) can distinguish library items from catalog items.
+        // Library items typically have no catalog counterpart, so
+        // metadata flows differently.
+        is_library: super::apple_music_api::is_library_url(&url),
     };
 
     // Read existing manifest or create new
@@ -3676,14 +3682,20 @@ fn filter_tiers_by_audio_traits(
 /// - On GAMDL ≤ 3.5.x, both codecs use the m3u8 path and either works
 ///   the same. We keep the historical order (`Aac` first) to preserve
 ///   the exact CLI emission of every prior release.
+///
+/// (#873 fix: the else branch on the original PR #855 version recursed
+/// into itself, which would stack-overflow any GAMDL ≤ 3.5.x user. The
+/// recursive call has been replaced with the intended historical
+/// `[Aac, AacLegacy]` vector here as part of the drift-resolution merge.)
 fn lossy_chain_for_runtime() -> Vec<SongCodec> {
     use crate::services::gamdl_capabilities::{supports, GamdlFeature};
     if supports(GamdlFeature::AacWebCodecRename) {
         vec![SongCodec::AacLegacy, SongCodec::Aac]
     } else {
-        lossy_chain_for_runtime()
+        vec![SongCodec::Aac, SongCodec::AacLegacy]
     }
 }
+
 
 fn plan_companions(
     mode: &CompanionMode,
