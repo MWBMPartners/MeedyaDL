@@ -414,6 +414,7 @@ mod tests {
                 }],
                 enrichment: Some(enrichment),
                 cross_platform_urls: None,
+            is_library: false,
             }],
         }
     }

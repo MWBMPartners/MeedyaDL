@@ -1266,17 +1266,20 @@ mod tests {
             UpdateChannel::from_tag("1.0.0"),
             UpdateChannel::Stable
         );
+        // Legacy cron-channel tags (Nightly/Weekly/Monthly removed in v1.11.0)
+        // classify as Alpha so installs running an old nightly build still see
+        // updates from the alpha channel after the cron channels were removed.
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-nightly.20260420"),
-            UpdateChannel::Nightly
+            UpdateChannel::Alpha
         );
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-weekly.202616"),
-            UpdateChannel::Weekly
+            UpdateChannel::Alpha
         );
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-monthly.202604"),
-            UpdateChannel::Monthly
+            UpdateChannel::Alpha
         );
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-alpha.1"),
@@ -1297,16 +1300,15 @@ mod tests {
         );
     }
 
-    /// Verifies the channel ordering: Nightly < Weekly < Monthly < Alpha
-    /// < Beta < Rc < Stable. This ordering is what allows the discovery
-    /// filter (`tag_channel >= user_channel`) to surface Stable releases
-    /// to a Beta-subscribed user without surfacing Beta releases to a
-    /// Stable-subscribed user.
+    /// Verifies the channel ordering: Alpha < Beta < Rc < Stable. This
+    /// ordering is what allows the discovery filter (`tag_channel >=
+    /// user_channel`) to surface Stable releases to a Beta-subscribed
+    /// user without surfacing Beta releases to a Stable-subscribed user.
+    ///
+    /// Nightly/Weekly/Monthly were removed in v1.11.0; their tags now
+    /// classify as Alpha.
     #[test]
     fn test_update_channel_ordering() {
-        assert!(UpdateChannel::Nightly < UpdateChannel::Weekly);
-        assert!(UpdateChannel::Weekly < UpdateChannel::Monthly);
-        assert!(UpdateChannel::Monthly < UpdateChannel::Alpha);
         assert!(UpdateChannel::Alpha < UpdateChannel::Beta);
         assert!(UpdateChannel::Beta < UpdateChannel::Rc);
         assert!(UpdateChannel::Rc < UpdateChannel::Stable);
@@ -1323,6 +1325,7 @@ mod tests {
         assert!(UpdateChannel::from_tag("v1.0.0-rc.1") >= user);
         assert!(UpdateChannel::from_tag("v1.0.0-beta.1") >= user);
         assert!(UpdateChannel::from_tag("v1.0.0-alpha.1") < user);
+        // Legacy nightly tag → Alpha → still < Beta. Filter works correctly.
         assert!(UpdateChannel::from_tag("v1.0.0-nightly.20260101") < user);
 
         let user = UpdateChannel::Stable;
@@ -1331,13 +1334,11 @@ mod tests {
         assert!(UpdateChannel::from_tag("v1.0.0-beta.1") < user);
     }
 
-    /// requires_dev_access() should return true only for the four channels
-    /// hidden behind the Konami-code Dev Access gate.
+    /// requires_dev_access() should return true only for Alpha (the
+    /// remaining pre-release channel hidden behind the Konami-code Dev
+    /// Access gate after Nightly/Weekly/Monthly were removed in v1.11.0).
     #[test]
     fn test_requires_dev_access() {
-        assert!(UpdateChannel::Nightly.requires_dev_access());
-        assert!(UpdateChannel::Weekly.requires_dev_access());
-        assert!(UpdateChannel::Monthly.requires_dev_access());
         assert!(UpdateChannel::Alpha.requires_dev_access());
         assert!(!UpdateChannel::Beta.requires_dev_access());
         assert!(!UpdateChannel::Rc.requires_dev_access());

@@ -237,6 +237,7 @@ mod tests {
             tracks: Vec::new(),
             enrichment: None,
             cross_platform_urls: None,
+            is_library: false,
         }
     }
 
