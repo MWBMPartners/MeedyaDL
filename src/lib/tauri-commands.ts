@@ -1492,6 +1492,25 @@ export function importProfile(
   return invoke<ImportProfileResult>('import_profile', { options });
 }
 
+/** Row in the result returned by `scanForBundles` — a found
+ *  bundle with its preview summary already fetched. */
+export interface DiscoveredBundle {
+  path: string;
+  size_bytes: number;
+  summary: ProfileBundleSummary;
+}
+
+/**
+ * Scan well-known per-user folders (Downloads, Desktop, home) for
+ * `.meedyabundle` files (#876 P5). Called by the first-launch
+ * setup wizard so a returning user can spot the bundle they just
+ * dropped on the new machine. Returns at most 5 newest-first
+ * results; corrupt / wrong-version bundles are filtered out.
+ */
+export function scanForBundles(): Promise<DiscoveredBundle[]> {
+  return invoke<DiscoveredBundle[]>('scan_for_bundles');
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================

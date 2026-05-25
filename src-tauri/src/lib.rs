@@ -1186,10 +1186,11 @@ pub fn run() {
             commands::download_index::search_activity_log_db,
             commands::download_index::list_library_gaps_cmd,
             commands::download_index::upsert_known_track_cmd,
-            // .meedyabundle profile export/import (#876 P2 + P3)
+            // .meedyabundle profile export/import (#876 P2 + P3 + P5)
             commands::profile_bundle::export_profile,
             commands::profile_bundle::peek_profile_bundle,
             commands::profile_bundle::import_profile,
+            commands::profile_bundle::scan_for_bundles,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,

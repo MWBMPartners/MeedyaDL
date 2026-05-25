@@ -25,13 +25,19 @@
  */
 
 // React useEffect for auto-completing the step on mount.
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 // Icons used in the welcome step layout.
-import { Download, AlertTriangle } from 'lucide-react';
+import { Download, AlertTriangle, Package } from 'lucide-react';
 
 // Zustand store providing the completeStep action.
 import { useSetupStore } from '@/stores/setupStore';
+
+// #876 P5: scan for bundles on first-launch + offer restore.
+import { scanForBundles, importProfile } from '@/lib/tauri-commands';
+import type { DiscoveredBundle } from '@/lib/tauri-commands';
+import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * WelcomeStep -- Renders the welcome screen.
@@ -49,6 +55,15 @@ import { useSetupStore } from '@/stores/setupStore';
 export function WelcomeStep() {
   /** Marks a wizard step as completed in the setupStore */
   const completeStep = useSetupStore((s) => s.completeStep);
+  /** Toast helper for the bundle-restore flow. */
+  const addToast = useUiStore((s) => s.addToast);
+
+  /** #876 P5: bundles discovered on disk by `scanForBundles`. */
+  const [discoveredBundles, setDiscoveredBundles] = useState<
+    DiscoveredBundle[]
+  >([]);
+  /** Whether the restore-from-bundle handler is currently running. */
+  const [isRestoringBundle, setIsRestoringBundle] = useState(false);
 
   /**
    * Auto-complete this step on mount.
@@ -61,8 +76,154 @@ export function WelcomeStep() {
     completeStep('welcome');
   }, [completeStep]);
 
+  /**
+   * #876 P5: on mount, scan Downloads + Desktop + home for any
+   * `.meedyabundle` files. If any are found, surface them in a
+   * banner above the welcome content so the user can short-circuit
+   * the wizard by restoring their previous install state.
+   *
+   * Failures are silent — this is a UX nicety, not a load-bearing
+   * step. The user can still trigger an import from
+   * Settings > General > Profile Bundle after setup completes.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    scanForBundles()
+      .then((found) => {
+        if (!cancelled && found.length > 0) {
+          setDiscoveredBundles(found);
+        }
+      })
+      .catch(() => {
+        // Silent — see comment above.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadSettings = useSettingsStore((s) => s.loadSettings);
+
+  /**
+   * Restore from the supplied bundle directly inside the setup
+   * wizard (#876 P5). We import every OPTIONAL section the bundle
+   * declares EXCEPT credentials — credentials need a password the
+   * setup wizard doesn't have a UI to collect, and the rest of
+   * the bundle still restores without them. After the import we
+   * reload settings so the wizard's downstream steps (which read
+   * cookies_path, output_path, etc.) pick up the imported values.
+   *
+   * The user can re-import credentials separately from
+   * Settings > General > Profile Bundle once setup completes.
+   */
+  const handleRestoreBundle = async (bundle: DiscoveredBundle) => {
+    const confirmed = window.confirm(
+      `Restore from "${bundle.path}"?\n\nMeedyaDL will overwrite its current files for: ${
+        ['settings', ...bundle.summary.sections]
+          .filter((s) => s !== 'credentials')
+          .join(', ')
+      }.\n\nCredentials (if present) are NOT restored here — re-import them later from Settings > General > Profile Bundle.`,
+    );
+    if (!confirmed) return;
+    setIsRestoringBundle(true);
+    try {
+      const result = await importProfile({
+        source_path: bundle.path,
+        settings: 'replace',
+        queue: bundle.summary.sections.includes('queue') ? 'replace' : 'skip',
+        history: bundle.summary.sections.includes('history')
+          ? 'replace'
+          : 'skip',
+        database: bundle.summary.sections.includes('database')
+          ? 'replace'
+          : 'skip',
+        activity_log: bundle.summary.sections.includes('activity_log')
+          ? 'replace'
+          : 'skip',
+        manifests: bundle.summary.sections.includes('manifests')
+          ? 'replace'
+          : 'skip',
+        credentials: 'skip',
+      });
+      // Reload the live settings store so subsequent wizard steps
+      // see the restored cookies_path / output_path / etc.
+      await loadSettings();
+      const restored: string[] = [];
+      if (result.settings_restored) restored.push('settings');
+      if (result.queue_restored) restored.push('queue');
+      if (result.history_restored) restored.push('history');
+      if (result.database_restored) restored.push('database');
+      if (result.activity_log_files_restored > 0)
+        restored.push(
+          `${result.activity_log_files_restored} activity-log file(s)`,
+        );
+      if (result.manifests_restored > 0)
+        restored.push(`${result.manifests_restored} manifest(s)`);
+      addToast(
+        `Restored: ${restored.join(', ') || 'nothing'}. Continue through the wizard to finish setup.`,
+        'success',
+      );
+      // The banner stays open — the user might want to compare,
+      // or restore a different bundle. They can simply ignore it
+      // and click Continue.
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`Failed to restore bundle: ${message}`, 'error');
+    } finally {
+      setIsRestoringBundle(false);
+    }
+  };
+
   return (
     <div className="text-center space-y-6">
+      {/* #876 P5: restore-from-previous-install banner. Surfaces
+          any .meedyabundle files we found in Downloads / Desktop /
+          home so a returning user can short-circuit the setup. */}
+      {discoveredBundles.length > 0 && (
+        <div className="text-left p-4 rounded-platform border border-accent/40 bg-accent/5">
+          <div className="flex items-start gap-2 mb-3">
+            <Package size={18} className="text-accent flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-content-primary">
+                Found {discoveredBundles.length} previous-install bundle
+                {discoveredBundles.length === 1 ? '' : 's'}
+              </h3>
+              <p className="text-xs text-content-secondary mt-0.5">
+                Restore your settings, queue, history, and library index in
+                one click. You can still continue with a fresh setup if you'd
+                rather.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {discoveredBundles.map((b) => (
+              <div
+                key={b.path}
+                className="flex items-center justify-between gap-3 p-2 rounded border border-border bg-surface-primary text-xs"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium truncate">{b.path}</div>
+                  <div className="text-content-tertiary">
+                    MeedyaDL {b.summary.meedyadl_version} · exported{' '}
+                    {b.summary.exported_at.slice(0, 10)} ·{' '}
+                    {b.summary.sections.length} optional section
+                    {b.summary.sections.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRestoreBundle(b)}
+                  disabled={isRestoringBundle}
+                  className="px-3 py-1 rounded bg-accent text-content-inverse hover:opacity-90 disabled:opacity-50 flex-shrink-0"
+                >
+                  {isRestoringBundle ? 'Restoring...' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* App icon */}
       <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-accent">
         <Download size={40} className="text-content-inverse" />

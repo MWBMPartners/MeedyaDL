@@ -23,6 +23,7 @@
 
 use std::path::PathBuf;
 
+use dirs as dirs_crate;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
@@ -319,6 +320,114 @@ fn collect_manifests_into_bundle(root: &std::path::Path, writer: &mut BundleWrit
         writer.declare_section(BundleSection::Manifests);
         log::info!("export_profile: included {count} manifest file(s)");
     }
+}
+
+// ============================================================
+// P5 — first-launch auto-detect
+// ============================================================
+
+/// A `.meedyabundle` file the first-launch wizard discovered on
+/// disk, with its preview metadata already fetched. The wizard
+/// uses this to render "Found 2 bundles, restore one?" with the
+/// version + export-time + section list shown per row.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiscoveredBundle {
+    pub path: String,
+    pub size_bytes: u64,
+    pub summary: ProfileBundleSummary,
+}
+
+/// Scan well-known per-user folders for `.meedyabundle` files
+/// (#876 P5). Called by the setup wizard's WelcomeStep on first
+/// launch. Returns at most 5 most-recently-modified results so the
+/// UI doesn't have to deal with a long list.
+///
+/// Locations searched:
+///   * The OS-standard Downloads folder
+///   * The OS-standard Desktop folder
+///   * The user's home directory (top level only, no recursion)
+///
+/// Errors on individual locations are swallowed — a missing
+/// Downloads folder shouldn't block the scan. The depth is
+/// intentionally shallow (1 level inside each location, no
+/// recursion) because users typically drop the bundle directly in
+/// Downloads or Desktop.
+#[tauri::command]
+pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
+    let candidates = collect_scan_locations();
+    let mut found: Vec<(PathBuf, std::time::SystemTime, u64)> = Vec::new();
+    for dir in candidates {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("meedyabundle") {
+                continue;
+            }
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+            let mtime = meta
+                .modified()
+                .unwrap_or_else(|_| std::time::SystemTime::now());
+            found.push((p, mtime, meta.len()));
+        }
+    }
+    // Newest first, capped at 5.
+    found.sort_by(|a, b| b.1.cmp(&a.1));
+    found.truncate(5);
+
+    let mut out = Vec::with_capacity(found.len());
+    for (path, _mtime, size) in found {
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let reader = match BundleReader::from_bytes(bytes) {
+            Ok(r) => r,
+            Err(_) => continue, // corrupt / wrong-version bundle — skip
+        };
+        let m = reader.meta().clone();
+        out.push(DiscoveredBundle {
+            path: path.to_string_lossy().to_string(),
+            size_bytes: size,
+            summary: ProfileBundleSummary {
+                bundle_version: m.bundle_version,
+                meedyadl_version: m.meedyadl_version,
+                platform: m.platform,
+                exported_at: m.exported_at,
+                exported_by: m.exported_by,
+                note: m.note,
+                sections: m
+                    .contents
+                    .iter()
+                    .map(|s| s.as_str().to_string())
+                    .collect(),
+                source_path: path.to_string_lossy().to_string(),
+            },
+        });
+    }
+    Ok(out)
+}
+
+/// Resolve the set of directories `scan_for_bundles` walks. Pulled
+/// into its own helper so unit-test scaffolding can substitute its
+/// own list (if we ever add a test harness that doesn't depend on
+/// the real Downloads folder).
+fn collect_scan_locations() -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(p) = dirs_crate::download_dir() {
+        dirs.push(p);
+    }
+    if let Some(p) = dirs_crate::desktop_dir() {
+        dirs.push(p);
+    }
+    if let Some(p) = dirs_crate::home_dir() {
+        dirs.push(p);
+    }
+    dirs
 }
 
 /// JSON-shaped credentials blob persisted inside the encrypted
