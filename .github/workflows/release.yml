@@ -87,10 +87,180 @@ on:
 
 jobs:
   # ============================================================
+  # Ensure the GitHub Release exists with proper notes (#857)
+  # ============================================================
+  #
+  # Runs ONCE before the build matrix. Resolves the tag + derives
+  # the prerelease flag, then either:
+  #   (a) confirms a release already exists for this tag (no-op),
+  #   or
+  #   (b) creates the release with proper notes content.
+  #
+  # By centralising the `gh release create` call here, the matrix
+  # jobs never have to race to create the release object — they
+  # just upload assets against the already-created release.
+  #
+  # The notes content is sourced via a 3-tier fallback:
+  #
+  #   1. **Pre-staged file** at `.github/release-notes/<tag>.md`.
+  #      Used when the maintainer wants full control of what the
+  #      end-user sees (e.g., a manual stable cut or a release
+  #      that needs a specific narrative).
+  #
+  #   2. **git-cliff diff** between the previous tag of the same
+  #      channel and this tag. Auto-generates a Markdown changelog
+  #      from conventional-commit subjects. Falls back gracefully
+  #      if git-cliff isn't installable on the runner.
+  #
+  #   3. **"See CHANGELOG.md"** stub linking to the repo's
+  #      maintained CHANGELOG.md. Always works, never empty.
+  #
+  # NEVER emits the legacy "Release in progress…" placeholder —
+  # the verification step in `finalize-release` already catches
+  # that string in the body, but consolidating creation here means
+  # the verification has nothing to flag.
+  ensure-release:
+    name: Ensure Release Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.derive.outputs.tag }}
+      is_prerelease: ${{ steps.derive.outputs.is_prerelease }}
+      gh_flag: ${{ steps.derive.outputs.gh_flag }}
+    steps:
+      - name: Checkout (full history for git-cliff)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Derive tag + prerelease flag
+        id: derive
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Resolve the tag the same way the publish matrix does
+          # below — `inputs.tag` wins on workflow_dispatch, else the
+          # tag-push ref name.
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # Prerelease flag derives from the tag suffix.
+          STRIPPED="${TAG#v}"
+          if [[ "$STRIPPED" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install git-cliff (best-effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # git-cliff is the secondary release-notes source (#857
+          # item 3 tier 2). Install via cargo binstall for speed;
+          # if binstall isn't on the runner, fall back to a plain
+          # cargo install. continue-on-error so a binstall outage
+          # doesn't block the release — the tier-3 fallback covers
+          # the no-git-cliff case.
+          if ! command -v git-cliff &>/dev/null; then
+            curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz \
+              | tar -xz -C /usr/local/bin/ 2>/dev/null || true
+            if command -v cargo-binstall &>/dev/null; then
+              cargo-binstall --no-confirm git-cliff || true
+            else
+              cargo install --locked git-cliff || true
+            fi
+          fi
+          git-cliff --version 2>/dev/null || echo "::warning::git-cliff unavailable; release notes will use the static fallback"
+
+      - name: Create release if missing (with proper notes)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.derive.outputs.tag }}"
+          GH_FLAG="${{ steps.derive.outputs.gh_flag }}"
+
+          if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+            echo "::notice::Release $TAG already exists; ensure-release is a no-op"
+            exit 0
+          fi
+
+          # Tier 1: pre-staged release notes file.
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "::notice::Using pre-staged release notes from $NOTES_FILE"
+            NOTES_PATH="$NOTES_FILE"
+          else
+            # Tier 2: git-cliff diff between this tag and the
+            # previous tag of the same channel.
+            # Strip the trailing `.N` from prerelease suffixes
+            # (`v1.10.0-alpha.14` → `*-alpha.*`) so we can find
+            # the previous tag in the same channel.
+            STRIPPED="${TAG#v}"
+            if [[ "$STRIPPED" == *-* ]]; then
+              CHANNEL_SUFFIX=$(echo "$STRIPPED" | sed -E 's/.*-([a-z]+)\..*/\1/')
+              PREV_TAG=$(git tag --sort=-version:refname --list "v*-${CHANNEL_SUFFIX}.*" | grep -v "^$TAG$" | head -1 || true)
+            else
+              PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" | grep -vE '\-' | grep -v "^$TAG$" | head -1 || true)
+            fi
+            echo "::notice::Previous tag for $TAG = ${PREV_TAG:-<none>}"
+
+            GENERATED="$RUNNER_TEMP/release-notes-${TAG}.md"
+            if command -v git-cliff &>/dev/null && [ -n "$PREV_TAG" ]; then
+              if git-cliff --strip header --tag "$TAG" "${PREV_TAG}..${TAG}" > "$GENERATED" 2>/dev/null; then
+                if [ -s "$GENERATED" ]; then
+                  echo "::notice::Generated release notes via git-cliff (${PREV_TAG}..${TAG})"
+                  NOTES_PATH="$GENERATED"
+                fi
+              fi
+            fi
+
+            # Tier 3: static fallback. Always produces non-empty
+            # content so the GitHub API never sees the "Release
+            # in progress…" placeholder string the #857 verification
+            # step is screening for.
+            if [ -z "${NOTES_PATH:-}" ]; then
+              cat > "$GENERATED" <<EOF
+          # MeedyaDL ${TAG}
+
+          See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for the full change list.
+
+          The platform-specific download links and \`.sig\` file
+          explanations are appended after all builds finish (see
+          \`finalize-release\` job in this workflow).
+          EOF
+              echo "::notice::Using tier-3 static-fallback release notes (git-cliff unavailable or no previous tag)"
+              NOTES_PATH="$GENERATED"
+            fi
+          fi
+
+          # Create the release with the chosen notes content. The
+          # --notes-file form keeps the body intact (no shell
+          # quoting issues with multi-line Markdown).
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --draft $GH_FLAG \
+            --title "$TAG" \
+            --notes-file "$NOTES_PATH"
+          echo "::notice::Created release $TAG with proper notes (no placeholder)"
+
+  # ============================================================
   # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
+    needs: ensure-release
 
     # permissions: contents: write is required for the tauri-action to:
     #   - Create the GitHub Release
@@ -925,10 +1095,10 @@ jobs:
           VERSION="${{ steps.version.outputs.number }}"
           BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle"
 
-          # Ensure the draft release exists (another build may not have created it yet)
-          if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
-          fi
+          # #857: the `ensure-release` job created the release object
+          # with proper notes BEFORE this job started. No race-guard
+          # `gh release create` needed here — we just upload assets
+          # against the existing release.
 
           # Upload .dmg
           DMG_FILE="$BUNDLE_DIR/dmg/MeedyaDL_${VERSION}_aarch64.dmg"
@@ -993,10 +1163,10 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           BUNDLE_DIR="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
 
-          # Ensure the draft release exists (another build may not have created it yet)
-          if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
-          fi
+          # #857: release object already exists (created by the
+          # `ensure-release` job). Skipping the legacy race-guard
+          # `gh release create` that previously planted the
+          # "Release in progress…" placeholder.
 
           # Upload .deb: rename armhf → armv7 for clarity
           for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
