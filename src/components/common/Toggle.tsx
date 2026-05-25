@@ -25,6 +25,8 @@
  *      MDN -- the ARIA switch role.
  */
 
+import { useId } from 'react';
+
 import { HelpButton } from './HelpButton';
 
 /**
@@ -94,6 +96,15 @@ export function Toggle({
   disabled = false,
   helpTopic,
 }: ToggleProps) {
+  // Stable IDs for ARIA association (#125). `useId()` gives each
+  // Toggle instance a unique, hydration-stable id so the description
+  // span can be linked to the role="switch" button via
+  // `aria-describedby` — screen readers then announce the description
+  // as helper text after the label.
+  const reactId = useId();
+  const labelId = label ? `${reactId}-label` : undefined;
+  const descriptionId = description ? `${reactId}-desc` : undefined;
+
   return (
     /*
      * Outer <label> wraps the entire row so that clicking anywhere
@@ -116,13 +127,21 @@ export function Toggle({
       {(label || description) && (
         <div className="flex-1 min-w-0">
           {label && (
-            <span className="flex items-center gap-1.5 text-sm font-medium text-content-primary">
+            <span
+              id={labelId}
+              className="flex items-center gap-1.5 text-sm font-medium text-content-primary"
+            >
               {label}
               {helpTopic && <HelpButton topic={helpTopic} />}
             </span>
           )}
           {description && (
-            <span className="block text-xs text-content-tertiary mt-0.5">{description}</span>
+            <span
+              id={descriptionId}
+              className="block text-xs text-content-tertiary mt-0.5"
+            >
+              {description}
+            </span>
           )}
         </div>
       )}
@@ -143,6 +162,13 @@ export function Toggle({
         type="button"
         role="switch"
         aria-checked={checked ? "true" : "false"}
+        // Explicit aria-labelledby/aria-describedby so screen readers
+        // announce label and description reliably even when the
+        // implicit <label> wrapper relationship doesn't resolve
+        // (some screen readers don't traverse role="switch" inside
+        // a label the way they do native checkboxes). #125.
+        aria-labelledby={labelId}
+        aria-describedby={descriptionId}
         disabled={disabled}
         onClick={() => !disabled && onChange(!checked)}
         className={`
