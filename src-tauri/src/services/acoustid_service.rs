@@ -426,37 +426,56 @@ async fn lookup_acoustid(
     // MeedyaDL's contract here is unchanged — score < 0.5 → None,
     // score >= 0.5 → Some(acoustid) — but the HTTP plumbing
     // (request shape, response parsing, error mapping) is delegated
-    // to the shared `AcoustIdClient::lookup` so future API changes
-    // can be addressed in one place.
-    //
-    // Note on score gate: the shared crate returns the BEST match
-    // without a score threshold; we apply MeedyaDL's >= 0.5 floor
-    // locally to preserve the existing acceptance contract (a
-    // 0.4-score match would otherwise mis-tag a track).
+    // to the shared `AcoustIdClient::lookup`.
     use meedya_fingerprint::acoustid::AcoustIdClient;
-
     let client = AcoustIdClient::new(api_key.to_string());
-    match client.lookup(fingerprint, duration).await {
-        Ok(result) => {
-            if result.score < 0.5 {
+    let shared_result = client.lookup(fingerprint, duration).await;
+    map_shared_acoustid_result(shared_result)
+}
+
+/// Maps a `meedya-fingerprint::AcoustIdClient::lookup` result to
+/// MeedyaDL's local `Result<Option<String>, String>` contract.
+///
+/// Pulled out of `lookup_acoustid` so it's unit-testable without a
+/// real network call. The shared client itself is exercised by
+/// its own tests in MeedyaSuite-core; what we test here is the
+/// **MeedyaDL adapter** — the score-floor + error-mapping rules
+/// that are local to this codebase.
+///
+/// Rules:
+///   * `Ok(result)` with `score < 0.5` → `Ok(None)` (low-confidence
+///     match is treated as no match; preserves the pre-#353 contract).
+///   * `Ok(result)` with `score >= 0.5` → `Ok(Some(result.acoustid))`.
+///     The first MusicBrainz recording ID is logged at debug for the
+///     AcoustID → MusicBrainz bridge (#807).
+///   * `Err(NoMatch)` → `Ok(None)`.
+///   * `Err(NetworkError(_))` → `Err("AcoustID API request failed: …")`
+///     — preserves the canonical prefix that downstream error
+///     classification keys on.
+///   * `Err(AcoustIdApiError(_))` → `Err("AcoustID API error: …")`.
+///   * Any other shared-crate error → `Err("AcoustID lookup failed: …")`.
+fn map_shared_acoustid_result(
+    result: Result<
+        meedya_fingerprint::AcoustIdResult,
+        meedya_fingerprint::FingerprintError,
+    >,
+) -> Result<Option<String>, String> {
+    match result {
+        Ok(r) => {
+            if r.score < 0.5 {
                 log::debug!(
                     "AcoustID: best match below confidence threshold (score {:.3} < 0.5); treating as no match",
-                    result.score
+                    r.score
                 );
                 return Ok(None);
             }
-            // The shared crate also returns MusicBrainz recording IDs
-            // — log the first one at debug for the AcoustID →
-            // MusicBrainz bridge (#807).
-            if let Some(mb_id) = result.recording_ids.first() {
+            if let Some(mb_id) = r.recording_ids.first() {
                 log::debug!("AcoustID: MusicBrainz recording ID: {mb_id}");
             }
-            Ok(Some(result.acoustid))
+            Ok(Some(r.acoustid))
         }
         Err(meedya_fingerprint::FingerprintError::NoMatch) => Ok(None),
         Err(meedya_fingerprint::FingerprintError::NetworkError(msg)) => {
-            // Preserve the canonical "AcoustID API request failed" prefix
-            // that downstream error classification keys on.
             Err(format!("AcoustID API request failed: {msg}"))
         }
         Err(meedya_fingerprint::FingerprintError::AcoustIdApiError(msg)) => {
@@ -514,6 +533,7 @@ fn is_m4a(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::map_shared_acoustid_result;
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use rusty_chromaprint::{Configuration, FingerprintCompressor};
 
@@ -654,5 +674,135 @@ mod tests {
             .and_then(|v| v.as_str())
             .unwrap();
         assert_eq!(error_msg, "invalid fingerprint");
+    }
+
+    // ============================================================
+    // #353 Phase 1 integration adapter tests
+    //
+    // The shared-crate `AcoustIdClient::lookup` is tested in
+    // MeedyaSuite-core. What we test HERE is the MeedyaDL adapter
+    // (`map_shared_acoustid_result`) — the score-floor +
+    // error-mapping rules local to this codebase.
+    // ============================================================
+
+    /// Helper: construct a minimal `AcoustIdResult` with the given
+    /// score + acoustid. Other fields use safe defaults.
+    fn fake_result(
+        acoustid: &str,
+        score: f64,
+        recording_ids: Vec<String>,
+    ) -> meedya_fingerprint::AcoustIdResult {
+        meedya_fingerprint::AcoustIdResult {
+            acoustid: acoustid.to_string(),
+            score,
+            recording_ids,
+            fingerprint: String::new(),
+            duration_secs: 0,
+        }
+    }
+
+    #[test]
+    fn shared_result_with_high_score_returns_acoustid() {
+        let r = map_shared_acoustid_result(Ok(fake_result(
+            "abc-123",
+            0.95,
+            vec!["mb-001".into()],
+        )));
+        assert_eq!(r.unwrap(), Some("abc-123".to_string()));
+    }
+
+    #[test]
+    fn shared_result_at_threshold_returns_acoustid() {
+        // Score == 0.5 must pass the floor (the local doc says `< 0.5
+        // → None`, so 0.5 should be inclusive).
+        let r = map_shared_acoustid_result(Ok(fake_result(
+            "abc-123",
+            0.5,
+            vec![],
+        )));
+        assert_eq!(r.unwrap(), Some("abc-123".to_string()));
+    }
+
+    #[test]
+    fn shared_result_below_threshold_returns_none() {
+        // Score < 0.5 is treated as no match, preserving the pre-#353
+        // contract. This is the rule that protects against
+        // mis-tagging tracks with low-confidence fingerprint matches.
+        let r = map_shared_acoustid_result(Ok(fake_result(
+            "abc-123",
+            0.49,
+            vec![],
+        )));
+        assert_eq!(r.unwrap(), None);
+    }
+
+    #[test]
+    fn shared_result_no_match_error_returns_none_ok() {
+        // The shared crate signals "no result found" via the typed
+        // `FingerprintError::NoMatch` variant, NOT via Ok(empty).
+        // MeedyaDL's contract maps it to Ok(None).
+        let r = map_shared_acoustid_result(Err(
+            meedya_fingerprint::FingerprintError::NoMatch,
+        ));
+        assert_eq!(r.unwrap(), None);
+    }
+
+    #[test]
+    fn shared_result_network_error_preserves_canonical_prefix() {
+        // The downstream error classifier
+        // (utils::process::classify_error) routes any error containing
+        // "AcoustID API request failed" / "network" / etc into the
+        // 'network' bucket. The canonical prefix must survive the
+        // shared-crate refactor or the classifier loses the rule.
+        let r = map_shared_acoustid_result(Err(
+            meedya_fingerprint::FingerprintError::NetworkError(
+                "connection refused".to_string(),
+            ),
+        ));
+        let err = r.expect_err("network error must propagate as Err");
+        assert!(
+            err.contains("AcoustID API request failed"),
+            "canonical prefix missing: got {err:?}"
+        );
+        assert!(
+            err.contains("connection refused"),
+            "underlying cause must be preserved: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn shared_result_api_error_preserves_canonical_prefix() {
+        // The AcoustID server's own JSON-level "error" responses
+        // (e.g. invalid client key, bad fingerprint) come through as
+        // `FingerprintError::AcoustIdApiError`. Same prefix-preservation
+        // contract.
+        let r = map_shared_acoustid_result(Err(
+            meedya_fingerprint::FingerprintError::AcoustIdApiError(
+                "invalid client key".to_string(),
+            ),
+        ));
+        let err = r.expect_err("api error must propagate as Err");
+        assert!(
+            err.contains("AcoustID API error"),
+            "canonical prefix missing: got {err:?}"
+        );
+        assert!(
+            err.contains("invalid client key"),
+            "underlying cause must be preserved: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn shared_crate_public_api_surface_unchanged() {
+        // Pin the public types we rely on from meedya-fingerprint.
+        // If the shared crate renames or reshapes one of these the
+        // compiler error here flags the change BEFORE production
+        // call sites break.
+        let _: meedya_fingerprint::AcoustIdResult = fake_result("x", 0.0, vec![]);
+        let _: meedya_fingerprint::FingerprintError =
+            meedya_fingerprint::FingerprintError::NoMatch;
+        let _client = meedya_fingerprint::acoustid::AcoustIdClient::new(
+            "dummy-key".to_string(),
+        );
     }
 }
