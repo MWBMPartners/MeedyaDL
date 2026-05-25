@@ -226,6 +226,29 @@ impl BundleWriter {
         }
     }
 
+    /// Read the SQLite download index from disk and add it to the
+    /// bundle under `entry::DATABASE`, automatically declaring the
+    /// `Database` section (#875 M5).
+    ///
+    /// The caller is responsible for ensuring SQLite is not actively
+    /// writing when this is called — the recommended pattern is to
+    /// `DownloadIndex` drop (close) immediately before exporting. The
+    /// WAL is checkpointed by SQLite on close, so a fresh open against
+    /// the file path returns a consistent point-in-time snapshot.
+    ///
+    /// Returns `Err(BundleError::Io)` only when the DB file cannot be
+    /// read; absence is logged at the caller's discretion (an
+    /// install that has never opened the DB simply skips this step).
+    pub fn add_database_from_disk(
+        &mut self,
+        db_path: &std::path::Path,
+    ) -> Result<(), BundleError> {
+        let bytes = std::fs::read(db_path)?;
+        self.add_optional_file(entry::DATABASE, bytes);
+        self.declare_section(BundleSection::Database);
+        Ok(())
+    }
+
     /// Borrow the in-progress metadata. Used by tests + the eventual
     /// `export_profile` IPC to surface a content-size estimate before
     /// finalisation.
@@ -319,6 +342,35 @@ impl BundleReader {
         let mut buf = Vec::with_capacity(entry.size() as usize);
         entry.read_to_end(&mut buf)?;
         Ok(Some(buf))
+    }
+
+    /// Extract the embedded SQLite database to `target_path`,
+    /// overwriting any existing file at that location (#875 M5).
+    ///
+    /// Returns `Ok(true)` when the bundle had a Database section and
+    /// the file was written; `Ok(false)` when no Database section is
+    /// declared (or the entry is missing — a corrupt bundle case
+    /// surfaces through the latter). The target directory must
+    /// exist; the helper does NOT auto-create parent directories
+    /// because the import wizard owns directory setup and we don't
+    /// want this helper to silently land bytes in an unexpected
+    /// location.
+    ///
+    /// The caller is responsible for ensuring no other process /
+    /// thread has the target DB file open at the time of extraction.
+    pub fn extract_database_to(
+        &mut self,
+        target_path: &std::path::Path,
+    ) -> Result<bool, BundleError> {
+        if !self.meta.has(BundleSection::Database) {
+            return Ok(false);
+        }
+        let bytes = match self.read_entry(entry::DATABASE)? {
+            Some(b) => b,
+            None => return Ok(false),
+        };
+        std::fs::write(target_path, bytes)?;
+        Ok(true)
     }
 }
 
@@ -457,5 +509,70 @@ mod tests {
         let mut reader = BundleReader::from_bytes(bytes).unwrap();
         assert!(reader.meta().has(BundleSection::Queue));
         assert!(reader.read_entry(entry::QUEUE).unwrap().is_none());
+    }
+
+    #[test]
+    fn extract_database_to_returns_false_when_no_database_section() {
+        // Bundle never declared a Database section; extract must
+        // return Ok(false) rather than mutating the target file.
+        let mut writer = BundleWriter::new(BundleMeta::new_for_export("test"));
+        writer.add_settings(b"{}".to_vec(), "00".to_string());
+        let bytes = writer.finalize_to_bytes().unwrap();
+        let mut reader = BundleReader::from_bytes(bytes).unwrap();
+        let tmp = tempfile::tempdir().unwrap();
+        let target = tmp.path().join("dest.db");
+        let written = reader.extract_database_to(&target).unwrap();
+        assert!(!written, "no Database section means no write");
+        assert!(!target.exists(), "target file must not be created");
+    }
+
+    #[test]
+    fn database_roundtrips_through_bundle_byte_identical() {
+        // End-to-end: real SQLite DB with seeded rows → write bundle
+        // → re-read bundle → extract DB to a new path → reopen +
+        // assert rows are still there. This is the canonical EPIC-A
+        // / EPIC-B integration test (#875 M5).
+        let tmp = tempfile::tempdir().unwrap();
+        let src_db = tmp.path().join("source.db");
+        {
+            let mut idx =
+                crate::services::download_index::DownloadIndex::open(&src_db).unwrap();
+            idx.conn()
+                .execute(
+                    "INSERT INTO downloads (service, service_url, codec, downloaded_at) VALUES ('apple_music', 'https://m.apple.com/a/1', 'alac', '2026-05-25T00:00:00Z')",
+                    [],
+                )
+                .unwrap();
+            idx.conn()
+                .execute(
+                    "INSERT INTO downloads (service, service_url, codec, downloaded_at) VALUES ('apple_music', 'https://m.apple.com/a/2', 'aac', '2026-05-25T00:00:01Z')",
+                    [],
+                )
+                .unwrap();
+            // Idx drop closes the connection — SQLite checkpoints WAL on drop.
+        }
+
+        // Bundle the DB.
+        let mut writer = BundleWriter::new(BundleMeta::new_for_export("test"));
+        writer.add_settings(b"{}".to_vec(), "00".to_string());
+        writer.add_database_from_disk(&src_db).unwrap();
+        assert!(writer.meta().has(BundleSection::Database));
+        let bundle_bytes = writer.finalize_to_bytes().unwrap();
+
+        // Re-open the bundle, extract the DB to a fresh path.
+        let mut reader = BundleReader::from_bytes(bundle_bytes).unwrap();
+        assert!(reader.meta().has(BundleSection::Database));
+        let dest_db = tmp.path().join("restored.db");
+        let extracted = reader.extract_database_to(&dest_db).unwrap();
+        assert!(extracted, "extract_database_to must return true when section present");
+        assert!(dest_db.exists());
+
+        // Open the restored DB and confirm both rows survived.
+        let restored = crate::services::download_index::DownloadIndex::open(&dest_db).unwrap();
+        let count: i64 = restored
+            .conn()
+            .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 2, "both seeded rows must survive the bundle round-trip");
     }
 }
