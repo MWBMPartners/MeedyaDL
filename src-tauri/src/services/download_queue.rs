@@ -1105,6 +1105,12 @@ use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, Pr
 /// and seeds the tier-0 entry of `companion_tiers` so the smart-retry
 /// planner can diff codec-suffixed files against the planned variants
 /// (#766, Phase 2 of #717/5b).
+///
+/// The parameter list grew from 6 → 8 across #766 (codec-tier diff) and
+/// #596 (Lyricsfile manifest field, populated from disk scan rather than
+/// a new param). Acceptable for an internal config-bag function; if it
+/// grows further consider a `WriteManifestRequest` struct.
+#[allow(clippy::too_many_arguments)]
 fn write_manifest(
     album_dir: &str,
     urls: &[String],
