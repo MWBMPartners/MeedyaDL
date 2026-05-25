@@ -406,6 +406,16 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 # cadence).
 meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main" }
 
+# meedya-lyrics -- Shared Lyricsfile (`.lyrics`) YAML format + TTML/LRC
+# converters from MeedyaSuite-core (#596). The Lyricsfile module is
+# the path MeedyaDL exercises during enrichment Step 2g: TTML emitted
+# by GAMDL gets converted to a `.lyrics` sidecar via
+# `meedya_lyrics::Lyricsfile::from_ttml(...).to_yaml()`. Pinned to the
+# feature branch `feat/596-lyricsfile-yaml-format` until
+# MeedyaSuite-core#34 merges to main, at which point this flips back
+# to `branch = "main"`.
+meedya-lyrics = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/596-lyricsfile-yaml-format" }
+
 # ---- Credential encryption for .meedyabundle (#876 P4) ----
 
 # aes-gcm -- AES-256-GCM authenticated encryption. Used to encrypt

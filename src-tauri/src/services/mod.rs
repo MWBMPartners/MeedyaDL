@@ -284,6 +284,19 @@ pub mod rich_srt_service;
 /// Used by: `download_queue` (post-download enrichment Step 2f, when `generate_ass` enabled)
 pub mod ass_subtitle_service;
 
+/// Lyricsfile (`.lyrics`) YAML sidecar generation service (#596).
+///
+/// Wraps the shared `meedya_lyrics::Lyricsfile` upstream crate (from
+/// MeedyaSuite-core#34): consumes the TTML sidecar GAMDL emits during
+/// download, runs it through `Lyricsfile::from_ttml` to preserve
+/// word-level timing, then writes a `.lyrics` YAML sidecar alongside
+/// the audio file. Idempotent — won't clobber a file that already
+/// exists (preserves user edits made in LRCGET).
+///
+/// Used by: `download_queue` (post-download enrichment Step 2g, when
+/// `generate_lyricsfile` enabled).
+pub mod lyricsfile_service;
+
 /// Music video subtitle / caption extraction service (#483).
 ///
 /// After a music video download lands, probes the output file for

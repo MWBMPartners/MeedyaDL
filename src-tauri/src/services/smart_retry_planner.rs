@@ -552,6 +552,7 @@ mod tests {
             codec: None,
             isrc: None,
             song_id: Some(song_id.to_string()),
+            has_lyricsfile: false,
         }
     }
 

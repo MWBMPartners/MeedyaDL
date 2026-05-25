@@ -633,6 +633,13 @@ export interface AppSettings {
   embed_subtitles: boolean;
   /** When true, generates ASS (Advanced SubStation Alpha) subtitles from TTML/WebVTT. */
   generate_ass: boolean;
+  /**
+   * When true, generates Lyricsfile (.lyrics) YAML sidecars from TTML during
+   * enrichment Step 2g (#596). Lyricsfile is the open, extensible format
+   * endorsed by LRCGET v2.0.0 and LRCLIB. Default off — the format is
+   * marked experimental by upstream.
+   */
+  generate_lyricsfile: boolean;
   /** When true, appends [Explicit] or [Clean] to album folder and track filenames. */
   content_advisory_in_filenames: boolean;
   /** Whether to save album cover art as separate files */

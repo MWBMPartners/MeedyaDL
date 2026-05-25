@@ -1144,6 +1144,25 @@ fn write_manifest(
     let platform = crate::models::media_service::MediaServiceId::from_url(&url)
         .map_or_else(|| "unknown".to_string(), |svc| svc.to_string());
 
+    // Album-level Lyricsfile presence: `true` when at least one
+    // `.lyrics` sidecar was written into `album_dir` (#596). Each
+    // ManifestTrack inherits this bool — per-track precision would
+    // require knowing the exact GAMDL filename template the user
+    // configured, which isn't worth solving in v1. The
+    // library-scan smart-retry planner uses this as an album-level
+    // "did Step 2g run successfully?" signal.
+    let album_has_any_lyricsfile = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("lyrics"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+
     // Build per-track metadata from AlbumMetadata (if available).
     // codec is intentionally null — the manifest is a metafile for
     // re-downloading, not a prescription of quality/format settings.
@@ -1175,6 +1194,7 @@ fn write_manifest(
                         codec: None,
                         isrc: t.isrc.clone(),
                         song_id,
+                        has_lyricsfile: album_has_any_lyricsfile,
                     }
                 })
                 .collect()
@@ -9053,6 +9073,81 @@ pub fn process_queue(
                                     Err(e) => {
                                         log::debug!(
                                             "ASS generation skipped for {enrich_dl_id}: {e}"
+                                        );
+                                    }
+                                }
+                            }
+
+                            tokio::task::yield_now().await;
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
+                            // --- Step 2g: Lyricsfile (.lyrics) generation (opt-in, #596) ---
+                            // When enabled, converts the TTML sidecar GAMDL emitted
+                            // into a Lyricsfile YAML sidecar via the shared
+                            // `meedya_lyrics::Lyricsfile::from_ttml` upstream crate
+                            // (MeedyaSuite-core#34). Preserves Apple Music's
+                            // word-level timing in a vendor-neutral format that
+                            // LRCGET + LRCLIB consume directly. Default off — the
+                            // format is officially experimental per LRCGET 2.0
+                            // release notes.
+                            if enrich_settings.generate_lyricsfile
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                set_label(
+                                    "Generating Lyricsfile (.lyrics) sidecars…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Generating Lyricsfile (.lyrics) sidecars...",
+                                );
+                                let lf_dir = album_dir.clone();
+                                let lf_default_title = album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.tracks.first())
+                                    .map(|t| t.name.clone())
+                                    .unwrap_or_else(|| "Untitled".to_string());
+                                let lf_default_artist = album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.artist_name.clone())
+                                    .unwrap_or_else(|| "Unknown Artist".to_string());
+                                match tokio::task::spawn_blocking(move || {
+                                    super::lyricsfile_service::generate_lyricsfile_for_directory(
+                                        &lf_dir,
+                                        &lf_default_title,
+                                        &lf_default_artist,
+                                    )
+                                })
+                                .await
+                                .unwrap_or_else(|e| {
+                                    Err(format!("Lyricsfile task panicked: {e}"))
+                                }) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Generated {count} Lyricsfile sidecar(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Generated {count} Lyricsfile (.lyrics) sidecar(s)"
+                                            ),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No TTML sources found for Lyricsfile generation",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Lyricsfile generation skipped for {enrich_dl_id}: {e}"
                                         );
                                     }
                                 }

@@ -177,6 +177,13 @@ pub struct ManifestTrack {
     /// written before this field existed will deserialize with `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub song_id: Option<String>,
+    /// `true` when a `.lyrics` (Lyricsfile YAML) sidecar was written for
+    /// this track during enrichment Step 2g (#596). Used by the
+    /// library-scan smart-retry planner to decide whether a Lyricsfile
+    /// gap-fill is needed. Backwards-compatible: older manifests
+    /// written before #596 deserialise with `false`.
+    #[serde(default)]
+    pub has_lyricsfile: bool,
 }
 
 fn default_disc() -> u32 {

@@ -411,6 +411,7 @@ mod tests {
                     codec: None,
                     isrc: None,
                     song_id: None,
+                    has_lyricsfile: false,
                 }],
                 enrichment: Some(enrichment),
                 cross_platform_urls: None,
