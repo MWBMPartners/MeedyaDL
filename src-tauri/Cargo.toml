@@ -386,6 +386,28 @@ thiserror = "2"
 # @see #875 -- EPIC A: SQLite-backed download index + activity log
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 
+# ---- Credential encryption for .meedyabundle (#876 P4) ----
+
+# aes-gcm -- AES-256-GCM authenticated encryption. Used to encrypt
+# credentials at rest inside the bundle so an exported profile is
+# safe to share / store on cloud drives without leaking cookies +
+# MusicKit JWT + web-player developer token. The GCM authentication
+# tag detects tamper / corruption on import.
+# Pure-Rust, audited as part of the RustCrypto Crates set.
+aes-gcm = "0.10"
+
+# pbkdf2 -- PBKDF2-HMAC-SHA256 key derivation. 600,000 iterations
+# per OWASP 2026 recommendation; salt + iteration count are stored
+# alongside the ciphertext in `credentials.kdf-params.json` so
+# imports can derive the same key from the user's password.
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+
+# rand -- Cryptographically secure random number generator. Used to
+# produce salt (32 bytes) + GCM nonce (12 bytes) on every encrypt.
+# `OsRng` reads from the OS entropy pool — no userspace state to
+# leak.
+rand = "0.8"
+
 # ---- Platform Directories ----
 
 # dirs -- Cross-platform resolution of well-known directories.

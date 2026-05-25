@@ -1389,6 +1389,9 @@ export interface ExportProfileOptions {
   include_history?: boolean;
   include_database?: boolean;
   include_credentials?: boolean;
+  /** Password used for credential encryption (#876 P4). Required when
+   *  `include_credentials` is true; not persisted by the backend. */
+  credentials_password?: string | null;
   include_activity_log?: boolean;
   include_manifests?: boolean;
   note?: string | null;
@@ -1460,6 +1463,9 @@ export interface ImportProfileOptions {
   activity_log?: ImportConflictAction;
   manifests?: ImportConflictAction;
   credentials?: ImportConflictAction;
+  /** Password used for credential decryption (#876 P4). Required when
+   *  `credentials === 'replace'` and the bundle has a credentials section. */
+  credentials_password?: string | null;
 }
 
 /** Result returned by `importProfile`. */

@@ -752,6 +752,23 @@ pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
     }
 }
 
+/// Store the MusicKit private key in the OS keychain (#876 P4
+/// import path). Called by the profile-bundle import flow after
+/// decrypting the encrypted credentials blob.
+///
+/// Errors are surfaced verbatim so the user sees a precise reason
+/// (e.g., "user denied keychain access") rather than a generic
+/// "import failed".
+pub fn store_private_key_in_keychain(pem: &str) -> Result<(), String> {
+    const KEY_NAME: &str = "musickit_private_key";
+
+    let entry = keyring::Entry::new(SERVICE_NAME, KEY_NAME)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"))?;
+    entry
+        .set_password(pem)
+        .map_err(|e| format!("Failed to store MusicKit private key: {e}"))
+}
+
 /// Retrieve the web player developer token from the OS keychain.
 ///
 /// This token is extracted opportunistically from the Apple Music login

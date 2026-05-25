@@ -3337,6 +3337,7 @@ dependencies = [
 name = "meedyadl"
 version = "1.10.0-alpha.14"
 dependencies = [
+ "aes-gcm",
  "arboard",
  "base64 0.22.1",
  "chrono",
@@ -3351,6 +3352,8 @@ dependencies = [
  "log",
  "meedya-core",
  "mp4ameta",
+ "pbkdf2",
+ "rand 0.8.6",
  "regex",
  "reqwest 0.12.28",
  "rookie",

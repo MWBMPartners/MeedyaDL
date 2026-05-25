@@ -324,6 +324,15 @@ export function GeneralTab() {
     include_activity_log: false,
     include_manifests: false,
   });
+  /** Password collected from the user when `include_credentials` is on.
+   *  Kept in component state only — never persisted or sent over IPC
+   *  outside of the export_profile call. */
+  const [credentialsPassword, setCredentialsPassword] = useState('');
+  /** Password collected at import time when the bundle has a
+   *  credentials section AND the user opts to restore it. Separate
+   *  from `credentialsPassword` because import & export sessions can
+   *  use different passwords. */
+  const [importPassword, setImportPassword] = useState('');
 
   /**
    * Pending channel switch awaiting user confirmation. When the user picks a
@@ -442,6 +451,19 @@ export function GeneralTab() {
    */
   const handleConfirmImport = async () => {
     if (!pendingImport) return;
+    // #876 P4: if the user opted to restore credentials, require a
+    // password before launching the IPC. Empty/short passwords are
+    // rejected client-side.
+    const wantsCredentials =
+      pendingImport.sections.includes('credentials') &&
+      Boolean(importPicks.credentials);
+    if (wantsCredentials && importPassword.length === 0) {
+      addToast(
+        'Enter the password the bundle was exported with to restore credentials.',
+        'error',
+      );
+      return;
+    }
     setIsImportingBundle(true);
     try {
       const result = await importProfile({
@@ -452,7 +474,8 @@ export function GeneralTab() {
         database: importPicks.database ? 'replace' : 'skip',
         activity_log: importPicks.activity_log ? 'replace' : 'skip',
         manifests: importPicks.manifests ? 'replace' : 'skip',
-        credentials: 'skip', // P4 — disabled here too
+        credentials: wantsCredentials ? 'replace' : 'skip',
+        credentials_password: wantsCredentials ? importPassword : null,
       });
       // Reload settings so the live UI reflects what just landed
       // on disk.
@@ -477,6 +500,7 @@ export function GeneralTab() {
         );
       }
       setPendingImport(null);
+      setImportPassword('');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       addToast(`Failed to import profile: ${message}`, 'error');
@@ -491,13 +515,31 @@ export function GeneralTab() {
    * `bundleOptions` content-picker checkboxes.
    */
   const handleExportProfile = async () => {
+    // Validate credential password before launching the IPC.
+    // Catching this in the frontend avoids the round-trip and gives
+    // the user a clearer message.
+    if (bundleOptions.include_credentials && credentialsPassword.length < 6) {
+      addToast(
+        'Please set a credentials password of at least 6 characters before exporting.',
+        'error',
+      );
+      return;
+    }
     setIsExportingBundle(true);
     try {
-      const result = await exportProfile(bundleOptions);
+      const result = await exportProfile({
+        ...bundleOptions,
+        credentials_password: bundleOptions.include_credentials
+          ? credentialsPassword
+          : null,
+      });
       addToast(
         `Profile exported — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
         'success',
       );
+      // Clear the password from component state immediately on
+      // success so it can't sit in DevTools / state inspector.
+      setCredentialsPassword('');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (!message.toLowerCase().includes('cancel')) {
@@ -940,20 +982,18 @@ export function GeneralTab() {
             { key: 'include_manifests', label: 'manifest.meedyadl files (can be large)' },
             {
               key: 'include_credentials',
-              label: 'Credentials (encrypted, P4 — disabled for now)',
-              disabled: true,
+              label: 'Credentials (encrypted, requires a password)',
             },
-          ].map(({ key, label, disabled }) => (
+          ].map(({ key, label }) => (
             <label
               key={key}
-              className={`flex items-center gap-2 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+              className="flex items-center gap-2 cursor-pointer"
             >
               <input
                 type="checkbox"
                 checked={Boolean(
                   bundleOptions[key as keyof ExportProfileOptions],
                 )}
-                disabled={disabled}
                 onChange={(e) =>
                   setBundleOptions((prev) => ({
                     ...prev,
@@ -965,6 +1005,21 @@ export function GeneralTab() {
             </label>
           ))}
         </div>
+        {bundleOptions.include_credentials && (
+          <div className="mb-3 p-2 border border-border rounded bg-surface-secondary/40">
+            <label className="text-xs font-medium">Credentials password</label>
+            <input
+              type="password"
+              value={credentialsPassword}
+              onChange={(e) => setCredentialsPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+            />
+            <p className="text-xs text-content-tertiary mt-1">
+              The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly.
+            </p>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <Button
             variant="primary"
@@ -1071,6 +1126,25 @@ export function GeneralTab() {
                 </div>
               )}
             </div>
+
+            {pendingImport.sections.includes('credentials') &&
+              importPicks.credentials && (
+                <div className="p-2 border border-border rounded bg-surface-secondary/40">
+                  <label className="text-xs font-medium">
+                    Credentials password
+                  </label>
+                  <input
+                    type="password"
+                    value={importPassword}
+                    onChange={(e) => setImportPassword(e.target.value)}
+                    placeholder="The password used when this bundle was exported"
+                    className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+                  />
+                  <p className="text-xs text-content-tertiary mt-1">
+                    Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores.
+                  </p>
+                </div>
+              )}
 
             <p className="text-xs text-status-warning border-t border-border pt-2">
               ⚠ Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.

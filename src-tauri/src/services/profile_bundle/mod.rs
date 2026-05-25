@@ -37,6 +37,8 @@ use std::io::{Cursor, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+pub mod credentials;
+
 /// Current bundle-format version. **Bump only on breaking changes** to
 /// the file layout or the meta.json schema; additive changes (new
 /// OPTIONAL entries in `contents`) do not need a version bump because

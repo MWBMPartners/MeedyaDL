@@ -26,6 +26,9 @@ use std::path::PathBuf;
 use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::services::profile_bundle::credentials::{
+    decrypt_credentials, encrypt_credentials, EncryptedCredentials, KdfParams,
+};
 use crate::services::profile_bundle::{
     entry, BundleMeta, BundleReader, BundleSection, BundleWriter,
 };
@@ -49,11 +52,18 @@ pub struct ExportProfileOptions {
     /// download record + activity log without needing to re-ingest.
     #[serde(default)]
     pub include_database: bool,
-    /// Reserved for P4. When set, P4's encryption flow will collect
-    /// a password from the user and embed encrypted credentials.
-    /// Today: no-op (bundle ships without credentials).
+    /// Embed cookies + MusicKit + web-player-token credentials,
+    /// encrypted at rest under [`Self::credentials_password`]
+    /// (#876 P4). Bundle is rejected with a clear error if this
+    /// is set but the password is empty/None.
     #[serde(default)]
     pub include_credentials: bool,
+    /// Password supplied by the user via the export modal. Used
+    /// to derive the encryption key (PBKDF2-HMAC-SHA256). Stored
+    /// neither on disk nor in memory beyond this call — the
+    /// frontend never re-sends it.
+    #[serde(default)]
+    pub credentials_password: Option<String>,
     /// Include the on-disk JSONL activity-log files. Opt-in
     /// because the forensic record can be MBs.
     #[serde(default)]
@@ -163,12 +173,53 @@ pub async fn export_profile(
         }
     }
 
-    // Credentials encryption deferred to P4. For now, declare
-    // nothing — the bundle ships without credentials.
+    // Credentials encryption (#876 P4).
+    //
+    // Collects whatever credentials the install has wired up
+    // (cookies file content + MusicKit JWT private key + the
+    // web-player developer token from the keychain), serialises to
+    // a JSON blob, and AES-256-GCM-encrypts it under a PBKDF2-
+    // derived key from the user-supplied password. Two files are
+    // added to the archive: `credentials.encrypted` (ciphertext +
+    // 16-byte GCM tag) and `credentials.kdf-params.json` (salt +
+    // nonce + iteration count).
+    //
+    // The password is **never persisted** — it only exists for the
+    // lifetime of this function call. If the user forgets it the
+    // credentials are unrecoverable; the rest of the bundle still
+    // imports cleanly and the user re-imports cookies / re-enters
+    // MusicKit on the new install.
     if options.include_credentials {
-        log::warn!(
-            "export_profile: include_credentials=true requested but credential encryption is not yet implemented (#876 P4). Credentials will NOT be in this bundle."
-        );
+        let password = options.credentials_password.as_deref().unwrap_or("");
+        if password.is_empty() {
+            return Err(
+                "Credentials cannot be included without a password — set a password in the export dialog.".to_string(),
+            );
+        }
+        match collect_credentials_blob(&app) {
+            Ok(plaintext) if !plaintext.is_empty() => {
+                let encrypted = encrypt_credentials(password, &plaintext).map_err(|e| {
+                    format!("Failed to encrypt credentials: {e}")
+                })?;
+                let EncryptedCredentials { ciphertext, kdf_params } = encrypted;
+                let kdf_json = serde_json::to_vec(&kdf_params).map_err(|e| {
+                    format!("Failed to serialise credentials KDF params: {e}")
+                })?;
+                writer.add_optional_file(entry::CREDENTIALS, ciphertext);
+                writer.add_optional_file(entry::CREDENTIALS_KDF, kdf_json);
+                writer.declare_section(BundleSection::Credentials);
+            }
+            Ok(_) => {
+                log::info!(
+                    "export_profile: include_credentials=true but install has no credentials to embed (no cookies, no MusicKit private key, no web-player token). Skipping section."
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "export_profile: failed to collect credentials blob (skipping section): {e}"
+                );
+            }
+        }
     }
 
     // Snapshot the section list BEFORE consuming the writer so we
@@ -268,6 +319,105 @@ fn collect_manifests_into_bundle(root: &std::path::Path, writer: &mut BundleWrit
         writer.declare_section(BundleSection::Manifests);
         log::info!("export_profile: included {count} manifest file(s)");
     }
+}
+
+/// JSON-shaped credentials blob persisted inside the encrypted
+/// `credentials.encrypted` archive entry. Three OPTIONAL fields —
+/// the install may have any subset of them populated. Fields
+/// missing from the blob (`None`) on import mean "don't touch the
+/// existing keychain entry on this install" so re-importing a
+/// partial bundle doesn't accidentally clear other credentials.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct CredentialsBlobV1 {
+    /// Raw content of the Netscape-format cookies file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cookies_file: Option<String>,
+    /// MusicKit private key (PEM PKCS8) from the keychain. The
+    /// public team_id / key_id IDs travel inside settings.json,
+    /// not here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    musickit_private_key: Option<String>,
+    /// Web-player developer token from the keychain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    webplayer_developer_token: Option<String>,
+}
+
+/// Read the install's credentials from disk + keychain and
+/// JSON-serialise them. Returns `Ok(Vec::new())` (empty blob)
+/// when the install has no credentials at all — caller can
+/// short-circuit without adding the credentials section.
+fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
+    let settings = crate::services::config_service::load_settings(app)?;
+    let mut blob = CredentialsBlobV1::default();
+
+    if let Some(ref cookies_path) = settings.cookies_path {
+        if let Ok(contents) = std::fs::read_to_string(cookies_path) {
+            if !contents.trim().is_empty() {
+                blob.cookies_file = Some(contents);
+            }
+        }
+    }
+
+    if let Ok(Some(pem)) =
+        crate::services::apple_music_api::get_private_key_from_keychain()
+    {
+        if !pem.trim().is_empty() {
+            blob.musickit_private_key = Some(pem);
+        }
+    }
+
+    if let Ok(Some(token)) =
+        crate::services::apple_music_api::get_webplayer_token_from_keychain()
+    {
+        if !token.trim().is_empty() {
+            blob.webplayer_developer_token = Some(token);
+        }
+    }
+
+    if blob.cookies_file.is_none()
+        && blob.musickit_private_key.is_none()
+        && blob.webplayer_developer_token.is_none()
+    {
+        return Ok(Vec::new());
+    }
+    serde_json::to_vec(&blob)
+        .map_err(|e| format!("Failed to serialise credentials blob: {e}"))
+}
+
+/// Restore the credentials blob into the install: cookies file
+/// gets written to `settings.cookies_path` (or a default
+/// `{app_data}/cookies.txt` if unset), private key + web-player
+/// token get re-injected into the OS keychain. Called by the
+/// import path on the user's confirmation of the credentials
+/// section.
+fn restore_credentials_blob(app: &AppHandle, json_bytes: &[u8]) -> Result<(), String> {
+    let blob: CredentialsBlobV1 = serde_json::from_slice(json_bytes)
+        .map_err(|e| format!("Bundle credentials JSON malformed: {e}"))?;
+
+    if let Some(content) = blob.cookies_file {
+        let settings = crate::services::config_service::load_settings(app)?;
+        let path: PathBuf = match settings.cookies_path.as_deref() {
+            Some(p) if !p.is_empty() => PathBuf::from(p),
+            _ => crate::utils::platform::get_app_data_dir(app).join("cookies.txt"),
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&path, content)
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+    }
+
+    if let Some(pem) = blob.musickit_private_key {
+        crate::services::apple_music_api::store_private_key_in_keychain(&pem)
+            .map_err(|e| format!("Failed to store MusicKit private key: {e}"))?;
+    }
+
+    if let Some(token) = blob.webplayer_developer_token {
+        crate::services::apple_music_api::store_webplayer_token_in_keychain(&token)
+            .map_err(|e| format!("Failed to store web-player token: {e}"))?;
+    }
+
+    Ok(())
 }
 
 fn format_size(bytes: u64) -> String {
@@ -392,11 +542,18 @@ pub struct ImportProfileOptions {
     pub activity_log: ImportConflictAction,
     #[serde(default = "default_skip")]
     pub manifests: ImportConflictAction,
-    /// Reserved for P4: when set + the bundle has credentials,
-    /// the user is prompted for the password and the credentials
-    /// get re-injected into the OS keychain.
+    /// When set + the bundle has credentials, the user-supplied
+    /// password is used to decrypt them + the keychain is updated
+    /// (#876 P4). When credentials are present and the action is
+    /// Replace but the password is missing/wrong the import
+    /// returns a typed error so the frontend can re-prompt.
     #[serde(default = "default_skip")]
     pub credentials: ImportConflictAction,
+    /// Password for credential decryption. Only inspected when
+    /// `credentials == Replace` and the bundle declares a
+    /// Credentials section.
+    #[serde(default)]
+    pub credentials_password: Option<String>,
 }
 
 fn default_skip() -> ImportConflictAction {
@@ -568,14 +725,42 @@ pub async fn import_profile(
         }
     }
 
-    // Credentials — P4 placeholder.
+    // Credentials decryption + restore (#876 P4).
     if matches!(options.credentials, ImportConflictAction::Replace)
         && reader.meta().has(BundleSection::Credentials)
     {
-        log::warn!(
-            "import_profile: credentials section present in bundle but encryption-at-rest (P4) is not yet implemented; skipping. The user will need to re-import cookies / re-enter MusicKit credentials manually on this install."
-        );
-        result.credentials_skipped_p4 = true;
+        let password = options.credentials_password.as_deref().unwrap_or("");
+        if password.is_empty() {
+            return Err(
+                "Bundle contains credentials but no password was supplied — set the password and retry the import.".to_string(),
+            );
+        }
+        let ciphertext = reader
+            .read_entry(entry::CREDENTIALS)
+            .map_err(|e| format!("Failed to read credentials.encrypted: {e}"))?
+            .ok_or_else(|| {
+                "Bundle declared a credentials section but credentials.encrypted is missing".to_string()
+            })?;
+        let kdf_bytes = reader
+            .read_entry(entry::CREDENTIALS_KDF)
+            .map_err(|e| format!("Failed to read credentials.kdf-params.json: {e}"))?
+            .ok_or_else(|| {
+                "Bundle declared a credentials section but credentials.kdf-params.json is missing"
+                    .to_string()
+            })?;
+        let kdf_params: KdfParams = serde_json::from_slice(&kdf_bytes)
+            .map_err(|e| format!("Bundle KDF params malformed: {e}"))?;
+        let plaintext = decrypt_credentials(password, &ciphertext, &kdf_params)
+            .map_err(|e| match e {
+                crate::services::profile_bundle::credentials::CredentialError::AuthenticationFailed => {
+                    "Wrong password (or the bundle's credentials are corrupted).".to_string()
+                }
+                other => format!("Failed to decrypt credentials: {other}"),
+            })?;
+        restore_credentials_blob(&app, &plaintext)?;
+        // P4 success path — clear the "skipped" flag (default false) so
+        // the frontend doesn't show the misleading "skipped" toast.
+        result.credentials_skipped_p4 = false;
     }
 
     emit_app_log(
