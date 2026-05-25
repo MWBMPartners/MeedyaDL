@@ -364,6 +364,26 @@ pub mod download_index;
 /// of OPTIONAL sections.
 pub mod profile_bundle;
 
+/// Multi-service engine scaffolding (#884, cherry-picked from
+/// `prep/expanded-services-groundwork`).
+///
+/// Stub service modules + a dispatch layer for the planned M8 / M9
+/// / M10 milestones. None of them activate any new behaviour today
+/// — every public function returns a typed "not yet implemented"
+/// error — but the module tree is in place so the actual engine
+/// implementation work has somewhere to land.
+///
+/// * `service_dispatch` — `ServiceOutputEvent` enum + the
+///   per-service gate (`is_service_implemented`,
+///   `is_service_remotely_enabled`).
+/// * `bbc_iplayer_service` — M8 stub (get_iplayer + yt-dlp fallback).
+/// * `spotify_service` — M9 stub (votify).
+/// * `youtube_service` — M10 stub (yt-dlp).
+pub mod service_dispatch;
+pub mod bbc_iplayer_service;
+pub mod spotify_service;
+pub mod youtube_service;
+
 /// External queue watchdog (#818).
 ///
 /// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
