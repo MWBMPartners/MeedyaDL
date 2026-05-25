@@ -641,19 +641,41 @@ pub fn active_capabilities_summary() -> String {
     }
 }
 
+/// Process-global mutex that tests across multiple modules share to
+/// serialise mutation of [`set_detected_version`]. Without it,
+/// parallel tests in different files (e.g.,
+/// `services::gamdl_capabilities::tests`, `models::gamdl_options::tests`,
+/// `services::config_service::tests`, `services::apple_music_api::tests`)
+/// can flip the cache between another test's set + read and cause
+/// intermittent assertion failures.
+///
+/// All test modules that touch the capability cache MUST acquire
+/// this lock before calling `set_detected_version` or any
+/// `supports(...)` that depends on the version. Tests within
+/// `gamdl_capabilities::tests` itself also use this same lock.
+///
+/// Public-but-gated so production code can't accidentally hold it.
+#[cfg(test)]
+pub fn capability_cache_test_lock(
+) -> std::sync::MutexGuard<'static, ()> {
+    static SHARED: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SHARED.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The capability cache is process-global, so tests that mutate it
-    /// must serialise to avoid interfering with one another. A single
-    /// `Mutex` is cheaper than an `RwLock` here and makes the intent
-    /// explicit.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Convenience wrapper around [`capability_cache_test_lock`].
+    /// Kept under the same `TEST_LOCK` name so the existing tests in
+    /// this module need no renaming.
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        capability_cache_test_lock()
+    }
 
     #[test]
     fn fetch_extra_tags_is_available_on_v2x() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert!(supports(GamdlFeature::FetchExtraTags));
         set_detected_version(None);
@@ -661,7 +683,7 @@ mod tests {
 
     #[test]
     fn fetch_extra_tags_is_not_available_on_v3() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.0".to_string()));
         assert!(!supports(GamdlFeature::FetchExtraTags));
         set_detected_version(Some("3.0.0".to_string()));
@@ -673,7 +695,7 @@ mod tests {
 
     #[test]
     fn native_codec_priority_requires_v291() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.0".to_string()));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
         set_detected_version(Some("2.9.1".to_string()));
@@ -685,7 +707,7 @@ mod tests {
 
     #[test]
     fn no_exceptions_flag_is_effective_below_v31() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert!(supports(GamdlFeature::NoExceptionsFlag));
         set_detected_version(Some("3.0".to_string()));
@@ -701,7 +723,7 @@ mod tests {
 
     #[test]
     fn wrapper_m3u8_ip_requires_v31() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.0".to_string()));
         assert!(!supports(GamdlFeature::WrapperM3u8Ip));
         set_detected_version(Some("3.0.1".to_string()));
@@ -715,7 +737,7 @@ mod tests {
 
     #[test]
     fn unknown_version_reports_no_capabilities() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(None);
         assert!(!supports(GamdlFeature::FetchExtraTags));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
@@ -726,7 +748,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_requires_v30() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.1".to_string()));
         assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
         set_detected_version(Some("2.9.3".to_string()));
@@ -742,7 +764,7 @@ mod tests {
 
     #[test]
     fn active_capabilities_summary_lists_v3_5_features() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.5.0".to_string()));
         let summary = active_capabilities_summary();
         // v3.5 supports: NativeCodecPriority, PlaylistFolderTemplate,
@@ -758,14 +780,14 @@ mod tests {
 
     #[test]
     fn active_capabilities_summary_unknown_when_uncached() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(None);
         assert_eq!(active_capabilities_summary(), "unknown");
     }
 
     #[test]
     fn active_capabilities_summary_lists_v2x_features() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         let summary = active_capabilities_summary();
         // v2.9.3 supports: NativeCodecPriority, FetchExtraTags,
@@ -781,7 +803,7 @@ mod tests {
 
     #[test]
     fn set_detected_version_roundtrip() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert_eq!(detected_version(), Some("2.9.3".to_string()));
         set_detected_version(None);
@@ -937,7 +959,7 @@ mod tests {
 
     #[test]
     fn wrapper_url_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         for v in ["2.9.3", "3.0", "3.3", "3.5.2"] {
             set_detected_version(Some(v.to_string()));
             assert!(
@@ -957,7 +979,7 @@ mod tests {
 
     #[test]
     fn wrapper_m3u8_ip_removed_in_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // The old wrapper-v1 m3u8 IP flag was added in v3.1 but REMOVED
         // in v3.6 alongside the wrapper-v2 single-endpoint redesign.
         set_detected_version(Some("3.5.2".to_string()));
@@ -971,7 +993,7 @@ mod tests {
 
     #[test]
     fn aac_web_codec_rename_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.5.2".to_string()));
         assert!(
             !supports(GamdlFeature::AacWebCodecRename),
@@ -987,7 +1009,7 @@ mod tests {
 
     #[test]
     fn native_muxing_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // <3.6: external FFmpeg/MP4Box/mp4decrypt path options still
         // accepted by the CLI parser; we emit them.
         set_detected_version(Some("3.5.2".to_string()));
@@ -1000,7 +1022,7 @@ mod tests {
 
     #[test]
     fn music_video_remux_mode_removed_in_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // Returns true when the option is STILL AVAILABLE.
         set_detected_version(Some("3.5.2".to_string()));
         assert!(supports(GamdlFeature::MusicVideoRemuxMode));
@@ -1019,7 +1041,7 @@ mod tests {
     /// is true.
     #[test]
     fn ffmpeg_path_gate_three_version_classification() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
 
         // Era 1: <3.6 (original tool-path era — flag accepted)
         set_detected_version(Some("2.9.3".to_string()));
@@ -1071,7 +1093,7 @@ mod tests {
     /// when we can't audit the target version (#880).
     #[test]
     fn classical_music_host_required_gate_covers_support_window() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
 
         for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
             set_detected_version(Some(v.to_string()));
@@ -1107,7 +1129,7 @@ mod tests {
     /// (#881).
     #[test]
     fn storefront_ini_key_stripped_gate_covers_support_window() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
 
         for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
             set_detected_version(Some(v.to_string()));

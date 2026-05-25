@@ -2614,17 +2614,32 @@ mod tests {
     }
 
     #[test]
-    fn v31_track_regex_does_not_match_dash_total_fallback() {
-        // Defensive: `media_total or "-"` fallback. The `\d+/\d+`
-        // pattern in `TRACK_INFO_V2_REGEX` is numeric-only, so this
-        // line must NOT parse as `TrackInfo` (would give a bogus
-        // `track_total`); it should surface as `Unknown` so the
-        // activity log still displays the raw line.
+    fn v31_track_regex_handles_dash_total_fallback() {
+        // GAMDL v3.7.1 (commit `1d00e74`+) renders
+        // `media_total or "-"` so a single-track URL produces
+        // `[Track 1/-]` instead of `[Track 1/12]`. Pre-v3.7.1
+        // MeedyaDL's TRACK_INFO_V2_REGEX required `\d+/\d+` and
+        // silently rejected this line; commit `7b91c7a9` widened
+        // the regex to accept `(\d+|-)` for the total slot, with
+        // the downstream `parse::<u32>().ok()` consumer mapping
+        // `-` to `None`. This test pins the new contract: line
+        // parses as TrackInfo, `track_total` is `None`.
         let line = "[INFO     12:00:02] [Track   1/-  ] Downloading \"Flowers\"";
-        // Any non-TrackInfo variant is acceptable — the contract is
-        // "don't silently record a wrong track_total".
-        if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
-            panic!("Track N/- must not parse as TrackInfo with numeric total");
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                track_number,
+                track_total,
+                title,
+                ..
+            } => {
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, None, "`-` total must parse to None");
+                assert_eq!(title, "Flowers");
+            }
+            other => panic!(
+                "Track N/- should parse as TrackInfo on v3.7.1+, got {:?}",
+                other
+            ),
         }
     }
 

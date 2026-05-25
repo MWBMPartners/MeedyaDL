@@ -3919,9 +3919,9 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
     // `GamdlFeature::ClassicalMusicHostRequired`. Tests that exercise
     // the rewrite must set the detected GAMDL version first; tests
     // that exercise the unknown-version pass-through path clear the
-    // cache first. A small RAII guard makes the
-    // set-version-then-restore-on-drop pattern obvious at the call
-    // site so parallel tests don't leak state into each other.
+    // cache first. The RAII guard holds the cross-module
+    // `capability_cache_test_lock` so parallel tests in other modules
+    // can't leak state into each other.
     struct VersionGuard {
         previous: Option<String>,
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -3929,8 +3929,8 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
 
     impl VersionGuard {
         fn new(version: Option<&str>) -> Self {
-            static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-            let lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            let lock =
+                crate::services::gamdl_capabilities::capability_cache_test_lock();
             let previous = crate::services::gamdl_capabilities::detected_version();
             crate::services::gamdl_capabilities::set_detected_version(
                 version.map(ToString::to_string),

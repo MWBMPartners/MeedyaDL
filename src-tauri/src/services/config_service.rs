@@ -1060,19 +1060,12 @@ mod tests {
         AppSettings::default()
     }
 
-    /// Serialises tests that mutate the process-global GAMDL capability
-    /// cache. `cargo test` runs tests in parallel by default, so any test
-    /// that depends on a specific detected version must hold this lock
-    /// for the entire render + assertion window to avoid races with
-    /// other tests flipping the cache.
-    static CAPABILITY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// RAII guard: sets the detected GAMDL version for the duration of
     /// a single test and restores the previous value on drop.
     ///
-    /// Using a guard instead of raw `set_detected_version` calls means
-    /// we cannot forget to clear the cache when a test panics — the
-    /// stored state would otherwise leak into whichever test runs next.
+    /// Holds the process-global `capability_cache_test_lock` for the
+    /// guard's lifetime so parallel tests in OTHER modules can't flip
+    /// the version cache mid-test.
     struct VersionGuard {
         previous: Option<String>,
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -1080,11 +1073,7 @@ mod tests {
 
     impl VersionGuard {
         fn new(version: Option<&str>) -> Self {
-            // Recover poisoned locks so a previous test panic does not
-            // permanently disable this helper.
-            let lock = CAPABILITY_TEST_LOCK
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
+            let lock = gamdl_capabilities::capability_cache_test_lock();
             let previous = gamdl_capabilities::detected_version();
             gamdl_capabilities::set_detected_version(version.map(ToString::to_string));
             Self {
