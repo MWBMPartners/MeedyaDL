@@ -45,13 +45,36 @@ pub mod credentials;
 /// older importers can simply ignore them.
 pub const BUNDLE_FORMAT_VERSION: u32 = 1;
 
-/// Conventional file extension. Bundles ARE valid ZIPs — `unzip` will
-/// inspect them. The extension is purely a UX affordance for OS
-/// "open with" associations.
+/// Conventional file extension. Brand-wide — the `.meedyabundle`
+/// extension is shared across MeedyaSuite applications (MeedyaDL,
+/// MeedyaConverter, future MeedyaManager, …). The `meta.json`
+/// `producer` field identifies which app actually generated the
+/// archive so consumers can validate they understand its sections
+/// before importing.
+///
+/// Bundles ARE valid ZIPs — `unzip` will inspect them. The extension
+/// is purely a UX affordance for OS "open with" associations.
 pub const BUNDLE_EXTENSION: &str = "meedyabundle";
 
 /// MIME type for OS file associations + the eventual web import flow.
-pub const BUNDLE_MIME_TYPE: &str = "application/vnd.mwbmpartners.meedyadl.bundle+zip";
+///
+/// **Brand-wide** vendor MIME: not tied to MeedyaDL specifically so
+/// that other MeedyaSuite apps can read / write the same container.
+/// Per RFC 8081, the `+zip` structured-syntax suffix declares the
+/// underlying format. The unstructured-suffix form
+/// (`application/vnd.…+zip`) is correct because the bundle's
+/// archive structure is meaningful even when the wrapping container
+/// is a ZIP.
+pub const BUNDLE_MIME_TYPE: &str = "application/vnd.meedyasuite.bundle+zip";
+
+/// Legacy MIME type for backwards compatibility with bundles
+/// produced before the brand-wide rebrand. Bundles in the wild with
+/// the old MIME live on the OS file-association side; the bundle's
+/// actual content is identified by [`BundleMeta`] inside meta.json,
+/// so a legacy-MIME bundle will import without issue. Kept as a
+/// `pub const` so an "is this our format?" check can match either.
+pub const BUNDLE_MIME_TYPE_LEGACY: &str =
+    "application/vnd.mwbmpartners.meedyadl.bundle+zip";
 
 /// Filenames inside the archive. Constants live alongside the format
 /// definition so every consumer reads the same canonical strings.
@@ -109,16 +132,24 @@ pub struct BundleMeta {
     /// reject bundles whose `bundle_version` is strictly newer.
     pub bundle_version: u32,
 
-    /// MeedyaDL version that produced the bundle (e.g.,
-    /// `"1.10.0-alpha.14"`). Informational; importers do NOT gate
-    /// on this value.
-    pub meedyadl_version: String,
+    /// Producer application identifier — the MeedyaSuite app that
+    /// generated this bundle. Examples: `"meedyadl"`, `"meedyamanager"`,
+    /// `"meedyaconverter"`. Importers compare this against their own
+    /// identifier and either import the matching sections or surface a
+    /// "this bundle was produced by a different app" warning.
+    pub producer: String,
+
+    /// Version of the producer application that wrote the bundle
+    /// (e.g., `"1.10.0-alpha.14"`). Informational; importers do NOT
+    /// gate on this value.
+    pub producer_version: String,
 
     /// Platform string of the exporting machine, in
     /// `{os}-{arch}` form. Informational only — bundles are
     /// platform-agnostic (the SQLite DB and JSON files are
     /// portable). E.g., `"darwin-aarch64"`, `"linux-x86_64"`.
-    pub platform: String,
+    #[serde(alias = "platform")]
+    pub producer_platform: String,
 
     /// UTC ISO-8601 timestamp of the export.
     pub exported_at: String,
@@ -141,15 +172,25 @@ pub struct BundleMeta {
     pub contents: Vec<BundleSection>,
 }
 
+/// Canonical producer identifier for this MeedyaSuite application.
+/// Embedded in every bundle this app writes so the receiving end
+/// knows which app's sections to expect.
+pub const PRODUCER_ID: &str = "meedyadl";
+
 impl BundleMeta {
     /// Construct a fresh BundleMeta for an export operation. The
     /// caller will populate `contents` based on the user's export
-    /// selections before the bundle is sealed.
-    pub fn new_for_export(meedyadl_version: impl Into<String>) -> Self {
+    /// selections before the bundle is sealed. The producer field
+    /// is hard-coded to [`PRODUCER_ID`] — MeedyaDL only writes
+    /// MeedyaDL-produced bundles. Cross-app bundles are not a
+    /// thing today (each MeedyaSuite app writes + reads bundles
+    /// with its own producer ID).
+    pub fn new_for_export(producer_version: impl Into<String>) -> Self {
         Self {
             bundle_version: BUNDLE_FORMAT_VERSION,
-            meedyadl_version: meedyadl_version.into(),
-            platform: current_platform_string(),
+            producer: PRODUCER_ID.to_string(),
+            producer_version: producer_version.into(),
+            producer_platform: current_platform_string(),
             exported_at: chrono::Utc::now().to_rfc3339(),
             exported_by: None,
             note: None,
@@ -161,6 +202,15 @@ impl BundleMeta {
     /// O(N) lookup over the (small) contents list.
     pub fn has(&self, section: BundleSection) -> bool {
         self.contents.contains(&section)
+    }
+
+    /// Whether this bundle was produced by THIS app (MeedyaDL).
+    /// Returns `false` for bundles from any future Meedya app
+    /// (e.g., MeedyaManager) — those should be flagged in the UI
+    /// rather than imported blindly. Strings are compared
+    /// case-insensitively for forgiveness.
+    pub fn is_produced_by_this_app(&self) -> bool {
+        self.producer.eq_ignore_ascii_case(PRODUCER_ID)
     }
 }
 
@@ -432,7 +482,12 @@ mod tests {
         assert!(json.contains("\"queue\""));
         assert!(json.contains("\"credentials\""));
         assert!(json.contains("\"bundle_version\": 1"));
-        assert!(json.contains("\"meedyadl_version\": \"1.10.0-alpha.14\""));
+        // Brand-wide producer field replaces the old MeedyaDL-specific
+        // version-only field. PRODUCER_ID is hard-coded to "meedyadl"
+        // for this app; cross-Meedya bundles distinguish themselves
+        // via this field.
+        assert!(json.contains("\"producer\": \"meedyadl\""));
+        assert!(json.contains("\"producer_version\": \"1.10.0-alpha.14\""));
     }
 
     #[test]
@@ -446,7 +501,9 @@ mod tests {
         // Re-open and verify everything roundtrips.
         let mut reader = BundleReader::from_bytes(zip_bytes).unwrap();
         assert_eq!(reader.meta().bundle_version, BUNDLE_FORMAT_VERSION);
-        assert_eq!(reader.meta().meedyadl_version, "1.10.0-test");
+        assert_eq!(reader.meta().producer_version, "1.10.0-test");
+        assert_eq!(reader.meta().producer, "meedyadl");
+        assert!(reader.meta().is_produced_by_this_app());
         assert!(reader.meta().contents.is_empty(), "no optional sections declared");
 
         let restored = reader
@@ -460,6 +517,60 @@ mod tests {
             .unwrap()
             .expect("sha256 sidecar present");
         assert_eq!(sha, b"deadbeef");
+    }
+
+    #[test]
+    fn produced_by_this_app_flag_distinguishes_cross_meedya_bundles() {
+        // Brand-wide schema: the `producer` field identifies which
+        // MeedyaSuite app wrote the bundle. A bundle from a
+        // hypothetical MeedyaManager / MeedyaConverter should report
+        // `produced_by_this_app() == false` so the import UI can
+        // surface a "different app" warning rather than silently
+        // skipping every section.
+        let our_meta = BundleMeta::new_for_export("1.10.0");
+        assert!(our_meta.is_produced_by_this_app());
+        assert_eq!(our_meta.producer, "meedyadl");
+
+        // Hand-construct a foreign-producer bundle to simulate a
+        // MeedyaManager-produced .meedyabundle landing in the import
+        // wizard.
+        let foreign_meta = BundleMeta {
+            bundle_version: BUNDLE_FORMAT_VERSION,
+            producer: "meedyamanager".into(),
+            producer_version: "0.1.0".into(),
+            producer_platform: "darwin-aarch64".into(),
+            exported_at: "2026-05-25T00:00:00Z".into(),
+            exported_by: None,
+            note: None,
+            contents: Vec::new(),
+        };
+        assert!(!foreign_meta.is_produced_by_this_app());
+        // Case insensitivity — "MeedyaDL" / "MEEDYADL" / "meedyadl"
+        // all match.
+        let mixed_case = BundleMeta {
+            producer: "MeedyaDL".into(),
+            ..foreign_meta.clone()
+        };
+        assert!(mixed_case.is_produced_by_this_app());
+    }
+
+    #[test]
+    fn legacy_platform_field_deserialises_into_producer_platform() {
+        // Bundles produced before the brand-wide rebrand used a
+        // `platform` field name. The serde `alias` on
+        // `producer_platform` lets us deserialise those bundles
+        // without a migration step. Forward-compat: we never
+        // serialise the alias form, so new bundles always use the
+        // new field name.
+        let legacy_json = r#"{
+            "bundle_version": 1,
+            "producer": "meedyadl",
+            "producer_version": "1.0.0-legacy",
+            "platform": "linux-x86_64",
+            "exported_at": "2026-01-01T00:00:00Z"
+        }"#;
+        let meta: BundleMeta = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(meta.producer_platform, "linux-x86_64");
     }
 
     #[test]
@@ -484,8 +595,9 @@ mod tests {
     fn refuses_to_open_newer_bundle_version() {
         let mut writer = BundleWriter::new(BundleMeta {
             bundle_version: BUNDLE_FORMAT_VERSION + 99,
-            meedyadl_version: "future-build".into(),
-            platform: "darwin-aarch64".into(),
+            producer: "meedyadl".into(),
+            producer_version: "future-build".into(),
+            producer_platform: "darwin-aarch64".into(),
             exported_at: "2030-01-01T00:00:00Z".into(),
             exported_by: None,
             note: None,

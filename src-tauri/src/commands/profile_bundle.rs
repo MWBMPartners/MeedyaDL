@@ -390,13 +390,15 @@ pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
             Err(_) => continue, // corrupt / wrong-version bundle — skip
         };
         let m = reader.meta().clone();
+        let produced_by_this_app = m.is_produced_by_this_app();
         out.push(DiscoveredBundle {
             path: path.to_string_lossy().to_string(),
             size_bytes: size,
             summary: ProfileBundleSummary {
                 bundle_version: m.bundle_version,
-                meedyadl_version: m.meedyadl_version,
-                platform: m.platform,
+                producer: m.producer,
+                producer_version: m.producer_version,
+                producer_platform: m.producer_platform,
                 exported_at: m.exported_at,
                 exported_by: m.exported_by,
                 note: m.note,
@@ -406,6 +408,7 @@ pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
                     .map(|s| s.as_str().to_string())
                     .collect(),
                 source_path: path.to_string_lossy().to_string(),
+                produced_by_this_app,
             },
         });
     }
@@ -548,11 +551,18 @@ fn format_size(bytes: u64) -> String {
 /// Lightweight summary of a bundle's metadata + present sections.
 /// Returned by [`peek_profile_bundle`] so the import wizard can
 /// show the user what's about to be imported before they confirm.
+///
+/// Mirrors the brand-wide [`BundleMeta`] schema: the `producer` /
+/// `producer_version` / `producer_platform` fields identify the
+/// MeedyaSuite app that wrote the bundle. The frontend uses
+/// `producer` to surface a "this bundle was produced by a
+/// different app" warning if it doesn't match our `PRODUCER_ID`.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProfileBundleSummary {
     pub bundle_version: u32,
-    pub meedyadl_version: String,
-    pub platform: String,
+    pub producer: String,
+    pub producer_version: String,
+    pub producer_platform: String,
     pub exported_at: String,
     pub exported_by: Option<String>,
     pub note: Option<String>,
@@ -563,6 +573,13 @@ pub struct ProfileBundleSummary {
     /// so the frontend can pass it to `import_profile` without
     /// re-prompting.
     pub source_path: String,
+    /// Whether the bundle's producer matches this app's
+    /// [`crate::services::profile_bundle::PRODUCER_ID`]. The import
+    /// wizard renders a warning if false (importing a bundle from
+    /// MeedyaConverter into MeedyaDL would silently skip every
+    /// section because the names don't overlap — better to flag it
+    /// loudly).
+    pub produced_by_this_app: bool,
 }
 
 /// Open a `.meedyabundle` for inspection without extracting anything.
@@ -597,11 +614,13 @@ pub async fn peek_profile_bundle(
     let reader = BundleReader::from_bytes(bytes)
         .map_err(|e| format!("Failed to open bundle: {e}"))?;
     let meta = reader.meta().clone();
+    let produced_by_this_app = meta.is_produced_by_this_app();
 
     Ok(ProfileBundleSummary {
         bundle_version: meta.bundle_version,
-        meedyadl_version: meta.meedyadl_version,
-        platform: meta.platform,
+        producer: meta.producer,
+        producer_version: meta.producer_version,
+        producer_platform: meta.producer_platform,
         exported_at: meta.exported_at,
         exported_by: meta.exported_by,
         note: meta.note,
@@ -611,6 +630,7 @@ pub async fn peek_profile_bundle(
             .map(|s| s.as_str().to_string())
             .collect(),
         source_path: resolved.to_string_lossy().to_string(),
+        produced_by_this_app,
     })
 }
 

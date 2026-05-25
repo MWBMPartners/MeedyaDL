@@ -1076,10 +1076,11 @@ export function GeneralTab() {
                 <span className="break-all">{pendingImport.source_path}</span>
               </div>
               <div>
-                <span className="font-medium">Exported by MeedyaDL</span>{' '}
-                {pendingImport.meedyadl_version}{' '}
+                <span className="font-medium">Exported by</span>{' '}
+                <span className="font-mono">{pendingImport.producer}</span>{' '}
+                {pendingImport.producer_version}{' '}
                 <span className="text-content-tertiary">
-                  ({pendingImport.platform})
+                  ({pendingImport.producer_platform})
                 </span>{' '}
                 on{' '}
                 <span className="font-mono">
@@ -1089,6 +1090,15 @@ export function GeneralTab() {
               {pendingImport.note && (
                 <div>
                   <span className="font-medium">Note:</span> {pendingImport.note}
+                </div>
+              )}
+              {!pendingImport.produced_by_this_app && (
+                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning">
+                  ⚠ This bundle was produced by{' '}
+                  <span className="font-mono">{pendingImport.producer}</span>,
+                  not MeedyaDL. The <code>.meedyabundle</code> extension is
+                  shared across MeedyaSuite apps — sections from another
+                  app may be unrecognised and silently skipped on import.
                 </div>
               )}
             </div>

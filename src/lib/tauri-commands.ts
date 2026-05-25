@@ -1434,16 +1434,25 @@ export function exportProfile(
 /**
  * Summary returned by `peekProfileBundle` — what the bundle
  * contains, surfaced to the import wizard before the user confirms.
+ *
+ * Brand-wide schema: `producer` / `producer_version` /
+ * `producer_platform` identify which MeedyaSuite app wrote the
+ * bundle. `produced_by_this_app` is `true` when `producer` matches
+ * the running app's `PRODUCER_ID` constant — the import UI uses it
+ * to surface a "this bundle was produced by a different app"
+ * warning rather than silently skipping every section.
  */
 export interface ProfileBundleSummary {
   bundle_version: number;
-  meedyadl_version: string;
-  platform: string;
+  producer: string;
+  producer_version: string;
+  producer_platform: string;
   exported_at: string;
   exported_by: string | null;
   note: string | null;
   sections: string[];
   source_path: string;
+  produced_by_this_app: boolean;
 }
 
 /**

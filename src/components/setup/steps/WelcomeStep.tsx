@@ -204,10 +204,15 @@ export function WelcomeStep() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate">{b.path}</div>
                   <div className="text-content-tertiary">
-                    MeedyaDL {b.summary.meedyadl_version} · exported{' '}
-                    {b.summary.exported_at.slice(0, 10)} ·{' '}
+                    {b.summary.producer} {b.summary.producer_version} ·
+                    exported {b.summary.exported_at.slice(0, 10)} ·{' '}
                     {b.summary.sections.length} optional section
                     {b.summary.sections.length === 1 ? '' : 's'}
+                    {!b.summary.produced_by_this_app && (
+                      <span className="ml-2 text-status-warning">
+                        ⚠ produced by another MeedyaSuite app
+                      </span>
+                    )}
                   </div>
                 </div>
                 <button
