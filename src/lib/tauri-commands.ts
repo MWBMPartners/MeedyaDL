@@ -1376,6 +1376,49 @@ export function importSettings(): Promise<void> {
 }
 
 // ============================================================
+// Profile Bundle Commands (#876)
+// ============================================================
+
+/**
+ * Options for `exportProfile`. All fields are optional with sensible
+ * defaults — queue + history are ON, everything else (DB, credentials,
+ * activity log, manifests) is OFF.
+ */
+export interface ExportProfileOptions {
+  include_queue?: boolean;
+  include_history?: boolean;
+  include_database?: boolean;
+  include_credentials?: boolean;
+  include_activity_log?: boolean;
+  include_manifests?: boolean;
+  note?: string | null;
+}
+
+/** Result of a successful `exportProfile` call. */
+export interface ExportProfileResult {
+  path: string;
+  size_bytes: number;
+  sections: string[];
+}
+
+/**
+ * Exports the current install's profile to a `.meedyabundle` archive
+ * via a native save dialog. Returns the resolved path + size + the
+ * list of OPTIONAL sections actually included (settings is always
+ * present).
+ *
+ * Rust handler: `export_profile()` in
+ * `src-tauri/src/commands/profile_bundle.rs`.
+ *
+ * Called by: GeneralTab "Export Profile" button.
+ */
+export function exportProfile(
+  options: ExportProfileOptions = {},
+): Promise<ExportProfileResult> {
+  return invoke<ExportProfileResult>('export_profile', { options });
+}
+
+// ============================================================
 // Credential Commands
 // ============================================================
 

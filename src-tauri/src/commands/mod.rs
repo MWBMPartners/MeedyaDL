@@ -156,3 +156,8 @@ pub mod backup;
 /// All commands fail soft (empty list / `false`) when the DB is
 /// missing — the JSON-backed flows remain authoritative.
 pub mod download_index;
+
+/// .meedyabundle profile export/import IPC surface (#876 P2 + P3 +
+/// P5). Wraps `services::profile_bundle` with the Tauri commands the
+/// Settings UI and import wizard call.
+pub mod profile_bundle;

@@ -235,6 +235,12 @@ export function AdvancedTab() {
     wrapper_m3u8_ip: false,
     playlist_folder_template: false,
     native_codec_priority: false,
+    // `ffmpeg_path` defaults `false` here for the same reason every
+    // other capability does: cache is empty until the dependency probe
+    // runs. The Tools tab greys out the FFmpeg-path input on the false
+    // branch — safer than incorrectly enabling it on a 3.6.x install
+    // where the flag has been removed (#867).
+    ffmpeg_path: false,
   });
 
   // ── API Field Audit state ──

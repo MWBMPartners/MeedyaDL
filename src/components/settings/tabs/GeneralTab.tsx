@@ -58,7 +58,8 @@ import { useUpdateStore } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 
 // IPC command wrappers for settings export/import.
-import { exportSettings, importSettings } from '@/lib/tauri-commands';
+import { exportSettings, importSettings, exportProfile } from '@/lib/tauri-commands';
+import type { ExportProfileOptions } from '@/lib/tauri-commands';
 
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
@@ -280,6 +281,22 @@ export function GeneralTab() {
   /** Whether a settings import is in progress */
   const [isImporting, setIsImporting] = useState(false);
 
+  /** Whether a .meedyabundle export is in progress (#876 P2). */
+  const [isExportingBundle, setIsExportingBundle] = useState(false);
+  /**
+   * Per-section toggles for the bundle export. Defaults mirror the
+   * backend's `ExportProfileOptions` defaults — queue + history are
+   * on, everything else is opt-in.
+   */
+  const [bundleOptions, setBundleOptions] = useState<ExportProfileOptions>({
+    include_queue: true,
+    include_history: true,
+    include_database: false,
+    include_credentials: false,
+    include_activity_log: false,
+    include_manifests: false,
+  });
+
   /**
    * Pending channel switch awaiting user confirmation. When the user picks a
    * pre-release channel from the dropdown, the actual settings update is
@@ -351,6 +368,40 @@ export function GeneralTab() {
       }
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  /**
+   * Human-readable byte-size formatter (KB/MB threshold). Matches
+   * the Rust-side `format_size` so toast text agrees with the
+   * activity-log line for the same export.
+   */
+  const formatBytes = (n: number): string => {
+    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(2)} KB`;
+    return `${n} bytes`;
+  };
+
+  /**
+   * Export the current install's profile to a `.meedyabundle`
+   * archive (#876 P2). Sections are controlled by the
+   * `bundleOptions` content-picker checkboxes.
+   */
+  const handleExportProfile = async () => {
+    setIsExportingBundle(true);
+    try {
+      const result = await exportProfile(bundleOptions);
+      addToast(
+        `Profile exported — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
+        'success',
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes('cancel')) {
+        addToast(`Failed to export profile: ${message}`, 'error');
+      }
+    } finally {
+      setIsExportingBundle(false);
     }
   };
 
@@ -768,6 +819,67 @@ export function GeneralTab() {
             onClick={handleImportSettings}
           >
             {isImporting ? 'Importing...' : 'Import Settings'}
+          </Button>
+        </div>
+      </SettingsSection>
+
+      {/* Section: Profile Bundle (#876 P2) */}
+      <SettingsSection title="Profile Bundle">
+        <p className="text-xs text-content-secondary mb-2">
+          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it via the Import button (P3, coming next) or from the first-launch wizard.
+        </p>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3">
+          {[
+            { key: 'include_queue', label: 'Queue (queue.json)' },
+            { key: 'include_history', label: 'History (history.json)' },
+            { key: 'include_database', label: 'SQLite index (meedyadl.db)' },
+            { key: 'include_activity_log', label: 'Activity log JSONL files' },
+            { key: 'include_manifests', label: 'manifest.meedyadl files (can be large)' },
+            {
+              key: 'include_credentials',
+              label: 'Credentials (encrypted, P4 — disabled for now)',
+              disabled: true,
+            },
+          ].map(({ key, label, disabled }) => (
+            <label
+              key={key}
+              className={`flex items-center gap-2 ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(
+                  bundleOptions[key as keyof ExportProfileOptions],
+                )}
+                disabled={disabled}
+                onChange={(e) =>
+                  setBundleOptions((prev) => ({
+                    ...prev,
+                    [key]: e.target.checked,
+                  }))
+                }
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Upload size={14} />}
+            loading={isExportingBundle}
+            onClick={handleExportProfile}
+          >
+            {isExportingBundle ? 'Exporting...' : 'Export Profile'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Download size={14} />}
+            disabled
+            title="Import wizard lands in #876 P3"
+          >
+            Import Profile (coming next)
           </Button>
         </div>
       </SettingsSection>
