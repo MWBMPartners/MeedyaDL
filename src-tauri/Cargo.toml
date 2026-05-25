@@ -404,7 +404,7 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 # Switch to a tag / crates.io publish once the crate stabilises
 # (post-1.0 or after MeedyaSuite-core formalises its release
 # cadence).
-meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main" }
+meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-chromaprint-feature-flag", features = ["chromaprint"] }
 
 # meedya-lyrics -- Shared Lyricsfile (`.lyrics`) YAML format + TTML/LRC
 # converters from MeedyaSuite-core (#596). The Lyricsfile module is
@@ -562,28 +562,21 @@ mp4ameta = "0.13"
 lofty = "0.22"
 
 # ---- Audio Fingerprinting (Chromaprint) ----
-
-# rusty-chromaprint -- Pure Rust port of the Chromaprint audio fingerprinting
-# library. Replaces the external fpcalc binary for AcoustID fingerprint
-# generation. Generates compact audio fingerprints compatible with the
-# AcoustID web service. Includes FingerprintCompressor for encoding in
-# Chromaprint's compressed format.
-# @see https://docs.rs/rusty-chromaprint/ -- API reference
-# @see https://acoustid.org/chromaprint -- Chromaprint project
-rusty-chromaprint = "0.3"
-
-# symphonia -- Pure Rust audio decoding framework.
-# Used to decode M4A files (MPEG-4/ISOMP4 container with AAC/ALAC codecs)
-# to raw PCM samples for Chromaprint fingerprinting. Features:
-#   - "isomp4": ISO Base Media File Format container (M4A, MP4)
-#   - "aac": Advanced Audio Coding decoder
-#   - "alac": Apple Lossless Audio Codec decoder
-# @see https://docs.rs/symphonia/ -- Symphonia documentation
-symphonia = { version = "0.5", default-features = false, features = ["isomp4", "aac", "alac"] }
+#
+# Chromaprint fingerprinting (rusty-chromaprint + symphonia) was
+# extracted into the shared `meedya-fingerprint` crate in #353
+# Phase 3. The MeedyaDL side now consumes it via
+# `meedya_fingerprint::generate_fingerprint` (gated behind the
+# `chromaprint` cargo feature on the shared crate, opted into above
+# in the `meedya-fingerprint = { ..., features = ["chromaprint"] }`
+# dep line). Local `rusty-chromaprint` + `symphonia` deps removed
+# as part of that swap.
 
 # base64 -- Base64 encoding/decoding library.
-# Used to encode compressed Chromaprint fingerprints in URL-safe base64
-# (RFC 4648) for submission to the AcoustID API.
+# Still used directly by `services::profile_bundle::credentials` for
+# the encrypted-credential blob serialisation. Was also used by the
+# pre-#353-Phase-3 local Chromaprint encoder, but that code now lives
+# upstream and pulls its own copy via the chromaprint feature flag.
 # @see https://docs.rs/base64/ -- base64 crate documentation
 base64 = "0.22"
 

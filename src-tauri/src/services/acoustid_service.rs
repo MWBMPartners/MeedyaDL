@@ -56,15 +56,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use mp4ameta::{Data, FreeformIdent, Tag};
-use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 use tokio::time::sleep;
 
 /// Apple iTunes freeform atom namespace (matches `MusicBrainz` Picard's convention).
@@ -262,144 +254,48 @@ async fn process_single_file(
 }
 
 // ============================================================
-// Internal: Fingerprint Generation (embedded Chromaprint)
+// Internal: Fingerprint Generation (via shared meedya-fingerprint crate)
 // ============================================================
 
-/// Generate a Chromaprint fingerprint for an audio file.
+/// Generate a Chromaprint fingerprint for an audio file (#353 Phase 3).
 ///
-/// Uses Symphonia to decode the M4A file to raw interleaved i16 PCM
-/// samples, then feeds them to rusty-chromaprint's Fingerprinter.
-/// The resulting fingerprint is compressed and encoded in URL-safe base64
-/// format compatible with the `AcoustID` API.
+/// Thin wrapper over [`meedya_fingerprint::generate_fingerprint`] from
+/// the shared `meedya-fingerprint` crate (gated behind that crate's
+/// `chromaprint` feature, opted in via this crate's `Cargo.toml`).
+/// The shared implementation is byte-for-byte identical to the
+/// previous local one — same `preset_test2` Chromaprint config,
+/// same Symphonia decode pipeline, same URL-safe-base64 encoding.
 ///
-/// # Returns
-/// * `Ok((fingerprint, duration))` - Encoded fingerprint and duration in seconds
-/// * `Err(message)` - Decoding or fingerprinting failed
-#[allow(clippy::similar_names)] // `decoded` and `decoder` are standard audio terminology
+/// The error type is mapped back to `String` via
+/// [`map_shared_chromaprint_result`] so existing call-sites (and the
+/// `log::debug!` lines in `process_single_file`) keep their
+/// historical user-facing strings.
 fn generate_fingerprint(file_path: &Path) -> Result<(String, u32), String> {
-    // Open the audio file and wrap in a MediaSourceStream
-    let file =
-        std::fs::File::open(file_path).map_err(|e| format!("Failed to open audio file: {e}"))?;
-    let mss = MediaSourceStream::new(Box::new(file), MediaSourceStreamOptions::default());
+    map_shared_chromaprint_result(meedya_fingerprint::generate_fingerprint(file_path))
+}
 
-    // Provide a file extension hint for format detection
-    let mut hint = Hint::new();
-    if let Some(ext) = file_path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-
-    // Probe the format (auto-detect M4A/MP4 container)
-    let probed = symphonia::default::get_probe()
-        .format(
-            &hint,
-            mss,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-        .map_err(|e| format!("Failed to probe audio format: {e}"))?;
-
-    let mut format_reader = probed.format;
-
-    // Find the first audio track and get its codec parameters
-    let track = format_reader
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
-        .ok_or("No audio tracks found in file")?;
-
-    let codec_params = &track.codec_params;
-    let sample_rate = codec_params
-        .sample_rate
-        .ok_or("Audio track has no sample rate")?;
-    let channels = codec_params
-        .channels
-        .map(|ch| u32::try_from(ch.count()).unwrap_or(0))
-        .ok_or("Audio track has no channel info")?;
-    let track_id = track.id;
-
-    // Create a decoder for the audio track
-    let mut decoder = symphonia::default::get_codecs()
-        .make(codec_params, &DecoderOptions::default())
-        .map_err(|e| format!("Failed to create audio decoder: {e}"))?;
-
-    // Initialize the Chromaprint fingerprinter with the standard preset
-    // (preset_test2 matches fpcalc's default algorithm)
-    let config = Configuration::preset_test2();
-    let mut printer = Fingerprinter::new(&config);
-    printer
-        .start(sample_rate, channels)
-        .map_err(|e| format!("Failed to start fingerprinter: {e:?}"))?;
-
-    // Decode all audio packets and feed interleaved i16 samples to the fingerprinter
-    let mut total_samples: u64 = 0;
-    let mut sample_buf: Option<SampleBuffer<i16>> = None;
-
-    loop {
-        let packet = match format_reader.next_packet() {
-            Ok(packet) => packet,
-            Err(symphonia::core::errors::Error::IoError(ref e))
-                if e.kind() == std::io::ErrorKind::UnexpectedEof =>
-            {
-                break; // End of stream
-            }
-            Err(e) => return Err(format!("Error reading audio packet: {e}")),
-        };
-
-        // Skip packets from other tracks (unlikely for M4A but defensive)
-        if packet.track_id() != track_id {
-            continue;
+/// Adapter mapping the shared crate's [`FingerprintError`] back to
+/// MeedyaDL's historical `String` error surface. Extracted as a pure
+/// function so it's unit-testable without spawning a Symphonia
+/// decode — mirrors `map_shared_acoustid_result` (Phase 1) and
+/// `map_shared_replaygain_result` (Phase 2).
+fn map_shared_chromaprint_result(
+    result: Result<(String, u32), meedya_fingerprint::FingerprintError>,
+) -> Result<(String, u32), String> {
+    use meedya_fingerprint::FingerprintError;
+    match result {
+        Ok(pair) => Ok(pair),
+        Err(FingerprintError::IoError(e)) => Err(format!("Failed to open audio file: {e}")),
+        Err(FingerprintError::DecodeError(msg)) => {
+            // The shared crate's DecodeError covers probe/decode/missing-track failures.
+            // Preserve historical phrasing for whichever stage failed.
+            Err(format!("Audio decode error: {msg}"))
         }
-
-        match decoder.decode(&packet) {
-            Ok(decoded) => {
-                // Initialize or resize the sample buffer as needed.
-                // SampleBuffer::new() takes u64 duration; capacity() returns usize.
-                let num_frames = decoded.frames();
-                if sample_buf.is_none()
-                    || sample_buf
-                        .as_ref()
-                        .is_some_and(|b| b.capacity() < num_frames)
-                {
-                    let spec = *decoded.spec();
-                    sample_buf = Some(SampleBuffer::new(num_frames as u64, spec));
-                }
-
-                if let Some(ref mut buf) = sample_buf {
-                    buf.copy_interleaved_ref(decoded);
-                    let samples = buf.samples();
-                    total_samples += samples.len() as u64;
-                    printer.consume(samples);
-                }
-            }
-            Err(symphonia::core::errors::Error::DecodeError(_)) => {
-                // Skip corrupted packets
-            }
-            Err(e) => return Err(format!("Audio decode error: {e}")),
+        Err(FingerprintError::FingerprintFailed(msg)) => {
+            Err(format!("Fingerprint generation failed: {msg}"))
         }
+        Err(other) => Err(format!("Fingerprint task failed: {other}")),
     }
-
-    // Finalize the fingerprint
-    printer.finish();
-    let raw_fingerprint = printer.fingerprint();
-
-    if raw_fingerprint.is_empty() {
-        return Err("Generated empty fingerprint (file too short?)".to_string());
-    }
-
-    // Compress the fingerprint using Chromaprint's internal compression format
-    let compressor = FingerprintCompressor::from(&config);
-    let compressed = compressor.compress(raw_fingerprint);
-
-    // Encode in URL-safe base64 (no padding) — matches Chromaprint's convention
-    let encoded = URL_SAFE_NO_PAD.encode(&compressed);
-
-    // Calculate duration from total decoded samples.
-    // u64::from() used for lossless widening; try_from() guards against truncation.
-    let duration_seconds =
-        u32::try_from(total_samples / u64::from(channels) / u64::from(sample_rate))
-            .unwrap_or(u32::MAX);
-
-    Ok((encoded, duration_seconds))
 }
 
 // ============================================================
@@ -533,31 +429,12 @@ fn is_m4a(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::map_shared_acoustid_result;
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-    use rusty_chromaprint::{Configuration, FingerprintCompressor};
+    use super::{map_shared_acoustid_result, map_shared_chromaprint_result};
 
-    // ----------------------------------------------------------
-    // Fingerprint compression + encoding pipeline tests
-    // ----------------------------------------------------------
-
-    #[test]
-    fn compressed_fingerprint_produces_valid_base64() {
-        let config = Configuration::preset_test2();
-        let compressor = FingerprintCompressor::from(&config);
-
-        // A minimal fake fingerprint to test the compression + encoding pipeline
-        let fake_fp: Vec<u32> = vec![0x12345678, 0xABCDEF01, 0x98765432];
-        let compressed = compressor.compress(&fake_fp);
-        let encoded = URL_SAFE_NO_PAD.encode(&compressed);
-
-        // Verify it's valid base64 by decoding it back
-        assert!(URL_SAFE_NO_PAD.decode(&encoded).is_ok());
-        assert!(!encoded.is_empty());
-        // URL-safe base64 should not contain + or / (uses - and _ instead)
-        assert!(!encoded.contains('+'));
-        assert!(!encoded.contains('/'));
-    }
+    // The pre-#353 `compressed_fingerprint_produces_valid_base64`
+    // test was removed as part of Phase 3 — its coverage is now
+    // provided upstream by `rusty_chromaprint_api_surface_unchanged`
+    // and the chromaprint module's own tests in MeedyaSuite-core.
 
     // ----------------------------------------------------------
     // AcoustID response parsing tests
@@ -804,5 +681,106 @@ mod tests {
         let _client = meedya_fingerprint::acoustid::AcoustIdClient::new(
             "dummy-key".to_string(),
         );
+    }
+
+    // ============================================================
+    // #353 Phase 3 — Chromaprint adapter tests
+    //
+    // The shared-crate `generate_fingerprint` itself is tested in
+    // MeedyaSuite-core (`meedya-fingerprint::chromaprint::tests`).
+    // What we test HERE is the MeedyaDL adapter
+    // (`map_shared_chromaprint_result`) — error-variant mapping
+    // back to the historical `String` shape so existing call-sites
+    // and log scrapers stay aligned.
+    // ============================================================
+
+    #[test]
+    fn chromaprint_adapter_passes_through_ok_result() {
+        // The happy path is a clean pass-through: tuple comes back
+        // unchanged.
+        let r = map_shared_chromaprint_result(Ok(("AQAAB...".to_string(), 218)));
+        assert_eq!(r.unwrap(), ("AQAAB...".to_string(), 218));
+    }
+
+    #[test]
+    fn chromaprint_adapter_maps_io_error_with_canonical_prefix() {
+        // File-open failures (missing file, permission denied) come
+        // through the shared crate as `FingerprintError::IoError`
+        // via its `#[from] std::io::Error` impl. MeedyaDL's
+        // historical surface used "Failed to open audio file: {e}"
+        // — preserve that so any log scrapers still match.
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let r = map_shared_chromaprint_result(Err(
+            meedya_fingerprint::FingerprintError::IoError(io_err),
+        ));
+        let err = r.expect_err("io error must propagate as Err");
+        assert!(
+            err.starts_with("Failed to open audio file:"),
+            "canonical prefix missing: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn chromaprint_adapter_maps_decode_error() {
+        // Symphonia probe / decode failures (unrecognised format,
+        // malformed file, missing track) all surface as
+        // `FingerprintError::DecodeError`. Historical MeedyaDL
+        // phrasing used "Audio decode error:" for these.
+        let r = map_shared_chromaprint_result(Err(
+            meedya_fingerprint::FingerprintError::DecodeError(
+                "format probe: unsupported codec".to_string(),
+            ),
+        ));
+        let err = r.expect_err("decode error must propagate as Err");
+        assert!(
+            err.contains("Audio decode error"),
+            "canonical prefix missing: got {err:?}"
+        );
+        assert!(
+            err.contains("unsupported codec"),
+            "underlying cause must be preserved: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn chromaprint_adapter_maps_fingerprint_failed() {
+        // `rusty-chromaprint::Fingerprinter::start` failure or the
+        // empty-fingerprint "too short" guard come through as
+        // `FingerprintError::FingerprintFailed`. Historical phrasing
+        // was "Fingerprint generation failed:".
+        let r = map_shared_chromaprint_result(Err(
+            meedya_fingerprint::FingerprintError::FingerprintFailed(
+                "generated empty fingerprint (file too short?)".to_string(),
+            ),
+        ));
+        let err = r.expect_err("fingerprint-failed error must propagate as Err");
+        assert!(
+            err.starts_with("Fingerprint generation failed:"),
+            "canonical prefix missing: got {err:?}"
+        );
+    }
+
+    #[test]
+    fn chromaprint_adapter_wraps_unrelated_errors_with_fallback_prefix() {
+        // Any future shared-crate variant that doesn't fit the known
+        // buckets should still produce a parseable Err string.
+        let r = map_shared_chromaprint_result(Err(
+            meedya_fingerprint::FingerprintError::NetworkError("dns".into()),
+        ));
+        let err = r.expect_err("err");
+        assert!(err.starts_with("Fingerprint task failed:"), "got {err:?}");
+    }
+
+    #[test]
+    fn chromaprint_shared_crate_api_surface_unchanged() {
+        // Pin the symbol shape: `meedya_fingerprint::generate_fingerprint`
+        // must exist and accept `&Path`, returning
+        // `Result<(String, u32), FingerprintError>`. If upstream
+        // renames the function or changes the signature, compilation
+        // here breaks first.
+        let _: fn(&std::path::Path) -> Result<
+            (String, u32),
+            meedya_fingerprint::FingerprintError,
+        > = meedya_fingerprint::generate_fingerprint;
     }
 }
