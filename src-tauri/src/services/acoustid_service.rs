@@ -70,8 +70,11 @@ use tokio::time::sleep;
 /// Apple iTunes freeform atom namespace (matches `MusicBrainz` Picard's convention).
 const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
-/// `AcoustID` API endpoint for fingerprint lookups.
-const ACOUSTID_API_URL: &str = "https://api.acoustid.org/v2/lookup";
+// `AcoustID` API endpoint constant moved to the shared
+// `meedya-fingerprint::acoustid` module (#353 Phase 1). MeedyaDL
+// keeps the rate-limit helper below because the per-request sleep
+// is driven by our scheduler shape, not by the shared crate's
+// stateless lookup.
 
 /// Delay between `AcoustID` API requests (~3 req/sec rate limit).
 const API_RATE_LIMIT_DELAY: Duration = Duration::from_millis(334);
@@ -418,79 +421,49 @@ async fn lookup_acoustid(
     duration: u32,
     api_key: &str,
 ) -> Result<Option<String>, String> {
-    // Phase 1.0.2 (#716 finding #2): migrated to the shared
-    // `utils::http_client::build_simple` helper. Same 30-second timeout,
-    // same canonical error string, no behavioural change.
-    let client = crate::utils::http_client::build_simple(30)?;
+    // #353 Phase 1: AcoustID API client now lives in the shared
+    // `meedya-fingerprint` crate (MeedyaSuite-core workspace).
+    // MeedyaDL's contract here is unchanged — score < 0.5 → None,
+    // score >= 0.5 → Some(acoustid) — but the HTTP plumbing
+    // (request shape, response parsing, error mapping) is delegated
+    // to the shared `AcoustIdClient::lookup` so future API changes
+    // can be addressed in one place.
+    //
+    // Note on score gate: the shared crate returns the BEST match
+    // without a score threshold; we apply MeedyaDL's >= 0.5 floor
+    // locally to preserve the existing acceptance contract (a
+    // 0.4-score match would otherwise mis-tag a track).
+    use meedya_fingerprint::acoustid::AcoustIdClient;
 
-    let response = client
-        .post(ACOUSTID_API_URL)
-        .form(&[
-            ("client", api_key),
-            ("fingerprint", fingerprint),
-            ("duration", &duration.to_string()),
-            ("meta", "recordings"),
-        ])
-        .send()
-        .await
-        .map_err(|e| format!("AcoustID API request failed: {e}"))?;
-
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        return Err(format!("AcoustID API returned HTTP {status}"));
-    }
-
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse AcoustID response: {e}"))?;
-
-    // Check API status
-    let status = json
-        .get("status")
-        .and_then(|v| v.as_str())
-        .unwrap_or("unknown");
-
-    if status != "ok" {
-        let error_msg = json
-            .get("error")
-            .and_then(|e| e.get("message"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("Unknown API error");
-        return Err(format!("AcoustID API error: {error_msg}"));
-    }
-
-    // Find the best matching result with score >= 0.5
-    let results = json.get("results").and_then(|v| v.as_array());
-
-    let best_match = results.and_then(|arr| {
-        arr.iter().find(|r| {
-            r.get("score")
-                .and_then(serde_json::Value::as_f64)
-                .unwrap_or(0.0)
-                >= 0.5
-        })
-    });
-
-    best_match.map_or(Ok(None), |result| {
-        let acoustid = result
-            .get("id")
-            .and_then(|v| v.as_str())
-            .map(std::string::ToString::to_string);
-
-        // Also extract MusicBrainz recording ID from the recordings array.
-        // The AcoustID response includes MB recording IDs when meta=recordings
-        // is specified (which we do). This bridges AcoustID → MusicBrainz.
-        if let Some(recordings) = result.get("recordings").and_then(|r| r.as_array()) {
-            if let Some(first_recording) = recordings.first() {
-                if let Some(mb_id) = first_recording.get("id").and_then(|v| v.as_str()) {
-                    log::debug!("AcoustID: MusicBrainz recording ID: {mb_id}");
-                }
+    let client = AcoustIdClient::new(api_key.to_string());
+    match client.lookup(fingerprint, duration).await {
+        Ok(result) => {
+            if result.score < 0.5 {
+                log::debug!(
+                    "AcoustID: best match below confidence threshold (score {:.3} < 0.5); treating as no match",
+                    result.score
+                );
+                return Ok(None);
             }
+            // The shared crate also returns MusicBrainz recording IDs
+            // — log the first one at debug for the AcoustID →
+            // MusicBrainz bridge (#807).
+            if let Some(mb_id) = result.recording_ids.first() {
+                log::debug!("AcoustID: MusicBrainz recording ID: {mb_id}");
+            }
+            Ok(Some(result.acoustid))
         }
-
-        Ok(acoustid)
-    })
+        Err(meedya_fingerprint::FingerprintError::NoMatch) => Ok(None),
+        Err(meedya_fingerprint::FingerprintError::NetworkError(msg)) => {
+            // Preserve the canonical "AcoustID API request failed" prefix
+            // that downstream error classification keys on.
+            Err(format!("AcoustID API request failed: {msg}"))
+        }
+        Err(meedya_fingerprint::FingerprintError::AcoustIdApiError(msg)) => {
+            Err(format!("AcoustID API error: {msg}"))
+        }
+        Err(other) => Err(format!("AcoustID lookup failed: {other}")),
+    }
 }
 
 // ============================================================

@@ -386,6 +386,26 @@ thiserror = "2"
 # @see #875 -- EPIC A: SQLite-backed download index + activity log
 rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 
+# ---- Shared MeedyaSuite-core fingerprint + ReplayGain crate (#353) ----
+
+# meedya-fingerprint -- Shared AcoustID + ReplayGain helpers extracted
+# from MeedyaDL's `acoustid_service.rs` + `replaygain_service.rs`
+# into the MeedyaSuite-core workspace. Phase 1 (commit landing this
+# dep) swaps the AcoustID API client; Chromaprint fingerprint
+# generation stays in MeedyaDL until Phase 3 (`generate_fingerprint`
+# extraction).
+#
+# Tracked via the upstream `main` branch — auto-picks-up shared-crate
+# changes for fast feedback. Trade-off: a breaking change on the
+# shared-crate main instantly breaks MeedyaDL CI, which is why the
+# integration is staged across multiple phases and gated by
+# `cargo test --lib` here in this repo.
+#
+# Switch to a tag / crates.io publish once the crate stabilises
+# (post-1.0 or after MeedyaSuite-core formalises its release
+# cadence).
+meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main" }
+
 # ---- Credential encryption for .meedyabundle (#876 P4) ----
 
 # aes-gcm -- AES-256-GCM authenticated encryption. Used to encrypt

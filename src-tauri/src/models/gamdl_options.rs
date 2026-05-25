@@ -1619,15 +1619,14 @@ mod tests {
     // pattern as the `gamdl_capabilities` module's own tests).
     // ----------------------------------------------------------
 
-    /// Shared lock for `playlist_folder_template` tests — see
-    /// `gamdl_capabilities::tests::TEST_LOCK` for the pattern.
-    static PLAYLIST_TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Note: tests below now use the cross-module
+    // `capability_cache_test_lock` from `gamdl_capabilities`
+    // so they serialise against EVERY other test that mutates
+    // the version cache, not just the playlist-template ones.
 
     #[test]
     fn playlist_folder_template_emitted_on_v30_plus() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(Some("3.0".to_string()));
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
@@ -1641,9 +1640,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_suppressed_on_v29x() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(Some("2.9.3".to_string()));
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
@@ -1659,9 +1656,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_suppressed_when_version_unknown() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(None);
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),

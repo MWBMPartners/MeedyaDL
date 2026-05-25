@@ -3290,8 +3290,21 @@ version = "0.1.0"
 source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
 dependencies = [
  "meedya-codecs",
- "meedya-fingerprint",
+ "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94)",
  "meedya-metadata",
+]
+
+[[package]]
+name = "meedya-fingerprint"
+version = "0.1.0"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main#0d2663631cbee0fb4148ffdbf9420249ed312e4a"
+dependencies = [
+ "log",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -3351,6 +3364,7 @@ dependencies = [
  "lofty",
  "log",
  "meedya-core",
+ "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main)",
  "mp4ameta",
  "pbkdf2",
  "rand 0.8.6",
