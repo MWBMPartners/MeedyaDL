@@ -1418,6 +1418,74 @@ export function exportProfile(
   return invoke<ExportProfileResult>('export_profile', { options });
 }
 
+/**
+ * Summary returned by `peekProfileBundle` — what the bundle
+ * contains, surfaced to the import wizard before the user confirms.
+ */
+export interface ProfileBundleSummary {
+  bundle_version: number;
+  meedyadl_version: string;
+  platform: string;
+  exported_at: string;
+  exported_by: string | null;
+  note: string | null;
+  sections: string[];
+  source_path: string;
+}
+
+/**
+ * Inspect a `.meedyabundle` without extracting anything (#876 P3).
+ * Pass `null`/omit to open a native file picker; pass an absolute
+ * path to skip the picker (used by P5's first-launch auto-detect).
+ */
+export function peekProfileBundle(
+  path?: string | null,
+): Promise<ProfileBundleSummary> {
+  return invoke<ProfileBundleSummary>('peek_profile_bundle', {
+    path: path ?? null,
+  });
+}
+
+/** Per-section conflict action: skip the existing file or replace it. */
+export type ImportConflictAction = 'skip' | 'replace';
+
+/** Options for `importProfile`. Source path is required (typically
+ *  threaded from a prior `peekProfileBundle` call). */
+export interface ImportProfileOptions {
+  source_path: string;
+  settings?: ImportConflictAction;
+  queue?: ImportConflictAction;
+  history?: ImportConflictAction;
+  database?: ImportConflictAction;
+  activity_log?: ImportConflictAction;
+  manifests?: ImportConflictAction;
+  credentials?: ImportConflictAction;
+}
+
+/** Result returned by `importProfile`. */
+export interface ImportProfileResult {
+  settings_restored: boolean;
+  queue_restored: boolean;
+  history_restored: boolean;
+  database_restored: boolean;
+  activity_log_files_restored: number;
+  manifests_restored: number;
+  credentials_skipped_p4: boolean;
+}
+
+/**
+ * Restore selected sections from a `.meedyabundle` (#876 P3).
+ * The user picks per-section conflict actions in the import
+ * wizard before invoking this. The caller should encourage a
+ * restart afterwards because background tasks (queue processor,
+ * activity-log writer) hold the affected files open.
+ */
+export function importProfile(
+  options: ImportProfileOptions,
+): Promise<ImportProfileResult> {
+  return invoke<ImportProfileResult>('import_profile', { options });
+}
+
 // ============================================================
 // Credential Commands
 // ============================================================

@@ -344,6 +344,31 @@ impl BundleReader {
         Ok(Some(buf))
     }
 
+    /// Enumerate every archive entry whose name starts with
+    /// `prefix`. Returns the FULL entry names (including the prefix)
+    /// so callers can pass them straight back to
+    /// [`read_entry`]. Used by `import_profile` (#876 P3) to walk the
+    /// `activity_log/` and `manifests/` sub-trees one entry at a
+    /// time. Cheap — only the central directory is consulted, no
+    /// file payloads are decompressed.
+    pub fn file_names_starting_with(
+        &self,
+        prefix: &str,
+    ) -> Result<Vec<String>, BundleError> {
+        let mut out = Vec::new();
+        for i in 0..self.archive.len() {
+            // Read-only access to entry names doesn't need a mutable
+            // archive borrow in zip 2.x — we go through the central
+            // directory via `file_names`.
+            if let Some(name) = self.archive.file_names().nth(i) {
+                if name.starts_with(prefix) {
+                    out.push(name.to_string());
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Extract the embedded SQLite database to `target_path`,
     /// overwriting any existing file at that location (#875 M5).
     ///
@@ -524,6 +549,30 @@ mod tests {
         let written = reader.extract_database_to(&target).unwrap();
         assert!(!written, "no Database section means no write");
         assert!(!target.exists(), "target file must not be created");
+    }
+
+    #[test]
+    fn file_names_starting_with_returns_matching_entries() {
+        // The P3 helper relied on by import_profile when restoring
+        // activity_log/ and manifests/ sub-trees.
+        let mut writer = BundleWriter::new(BundleMeta::new_for_export("test"));
+        writer.add_settings(b"{}".to_vec(), "00".to_string());
+        writer.add_optional_file("activity_log/activity-2026-05-20.log", b"a".to_vec());
+        writer.add_optional_file("activity_log/activity-2026-05-21.log", b"b".to_vec());
+        writer.add_optional_file("manifests/Artist/Album/manifest.meedyadl", b"c".to_vec());
+        writer.declare_section(BundleSection::ActivityLog);
+        writer.declare_section(BundleSection::Manifests);
+        let bytes = writer.finalize_to_bytes().unwrap();
+        let reader = BundleReader::from_bytes(bytes).unwrap();
+
+        let logs = reader.file_names_starting_with("activity_log/").unwrap();
+        assert_eq!(logs.len(), 2);
+        assert!(logs.iter().any(|n| n.ends_with("activity-2026-05-20.log")));
+        assert!(logs.iter().any(|n| n.ends_with("activity-2026-05-21.log")));
+
+        let mans = reader.file_names_starting_with("manifests/").unwrap();
+        assert_eq!(mans.len(), 1);
+        assert_eq!(mans[0], "manifests/Artist/Album/manifest.meedyadl");
     }
 
     #[test]
