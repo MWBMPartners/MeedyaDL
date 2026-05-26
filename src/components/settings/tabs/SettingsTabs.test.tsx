@@ -97,6 +97,20 @@ vi.mock('@/lib/tauri-commands', () => ({
   deleteCrashReport: vi.fn().mockResolvedValue(undefined),
   deleteAllCrashReports: vi.fn().mockResolvedValue(undefined),
   getGithubIssueUrl: vi.fn().mockResolvedValue(''),
+  // #887: AdvancedTab calls `getGamdlCapabilities()` on mount to decide
+  // whether to show the wrapper-m3u8 input and the FFmpeg-path field.
+  // Return a stub with every capability `false` so the test renders the
+  // post-3.6 layout — none of the tests assert against the gated rows.
+  getGamdlCapabilities: vi.fn().mockResolvedValue({
+    wrapper_v2: false,
+    native_muxing: false,
+    aac_web_codec_rename: false,
+    music_video_remux_mode: false,
+    wrapper_m3u8_ip: false,
+    playlist_folder_template: false,
+    native_codec_priority: false,
+    ffmpeg_path: false,
+  }),
 }));
 
 /**
