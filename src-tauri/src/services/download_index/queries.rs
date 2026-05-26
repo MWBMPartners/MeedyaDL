@@ -465,7 +465,7 @@ mod tests {
         let db = temp_db();
         // Insert 3 known tracks; 1 of them is also in `downloads` so it's NOT a gap.
         {
-            let mut idx = DownloadIndex::open(&db).unwrap();
+            let idx = DownloadIndex::open(&db).unwrap();
             // Mark track A as already downloaded (by ISRC).
             idx.conn()
                 .execute(

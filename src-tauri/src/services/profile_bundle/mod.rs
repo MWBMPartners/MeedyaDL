@@ -698,8 +698,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let src_db = tmp.path().join("source.db");
         {
-            let mut idx =
-                crate::services::download_index::DownloadIndex::open(&src_db).unwrap();
+            let idx = crate::services::download_index::DownloadIndex::open(&src_db).unwrap();
             idx.conn()
                 .execute(
                     "INSERT INTO downloads (service, service_url, codec, downloaded_at) VALUES ('apple_music', 'https://m.apple.com/a/1', 'alac', '2026-05-25T00:00:00Z')",
