@@ -405,14 +405,13 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 # (post-1.0 or after MeedyaSuite-core formalises its release
 # cadence).
 # Both `meedya-fingerprint` (#353 Phase 3) and `meedya-lyrics` (#596)
-# come from the SAME combined upstream PR (MeedyaSuite-core#37) — the
-# two original split PRs (#35 chromaprint + #36 lyricsfile) failed the
-# upstream `cargo fmt --all -- --check` step. Both got rebased onto
-# current main, fmt-cleaned, and combined into one branch.
-#
-# Flip both to `branch = "main"` in a follow-up commit once #37 merges.
-meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-596-meedya-fingerprint-and-lyrics", features = ["chromaprint"] }
-meedya-lyrics      = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-596-meedya-fingerprint-and-lyrics" }
+# now live on upstream `main` after MeedyaSuite-core#37 merged.
+# `chromaprint` feature on meedya-fingerprint pulls in pure-Rust
+# rusty-chromaprint + symphonia so MeedyaDL no longer carries those
+# direct deps locally — see #353 Phase 3 commit `19d7f2e6` for the
+# swap and `52983b35`/`<this commit>` for the dep retargets.
+meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main", features = ["chromaprint"] }
+meedya-lyrics      = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main" }
 
 # ---- Credential encryption for .meedyabundle (#876 P4) ----
 
