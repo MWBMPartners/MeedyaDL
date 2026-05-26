@@ -404,17 +404,15 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 # Switch to a tag / crates.io publish once the crate stabilises
 # (post-1.0 or after MeedyaSuite-core formalises its release
 # cadence).
-meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-chromaprint-feature-flag", features = ["chromaprint"] }
-
-# meedya-lyrics -- Shared Lyricsfile (`.lyrics`) YAML format + TTML/LRC
-# converters from MeedyaSuite-core (#596). The Lyricsfile module is
-# the path MeedyaDL exercises during enrichment Step 2g: TTML emitted
-# by GAMDL gets converted to a `.lyrics` sidecar via
-# `meedya_lyrics::Lyricsfile::from_ttml(...).to_yaml()`. Pinned to the
-# feature branch `feat/596-lyricsfile-yaml-format` until
-# MeedyaSuite-core#34 merges to main, at which point this flips back
-# to `branch = "main"`.
-meedya-lyrics = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/596-lyricsfile-yaml-format" }
+# Both `meedya-fingerprint` (#353 Phase 3) and `meedya-lyrics` (#596)
+# come from the SAME combined upstream PR (MeedyaSuite-core#37) — the
+# two original split PRs (#35 chromaprint + #36 lyricsfile) failed the
+# upstream `cargo fmt --all -- --check` step. Both got rebased onto
+# current main, fmt-cleaned, and combined into one branch.
+#
+# Flip both to `branch = "main"` in a follow-up commit once #37 merges.
+meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-596-meedya-fingerprint-and-lyrics", features = ["chromaprint"] }
+meedya-lyrics      = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "feat/353-596-meedya-fingerprint-and-lyrics" }
 
 # ---- Credential encryption for .meedyabundle (#876 P4) ----
 

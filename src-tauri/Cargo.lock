@@ -3288,7 +3288,7 @@ dependencies = [
 [[package]]
 name = "meedya-codecs"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format#1759cdc3d553ef80bf6fda4b1e77090a694726ca"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics#021fc6205a7f170456810ec44742ecd8044cf135"
 dependencies = [
  "serde",
  "serde_json",
@@ -3327,7 +3327,7 @@ dependencies = [
 [[package]]
 name = "meedya-fingerprint"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-chromaprint-feature-flag#05f4774ec27b6313314f97a2c462e040a16f92e9"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics#021fc6205a7f170456810ec44742ecd8044cf135"
 dependencies = [
  "base64 0.22.1",
  "log",
@@ -3336,19 +3336,6 @@ dependencies = [
  "serde",
  "serde_json",
  "symphonia",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
-name = "meedya-fingerprint"
-version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format#1759cdc3d553ef80bf6fda4b1e77090a694726ca"
-dependencies = [
- "log",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -3376,11 +3363,11 @@ dependencies = [
 [[package]]
 name = "meedya-lyrics"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format#1759cdc3d553ef80bf6fda4b1e77090a694726ca"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics#021fc6205a7f170456810ec44742ecd8044cf135"
 dependencies = [
  "async-trait",
  "lofty",
- "meedya-metadata 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format)",
+ "meedya-metadata 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics)",
  "quick-xml 0.36.2",
  "reqwest 0.12.28",
  "serde",
@@ -3391,12 +3378,12 @@ dependencies = [
 [[package]]
 name = "meedya-metadata"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format#1759cdc3d553ef80bf6fda4b1e77090a694726ca"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics#021fc6205a7f170456810ec44742ecd8044cf135"
 dependencies = [
  "lofty",
  "log",
- "meedya-codecs 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format)",
- "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F596-lyricsfile-yaml-format)",
+ "meedya-codecs 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics)",
+ "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics)",
  "mp4ameta",
  "serde",
  "serde_json",
@@ -3441,7 +3428,7 @@ dependencies = [
  "lofty",
  "log",
  "meedya-core",
- "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-chromaprint-feature-flag)",
+ "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=feat%2F353-596-meedya-fingerprint-and-lyrics)",
  "meedya-lyrics",
  "mp4ameta",
  "pbkdf2",
