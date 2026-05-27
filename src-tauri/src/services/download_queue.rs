@@ -1285,7 +1285,19 @@ fn write_manifest(
 /// `Cover.raw`. The `cover_art_name` setting controls what the file should be
 /// renamed to (e.g., `FrontCover`, `Folder`, or kept as `Cover`).
 ///
-/// Idempotent: skips if target already exists or source `Cover.<ext>` is absent.
+/// ## Three branches (per source/target file presence)
+///
+/// 1. **`Cover.<ext>` exists, `<stem>.<ext>` absent** → rename source → target.
+///    The standard happy path. Atomic via `fs::rename`.
+/// 2. **`Cover.<ext>` exists AND `<stem>.<ext>` exists** → **delete source**
+///    (#892). This happens when a companion download (or any second GAMDL
+///    invocation against the same album folder) writes a fresh `Cover.<ext>`
+///    AFTER the primary's rename already produced `<stem>.<ext>`. The two
+///    files come from the same Apple Music album URL so the bytes are
+///    identical; keeping both wastes disk space and confuses media players
+///    that prefer specific cover stems. The user's explicit choice of
+///    `cover_art_name` is the source of truth — the renamed file wins.
+/// 3. **`Cover.<ext>` absent** → no-op (whether `<stem>.<ext>` exists or not).
 fn rename_cover_art(album_dir: &str, target_stem: &str) {
     // If the user wants to keep the default "Cover" name, nothing to do
     if target_stem == "Cover" {
@@ -1301,19 +1313,44 @@ fn rename_cover_art(album_dir: &str, target_stem: &str) {
         let old_name = dir.join(format!("Cover.{ext}"));
         let new_name = dir.join(format!("{target_stem}.{ext}"));
 
-        if old_name.exists() && !new_name.exists() {
-            match std::fs::rename(&old_name, &new_name) {
+        if !old_name.exists() {
+            // Branch 3 — nothing to rename.
+            continue;
+        }
+
+        if new_name.exists() {
+            // Branch 2 (#892) — both files present. Companion downloads
+            // produce a fresh Cover.<ext> after the primary's rename
+            // already produced <stem>.<ext>. Delete the duplicate.
+            match std::fs::remove_file(&old_name) {
                 Ok(()) => {
                     log::info!(
-                        "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
+                        "Cleaned up duplicate Cover.{ext} (kept user-configured {target_stem}.{ext}) in {} — #892",
                         dir.display()
                     );
                 }
                 Err(e) => {
                     log::warn!(
-                        "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
+                        "Failed to clean up duplicate Cover.{ext} in {}: {e}",
+                        dir.display()
                     );
                 }
+            }
+            continue;
+        }
+
+        // Branch 1 — happy path rename.
+        match std::fs::rename(&old_name, &new_name) {
+            Ok(()) => {
+                log::info!(
+                    "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
+                    dir.display()
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
+                );
             }
         }
     }
@@ -15526,15 +15563,91 @@ mod tests {
         assert!(dir.path().join("Cover.jpg").exists());
     }
 
+    /// Pre-#892: when BOTH the source (`Cover.jpg`, freshly written by
+    /// e.g. a companion GAMDL invocation) AND the target
+    /// (`FrontCover.jpg`, from a prior primary rename) exist, the
+    /// behaviour was "leave both on disk, target untouched" — which
+    /// turned out to be a duplication bug: the album folder kept two
+    /// copies of the same cover.
+    ///
+    /// Post-#892: the target is preserved verbatim AND the source is
+    /// deleted. Same end-state for the user (one cover file under
+    /// their configured stem), no wasted disk space, no media-player
+    /// ambiguity about which stem to load.
     #[test]
-    fn rename_cover_art_idempotent() {
+    fn rename_cover_art_deletes_duplicate_source_when_target_exists() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("FrontCover.jpg"), b"existing").unwrap();
-        std::fs::write(dir.path().join("Cover.jpg"), b"old").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"duplicate-from-companion").unwrap();
         rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
-        // FrontCover.jpg should keep existing content (not overwritten)
+
+        // Target preserved verbatim — never overwritten with the
+        // companion's bytes (they're identical at Apple's URL anyway,
+        // but the contract is "user-configured stem is source of truth").
         let content = std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap();
         assert_eq!(content, "existing");
+
+        // Source `Cover.jpg` cleaned up — no more duplicate on disk.
+        assert!(
+            !dir.path().join("Cover.jpg").exists(),
+            "Cover.jpg must be deleted when FrontCover.jpg already exists (#892)"
+        );
+    }
+
+    /// #892 specific repro: simulates the exact sequence the user
+    /// reported. Primary rename runs (Cover.jpg → FrontCover.jpg),
+    /// then a companion writes a new Cover.jpg, then companion's
+    /// rename_cover_art runs. End state must be one cover file, not two.
+    #[test]
+    fn rename_cover_art_handles_companion_double_write_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Step 1 — primary GAMDL just finished, writes Cover.jpg
+        std::fs::write(dir.path().join("Cover.jpg"), b"primary-cover").unwrap();
+        // Step 2 — MeedyaDL enrichment renames it
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(!dir.path().join("Cover.jpg").exists());
+
+        // Step 3 — companion GAMDL runs, writes a fresh Cover.jpg
+        // (companion doesn't know about FrontCover.jpg)
+        std::fs::write(dir.path().join("Cover.jpg"), b"companion-cover").unwrap();
+
+        // Step 4 — companion's post-download rename
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+
+        // Final state: ONE cover file, not two.
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(
+            !dir.path().join("Cover.jpg").exists(),
+            "Duplicate Cover.jpg from companion must be cleaned up (#892)"
+        );
+    }
+
+    /// Multi-extension safety: each (jpg/png/raw) variant is handled
+    /// independently. A duplicate `Cover.jpg` with an existing
+    /// `FrontCover.jpg` must be cleaned up WITHOUT disturbing an
+    /// unrelated `Cover.png` (which has no `FrontCover.png` peer and
+    /// should follow the normal rename branch).
+    #[test]
+    fn rename_cover_art_multi_extension_independence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("Cover.png"), b"png-no-target").unwrap();
+
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+
+        // jpg: duplicate cleanup
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap(),
+            "keep"
+        );
+        assert!(!dir.path().join("Cover.jpg").exists());
+
+        // png: normal rename happens — Cover.png renamed → FrontCover.png
+        assert!(dir.path().join("FrontCover.png").exists());
+        assert!(!dir.path().join("Cover.png").exists());
     }
 
     // ============================================================
