@@ -1500,6 +1500,15 @@ pub struct DownloadQueue {
     /// cleared on consumption so the next legitimate queue-drain still runs
     /// the configured post-queue action.
     recently_aborted: bool,
+    /// **Non-destructive pause flag** (#889). When `true`, [`Self::next_pending`]
+    /// returns `None` even if there are items in `Queued` state and a slot
+    /// is free — effectively freezing the scheduler. Currently
+    /// `Downloading` / `Processing` items continue to completion and never
+    /// see this flag; only fresh-item scheduling is gated. Distinct from
+    /// [`Self::abort_all`] (which is destructive) and from the
+    /// `auto_start_queue` setting (which controls whether newly-added
+    /// items kick off processing).
+    paused: bool,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -1597,6 +1606,7 @@ impl DownloadQueue {
             gamdl_version: None,
             last_preflight_at: None,
             recently_aborted: false,
+            paused: false,
         }
     }
 
@@ -2013,6 +2023,52 @@ impl DownloadQueue {
         let was_aborted = self.recently_aborted;
         self.recently_aborted = false;
         was_aborted
+    }
+
+    /// Pauses the queue scheduler — **non-destructive** (#889).
+    ///
+    /// While paused, [`Self::next_pending`] refuses to start any new
+    /// item. Currently `Downloading` / `Processing` items are
+    /// untouched and run to completion (the pause flag is only
+    /// checked at the *start-new-item* gate, not inside the per-item
+    /// task). Resume with [`Self::resume`].
+    ///
+    /// Idempotent: calling `pause()` when already paused is a no-op
+    /// and returns the previous state, so the caller can tell whether
+    /// the call actually changed anything.
+    ///
+    /// # Returns
+    /// `true` if the queue was already paused before this call,
+    /// `false` if this call transitioned `running → paused`.
+    pub fn pause(&mut self) -> bool {
+        let was_paused = self.paused;
+        self.paused = true;
+        was_paused
+    }
+
+    /// Resumes the queue scheduler (#889). Items in `Queued` state
+    /// become eligible to start on the next [`Self::next_pending`]
+    /// call (i.e. the next `process_queue` iteration). The caller is
+    /// expected to invoke `process_queue` after `resume` to kick the
+    /// scheduler — `resume` itself does not start any item.
+    ///
+    /// Idempotent: calling `resume()` when already running is a no-op
+    /// and returns the previous state.
+    ///
+    /// # Returns
+    /// `true` if the queue was paused before this call (i.e. this
+    /// call transitioned `paused → running`), `false` otherwise.
+    pub fn resume(&mut self) -> bool {
+        let was_paused = self.paused;
+        self.paused = false;
+        was_paused
+    }
+
+    /// Returns `true` when [`Self::pause`] has been called without a
+    /// subsequent [`Self::resume`] (#889).
+    #[must_use]
+    pub const fn is_paused(&self) -> bool {
+        self.paused
     }
 
     /// Updates the state of a queue item.
@@ -2677,6 +2733,16 @@ impl DownloadQueue {
     /// and the active count is incremented. The caller (`process_queue`) must
     /// eventually call `on_task_finished()` when the download completes.
     pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions, Option<String>)> {
+        // #889 — Non-destructive pause. When the user has explicitly
+        // paused the queue, refuse to start any new item. Items
+        // currently in `Downloading` / `Processing` state are
+        // unaffected (their tasks already have their slot) — they
+        // run to completion. Only the scheduler is gated. The user
+        // resumes via `Self::resume()` (Tauri IPC `resume_queue`).
+        if self.paused {
+            return None;
+        }
+
         // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
             return None;
@@ -13407,6 +13473,131 @@ mod tests {
             dl_id, ids[2],
             "Should return the first Queued item, skipping terminal items"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // #889 — Pause / Resume Queue (non-destructive scheduler stop)
+    // -----------------------------------------------------------------
+
+    /// `pause()` flips the scheduler-paused flag. `next_pending()` then
+    /// refuses to pull new items even if there are Queued ones and a
+    /// slot is free.
+    #[test]
+    fn pause_blocks_next_pending_from_pulling_new_item() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 3);
+
+        // Sanity: pulling works before pause.
+        assert!(
+            queue.next_pending().is_some(),
+            "next_pending should return a queued item before pause"
+        );
+        // Release the slot so the next assertion can isolate pause from
+        // the concurrent-limit gate.
+        queue.on_task_finished();
+
+        let was_paused = queue.pause();
+        assert!(!was_paused, "First pause should transition running → paused");
+        assert!(queue.is_paused(), "is_paused must reflect the pause call");
+
+        assert!(
+            queue.next_pending().is_none(),
+            "next_pending must return None while the queue is paused"
+        );
+    }
+
+    /// `resume()` flips the flag back. `next_pending()` then returns
+    /// queued items again.
+    #[test]
+    fn resume_unblocks_next_pending() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 1);
+
+        queue.pause();
+        assert!(queue.next_pending().is_none(), "paused queue blocks pull");
+
+        let was_paused = queue.resume();
+        assert!(was_paused, "Resume should transition paused → running");
+        assert!(!queue.is_paused(), "is_paused must clear after resume");
+
+        assert!(
+            queue.next_pending().is_some(),
+            "Resumed queue must allow next_pending to pull"
+        );
+    }
+
+    /// pause()/resume() are idempotent — calling twice in the same
+    /// direction returns the previous state but doesn't toggle.
+    #[test]
+    fn pause_and_resume_are_idempotent() {
+        let mut queue = DownloadQueue::new();
+
+        // First pause: was running, transitions to paused. Returns
+        // previous state (false = was not paused).
+        assert!(!queue.pause());
+        // Second pause: already paused; no transition. Returns
+        // previous state (true = was paused).
+        assert!(queue.pause());
+        assert!(queue.is_paused(), "Still paused after second pause()");
+
+        // First resume: was paused, transitions to running. Returns
+        // previous state (true = was paused).
+        assert!(queue.resume());
+        // Second resume: already running; no transition. Returns
+        // previous state (false = was not paused).
+        assert!(!queue.resume());
+        assert!(!queue.is_paused(), "Still running after second resume()");
+    }
+
+    /// Pause must NOT cancel or alter items already in flight. The
+    /// flag only gates the start-new-item path — items currently in
+    /// `Downloading` / `Processing` are untouched and keep running.
+    #[test]
+    fn pause_does_not_change_state_of_running_items() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 2);
+
+        // Pull the first item — it transitions to Downloading.
+        let pulled = queue.next_pending();
+        assert!(pulled.is_some());
+        let (running_id, _, _, _) = pulled.unwrap();
+
+        let before_state = queue
+            .get_status()
+            .iter()
+            .find(|i| i.id == running_id)
+            .map(|i| i.state.clone())
+            .expect("running item must exist");
+        assert_eq!(before_state, DownloadState::Downloading);
+
+        // Pause the queue.
+        queue.pause();
+
+        // The already-running item is unchanged.
+        let after_state = queue
+            .get_status()
+            .iter()
+            .find(|i| i.id == running_id)
+            .map(|i| i.state.clone())
+            .expect("running item must still exist after pause");
+        assert_eq!(
+            after_state,
+            DownloadState::Downloading,
+            "pause() must not cancel or transition items already in flight"
+        );
+    }
+
+    /// `is_paused()` reflects the current state without side effects —
+    /// it must NOT consume the flag the way `take_recently_aborted` does.
+    #[test]
+    fn is_paused_is_a_pure_read() {
+        let mut queue = DownloadQueue::new();
+        queue.pause();
+
+        // Reading three times in a row should return true each time.
+        assert!(queue.is_paused());
+        assert!(queue.is_paused());
+        assert!(queue.is_paused());
     }
 
     /// Verifies that next_pending() returns the merged GamdlOptions for the item.

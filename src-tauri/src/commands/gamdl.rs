@@ -1635,6 +1635,105 @@ pub async fn abort_all_downloads(
     Ok(summary)
 }
 
+/// Pauses the queue scheduler — **non-destructive** (#889).
+///
+/// While paused, no new items are pulled from the `Queued` pool — but
+/// items currently `Downloading` / `Processing` continue to
+/// completion (the pause flag only gates the start-new-item path).
+/// The user can [`resume_queue`] at any time to start pulling items
+/// again.
+///
+/// This is distinct from [`abort_all_downloads`] (#620), which is
+/// destructive and cancels every non-terminal item. Pause is the
+/// "I'm about to put my laptop to sleep" affordance; abort is
+/// "throw this all away".
+///
+/// **Frontend caller:** `pauseQueue()` in `src/lib/tauri-commands.ts`.
+///
+/// # Returns
+/// `true` if the queue was already paused before this call,
+/// `false` if the call transitioned `running → paused`.
+///
+/// # Events Emitted
+/// * `"queue-paused-changed"` — payload: `bool` (the new `is_paused`
+///   state) — frontend updates its button label / disabled-state in
+///   response.
+#[tauri::command]
+pub async fn pause_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<bool, String> {
+    let was_paused = {
+        let mut q = queue.lock().await;
+        q.pause()
+    };
+    if !was_paused {
+        emit_app_log(
+            &app,
+            "Queue paused — running items will complete; no new items will start.",
+        );
+        let _ = app.emit("queue-paused-changed", true);
+    }
+    Ok(was_paused)
+}
+
+/// Resumes the queue scheduler after a [`pause_queue`] (#889).
+///
+/// Items in `Queued` state become eligible to start on the next
+/// `process_queue` iteration. This function kicks `process_queue`
+/// itself before returning so the user doesn't have to wait for
+/// some other event (a completion, a startup tick) to nudge the
+/// scheduler.
+///
+/// Idempotent — calling `resume_queue` when the queue is already
+/// running is a no-op.
+///
+/// **Frontend caller:** `resumeQueue()` in `src/lib/tauri-commands.ts`.
+///
+/// # Returns
+/// `true` if the queue was paused before this call (i.e. the call
+/// transitioned `paused → running`), `false` if it was already
+/// running.
+///
+/// # Events Emitted
+/// * `"queue-paused-changed"` — payload: `bool` — same shape as
+///   `pause_queue`.
+#[tauri::command]
+pub async fn resume_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<bool, String> {
+    let was_paused = {
+        let mut q = queue.lock().await;
+        q.resume()
+    };
+    if was_paused {
+        emit_app_log(&app, "Queue resumed — pulling next item.");
+        let _ = app.emit("queue-paused-changed", false);
+        // Kick the scheduler so the user doesn't have to wait for an
+        // unrelated event to nudge it. Fire-and-forget — the actual
+        // download spawn happens inside `process_queue`.
+        let app_clone = app.clone();
+        let queue_handle = queue.inner().clone();
+        tokio::spawn(async move {
+            download_queue::process_queue(app_clone, queue_handle).await;
+        });
+    }
+    Ok(was_paused)
+}
+
+/// Returns `true` when the queue scheduler is paused (#889).
+///
+/// **Frontend caller:** `isQueuePaused()` in `src/lib/tauri-commands.ts`.
+/// Used on app startup to populate the initial Pause/Resume button
+/// state — after that, the frontend listens to the
+/// `queue-paused-changed` event for updates.
+#[tauri::command]
+pub async fn is_queue_paused(queue: State<'_, QueueHandle>) -> Result<bool, String> {
+    let q = queue.lock().await;
+    Ok(q.is_paused())
+}
+
 /// Returns the current status of all items in the download queue.
 ///
 /// **Frontend caller:** `getQueueStatus()` in `src/lib/tauri-commands.ts`

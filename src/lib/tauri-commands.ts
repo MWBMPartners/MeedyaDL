@@ -756,6 +756,55 @@ export function abortAllDownloads(): Promise<AbortSummary> {
 }
 
 /**
+ * Pauses the queue scheduler — **non-destructive** (#889).
+ *
+ * Distinct from {@link abortAllDownloads}, which is destructive. Pause
+ * just stops the scheduler from pulling new items: anything currently
+ * `Downloading` / `Processing` runs to completion, anything still
+ * `Queued` waits where it is. Resume picks up where it left off.
+ *
+ * Rust handler: `pause_queue()` in `src-tauri/src/commands/gamdl.rs`.
+ * Emits a `queue-paused-changed` event carrying the new boolean state.
+ *
+ * @returns `true` if the queue was already paused (no-op), `false` if
+ *   the call transitioned running → paused.
+ */
+export function pauseQueue(): Promise<boolean> {
+  return invoke<boolean>('pause_queue');
+}
+
+/**
+ * Resumes the queue scheduler after {@link pauseQueue} (#889).
+ *
+ * Items in `Queued` state become eligible to start on the next
+ * `process_queue` iteration. The backend kicks the scheduler before
+ * returning, so a download starts immediately if there's a queued
+ * item waiting.
+ *
+ * Rust handler: `resume_queue()` in `src-tauri/src/commands/gamdl.rs`.
+ * Emits a `queue-paused-changed` event carrying the new boolean state.
+ *
+ * @returns `true` if the queue was paused before the call (the call
+ *   transitioned paused → running), `false` if it was already running.
+ */
+export function resumeQueue(): Promise<boolean> {
+  return invoke<boolean>('resume_queue');
+}
+
+/**
+ * Returns whether the queue scheduler is currently paused (#889).
+ *
+ * Used on app startup to populate the initial Pause/Resume button
+ * state. After startup the frontend listens to the
+ * `queue-paused-changed` event for updates rather than polling.
+ *
+ * Rust handler: `is_queue_paused()` in `src-tauri/src/commands/gamdl.rs`.
+ */
+export function isQueuePaused(): Promise<boolean> {
+  return invoke<boolean>('is_queue_paused');
+}
+
+/**
  * Retries a failed or cancelled download.
  *
  * Rust handler: `retry_download()` in `src-tauri/src/commands/download.rs`

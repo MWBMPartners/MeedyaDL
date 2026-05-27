@@ -1162,6 +1162,10 @@ pub fn run() {
             commands::gamdl::clear_all_queue,
             commands::gamdl::delete_queue_item,
             commands::gamdl::abort_all_downloads,
+            // Non-destructive pause/resume scheduler controls (#889).
+            commands::gamdl::pause_queue,
+            commands::gamdl::resume_queue,
+            commands::gamdl::is_queue_paused,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
             // Queue export/import commands
