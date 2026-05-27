@@ -1356,6 +1356,58 @@ fn rename_cover_art(album_dir: &str, target_stem: &str) {
     }
 }
 
+/// Retroactive cleanup pass for the `Cover.<ext>` + `<stem>.<ext>`
+/// duplication bug (#892) on **existing** libraries.
+///
+/// Conservative complement to `rename_cover_art`: where the rename
+/// helper has three branches (rename / delete-duplicate / no-op),
+/// this helper has only the delete-duplicate branch. A lone
+/// `Cover.<ext>` is never touched — the user may have set up their
+/// library intentionally with the default stem, and the library-scan
+/// path should not silently rename their files.
+///
+/// Called from the library-scan path (`scan_folder_for_manifests`) so
+/// users who downloaded under the pre-#892 code reclaim the wasted
+/// disk space on their next scan.
+///
+/// # Returns
+/// Count of duplicate `Cover.<ext>` files removed from `album_dir`.
+pub(crate) fn cleanup_duplicate_cover_art(album_dir: &std::path::Path, target_stem: &str) -> usize {
+    // No-op when user hasn't configured a non-default stem — under
+    // the default `cover_art_name = Cover`, both files would have
+    // the same path anyway, no duplication possible.
+    if target_stem == "Cover" {
+        return 0;
+    }
+    if !album_dir.is_dir() {
+        return 0;
+    }
+
+    let mut cleaned = 0usize;
+    for ext in &["jpg", "png", "raw"] {
+        let cover = album_dir.join(format!("Cover.{ext}"));
+        let target = album_dir.join(format!("{target_stem}.{ext}"));
+        if cover.exists() && target.exists() {
+            match std::fs::remove_file(&cover) {
+                Ok(()) => {
+                    cleaned += 1;
+                    log::info!(
+                        "Cleaned duplicate Cover.{ext} (kept {target_stem}.{ext}) in {} — #892",
+                        album_dir.display()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to clean duplicate Cover.{ext} in {}: {e}",
+                        album_dir.display()
+                    );
+                }
+            }
+        }
+    }
+    cleaned
+}
+
 // ============================================================
 // Queue item (internal representation with extra tracking fields)
 // ============================================================
@@ -15622,6 +15674,84 @@ mod tests {
             !dir.path().join("Cover.jpg").exists(),
             "Duplicate Cover.jpg from companion must be cleaned up (#892)"
         );
+    }
+
+    // ============================================================
+    // cleanup_duplicate_cover_art tests (#892 retroactive cleanup)
+    //
+    // Library-scan calls this on existing albums. The contract:
+    // ONLY remove confirmed duplicates (both source + target
+    // exist). Never rename a lone Cover.<ext> — that would surprise
+    // users with existing libraries on the default Cover stem.
+    // ============================================================
+
+    #[test]
+    fn cleanup_duplicate_cover_art_removes_dupe_when_both_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 1);
+        assert!(!dir.path().join("Cover.jpg").exists());
+        assert!(dir.path().join("FrontCover.jpg").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_skips_lone_cover() {
+        // Critical safety property: if the user has a lone Cover.jpg
+        // (no FrontCover.jpg yet), we do NOT touch it. Their library
+        // may have been set up intentionally with the default stem.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"only").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 0);
+        assert!(
+            dir.path().join("Cover.jpg").exists(),
+            "Lone Cover.jpg must NOT be deleted by the cleanup pass"
+        );
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_no_op_when_target_stem_is_cover() {
+        // User on default `cover_art_name = Cover` — source and target
+        // are the same path; nothing to clean.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"data").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "Cover");
+        assert_eq!(removed, 0);
+        assert!(dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_handles_multiple_extensions() {
+        let dir = tempfile::tempdir().unwrap();
+        // Dupe jpg
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+        // Dupe png
+        std::fs::write(dir.path().join("Cover.png"), b"dup-png").unwrap();
+        std::fs::write(dir.path().join("FrontCover.png"), b"keep-png").unwrap();
+        // Lone raw — should NOT be cleaned
+        std::fs::write(dir.path().join("Cover.raw"), b"lone").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 2, "Should clean both jpg + png duplicates");
+        assert!(!dir.path().join("Cover.jpg").exists());
+        assert!(!dir.path().join("Cover.png").exists());
+        // Lone Cover.raw preserved
+        assert!(dir.path().join("Cover.raw").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_handles_nonexistent_dir() {
+        let removed = cleanup_duplicate_cover_art(
+            std::path::Path::new("/tmp/this/path/does/not/exist-for-892-test"),
+            "FrontCover",
+        );
+        assert_eq!(removed, 0);
     }
 
     /// Multi-extension safety: each (jpg/png/raw) variant is handled

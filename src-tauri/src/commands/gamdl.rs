@@ -2246,12 +2246,39 @@ pub async fn scan_folder_for_manifests(
         folder_path.display()
     );
 
+    // #892 retroactive cleanup: walk every discovered album folder and
+    // remove duplicate `Cover.<ext>` files left over from pre-#909d2c06
+    // downloads (the bug where companion downloads wrote a fresh
+    // `Cover.<ext>` after the primary's rename already produced
+    // `<stem>.<ext>`). This is a conservative pass — only deletes
+    // confirmed duplicates, never renames a lone `Cover.<ext>`.
+    let cover_stem = crate::services::config_service::load_settings(&app)
+        .ok()
+        .map(|s| s.cover_art_name.to_filename_stem().to_string())
+        .unwrap_or_else(|| "FrontCover".to_string());
+    let mut total_cleaned: usize = 0;
+    if cover_stem != "Cover" {
+        for manifest in &results {
+            let album_path = std::path::Path::new(&manifest.album_dir);
+            total_cleaned += crate::services::download_queue::cleanup_duplicate_cover_art(
+                album_path,
+                &cover_stem,
+            );
+        }
+    }
+
+    let cleanup_suffix = if total_cleaned > 0 {
+        format!(" — cleaned {total_cleaned} duplicate Cover.<ext> file(s) (#892)")
+    } else {
+        String::new()
+    };
+
     crate::utils::activity_log::emit_app_log(
         &app,
         &format!(
-            "Folder scan: found {} manifest(s) in {}",
+            "Folder scan: found {} manifest(s) in {}{cleanup_suffix}",
             results.len(),
-            folder_path.display()
+            folder_path.display(),
         ),
     );
 
