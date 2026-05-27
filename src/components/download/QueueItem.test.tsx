@@ -42,6 +42,7 @@ const noopHandlers = {
   onMoveDown: noop,
   onMoveToBottom: noop,
   onToggleSelect: noop,
+  onCopyUrl: noop,
 };
 
 /** Build an Error-state item with the supplied wrapper flag. */

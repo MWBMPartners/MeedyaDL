@@ -78,7 +78,7 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
 // `saveSettings` and `loadSettings` actions only (used by the setup
@@ -127,6 +127,16 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Crash report list sub-component with GitHub reporting functionality.
 import { CrashReportSection } from './CrashReportSection';
+
+// Wrapper-URL host classifier (#891 follow-up): surfaces a security
+// hint when the user points MeedyaDL at a non-loopback wrapper-v2
+// instance. Wrapper-v2 has no network-layer auth, so LAN/public
+// hosts deserve a tooltip note.
+import {
+  classifyWrapperUrl,
+  shouldShowSecurityHint,
+  type WrapperUrlClass,
+} from '@/lib/wrapper-url-classifier';
 
 /**
  * Download mode dropdown options.
@@ -188,6 +198,18 @@ export function AdvancedTab() {
   const wrapperM3u8Ip = useSettingsField('wrapper_m3u8_ip');
   const wrapperDecryptIp = useSettingsField('wrapper_decrypt_ip');
   const wrapperUrl = useSettingsField('wrapper_url');
+
+  /**
+   * Classify the current `wrapper_url` value (#891 follow-up) so we
+   * can render a security hint when the user is pointing MeedyaDL
+   * at a non-loopback wrapper instance. Wrapper-v2 has no
+   * network-layer auth, so a LAN-bound wrapper is reachable
+   * (and usable) by every device on the network.
+   */
+  const wrapperUrlClass = useMemo(
+    () => classifyWrapperUrl(wrapperUrl.value),
+    [wrapperUrl.value],
+  );
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
   const acoustidApiKey = useSettingsField('acoustid_api_key');
@@ -630,13 +652,18 @@ export function AdvancedTab() {
             />
             {gamdlCaps.wrapper_v2 ? (
               // GAMDL ≥ 3.6 — wrapper-v2 single HTTP endpoint (#853).
-              <Input
-                label="Wrapper URL"
-                description="Base URL of your locally-running wrapper-v2 daemon (default http://127.0.0.1, port 80 implied). The daemon exposes /health, /me, /playback, /decrypt, /login over HTTP. See Help > Wrapper for the Docker setup walkthrough — wrapper-v2 needs Docker on macOS/Windows."
-                value={wrapperUrl.value}
-                onChange={(e) => wrapperUrl.set(e.target.value)}
-                placeholder="http://127.0.0.1"
-              />
+              <>
+                <Input
+                  label="Wrapper URL"
+                  description="Base URL of your locally-running wrapper-v2 daemon (default http://127.0.0.1, port 80 implied). The daemon exposes /health, /me, /playback, /decrypt, /login over HTTP. See Help > Wrapper for the Docker setup walkthrough — wrapper-v2 needs Docker on macOS/Windows."
+                  value={wrapperUrl.value}
+                  onChange={(e) => wrapperUrl.set(e.target.value)}
+                  placeholder="http://127.0.0.1"
+                />
+                {shouldShowSecurityHint(wrapperUrlClass) && (
+                  <WrapperUrlSecurityHint kind={wrapperUrlClass} />
+                )}
+              </>
             ) : (
               // GAMDL ≤ 3.5.x — wrapper-v1 three sockets.
               <>
@@ -1456,6 +1483,48 @@ function DiagnosticBundleSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Inline security hint shown below the Wrapper URL input when the
+ * user has configured a non-loopback host (#891 follow-up).
+ *
+ * Wrapper-v2 has no network-layer authentication — any client that
+ * can reach its HTTP port can use it for FairPlay decryption. The
+ * hint's tone scales with the trust level of the configured host:
+ *
+ * - **`public`** — red error-ish styling. Pointing the wrapper at a
+ *   public IP / a non-`.local` DNS name is almost always a misconfig
+ *   (the user probably meant a LAN address).
+ * - **`private`** / **`hostname`** — amber note. LAN deployment is a
+ *   legitimate use case (Pi / NAS / home server) but the user should
+ *   know there's no auth, so any LAN device can use their wrapper.
+ *
+ * Renders nothing for `loopback` and `invalid` — those cases are
+ * handled by `shouldShowSecurityHint` returning `false`.
+ */
+function WrapperUrlSecurityHint({ kind }: { kind: WrapperUrlClass }) {
+  const isPublic = kind === 'public';
+  const wrapperClasses = isPublic
+    ? 'mt-2 p-3 rounded-platform border border-status-error/40 bg-status-error/5 text-xs text-status-error'
+    : 'mt-2 p-3 rounded-platform border border-status-warning/40 bg-status-warning/5 text-xs text-content-secondary';
+
+  const lead = isPublic
+    ? '⚠ This wrapper URL points at a public address.'
+    : kind === 'private'
+      ? 'ℹ Wrapper is on your LAN (private IP range).'
+      : 'ℹ Wrapper URL uses a DNS name — could be LAN or internet.';
+
+  const body = isPublic
+    ? 'Wrapper-v2 has no network-layer authentication, so exposing it on a public IP makes your Apple Music account usable by anyone who can reach the URL. Did you mean a LAN address (e.g. http://192.168.x.x)?'
+    : 'Wrapper-v2 has no network-layer authentication, so every device on the same network can use it for FairPlay decryption against your Apple Music account. This is fine on a trusted home network; be cautious on shared networks (coffee shop, dorm, work). See Help → Wrapper for mitigations.';
+
+  return (
+    <div className={wrapperClasses} role="note">
+      <div className="font-medium mb-1">{lead}</div>
+      <div>{body}</div>
     </div>
   );
 }
