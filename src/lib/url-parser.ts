@@ -181,6 +181,24 @@ function detectContentType(url: string): AppleMusicContentType {
       return 'album';
     }
 
+    /*
+     * Standalone song URLs: /song/{slug}/{id}
+     *
+     * This is the "single page" form Apple Music exposes when a user
+     * shares a song from outside the context of an album (e.g. via
+     * the share button on the standalone song page rather than
+     * "share this album with track selected"). It's a distinct path
+     * from /album/{id}?i={song_id} but resolves to the same song.
+     *
+     * The Rust backend handles both forms — `parse_apple_music_url()`
+     * in `apple_music_api.rs` has a dedicated regex for /song/{id},
+     * and GAMDL's own `VALID_URL_PATTERN` accepts it too. We just
+     * need to stop the frontend rejecting them at validation time.
+     */
+    if (path.includes('/song/')) {
+      return 'song';
+    }
+
     /* Playlists: /playlist/ path segment (may use `pl.` prefixed IDs) */
     if (path.includes('/playlist/')) {
       return 'playlist';
