@@ -1620,6 +1620,17 @@ export interface Toast {
   /** Auto-dismiss duration in milliseconds (optional, has defaults per type) */
   duration?: number;
   /**
+   * Absolute deadline (Unix ms, `Date.now()` units) after which the
+   * centralised dismissal worker removes this toast (#894). `null` means
+   * the toast is persistent — the user must dismiss it manually.
+   *
+   * Populated when the toast is added; not exposed to UI components
+   * (they just render the toast; the worker handles expiry). Required
+   * because the worker is event-loop-based rather than per-toast
+   * setTimeout closures.
+   */
+  expiresAt?: number | null;
+  /**
    * Optional deduplication/category key. When set:
    * - Only one toast per key can be on screen at a time (new replaces old).
    * - Toasts can be dismissed by key via `removeToastsByKey()`.
