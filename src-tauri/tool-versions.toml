@@ -323,7 +323,55 @@ minimum_version = "2.9.1"
 #   * Same zero-code-change admission shape as v3.3 / v3.5 / v3.5.1 /
 #     v3.5.2. Will bump `maximum_tested_version` to `3.7.1` in a
 #     one-line PR once upstream tags it.
-maximum_tested_version = "3.7"
+#
+# 3.7.1 audit (2026-05-24, full-codebase re-audit after upstream tagged
+# the release):
+#   * 17 commits between v3.7 and v3.7.1 — 13 are internal refactors
+#     (mp4.clear cleanup, SONG_CODEC_FLAVOR_MAP → MEDIA_CODEC_FLAVOR_MAP
+#     rename, MusicVideoCodec.fourcc → @property, 447-line streaming-
+#     decrypt refactor, yt-dlp HlsFD/HttpFD direct calls). All
+#     zero-MeedyaDL-surface-impact.
+#   * Two new RuntimeError strings ("yt-dlp HLS download failed" /
+#     "yt-dlp HTTP download failed") — added to MeedyaDL's
+#     `classify_error` network-category matcher.
+#   * v3.7.1 track-info log adds `-` placeholder for unknown total
+#     (`media_total or "-"`) — TRACK_INFO_V2_REGEX widened to accept
+#     `(\d+|-)` for the total slot; downstream parse-to-None path
+#     already handled non-numeric.
+#   * No new CLI flags / INI keys / wrapper-protocol changes / URL
+#     regex changes / metadata-tag changes.
+#
+# 3.7.2 + 3.7.3 audit (#898, 2026-05-28, audit doc at
+# `.github/audits/gamdl-v3.7.2-v3.7.3-audit.md`):
+#   * Both releases shipped the same day; 3 functional commits across
+#     the pair (~4 lines changed). Bug-fix-only pattern.
+#   * `817479d` `interface/music_video.py::get_tags`: music-video title /
+#     album tags swap to UNCENSORED names (`trackName` / `collectionName`)
+#     for the primary `\xa9nam` / `\xa9alb` atoms, with the censored
+#     variants moving to the standard sort-order atoms `sonm` / `soal`.
+#     MeedyaDL does not write either sort atom, so we don't collide.
+#     User-visible: MV filename templates using `{title}` / `{album}`
+#     produce uncensored filenames post-upgrade. Songs unaffected.
+#     Documentation only — no MeedyaDL code change.
+#   * `f54ab12` (3.7.2 songs) + `8398d9c` (3.7.3 music-videos): defensive
+#     `.get("playParams", {}).get("isLibrary")` access prevents bare
+#     `KeyError: 'playParams'` tracebacks. Affected items now reach the
+#     existing `is_media_streamable` check and raise the structured
+#     `GamdlInterfaceMediaNotStreamableError("Media is not streamable:
+#     <id>")` instead. The error class itself has existed since at
+#     least 3.5.2; what's new is that the message now surfaces
+#     reliably for content that's been removed, region-locked, or is
+#     library-only.
+#   * MeedyaDL change: new `is_media_not_streamable_error()` helper +
+#     dedicated `media_not_streamable` classifier bucket with
+#     actionable guidance, in `utils/process.rs`. Ordered before the
+#     generic `not_found` substring check so the specific guidance
+#     wins over the broader "content may be removed" message. 6 new
+#     unit tests cover matcher, classifier ordering, and guidance.
+#   * No new CLI flags / INI keys / wrapper-protocol changes / URL
+#     regex changes / `GamdlFeature` gate. Same zero-or-minimal-code-
+#     change admission shape as v3.3 / v3.5 / v3.5.1 / v3.5.2 / v3.7.1.
+maximum_tested_version = "3.7.3"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.7"
+recommended_version = "3.7.3"

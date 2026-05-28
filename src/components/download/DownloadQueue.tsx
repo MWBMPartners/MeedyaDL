@@ -51,7 +51,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
  * - `RefreshCw` -- manual refresh button (@see https://lucide.dev/icons/refresh-cw)
  * - `Trash2`    -- "Clear Finished" button (@see https://lucide.dev/icons/trash-2)
  */
-import { Download, Play, RefreshCw, RotateCcw, Search, Square, Trash2, Upload, X } from 'lucide-react';
+import {
+  Download,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Square,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
 
 /**
  * Zustand store hooks.
@@ -69,6 +80,9 @@ import {
   moveQueueItemUp,
   moveQueueItemDown,
   retryFailedBulk,
+  pauseQueue,
+  resumeQueue,
+  isQueuePaused,
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
@@ -233,6 +247,15 @@ export function DownloadQueue() {
    */
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  /**
+   * Non-destructive pause state for the queue scheduler (#889).
+   * Populated by an `isQueuePaused()` IPC on mount and kept in sync
+   * via the `queue-paused-changed` Tauri event. When `true`, the
+   * scheduler refuses to pull new items from the `Queued` pool —
+   * currently-running items still complete normally.
+   */
+  const [isPaused, setIsPaused] = useState<boolean>(false);
+
   const toggleStatusFilter = useCallback((state: DownloadState) => {
     setStatusFilters((prev) => {
       const next = new Set(prev);
@@ -277,6 +300,34 @@ export function DownloadQueue() {
     }
   }, [abortAll, settings.abort_queue_confirm]);
 
+  /**
+   * Pause/Resume click handler (#889).
+   *
+   * Toggles the queue's scheduler-paused flag via the backend. The
+   * local `isPaused` state isn't updated here — the backend emits a
+   * `queue-paused-changed` event after the flip and our listener in
+   * the mount effect picks that up. This keeps the source of truth
+   * in the backend (where the actual pause check lives) and avoids a
+   * brief flicker if the IPC fails.
+   *
+   * On failure, the catch surfaces a toast — common cause would be
+   * the queue mutex being held for a long time, which is rare but
+   * non-fatal.
+   */
+  const togglePause = useCallback(async () => {
+    try {
+      if (isPaused) {
+        await resumeQueue();
+        addToast('Queue resumed', 'info');
+      } else {
+        await pauseQueue();
+        addToast('Queue paused — running items will complete', 'info');
+      }
+    } catch (err) {
+      addToast(`Failed to ${isPaused ? 'resume' : 'pause'} queue: ${err}`, 'error');
+    }
+  }, [isPaused, addToast]);
+
   // ---------------------------------------------------------------
   // Polling effect
   // ---------------------------------------------------------------
@@ -301,6 +352,51 @@ export function DownloadQueue() {
     const interval = setInterval(refreshQueue, 3000);
     return () => clearInterval(interval);
   }, [refreshQueue]);
+
+  /**
+   * Sync the local `isPaused` state with the backend (#889).
+   *
+   * On mount: query the current state via `isQueuePaused()` so the
+   * Pause/Resume button label is correct from the first render
+   * (matters if the user paused then closed the app — pause survives
+   * via in-memory state, restart starts fresh).
+   *
+   * On `queue-paused-changed` events: the backend emits this whenever
+   * `pause_queue` or `resume_queue` flip the flag. We listen so the
+   * UI updates in real-time without needing to round-trip through
+   * `refreshQueue`.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    isQueuePaused()
+      .then((paused) => {
+        if (!cancelled) setIsPaused(paused);
+      })
+      .catch(() => {
+        // Best-effort; defaults to `false` (running) which is the safer fallback.
+      });
+
+    let unlisten: (() => void) | null = null;
+    void import('@tauri-apps/api/event').then((mod) => {
+      if (cancelled) return;
+      void mod
+        .listen<boolean>('queue-paused-changed', (event) => {
+          setIsPaused(event.payload);
+        })
+        .then((un) => {
+          if (cancelled) {
+            un();
+          } else {
+            unlisten = un;
+          }
+        });
+    });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // ---------------------------------------------------------------
   // Event handlers (passed down to QueueItem children)
@@ -930,6 +1026,35 @@ export function DownloadQueue() {
                 onClick={retryAllConfirm.open}
               >
                 Retry All Failed ({failedCount})
+              </Button>
+            )}
+
+            {/*
+             * "Pause Queue" / "Resume Queue" button (#889). Shown
+             * whenever there is at least one item that the scheduler
+             * could potentially pick up (queued or active). This is
+             * the non-destructive complement to Abort Queue — pausing
+             * lets running items finish naturally but stops the
+             * scheduler from pulling the next item. Resume picks up
+             * where it left off.
+             *
+             * Label and icon flip in place based on the current state
+             * (`Pause` icon when running, `Play` icon when paused).
+             * No confirmation modal — the action is reversible.
+             */}
+            {(activeCount > 0 || queuedCount > 0 || isPaused) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={isPaused ? <Play size={14} /> : <Pause size={14} />}
+                onClick={() => void togglePause()}
+                title={
+                  isPaused
+                    ? 'Resume the scheduler — items in Queued state will start as slots free up'
+                    : 'Pause the scheduler — running items will complete, but no new items will start'
+                }
+              >
+                {isPaused ? 'Resume Queue' : 'Pause Queue'}
               </Button>
             )}
 

@@ -28,6 +28,67 @@
 // slice of state changes -- Zustand handles this via strict-equality comparison.
 import { create } from 'zustand';
 
+/**
+ * Centralised toast-dismissal worker (#894).
+ *
+ * Pre-#894, `addToast` scheduled a `setTimeout` PER toast that
+ * captured `id` + the `set` callback in a closure. Over a multi-hour
+ * session with frequent toasts (e.g. clipboard-monitor URL detections
+ * every 2s + download-progress event toasts), hundreds-to-thousands
+ * of in-flight timers accumulated. Each closure retained a slice of
+ * the React tree until the timer fired.
+ *
+ * The replacement is a single `setInterval` that polls every
+ * `WORKER_TICK_MS` and removes any toast whose `expiresAt` deadline
+ * has passed. The worker is started lazily on the first non-
+ * persistent toast and stopped automatically when no non-persistent
+ * toasts remain. No per-toast closures.
+ *
+ * Tick rate: 250 ms — fast enough that the user perceives auto-
+ * dismiss as immediate, slow enough that idle CPU is unmeasurable.
+ */
+const WORKER_TICK_MS = 250;
+let dismissalWorkerHandle: ReturnType<typeof setInterval> | null = null;
+
+function ensureDismissalWorker(): void {
+  if (dismissalWorkerHandle !== null) return;
+  dismissalWorkerHandle = setInterval(() => {
+    // Read the store directly to avoid stale-closure issues. Filter
+    // out any toast whose deadline has passed. If nothing remains
+    // that the worker can act on, stop the worker.
+    const now = Date.now();
+    const store = useUiStore.getState();
+    const before = store.toasts.length;
+    const filtered = store.toasts.filter(
+      (t) => t.expiresAt == null || t.expiresAt > now,
+    );
+    if (filtered.length !== before) {
+      useUiStore.setState({ toasts: filtered });
+    }
+    // Stop the worker when no toast has a non-null expiresAt.
+    const hasExpiring = useUiStore
+      .getState()
+      .toasts.some((t) => t.expiresAt != null);
+    if (!hasExpiring && dismissalWorkerHandle !== null) {
+      clearInterval(dismissalWorkerHandle);
+      dismissalWorkerHandle = null;
+    }
+  }, WORKER_TICK_MS);
+}
+
+/**
+ * Test-only: stop the dismissal worker and clear the handle. Lets
+ * unit tests start each test with a clean worker state.
+ *
+ * @internal
+ */
+export function __resetToastWorkerForTests(): void {
+  if (dismissalWorkerHandle !== null) {
+    clearInterval(dismissalWorkerHandle);
+    dismissalWorkerHandle = null;
+  }
+}
+
 // AppPage -- union literal type for sidebar navigation targets ('download' | 'queue' | ...)
 // Toast    -- shape of an individual toast notification (id, message, type, duration)
 // ToastType -- severity level union ('success' | 'error' | 'warning' | 'info')
@@ -328,6 +389,13 @@ export const useUiStore = create<UiState>((set) => ({
     // Generate a collision-resistant unique ID for this toast.
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
+    // Compute the absolute auto-dismiss deadline. `null` means
+    // "never auto-dismiss" — error and warning toasts default to
+    // duration 0 (persistent) per the resolution above.
+    // #894: the deadline is stored on the toast itself + a single
+    // centralised worker polls it; no per-toast setTimeout closures.
+    const expiresAt = duration > 0 ? Date.now() + duration : null;
+
     set((state) => {
       // Dedup: skip if a toast with the same message is already on screen.
       if (state.toasts.some((t) => t.message === message)) {
@@ -339,18 +407,18 @@ export const useUiStore = create<UiState>((set) => ({
       const filtered = key ? state.toasts.filter((t) => t.key !== key) : state.toasts;
 
       return {
-        toasts: [...filtered, { id, message, type, duration, key, action }],
+        toasts: [
+          ...filtered,
+          { id, message, type, duration, expiresAt, key, action },
+        ],
       };
     });
 
-    // Schedule automatic removal after `duration` ms.
-    // A duration of 0 means the toast persists until manually dismissed.
-    if (duration > 0) {
-      setTimeout(() => {
-        set((state) => ({
-          toasts: state.toasts.filter((t) => t.id !== id),
-        }));
-      }, duration);
+    // Kick the centralised dismissal worker if this toast has a
+    // deadline. The worker is a no-op until a non-persistent toast
+    // exists; once started it stops itself when none remain.
+    if (expiresAt !== null) {
+      ensureDismissalWorker();
     }
   },
 

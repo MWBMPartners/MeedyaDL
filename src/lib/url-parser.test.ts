@@ -110,6 +110,28 @@ describe('parseAppleMusicUrl', () => {
     expect(result.isValid).toBe(true);
   });
 
+  /**
+   * Standalone song page URLs use the /song/{slug}/{id} path form rather
+   * than /album/{id}?i={song_id}. Apple Music exposes this shape when a
+   * user shares a song from its standalone page (not from inside an
+   * album). The Rust backend already handles both forms via its regex
+   * in `apple_music_api.rs`; the frontend just needs to validate the
+   * `/song/` form so the URL doesn't get rejected at the textarea.
+   */
+  it('detects standalone song URLs (/song/{slug}/{id})', () => {
+    const result = parseAppleMusicUrl(
+      'https://music.apple.com/gb/song/irresistible-so-so-def-remix-featuring-lil-bow-wow/193069593'
+    );
+    expect(result.contentType).toBe('song');
+    expect(result.isValid).toBe(true);
+  });
+
+  it('detects standalone song URLs without a slug (/song/{id})', () => {
+    const result = parseAppleMusicUrl('https://music.apple.com/us/song/193069593');
+    expect(result.contentType).toBe('song');
+    expect(result.isValid).toBe(true);
+  });
+
   /** Albums use the /album/ path segment without any `i` query parameter */
   it('detects albums', () => {
     const result = parseAppleMusicUrl('https://music.apple.com/us/album/some-album/123456');
@@ -248,12 +270,14 @@ describe('non-geographic URLs (no storefront code)', () => {
     expect(result.contentType).toBe('song');
   });
 
-  it('detects song URL path without storefront', () => {
+  it('detects standalone /song/ URLs without a storefront code', () => {
+    // Standalone-song-page URLs (the /song/{slug}/{id} form, distinct from
+    // /album/{id}?i={song_id}) are now recognised as songs and accepted at
+    // the validation layer — see commit fixing the user's smoke-test report
+    // (URL `https://music.apple.com/gb/song/...` rejected as invalid).
     const result = parseAppleMusicUrl('https://music.apple.com/song/anti-hero/1649434280');
-    // /song/ path is not currently a recognized content type in the frontend
-    // (songs use /album/ with ?i= param), so this should be 'unknown'
-    expect(result.contentType).toBe('unknown');
-    expect(result.isValid).toBe(false);
+    expect(result.contentType).toBe('song');
+    expect(result.isValid).toBe(true);
   });
 });
 

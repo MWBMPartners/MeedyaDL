@@ -39,7 +39,15 @@ updates:
     # Limit open PRs to avoid overwhelming the maintainer
     open-pull-requests-limit: 5
     # Target branch for PRs
-    target-branch: "main"
+    # Target the alpha integration branch so dependency updates flow
+    # through the same channel-promotion model as user-facing changes:
+    # alpha → (after testing) → beta / rc → stable. Without this,
+    # Dependabot would land patches directly on main, bypassing the
+    # validation that the alpha channel provides. Security updates
+    # are still created immediately by Dependabot's separate
+    # vulnerability path; this only changes the cadence of the
+    # weekly batched updates.
+    target-branch: "alpha"
     # Labels for easy filtering
     labels:
       - "dependencies"
@@ -64,7 +72,15 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
-    target-branch: "main"
+    # Target the alpha integration branch so dependency updates flow
+    # through the same channel-promotion model as user-facing changes:
+    # alpha → (after testing) → beta / rc → stable. Without this,
+    # Dependabot would land patches directly on main, bypassing the
+    # validation that the alpha channel provides. Security updates
+    # are still created immediately by Dependabot's separate
+    # vulnerability path; this only changes the cadence of the
+    # weekly batched updates.
+    target-branch: "alpha"
     labels:
       - "dependencies"
     commit-message:

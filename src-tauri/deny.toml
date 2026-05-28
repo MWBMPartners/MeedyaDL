@@ -59,17 +59,21 @@ all-features = true
 # If a genuine security vulnerability with a reachable code path
 # appears, it will NOT be ignored — fix it, don't hide it.
 ignore = [
-    # GTK3 bindings (Tauri Linux dependency — awaiting Tauri GTK4 migration)
-    "RUSTSEC-2024-0411", # cairo-rs — unmaintained
-    "RUSTSEC-2024-0412", # cairo-sys-rs — unmaintained
+    # GTK3 bindings (Tauri Linux dependency — awaiting Tauri GTK4 migration).
+    # Package names below reflect the actual upstream advisory subjects as
+    # of cargo-audit 0.22.1 (2026-05-24 audit, refreshed for #696). The
+    # eight package names that drifted between PR #688 and this audit are
+    # noted with their previous attribution in parentheses for forensics.
+    "RUSTSEC-2024-0411", # gdkwayland-sys — unmaintained (was: cairo-rs)
+    "RUSTSEC-2024-0412", # gdk — unmaintained (was: cairo-sys-rs)
     "RUSTSEC-2024-0413", # atk — unmaintained
-    "RUSTSEC-2024-0414", # gdk — unmaintained
-    "RUSTSEC-2024-0415", # gdk-pixbuf — unmaintained
+    "RUSTSEC-2024-0414", # gdkx11-sys — unmaintained (was: gdk)
+    "RUSTSEC-2024-0415", # gtk — unmaintained (was: gdk-pixbuf)
     "RUSTSEC-2024-0416", # atk-sys — unmaintained
-    "RUSTSEC-2024-0417", # gdk-sys — unmaintained
-    "RUSTSEC-2024-0418", # gdk-pixbuf-sys — unmaintained
-    "RUSTSEC-2024-0419", # gio — unmaintained
-    "RUSTSEC-2024-0420", # glib — unmaintained
+    "RUSTSEC-2024-0417", # gdkx11 — unmaintained (was: gdk-sys)
+    "RUSTSEC-2024-0418", # gdk-sys — unmaintained (was: gdk-pixbuf-sys)
+    "RUSTSEC-2024-0419", # gtk3-macros — unmaintained (was: gio)
+    "RUSTSEC-2024-0420", # gtk-sys — unmaintained (was: glib)
 
     # Other unmaintained transitive dependencies from Tauri/tao/wry
     "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (used by tao, field-offset)

@@ -994,10 +994,13 @@ impl GamdlOptions {
                 }
             }
         }
-        if let Some(ref ip) = self.wrapper_m3u8_ip {
-            args.push("--wrapper-m3u8-ip".to_string());
-            args.push(ip.clone());
-        }
+
+        // (Historical duplicate emission of `--wrapper-m3u8-ip`
+        // unguarded was removed here — the gated emission inside the
+        // wrapper-v1 branch above is the only one. The duplicate
+        // caused tests to see the flag twice and would have caused
+        // `Click` to reject the invocation on v3.6+ where the flag
+        // is no longer recognised. See `wrapper_m3u8_ip_option` test.)
 
         // --- Metadata (string-valued) ---
         if let Some(ref lang) = self.language {
@@ -1461,7 +1464,9 @@ mod tests {
         // Pre-3.1 didn't recognise the flag at all; v3.6 removed it
         // alongside the wrapper-v2 single-endpoint redesign (#853).
         // Set the version cache to a supporting release so the gate
-        // emits the flag.
+        // emits the flag. Holds the cross-module capability lock to
+        // serialise against other tests that mutate the cache.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
         use crate::services::gamdl_capabilities::set_detected_version;
         set_detected_version(Some("3.5.2".to_string()));
         let options = GamdlOptions {
@@ -1614,15 +1619,14 @@ mod tests {
     // pattern as the `gamdl_capabilities` module's own tests).
     // ----------------------------------------------------------
 
-    /// Shared lock for `playlist_folder_template` tests — see
-    /// `gamdl_capabilities::tests::TEST_LOCK` for the pattern.
-    static PLAYLIST_TEMPLATE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    // Note: tests below now use the cross-module
+    // `capability_cache_test_lock` from `gamdl_capabilities`
+    // so they serialise against EVERY other test that mutates
+    // the version cache, not just the playlist-template ones.
 
     #[test]
     fn playlist_folder_template_emitted_on_v30_plus() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(Some("3.0".to_string()));
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
@@ -1636,9 +1640,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_suppressed_on_v29x() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(Some("2.9.3".to_string()));
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),
@@ -1654,9 +1656,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_suppressed_when_version_unknown() {
-        let _guard = PLAYLIST_TEMPLATE_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
+        let _guard = crate::services::gamdl_capabilities::capability_cache_test_lock();
         crate::services::gamdl_capabilities::set_detected_version(None);
         let options = GamdlOptions {
             playlist_folder_template: Some("MyPlaylists/{playlist_artist}".to_string()),

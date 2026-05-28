@@ -1162,6 +1162,10 @@ pub fn run() {
             commands::gamdl::clear_all_queue,
             commands::gamdl::delete_queue_item,
             commands::gamdl::abort_all_downloads,
+            // Non-destructive pause/resume scheduler controls (#889).
+            commands::gamdl::pause_queue,
+            commands::gamdl::resume_queue,
+            commands::gamdl::is_queue_paused,
             commands::gamdl::get_queue_status,
             commands::gamdl::check_gamdl_update,
             // Queue export/import commands
@@ -1182,6 +1186,15 @@ pub fn run() {
             commands::backup::list_backups,
             commands::backup::restore_from_backup,
             commands::backup::delete_backup,
+            // SQLite download-index IPC surface (#875 M4)
+            commands::download_index::search_activity_log_db,
+            commands::download_index::list_library_gaps_cmd,
+            commands::download_index::upsert_known_track_cmd,
+            // .meedyabundle profile export/import (#876 P2 + P3 + P5)
+            commands::profile_bundle::export_profile,
+            commands::profile_bundle::peek_profile_bundle,
+            commands::profile_bundle::import_profile,
+            commands::profile_bundle::scan_for_bundles,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,
@@ -1419,26 +1432,103 @@ pub fn run() {
             };
             clear_old_logs(&app_data_dir, extra_dir);
 
+            // Compact any duplicate history rows left by older retry behaviour.
+            services::history_service::cleanup_duplicate_entries(app.handle());
+
+            // Open the SQLite download index (#875 EPIC A M1 + M1b).
+            //
+            // Runs BEFORE the activity-log writer because the writer
+            // dual-writes into the DB (#875 M3) and needs the schema
+            // already applied. The migration runner is idempotent so
+            // re-opening the DB inside the writer task is safe even
+            // if the file is created by a concurrent process; this
+            // ordering just avoids the race window where two
+            // independent opens try to apply the v1/v2 schema in
+            // parallel.
+            //
+            // Errors here are NEVER fatal — the DB is an indexed
+            // cache, not a load-bearing dependency. If open or ingest
+            // fails we log and continue; the app's existing
+            // JSON-backed flows keep working.
+            let db_path = app_data_dir.join("meedyadl.db");
+            match services::download_index::DownloadIndex::open(&db_path) {
+                Ok(mut idx) => {
+                    log::info!(
+                        "Download index opened at {} (schema v{})",
+                        db_path.display(),
+                        idx.schema_version().unwrap_or(-1)
+                    );
+                    match services::download_index::ingest::run_first_startup_ingest(
+                        &mut idx,
+                        &app_data_dir,
+                        &activity_log_dir,
+                        services::download_index::ingest::DEFAULT_ACTIVITY_LOG_INGEST_DAYS,
+                    ) {
+                        Ok(summary) if summary.ran => {
+                            log::info!(
+                                "First-startup ingest into download index: {} downloads + {} activity events from {} JSONL file(s)",
+                                summary.downloads_ingested,
+                                summary.activity_events_ingested,
+                                summary.activity_log_files_read,
+                            );
+                            // Surface to the activity log so the user sees the
+                            // bulk migration as a [System] line on the first
+                            // launch where the DB is built.
+                            utils::activity_log::emit_app_log(
+                                app.handle(),
+                                &format!(
+                                    "First-startup migration: ingested {} download record(s) + {} activity event(s) from {} JSONL file(s) into the new SQLite index. Existing history.json + activity-log files remain on disk as the forensic record.",
+                                    summary.downloads_ingested,
+                                    summary.activity_events_ingested,
+                                    summary.activity_log_files_read,
+                                ),
+                            );
+                        }
+                        Ok(_skipped) => {
+                            // Subsequent launches reach this branch — the
+                            // ingest already ran on a prior boot. No log.
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "First-startup ingest into download index failed (non-fatal, will retry next launch): {e}"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Could not open download index at {} (non-fatal — JSON paths remain authoritative): {e}",
+                        db_path.display()
+                    );
+                }
+            }
+
             // Start the persistent on-disk activity log writer (#541).
             // Runs as a background Tokio task consuming events from an
             // unbounded channel. The shared `ShutdownSignal` trips the
             // writer into its flush-and-exit path on window close / tray
             // quit so the final events are not lost.
+            //
+            // #875 M3: the writer also opens the SQLite download index
+            // once and dual-writes every event into `activity_events`
+            // so the activity log is searchable via SQL. JSONL files
+            // remain the forensic record (#541); any DB write failure
+            // is transparent.
             use tauri::Manager;
             let shutdown = app
                 .state::<services::download_queue::ShutdownSignal>()
                 .flag();
-            let writer_handle =
-                services::activity_log_writer::start(activity_log_dir.clone(), shutdown);
+            let writer_handle = services::activity_log_writer::start(
+                activity_log_dir.clone(),
+                Some(db_path.clone()),
+                shutdown,
+            );
             utils::activity_log::register_disk_writer(writer_handle);
             log::info!(
                 "Activity log writer started at {} (retention {}d)",
                 activity_log_dir.display(),
                 services::activity_log_writer::ACTIVITY_LOG_RETENTION_DAYS
             );
-
-            // Compact any duplicate history rows left by older retry behaviour.
-            services::history_service::cleanup_duplicate_entries(app.handle());
 
             // Restore any persisted queue items and schedule delayed processing
             setup_queue_recovery(app);

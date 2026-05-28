@@ -54,6 +54,14 @@
         "mimeType": "application/vnd.mwbmpartners.meedyadl.download+json",
         "name": "MeedyaDL Manifest",
         "role": "Editor"
+      },
+      {
+        "ext": [
+          "meedyabundle"
+        ],
+        "mimeType": "application/vnd.meedyasuite.bundle+zip",
+        "name": "MeedyaSuite Profile Bundle",
+        "role": "Editor"
       }
     ],
     "createUpdaterArtifacts": true,

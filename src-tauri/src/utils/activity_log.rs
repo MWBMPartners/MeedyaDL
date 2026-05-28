@@ -126,6 +126,33 @@ pub fn get_activity_count(download_id: &str) -> u64 {
         .unwrap_or(0)
 }
 
+/// Removes the activity counter entry for `download_id` (#895).
+///
+/// Called from the queue's terminal-state transition sites
+/// (`set_complete` / `set_error` / `cancel_download`) so the
+/// HashMap doesn't grow monotonically across the app's lifetime.
+/// Pre-#895 the map kept one entry per ever-seen download ID
+/// forever, which the 2026-05-28 memory audit (#897) flagged as
+/// slow-but-monotonic growth — small per entry (~120 bytes) but
+/// unbounded over heavy multi-month use.
+///
+/// Idempotent: no-op when the id is absent (e.g. terminal transition
+/// fires twice, or the download finished before bump_activity_count
+/// was called).
+pub fn evict_activity_counter(download_id: &str) {
+    if let Ok(mut map) = activity_counters().lock() {
+        map.remove(download_id);
+    }
+}
+
+/// Test-only accessor for the activity-counter map's current
+/// entry count. Used by the eviction tests to assert that an
+/// `evict_activity_counter` call reduced the live-counter set.
+#[cfg(test)]
+pub(crate) fn activity_counter_entries() -> usize {
+    activity_counters().lock().map(|m| m.len()).unwrap_or(0)
+}
+
 /// Check whether verbose logging is currently enabled.
 pub fn is_verbose_logging() -> bool {
     VERBOSE_LOGGING.load(Ordering::Relaxed)
@@ -605,5 +632,44 @@ mod tests {
             infer_severity_from_subprocess_line(line, "stderr"),
             LogSeverity::Error
         );
+    }
+
+    // ============================================================
+    // #895 ACTIVITY_COUNTERS eviction tests
+    // ============================================================
+
+    /// Bumping an unseen download id creates an entry; evicting it
+    /// removes the entry. The eviction is idempotent (second call is
+    /// a no-op).
+    #[test]
+    fn evict_activity_counter_removes_entry() {
+        let id = "evict-test-unique-7c4e2dbf";
+        let before_entries = activity_counter_entries();
+
+        bump_activity_count(id);
+        assert!(get_activity_count(id) >= 1);
+        let after_bump_entries = activity_counter_entries();
+        assert!(
+            after_bump_entries > before_entries,
+            "bump should have grown the counter map"
+        );
+
+        evict_activity_counter(id);
+        assert_eq!(get_activity_count(id), 0, "post-evict read returns 0");
+
+        // Idempotent — a second evict is a no-op.
+        evict_activity_counter(id);
+        assert_eq!(get_activity_count(id), 0);
+    }
+
+    /// Eviction of an id that was never bumped is a no-op.
+    /// Defends against e.g. terminal-state transitions firing for a
+    /// download that completed before any activity events landed.
+    #[test]
+    fn evict_activity_counter_handles_unknown_id() {
+        // Use a id we're confident no other test has bumped.
+        let id = "never-bumped-id-9f6c8e2a";
+        evict_activity_counter(id); // must not panic
+        assert_eq!(get_activity_count(id), 0);
     }
 }

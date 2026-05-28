@@ -780,25 +780,48 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Affects how track/album names are retrieved from Apple Music.
     lines.push(format!("language = {}", settings.language));
 
-    // Storefront code for Apple Music API requests (e.g., "gb", "us", "jp").
-    // Required by GAMDL >= 2.9.3 which no longer auto-detects the storefront.
+    // Storefront — historically MeedyaDL emitted `storefront = us` (or
+    // similar) into config.ini. Git archaeology against GAMDL upstream
+    // confirms `storefront` is NOT a CLI option or INI key in any
+    // release in our support window (2.9.1+) — GAMDL derives the
+    // storefront from the URL path itself (`/us/album/...` → "us") via
+    // `VALID_URL_PATTERN` and silently strips unknown INI keys via
+    // `cleanup_unknown_params()` on every config load. So the line was
+    // dead data getting wasted on every settings save.
     //
-    // Logic:
-    //   - If the user has set an explicit storefront → use it as-is
-    //   - If empty (auto-detect) → derive from language region code
-    //     (e.g., "en-GB" → "gb", "ja-JP" → "jp", fallback "us")
-    let storefront = if !settings.storefront.is_empty() {
-        settings.storefront.to_ascii_lowercase()
-    } else {
-        settings
-            .language
-            .split('-')
-            .next_back()
-            .filter(|s| s.len() == 2)
-            .map(|s| s.to_ascii_lowercase())
-            .unwrap_or_else(|| "us".to_string())
-    };
-    lines.push(format!("storefront = {storefront}"));
+    // Gated behind `GamdlFeature::StorefrontIniKeyStripped` (#881):
+    //   * `true` (>= 2.9.1, every supported GAMDL): SKIP the write —
+    //     GAMDL would strip it anyway, no behaviour change.
+    //   * `false` (unknown / pre-2.9.1): emit the legacy line, matching
+    //     the pre-#881 behaviour exactly. Defensive against any future
+    //     GAMDL release that might restore a real `storefront` config
+    //     option.
+    //
+    // The storefront VALUE is still resolved here because other
+    // MeedyaDL surfaces (URL normalisation, API call routing) use the
+    // setting; the change is only that we no longer leak it into
+    // GAMDL's INI on supported versions.
+    let storefront_is_dead_ini_data = super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::StorefrontIniKeyStripped,
+    );
+    if !storefront_is_dead_ini_data {
+        // Logic for the legacy path:
+        //   - If the user has set an explicit storefront → use it as-is
+        //   - If empty (auto-detect) → derive from language region code
+        //     (e.g., "en-GB" → "gb", "ja-JP" → "jp", fallback "us")
+        let storefront = if !settings.storefront.is_empty() {
+            settings.storefront.to_ascii_lowercase()
+        } else {
+            settings
+                .language
+                .split('-')
+                .next_back()
+                .filter(|s| s.len() == 2)
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_else(|| "us".to_string())
+        };
+        lines.push(format!("storefront = {storefront}"));
+    }
     // Boolean flag: when true, GAMDL fetches extra metadata tags
     // (normalization info, smooth playback data, etc.) from Apple Music.
     //
@@ -1037,19 +1060,12 @@ mod tests {
         AppSettings::default()
     }
 
-    /// Serialises tests that mutate the process-global GAMDL capability
-    /// cache. `cargo test` runs tests in parallel by default, so any test
-    /// that depends on a specific detected version must hold this lock
-    /// for the entire render + assertion window to avoid races with
-    /// other tests flipping the cache.
-    static CAPABILITY_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     /// RAII guard: sets the detected GAMDL version for the duration of
     /// a single test and restores the previous value on drop.
     ///
-    /// Using a guard instead of raw `set_detected_version` calls means
-    /// we cannot forget to clear the cache when a test panics — the
-    /// stored state would otherwise leak into whichever test runs next.
+    /// Holds the process-global `capability_cache_test_lock` for the
+    /// guard's lifetime so parallel tests in OTHER modules can't flip
+    /// the version cache mid-test.
     struct VersionGuard {
         previous: Option<String>,
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -1057,11 +1073,7 @@ mod tests {
 
     impl VersionGuard {
         fn new(version: Option<&str>) -> Self {
-            // Recover poisoned locks so a previous test panic does not
-            // permanently disable this helper.
-            let lock = CAPABILITY_TEST_LOCK
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
+            let lock = gamdl_capabilities::capability_cache_test_lock();
             let previous = gamdl_capabilities::detected_version();
             gamdl_capabilities::set_detected_version(version.map(ToString::to_string));
             Self {
@@ -1377,23 +1389,76 @@ mod tests {
     }
 
     #[test]
-    fn ini_includes_storefront_auto_from_language() {
+    fn ini_includes_storefront_auto_from_language_on_unknown_gamdl() {
+        // #881: the auto-derive-from-language path (empty storefront +
+        // language like "en-US" → "us") still runs on the legacy /
+        // unknown-GAMDL emission branch. Held under `VersionGuard(None)`
+        // so the legacy path is selected; without the guard, parallel
+        // tests can flip the version cache and this test would race.
+        let _guard = VersionGuard::new(None);
         let settings = default_settings(); // language = "en-US", storefront = ""
         let ini = settings_to_ini(&settings);
         assert!(
             ini.contains("storefront = us"),
-            "Should auto-detect 'us' from 'en-US': {ini}"
+            "unknown GAMDL: should auto-detect 'us' from 'en-US': {ini}"
         );
     }
 
     #[test]
-    fn ini_uses_explicit_storefront_when_set() {
+    fn ini_uses_explicit_storefront_when_set_on_unknown_gamdl() {
+        // Pre-#881 regression guard: when GAMDL version isn't detected
+        // (None) we emit the legacy `storefront = ...` line for
+        // backwards compatibility. The line is dead data on every
+        // currently-supported GAMDL but harmless — `cleanup_unknown_params()`
+        // strips it on read. Keeping the emit path means future GAMDL
+        // releases that restore `storefront` as a real CLI option pick
+        // up the right value without a MeedyaDL change.
+        let _guard = VersionGuard::new(None);
         let mut settings = default_settings();
         settings.storefront = "gb".to_string();
         let ini = settings_to_ini(&settings);
         assert!(
             ini.contains("storefront = gb"),
-            "Should use explicit 'gb': {ini}"
+            "unknown GAMDL: must emit storefront line for backwards compat: {ini}"
+        );
+    }
+
+    #[test]
+    fn ini_omits_storefront_on_supported_gamdl() {
+        // #881: every GAMDL release in our support window (>= 2.9.1)
+        // strips `storefront` via `cleanup_unknown_params()` because
+        // it's not a real CLI/INI option — GAMDL derives the
+        // storefront from the URL path itself. MeedyaDL no longer
+        // wastes the write on supported GAMDL versions.
+        for version in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
+            let _guard = VersionGuard::new(Some(version));
+            let mut settings = default_settings();
+            settings.storefront = "gb".to_string();
+            let ini = settings_to_ini(&settings);
+            assert!(
+                !ini.contains("storefront"),
+                "GAMDL {version}: storefront INI write must be omitted (it's dead data); got:\n{ini}"
+            );
+        }
+    }
+
+    #[test]
+    fn ini_omits_storefront_on_supported_gamdl_even_with_auto_derive() {
+        // The `storefront` setting can be left empty by the user, in
+        // which case MeedyaDL derives it from the language region code
+        // (`en-GB` → `gb`). That derivation still happens at the
+        // setting-resolution level — the only change in #881 is that
+        // we don't write the derived value into GAMDL's INI. So
+        // explicit and auto-derived storefronts both produce the same
+        // INI output on supported GAMDL versions.
+        let _guard = VersionGuard::new(Some("3.7.1"));
+        let mut settings = default_settings();
+        settings.storefront = "".to_string();
+        settings.language = "en-GB".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(
+            !ini.contains("storefront"),
+            "auto-derive path must also skip the dead INI write on supported GAMDL: {ini}"
         );
     }
 

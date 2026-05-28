@@ -46,6 +46,7 @@ import {
   HelpCircle,
   Download,
   Sparkles,
+  Layers,
 } from 'lucide-react';
 
 import {
@@ -65,10 +66,37 @@ import { MvGapFillModal } from './MvGapFillModal';
 import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 
 /**
+ * Human-readable label for a canonical codec-registry ID. Used by
+ * `DiffBadge`'s `partial_codecs` tooltip so the user sees
+ * "AAC, AAC Legacy" rather than the raw `aac-hq, aac-mq` IDs.
+ * Falls back to the raw ID for codecs not in the map (forward-compat).
+ */
+const CODEC_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  alac: 'ALAC',
+  'eac3-atmos': 'Dolby Atmos',
+  ac3: 'AC3',
+  'aac-binaural': 'AAC Binaural',
+  'aac-downmix': 'AAC Downmix',
+  'aac-hq': 'AAC',
+  'aac-mq': 'AAC Legacy',
+  'aac-he-mq': 'HE-AAC Legacy',
+  'aac-he-hq': 'HE-AAC',
+  'aac-he-binaural': 'HE Binaural',
+  'aac-he-downmix': 'HE Downmix',
+};
+
+function displayCodecName(id: string): string {
+  return CODEC_DISPLAY_NAMES[id] ?? id;
+}
+
+/**
  * Renders the per-row diff badge for a scanned manifest.
  *
- * Three visual states matching the `LibraryScanDiff` tagged union:
+ * Four visual states matching the `LibraryScanDiff` tagged union:
  * - `plan`: amber badge "X of Y missing" — at least one track absent
+ * - `partial_codecs` (#766): amber badge "N codec(s) missing" — every
+ *   track present in *some* codec but companion-tier variants timed
+ *   out and never landed. Tooltip lists the missing codecs.
  * - `all_present`: green badge "All present" — nothing to re-fetch
  * - `not_applicable`: neutral badge "Cannot diff" — manifest old/missing
  * - `undefined` (still loading): subtle "…" placeholder
@@ -86,6 +114,19 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning">
         <AlertCircle size={12} />
         {diff.missing_tracks} of {diff.total_tracks} missing
+      </span>
+    );
+  }
+  if (diff.kind === 'partial_codecs') {
+    const codecLabels = diff.missing_codecs.map(displayCodecName).join(', ');
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning"
+        title={`Every track is present, but the manifest's companion-codec plan still expected: ${codecLabels}. Re-download will fill the codec gaps without re-downloading the primary files.`}
+      >
+        <Layers size={12} />
+        {diff.missing_codecs.length} codec
+        {diff.missing_codecs.length === 1 ? '' : 's'} missing
       </span>
     );
   }
@@ -496,10 +537,16 @@ export function LibraryScanPage() {
                   </td>
                   <td className="px-4 py-2 text-right">
                     {/*
-                      Re-download action (#717 sub-feature 5f). Two
+                      Re-download action (#717 sub-feature 5f). Three
                       cases enable it:
                       - The disk-vs-manifest diff came back `plan` (at
                         least one track missing locally).
+                      - The disk-vs-manifest diff came back
+                        `partial_codecs` (every track present but a
+                        companion-tier variant the user configured at
+                        download time has no matching files on disk —
+                        e.g. companion AAC tiers timed out after
+                        primary Atmos landed; #766).
                       - The Apple Music API freshness check came back
                         `updated` (content has changed upstream — added
                         tracks, Atmos mix, ADM certification, etc.).
@@ -509,6 +556,7 @@ export function LibraryScanPage() {
                       enqueues with the chosen mv_companion_override (5e).
                     */}
                     {(diffs[m.manifest_path]?.kind === 'plan' ||
+                      diffs[m.manifest_path]?.kind === 'partial_codecs' ||
                       freshness[m.manifest_path]?.kind === 'updated') && (
                       <button
                         type="button"

@@ -58,14 +58,24 @@ import { useUpdateStore } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 
 // IPC command wrappers for settings export/import.
-import { exportSettings, importSettings } from '@/lib/tauri-commands';
+import {
+  exportSettings,
+  importSettings,
+  exportProfile,
+  peekProfileBundle,
+  importProfile,
+} from '@/lib/tauri-commands';
+import type {
+  ExportProfileOptions,
+  ProfileBundleSummary,
+} from '@/lib/tauri-commands';
 
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, SettingsSection } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Button, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 
@@ -280,6 +290,50 @@ export function GeneralTab() {
   /** Whether a settings import is in progress */
   const [isImporting, setIsImporting] = useState(false);
 
+  /** Whether a .meedyabundle export is in progress (#876 P2). */
+  const [isExportingBundle, setIsExportingBundle] = useState(false);
+  /** Whether a .meedyabundle import is in progress (#876 P3). */
+  const [isImportingBundle, setIsImportingBundle] = useState(false);
+  /**
+   * Bundle summary surfaced by `peekProfileBundle` after the user
+   * picks a file in step 1 of the import flow. `null` = no pending
+   * import; non-null = show the confirmation modal with the
+   * section checklist.
+   */
+  const [pendingImport, setPendingImport] =
+    useState<ProfileBundleSummary | null>(null);
+  /**
+   * Per-section opt-in for the import confirmation modal. Settings
+   * is always 'replace' (we never merge JSON blindly); each
+   * present optional section starts at 'replace' so the default is
+   * a full restore — the user opts OUT of sections they don't want
+   * rather than opting in (matches the "I exported this bundle
+   * intending to restore everything" expectation).
+   */
+  const [importPicks, setImportPicks] = useState<Record<string, boolean>>({});
+  /**
+   * Per-section toggles for the bundle export. Defaults mirror the
+   * backend's `ExportProfileOptions` defaults — queue + history are
+   * on, everything else is opt-in.
+   */
+  const [bundleOptions, setBundleOptions] = useState<ExportProfileOptions>({
+    include_queue: true,
+    include_history: true,
+    include_database: false,
+    include_credentials: false,
+    include_activity_log: false,
+    include_manifests: false,
+  });
+  /** Password collected from the user when `include_credentials` is on.
+   *  Kept in component state only — never persisted or sent over IPC
+   *  outside of the export_profile call. */
+  const [credentialsPassword, setCredentialsPassword] = useState('');
+  /** Password collected at import time when the bundle has a
+   *  credentials section AND the user opts to restore it. Separate
+   *  from `credentialsPassword` because import & export sessions can
+   *  use different passwords. */
+  const [importPassword, setImportPassword] = useState('');
+
   /**
    * Pending channel switch awaiting user confirmation. When the user picks a
    * pre-release channel from the dropdown, the actual settings update is
@@ -351,6 +405,148 @@ export function GeneralTab() {
       }
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  /**
+   * Human-readable byte-size formatter (KB/MB threshold). Matches
+   * the Rust-side `format_size` so toast text agrees with the
+   * activity-log line for the same export.
+   */
+  const formatBytes = (n: number): string => {
+    if (n >= 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+    if (n >= 1024) return `${(n / 1024).toFixed(2)} KB`;
+    return `${n} bytes`;
+  };
+
+  /**
+   * Step 1 of the .meedyabundle import flow (#876 P3): open a file
+   * picker, peek at the bundle, surface the metadata + section
+   * list in a confirmation modal. Step 2 (actual extraction)
+   * happens in `handleConfirmImport` when the user clicks "Restore".
+   */
+  const handlePickImport = async () => {
+    try {
+      const summary = await peekProfileBundle(null);
+      // Default every present section to selected (true).
+      const picks: Record<string, boolean> = {};
+      for (const s of summary.sections) {
+        picks[s] = true;
+      }
+      setImportPicks(picks);
+      setPendingImport(summary);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes('cancel')) {
+        addToast(`Failed to open bundle: ${message}`, 'error');
+      }
+    }
+  };
+
+  /**
+   * Step 2 of the .meedyabundle import flow (#876 P3): the user
+   * confirmed the section checklist in the modal — actually call
+   * `importProfile` with their picks + reload settings + emit a
+   * success toast that nudges towards restart.
+   */
+  const handleConfirmImport = async () => {
+    if (!pendingImport) return;
+    // #876 P4: if the user opted to restore credentials, require a
+    // password before launching the IPC. Empty/short passwords are
+    // rejected client-side.
+    const wantsCredentials =
+      pendingImport.sections.includes('credentials') &&
+      Boolean(importPicks.credentials);
+    if (wantsCredentials && importPassword.length === 0) {
+      addToast(
+        'Enter the password the bundle was exported with to restore credentials.',
+        'error',
+      );
+      return;
+    }
+    setIsImportingBundle(true);
+    try {
+      const result = await importProfile({
+        source_path: pendingImport.source_path,
+        settings: 'replace', // always restored when present
+        queue: importPicks.queue ? 'replace' : 'skip',
+        history: importPicks.history ? 'replace' : 'skip',
+        database: importPicks.database ? 'replace' : 'skip',
+        activity_log: importPicks.activity_log ? 'replace' : 'skip',
+        manifests: importPicks.manifests ? 'replace' : 'skip',
+        credentials: wantsCredentials ? 'replace' : 'skip',
+        credentials_password: wantsCredentials ? importPassword : null,
+      });
+      // Reload settings so the live UI reflects what just landed
+      // on disk.
+      await loadSettings();
+      const restored: string[] = [];
+      if (result.settings_restored) restored.push('settings');
+      if (result.queue_restored) restored.push('queue');
+      if (result.history_restored) restored.push('history');
+      if (result.database_restored) restored.push('database');
+      if (result.activity_log_files_restored > 0)
+        restored.push(`${result.activity_log_files_restored} activity-log file(s)`);
+      if (result.manifests_restored > 0)
+        restored.push(`${result.manifests_restored} manifest(s)`);
+      addToast(
+        `Profile imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to fully apply.`,
+        'success',
+      );
+      if (result.credentials_skipped_p4) {
+        addToast(
+          'Bundle contained credentials but encryption support is not yet released (P4). Re-import cookies / re-enter MusicKit credentials manually on this install.',
+          'info',
+        );
+      }
+      setPendingImport(null);
+      setImportPassword('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      addToast(`Failed to import profile: ${message}`, 'error');
+    } finally {
+      setIsImportingBundle(false);
+    }
+  };
+
+  /**
+   * Export the current install's profile to a `.meedyabundle`
+   * archive (#876 P2). Sections are controlled by the
+   * `bundleOptions` content-picker checkboxes.
+   */
+  const handleExportProfile = async () => {
+    // Validate credential password before launching the IPC.
+    // Catching this in the frontend avoids the round-trip and gives
+    // the user a clearer message.
+    if (bundleOptions.include_credentials && credentialsPassword.length < 6) {
+      addToast(
+        'Please set a credentials password of at least 6 characters before exporting.',
+        'error',
+      );
+      return;
+    }
+    setIsExportingBundle(true);
+    try {
+      const result = await exportProfile({
+        ...bundleOptions,
+        credentials_password: bundleOptions.include_credentials
+          ? credentialsPassword
+          : null,
+      });
+      addToast(
+        `Profile exported — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
+        'success',
+      );
+      // Clear the password from component state immediately on
+      // success so it can't sit in DevTools / state inspector.
+      setCredentialsPassword('');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.toLowerCase().includes('cancel')) {
+        addToast(`Failed to export profile: ${message}`, 'error');
+      }
+    } finally {
+      setIsExportingBundle(false);
     }
   };
 
@@ -772,6 +968,80 @@ export function GeneralTab() {
         </div>
       </SettingsSection>
 
+      {/* Section: Profile Bundle (#876 P2) */}
+      <SettingsSection title="Profile Bundle">
+        <p className="text-xs text-content-secondary mb-2">
+          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it via the Import button (P3, coming next) or from the first-launch wizard.
+        </p>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3">
+          {[
+            { key: 'include_queue', label: 'Queue (queue.json)' },
+            { key: 'include_history', label: 'History (history.json)' },
+            { key: 'include_database', label: 'SQLite index (meedyadl.db)' },
+            { key: 'include_activity_log', label: 'Activity log JSONL files' },
+            { key: 'include_manifests', label: 'manifest.meedyadl files (can be large)' },
+            {
+              key: 'include_credentials',
+              label: 'Credentials (encrypted, requires a password)',
+            },
+          ].map(({ key, label }) => (
+            <label
+              key={key}
+              className="flex items-center gap-2 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={Boolean(
+                  bundleOptions[key as keyof ExportProfileOptions],
+                )}
+                onChange={(e) =>
+                  setBundleOptions((prev) => ({
+                    ...prev,
+                    [key]: e.target.checked,
+                  }))
+                }
+              />
+              <span>{label}</span>
+            </label>
+          ))}
+        </div>
+        {bundleOptions.include_credentials && (
+          <div className="mb-3 p-2 border border-border rounded bg-surface-secondary/40">
+            <label className="text-xs font-medium">Credentials password</label>
+            <input
+              type="password"
+              value={credentialsPassword}
+              onChange={(e) => setCredentialsPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+            />
+            <p className="text-xs text-content-tertiary mt-1">
+              The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly.
+            </p>
+          </div>
+        )}
+        <div className="flex items-center gap-3">
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Upload size={14} />}
+            loading={isExportingBundle}
+            onClick={handleExportProfile}
+          >
+            {isExportingBundle ? 'Exporting...' : 'Export Profile'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Download size={14} />}
+            loading={isImportingBundle}
+            onClick={handlePickImport}
+          >
+            {isImportingBundle ? 'Importing...' : 'Import Profile'}
+          </Button>
+        </div>
+      </SettingsSection>
+
       {/* Pre-release stability warning. Open whenever the user has picked a
           pre-release channel from the dropdown but not yet confirmed the
           switch. Confirming applies the change to the settings store;
@@ -787,6 +1057,129 @@ export function GeneralTab() {
           }}
           onCancel={() => setPendingChannel(null)}
         />
+      )}
+
+      {/* #876 P3 — .meedyabundle import confirmation modal. Opens
+          once `peekProfileBundle` returns a summary; user picks
+          which sections to restore + clicks Restore (or Cancel). */}
+      {pendingImport && (
+        <Modal
+          open={true}
+          onClose={() => setPendingImport(null)}
+          title="Restore from .meedyabundle"
+          maxWidth="max-w-xl"
+        >
+          <div className="space-y-3 text-sm">
+            <div className="text-xs text-content-secondary space-y-1">
+              <div>
+                <span className="font-medium">Source:</span>{' '}
+                <span className="break-all">{pendingImport.source_path}</span>
+              </div>
+              <div>
+                <span className="font-medium">Exported by</span>{' '}
+                <span className="font-mono">{pendingImport.producer}</span>{' '}
+                {pendingImport.producer_version}{' '}
+                <span className="text-content-tertiary">
+                  ({pendingImport.producer_platform})
+                </span>{' '}
+                on{' '}
+                <span className="font-mono">
+                  {pendingImport.exported_at.slice(0, 19).replace('T', ' ')} UTC
+                </span>
+              </div>
+              {pendingImport.note && (
+                <div>
+                  <span className="font-medium">Note:</span> {pendingImport.note}
+                </div>
+              )}
+              {!pendingImport.produced_by_this_app && (
+                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning">
+                  ⚠ This bundle was produced by{' '}
+                  <span className="font-mono">{pendingImport.producer}</span>,
+                  not MeedyaDL. The <code>.meedyabundle</code> extension is
+                  shared across MeedyaSuite apps — sections from another
+                  app may be unrecognised and silently skipped on import.
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-border pt-2 space-y-2">
+              <p className="text-xs text-content-secondary">
+                Settings are always restored. Tick each additional section you'd like to overwrite on this install:
+              </p>
+              {pendingImport.sections.length === 0 ? (
+                <p className="text-xs text-content-tertiary italic">
+                  This bundle contains settings only — no optional sections to choose from.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                  {pendingImport.sections.map((section) => (
+                    <label
+                      key={section}
+                      className="flex items-center gap-2 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(importPicks[section])}
+                        onChange={(e) =>
+                          setImportPicks((prev) => ({
+                            ...prev,
+                            [section]: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span className="capitalize">
+                        {section.replace(/_/g, ' ')}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {pendingImport.sections.includes('credentials') &&
+              importPicks.credentials && (
+                <div className="p-2 border border-border rounded bg-surface-secondary/40">
+                  <label className="text-xs font-medium">
+                    Credentials password
+                  </label>
+                  <input
+                    type="password"
+                    value={importPassword}
+                    onChange={(e) => setImportPassword(e.target.value)}
+                    placeholder="The password used when this bundle was exported"
+                    className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+                  />
+                  <p className="text-xs text-content-tertiary mt-1">
+                    Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores.
+                  </p>
+                </div>
+              )}
+
+            <p className="text-xs text-status-warning border-t border-border pt-2">
+              ⚠ Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setPendingImport(null)}
+                disabled={isImportingBundle}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConfirmImport}
+                loading={isImportingBundle}
+              >
+                {isImportingBundle ? 'Restoring...' : 'Restore'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

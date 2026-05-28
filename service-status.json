@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "updated_at": "2026-02-22T00:00:00Z",
+  "services": {
+    "AppleMusic": {
+      "enabled": true,
+      "message": null
+    },
+    "YouTube": {
+      "enabled": true,
+      "message": null
+    },
+    "BBCiPlayer": {
+      "enabled": true,
+      "message": null
+    },
+    "Spotify": {
+      "enabled": true,
+      "message": null
+    }
+  },
+  "global_message": null
+}

@@ -37,6 +37,7 @@
 ### 📝 Metadata & Extras
 
 - **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). Falls back to standard line-level LRC for songs without word-level data. Companion lyrics formats (LRC, SRT) remain selectable alongside Enhanced LRC.
+- **Lyricsfile (.lyrics) YAML sidecars** — opt-in support for the open, extensible Lyricsfile format endorsed by [LRCGET v2.0](https://github.com/tranxuanthang/lrcget/releases/tag/2.0.0) and [LRCLIB](https://lrclib.net/). Preserves Apple Music's word-level timing in a plain-text-editable YAML format that can be opened and edited in any text editor or in LRCGET itself. Toggle in **Settings → Lyrics**. Generated sidecars are never overwritten on re-download, so manual edits in LRCGET survive.
 - **Lyrics format fallback** — if the primary lyrics format isn't available for some tracks, automatically tries alternatives (Audio: TTML → LRC → SRT; Video: TTML → SRT → LRC)
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution

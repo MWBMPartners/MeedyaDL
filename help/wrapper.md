@@ -124,6 +124,90 @@ surfaces a yellow toast if the wrapper is logged-out, telling you to
 sign in via Settings before the download will proceed. This avoids
 the deadlock entirely.
 
+### Running wrapper-v2 on a separate machine (LAN deployment)
+
+A common request — and a fully supported configuration — is to run
+wrapper-v2 on a **different machine** than MeedyaDL. Two reasons:
+
+- You have an always-on home server (Raspberry Pi 4/5, NAS,
+  ProxmoxVE box, mini PC) and don't want to keep Docker Desktop
+  running on your laptop just for FairPlay decryption.
+- One household wrapper instance can serve multiple MeedyaDL
+  clients without each one needing its own Docker setup.
+
+This works **out of the box** because wrapper-v2 binds to `0.0.0.0`
+by default (the source ships `kDefaultHost = "0.0.0.0"` in
+`src/daemon/main.cpp`). Set up:
+
+1. Install wrapper-v2 on the remote host following the standard
+   Docker walkthrough above. Confirm it answers
+   `curl http://<remote-ip>:80/health` from another machine on
+   the same LAN.
+2. On the MeedyaDL host, **Settings → Advanced → Wrapper → Wrapper
+   URL**: paste the LAN URL (e.g. `http://192.168.1.50` or
+   `http://nas.home:80`).
+3. Hit **Sign In** as usual — the credentials flow through the LAN
+   to the remote wrapper's `/login` endpoint.
+4. Queue a download. The pre-flight health check probes the LAN URL
+   the same way it probes loopback (3-second TCP/HTTP timeout).
+
+### Security caveat — wrapper-v2 has no network-layer auth
+
+There's an important asymmetry between loopback and LAN deployment:
+
+> **Wrapper-v2 exposes no API key, no bearer token, no CORS check,
+> and no client IP allowlist.** Any device that can reach its HTTP
+> port can call `/playback` and `/decrypt` against your Apple Music
+> credentials.
+
+This is **fine** on:
+
+- **Loopback** (`127.0.0.1`) — only this machine can reach it
+- **A trusted home network** behind a residential firewall — you
+  control which devices are on the network
+
+This is **risky** on:
+
+- **Shared networks** (coffeeshop wifi, dorm, work LAN, AirBnB) — any
+  other client on the network can hit your wrapper
+- **Public IPs** — anyone on the internet can hit your wrapper
+
+MeedyaDL surfaces a corresponding hint in **Settings → Advanced →
+Wrapper** when the Wrapper URL is non-loopback:
+
+- **Amber note** for private-range IPs / DNS names — informational,
+  call out the no-auth caveat
+- **Red note** for public IPs — almost always a misconfiguration
+
+### Mitigations if you need stronger isolation
+
+If you want the convenience of running wrapper-v2 elsewhere AND
+network-layer protection, you have several options:
+
+1. **Firewall the wrapper port to specific source IPs.** On Linux,
+   `iptables -A INPUT -p tcp --dport 80 -s 192.168.1.10 -j ACCEPT`
+   then `iptables -A INPUT -p tcp --dport 80 -j DROP`. Equivalent
+   on macOS via `pf`, on Windows via Windows Firewall.
+
+2. **Bind wrapper-v2 to loopback on the remote host + SSH tunnel
+   from MeedyaDL.** On the wrapper host:
+   `WRAPPER_HOST=127.0.0.1 docker compose up -d`. On the MeedyaDL
+   host: `ssh -N -L 30020:127.0.0.1:80 user@wrapper-host`. Set
+   MeedyaDL's Wrapper URL to `http://127.0.0.1:30020`. The wrapper
+   stays loopback-only; the SSH tunnel terminates on the wrapper
+   host's loopback.
+
+3. **VLAN segmentation.** If you have a managed switch / router that
+   supports VLANs, put the wrapper on a dedicated VLAN with only
+   your MeedyaDL machines as authorised members.
+
+4. **VPN-only access.** Run the wrapper on a host accessible only
+   via your Tailscale / WireGuard / OpenVPN network — public IP +
+   firewall blocking everything except the VPN endpoint.
+
+For a single trusted home network (the most common case), no
+mitigation is needed — the LAN itself is the trust boundary.
+
 ---
 
 ## Cookie-only mode (no wrapper)
@@ -169,3 +253,20 @@ codec families. If you don't have wrapper-v2 set up, switch the
 companion mode to one that uses `aac-web` (e.g. **SpecialistToLossy**
 on the Apple Music side) or stay on GAMDL 3.5.2 until you have
 wrapper-v2 working.
+
+**LAN-deployed wrapper unreachable from MeedyaDL but reachable via
+`curl` from the same machine** → Almost always a firewall on the
+wrapper host blocking inbound port 80 from non-loopback sources.
+Verify with `curl http://<wrapper-lan-ip>:80/health` **from a third
+machine** on the LAN. If that works, the issue is in MeedyaDL's
+network config — try `ping <wrapper-lan-ip>` from the MeedyaDL host
+to rule out routing. If the third-machine `curl` also fails, the
+wrapper is bound to loopback only (`WRAPPER_HOST=127.0.0.1`) or the
+host's firewall is rejecting the LAN traffic.
+
+**Amber "Wrapper is on your LAN" note in Settings is unexpected** →
+That's the #891 security hint. If your wrapper URL is intentionally
+on a private-range IP (`10/8`, `172.16-31/12`, `192.168/16`), the
+note is just confirming you understand wrapper-v2 has no
+network-layer auth. See the "Security caveat" section above for
+mitigations if you need stronger isolation.

@@ -79,6 +79,7 @@ export function LyricsTab() {
   const richSrt = useSettingsField('generate_rich_srt');
   const embedSubtitles = useSettingsField('embed_subtitles');
   const generateAss = useSettingsField('generate_ass');
+  const generateLyricsfile = useSettingsField('generate_lyricsfile');
   const embedLyrics = useSettingsField('embed_lyrics_and_sidecar');
   const keepSidecar = useSettingsField('keep_lyrics_sidecar');
   const noSynced = useSettingsField('no_synced_lyrics');
@@ -184,6 +185,14 @@ export function LyricsTab() {
             description="Create Advanced SubStation Alpha (.ass) subtitle files from TTML or WebVTT with rich styling: colours, bold, italic, positioning, and background vocal styles. Supported by VLC, mpv, and MPC-HC."
             checked={generateAss.value}
             onChange={generateAss.set}
+          />
+
+          {/* Lyricsfile (.lyrics) generation — #596 */}
+          <Toggle
+            label="Generate Lyricsfile (.lyrics)"
+            description="Create Lyricsfile YAML sidecars from TTML. Lyricsfile is the open, extensible format endorsed by LRCGET v2.0 and LRCLIB — it preserves word-level timing and is plain-text-editable. Experimental: the spec may change in future LRCGET releases."
+            checked={generateLyricsfile.value}
+            onChange={generateLyricsfile.set}
           />
 
           {/* Embed lyrics/captions */}

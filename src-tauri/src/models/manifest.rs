@@ -60,6 +60,20 @@ pub struct ManifestSource {
     /// a fresh API response reveals if the album has changed.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub last_modified_date: Option<String>,
+    /// Companion-codec plan captured at download time (#766, Phase 2 of #717/5b).
+    ///
+    /// Each inner `Vec<String>` is one tier's `codecs_to_try` list expressed
+    /// as canonical codec-registry IDs (e.g. `"eac3-atmos"`, `"alac"`,
+    /// `"aac-hq"`, `"aac-mq"`). Tier 0 carries the primary download's codec
+    /// fallback chain; subsequent entries mirror `plan_companions()` output.
+    /// A tier is considered "landed" when at least one of its codecs has a
+    /// matching file on disk (matched by filename suffix); a missing tier is
+    /// what the smart-retry planner reports as a `PartialCodecs` gap.
+    ///
+    /// `None` on manifests written before this field existed — the planner
+    /// falls back to its track-number-only diff in that case.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub companion_tiers: Option<Vec<Vec<String>>>,
     /// Per-track metadata from the download.
     #[serde(default)]
     pub tracks: Vec<ManifestTrack>,
@@ -163,6 +177,13 @@ pub struct ManifestTrack {
     /// written before this field existed will deserialize with `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub song_id: Option<String>,
+    /// `true` when a `.lyrics` (Lyricsfile YAML) sidecar was written for
+    /// this track during enrichment Step 2g (#596). Used by the
+    /// library-scan smart-retry planner to decide whether a Lyricsfile
+    /// gap-fill is needed. Backwards-compatible: older manifests
+    /// written before #596 deserialise with `false`.
+    #[serde(default)]
+    pub has_lyricsfile: bool,
 }
 
 fn default_disc() -> u32 {
@@ -238,6 +259,7 @@ mod tests {
             enrichment: None,
             cross_platform_urls: None,
             is_library: false,
+            companion_tiers: None,
         }
     }
 

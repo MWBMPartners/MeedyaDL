@@ -197,7 +197,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Create only the MP4 with no sibling thumbnail.
         let video = tmp.path().join("song.mp4");
-        fs::write(&video, &[0; 16]).unwrap();
+        fs::write(&video, [0; 16]).unwrap();
         let outcome = embed_and_remove_sidecar(&video);
         assert_eq!(outcome, EmbedOutcome::NoSidecar);
     }
@@ -237,7 +237,7 @@ mod tests {
         // Both files are dummies — mp4ameta will reject `broken.mp4`
         // because it's not a real MP4 container.
         fs::write(&video, b"not an mp4").unwrap();
-        fs::write(&sidecar, &[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]).unwrap();
+        fs::write(&sidecar, [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10]).unwrap();
 
         let outcome = embed_and_remove_sidecar(&video);
         match outcome {
