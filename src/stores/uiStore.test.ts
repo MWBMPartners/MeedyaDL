@@ -15,7 +15,7 @@
  * @see {@link https://zustand.docs.pmnd.rs/guides/testing} - Zustand testing patterns
  */
 
-import { useUiStore } from '@/stores/uiStore';
+import { useUiStore, __resetToastWorkerForTests } from '@/stores/uiStore';
 
 /**
  * Reset the store to its initial state before each test.
@@ -29,6 +29,9 @@ beforeEach(() => {
     toasts: [],
     showSetupWizard: false,
   });
+  // #894: the centralised dismissal worker is module-scoped state;
+  // reset it between tests so each starts from a clean baseline.
+  __resetToastWorkerForTests();
 });
 
 describe('uiStore', () => {
@@ -183,8 +186,9 @@ describe('uiStore', () => {
       useUiStore.getState().addToast('Temporary', 'info', 3000);
       expect(useUiStore.getState().toasts).toHaveLength(1);
 
-      /* Advance time past the auto-dismiss duration */
-      vi.advanceTimersByTime(3000);
+      // Advance past the deadline + one worker tick (250 ms) so the
+      // centralised dismissal worker has had a chance to scan.
+      vi.advanceTimersByTime(3500);
       expect(useUiStore.getState().toasts).toHaveLength(0);
 
       vi.useRealTimers();
@@ -198,6 +202,64 @@ describe('uiStore', () => {
 
       /* Toast should still be present */
       expect(useUiStore.getState().toasts).toHaveLength(1);
+
+      vi.useRealTimers();
+    });
+
+    // #894: centralised dismissal-worker tests
+    it('records expiresAt deadline on auto-dismissable toasts', () => {
+      const before = Date.now();
+      useUiStore.getState().addToast('Tracked', 'info', 5000);
+      const after = Date.now();
+      const t = useUiStore.getState().toasts[0];
+      expect(t.expiresAt).not.toBeNull();
+      expect(t.expiresAt!).toBeGreaterThanOrEqual(before + 5000);
+      expect(t.expiresAt!).toBeLessThanOrEqual(after + 5000);
+    });
+
+    it('records expiresAt=null on persistent toasts', () => {
+      useUiStore.getState().addToast('Sticky', 'error', 0);
+      const t = useUiStore.getState().toasts[0];
+      expect(t.expiresAt).toBeNull();
+    });
+
+    it('shares a single dismissal worker across many toasts', () => {
+      vi.useFakeTimers();
+
+      // Fire 50 toasts in rapid succession; pre-#894 this would
+      // schedule 50 individual setTimeouts. Post-#894 the worker
+      // is a single setInterval — the count of pending timers stays
+      // bounded regardless of how many toasts are queued.
+      for (let i = 0; i < 50; i += 1) {
+        useUiStore.getState().addToast(`msg ${i}`, 'info', 1000);
+      }
+      expect(useUiStore.getState().toasts).toHaveLength(50);
+
+      // Advance past expiry + worker tick; all should be cleared.
+      vi.advanceTimersByTime(1500);
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+
+      vi.useRealTimers();
+    });
+
+    it('worker stops once no expiring toasts remain', () => {
+      vi.useFakeTimers();
+
+      useUiStore.getState().addToast('temp', 'info', 1000);
+      vi.advanceTimersByTime(1500); // toast expires, worker scans, list empty
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+
+      // Add a persistent toast. The worker should NOT restart for
+      // it (persistent toasts have no deadline; the worker would
+      // only spin idly).
+      useUiStore.getState().addToast('forever', 'error', 0);
+
+      // Now add a fresh expiring toast — the worker should pick
+      // this up on the next tick.
+      useUiStore.getState().addToast('temp2', 'info', 500);
+      vi.advanceTimersByTime(800); // past temp2's deadline + tick
+      const messages = useUiStore.getState().toasts.map((t) => t.message);
+      expect(messages).toEqual(['forever']);
 
       vi.useRealTimers();
     });

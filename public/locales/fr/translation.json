@@ -99,6 +99,56 @@
       "unhandled_rejection": "Rejet non géré"
     }
   },
+  "download": {
+    "title": "Télécharger",
+    "subtitle": "Entrez une URL Apple Music pour télécharger de la musique ou des vidéos",
+    "urlLabel": "URL Apple Music",
+    "addToQueue": "Ajouter à la file d'attente",
+    "import": "Importer",
+    "importManifest": "Importer un fichier manifeste .meedyadl",
+    "validationError": "Veuillez entrer une URL Apple Music valide",
+    "noValidUrls": "Aucune URL Apple Music valide trouvée",
+    "urlHint": "Prend en charge les titres, albums, playlists, clips vidéo et pages d'artiste. Collez plusieurs URLs (une par ligne) pour toutes les mettre en file d'attente.",
+    "contentTypes": {
+      "song": "Titre",
+      "album": "Album",
+      "playlist": "Playlist",
+      "musicVideo": "Clip vidéo",
+      "artist": "Artiste",
+      "library": "Bibliothèque",
+      "unknown": "Inconnu"
+    }
+  },
+  "queue": {
+    "title": "File d'attente",
+    "empty": "Aucun téléchargement en file d'attente",
+    "emptyHint": "Collez une URL Apple Music sur la page Téléchargement pour commencer",
+    "clearCompleted": "Effacer les éléments terminés",
+    "clearAll": "Tout effacer",
+    "clearAllTitle": "Effacer tous les éléments de la file d'attente",
+    "clearAllMessage": "Tous les éléments en attente, terminés, échoués et annulés seront supprimés de la file d'attente de téléchargement. Les téléchargements actifs ne seront pas interrompus.",
+    "clearAllWarning": "Cette action est irréversible.",
+    "startQueue": "Démarrer la file d'attente",
+    "export": "Exporter",
+    "refresh": "Actualiser"
+  },
+  "activity": {
+    "title": "Activité",
+    "empty": "Pas encore d'activité",
+    "emptyHint": "Démarrez un téléchargement pour voir la sortie en direct ici. Le journal est réinitialisé au redémarrage de l'application.",
+    "noMatches": "Aucune entrée ne correspond aux critères de recherche ou de filtre actuels.",
+    "export": "Exporter le journal",
+    "pause": "Pause",
+    "resume": "Reprendre",
+    "copyEntry": "Copier l'entrée du journal"
+  },
+  "history": {
+    "title": "Historique",
+    "empty": "Aucun historique de téléchargement pour le moment.",
+    "emptyHint": "Les téléchargements terminés et échoués apparaîtront ici.",
+    "noMatches": "Aucun téléchargement correspondant trouvé.",
+    "clearAll": "Effacer l'historique"
+  },
   "common": {
     "loading": "Chargement...",
     "error": "Erreur",

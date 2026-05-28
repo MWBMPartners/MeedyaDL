@@ -145,3 +145,19 @@ pub mod legal;
 /// IPC entry points: create, list, restore, delete. Each runs on a
 /// blocking thread so the FS work doesn't block the main runtime.
 pub mod backup;
+
+/// SQLite download-index IPC surface (#875 M4). Exposes the
+/// read-only query helpers from
+/// `services::download_index::queries` so the Library Scan +
+/// Activity Log frontends can: search activity events with
+/// SQL-grade filters, enumerate library gaps (known tracks not yet
+/// downloaded), and upsert known tracks discovered from external
+/// sources (Apple Music library sync, MusicBrainz, user-added).
+/// All commands fail soft (empty list / `false`) when the DB is
+/// missing — the JSON-backed flows remain authoritative.
+pub mod download_index;
+
+/// .meedyabundle profile export/import IPC surface (#876 P2 + P3 +
+/// P5). Wraps `services::profile_bundle` with the Tauri commands the
+/// Settings UI and import wizard call.
+pub mod profile_bundle;

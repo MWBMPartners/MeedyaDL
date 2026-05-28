@@ -23,6 +23,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | [MP4Box / GPAC](https://gpac.io/) | LGPL-2.1 | Media container toolkit |
 | [MediaInfo](https://mediaarea.net/en/MediaInfo) | BSD-2-Clause | Media file analysis and codec detection |
 | [Python](https://www.python.org/) | PSF | Runtime for pip-based download engines |
+| [rclone](https://rclone.org/) | MIT | Cloud-storage transport for direct-to-cloud downloads (optional, installed on-demand) |
 
 ---
 
@@ -114,4 +115,4 @@ For questions about licence compliance, please open an issue on the [GitHub repo
 
 ---
 
-*Last updated: 2026-04-10.*
+*Last updated: 2026-05-24.*

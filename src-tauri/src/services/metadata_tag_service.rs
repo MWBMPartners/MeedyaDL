@@ -363,6 +363,7 @@ pub async fn apply_enriched_metadata_tags(
     event_context: Option<(&tauri::AppHandle, &str)>,
     uses_native_priority: bool,
     content_advisory_in_filenames: bool,
+    is_library: bool,
 ) -> Result<(usize, Option<AlbumMetadata>, Option<String>), String> {
     // Collect all M4A files from the output path
     let m4a_files = collect_m4a_files(output_path);
@@ -400,9 +401,17 @@ pub async fn apply_enriched_metadata_tags(
         log::debug!("MediaInfo available for codec detection");
     }
 
-    // Resolve album metadata: reuse pre-fetched or try API fetch
+    // Resolve album metadata: reuse pre-fetched or try API fetch.
+    //
+    // #871: Library URLs (`/library/songs/`, `/library/albums/`, …) point at
+    // a user's personal Apple Music library — those IDs are NOT valid against
+    // the catalog endpoints (the API returns 404). Skip the fetch entirely
+    // so we don't waste an HTTP round-trip and don't log a misleading
+    // "Album not found" warning for a working library download. AcoustID,
+    // ReplayGain, channel detection, and codec tag writes still run below.
     let album_metadata: Option<AlbumMetadata> = match pre_fetched_metadata {
         Some(m) => Some(m.clone()),
+        None if is_library => None,
         None => try_fetch_metadata(app, urls, event_context).await,
     };
 

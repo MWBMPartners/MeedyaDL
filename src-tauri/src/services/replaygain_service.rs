@@ -43,7 +43,6 @@ use std::path::{Path, PathBuf};
 
 use mp4ameta::{Data, FreeformIdent, Tag};
 use tauri::AppHandle;
-use tokio::process::Command;
 
 use crate::services::dependency_manager;
 
@@ -129,10 +128,10 @@ pub async fn process_replaygain_for_directory(
             total_files,
             file_path.file_name().unwrap_or_default().to_string_lossy()
         );
-        match analyse_track_loudness(&ffmpeg_path, file_path).await {
+        match analyse_track_loudness(&ffmpeg_path, file_path, reference_level).await {
             Ok(mut result) => {
-                // Calculate track gain from the reference level
-                result.gain_db = reference_level - result.integrated_loudness;
+                // gain_db is already computed against `reference_level` by the
+                // shared crate's analyser; only apply clipping prevention here.
 
                 // Clipping prevention: limit gain so peak × gain_linear ≤ 1.0
                 if prevent_clipping && result.true_peak > 0.0 {
@@ -430,101 +429,52 @@ fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(ffmpeg_bin)
 }
 
-/// Analyse a single audio file's loudness using `FFmpeg`'s ebur128 filter.
+/// Analyse a single audio file's loudness via the shared
+/// [`meedya_fingerprint::ReplayGainAnalyzer`] (#353 Phase 2).
 ///
-/// Runs `ffmpeg -i file -af ebur128=peak=true -f null -` and parses the
-/// Summary section of stderr for integrated loudness and true peak values.
-///
-/// # Returns
-/// * `Ok(ReplayGainResult)` - Loudness measurements and calculated gain
-/// * `Err(message)` - `FFmpeg` execution or parsing failed
+/// Spawns `ffmpeg -i file -af ebur128=peak=true -f null -` inside the shared
+/// crate, parses the `Summary:` block, and returns a MeedyaDL-local
+/// [`ReplayGainResult`] with `gain_db` already computed against
+/// `reference_level`. The shared crate emits its own 4-field result type
+/// (it carries `reference_level` for round-trip serialisation); we drop that
+/// field here because MeedyaDL's per-file tag writers don't need it.
 async fn analyse_track_loudness(
     ffmpeg_path: &Path,
     file_path: &Path,
+    reference_level: f64,
 ) -> Result<ReplayGainResult, String> {
-    let output = Command::new(ffmpeg_path)
-        .args(["-i"])
-        .arg(file_path)
-        .args(["-af", "ebur128=peak=true", "-f", "null", "-"])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to spawn FFmpeg: {e}"))?;
-
-    // ebur128 writes its output to stderr (FFmpeg convention)
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    // Parse the Summary section from ebur128 output.
-    // The output format is:
-    //   [Parsed_ebur128_0 @ ...] Summary:
-    //
-    //     Integrated loudness:
-    //       I:         -14.2 LUFS
-    //       Threshold: -24.2 LUFS
-    //
-    //     True peak:
-    //       Peak:       -0.6 dBFS
-    parse_ebur128_output(&stderr)
+    let analyzer = meedya_fingerprint::ReplayGainAnalyzer::new(
+        ffmpeg_path.to_string_lossy().into_owned(),
+    )
+    .with_reference_level(reference_level);
+    map_shared_replaygain_result(analyzer.analyze_track(file_path).await)
 }
 
-/// Parse `FFmpeg` ebur128 filter output to extract loudness measurements.
+/// Convert a shared-crate [`meedya_fingerprint::ReplayGainResult`] into
+/// MeedyaDL's local 3-field [`ReplayGainResult`], and map the shared error
+/// variants back to the historical `String` error messages so call-sites
+/// (and the `log::debug!` line in the caller) keep their existing surface.
 ///
-/// Looks for the "Summary:" section in stderr and extracts:
-/// - Integrated loudness (I: value in LUFS)
-/// - True peak (Peak: value in dBFS, converted to linear scale)
-fn parse_ebur128_output(stderr: &str) -> Result<ReplayGainResult, String> {
-    // Find the Summary section
-    let summary_start = stderr
-        .find("Summary:")
-        .ok_or("No Summary section in ebur128 output")?;
-    let summary = &stderr[summary_start..];
-
-    // Extract integrated loudness: "I:         -14.2 LUFS"
-    let integrated_loudness = parse_lufs_value(summary, "I:")
-        .ok_or("Failed to parse integrated loudness (I:) from ebur128 output")?;
-
-    // Extract true peak: "Peak:       -0.6 dBFS"
-    let peak_dbfs = parse_dbfs_value(summary, "Peak:")
-        .ok_or("Failed to parse true peak (Peak:) from ebur128 output")?;
-
-    // Convert peak from dBFS to linear scale: 10^(dBFS/20)
-    let true_peak = 10.0_f64.powf(peak_dbfs / 20.0);
-
-    // gain_db is calculated by the caller with the user's reference level.
-    // Return raw measurements only.
-    Ok(ReplayGainResult {
-        integrated_loudness,
-        true_peak,
-        gain_db: 0.0, // Placeholder — caller sets this from reference_level
-    })
-}
-
-/// Extract a LUFS value from ebur128 output text.
-///
-/// Looks for a line matching: `{key}  {spaces}  {number} LUFS`
-fn parse_lufs_value(text: &str, key: &str) -> Option<f64> {
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(after_key) = trimmed.strip_prefix(key) {
-            // Extract the numeric value before "LUFS"
-            let value_str = after_key.trim().trim_end_matches("LUFS").trim();
-            return value_str.parse::<f64>().ok();
+/// Extracted as a pure helper so it can be unit-tested without spawning
+/// FFmpeg — mirrors the Phase 1 `map_shared_acoustid_result` pattern.
+fn map_shared_replaygain_result(
+    result: Result<meedya_fingerprint::ReplayGainResult, meedya_fingerprint::FingerprintError>,
+) -> Result<ReplayGainResult, String> {
+    match result {
+        Ok(r) => Ok(ReplayGainResult {
+            integrated_loudness: r.integrated_loudness,
+            true_peak: r.true_peak,
+            gain_db: r.gain_db,
+        }),
+        Err(meedya_fingerprint::FingerprintError::FfmpegNotFound(path)) => {
+            Err(format!("FFmpeg not found at expected path: {path}"))
         }
-    }
-    None
-}
-
-/// Extract a dBFS value from ebur128 output text.
-///
-/// Looks for a line matching: `{key}  {spaces}  {number} dBFS`
-fn parse_dbfs_value(text: &str, key: &str) -> Option<f64> {
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if let Some(after_key) = trimmed.strip_prefix(key) {
-            let value_str = after_key.trim().trim_end_matches("dBFS").trim();
-            return value_str.parse::<f64>().ok();
+        Err(meedya_fingerprint::FingerprintError::FfmpegError(msg)) => {
+            Err(format!("Failed to spawn FFmpeg: {msg}"))
         }
+        Err(meedya_fingerprint::FingerprintError::LoudnessParseError(msg)) => Err(msg),
+        Err(other) => Err(format!("ReplayGain analysis failed: {other}")),
     }
-    None
 }
 
 // ============================================================
@@ -617,101 +567,136 @@ mod tests {
     use super::*;
 
     // ----------------------------------------------------------
-    // ebur128 output parsing tests
+    // Shared-crate adapter tests (#353 Phase 2)
+    //
+    // ebur128 *parsing* is now owned by `meedya-fingerprint` and exercised
+    // by its own test suite. The tests below pin the MeedyaDL-side adapter
+    // — error-variant mapping and field-projection from the shared
+    // 4-field result to the local 3-field result — so future shared-crate
+    // bumps that quietly change either side surface here, not at runtime.
     // ----------------------------------------------------------
 
-    const SAMPLE_EBUR128_OUTPUT: &str = r"
-[Parsed_ebur128_0 @ 0x7f8b8c000000] Summary:
-
-  Integrated loudness:
-    I:         -14.2 LUFS
-    Threshold: -24.2 LUFS
-
-  Loudness range:
-    LRA:         7.1 LU
-    Threshold:  -34.2 LUFS
-    LRA low:    -18.8 LUFS
-    LRA high:   -11.7 LUFS
-
-  True peak:
-    Peak:        -0.6 dBFS
-";
-
     #[test]
-    fn parse_integrated_loudness() {
-        let result = parse_ebur128_output(SAMPLE_EBUR128_OUTPUT).unwrap();
-        assert!((result.integrated_loudness - (-14.2)).abs() < 0.01);
+    fn adapter_projects_shared_result_into_local_struct() {
+        // Shared crate returns 4 fields (carries `reference_level`); the
+        // adapter drops it. Verifies field-by-field projection.
+        let shared = meedya_fingerprint::ReplayGainResult {
+            integrated_loudness: -14.2,
+            true_peak: 0.933254,
+            gain_db: -3.8,
+            reference_level: -18.0,
+        };
+        let mapped = map_shared_replaygain_result(Ok(shared)).expect("Ok variant");
+        assert!((mapped.integrated_loudness - (-14.2)).abs() < f64::EPSILON);
+        assert!((mapped.true_peak - 0.933254).abs() < f64::EPSILON);
+        assert!((mapped.gain_db - (-3.8)).abs() < f64::EPSILON);
     }
 
     #[test]
-    fn parse_true_peak() {
-        let result = parse_ebur128_output(SAMPLE_EBUR128_OUTPUT).unwrap();
-        // -0.6 dBFS → linear: 10^(-0.6/20) ≈ 0.933254
-        assert!((result.true_peak - 0.933254).abs() < 0.001);
-    }
-
-    #[test]
-    fn calculate_gain_correctly() {
-        let result = parse_ebur128_output(SAMPLE_EBUR128_OUTPUT).unwrap();
-        // gain_db is now calculated by the caller, not the parser.
-        // Verify the caller's formula: reference_level - integrated_loudness
-        let gain = DEFAULT_REFERENCE_LEVEL - result.integrated_loudness;
-        // Reference: -18.0 LUFS, integrated: -14.2 LUFS
-        // Gain = -18.0 - (-14.2) = -3.8 dB
-        assert!((gain - (-3.8)).abs() < 0.01);
-    }
-
-    #[test]
-    fn parse_quiet_track() {
-        let output = r"
-[Parsed_ebur128_0 @ 0x0] Summary:
-
-  Integrated loudness:
-    I:         -24.5 LUFS
-    Threshold: -34.5 LUFS
-
-  True peak:
-    Peak:        -6.0 dBFS
-";
-        let result = parse_ebur128_output(output).unwrap();
-        assert!((result.integrated_loudness - (-24.5)).abs() < 0.01);
-        // Gain calculated by caller: -18.0 - (-24.5) = 6.5 dB (positive = turn up)
-        let gain = DEFAULT_REFERENCE_LEVEL - result.integrated_loudness;
-        assert!((gain - 6.5).abs() < 0.01);
-    }
-
-    #[test]
-    fn parse_missing_summary_returns_error() {
-        let output = "some random ffmpeg output without summary";
-        assert!(parse_ebur128_output(output).is_err());
-    }
-
-    #[test]
-    fn parse_lufs_value_extracts_correctly() {
-        assert_eq!(
-            parse_lufs_value("  I:         -14.2 LUFS", "I:"),
-            Some(-14.2)
+    fn adapter_maps_ffmpeg_not_found_with_path() {
+        let err = map_shared_replaygain_result(Err(
+            meedya_fingerprint::FingerprintError::FfmpegNotFound("/opt/ffmpeg".into()),
+        ))
+        .expect_err("Err variant");
+        assert!(
+            err.contains("FFmpeg not found"),
+            "expected `FFmpeg not found` prefix, got: {err}"
         );
-        assert_eq!(parse_lufs_value("  I:         0.0 LUFS", "I:"), Some(0.0));
-        assert_eq!(
-            parse_lufs_value("  I:         -70.0 LUFS", "I:"),
-            Some(-70.0)
+        assert!(
+            err.contains("/opt/ffmpeg"),
+            "missing path in error: {err}"
         );
     }
 
     #[test]
-    fn parse_dbfs_value_extracts_correctly() {
-        assert_eq!(
-            parse_dbfs_value("  Peak:        -0.6 dBFS", "Peak:"),
-            Some(-0.6)
+    fn adapter_maps_ffmpeg_spawn_error() {
+        let err = map_shared_replaygain_result(Err(
+            meedya_fingerprint::FingerprintError::FfmpegError("permission denied".into()),
+        ))
+        .expect_err("Err variant");
+        assert!(
+            err.contains("Failed to spawn FFmpeg"),
+            "expected historical message, got: {err}"
         );
-        assert_eq!(
-            parse_dbfs_value("  Peak:        0.0 dBFS", "Peak:"),
-            Some(0.0)
+        assert!(err.contains("permission denied"));
+    }
+
+    #[test]
+    fn adapter_passes_through_loudness_parse_error_verbatim() {
+        // The shared crate's parser error string is already user-readable;
+        // we preserve it verbatim so existing log scrapers stay aligned.
+        let err = map_shared_replaygain_result(Err(
+            meedya_fingerprint::FingerprintError::LoudnessParseError(
+                "Could not find integrated loudness (I:) in FFmpeg output".into(),
+            ),
+        ))
+        .expect_err("Err variant");
+        assert!(err.contains("integrated loudness"), "got: {err}");
+    }
+
+    #[test]
+    fn adapter_wraps_unrelated_errors_with_fallback_prefix() {
+        // Network/AcoustID variants shouldn't appear from a ReplayGain call,
+        // but if a future shared-crate refactor produces one, the fallback
+        // arm should still produce a parseable error string.
+        let err = map_shared_replaygain_result(Err(
+            meedya_fingerprint::FingerprintError::NetworkError("DNS failure".into()),
+        ))
+        .expect_err("Err variant");
+        assert!(
+            err.starts_with("ReplayGain analysis failed:"),
+            "expected fallback prefix, got: {err}"
         );
-        assert_eq!(
-            parse_dbfs_value("  Peak:        -12.3 dBFS", "Peak:"),
-            Some(-12.3)
+        assert!(err.contains("DNS failure"));
+    }
+
+    #[test]
+    fn shared_crate_public_api_surface_unchanged() {
+        // Pins the bits of `meedya-fingerprint` we depend on. If upstream
+        // renames `analyze_track`, drops `with_reference_level`, or changes
+        // either result type's fields, compilation here breaks first.
+        let analyzer = meedya_fingerprint::ReplayGainAnalyzer::new("ffmpeg")
+            .with_reference_level(-18.0);
+        // Pin `analyze_track`'s existence and arity via a local `async fn`.
+        // We never invoke it (FFmpeg isn't on $PATH in CI); if upstream
+        // renames the method or changes the parameter list, this stops
+        // compiling.
+        #[allow(dead_code)]
+        async fn pin_analyze_track(
+            a: &meedya_fingerprint::ReplayGainAnalyzer,
+            p: &Path,
+        ) -> Result<
+            meedya_fingerprint::ReplayGainResult,
+            meedya_fingerprint::FingerprintError,
+        > {
+            a.analyze_track(p).await
+        }
+        let _: fn(_, _) -> _ = pin_analyze_track; // suppress unused-fn warning
+
+        // `compute_album_gain` is the public album aggregation entry point;
+        // pin its presence even though Phase 2 still uses MeedyaDL's local
+        // computation (kept to preserve clipping-prevention semantics).
+        let album = analyzer.compute_album_gain(&[]);
+        assert!(album.is_none(), "empty input must yield None");
+
+        // Pin the fields we project in the adapter.
+        let r = meedya_fingerprint::ReplayGainResult {
+            integrated_loudness: 0.0,
+            true_peak: 0.0,
+            gain_db: 0.0,
+            reference_level: 0.0,
+        };
+        let _ = (r.integrated_loudness, r.true_peak, r.gain_db, r.reference_level);
+    }
+
+    #[test]
+    fn default_reference_level_matches_shared_crate() {
+        // The local constant exists for backwards compatibility with
+        // existing call-sites; if the shared crate ever changes its
+        // EBU R128 default, we want to find out at test time.
+        assert!(
+            (DEFAULT_REFERENCE_LEVEL - meedya_fingerprint::DEFAULT_REFERENCE_LEVEL).abs()
+                < f64::EPSILON
         );
     }
 

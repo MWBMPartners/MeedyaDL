@@ -756,6 +756,55 @@ export function abortAllDownloads(): Promise<AbortSummary> {
 }
 
 /**
+ * Pauses the queue scheduler — **non-destructive** (#889).
+ *
+ * Distinct from {@link abortAllDownloads}, which is destructive. Pause
+ * just stops the scheduler from pulling new items: anything currently
+ * `Downloading` / `Processing` runs to completion, anything still
+ * `Queued` waits where it is. Resume picks up where it left off.
+ *
+ * Rust handler: `pause_queue()` in `src-tauri/src/commands/gamdl.rs`.
+ * Emits a `queue-paused-changed` event carrying the new boolean state.
+ *
+ * @returns `true` if the queue was already paused (no-op), `false` if
+ *   the call transitioned running → paused.
+ */
+export function pauseQueue(): Promise<boolean> {
+  return invoke<boolean>('pause_queue');
+}
+
+/**
+ * Resumes the queue scheduler after {@link pauseQueue} (#889).
+ *
+ * Items in `Queued` state become eligible to start on the next
+ * `process_queue` iteration. The backend kicks the scheduler before
+ * returning, so a download starts immediately if there's a queued
+ * item waiting.
+ *
+ * Rust handler: `resume_queue()` in `src-tauri/src/commands/gamdl.rs`.
+ * Emits a `queue-paused-changed` event carrying the new boolean state.
+ *
+ * @returns `true` if the queue was paused before the call (the call
+ *   transitioned paused → running), `false` if it was already running.
+ */
+export function resumeQueue(): Promise<boolean> {
+  return invoke<boolean>('resume_queue');
+}
+
+/**
+ * Returns whether the queue scheduler is currently paused (#889).
+ *
+ * Used on app startup to populate the initial Pause/Resume button
+ * state. After startup the frontend listens to the
+ * `queue-paused-changed` event for updates rather than polling.
+ *
+ * Rust handler: `is_queue_paused()` in `src-tauri/src/commands/gamdl.rs`.
+ */
+export function isQueuePaused(): Promise<boolean> {
+  return invoke<boolean>('is_queue_paused');
+}
+
+/**
  * Retries a failed or cancelled download.
  *
  * Rust handler: `retry_download()` in `src-tauri/src/commands/download.rs`
@@ -1220,10 +1269,15 @@ export interface ScannedManifest {
 }
 
 /**
- * Smart-retry diff result for a single Library Scan row (Phase 5b, #717).
+ * Smart-retry diff result for a single Library Scan row (Phase 5b, #717;
+ * `partial_codecs` added in Phase 2 of 5b, #766).
  *
  * Mirrors the Rust `LibraryScanDiff` enum (tagged-union by `kind`):
  * - `plan`: at least one track is missing; UI renders "X of Y missing".
+ * - `partial_codecs`: every track present in *some* codec, but the
+ *   manifest's `companion_tiers` plan has unsatisfied tiers (e.g.
+ *   companion AAC variants timed out after primary Atmos landed); UI
+ *   renders "N codec(s) missing".
  * - `all_present`: every track on disk; UI renders "All present".
  * - `not_applicable`: manifest missing/malformed/no-source-match; UI
  *   renders a neutral "Cannot diff" badge.
@@ -1232,6 +1286,11 @@ export interface ScannedManifest {
  */
 export type LibraryScanDiff =
   | { kind: 'plan'; missing_tracks: number; total_tracks: number }
+  | {
+      kind: 'partial_codecs';
+      missing_codecs: string[];
+      total_tracks: number;
+    }
   | { kind: 'all_present'; total_tracks: number }
   | { kind: 'not_applicable' };
 
@@ -1373,6 +1432,151 @@ export function exportSettings(): Promise<string> {
  */
 export function importSettings(): Promise<void> {
   return invoke<void>('import_settings');
+}
+
+// ============================================================
+// Profile Bundle Commands (#876)
+// ============================================================
+
+/**
+ * Options for `exportProfile`. All fields are optional with sensible
+ * defaults — queue + history are ON, everything else (DB, credentials,
+ * activity log, manifests) is OFF.
+ */
+export interface ExportProfileOptions {
+  include_queue?: boolean;
+  include_history?: boolean;
+  include_database?: boolean;
+  include_credentials?: boolean;
+  /** Password used for credential encryption (#876 P4). Required when
+   *  `include_credentials` is true; not persisted by the backend. */
+  credentials_password?: string | null;
+  include_activity_log?: boolean;
+  include_manifests?: boolean;
+  note?: string | null;
+}
+
+/** Result of a successful `exportProfile` call. */
+export interface ExportProfileResult {
+  path: string;
+  size_bytes: number;
+  sections: string[];
+}
+
+/**
+ * Exports the current install's profile to a `.meedyabundle` archive
+ * via a native save dialog. Returns the resolved path + size + the
+ * list of OPTIONAL sections actually included (settings is always
+ * present).
+ *
+ * Rust handler: `export_profile()` in
+ * `src-tauri/src/commands/profile_bundle.rs`.
+ *
+ * Called by: GeneralTab "Export Profile" button.
+ */
+export function exportProfile(
+  options: ExportProfileOptions = {},
+): Promise<ExportProfileResult> {
+  return invoke<ExportProfileResult>('export_profile', { options });
+}
+
+/**
+ * Summary returned by `peekProfileBundle` — what the bundle
+ * contains, surfaced to the import wizard before the user confirms.
+ *
+ * Brand-wide schema: `producer` / `producer_version` /
+ * `producer_platform` identify which MeedyaSuite app wrote the
+ * bundle. `produced_by_this_app` is `true` when `producer` matches
+ * the running app's `PRODUCER_ID` constant — the import UI uses it
+ * to surface a "this bundle was produced by a different app"
+ * warning rather than silently skipping every section.
+ */
+export interface ProfileBundleSummary {
+  bundle_version: number;
+  producer: string;
+  producer_version: string;
+  producer_platform: string;
+  exported_at: string;
+  exported_by: string | null;
+  note: string | null;
+  sections: string[];
+  source_path: string;
+  produced_by_this_app: boolean;
+}
+
+/**
+ * Inspect a `.meedyabundle` without extracting anything (#876 P3).
+ * Pass `null`/omit to open a native file picker; pass an absolute
+ * path to skip the picker (used by P5's first-launch auto-detect).
+ */
+export function peekProfileBundle(
+  path?: string | null,
+): Promise<ProfileBundleSummary> {
+  return invoke<ProfileBundleSummary>('peek_profile_bundle', {
+    path: path ?? null,
+  });
+}
+
+/** Per-section conflict action: skip the existing file or replace it. */
+export type ImportConflictAction = 'skip' | 'replace';
+
+/** Options for `importProfile`. Source path is required (typically
+ *  threaded from a prior `peekProfileBundle` call). */
+export interface ImportProfileOptions {
+  source_path: string;
+  settings?: ImportConflictAction;
+  queue?: ImportConflictAction;
+  history?: ImportConflictAction;
+  database?: ImportConflictAction;
+  activity_log?: ImportConflictAction;
+  manifests?: ImportConflictAction;
+  credentials?: ImportConflictAction;
+  /** Password used for credential decryption (#876 P4). Required when
+   *  `credentials === 'replace'` and the bundle has a credentials section. */
+  credentials_password?: string | null;
+}
+
+/** Result returned by `importProfile`. */
+export interface ImportProfileResult {
+  settings_restored: boolean;
+  queue_restored: boolean;
+  history_restored: boolean;
+  database_restored: boolean;
+  activity_log_files_restored: number;
+  manifests_restored: number;
+  credentials_skipped_p4: boolean;
+}
+
+/**
+ * Restore selected sections from a `.meedyabundle` (#876 P3).
+ * The user picks per-section conflict actions in the import
+ * wizard before invoking this. The caller should encourage a
+ * restart afterwards because background tasks (queue processor,
+ * activity-log writer) hold the affected files open.
+ */
+export function importProfile(
+  options: ImportProfileOptions,
+): Promise<ImportProfileResult> {
+  return invoke<ImportProfileResult>('import_profile', { options });
+}
+
+/** Row in the result returned by `scanForBundles` — a found
+ *  bundle with its preview summary already fetched. */
+export interface DiscoveredBundle {
+  path: string;
+  size_bytes: number;
+  summary: ProfileBundleSummary;
+}
+
+/**
+ * Scan well-known per-user folders (Downloads, Desktop, home) for
+ * `.meedyabundle` files (#876 P5). Called by the first-launch
+ * setup wizard so a returning user can spot the bundle they just
+ * dropped on the new machine. Returns at most 5 newest-first
+ * results; corrupt / wrong-version bundles are filtered out.
+ */
+export function scanForBundles(): Promise<DiscoveredBundle[]> {
+  return invoke<DiscoveredBundle[]>('scan_for_bundles');
 }
 
 // ============================================================

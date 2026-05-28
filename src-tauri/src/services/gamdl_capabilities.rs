@@ -487,6 +487,53 @@ pub enum GamdlFeature {
     /// for the two STILL-removed tool paths (`--mp4box-path`,
     /// `--mp4decrypt-path`).
     FFmpegPath,
+
+    /// GAMDL's URL regex (`gamdl/.../constants.py::VALID_URL_PATTERN`)
+    /// accepts `https://(?:classical\.)?music.apple.com/...` but rejects
+    /// the bare legacy `https://classical.apple.com/...` form. Apple
+    /// Music Classical originally lived at the bare host before migrating
+    /// to `classical.music.apple.com`; the legacy form is still in the
+    /// wild from older builds + bookmarks. MeedyaDL's frontend URL parser
+    /// accepts both, but when this capability is `true` the legacy form
+    /// must be rewritten to `classical.music.apple.com` before being
+    /// handed to GAMDL or the subprocess immediately exits with
+    /// "Could not parse URL" (#880).
+    ///
+    /// Three-version classification:
+    /// * `< 2.9.1`: `false` (regex was even stricter — `r"https://music\.apple\.com"`,
+    ///   no classical prefix accepted at all; rewriting wouldn't help, the
+    ///   URL still fails). MeedyaDL doesn't support pre-2.9.1 so this branch
+    ///   is theoretical — pre-#880 unconditional-no-op behaviour is preserved.
+    /// * `>= 2.9.1`: `true` (regex relaxed to `r"https://(?:classical\.)?music\.apple\.com"`
+    ///   — the classical.music.apple.com host is accepted but the bare
+    ///   classical.apple.com is not).
+    ///
+    /// Effective for the entire MeedyaDL support window. The gate exists
+    /// so the unknown-version default (`false`) preserves the pre-#880
+    /// pass-through behaviour rather than producing a rewrite that might
+    /// be wrong on an unaudited future GAMDL.
+    ClassicalMusicHostRequired,
+
+    /// GAMDL strips unknown INI keys from its `config.ini` via
+    /// `gamdl/cli/config_file.py::cleanup_unknown_params()` on every load.
+    /// `storefront` is NOT in GAMDL's `CliConfig` on any release in our
+    /// support window (2.9.1+) — the storefront is derived from the URL
+    /// path itself (`/us/album/...` → "us") by the URL regex, not from
+    /// the INI. MeedyaDL has been writing `storefront = us` into the INI
+    /// for legacy reasons; the value is silently discarded on read.
+    ///
+    /// When this capability is `true` MeedyaDL omits the dead INI write
+    /// to keep the config tidy + avoid forcing GAMDL's cleanup to do
+    /// unnecessary work (#881).
+    ///
+    /// Three-version classification:
+    /// * `>= 2.9.1`: `true` (every supported release strips `storefront`)
+    /// * unknown / out-of-window: `false` — MeedyaDL preserves the
+    ///   pre-#881 behaviour of emitting the key, on the principle that
+    ///   we never know what an unaudited GAMDL is keying off. If a
+    ///   future GAMDL re-adds storefront as a real CLI/INI option we
+    ///   adjust the gate then.
+    StorefrontIniKeyStripped,
 }
 
 impl GamdlFeature {
@@ -528,6 +575,14 @@ impl GamdlFeature {
             Self::FFmpegPath => {
                 !is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7")
             }
+            // GAMDL >= 2.9.1 (#880): classical.apple.com URLs must be
+            // rewritten to classical.music.apple.com before being handed
+            // to GAMDL. Effective on the entire support window.
+            Self::ClassicalMusicHostRequired => is_version_at_least(version, "2.9.1"),
+            // GAMDL >= 2.9.1 (#881): `storefront` INI key is stripped on
+            // every release via `cleanup_unknown_params()`. Effective on
+            // the entire support window.
+            Self::StorefrontIniKeyStripped => is_version_at_least(version, "2.9.1"),
         }
     }
 }
@@ -570,6 +625,8 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::NativeMuxing, "native_muxing"),
         (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
         (GamdlFeature::FFmpegPath, "ffmpeg_path"),
+        (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
+        (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
     ];
 
     let active: Vec<&str> = all
@@ -584,19 +641,41 @@ pub fn active_capabilities_summary() -> String {
     }
 }
 
+/// Process-global mutex that tests across multiple modules share to
+/// serialise mutation of [`set_detected_version`]. Without it,
+/// parallel tests in different files (e.g.,
+/// `services::gamdl_capabilities::tests`, `models::gamdl_options::tests`,
+/// `services::config_service::tests`, `services::apple_music_api::tests`)
+/// can flip the cache between another test's set + read and cause
+/// intermittent assertion failures.
+///
+/// All test modules that touch the capability cache MUST acquire
+/// this lock before calling `set_detected_version` or any
+/// `supports(...)` that depends on the version. Tests within
+/// `gamdl_capabilities::tests` itself also use this same lock.
+///
+/// Public-but-gated so production code can't accidentally hold it.
+#[cfg(test)]
+pub fn capability_cache_test_lock(
+) -> std::sync::MutexGuard<'static, ()> {
+    static SHARED: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    SHARED.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The capability cache is process-global, so tests that mutate it
-    /// must serialise to avoid interfering with one another. A single
-    /// `Mutex` is cheaper than an `RwLock` here and makes the intent
-    /// explicit.
-    static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// Convenience wrapper around [`capability_cache_test_lock`].
+    /// Kept under the same `TEST_LOCK` name so the existing tests in
+    /// this module need no renaming.
+    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+        capability_cache_test_lock()
+    }
 
     #[test]
     fn fetch_extra_tags_is_available_on_v2x() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert!(supports(GamdlFeature::FetchExtraTags));
         set_detected_version(None);
@@ -604,7 +683,7 @@ mod tests {
 
     #[test]
     fn fetch_extra_tags_is_not_available_on_v3() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.0".to_string()));
         assert!(!supports(GamdlFeature::FetchExtraTags));
         set_detected_version(Some("3.0.0".to_string()));
@@ -616,7 +695,7 @@ mod tests {
 
     #[test]
     fn native_codec_priority_requires_v291() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.0".to_string()));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
         set_detected_version(Some("2.9.1".to_string()));
@@ -628,7 +707,7 @@ mod tests {
 
     #[test]
     fn no_exceptions_flag_is_effective_below_v31() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert!(supports(GamdlFeature::NoExceptionsFlag));
         set_detected_version(Some("3.0".to_string()));
@@ -644,7 +723,7 @@ mod tests {
 
     #[test]
     fn wrapper_m3u8_ip_requires_v31() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.0".to_string()));
         assert!(!supports(GamdlFeature::WrapperM3u8Ip));
         set_detected_version(Some("3.0.1".to_string()));
@@ -658,7 +737,7 @@ mod tests {
 
     #[test]
     fn unknown_version_reports_no_capabilities() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(None);
         assert!(!supports(GamdlFeature::FetchExtraTags));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
@@ -669,7 +748,7 @@ mod tests {
 
     #[test]
     fn playlist_folder_template_requires_v30() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.1".to_string()));
         assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
         set_detected_version(Some("2.9.3".to_string()));
@@ -685,7 +764,7 @@ mod tests {
 
     #[test]
     fn active_capabilities_summary_lists_v3_5_features() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.5.0".to_string()));
         let summary = active_capabilities_summary();
         // v3.5 supports: NativeCodecPriority, PlaylistFolderTemplate,
@@ -701,14 +780,14 @@ mod tests {
 
     #[test]
     fn active_capabilities_summary_unknown_when_uncached() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(None);
         assert_eq!(active_capabilities_summary(), "unknown");
     }
 
     #[test]
     fn active_capabilities_summary_lists_v2x_features() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         let summary = active_capabilities_summary();
         // v2.9.3 supports: NativeCodecPriority, FetchExtraTags,
@@ -724,7 +803,7 @@ mod tests {
 
     #[test]
     fn set_detected_version_roundtrip() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         assert_eq!(detected_version(), Some("2.9.3".to_string()));
         set_detected_version(None);
@@ -880,7 +959,7 @@ mod tests {
 
     #[test]
     fn wrapper_url_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         for v in ["2.9.3", "3.0", "3.3", "3.5.2"] {
             set_detected_version(Some(v.to_string()));
             assert!(
@@ -900,7 +979,7 @@ mod tests {
 
     #[test]
     fn wrapper_m3u8_ip_removed_in_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // The old wrapper-v1 m3u8 IP flag was added in v3.1 but REMOVED
         // in v3.6 alongside the wrapper-v2 single-endpoint redesign.
         set_detected_version(Some("3.5.2".to_string()));
@@ -914,7 +993,7 @@ mod tests {
 
     #[test]
     fn aac_web_codec_rename_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         set_detected_version(Some("3.5.2".to_string()));
         assert!(
             !supports(GamdlFeature::AacWebCodecRename),
@@ -930,7 +1009,7 @@ mod tests {
 
     #[test]
     fn native_muxing_requires_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // <3.6: external FFmpeg/MP4Box/mp4decrypt path options still
         // accepted by the CLI parser; we emit them.
         set_detected_version(Some("3.5.2".to_string()));
@@ -943,7 +1022,7 @@ mod tests {
 
     #[test]
     fn music_video_remux_mode_removed_in_v36() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
         // Returns true when the option is STILL AVAILABLE.
         set_detected_version(Some("3.5.2".to_string()));
         assert!(supports(GamdlFeature::MusicVideoRemuxMode));
@@ -962,7 +1041,7 @@ mod tests {
     /// is true.
     #[test]
     fn ffmpeg_path_gate_three_version_classification() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = test_lock();
 
         // Era 1: <3.6 (original tool-path era — flag accepted)
         set_detected_version(Some("2.9.3".to_string()));
@@ -1001,6 +1080,75 @@ mod tests {
         assert!(
             supports(GamdlFeature::FFmpegPath),
             "3.7.1: still on the >=3.7 line, --ffmpeg-path still emitted"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `ClassicalMusicHostRequired` returns `true` on every supported
+    /// GAMDL version (>= 2.9.1) so MeedyaDL rewrites legacy
+    /// `classical.apple.com` URLs to `classical.music.apple.com`. On
+    /// unknown / unparseable versions the gate is `false` so MeedyaDL
+    /// preserves the pre-#880 pass-through behaviour — never rewrite
+    /// when we can't audit the target version (#880).
+    #[test]
+    fn classical_music_host_required_gate_covers_support_window() {
+        let _lock = test_lock();
+
+        for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::ClassicalMusicHostRequired),
+                "{v}: classical.music.apple.com host required, rewrite must engage"
+            );
+        }
+
+        // Pre-2.9.1 — out of support window, gate must be off.
+        set_detected_version(Some("2.9".to_string()));
+        assert!(
+            !supports(GamdlFeature::ClassicalMusicHostRequired),
+            "2.9: pre-support-window, rewrite must NOT engage"
+        );
+
+        // Unknown / unparseable — gate off, pass-through preserved.
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::ClassicalMusicHostRequired),
+            "None: unknown version, rewrite must NOT engage"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `StorefrontIniKeyStripped` returns `true` on every supported
+    /// GAMDL version (>= 2.9.1) — `cleanup_unknown_params()` has been
+    /// silently stripping the key since 2.9.1 and there's no version
+    /// in our support window where it's a real CLI/INI option. On
+    /// unknown versions the gate is `false` so MeedyaDL keeps emitting
+    /// the key, preserving pre-#881 behaviour for unaudited installs
+    /// (#881).
+    #[test]
+    fn storefront_ini_key_stripped_gate_covers_support_window() {
+        let _lock = test_lock();
+
+        for v in ["2.9.1", "2.9.3", "3.0", "3.6", "3.7.1"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::StorefrontIniKeyStripped),
+                "{v}: storefront INI key is stripped by GAMDL, MeedyaDL must omit"
+            );
+        }
+
+        set_detected_version(Some("2.9".to_string()));
+        assert!(
+            !supports(GamdlFeature::StorefrontIniKeyStripped),
+            "2.9: out of window, omit-storefront-INI optimisation must NOT engage"
+        );
+
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::StorefrontIniKeyStripped),
+            "None: unknown version, omit-storefront-INI optimisation must NOT engage"
         );
 
         set_detected_version(None);

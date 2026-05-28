@@ -696,20 +696,22 @@ function QueueItemComponent({
       )}
 
       {/*
-       * "Retry without Wrapper" pill button -- shown below the error message
-       * for failed downloads that were attempted with wrapper authentication.
-       * Allows users to fall back to cookie-based auth without navigating
-       * to settings. Styled as a subtle pill to avoid visual clutter.
+       * "Retry without Wrapper" pill -- below the error for failed
+       * wrapper-auth downloads. Visual prominence bumped per #890
+       * (was text-xs / bg-surface-secondary → text-sm / accent
+       * border) because users were missing the original passive-pill
+       * styling. Context-menu entry is the secondary path.
        */}
       {item.state === 'error' && item.used_wrapper && (
-        <div className="mt-1.5 pl-7">
+        <div className="mt-2 pl-7" data-testid="retry-without-wrapper-pill">
           <button
             type="button"
             onClick={() => onRetryWithoutWrapper(item.id)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
-            title="Disable wrapper and retry with cookie-based authentication"
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-platform border border-accent/40 text-accent bg-accent/5 hover:bg-accent/10 hover:border-accent/60 transition-colors"
+            title="Disable wrapper and retry this download with cookie-based authentication"
+            aria-label="Retry without wrapper authentication"
           >
-            <RotateCcw size={12} />
+            <RotateCcw size={14} />
             Retry without Wrapper
           </button>
         </div>

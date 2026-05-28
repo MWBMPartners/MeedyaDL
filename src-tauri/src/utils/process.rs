@@ -124,8 +124,17 @@ static TRACK_INFO_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// and the closing `]`. The `\s*` tolerances around the slash and
 /// before the close bracket handle that (and any future upstream
 /// spacing change) without breaking the numeric-only total contract.
+///
+/// GAMDL v3.7.1 (upstream commit `1d00e74`+) introduced a `-` placeholder
+/// for the total when `download_item.media.total` is `None` (per
+/// `gamdl/cli/cli.py:240` — `media_total = download_item.media.total or
+/// "-"`). This fires on single-track URLs and any media-fetch path that
+/// hasn't enumerated the total upfront. The regex now accepts `\d+` OR
+/// a literal `-` in the total slot; the v2-event parser maps `-` to
+/// `None` so downstream code (progress bar, queue label) can degrade
+/// gracefully rather than the line being silently ignored.
 static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)\[Track\s+(\d+)\s*/\s*(\d+)\s*\]\s+Downloading\s+"?([^"]+)"?"#)
+    Regex::new(r#"(?i)\[Track\s+(\d+)\s*/\s*(\d+|-)\s*\]\s+Downloading\s+"?([^"]+)"?"#)
         .expect("Invalid track info v2 regex")
 });
 
@@ -1032,6 +1041,17 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // common socket-level messages (connection refused, timed out, etc.), and
     // the httpx/httpcore library names themselves (any error from these HTTP
     // transport libraries indicates a network/connectivity issue).
+    //
+    // GAMDL v3.7.1 (upstream commit `1d00e74`) refactored its yt-dlp call
+    // path to use `HlsFD` / `HttpFD` directly and raise bare RuntimeError
+    // strings on failure:
+    //   * "yt-dlp HLS download failed"
+    //   * "yt-dlp HTTP download failed"
+    // These represent transport-level failures (the underlying cause —
+    // 403, connection refused, DNS, etc. — appears in the traceback but
+    // the surface message is just the RuntimeError text). Classify as
+    // network so the existing retry-on-network logic kicks in and the
+    // user sees the right "Check your connection" guidance.
     } else if lower.contains("network")
         || lower.contains("timeout")
         || lower.contains("timed out")
@@ -1040,6 +1060,8 @@ pub fn classify_error(error_message: &str) -> &'static str {
         || lower.contains("dns")
         || lower.contains("httpx")
         || lower.contains("httpcore")
+        || lower.contains("yt-dlp hls download failed")
+        || lower.contains("yt-dlp http download failed")
     {
         "network"
     // Codec/format errors: the requested quality is not available; try fallback.
@@ -1064,6 +1086,15 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // actionable message rather than a raw Python traceback excerpt.
     } else if is_library_webplayback_keyerror(error_message) {
         "library_webplayback_keyerror"
+    // Media unstreamable (#898): GAMDL 3.7.2 (songs) and 3.7.3 (music-videos)
+    // added defensive `.get("playParams", {})` access so the existing
+    // `GamdlInterfaceMediaNotStreamableError` now surfaces reliably for
+    // content that's been removed, region-locked, or is library-only.
+    // Matched before the generic `not_found` substring fallback so the
+    // user sees the specific "not streamable" guidance instead of the
+    // broader "content may be removed" message.
+    } else if is_media_not_streamable_error(error_message) {
+        "media_not_streamable"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -1098,6 +1129,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
+        "media_not_streamable" => "Apple Music says this content isn't streamable — it may have been removed, isn't licensed in your storefront, or is a personal-library upload that catalog tooling can't fetch. Try the catalog URL for the same album in a different storefront, or pick a release that's still available.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -1173,6 +1205,39 @@ pub fn is_library_webplayback_keyerror(error_message: &str) -> bool {
         && (lower.contains("interface_song")
             || lower.contains("get_tags")
             || lower.contains("webplayback"))
+}
+
+/// Detect GAMDL's `GamdlInterfaceMediaNotStreamableError` (#898).
+///
+/// `GamdlInterfaceMediaNotStreamableError("Media is not streamable: <id>")`
+/// fires from `interface/song.py` and `interface/music_video.py` whenever
+/// `is_media_streamable(media_metadata)` returns false — typically because
+/// the song / video has been removed from Apple Music, is region-locked
+/// out of the user's storefront, or is a library-only upload (for
+/// music-videos, the `is_library` branch also raises this same error).
+///
+/// The error string has existed since at least GAMDL 3.5.2, but on
+/// 3.7.1 and earlier it was masked for songs / library-only MVs by an
+/// upstream `KeyError: 'playParams'` traceback. GAMDL 3.7.2 (songs) and
+/// 3.7.3 (music-videos) added defensive `.get("playParams", {})` access,
+/// so this user-facing message now surfaces reliably for affected items.
+///
+/// Without this matcher the error falls through `classify_error` to the
+/// generic `unknown` bucket, leaving the user with no actionable guidance.
+/// We classify it as `media_not_streamable` so the activity log can
+/// surface a specific recovery suggestion (try a different URL or
+/// storefront; the content may be removed / region-locked / library-only).
+///
+/// Matches the case-insensitive literal `media is not streamable` so it
+/// catches the raw exception message regardless of whether it appears
+/// inside a Python traceback (`GamdlInterfaceMediaNotStreamableError:
+/// Media is not streamable: 1234567890`) or a bare stderr line from
+/// `extract_python_exception`.
+#[must_use]
+pub fn is_media_not_streamable_error(error_message: &str) -> bool {
+    error_message
+        .to_lowercase()
+        .contains("media is not streamable")
 }
 
 /// Detect GAMDL's music-video cover-art URL templating bug.
@@ -1347,6 +1412,50 @@ mod tests {
             GamdlOutputEvent::TrackInfo { title, artist, .. } => {
                 assert_eq!(title, "Bohemian Rhapsody");
                 assert_eq!(artist, "");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_v2_track_info_with_dash_total_from_gamdl_v3_7_1() {
+        // GAMDL v3.7.1 renders `download_item.media.total or "-"` so a
+        // single-track URL produces `[Track 1/-]` instead of `[Track 1/12]`.
+        // Pre-fix TRACK_INFO_V2_REGEX rejected this line outright; the
+        // queue label + progress-bar caption stayed blank for the whole
+        // download. Now the regex matches and `track_total` parses to
+        // None, which downstream consumers already handle.
+        let line = "[INFO     12:34:56] [Track   1/-  ] Downloading \"Anti-Hero\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                title,
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(title, "Anti-Hero");
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, None, "`-` total must parse to None");
+            }
+            other => panic!("Expected TrackInfo, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_v2_track_info_with_numeric_total_still_works() {
+        // Regression-guard: the v3.7.1 fix must not break the
+        // pre-existing numeric-total path.
+        let line = "[INFO     12:34:56] [Track   2/12 ] Downloading \"Some Track\"";
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                title,
+                track_number,
+                track_total,
+                ..
+            } => {
+                assert_eq!(title, "Some Track");
+                assert_eq!(track_number, Some(2));
+                assert_eq!(track_total, Some(12));
             }
             other => panic!("Expected TrackInfo, got {:?}", other),
         }
@@ -1790,6 +1899,29 @@ mod tests {
     }
 
     #[test]
+    fn classifies_gamdl_v3_7_1_ytdlp_runtime_errors_as_network() {
+        // GAMDL v3.7.1 (upstream commit `1d00e74`) refactored the yt-dlp
+        // call path to use HlsFD / HttpFD directly and raise bare
+        // RuntimeError strings on failure. Both error shapes must
+        // classify as network so the retry-on-network loop engages
+        // and the user sees "Check your connection" guidance, not the
+        // generic "unknown" fallback.
+        assert_eq!(
+            classify_error("RuntimeError: yt-dlp HLS download failed"),
+            "network"
+        );
+        assert_eq!(
+            classify_error("yt-dlp HTTP download failed"),
+            "network"
+        );
+        // Surface-form variations (different case + extra surrounding context).
+        assert_eq!(
+            classify_error("error: yt-dlp HLS download failed during music-video fetch"),
+            "network"
+        );
+    }
+
+    #[test]
     fn classifies_gamdl_playlist_title_keyerror() {
         // The exact traceback signature captured 2026-04-23 during
         // #547 scenario 4 repro (#588). Must route to the dedicated
@@ -1844,6 +1976,76 @@ mod tests {
         let guidance = error_guidance("playlist_title_keyerror");
         assert!(guidance.contains("Apple Music Classical"));
         assert!(guidance.contains("glomatico/gamdl"));
+    }
+
+    #[test]
+    fn detects_media_not_streamable_error() {
+        // The bare exception message from `GamdlInterfaceMediaNotStreamableError`,
+        // as it appears in stderr after the GAMDL 3.7.2 (songs) / 3.7.3
+        // (music-videos) defensive `.get("playParams", {})` fix routes
+        // unstreamable items through the proper streamable check.
+        assert!(is_media_not_streamable_error(
+            "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1234567890"
+        ));
+        // Also matches the bare message extracted by `extract_python_exception`.
+        assert!(is_media_not_streamable_error("Media is not streamable: 1568443843"));
+        // Case-insensitive — should match even when nested in a traceback
+        // with mixed casing or wrapped log decoration.
+        assert!(is_media_not_streamable_error(
+            "ERROR    12:34:56 Media is not streamable: 999"
+        ));
+    }
+
+    #[test]
+    fn does_not_misclassify_streamable_phrasing() {
+        // Defensive guard: matcher must not collide with messages that
+        // talk about streamability in a different sense (e.g. health
+        // checks reporting on stream availability or future GAMDL log
+        // lines that mention "streamable" as a noun-adjective).
+        assert!(!is_media_not_streamable_error("Media is streamable"));
+        assert!(!is_media_not_streamable_error(
+            "Checking whether the media stream is available"
+        ));
+    }
+
+    #[test]
+    fn classifies_media_not_streamable_error() {
+        // GAMDL 3.7.2 (songs) — defensive playParams access lets the
+        // existing streamable check fire reliably; the surfaced error
+        // must route to its own bucket so the user sees the dedicated
+        // "removed / region-locked / library-only" guidance instead of
+        // the generic `unknown` fallback.
+        let stderr = "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1568443843";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn classifies_music_video_not_streamable_error() {
+        // Same shape for music-videos after the 3.7.3 defensive fix.
+        // `media.is_library = true` branch also raises this exception
+        // class (`music_video.py:456`).
+        let stderr = "gamdl.interface.exceptions.GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1568443895";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn media_not_streamable_takes_precedence_over_not_found() {
+        // The error string contains neither "not found" nor "404", but
+        // even if the wider exception text happens to include "not found"
+        // we want the specific `media_not_streamable` classification —
+        // the bucket order is asserted here to guard against future
+        // re-ordering regressions.
+        let stderr = "Media is not streamable: 9876 — content not found in catalog";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn media_not_streamable_guidance_is_actionable() {
+        // Users hitting this should know the content can't be played —
+        // not retried, not codec-swapped — and what to try instead.
+        let guidance = error_guidance("media_not_streamable");
+        assert!(guidance.contains("storefront") || guidance.contains("region"));
+        assert!(guidance.contains("removed") || guidance.contains("library"));
     }
 
     #[test]
@@ -2525,17 +2727,32 @@ mod tests {
     }
 
     #[test]
-    fn v31_track_regex_does_not_match_dash_total_fallback() {
-        // Defensive: `media_total or "-"` fallback. The `\d+/\d+`
-        // pattern in `TRACK_INFO_V2_REGEX` is numeric-only, so this
-        // line must NOT parse as `TrackInfo` (would give a bogus
-        // `track_total`); it should surface as `Unknown` so the
-        // activity log still displays the raw line.
+    fn v31_track_regex_handles_dash_total_fallback() {
+        // GAMDL v3.7.1 (commit `1d00e74`+) renders
+        // `media_total or "-"` so a single-track URL produces
+        // `[Track 1/-]` instead of `[Track 1/12]`. Pre-v3.7.1
+        // MeedyaDL's TRACK_INFO_V2_REGEX required `\d+/\d+` and
+        // silently rejected this line; commit `7b91c7a9` widened
+        // the regex to accept `(\d+|-)` for the total slot, with
+        // the downstream `parse::<u32>().ok()` consumer mapping
+        // `-` to `None`. This test pins the new contract: line
+        // parses as TrackInfo, `track_total` is `None`.
         let line = "[INFO     12:00:02] [Track   1/-  ] Downloading \"Flowers\"";
-        // Any non-TrackInfo variant is acceptable — the contract is
-        // "don't silently record a wrong track_total".
-        if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
-            panic!("Track N/- must not parse as TrackInfo with numeric total");
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::TrackInfo {
+                track_number,
+                track_total,
+                title,
+                ..
+            } => {
+                assert_eq!(track_number, Some(1));
+                assert_eq!(track_total, None, "`-` total must parse to None");
+                assert_eq!(title, "Flowers");
+            }
+            other => panic!(
+                "Track N/- should parse as TrackInfo on v3.7.1+, got {:?}",
+                other
+            ),
         }
     }
 

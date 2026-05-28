@@ -1199,6 +1199,15 @@ pub fn collect_queued_keys(
 /// scope is `IntraAndQueuedAndHistory`. Bounded by depth (10) and
 /// file-count to avoid pathological scans on very large music
 /// libraries.
+///
+/// **#875 M2 augmentation**: when an `app` handle is available the
+/// SQLite download index is also queried for any `song_id` values
+/// extracted from previously-downloaded URLs. This covers the case
+/// where a row exists in history.json but the `manifest.meedyadl`
+/// file is missing (old pre-manifest downloads, manifests deleted by
+/// the user, or downloads that landed before the manifest writer
+/// was wired up). Use `collect_history_keys` for the legacy path
+/// and `collect_history_keys_with_db_augment` for the M2+ path.
 #[must_use]
 pub fn collect_history_keys(
     output_path: &str,
@@ -1219,6 +1228,66 @@ pub fn collect_history_keys(
         keys.len(),
         output_path
     );
+    keys
+}
+
+/// Same as [`collect_history_keys`] but additionally augments the
+/// result with `song_id` keys extracted from URLs in the SQLite
+/// download index (#875 M2).
+///
+/// The DB augment is best-effort: any error opening the DB or
+/// running the query is logged at debug level and the function
+/// returns the manifest-walk result unchanged. This means the M2
+/// improvement is **opportunistic** — when the DB has more
+/// information than the manifests on disk, dedup gets sharper; when
+/// the DB is missing or corrupt, behaviour is identical to the
+/// pre-M2 path.
+///
+/// Strategy gating: ISRC keys never come from the DB (ingested rows
+/// don't carry ISRC), so the augment only applies for the
+/// `SongIdWithIsrcFallback` and `SongIdOnly` strategies. Pure
+/// `IsrcOnly` falls back to the manifest-walk path verbatim.
+#[must_use]
+pub fn collect_history_keys_with_db_augment(
+    output_path: &str,
+    scope: DuplicateDetectionScope,
+    strategy: DedupKeyStrategy,
+    app: &AppHandle,
+) -> HashSet<String> {
+    let mut keys = collect_history_keys(output_path, scope, strategy);
+
+    if !matches!(scope, DuplicateDetectionScope::IntraAndQueuedAndHistory) {
+        return keys;
+    }
+    if matches!(strategy, DedupKeyStrategy::IsrcOnly) {
+        return keys;
+    }
+
+    let db_path = crate::utils::platform::get_app_data_dir(app).join("meedyadl.db");
+    if !db_path.exists() {
+        return keys;
+    }
+
+    match crate::services::download_index::queries::collect_song_ids_from_db(&db_path) {
+        Ok(db_keys) => {
+            let before = keys.len();
+            for k in db_keys {
+                keys.insert(k);
+            }
+            log::debug!(
+                "Dedup: augmented {} manifest key(s) with {} DB key(s) → {} total",
+                before,
+                keys.len().saturating_sub(before),
+                keys.len()
+            );
+        }
+        Err(e) => {
+            log::debug!(
+                "Dedup: DB augment query failed (non-fatal, manifest-walk result used as-is): {e}"
+            );
+        }
+    }
+
     keys
 }
 

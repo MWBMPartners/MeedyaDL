@@ -351,10 +351,11 @@ pub async fn start_download(
                 settings.duplicate_detection.key_strategy,
             )
         };
-        let history_keys = crate::services::duplicate_detector::collect_history_keys(
+        let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
             &settings.output_path,
             settings.duplicate_detection.scope,
             settings.duplicate_detection.key_strategy,
+            &app,
         );
         if let Some(batch_plan) =
             crate::services::duplicate_detector::plan_batch_deduplication(
@@ -459,11 +460,12 @@ pub async fn start_download(
                         settings.duplicate_detection.key_strategy,
                     )
                 };
-                let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                    &settings.output_path,
-                    settings.duplicate_detection.scope,
-                    settings.duplicate_detection.key_strategy,
-                );
+                let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
                 emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
                 crate::services::duplicate_detector::plan_artist_deduplication(
                     &app,
@@ -685,11 +687,12 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                &settings.output_path,
-                settings.duplicate_detection.scope,
-                settings.duplicate_detection.key_strategy,
-            );
+            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
             emit_app_log(&app, "Checking playlist for duplicate tracks...");
             let plan = crate::services::duplicate_detector::plan_playlist_deduplication(
                 &app,
@@ -774,11 +777,12 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys(
-                &settings.output_path,
-                settings.duplicate_detection.scope,
-                settings.duplicate_detection.key_strategy,
-            );
+            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+            &settings.output_path,
+            settings.duplicate_detection.scope,
+            settings.duplicate_detection.key_strategy,
+            &app,
+        );
             // Short-circuit the expensive catalog fetch if there's
             // literally nothing to compare against.
             if queued_keys.is_empty() && history_keys.is_empty() {
@@ -1631,6 +1635,105 @@ pub async fn abort_all_downloads(
     Ok(summary)
 }
 
+/// Pauses the queue scheduler — **non-destructive** (#889).
+///
+/// While paused, no new items are pulled from the `Queued` pool — but
+/// items currently `Downloading` / `Processing` continue to
+/// completion (the pause flag only gates the start-new-item path).
+/// The user can [`resume_queue`] at any time to start pulling items
+/// again.
+///
+/// This is distinct from [`abort_all_downloads`] (#620), which is
+/// destructive and cancels every non-terminal item. Pause is the
+/// "I'm about to put my laptop to sleep" affordance; abort is
+/// "throw this all away".
+///
+/// **Frontend caller:** `pauseQueue()` in `src/lib/tauri-commands.ts`.
+///
+/// # Returns
+/// `true` if the queue was already paused before this call,
+/// `false` if the call transitioned `running → paused`.
+///
+/// # Events Emitted
+/// * `"queue-paused-changed"` — payload: `bool` (the new `is_paused`
+///   state) — frontend updates its button label / disabled-state in
+///   response.
+#[tauri::command]
+pub async fn pause_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<bool, String> {
+    let was_paused = {
+        let mut q = queue.lock().await;
+        q.pause()
+    };
+    if !was_paused {
+        emit_app_log(
+            &app,
+            "Queue paused — running items will complete; no new items will start.",
+        );
+        let _ = app.emit("queue-paused-changed", true);
+    }
+    Ok(was_paused)
+}
+
+/// Resumes the queue scheduler after a [`pause_queue`] (#889).
+///
+/// Items in `Queued` state become eligible to start on the next
+/// `process_queue` iteration. This function kicks `process_queue`
+/// itself before returning so the user doesn't have to wait for
+/// some other event (a completion, a startup tick) to nudge the
+/// scheduler.
+///
+/// Idempotent — calling `resume_queue` when the queue is already
+/// running is a no-op.
+///
+/// **Frontend caller:** `resumeQueue()` in `src/lib/tauri-commands.ts`.
+///
+/// # Returns
+/// `true` if the queue was paused before this call (i.e. the call
+/// transitioned `paused → running`), `false` if it was already
+/// running.
+///
+/// # Events Emitted
+/// * `"queue-paused-changed"` — payload: `bool` — same shape as
+///   `pause_queue`.
+#[tauri::command]
+pub async fn resume_queue(
+    app: AppHandle,
+    queue: State<'_, QueueHandle>,
+) -> Result<bool, String> {
+    let was_paused = {
+        let mut q = queue.lock().await;
+        q.resume()
+    };
+    if was_paused {
+        emit_app_log(&app, "Queue resumed — pulling next item.");
+        let _ = app.emit("queue-paused-changed", false);
+        // Kick the scheduler so the user doesn't have to wait for an
+        // unrelated event to nudge it. Fire-and-forget — the actual
+        // download spawn happens inside `process_queue`.
+        let app_clone = app.clone();
+        let queue_handle = queue.inner().clone();
+        tokio::spawn(async move {
+            download_queue::process_queue(app_clone, queue_handle).await;
+        });
+    }
+    Ok(was_paused)
+}
+
+/// Returns `true` when the queue scheduler is paused (#889).
+///
+/// **Frontend caller:** `isQueuePaused()` in `src/lib/tauri-commands.ts`.
+/// Used on app startup to populate the initial Pause/Resume button
+/// state — after that, the frontend listens to the
+/// `queue-paused-changed` event for updates.
+#[tauri::command]
+pub async fn is_queue_paused(queue: State<'_, QueueHandle>) -> Result<bool, String> {
+    let q = queue.lock().await;
+    Ok(q.is_paused())
+}
+
 /// Returns the current status of all items in the download queue.
 ///
 /// **Frontend caller:** `getQueueStatus()` in `src/lib/tauri-commands.ts`
@@ -2143,12 +2246,39 @@ pub async fn scan_folder_for_manifests(
         folder_path.display()
     );
 
+    // #892 retroactive cleanup: walk every discovered album folder and
+    // remove duplicate `Cover.<ext>` files left over from pre-#909d2c06
+    // downloads (the bug where companion downloads wrote a fresh
+    // `Cover.<ext>` after the primary's rename already produced
+    // `<stem>.<ext>`). This is a conservative pass — only deletes
+    // confirmed duplicates, never renames a lone `Cover.<ext>`.
+    let cover_stem = crate::services::config_service::load_settings(&app)
+        .ok()
+        .map(|s| s.cover_art_name.to_filename_stem().to_string())
+        .unwrap_or_else(|| "FrontCover".to_string());
+    let mut total_cleaned: usize = 0;
+    if cover_stem != "Cover" {
+        for manifest in &results {
+            let album_path = std::path::Path::new(&manifest.album_dir);
+            total_cleaned += crate::services::download_queue::cleanup_duplicate_cover_art(
+                album_path,
+                &cover_stem,
+            );
+        }
+    }
+
+    let cleanup_suffix = if total_cleaned > 0 {
+        format!(" — cleaned {total_cleaned} duplicate Cover.<ext> file(s) (#892)")
+    } else {
+        String::new()
+    };
+
     crate::utils::activity_log::emit_app_log(
         &app,
         &format!(
-            "Folder scan: found {} manifest(s) in {}",
+            "Folder scan: found {} manifest(s) in {}{cleanup_suffix}",
             results.len(),
-            folder_path.display()
+            folder_path.display(),
         ),
     );
 
@@ -2399,6 +2529,36 @@ pub async fn check_redownload_status(
     app: AppHandle,
     url: String,
 ) -> Result<Option<RedownloadInfo>, String> {
+    // #875 M2 DB-backed fast path. The SQLite download index is an
+    // indexed lookup (~1ms) vs the history.json scan that allocates a
+    // Vec<HistoryEntry> + walks linearly. If the DB lookup succeeds we
+    // return immediately. JSON fallback runs on:
+    //   * any DB error (open / corrupt / locked)
+    //   * Ok(None) from the DB — the row genuinely isn't there yet,
+    //     so we still check history.json in case it's a freshly
+    //     downloaded item that hasn't been ingested or M3-dual-written
+    //     to the DB yet.
+    let db_path = crate::utils::platform::get_app_data_dir(&app).join("meedyadl.db");
+    if db_path.exists() {
+        match crate::services::download_index::queries::find_download_by_url(&db_path, &url) {
+            Ok(Some(row)) => {
+                return Ok(Some(RedownloadInfo {
+                    downloaded_at: row.downloaded_at,
+                    title: row.title,
+                    album: row.album,
+                }));
+            }
+            Ok(None) => {
+                // Fall through to JSON fallback — see comment above.
+            }
+            Err(e) => {
+                log::debug!(
+                    "Download-index lookup for redownload-status failed (non-fatal, falling back to history.json): {e}"
+                );
+            }
+        }
+    }
+
     let history = crate::services::history_service::list_history(&app);
     let previous = history.iter().find(|e| e.url == url && e.status == "success");
 
@@ -2409,13 +2569,14 @@ pub async fn check_redownload_status(
     }))
 }
 
-/// Result of a Library Scan smart-retry diff (Phase 5b, #717).
+/// Result of a Library Scan smart-retry diff (Phase 5b, #717; Phase 2
+/// of 5b in #766 added `PartialCodecs`).
 ///
-/// Mirrors the three [`crate::services::smart_retry_planner::PlanOutcome`]
+/// Mirrors the four [`crate::services::smart_retry_planner::PlanOutcome`]
 /// variants but uses a TypeScript-friendly tagged-union shape so the
-/// Library Scan UI can render "X of Y missing" / "All present" /
-/// "Cannot diff" badges per row without re-implementing the variant
-/// inspection on every frontend re-render.
+/// Library Scan UI can render "X of Y missing" / "N codec(s) missing"
+/// / "All present" / "Cannot diff" badges per row without re-implementing
+/// the variant inspection on every frontend re-render.
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum LibraryScanDiff {
@@ -2423,6 +2584,15 @@ pub enum LibraryScanDiff {
     /// track is missing.
     Plan {
         missing_tracks: usize,
+        total_tracks: usize,
+    },
+    /// Every track is present in *some* codec variant, but the
+    /// manifest's `companion_tiers` plan records at least one
+    /// codec tier with no matching files on disk (e.g. companion
+    /// tiers timed out after the primary landed; #766).
+    PartialCodecs {
+        /// Canonical codec-registry IDs (e.g. `"aac-hq"`, `"aac-mq"`).
+        missing_codecs: Vec<String>,
         total_tracks: usize,
     },
     /// Manifest was found and every track is on disk. No retry needed.
@@ -2459,6 +2629,10 @@ pub async fn diff_library_scan_manifest(
     Ok(match outcome {
         PlanOutcome::Plan(plan) => LibraryScanDiff::Plan {
             missing_tracks: plan.missing_tracks,
+            total_tracks: plan.total_tracks,
+        },
+        PlanOutcome::PartialCodecs(plan) => LibraryScanDiff::PartialCodecs {
+            missing_codecs: plan.missing_codecs,
             total_tracks: plan.total_tracks,
         },
         PlanOutcome::AllPresent { total_tracks } => {

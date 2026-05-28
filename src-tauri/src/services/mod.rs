@@ -284,6 +284,19 @@ pub mod rich_srt_service;
 /// Used by: `download_queue` (post-download enrichment Step 2f, when `generate_ass` enabled)
 pub mod ass_subtitle_service;
 
+/// Lyricsfile (`.lyrics`) YAML sidecar generation service (#596).
+///
+/// Wraps the shared `meedya_lyrics::Lyricsfile` upstream crate (from
+/// MeedyaSuite-core#34): consumes the TTML sidecar GAMDL emits during
+/// download, runs it through `Lyricsfile::from_ttml` to preserve
+/// word-level timing, then writes a `.lyrics` YAML sidecar alongside
+/// the audio file. Idempotent — won't clobber a file that already
+/// exists (preserves user edits made in LRCGET).
+///
+/// Used by: `download_queue` (post-download enrichment Step 2g, when
+/// `generate_lyricsfile` enabled).
+pub mod lyricsfile_service;
+
 /// Music video subtitle / caption extraction service (#483).
 ///
 /// After a music video download lands, probes the output file for
@@ -342,6 +355,47 @@ pub mod mediainfo_service;
 ///
 /// Used by: `download_queue` (post-completion/error recording), `commands/history` (IPC)
 pub mod history_service;
+
+/// Download Index — SQLite-backed indexed cache (#875 EPIC A).
+///
+/// M1 scaffolding only: opens (or creates) `meedyadl.db` in the app
+/// data dir, applies the v1 schema (7 tables: downloads, recordings,
+/// recording_downloads, manifests, activity_events, known_tracks,
+/// schema_version), runs the migration runner. **Not yet wired into
+/// any user-facing flow** — read/write paths are deferred to M1b/M2.
+///
+/// `.meedyadl` manifests on disk remain the source of truth; this DB
+/// is rebuildable from them via `scan_folder_for_manifests`.
+pub mod download_index;
+
+/// Profile Bundle — `.meedyabundle` export/import format (#876 EPIC B).
+///
+/// P1 scaffolding only: pure-Rust ZIP-based format definition +
+/// (de)serialiser primitives. **No IPC, no Settings UI, no credential
+/// encryption yet** — those land in P2 / P3 / P4 of the EPIC. The
+/// format is forward-compatible via `meta.json.contents` enumeration
+/// of OPTIONAL sections.
+pub mod profile_bundle;
+
+/// Multi-service engine scaffolding (#884, cherry-picked from
+/// `prep/expanded-services-groundwork`).
+///
+/// Stub service modules + a dispatch layer for the planned M8 / M9
+/// / M10 milestones. None of them activate any new behaviour today
+/// — every public function returns a typed "not yet implemented"
+/// error — but the module tree is in place so the actual engine
+/// implementation work has somewhere to land.
+///
+/// * `service_dispatch` — `ServiceOutputEvent` enum + the
+///   per-service gate (`is_service_implemented`,
+///   `is_service_remotely_enabled`).
+/// * `bbc_iplayer_service` — M8 stub (get_iplayer + yt-dlp fallback).
+/// * `spotify_service` — M9 stub (votify).
+/// * `youtube_service` — M10 stub (yt-dlp).
+pub mod service_dispatch;
+pub mod bbc_iplayer_service;
+pub mod spotify_service;
+pub mod youtube_service;
 
 /// External queue watchdog (#818).
 ///

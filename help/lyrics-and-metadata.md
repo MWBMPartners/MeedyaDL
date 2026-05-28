@@ -112,6 +112,46 @@ TTML is an XML-based timed text format used natively by Apple Music. It is the d
 - TTML is the default primary lyrics format when Enhanced LRC is enabled, because it preserves the word-level timing data needed for Enhanced LRC conversion.
 - TTML has more limited support among third-party music players compared to LRC or SRT. However, MeedyaDL automatically converts TTML to Enhanced LRC when the feature is enabled, so you get the best of both worlds: rich timing data from TTML with broad player compatibility from LRC.
 
+### Lyricsfile (.lyrics) — Open YAML Format
+
+Lyricsfile is the newest open lyrics format, [introduced in LRCGET v2.0.0](https://github.com/tranxuanthang/lrcget/releases/tag/2.0.0) and co-endorsed by [LRCLIB](https://lrclib.net/). It's a YAML-based format that preserves word-level timing without TTML's XML overhead — plain-text-editable in any text editor and vendor-neutral.
+
+```yaml
+version: "1.0"
+metadata:
+  title: Hello
+  artist: Adele
+  album: "25"
+  duration_ms: 295000
+  language: en
+  instrumental: false
+lines:
+  - text: "Hello, it's me"
+    start_ms: 1000
+    end_ms: 3500
+    words:
+      - text: "Hello,"
+        start_ms: 1000
+        end_ms: 1800
+      - text: "it's"
+        start_ms: 1900
+        end_ms: 2400
+      - text: "me"
+        start_ms: 2500
+        end_ms: 3500
+```
+
+**Key details:**
+
+- **Word-level timing built in** — no Enhanced-LRC-style hack on top of a line-level format.
+- **Open and extensible** — the spec supports adding new metadata fields (vocalist, language, multiple translations) without breaking compatibility with older readers.
+- **Human-readable** — stored as plain YAML, so any text editor can open and edit it.
+- **Player support** — currently consumed by LRCGET and LRCLIB; other players will follow as the format matures.
+- **Generated from TTML** — when enabled, MeedyaDL converts the TTML sidecar into a `.lyrics` file during enrichment Step 2g. Existing `.lyrics` files are never overwritten (preserves any edits you've made in LRCGET).
+- **Experimental** — the upstream maintainers warn: *"expect breaking changes in future versions as the specification is refined."* MeedyaDL pins the format version it writes (currently `1.0`) so when the spec evolves you'll know which version any given file targets.
+
+To enable: **Settings → Lyrics → Generate Lyricsfile (.lyrics)**. Off by default.
+
 ---
 
 ## Configuring Lyric Downloads
@@ -192,6 +232,7 @@ Every time enrichment runs on a download folder — the first download, any comp
 | Syllable-lyrics upgrade | `.ttml`    | **Overwrites** GAMDL's TTML when a word-level version is fetched from Apple Music's `/syllable-lyrics` endpoint.       |
 | WebVTT generator       | `.vtt`      | **Skips** if the file already exists.                                                                                 |
 | ASS generator          | `.ass`      | **Skips** if the file already exists.                                                                                 |
+| Lyricsfile generator   | `.lyrics`   | **Skips** if the file already exists (preserves edits made in LRCGET).                                                |
 
 **Implication for users who edit sidecars manually:** `.lrc`, `.srt`, and upgraded `.ttml` files written by MeedyaDL are not treated as user data — any edits you make to them may be silently replaced on the next enrichment run (re-download, companion download, or manifest re-import). If you want to keep hand-edited lyrics or subtitles, either:
 
@@ -199,7 +240,7 @@ Every time enrichment runs on a download folder — the first download, any comp
 - Disable the corresponding generator in **Settings > Lyrics** before re-running enrichment, OR
 - Copy the edited file elsewhere before triggering another enrichment pass.
 
-`.vtt` and `.ass` sidecars are safe to edit in place — the generators detect the existing file and skip it.
+`.vtt`, `.ass`, and `.lyrics` sidecars are safe to edit in place — the generators detect the existing file and skip it.
 
 This behaviour is intentional: the generators are idempotent converters whose inputs (TTML, SRT) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case (first-time generation and upstream content updates). The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; if you'd prefer a uniform guard, file an issue.
 
@@ -255,6 +296,7 @@ The enrichment stages run in order:
 2d. **Rich SRT generation** (opt-in, default on) — converts TTML/WebVTT to SRT with styling tags (`<b>`, `<i>`, `<u>`, `<font color>`)
 2e. **Subtitle embedding** (opt-in) — embeds SRT and WebVTT content as freeform atoms in MP4 containers
 2f. **ASS subtitle generation** (opt-in) — converts TTML/WebVTT to Advanced SubStation Alpha with colours, positioning, and background vocal styles
+2g. **Lyricsfile (`.lyrics`) generation** (opt-in) — converts TTML to the open YAML Lyricsfile format endorsed by LRCGET v2.0 and LRCLIB; preserves word-level timing for plain-text-editable consumption
 3. **Animated artwork download** (requires MusicKit credentials)
 4. **AcoustID fingerprinting** (opt-in) — also extracts MusicBrainz recording IDs from AcoustID responses
 5. **ReplayGain analysis** (opt-in)

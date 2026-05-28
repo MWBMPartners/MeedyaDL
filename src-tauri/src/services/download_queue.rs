@@ -92,7 +92,7 @@ use crate::models::download::{DownloadRequest, DownloadState, QueueItemStatus};
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
-use crate::models::codec_registry::codec_suffix_from_registry;
+use crate::models::codec_registry::{codec_suffix_from_registry, song_codec_to_registry_id};
 use crate::models::gamdl_options::{ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
@@ -1099,6 +1099,18 @@ use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, Pr
 ///
 /// If a manifest already exists, the new source is merged (append or
 /// replace matching platform+URL). Uses atomic write-to-temp-then-rename.
+///
+/// `primary_codec_id` is the canonical codec-registry ID of the primary
+/// download (e.g. `"eac3-atmos"`, `"alac"`). Populates `ManifestSource.codec`
+/// and seeds the tier-0 entry of `companion_tiers` so the smart-retry
+/// planner can diff codec-suffixed files against the planned variants
+/// (#766, Phase 2 of #717/5b).
+///
+/// The parameter list grew from 6 → 8 across #766 (codec-tier diff) and
+/// #596 (Lyricsfile manifest field, populated from disk scan rather than
+/// a new param). Acceptable for an internal config-bag function; if it
+/// grows further consider a `WriteManifestRequest` struct.
+#[allow(clippy::too_many_arguments)]
 fn write_manifest(
     album_dir: &str,
     urls: &[String],
@@ -1106,6 +1118,8 @@ fn write_manifest(
     settings: &crate::models::settings::AppSettings,
     downloaded_at: &str,
     cross_platform_urls: Option<std::collections::BTreeMap<String, String>>,
+    primary_codec_id: Option<&str>,
+    companion_tiers: Option<Vec<Vec<String>>>,
 ) {
     use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
@@ -1135,6 +1149,25 @@ fn write_manifest(
     // Determine platform from the URL domain using the MediaServiceId enum
     let platform = crate::models::media_service::MediaServiceId::from_url(&url)
         .map_or_else(|| "unknown".to_string(), |svc| svc.to_string());
+
+    // Album-level Lyricsfile presence: `true` when at least one
+    // `.lyrics` sidecar was written into `album_dir` (#596). Each
+    // ManifestTrack inherits this bool — per-track precision would
+    // require knowing the exact GAMDL filename template the user
+    // configured, which isn't worth solving in v1. The
+    // library-scan smart-retry planner uses this as an album-level
+    // "did Step 2g run successfully?" signal.
+    let album_has_any_lyricsfile = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("lyrics"))
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
 
     // Build per-track metadata from AlbumMetadata (if available).
     // codec is intentionally null — the manifest is a metafile for
@@ -1167,6 +1200,7 @@ fn write_manifest(
                         codec: None,
                         isrc: t.isrc.clone(),
                         song_id,
+                        has_lyricsfile: album_has_any_lyricsfile,
                     }
                 })
                 .collect()
@@ -1184,8 +1218,9 @@ fn write_manifest(
         url: url.clone(),
         storefront,
         downloaded_at: downloaded_at.to_string(),
-        codec: None,
+        codec: primary_codec_id.map(str::to_owned),
         last_modified_date: album_metadata.and_then(|m| m.last_modified_date.clone()),
+        companion_tiers,
         tracks,
         // Phase 1 (#759): per-stage enrichment record. Initial
         // manifest write happens before enrichment runs, so all
@@ -1250,7 +1285,19 @@ fn write_manifest(
 /// `Cover.raw`. The `cover_art_name` setting controls what the file should be
 /// renamed to (e.g., `FrontCover`, `Folder`, or kept as `Cover`).
 ///
-/// Idempotent: skips if target already exists or source `Cover.<ext>` is absent.
+/// ## Three branches (per source/target file presence)
+///
+/// 1. **`Cover.<ext>` exists, `<stem>.<ext>` absent** → rename source → target.
+///    The standard happy path. Atomic via `fs::rename`.
+/// 2. **`Cover.<ext>` exists AND `<stem>.<ext>` exists** → **delete source**
+///    (#892). This happens when a companion download (or any second GAMDL
+///    invocation against the same album folder) writes a fresh `Cover.<ext>`
+///    AFTER the primary's rename already produced `<stem>.<ext>`. The two
+///    files come from the same Apple Music album URL so the bytes are
+///    identical; keeping both wastes disk space and confuses media players
+///    that prefer specific cover stems. The user's explicit choice of
+///    `cover_art_name` is the source of truth — the renamed file wins.
+/// 3. **`Cover.<ext>` absent** → no-op (whether `<stem>.<ext>` exists or not).
 fn rename_cover_art(album_dir: &str, target_stem: &str) {
     // If the user wants to keep the default "Cover" name, nothing to do
     if target_stem == "Cover" {
@@ -1266,22 +1313,99 @@ fn rename_cover_art(album_dir: &str, target_stem: &str) {
         let old_name = dir.join(format!("Cover.{ext}"));
         let new_name = dir.join(format!("{target_stem}.{ext}"));
 
-        if old_name.exists() && !new_name.exists() {
-            match std::fs::rename(&old_name, &new_name) {
+        if !old_name.exists() {
+            // Branch 3 — nothing to rename.
+            continue;
+        }
+
+        if new_name.exists() {
+            // Branch 2 (#892) — both files present. Companion downloads
+            // produce a fresh Cover.<ext> after the primary's rename
+            // already produced <stem>.<ext>. Delete the duplicate.
+            match std::fs::remove_file(&old_name) {
                 Ok(()) => {
                     log::info!(
-                        "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
+                        "Cleaned up duplicate Cover.{ext} (kept user-configured {target_stem}.{ext}) in {} — #892",
                         dir.display()
                     );
                 }
                 Err(e) => {
                     log::warn!(
-                        "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
+                        "Failed to clean up duplicate Cover.{ext} in {}: {e}",
+                        dir.display()
+                    );
+                }
+            }
+            continue;
+        }
+
+        // Branch 1 — happy path rename.
+        match std::fs::rename(&old_name, &new_name) {
+            Ok(()) => {
+                log::info!(
+                    "Renamed Cover.{ext} → {target_stem}.{ext} in {}",
+                    dir.display()
+                );
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
+                );
+            }
+        }
+    }
+}
+
+/// Retroactive cleanup pass for the `Cover.<ext>` + `<stem>.<ext>`
+/// duplication bug (#892) on **existing** libraries.
+///
+/// Conservative complement to `rename_cover_art`: where the rename
+/// helper has three branches (rename / delete-duplicate / no-op),
+/// this helper has only the delete-duplicate branch. A lone
+/// `Cover.<ext>` is never touched — the user may have set up their
+/// library intentionally with the default stem, and the library-scan
+/// path should not silently rename their files.
+///
+/// Called from the library-scan path (`scan_folder_for_manifests`) so
+/// users who downloaded under the pre-#892 code reclaim the wasted
+/// disk space on their next scan.
+///
+/// # Returns
+/// Count of duplicate `Cover.<ext>` files removed from `album_dir`.
+pub(crate) fn cleanup_duplicate_cover_art(album_dir: &std::path::Path, target_stem: &str) -> usize {
+    // No-op when user hasn't configured a non-default stem — under
+    // the default `cover_art_name = Cover`, both files would have
+    // the same path anyway, no duplication possible.
+    if target_stem == "Cover" {
+        return 0;
+    }
+    if !album_dir.is_dir() {
+        return 0;
+    }
+
+    let mut cleaned = 0usize;
+    for ext in &["jpg", "png", "raw"] {
+        let cover = album_dir.join(format!("Cover.{ext}"));
+        let target = album_dir.join(format!("{target_stem}.{ext}"));
+        if cover.exists() && target.exists() {
+            match std::fs::remove_file(&cover) {
+                Ok(()) => {
+                    cleaned += 1;
+                    log::info!(
+                        "Cleaned duplicate Cover.{ext} (kept {target_stem}.{ext}) in {} — #892",
+                        album_dir.display()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to clean duplicate Cover.{ext} in {}: {e}",
+                        album_dir.display()
                     );
                 }
             }
         }
     }
+    cleaned
 }
 
 // ============================================================
@@ -1465,6 +1589,15 @@ pub struct DownloadQueue {
     /// cleared on consumption so the next legitimate queue-drain still runs
     /// the configured post-queue action.
     recently_aborted: bool,
+    /// **Non-destructive pause flag** (#889). When `true`, [`Self::next_pending`]
+    /// returns `None` even if there are items in `Queued` state and a slot
+    /// is free — effectively freezing the scheduler. Currently
+    /// `Downloading` / `Processing` items continue to completion and never
+    /// see this flag; only fresh-item scheduling is gated. Distinct from
+    /// [`Self::abort_all`] (which is destructive) and from the
+    /// `auto_start_queue` setting (which controls whether newly-added
+    /// items kick off processing).
+    paused: bool,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -1562,6 +1695,7 @@ impl DownloadQueue {
             gamdl_version: None,
             last_preflight_at: None,
             recently_aborted: false,
+            paused: false,
         }
     }
 
@@ -1818,6 +1952,8 @@ impl DownloadQueue {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
+                    // #895: evict counter on terminal transition.
+                    crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} cancelled (was queued)");
                     true
                 }
@@ -1825,6 +1961,8 @@ impl DownloadQueue {
                     item.status.state = DownloadState::Cancelled;
                     // The active_count will be decremented when the running task
                     // detects the cancellation and stops
+                    // #895: evict counter on terminal transition.
+                    crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} marked for cancellation");
                     true
                 }
@@ -1929,19 +2067,26 @@ impl DownloadQueue {
     /// having to iterate the queue themselves (#620).
     pub fn abort_all(&mut self) -> AbortSummary {
         let mut summary = AbortSummary::default();
+        // #895: collect ids to evict, then call evict_activity_counter
+        // OUTSIDE the borrow of `self.items` (the eviction function
+        // doesn't touch the queue, so this is just cleanliness).
+        let mut ids_to_evict: Vec<String> = Vec::new();
         for item in &mut self.items {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
                     summary.queued_cancelled += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Downloading => {
                     item.status.state = DownloadState::Cancelled;
                     summary.downloading_stopped += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
                     summary.processing_stopped += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Complete
                 | DownloadState::Cancelled
@@ -1949,6 +2094,9 @@ impl DownloadQueue {
                     // Terminal — leave alone.
                 }
             }
+        }
+        for id in &ids_to_evict {
+            crate::utils::activity_log::evict_activity_counter(id);
         }
         if summary.total() > 0 {
             log::info!(
@@ -1978,6 +2126,52 @@ impl DownloadQueue {
         let was_aborted = self.recently_aborted;
         self.recently_aborted = false;
         was_aborted
+    }
+
+    /// Pauses the queue scheduler — **non-destructive** (#889).
+    ///
+    /// While paused, [`Self::next_pending`] refuses to start any new
+    /// item. Currently `Downloading` / `Processing` items are
+    /// untouched and run to completion (the pause flag is only
+    /// checked at the *start-new-item* gate, not inside the per-item
+    /// task). Resume with [`Self::resume`].
+    ///
+    /// Idempotent: calling `pause()` when already paused is a no-op
+    /// and returns the previous state, so the caller can tell whether
+    /// the call actually changed anything.
+    ///
+    /// # Returns
+    /// `true` if the queue was already paused before this call,
+    /// `false` if this call transitioned `running → paused`.
+    pub fn pause(&mut self) -> bool {
+        let was_paused = self.paused;
+        self.paused = true;
+        was_paused
+    }
+
+    /// Resumes the queue scheduler (#889). Items in `Queued` state
+    /// become eligible to start on the next [`Self::next_pending`]
+    /// call (i.e. the next `process_queue` iteration). The caller is
+    /// expected to invoke `process_queue` after `resume` to kick the
+    /// scheduler — `resume` itself does not start any item.
+    ///
+    /// Idempotent: calling `resume()` when already running is a no-op
+    /// and returns the previous state.
+    ///
+    /// # Returns
+    /// `true` if the queue was paused before this call (i.e. this
+    /// call transitioned `paused → running`), `false` otherwise.
+    pub fn resume(&mut self) -> bool {
+        let was_paused = self.paused;
+        self.paused = false;
+        was_paused
+    }
+
+    /// Returns `true` when [`Self::pause`] has been called without a
+    /// subsequent [`Self::resume`] (#889).
+    #[must_use]
+    pub const fn is_paused(&self) -> bool {
+        self.paused
     }
 
     /// Updates the state of a queue item.
@@ -2102,6 +2296,9 @@ impl DownloadQueue {
             }
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
+            // #895: evict the per-download activity counter so the
+            // ACTIVITY_COUNTERS HashMap doesn't grow monotonically.
+            crate::utils::activity_log::evict_activity_counter(download_id);
         }
     }
 
@@ -2174,6 +2371,10 @@ impl DownloadQueue {
             item.status.processing_label = None;
             item.status.speed = None;
             item.status.eta = None;
+            // #895: evict the per-download activity counter — same
+            // rationale as in `set_error`. The counter is only
+            // meaningful for IN-FLIGHT downloads.
+            crate::utils::activity_log::evict_activity_counter(download_id);
         }
     }
 
@@ -2642,6 +2843,16 @@ impl DownloadQueue {
     /// and the active count is incremented. The caller (`process_queue`) must
     /// eventually call `on_task_finished()` when the download completes.
     pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions, Option<String>)> {
+        // #889 — Non-destructive pause. When the user has explicitly
+        // paused the queue, refuse to start any new item. Items
+        // currently in `Downloading` / `Processing` state are
+        // unaffected (their tasks already have their slot) — they
+        // run to completion. Only the scheduler is gated. The user
+        // resumes via `Self::resume()` (Tauri IPC `resume_queue`).
+        if self.paused {
+            return None;
+        }
+
         // Check if we're at the concurrent download limit
         if self.active_count >= self.max_concurrent {
             return None;
@@ -3803,6 +4014,43 @@ fn plan_companions(
                 .collect()
         }
     }
+}
+
+/// Build the codec-registry-ID tier matrix recorded in
+/// `ManifestSource.companion_tiers` (#766, Phase 2 of #717/5b).
+///
+/// Tier 0 is the primary download's codec (one element — fallback chains
+/// are not surfaced here since the manifest only records the codec the
+/// download actually completed with). Tiers 1..N mirror the
+/// `plan_companions()` output, each tier's `codecs_to_try` mapped to
+/// canonical registry IDs via `song_codec_to_registry_id`.
+///
+/// Returns `None` when `primary_codec_cli` cannot be parsed back to a
+/// `SongCodec` (defensive — should never happen in practice since the
+/// primary codec string flows from a `SongCodec::to_cli_string()` call).
+/// `None` means "don't write companion_tiers" and the planner falls
+/// back to its track-number-only diff for this manifest.
+fn build_manifest_companion_tiers(
+    settings: &AppSettings,
+    primary_codec_cli: &str,
+) -> Option<Vec<Vec<String>>> {
+    let primary = SongCodec::from_cli_string(primary_codec_cli)?;
+    let mut tiers: Vec<Vec<String>> = vec![vec![song_codec_to_registry_id(&primary).to_string()]];
+
+    for tier in plan_companions(
+        &settings.companion_mode,
+        primary_codec_cli,
+        &settings.custom_companion_codecs,
+    ) {
+        tiers.push(
+            tier.codecs_to_try
+                .iter()
+                .map(|c| song_codec_to_registry_id(c).to_string())
+                .collect(),
+        );
+    }
+
+    Some(tiers)
 }
 
 /// Appends a codec-specific suffix to all file naming templates in a
@@ -8231,10 +8479,37 @@ pub fn process_queue(
                                     album_dir,
                                 ),
                             );
+                            // #871: detect Apple Music personal-library URLs
+                            // (`/library/songs/i.XXX`, `/library/albums/l.XXX`,
+                            // `/library/music-videos/i.XXX`). Library IDs are
+                            // NOT valid against the catalog endpoints — calls
+                            // return 404 and waste round-trips. We short-circuit
+                            // every catalog-dependent enrichment step (iTunes
+                            // Lookup, Apple Music Catalog, syllable-lyrics,
+                            // animated artwork, music-video relations, artist
+                            // promo video) by gating them on this flag and by
+                            // forcing `try_fetch_metadata` to return None inside
+                            // `apply_enriched_metadata_tags`. AcoustID,
+                            // ReplayGain, codec/channel/source tag writes, and
+                            // MusicBrainz lookup are local/non-Apple-catalog
+                            // and still run unaltered.
+                            let is_library = enrich_urls
+                                .iter()
+                                .any(|u| super::apple_music_api::is_library_url(u));
+                            if is_library {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Library item detected — skipping Apple Music catalog enrichment (iTunes Lookup, catalog metadata, syllable lyrics, animated artwork). AcoustID + ReplayGain + local tags still run.",
+                                );
+                            }
+
                             // --- Step 0: iTunes Lookup API enrichment (#454) ---
                             // Run FIRST (no auth required). Writes baseline metadata
                             // (country, disc count) that Apple Music API can overwrite.
-                            {
+                            // Skipped for library URLs (#871) — iTunes Lookup keys
+                            // off the catalog album ID, which library IDs are not.
+                            if !is_library {
                                 let album_id = enrich_urls.iter()
                                     .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
                                     .map(|p| p.album_id);
@@ -8284,10 +8559,11 @@ pub fn process_queue(
                                     &album_dir,
                                     codec,
                                     &enrich_urls,
-                                    None, // No pre-fetched metadata; will fetch from API if possible
+                                    None, // No pre-fetched metadata; will fetch from API if possible (skipped for library)
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
                                     enrich_settings.content_advisory_in_filenames,
+                                    is_library,
                                 )
                                 .await
                                 {
@@ -8979,6 +9255,81 @@ pub fn process_queue(
                                     Err(e) => {
                                         log::debug!(
                                             "ASS generation skipped for {enrich_dl_id}: {e}"
+                                        );
+                                    }
+                                }
+                            }
+
+                            tokio::task::yield_now().await;
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
+                            // --- Step 2g: Lyricsfile (.lyrics) generation (opt-in, #596) ---
+                            // When enabled, converts the TTML sidecar GAMDL emitted
+                            // into a Lyricsfile YAML sidecar via the shared
+                            // `meedya_lyrics::Lyricsfile::from_ttml` upstream crate
+                            // (MeedyaSuite-core#34). Preserves Apple Music's
+                            // word-level timing in a vendor-neutral format that
+                            // LRCGET + LRCLIB consume directly. Default off — the
+                            // format is officially experimental per LRCGET 2.0
+                            // release notes.
+                            if enrich_settings.generate_lyricsfile
+                                && !enrich_shutdown.is_triggered()
+                            {
+                                set_label(
+                                    "Generating Lyricsfile (.lyrics) sidecars…",
+                                    ProgressStage::LyricsConversion.weight(),
+                                );
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    "Generating Lyricsfile (.lyrics) sidecars...",
+                                );
+                                let lf_dir = album_dir.clone();
+                                let lf_default_title = album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.tracks.first())
+                                    .map(|t| t.name.clone())
+                                    .unwrap_or_else(|| "Untitled".to_string());
+                                let lf_default_artist = album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.artist_name.clone())
+                                    .unwrap_or_else(|| "Unknown Artist".to_string());
+                                match tokio::task::spawn_blocking(move || {
+                                    super::lyricsfile_service::generate_lyricsfile_for_directory(
+                                        &lf_dir,
+                                        &lf_default_title,
+                                        &lf_default_artist,
+                                    )
+                                })
+                                .await
+                                .unwrap_or_else(|e| {
+                                    Err(format!("Lyricsfile task panicked: {e}"))
+                                }) {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
+                                            "Generated {count} Lyricsfile sidecar(s) for {enrich_dl_id}"
+                                        );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Generated {count} Lyricsfile (.lyrics) sidecar(s)"
+                                            ),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            "No TTML sources found for Lyricsfile generation",
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
+                                            "Lyricsfile generation skipped for {enrich_dl_id}: {e}"
                                         );
                                     }
                                 }
@@ -9771,6 +10122,29 @@ pub fn process_queue(
                                 "Writing download manifest…",
                                 ProgressStage::Finalising.weight(),
                             );
+                            // Resolve the primary codec to its canonical
+                            // registry ID and snapshot the planned companion
+                            // tiers (#766). The smart-retry planner uses these
+                            // to detect missing-codec-variant gaps after
+                            // companion-tier timeouts. `enrich_codec_str` is the
+                            // CLI flag string (e.g. "atmos") captured on the
+                            // success path; map it back to a `SongCodec` to
+                            // derive the registry ID, falling through to `None`
+                            // for the (extremely rare) unparseable case so the
+                            // manifest write still succeeds with codec-blind
+                            // diff semantics.
+                            let (manifest_primary_id, manifest_companion_tiers) =
+                                enrich_codec_str
+                                    .as_deref()
+                                    .and_then(SongCodec::from_cli_string)
+                                    .map_or((None, None), |c| {
+                                        let id = song_codec_to_registry_id(&c).to_string();
+                                        let tiers = build_manifest_companion_tiers(
+                                            &enrich_settings,
+                                            c.to_cli_string(),
+                                        );
+                                        (Some(id), tiers)
+                                    });
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
@@ -9778,6 +10152,8 @@ pub fn process_queue(
                                 &enrich_settings,
                                 &enrich_started_at,
                                 cross_platform_urls,
+                                manifest_primary_id.as_deref(),
+                                manifest_companion_tiers,
                             );
                             emit_download_log(
                                 &enrich_app,
@@ -10826,7 +11202,15 @@ async fn run_download_with_events(
     // These are shared between the stdout and stderr reader tasks via Arc<Mutex>.
     // After the process exits, the last collected error is used as the failure message,
     // which is more informative than just the exit code.
-    let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    //
+    // **Bounded as of #893.** Pre-#893 this was an unbounded `Vec<String>`;
+    // for verbose / multi-album downloads with thousands of codec-skip
+    // warnings the Vec could grow into the MB range per download.
+    // The bounded ring buffer retains the last
+    // `DEFAULT_LINE_CAP_ERRORS` lines and truncates any individual
+    // line past `DEFAULT_LINE_BYTE_CAP`.
+    let collected_errors: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
+        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_errors()));
 
     // Collect ALL output lines (raw) from BOTH stdout and stderr for
     // post-mortem analysis: Python traceback extraction, soft-error
@@ -10841,7 +11225,17 @@ async fn run_download_with_events(
     // `is_storefront_mismatch_error` keys on now arrive on stdout, so a
     // stderr-only buffer leaves the detector seeing empty input and the
     // storefront fallback never fires.
-    let raw_output_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    //
+    // **Bounded as of #893.** Pre-#893 this was an unbounded
+    // `Vec<String>` that the 2026-05-28 memory audit identified as
+    // the largest single contributor to RSS growth (~50 MB per
+    // verbose multi-album download). Retains the last
+    // `DEFAULT_LINE_CAP_RAW` lines; all consumers
+    // (`traceback_diagnostic::write_diagnostic_if_any`,
+    // `is_storefront_mismatch_error`, soft-error classifier) scan the
+    // newest lines so the eviction policy doesn't hide signal.
+    let raw_output_lines: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
+        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_raw_output()));
 
     // Deduplication set for Activity Log emissions.
     // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
@@ -10957,7 +11351,7 @@ async fn run_download_with_events(
                     // and `classify_gamdl_traceback` (#660 friendly path).
                     {
                         let mut raw = raw_output.lock().await;
-                        raw.push(clean_line.clone());
+                        raw.push(clean_line.clone()); // #893: bounded ring buffer
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -11273,7 +11667,7 @@ async fn run_download_with_events(
     // a single buffer scan + an early return. The URL is redacted to
     // strip wrapper auth tokens before being stored in the report.
     {
-        let raw_snapshot = raw_output_lines.lock().await.clone();
+        let raw_snapshot = raw_output_lines.lock().await.snapshot(); // #893: bounded
         let item_state = if status.success() {
             "complete"
         } else {
@@ -11328,7 +11722,11 @@ async fn run_download_with_events(
     // an error instead of swallowing them.
     let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
     if status.success() && soft_errors > 0 {
-        let raw_lines = raw_output_lines.lock().await;
+        // #893: snapshot the bounded ring buffer to a Vec we own,
+        // then drop the lock before scanning. The traceback /
+        // storefront detectors are CPU-bound on the joined string;
+        // we don't need to hold the buffer lock while they run.
+        let raw_lines = raw_output_lines.lock().await.snapshot();
         let combined = raw_lines.join("\n");
 
         // GAMDL music-video cover-template bug detection. Checked
@@ -11392,17 +11790,24 @@ async fn run_download_with_events(
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
         // fatal enough to exit with a non-zero code.
-        let warnings = collected_errors.lock().await.clone();
+        // #893: snapshot the bounded buffer so the return value owns
+        // its strings — the buffer's lock guard can't escape this
+        // function and we want the Vec<String> shape for callers.
+        let warnings = collected_errors.lock().await.snapshot();
         Ok(warnings)
     } else {
         // Use the last collected error message from GAMDL's output for a meaningful
         // error message. This is more informative than just "exited with code N".
         // The error message is also used by classify_error() to determine the
         // retry/fallback strategy (codec error vs network error vs unknown).
-        let errors = collected_errors.lock().await;
-        let raw_lines = raw_output_lines.lock().await;
+        //
+        // #893: lock both buffers in scope, then snapshot to Vec<String>
+        // so we can `join` / pass slices to `extract_python_exception`
+        // without retaining the locks across the analysis.
+        let last_error_opt = collected_errors.lock().await.last().cloned();
+        let raw_lines = raw_output_lines.lock().await.snapshot();
 
-        errors.last().map_or_else(
+        last_error_opt.map_or_else(
             || {
                 // Fallback to exit code if no error messages were collected
                 // (e.g., GAMDL crashed without printing an error)
@@ -11434,7 +11839,7 @@ async fn run_download_with_events(
                 } else if let Some(extracted) = extract_python_exception(&raw_lines) {
                     Err(extracted)
                 } else {
-                    Err(last_error.clone())
+                    Err(last_error)
                 }
             },
         )
@@ -13207,6 +13612,131 @@ mod tests {
             dl_id, ids[2],
             "Should return the first Queued item, skipping terminal items"
         );
+    }
+
+    // -----------------------------------------------------------------
+    // #889 — Pause / Resume Queue (non-destructive scheduler stop)
+    // -----------------------------------------------------------------
+
+    /// `pause()` flips the scheduler-paused flag. `next_pending()` then
+    /// refuses to pull new items even if there are Queued ones and a
+    /// slot is free.
+    #[test]
+    fn pause_blocks_next_pending_from_pulling_new_item() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 3);
+
+        // Sanity: pulling works before pause.
+        assert!(
+            queue.next_pending().is_some(),
+            "next_pending should return a queued item before pause"
+        );
+        // Release the slot so the next assertion can isolate pause from
+        // the concurrent-limit gate.
+        queue.on_task_finished();
+
+        let was_paused = queue.pause();
+        assert!(!was_paused, "First pause should transition running → paused");
+        assert!(queue.is_paused(), "is_paused must reflect the pause call");
+
+        assert!(
+            queue.next_pending().is_none(),
+            "next_pending must return None while the queue is paused"
+        );
+    }
+
+    /// `resume()` flips the flag back. `next_pending()` then returns
+    /// queued items again.
+    #[test]
+    fn resume_unblocks_next_pending() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 1);
+
+        queue.pause();
+        assert!(queue.next_pending().is_none(), "paused queue blocks pull");
+
+        let was_paused = queue.resume();
+        assert!(was_paused, "Resume should transition paused → running");
+        assert!(!queue.is_paused(), "is_paused must clear after resume");
+
+        assert!(
+            queue.next_pending().is_some(),
+            "Resumed queue must allow next_pending to pull"
+        );
+    }
+
+    /// pause()/resume() are idempotent — calling twice in the same
+    /// direction returns the previous state but doesn't toggle.
+    #[test]
+    fn pause_and_resume_are_idempotent() {
+        let mut queue = DownloadQueue::new();
+
+        // First pause: was running, transitions to paused. Returns
+        // previous state (false = was not paused).
+        assert!(!queue.pause());
+        // Second pause: already paused; no transition. Returns
+        // previous state (true = was paused).
+        assert!(queue.pause());
+        assert!(queue.is_paused(), "Still paused after second pause()");
+
+        // First resume: was paused, transitions to running. Returns
+        // previous state (true = was paused).
+        assert!(queue.resume());
+        // Second resume: already running; no transition. Returns
+        // previous state (false = was not paused).
+        assert!(!queue.resume());
+        assert!(!queue.is_paused(), "Still running after second resume()");
+    }
+
+    /// Pause must NOT cancel or alter items already in flight. The
+    /// flag only gates the start-new-item path — items currently in
+    /// `Downloading` / `Processing` are untouched and keep running.
+    #[test]
+    fn pause_does_not_change_state_of_running_items() {
+        let mut queue = DownloadQueue::new();
+        let _ids = enqueue_n(&mut queue, 2);
+
+        // Pull the first item — it transitions to Downloading.
+        let pulled = queue.next_pending();
+        assert!(pulled.is_some());
+        let (running_id, _, _, _) = pulled.unwrap();
+
+        let before_state = queue
+            .get_status()
+            .iter()
+            .find(|i| i.id == running_id)
+            .map(|i| i.state.clone())
+            .expect("running item must exist");
+        assert_eq!(before_state, DownloadState::Downloading);
+
+        // Pause the queue.
+        queue.pause();
+
+        // The already-running item is unchanged.
+        let after_state = queue
+            .get_status()
+            .iter()
+            .find(|i| i.id == running_id)
+            .map(|i| i.state.clone())
+            .expect("running item must still exist after pause");
+        assert_eq!(
+            after_state,
+            DownloadState::Downloading,
+            "pause() must not cancel or transition items already in flight"
+        );
+    }
+
+    /// `is_paused()` reflects the current state without side effects —
+    /// it must NOT consume the flag the way `take_recently_aborted` does.
+    #[test]
+    fn is_paused_is_a_pure_read() {
+        let mut queue = DownloadQueue::new();
+        queue.pause();
+
+        // Reading three times in a row should return true each time.
+        assert!(queue.is_paused());
+        assert!(queue.is_paused());
+        assert!(queue.is_paused());
     }
 
     /// Verifies that next_pending() returns the merged GamdlOptions for the item.
@@ -15135,15 +15665,169 @@ mod tests {
         assert!(dir.path().join("Cover.jpg").exists());
     }
 
+    /// Pre-#892: when BOTH the source (`Cover.jpg`, freshly written by
+    /// e.g. a companion GAMDL invocation) AND the target
+    /// (`FrontCover.jpg`, from a prior primary rename) exist, the
+    /// behaviour was "leave both on disk, target untouched" — which
+    /// turned out to be a duplication bug: the album folder kept two
+    /// copies of the same cover.
+    ///
+    /// Post-#892: the target is preserved verbatim AND the source is
+    /// deleted. Same end-state for the user (one cover file under
+    /// their configured stem), no wasted disk space, no media-player
+    /// ambiguity about which stem to load.
     #[test]
-    fn rename_cover_art_idempotent() {
+    fn rename_cover_art_deletes_duplicate_source_when_target_exists() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("FrontCover.jpg"), b"existing").unwrap();
-        std::fs::write(dir.path().join("Cover.jpg"), b"old").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"duplicate-from-companion").unwrap();
         rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
-        // FrontCover.jpg should keep existing content (not overwritten)
+
+        // Target preserved verbatim — never overwritten with the
+        // companion's bytes (they're identical at Apple's URL anyway,
+        // but the contract is "user-configured stem is source of truth").
         let content = std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap();
         assert_eq!(content, "existing");
+
+        // Source `Cover.jpg` cleaned up — no more duplicate on disk.
+        assert!(
+            !dir.path().join("Cover.jpg").exists(),
+            "Cover.jpg must be deleted when FrontCover.jpg already exists (#892)"
+        );
+    }
+
+    /// #892 specific repro: simulates the exact sequence the user
+    /// reported. Primary rename runs (Cover.jpg → FrontCover.jpg),
+    /// then a companion writes a new Cover.jpg, then companion's
+    /// rename_cover_art runs. End state must be one cover file, not two.
+    #[test]
+    fn rename_cover_art_handles_companion_double_write_sequence() {
+        let dir = tempfile::tempdir().unwrap();
+
+        // Step 1 — primary GAMDL just finished, writes Cover.jpg
+        std::fs::write(dir.path().join("Cover.jpg"), b"primary-cover").unwrap();
+        // Step 2 — MeedyaDL enrichment renames it
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(!dir.path().join("Cover.jpg").exists());
+
+        // Step 3 — companion GAMDL runs, writes a fresh Cover.jpg
+        // (companion doesn't know about FrontCover.jpg)
+        std::fs::write(dir.path().join("Cover.jpg"), b"companion-cover").unwrap();
+
+        // Step 4 — companion's post-download rename
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+
+        // Final state: ONE cover file, not two.
+        assert!(dir.path().join("FrontCover.jpg").exists());
+        assert!(
+            !dir.path().join("Cover.jpg").exists(),
+            "Duplicate Cover.jpg from companion must be cleaned up (#892)"
+        );
+    }
+
+    // ============================================================
+    // cleanup_duplicate_cover_art tests (#892 retroactive cleanup)
+    //
+    // Library-scan calls this on existing albums. The contract:
+    // ONLY remove confirmed duplicates (both source + target
+    // exist). Never rename a lone Cover.<ext> — that would surprise
+    // users with existing libraries on the default Cover stem.
+    // ============================================================
+
+    #[test]
+    fn cleanup_duplicate_cover_art_removes_dupe_when_both_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 1);
+        assert!(!dir.path().join("Cover.jpg").exists());
+        assert!(dir.path().join("FrontCover.jpg").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_skips_lone_cover() {
+        // Critical safety property: if the user has a lone Cover.jpg
+        // (no FrontCover.jpg yet), we do NOT touch it. Their library
+        // may have been set up intentionally with the default stem.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"only").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 0);
+        assert!(
+            dir.path().join("Cover.jpg").exists(),
+            "Lone Cover.jpg must NOT be deleted by the cleanup pass"
+        );
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_no_op_when_target_stem_is_cover() {
+        // User on default `cover_art_name = Cover` — source and target
+        // are the same path; nothing to clean.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"data").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "Cover");
+        assert_eq!(removed, 0);
+        assert!(dir.path().join("Cover.jpg").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_handles_multiple_extensions() {
+        let dir = tempfile::tempdir().unwrap();
+        // Dupe jpg
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+        // Dupe png
+        std::fs::write(dir.path().join("Cover.png"), b"dup-png").unwrap();
+        std::fs::write(dir.path().join("FrontCover.png"), b"keep-png").unwrap();
+        // Lone raw — should NOT be cleaned
+        std::fs::write(dir.path().join("Cover.raw"), b"lone").unwrap();
+
+        let removed = cleanup_duplicate_cover_art(dir.path(), "FrontCover");
+        assert_eq!(removed, 2, "Should clean both jpg + png duplicates");
+        assert!(!dir.path().join("Cover.jpg").exists());
+        assert!(!dir.path().join("Cover.png").exists());
+        // Lone Cover.raw preserved
+        assert!(dir.path().join("Cover.raw").exists());
+    }
+
+    #[test]
+    fn cleanup_duplicate_cover_art_handles_nonexistent_dir() {
+        let removed = cleanup_duplicate_cover_art(
+            std::path::Path::new("/tmp/this/path/does/not/exist-for-892-test"),
+            "FrontCover",
+        );
+        assert_eq!(removed, 0);
+    }
+
+    /// Multi-extension safety: each (jpg/png/raw) variant is handled
+    /// independently. A duplicate `Cover.jpg` with an existing
+    /// `FrontCover.jpg` must be cleaned up WITHOUT disturbing an
+    /// unrelated `Cover.png` (which has no `FrontCover.png` peer and
+    /// should follow the normal rename branch).
+    #[test]
+    fn rename_cover_art_multi_extension_independence() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("FrontCover.jpg"), b"keep").unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), b"dup").unwrap();
+        std::fs::write(dir.path().join("Cover.png"), b"png-no-target").unwrap();
+
+        rename_cover_art(&dir.path().to_string_lossy(), "FrontCover");
+
+        // jpg: duplicate cleanup
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("FrontCover.jpg")).unwrap(),
+            "keep"
+        );
+        assert!(!dir.path().join("Cover.jpg").exists());
+
+        // png: normal rename happens — Cover.png renamed → FrontCover.png
+        assert!(dir.path().join("FrontCover.png").exists());
+        assert!(!dir.path().join("Cover.png").exists());
     }
 
     // ============================================================

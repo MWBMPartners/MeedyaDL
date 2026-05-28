@@ -41,19 +41,27 @@
 //     or a non-Apple-Music source — falling back to the album URL
 //     loses no work and is what today's retry does anyway).
 //
-// Out of scope for this MVP (tracked in #667 as Phase 2):
-//   * Per-codec presence: manifest currently records the codec at
-//     write time, not the set of codecs present on disk. Quality
-//     upgrades (e.g. add Atmos to an existing ALAC album) need the
-//     manifest schema to expand.
+// Phase 2 (#766, landed): per-codec presence — manifest now records the
+// `companion_tiers` plan (`Vec<Vec<String>>` of registry codec IDs per
+// tier) at download time. The planner cross-references this against
+// codec-suffix-detected on-disk files and emits `PartialCodecs` when
+// the primary tier landed but companion tiers timed out.
+//
+// Out of scope for this MVP (still tracked in #667 as Phase 3):
 //   * Atmos-update / new-track detection via fresh `lastModifiedDate`
 //     comparison — adds a network call to the retry hot path.
+//     (Phase 5c #717 already provides this signal as a parallel rail.)
 //   * Per-track enrichment-stage skip — the planner currently only
 //     scopes the GAMDL invocation, not the post-download stages.
+//   * Per-track-per-codec granularity (e.g. "tracks 12–45 missing AAC,
+//     1–11 have it"). Today's `PartialCodecs` reports at album-level
+//     codec granularity: any tier with zero matching files is reported
+//     as missing.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
+use crate::models::codec_registry::CODEC_REGISTRY;
 use crate::models::manifest::{ManifestFile, ManifestSource, ManifestTrack};
 
 /// Audio file extensions the planner recognises as a downloaded track.
@@ -85,6 +93,28 @@ pub struct RetryPlan {
     pub source_url: String,
 }
 
+/// Album-level codec-tier gap — every track is present in *some* codec
+/// variant, but at least one tier the user requested at download time
+/// (e.g. an AAC companion) has zero matching files on disk.
+///
+/// Surfaced after companion-tier timeouts where the primary codec
+/// landed (45 Atmos files) but later tiers never completed (#766).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartialCodecsPlan {
+    /// Album URL to re-queue. GAMDL's `overwrite=false` semantics
+    /// preserve the successful primary files; only the missing
+    /// companion variants will be re-fetched.
+    pub source_url: String,
+    /// Canonical codec-registry IDs (e.g. `"aac-hq"`, `"aac-mq"`) of
+    /// tiers that have no matching files on disk. One entry per
+    /// missing tier — for multi-codec tiers (fallback chains), the
+    /// first codec in the tier is reported as the representative.
+    pub missing_codecs: Vec<String>,
+    /// Total expected tracks (from the manifest). Surfaced so the UI
+    /// can say "N of M present, but missing the AAC variant".
+    pub total_tracks: usize,
+}
+
 /// Top-level planner outcome.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlanOutcome {
@@ -92,6 +122,12 @@ pub enum PlanOutcome {
     /// per-track URL list. Caller should use `plan.urls_to_fetch`
     /// in place of the queue item's original URLs.
     Plan(RetryPlan),
+    /// All expected tracks are present in *at least one* codec, but
+    /// the manifest records additional codec tiers (companion downloads)
+    /// that have no matching files on disk. Re-queueing the album URL
+    /// will fill the codec gaps without re-downloading the primary
+    /// files (#766, Phase 2 of #717/5b).
+    PartialCodecs(PartialCodecsPlan),
     /// Manifest was found but every expected track is already on
     /// disk. Caller should *not* re-enqueue — emit a "nothing to
     /// retry" log line instead. Includes the total track count so
@@ -147,32 +183,176 @@ pub fn plan_retry(output_path: &Path, item_url: &str) -> PlanOutcome {
     let present = scan_present_track_numbers(output_path);
     let missing = collect_missing_tracks(&source.tracks, &present);
 
-    if missing.is_empty() {
-        return PlanOutcome::AllPresent {
+    if !missing.is_empty() {
+        // Track-level gaps take precedence over codec-level gaps —
+        // a missing track is the more severe gap. Build the per-track
+        // URL list. Skip tracks that don't have a recorded `track.url`
+        // — without it we have no way to address the single track, so
+        // we'd have to fall back to the album URL anyway. If *every*
+        // missing track lacks a URL, there's no smart plan to be had
+        // and we return NotApplicable.
+        let urls_to_fetch: Vec<String> = missing
+            .iter()
+            .filter_map(|t| t.url.clone())
+            .collect();
+
+        if urls_to_fetch.is_empty() {
+            return PlanOutcome::NotApplicable;
+        }
+
+        return PlanOutcome::Plan(RetryPlan {
+            urls_to_fetch,
+            missing_tracks: missing.len(),
             total_tracks: source.tracks.len(),
-        };
+            source_url: source.url.clone(),
+        });
     }
 
-    // Build the per-track URL list. Skip tracks that don't have a
-    // recorded `track.url` — without it we have no way to address the
-    // single track, so we'd have to fall back to the album URL anyway.
-    // If *every* missing track lacks a URL, there's no smart plan to
-    // be had and we return NotApplicable.
-    let urls_to_fetch: Vec<String> = missing
-        .iter()
-        .filter_map(|t| t.url.clone())
-        .collect();
-
-    if urls_to_fetch.is_empty() {
-        return PlanOutcome::NotApplicable;
+    // Every track is present in *some* codec variant. Check whether
+    // the manifest's companion-tier plan has unsatisfied tiers — this
+    // is the companion-codec-timeout case (#766): primary landed,
+    // companion AAC / AAC-Legacy / etc. never completed. Manifests
+    // written before this field existed have `companion_tiers: None`
+    // and fall through to today's `AllPresent` behaviour.
+    if let Some(tiers) = source.companion_tiers.as_ref() {
+        let missing_codecs = find_missing_tier_codecs(output_path, tiers);
+        if !missing_codecs.is_empty() {
+            return PlanOutcome::PartialCodecs(PartialCodecsPlan {
+                source_url: source.url.clone(),
+                missing_codecs,
+                total_tracks: source.tracks.len(),
+            });
+        }
     }
 
-    PlanOutcome::Plan(RetryPlan {
-        urls_to_fetch,
-        missing_tracks: missing.len(),
+    PlanOutcome::AllPresent {
         total_tracks: source.tracks.len(),
-        source_url: source.url.clone(),
-    })
+    }
+}
+
+/// Walk the album directory and return the canonical codec IDs of
+/// every tier in `tiers` that has **no** matching audio file on disk.
+///
+/// A tier is "satisfied" when at least one of its `codecs_to_try`
+/// entries (canonical registry IDs) has a corresponding file —
+/// matched by the codec's filename suffix from `codecs.toml`.
+/// Empty-suffix codecs (e.g. `aac-hq`, which produces clean
+/// filenames) are matched by detecting an audio file whose stem
+/// carries no known codec bracket (`[Dolby Atmos]`, `[Lossless]`,
+/// etc.). The first codec listed in a missing tier is reported as
+/// the representative ID — multi-codec fallback chains
+/// (`["aac-hq", "aac-mq"]`) report the first entry.
+///
+/// Tiers with no recognised codec IDs (e.g. a stale manifest from a
+/// future MeedyaDL version that introduced a codec ID our local
+/// `codecs.toml` doesn't know about yet) are skipped silently —
+/// reporting them as missing would force a redundant re-download.
+fn find_missing_tier_codecs(album_dir: &Path, tiers: &[Vec<String>]) -> Vec<String> {
+    let suffix_inventory = scan_suffix_inventory(album_dir);
+    let mut missing = Vec::new();
+    for tier in tiers {
+        if tier.is_empty() {
+            continue;
+        }
+        let mut tier_satisfied = false;
+        let mut representative: Option<&str> = None;
+        for codec_id in tier {
+            // Resolve the registry entry for this codec ID. Unknown
+            // IDs (forward-compat) are silently ignored.
+            let Some(entry) = CODEC_REGISTRY.audio.iter().find(|c| c.id == *codec_id) else {
+                continue;
+            };
+            if representative.is_none() {
+                representative = Some(codec_id);
+            }
+            // Empty / missing suffix → clean filename — a tier
+            // codec with no bracket is satisfied by any file that
+            // carries no known suffix bracket. Non-empty suffix
+            // requires the bracket text to appear in the inventory.
+            let suffix = entry.suffix.as_deref().unwrap_or("");
+            if suffix.is_empty() {
+                if suffix_inventory.contains(&String::new()) {
+                    tier_satisfied = true;
+                    break;
+                }
+            } else if suffix_inventory.contains(suffix) {
+                tier_satisfied = true;
+                break;
+            }
+        }
+        if !tier_satisfied {
+            if let Some(rep) = representative {
+                missing.push(rep.to_string());
+            }
+        }
+    }
+    missing
+}
+
+/// Build the set of distinct codec suffixes observed in the album
+/// directory. Each present audio file maps to either a known suffix
+/// bracket (e.g. `"[Dolby Atmos]"`, `"[Lossless]"`) or the empty
+/// string (clean filename, no known bracket).
+///
+/// Used by `find_missing_tier_codecs` to decide whether each planned
+/// tier is satisfied. We pre-compute the set once per `plan_retry`
+/// call instead of re-walking the directory for every tier.
+fn scan_suffix_inventory(album_dir: &Path) -> BTreeSet<String> {
+    let mut inventory = BTreeSet::new();
+    let entries = match std::fs::read_dir(album_dir) {
+        Ok(e) => e,
+        Err(_) => return inventory,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            // Multi-disc subdirs: recurse one level into recognised
+            // disc folders so codec suffixes on those files count too.
+            if parse_disc_dir_name(&path).is_some() {
+                if let Ok(sub) = std::fs::read_dir(&path) {
+                    for inner in sub.flatten() {
+                        accumulate_suffix(&inner.path(), &mut inventory);
+                    }
+                }
+            }
+            continue;
+        }
+        accumulate_suffix(&path, &mut inventory);
+    }
+    inventory
+}
+
+/// Inspect a single file path; if it's an audio file, record its
+/// codec suffix (empty string for clean filenames). Helper for
+/// `scan_suffix_inventory`.
+fn accumulate_suffix(path: &Path, inventory: &mut BTreeSet<String>) {
+    if !is_audio_file(path) {
+        return;
+    }
+    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+        inventory.insert(detect_codec_suffix(stem));
+    }
+}
+
+/// Return the longest known codec suffix bracket found in `stem`,
+/// or an empty `String` when none of the registered suffixes match
+/// (i.e. a clean filename).
+///
+/// "Longest match wins" handles the (currently hypothetical) case
+/// where one codec's suffix is a substring of another's — without it
+/// a future `"[AAC]"` suffix would shadow `"[AAC Legacy]"`. Today's
+/// `codecs.toml` doesn't have any such overlap but the safeguard is
+/// cheap.
+fn detect_codec_suffix(stem: &str) -> String {
+    let mut best = String::new();
+    for codec in &CODEC_REGISTRY.audio {
+        if let Some(suffix) = codec.suffix.as_deref() {
+            if !suffix.is_empty() && stem.contains(suffix) && suffix.len() > best.len() {
+                best = suffix.to_string();
+            }
+        }
+    }
+    best
 }
 
 /// Read + parse a manifest file. Returns `None` for any I/O or parse
@@ -372,6 +552,7 @@ mod tests {
             codec: None,
             isrc: None,
             song_id: Some(song_id.to_string()),
+            has_lyricsfile: false,
         }
     }
 
@@ -398,6 +579,7 @@ mod tests {
                 downloaded_at: "2026-04-30T00:00:00Z".to_string(),
                 codec: None,
                 last_modified_date: None,
+                companion_tiers: None,
                 tracks: vec![
                     track(1, 1, "1001", url),
                     track(2, 1, "1002", url),
@@ -444,6 +626,7 @@ mod tests {
                 downloaded_at: "2026-04-30T00:00:00Z".to_string(),
                 codec: None,
                 last_modified_date: None,
+                companion_tiers: None,
                 tracks: vec![track(1, 1, "1001", url), track(2, 1, "1002", url)],
                 enrichment: None,
                 cross_platform_urls: None,
@@ -480,6 +663,7 @@ mod tests {
                 downloaded_at: "2026-04-30T00:00:00Z".to_string(),
                 codec: None,
                 last_modified_date: None,
+                companion_tiers: None,
                 tracks: vec![track(1, 1, "1001", "https://music.apple.com/gb/album/foo/123")],
                 enrichment: None,
                 cross_platform_urls: None,
@@ -510,6 +694,7 @@ mod tests {
                 downloaded_at: "2026-04-30T00:00:00Z".to_string(),
                 codec: None,
                 last_modified_date: None,
+                companion_tiers: None,
                 tracks: vec![track(1, 1, "1001", album), track(2, 1, "1002", album)],
                 enrichment: None,
                 cross_platform_urls: None,
@@ -543,6 +728,7 @@ mod tests {
                 downloaded_at: "2026-04-30T00:00:00Z".to_string(),
                 codec: None,
                 last_modified_date: None,
+                companion_tiers: None,
                 tracks: vec![t],
                 enrichment: None,
                 cross_platform_urls: None,
@@ -593,5 +779,227 @@ mod tests {
         assert_eq!(parse_disc_dir_name(Path::new("/x/disc-3")), Some(3));
         assert_eq!(parse_disc_dir_name(Path::new("/x/CD 4")), Some(4));
         assert_eq!(parse_disc_dir_name(Path::new("/x/Bonus")), None);
+    }
+
+    // ----------------------------------------------------------
+    // Codec-tier gap detection (#766, Phase 2 of #717/5b)
+    // ----------------------------------------------------------
+
+    /// Build a manifest source with the full Atmos→all-formats tier
+    /// plan for tests. Matches `CompanionMode::AtmosToAllFormats` with
+    /// `primary_codec == "atmos"` from `download_queue::plan_companions`:
+    /// primary Atmos, then AC3, then ALAC, then [AAC, AAC-Legacy].
+    fn atmos_all_formats_source(url: &str) -> ManifestSource {
+        ManifestSource {
+            platform: "apple-music".to_string(),
+            url: url.to_string(),
+            storefront: None,
+            downloaded_at: "2026-05-13T00:00:00Z".to_string(),
+            codec: Some("eac3-atmos".to_string()),
+            last_modified_date: None,
+            companion_tiers: Some(vec![
+                vec!["eac3-atmos".to_string()],
+                vec!["ac3".to_string()],
+                vec!["alac".to_string()],
+                vec!["aac-hq".to_string(), "aac-mq".to_string()],
+            ]),
+            enrichment: None,
+            cross_platform_urls: None,
+            is_library: false,
+            tracks: vec![
+                track(1, 1, "1001", url),
+                track(2, 1, "1002", url),
+            ],
+        }
+    }
+
+    #[test]
+    fn partial_codecs_when_primary_landed_but_companions_missing() {
+        // The exact companion-timeout scenario from the original
+        // user report: primary Atmos files all landed (suffixed
+        // `[Dolby Atmos]`); AC3 + ALAC + AAC companion tiers never
+        // produced files. Track diff says all-present, but the
+        // codec-tier diff should fire.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(dir.path(), atmos_all_formats_source(url));
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Atmos].m4a");
+
+        match plan_retry(dir.path(), url) {
+            PlanOutcome::PartialCodecs(plan) => {
+                assert_eq!(plan.source_url, url);
+                assert_eq!(plan.total_tracks, 2);
+                // Tier 0 (Atmos) is satisfied. Tiers 1/2/3 are all
+                // missing — AC3, ALAC, and the AAC/AAC-Legacy fallback
+                // chain. Representative IDs are the first codec of
+                // each missing tier.
+                assert_eq!(
+                    plan.missing_codecs,
+                    vec![
+                        "ac3".to_string(),
+                        "alac".to_string(),
+                        "aac-hq".to_string(),
+                    ],
+                );
+            }
+            other => panic!("expected PartialCodecs, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn partial_codecs_satisfied_by_clean_filenames_for_empty_suffix_tier() {
+        // The AAC tier has `aac-hq` (suffix "") and `aac-mq` (suffix
+        // "[AAC Legacy]"). A clean filename satisfies the tier via the
+        // `aac-hq` codec; the tier should NOT be reported as missing.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(dir.path(), atmos_all_formats_source(url));
+        // Atmos landed, AC3 + ALAC landed, AAC landed with clean
+        // filenames (no bracket suffix) — every tier satisfied.
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Atmos].m4a");
+        touch(dir.path(), "01 Track 1 [Dolby Digital].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Digital].m4a");
+        touch(dir.path(), "01 Track 1 [Lossless].m4a");
+        touch(dir.path(), "02 Track 2 [Lossless].m4a");
+        touch(dir.path(), "01 Track 1.m4a");
+        touch(dir.path(), "02 Track 2.m4a");
+
+        assert_eq!(
+            plan_retry(dir.path(), url),
+            PlanOutcome::AllPresent { total_tracks: 2 },
+        );
+    }
+
+    #[test]
+    fn partial_codecs_satisfied_by_aac_legacy_fallback() {
+        // The AAC tier carries the [aac-hq, aac-mq] fallback chain.
+        // If only AAC-Legacy landed (suffix "[AAC Legacy]"), the tier
+        // is still satisfied via the second codec — no gap reported.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(dir.path(), atmos_all_formats_source(url));
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Atmos].m4a");
+        touch(dir.path(), "01 Track 1 [Dolby Digital].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Digital].m4a");
+        touch(dir.path(), "01 Track 1 [Lossless].m4a");
+        touch(dir.path(), "02 Track 2 [Lossless].m4a");
+        touch(dir.path(), "01 Track 1 [AAC Legacy].m4a");
+        touch(dir.path(), "02 Track 2 [AAC Legacy].m4a");
+
+        assert_eq!(
+            plan_retry(dir.path(), url),
+            PlanOutcome::AllPresent { total_tracks: 2 },
+        );
+    }
+
+    #[test]
+    fn track_level_plan_takes_precedence_over_codec_gap() {
+        // If both a track is missing AND companion tiers are missing,
+        // the Plan variant wins — a missing track is the more severe
+        // gap and the existing dumb retry handles both at once.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(dir.path(), atmos_all_formats_source(url));
+        // Only track 1 landed (track 2 missing) and only in Atmos
+        // (companion tiers also missing).
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+
+        match plan_retry(dir.path(), url) {
+            PlanOutcome::Plan(plan) => {
+                assert_eq!(plan.missing_tracks, 1);
+                assert_eq!(plan.total_tracks, 2);
+            }
+            other => panic!("expected Plan (track-level takes priority), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn backward_compat_no_companion_tiers_falls_through_to_all_present() {
+        // Older manifests written before #766 have
+        // `companion_tiers: None`. The planner must NOT report a
+        // PartialCodecs gap for these — it has no idea what was
+        // planned. Falls through to today's `AllPresent` semantics.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(
+            dir.path(),
+            ManifestSource {
+                platform: "apple-music".to_string(),
+                url: url.to_string(),
+                storefront: None,
+                downloaded_at: "2026-04-30T00:00:00Z".to_string(),
+                codec: None,
+                last_modified_date: None,
+                companion_tiers: None,
+                enrichment: None,
+                cross_platform_urls: None,
+                is_library: false,
+                tracks: vec![
+                    track(1, 1, "1001", url),
+                    track(2, 1, "1002", url),
+                ],
+            },
+        );
+        // Atmos primary landed; no other codecs. With None
+        // companion_tiers, we can't diff codec presence → AllPresent.
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+        touch(dir.path(), "02 Track 2 [Dolby Atmos].m4a");
+
+        assert_eq!(
+            plan_retry(dir.path(), url),
+            PlanOutcome::AllPresent { total_tracks: 2 },
+        );
+    }
+
+    #[test]
+    fn unknown_codec_id_in_companion_tiers_skipped_silently() {
+        // Forward-compat: a manifest written by a future MeedyaDL
+        // build with a codec the local `codecs.toml` doesn't know
+        // about must NOT be reported as missing — reporting it would
+        // force a redundant re-download.
+        let dir = TempDir::new().unwrap();
+        let url = "https://music.apple.com/gb/album/foo/123";
+        write_manifest(
+            dir.path(),
+            ManifestSource {
+                platform: "apple-music".to_string(),
+                url: url.to_string(),
+                storefront: None,
+                downloaded_at: "2026-05-13T00:00:00Z".to_string(),
+                codec: Some("eac3-atmos".to_string()),
+                last_modified_date: None,
+                companion_tiers: Some(vec![
+                    vec!["eac3-atmos".to_string()],
+                    // Hypothetical future codec the local registry
+                    // doesn't recognise — skipped silently.
+                    vec!["dts-x".to_string()],
+                ]),
+                enrichment: None,
+                cross_platform_urls: None,
+                is_library: false,
+                tracks: vec![track(1, 1, "1001", url)],
+            },
+        );
+        touch(dir.path(), "01 Track 1 [Dolby Atmos].m4a");
+
+        assert_eq!(
+            plan_retry(dir.path(), url),
+            PlanOutcome::AllPresent { total_tracks: 1 },
+        );
+    }
+
+    #[test]
+    fn detect_codec_suffix_picks_longest_match() {
+        // Sanity check on the longest-match safeguard. None of the
+        // current codec suffixes are substrings of each other, so
+        // this test demonstrates the contract rather than catching
+        // a current overlap.
+        assert_eq!(detect_codec_suffix("01 Foo [Dolby Atmos]"), "[Dolby Atmos]");
+        assert_eq!(detect_codec_suffix("01 Foo [Lossless]"), "[Lossless]");
+        assert_eq!(detect_codec_suffix("01 Foo [AAC Legacy]"), "[AAC Legacy]");
+        assert_eq!(detect_codec_suffix("01 Foo"), "");
     }
 }

@@ -87,10 +87,180 @@ on:
 
 jobs:
   # ============================================================
+  # Ensure the GitHub Release exists with proper notes (#857)
+  # ============================================================
+  #
+  # Runs ONCE before the build matrix. Resolves the tag + derives
+  # the prerelease flag, then either:
+  #   (a) confirms a release already exists for this tag (no-op),
+  #   or
+  #   (b) creates the release with proper notes content.
+  #
+  # By centralising the `gh release create` call here, the matrix
+  # jobs never have to race to create the release object — they
+  # just upload assets against the already-created release.
+  #
+  # The notes content is sourced via a 3-tier fallback:
+  #
+  #   1. **Pre-staged file** at `.github/release-notes/<tag>.md`.
+  #      Used when the maintainer wants full control of what the
+  #      end-user sees (e.g., a manual stable cut or a release
+  #      that needs a specific narrative).
+  #
+  #   2. **git-cliff diff** between the previous tag of the same
+  #      channel and this tag. Auto-generates a Markdown changelog
+  #      from conventional-commit subjects. Falls back gracefully
+  #      if git-cliff isn't installable on the runner.
+  #
+  #   3. **"See CHANGELOG.md"** stub linking to the repo's
+  #      maintained CHANGELOG.md. Always works, never empty.
+  #
+  # NEVER emits the legacy "Release in progress…" placeholder —
+  # the verification step in `finalize-release` already catches
+  # that string in the body, but consolidating creation here means
+  # the verification has nothing to flag.
+  ensure-release:
+    name: Ensure Release Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.derive.outputs.tag }}
+      is_prerelease: ${{ steps.derive.outputs.is_prerelease }}
+      gh_flag: ${{ steps.derive.outputs.gh_flag }}
+    steps:
+      - name: Checkout (full history for git-cliff)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Derive tag + prerelease flag
+        id: derive
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Resolve the tag the same way the publish matrix does
+          # below — `inputs.tag` wins on workflow_dispatch, else the
+          # tag-push ref name.
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # Prerelease flag derives from the tag suffix.
+          STRIPPED="${TAG#v}"
+          if [[ "$STRIPPED" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install git-cliff (best-effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # git-cliff is the secondary release-notes source (#857
+          # item 3 tier 2). Install via cargo binstall for speed;
+          # if binstall isn't on the runner, fall back to a plain
+          # cargo install. continue-on-error so a binstall outage
+          # doesn't block the release — the tier-3 fallback covers
+          # the no-git-cliff case.
+          if ! command -v git-cliff &>/dev/null; then
+            curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz \
+              | tar -xz -C /usr/local/bin/ 2>/dev/null || true
+            if command -v cargo-binstall &>/dev/null; then
+              cargo-binstall --no-confirm git-cliff || true
+            else
+              cargo install --locked git-cliff || true
+            fi
+          fi
+          git-cliff --version 2>/dev/null || echo "::warning::git-cliff unavailable; release notes will use the static fallback"
+
+      - name: Create release if missing (with proper notes)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.derive.outputs.tag }}"
+          GH_FLAG="${{ steps.derive.outputs.gh_flag }}"
+
+          if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+            echo "::notice::Release $TAG already exists; ensure-release is a no-op"
+            exit 0
+          fi
+
+          # Tier 1: pre-staged release notes file.
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+          if [ -f "$NOTES_FILE" ]; then
+            echo "::notice::Using pre-staged release notes from $NOTES_FILE"
+            NOTES_PATH="$NOTES_FILE"
+          else
+            # Tier 2: git-cliff diff between this tag and the
+            # previous tag of the same channel.
+            # Strip the trailing `.N` from prerelease suffixes
+            # (`v1.10.0-alpha.14` → `*-alpha.*`) so we can find
+            # the previous tag in the same channel.
+            STRIPPED="${TAG#v}"
+            if [[ "$STRIPPED" == *-* ]]; then
+              CHANNEL_SUFFIX=$(echo "$STRIPPED" | sed -E 's/.*-([a-z]+)\..*/\1/')
+              PREV_TAG=$(git tag --sort=-version:refname --list "v*-${CHANNEL_SUFFIX}.*" | grep -v "^$TAG$" | head -1 || true)
+            else
+              PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" | grep -vE '\-' | grep -v "^$TAG$" | head -1 || true)
+            fi
+            echo "::notice::Previous tag for $TAG = ${PREV_TAG:-<none>}"
+
+            GENERATED="$RUNNER_TEMP/release-notes-${TAG}.md"
+            if command -v git-cliff &>/dev/null && [ -n "$PREV_TAG" ]; then
+              if git-cliff --strip header --tag "$TAG" "${PREV_TAG}..${TAG}" > "$GENERATED" 2>/dev/null; then
+                if [ -s "$GENERATED" ]; then
+                  echo "::notice::Generated release notes via git-cliff (${PREV_TAG}..${TAG})"
+                  NOTES_PATH="$GENERATED"
+                fi
+              fi
+            fi
+
+            # Tier 3: static fallback. Always produces non-empty
+            # content so the GitHub API never sees the "Release
+            # in progress…" placeholder string the #857 verification
+            # step is screening for.
+            if [ -z "${NOTES_PATH:-}" ]; then
+              cat > "$GENERATED" <<EOF
+          # MeedyaDL ${TAG}
+
+          See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for the full change list.
+
+          The platform-specific download links and \`.sig\` file
+          explanations are appended after all builds finish (see
+          \`finalize-release\` job in this workflow).
+          EOF
+              echo "::notice::Using tier-3 static-fallback release notes (git-cliff unavailable or no previous tag)"
+              NOTES_PATH="$GENERATED"
+            fi
+          fi
+
+          # Create the release with the chosen notes content. The
+          # --notes-file form keeps the body intact (no shell
+          # quoting issues with multi-line Markdown).
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --draft $GH_FLAG \
+            --title "$TAG" \
+            --notes-file "$NOTES_PATH"
+          echo "::notice::Created release $TAG with proper notes (no placeholder)"
+
+  # ============================================================
   # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
+    needs: ensure-release
 
     # permissions: contents: write is required for the tauri-action to:
     #   - Create the GitHub Release
@@ -925,10 +1095,10 @@ jobs:
           VERSION="${{ steps.version.outputs.number }}"
           BUNDLE_DIR="src-tauri/target/aarch64-apple-darwin/release/bundle"
 
-          # Ensure the draft release exists (another build may not have created it yet)
-          if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
-          fi
+          # #857: the `ensure-release` job created the release object
+          # with proper notes BEFORE this job started. No race-guard
+          # `gh release create` needed here — we just upload assets
+          # against the existing release.
 
           # Upload .dmg
           DMG_FILE="$BUNDLE_DIR/dmg/MeedyaDL_${VERSION}_aarch64.dmg"
@@ -993,10 +1163,10 @@ jobs:
           TAG="${{ steps.tag.outputs.name }}"
           BUNDLE_DIR="src-tauri/target/armv7-unknown-linux-gnueabihf/release/bundle"
 
-          # Ensure the draft release exists (another build may not have created it yet)
-          if ! gh release view "$TAG" &>/dev/null; then
-            gh release create "$TAG" --draft ${{ steps.prerelease.outputs.gh_flag }} --title "$TAG" --notes "Release in progress..."
-          fi
+          # #857: release object already exists (created by the
+          # `ensure-release` job). Skipping the legacy race-guard
+          # `gh release create` that previously planted the
+          # "Release in progress…" placeholder.
 
           # Upload .deb: rename armhf → armv7 for clarity
           for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
@@ -1171,21 +1341,66 @@ jobs:
           # Get the current release body
           CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
 
-          # Strip any leading "Release in progress..." placeholder + the
-          # optional `---` separator that follows it. The placeholder is
-          # inserted by the per-platform `gh release create --notes
-          # "Release in progress..."` race-guard calls earlier in this
-          # workflow (lines ~805 / ~873 / ~898). Without this strip the
+          # Strip any "Release in progress..." placeholder + the optional
+          # `---` separator that follows it (#857). The placeholder is
+          # inserted by the macOS / ARMv7 race-guard `gh release create
+          # --notes "Release in progress..."` calls earlier in the
+          # workflow (lines ~930 / ~998). Without this strip the
           # placeholder becomes persistent in the final body — see the
           # 2026-05-10 release-pipeline-cleanup PR which backfilled 13
-          # historical releases that had this issue. One-line python
-          # invocation avoids YAML indentation interactions with a
-          # heredoc-style script.
-          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "import re,sys;sys.stdout.write(re.sub(r'^Release in progress[^\n]*\n+(?:---\s*\n+)?', '', sys.stdin.read()))")
+          # historical releases that had this issue, and #857 which
+          # re-raised it on v1.9.4-alpha.10.
+          #
+          # Pre-#857 the regex was anchored to `^` (start of body), which
+          # missed cases where macOS/ARMv7 won the race AFTER tauri-action
+          # had set a proper body — the placeholder would land in the
+          # MIDDLE of the body and the anchored strip wouldn't see it.
+          # Now we strip the placeholder wherever it appears (one-shot,
+          # at the first match) and prune the optional `---` separator
+          # that immediately follows it. We also collapse the extra
+          # blank lines left behind.
+          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "
+          import re,sys
+          body = sys.stdin.read()
+          # Strip the placeholder line + optional '---' separator + the
+          # blank lines around it. Multiline + non-anchored so a leaked
+          # placeholder in the middle of an otherwise-good body still
+          # gets removed.
+          body = re.sub(r'(?m)^Release in progress[^\n]*\n+(?:---\s*\n+)?', '', body)
+          # Collapse any 3+ consecutive newlines down to 2 (one blank
+          # line) to keep the resulting body tidy.
+          body = re.sub(r'\n{3,}', '\n\n', body)
+          # Strip leading blank lines that the placeholder removal left behind.
+          body = body.lstrip('\n')
+          sys.stdout.write(body)
+          ")
 
-          # Check if the download guide has already been appended (idempotent)
+          # Detect whether the body looked broken before the strip.
+          # If the placeholder appeared anywhere, we need to write the
+          # cleaned body back even if the download guide is already
+          # present (because the guide check comes BEFORE the cleanup
+          # write in the legacy flow). Set a flag the post-cleanup
+          # branch reads.
+          if gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
+            | grep -q "Release in progress"; then
+            NEEDS_PLACEHOLDER_CLEANUP="1"
+          else
+            NEEDS_PLACEHOLDER_CLEANUP="0"
+          fi
+
+          # Check if the download guide has already been appended (idempotent).
+          # If so AND no placeholder cleanup is needed → exit clean. If a
+          # placeholder is still present (NEEDS_PLACEHOLDER_CLEANUP=1) we
+          # fall through and call `gh release edit` with just the cleaned
+          # body (no new guide appended) so the placeholder is removed.
           if echo "$CURRENT_BODY" | grep -q "Choose your download"; then
-            echo "Download guide already present in release notes. Skipping."
+            if [ "$NEEDS_PLACEHOLDER_CLEANUP" = "1" ]; then
+              echo "Download guide already present BUT placeholder leaked into body — cleaning."
+              gh release edit "$TAG" --repo "$REPO" --notes "$CURRENT_BODY"
+              echo "Placeholder cleaned for $TAG (guide preserved)."
+            else
+              echo "Download guide already present in release notes. Skipping."
+            fi
             exit 0
           fi
 
@@ -1243,6 +1458,39 @@ jobs:
           # Update the release
           gh release edit "$TAG" --repo "$REPO" --notes "$NEW_BODY"
           echo "Download guide appended to release notes for $TAG"
+
+      # Verify the placeholder is not still leaking into the published body (#857).
+      #
+      # CI safety net for the "Release in progress..." placeholder bug.
+      # The strip + cleanup branches above should always remove it, but the
+      # race surface is broad enough that a regression could go unnoticed
+      # for several release cycles (it did between PR #741 in 2026-05-10 and
+      # the v1.9.4-alpha.10 incident on 2026-05-22). This step fetches the
+      # final published body and fails the job loudly if the placeholder
+      # string survived — catching the bug at release time instead of
+      # waiting for a user to notice their changelog is a stub.
+      - name: Verify placeholder did not leak into release body
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+          BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+          if [ -z "$BODY" ]; then
+            echo "::warning::Could not fetch release body for $TAG — skipping placeholder check"
+            exit 0
+          fi
+          if echo "$BODY" | grep -q "Release in progress"; then
+            echo "::error::Release body for $TAG still contains the 'Release in progress' placeholder."
+            echo "::error::This is the #857 / PR #741 regression — the strip-and-replace logic in finalize-release is not catching every race."
+            echo "::error::Recover with: gh release edit $TAG --repo $REPO --notes-file /path/to/proper-notes.md"
+            echo "--- offending body (first 30 lines) ---"
+            echo "$BODY" | head -30
+            exit 1
+          fi
+          echo "✓ No placeholder leak detected in $TAG release body"
 
       # Auto-publish prerelease drafts (#646).
       #

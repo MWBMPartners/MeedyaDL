@@ -58,6 +58,34 @@ import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 
 /**
+ * Module-level handle for the undo-buffer auto-expiry timer (#894).
+ *
+ * Pre-#894, `clearAll()` scheduled an unconditional
+ * `setTimeout(..., 5000)` on every call without cancelling the
+ * previous one. Rapid `clearAll()` calls in succession (e.g. the
+ * user is batch-retrying failed items and clicks Clear All multiple
+ * times) accumulated orphan timers, each retaining a closure over
+ * `set`. The fix: stash the active handle here, cancel before
+ * scheduling a new one.
+ *
+ * `null` when no timer is in flight.
+ */
+let undoBufferTimerHandle: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Test-only: cancel any in-flight undo-buffer timer. Lets unit tests
+ * start each test with a clean timer state.
+ *
+ * @internal
+ */
+export function __resetUndoBufferTimerForTests(): void {
+  if (undoBufferTimerHandle !== null) {
+    clearTimeout(undoBufferTimerHandle);
+    undoBufferTimerHandle = null;
+  }
+}
+
+/**
  * Combined state + actions interface for the download store.
  *
  * State is divided into two logical groups:
@@ -569,8 +597,18 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           }
         );
 
-        // Auto-expire the undo buffer after 5 seconds
-        setTimeout(() => set({ _undoBuffer: null }), 5000);
+        // #894: cancel any previous undo-buffer expiry timer before
+        // scheduling a new one, so rapid clearAll() calls don't
+        // accumulate orphan setTimeout closures. The handle is
+        // stashed on the store internals so a subsequent clearAll
+        // can find and clear it.
+        if (undoBufferTimerHandle !== null) {
+          clearTimeout(undoBufferTimerHandle);
+        }
+        undoBufferTimerHandle = setTimeout(() => {
+          set({ _undoBuffer: null });
+          undoBufferTimerHandle = null;
+        }, 5000);
       }
 
       return removed;

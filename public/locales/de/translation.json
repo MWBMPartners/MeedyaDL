@@ -99,6 +99,56 @@
       "unhandled_rejection": "Unbehandelte Ablehnung"
     }
   },
+  "download": {
+    "title": "Download",
+    "subtitle": "Geben Sie eine Apple-Music-URL ein, um Musik oder Videos herunterzuladen",
+    "urlLabel": "Apple-Music-URL",
+    "addToQueue": "Zur Warteschlange hinzufügen",
+    "import": "Importieren",
+    "importManifest": "Eine .meedyadl-Manifestdatei importieren",
+    "validationError": "Bitte geben Sie eine gültige Apple-Music-URL ein",
+    "noValidUrls": "Keine gültigen Apple-Music-URLs gefunden",
+    "urlHint": "Unterstützt Songs, Alben, Wiedergabelisten, Musikvideos und Künstlerseiten. Fügen Sie mehrere URLs ein (eine pro Zeile), um alle in die Warteschlange aufzunehmen.",
+    "contentTypes": {
+      "song": "Song",
+      "album": "Album",
+      "playlist": "Wiedergabeliste",
+      "musicVideo": "Musikvideo",
+      "artist": "Künstler",
+      "library": "Mediathek",
+      "unknown": "Unbekannt"
+    }
+  },
+  "queue": {
+    "title": "Warteschlange",
+    "empty": "Keine Downloads in der Warteschlange",
+    "emptyHint": "Fügen Sie auf der Download-Seite eine Apple-Music-URL ein, um zu beginnen",
+    "clearCompleted": "Abgeschlossene löschen",
+    "clearAll": "Alles löschen",
+    "clearAllTitle": "Alle Warteschlangen-Elemente löschen",
+    "clearAllMessage": "Damit werden alle wartenden, abgeschlossenen, fehlgeschlagenen und abgebrochenen Elemente aus der Warteschlange entfernt. Aktive Downloads werden nicht unterbrochen.",
+    "clearAllWarning": "Diese Aktion kann nicht rückgängig gemacht werden.",
+    "startQueue": "Warteschlange starten",
+    "export": "Exportieren",
+    "refresh": "Aktualisieren"
+  },
+  "activity": {
+    "title": "Aktivität",
+    "empty": "Noch keine Aktivität",
+    "emptyHint": "Starten Sie einen Download, um die Live-Ausgabe hier zu sehen. Das Protokoll wird beim App-Neustart zurückgesetzt.",
+    "noMatches": "Keine Einträge entsprechen der aktuellen Suche oder den Filterkriterien.",
+    "export": "Protokoll exportieren",
+    "pause": "Pause",
+    "resume": "Fortsetzen",
+    "copyEntry": "Protokolleintrag kopieren"
+  },
+  "history": {
+    "title": "Verlauf",
+    "empty": "Noch kein Download-Verlauf.",
+    "emptyHint": "Abgeschlossene und fehlgeschlagene Downloads erscheinen hier.",
+    "noMatches": "Keine passenden Downloads gefunden.",
+    "clearAll": "Verlauf löschen"
+  },
   "common": {
     "loading": "Laden...",
     "error": "Fehler",
