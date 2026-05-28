@@ -38,7 +38,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::utils::activity_log::ActivityLogEvent;
 
@@ -50,21 +50,75 @@ pub const ACTIVITY_LOG_RETENTION_DAYS: u64 = 7;
 /// up-to-date for live tailing without generating one syscall per event.
 const FLUSH_INTERVAL: Duration = Duration::from_millis(500);
 
+/// Channel capacity for the activity-log writer (#896).
+///
+/// Sized for sustained verbose-mode bursts: a heavy multi-album
+/// download can emit ~1-5k events/sec; the writer flushes every
+/// 500 ms (`FLUSH_INTERVAL`), so the steady-state queue depth is
+/// well under 5k. The 10k cap is a 2× safety margin over realistic
+/// workloads, but small enough that a slow-disk pathological case
+/// (FUSE mount blocked for 30s+) bounds total queued memory to
+/// roughly `CHANNEL_CAPACITY × sizeof(ActivityLogEvent)` ≈ 2 MB
+/// rather than unbounded growth.
+const CHANNEL_CAPACITY: usize = 10_000;
+
+/// Atomic counter of activity-log events dropped because the
+/// writer channel was full (#896). Surfaced for diagnostic
+/// purposes — non-zero values indicate the writer task is falling
+/// behind the emit-side, usually due to slow-disk I/O.
+static DROPPED_EVENTS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Snapshot of the dropped-event counter. Test-friendly; exposed
+/// so an observability surface (status bar / settings advanced
+/// diagnostics) could surface the number.
+#[must_use]
+pub fn dropped_event_count() -> u64 {
+    DROPPED_EVENTS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Handle registered as Tauri managed state. Clones cheaply and sends
 /// events across threads without blocking.
 #[derive(Clone)]
 pub struct ActivityLogWriterHandle {
-    tx: UnboundedSender<ActivityLogEvent>,
+    tx: Sender<ActivityLogEvent>,
 }
 
 impl ActivityLogWriterHandle {
-    /// Queues an event for the background writer. Non-blocking; fails
-    /// only when the receiver has been dropped (i.e., during shutdown).
-    /// Send failures are logged at `debug!` and discarded — we never
-    /// interrupt a download because a log write couldn't be buffered.
+    /// Queues an event for the background writer. Non-blocking via
+    /// [`Sender::try_send`] (#896): if the channel is full
+    /// (consumer falling behind), the event is **dropped silently
+    /// after bumping the dropped-event counter** rather than
+    /// blocking the emit-side caller. The on-disk activity log is a
+    /// forensic / debugging surface — losing some events under
+    /// disk-pressure is preferable to back-pressuring the entire
+    /// emit-side and slowing down user-facing downloads.
+    ///
+    /// Receiver-dropped failures (shutdown path) are also logged
+    /// at `debug!` and discarded.
     pub fn send(&self, event: ActivityLogEvent) {
-        if let Err(e) = self.tx.send(event) {
-            log::debug!("activity_log_writer: send failed (receiver dropped): {e}");
+        use tokio::sync::mpsc::error::TrySendError;
+        match self.tx.try_send(event) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                let prev = DROPPED_EVENTS
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                // Log only the first drop in a cluster — by 100, 1000,
+                // 10_000 — so a slow disk doesn't generate a flood of
+                // log warnings. The counter itself is the source of
+                // truth for total drops.
+                if prev == 0 || prev == 99 || prev == 999 || prev == 9_999 {
+                    log::warn!(
+                        "activity_log_writer: channel full, dropped event ({} total drops)",
+                        prev + 1
+                    );
+                }
+            }
+            Err(TrySendError::Closed(_)) => {
+                log::debug!(
+                    "activity_log_writer: send failed (receiver dropped — likely shutdown)"
+                );
+            }
         }
     }
 }
@@ -87,7 +141,7 @@ pub fn start(
     db_path: Option<PathBuf>,
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) -> ActivityLogWriterHandle {
-    let (tx, rx) = unbounded_channel::<ActivityLogEvent>();
+    let (tx, rx) = channel::<ActivityLogEvent>(CHANNEL_CAPACITY);
 
     // Ensure the logs directory exists before the writer task starts.
     // Failure here is non-fatal — the task will retry on first write.
@@ -114,7 +168,7 @@ pub fn start(
 async fn writer_task(
     log_dir: PathBuf,
     db_path: Option<PathBuf>,
-    mut rx: UnboundedReceiver<ActivityLogEvent>,
+    mut rx: Receiver<ActivityLogEvent>,
     shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
 ) {
     let mut state: Option<OpenFile> = None;
@@ -477,5 +531,94 @@ mod tests {
         assert_eq!(rows[1].1, "WARN");
         assert_eq!(rows[1].2, "download:abc12345");
         assert_eq!(rows[1].3, "warning from a download");
+    }
+
+    // ============================================================
+    // #896 bounded-channel + try_send tests
+    // ============================================================
+
+    /// Helper: build a sample event. The content doesn't matter for
+    /// these tests — only that `send` succeeds or fails.
+    fn sample_event(line: &str) -> ActivityLogEvent {
+        ActivityLogEvent {
+            download_id: "system".to_string(),
+            stream: "internal",
+            severity: crate::utils::activity_log::LogSeverity::Info,
+            line: line.to_string(),
+            timestamp: "2026-05-28T00:00:00.000Z".to_string(),
+        }
+    }
+
+    /// When the channel is well below capacity, `send` queues every
+    /// event. We assert the contract via the receiver count rather
+    /// than `dropped_event_count()` because the latter is a
+    /// process-global counter that other tests in the same suite
+    /// can bump in parallel — racy by design, not useful here.
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_within_capacity_does_not_drop() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ActivityLogEvent>(16);
+        let handle = ActivityLogWriterHandle { tx };
+        for i in 0..10 {
+            handle.send(sample_event(&format!("line {i}")));
+        }
+        // Drain — all 10 should be queued.
+        let mut received = 0;
+        while let Ok(_evt) = rx.try_recv() {
+            received += 1;
+        }
+        assert_eq!(received, 10, "all 10 events should fit in a 16-cap channel");
+    }
+
+    /// When the channel is FULL (consumer not draining), `send`
+    /// drops events silently and bumps the global counter.
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_when_full_drops_and_increments_counter() {
+        // Capacity 2 — we deliberately never drain so the third
+        // send hits the Full branch.
+        let (tx, _rx_held) = tokio::sync::mpsc::channel::<ActivityLogEvent>(2);
+        let handle = ActivityLogWriterHandle { tx };
+        let before = dropped_event_count();
+
+        handle.send(sample_event("a")); // fits
+        handle.send(sample_event("b")); // fits
+        handle.send(sample_event("c")); // dropped — channel full
+        handle.send(sample_event("d")); // dropped — channel full
+
+        let drops_after = dropped_event_count();
+        assert!(
+            drops_after >= before + 2,
+            "expected at least 2 drops; before={before}, after={drops_after}"
+        );
+    }
+
+    /// When the receiver has been dropped (e.g. writer task exited
+    /// during shutdown), `send` doesn't panic and doesn't bump the
+    /// drop counter — it logs at debug and discards. The
+    /// drop-counter is reserved for the channel-full case so the
+    /// observability surface stays meaningful.
+    #[tokio::test(flavor = "current_thread")]
+    async fn send_after_receiver_dropped_does_not_increment_drop_counter() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<ActivityLogEvent>(8);
+        let handle = ActivityLogWriterHandle { tx };
+        let before = dropped_event_count();
+
+        drop(rx); // Simulate writer-task shutdown.
+        handle.send(sample_event("after-shutdown")); // no panic
+
+        assert_eq!(
+            dropped_event_count(),
+            before,
+            "receiver-dropped sends are NOT counted as drops — that's the channel-full counter"
+        );
+    }
+
+    #[test]
+    fn dropped_event_count_is_monotonic() {
+        // The counter is process-global. We can't assert an exact
+        // value (other tests may have bumped it), only that
+        // subsequent reads don't decrease.
+        let a = dropped_event_count();
+        let b = dropped_event_count();
+        assert!(b >= a);
     }
 }
