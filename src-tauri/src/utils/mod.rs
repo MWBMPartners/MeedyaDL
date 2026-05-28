@@ -141,3 +141,11 @@ pub mod atomic_write;
 /// (chromaprint, FFmpeg ebur128) can run truly in parallel while the
 /// fast millisecond-scale writes coordinate correctly.
 pub mod file_locks;
+
+/// Ring-buffer for subprocess output lines with per-line size cap
+/// (#893). Replaces the pre-#893 `Arc<Mutex<Vec<String>>>` buffers
+/// in `services::download_queue` that accumulated unbounded
+/// per-GAMDL-subprocess output for the lifetime of the download —
+/// the largest single contributor to RSS growth identified in the
+/// 2026-05-28 memory audit (#897).
+pub mod bounded_log;

@@ -11181,7 +11181,15 @@ async fn run_download_with_events(
     // These are shared between the stdout and stderr reader tasks via Arc<Mutex>.
     // After the process exits, the last collected error is used as the failure message,
     // which is more informative than just the exit code.
-    let collected_errors: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    //
+    // **Bounded as of #893.** Pre-#893 this was an unbounded `Vec<String>`;
+    // for verbose / multi-album downloads with thousands of codec-skip
+    // warnings the Vec could grow into the MB range per download.
+    // The bounded ring buffer retains the last
+    // `DEFAULT_LINE_CAP_ERRORS` lines and truncates any individual
+    // line past `DEFAULT_LINE_BYTE_CAP`.
+    let collected_errors: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
+        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_errors()));
 
     // Collect ALL output lines (raw) from BOTH stdout and stderr for
     // post-mortem analysis: Python traceback extraction, soft-error
@@ -11196,7 +11204,17 @@ async fn run_download_with_events(
     // `is_storefront_mismatch_error` keys on now arrive on stdout, so a
     // stderr-only buffer leaves the detector seeing empty input and the
     // storefront fallback never fires.
-    let raw_output_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    //
+    // **Bounded as of #893.** Pre-#893 this was an unbounded
+    // `Vec<String>` that the 2026-05-28 memory audit identified as
+    // the largest single contributor to RSS growth (~50 MB per
+    // verbose multi-album download). Retains the last
+    // `DEFAULT_LINE_CAP_RAW` lines; all consumers
+    // (`traceback_diagnostic::write_diagnostic_if_any`,
+    // `is_storefront_mismatch_error`, soft-error classifier) scan the
+    // newest lines so the eviction policy doesn't hide signal.
+    let raw_output_lines: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
+        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_raw_output()));
 
     // Deduplication set for Activity Log emissions.
     // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
@@ -11312,7 +11330,7 @@ async fn run_download_with_events(
                     // and `classify_gamdl_traceback` (#660 friendly path).
                     {
                         let mut raw = raw_output.lock().await;
-                        raw.push(clean_line.clone());
+                        raw.push(clean_line.clone()); // #893: bounded ring buffer
                     }
 
                     let event = process::parse_gamdl_output(&clean_line);
@@ -11628,7 +11646,7 @@ async fn run_download_with_events(
     // a single buffer scan + an early return. The URL is redacted to
     // strip wrapper auth tokens before being stored in the report.
     {
-        let raw_snapshot = raw_output_lines.lock().await.clone();
+        let raw_snapshot = raw_output_lines.lock().await.snapshot(); // #893: bounded
         let item_state = if status.success() {
             "complete"
         } else {
@@ -11683,7 +11701,11 @@ async fn run_download_with_events(
     // an error instead of swallowing them.
     let soft_errors = soft_error_count.load(std::sync::atomic::Ordering::Relaxed);
     if status.success() && soft_errors > 0 {
-        let raw_lines = raw_output_lines.lock().await;
+        // #893: snapshot the bounded ring buffer to a Vec we own,
+        // then drop the lock before scanning. The traceback /
+        // storefront detectors are CPU-bound on the joined string;
+        // we don't need to hold the buffer lock while they run.
+        let raw_lines = raw_output_lines.lock().await.snapshot();
         let combined = raw_lines.join("\n");
 
         // GAMDL music-video cover-template bug detection. Checked
@@ -11747,17 +11769,24 @@ async fn run_download_with_events(
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
         // fatal enough to exit with a non-zero code.
-        let warnings = collected_errors.lock().await.clone();
+        // #893: snapshot the bounded buffer so the return value owns
+        // its strings — the buffer's lock guard can't escape this
+        // function and we want the Vec<String> shape for callers.
+        let warnings = collected_errors.lock().await.snapshot();
         Ok(warnings)
     } else {
         // Use the last collected error message from GAMDL's output for a meaningful
         // error message. This is more informative than just "exited with code N".
         // The error message is also used by classify_error() to determine the
         // retry/fallback strategy (codec error vs network error vs unknown).
-        let errors = collected_errors.lock().await;
-        let raw_lines = raw_output_lines.lock().await;
+        //
+        // #893: lock both buffers in scope, then snapshot to Vec<String>
+        // so we can `join` / pass slices to `extract_python_exception`
+        // without retaining the locks across the analysis.
+        let last_error_opt = collected_errors.lock().await.last().cloned();
+        let raw_lines = raw_output_lines.lock().await.snapshot();
 
-        errors.last().map_or_else(
+        last_error_opt.map_or_else(
             || {
                 // Fallback to exit code if no error messages were collected
                 // (e.g., GAMDL crashed without printing an error)
@@ -11789,7 +11818,7 @@ async fn run_download_with_events(
                 } else if let Some(extracted) = extract_python_exception(&raw_lines) {
                     Err(extracted)
                 } else {
-                    Err(last_error.clone())
+                    Err(last_error)
                 }
             },
         )
