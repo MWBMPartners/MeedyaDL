@@ -1952,6 +1952,8 @@ impl DownloadQueue {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
+                    // #895: evict counter on terminal transition.
+                    crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} cancelled (was queued)");
                     true
                 }
@@ -1959,6 +1961,8 @@ impl DownloadQueue {
                     item.status.state = DownloadState::Cancelled;
                     // The active_count will be decremented when the running task
                     // detects the cancellation and stops
+                    // #895: evict counter on terminal transition.
+                    crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} marked for cancellation");
                     true
                 }
@@ -2063,19 +2067,26 @@ impl DownloadQueue {
     /// having to iterate the queue themselves (#620).
     pub fn abort_all(&mut self) -> AbortSummary {
         let mut summary = AbortSummary::default();
+        // #895: collect ids to evict, then call evict_activity_counter
+        // OUTSIDE the borrow of `self.items` (the eviction function
+        // doesn't touch the queue, so this is just cleanliness).
+        let mut ids_to_evict: Vec<String> = Vec::new();
         for item in &mut self.items {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
                     summary.queued_cancelled += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Downloading => {
                     item.status.state = DownloadState::Cancelled;
                     summary.downloading_stopped += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
                     summary.processing_stopped += 1;
+                    ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Complete
                 | DownloadState::Cancelled
@@ -2083,6 +2094,9 @@ impl DownloadQueue {
                     // Terminal — leave alone.
                 }
             }
+        }
+        for id in &ids_to_evict {
+            crate::utils::activity_log::evict_activity_counter(id);
         }
         if summary.total() > 0 {
             log::info!(
@@ -2282,6 +2296,9 @@ impl DownloadQueue {
             }
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
+            // #895: evict the per-download activity counter so the
+            // ACTIVITY_COUNTERS HashMap doesn't grow monotonically.
+            crate::utils::activity_log::evict_activity_counter(download_id);
         }
     }
 
@@ -2354,6 +2371,10 @@ impl DownloadQueue {
             item.status.processing_label = None;
             item.status.speed = None;
             item.status.eta = None;
+            // #895: evict the per-download activity counter — same
+            // rationale as in `set_error`. The counter is only
+            // meaningful for IN-FLIGHT downloads.
+            crate::utils::activity_log::evict_activity_counter(download_id);
         }
     }
 
