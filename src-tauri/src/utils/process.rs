@@ -1086,6 +1086,15 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // actionable message rather than a raw Python traceback excerpt.
     } else if is_library_webplayback_keyerror(error_message) {
         "library_webplayback_keyerror"
+    // Media unstreamable (#898): GAMDL 3.7.2 (songs) and 3.7.3 (music-videos)
+    // added defensive `.get("playParams", {})` access so the existing
+    // `GamdlInterfaceMediaNotStreamableError` now surfaces reliably for
+    // content that's been removed, region-locked, or is library-only.
+    // Matched before the generic `not_found` substring fallback so the
+    // user sees the specific "not streamable" guidance instead of the
+    // broader "content may be removed" message.
+    } else if is_media_not_streamable_error(error_message) {
+        "media_not_streamable"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -1120,6 +1129,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
+        "media_not_streamable" => "Apple Music says this content isn't streamable — it may have been removed, isn't licensed in your storefront, or is a personal-library upload that catalog tooling can't fetch. Try the catalog URL for the same album in a different storefront, or pick a release that's still available.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -1195,6 +1205,39 @@ pub fn is_library_webplayback_keyerror(error_message: &str) -> bool {
         && (lower.contains("interface_song")
             || lower.contains("get_tags")
             || lower.contains("webplayback"))
+}
+
+/// Detect GAMDL's `GamdlInterfaceMediaNotStreamableError` (#898).
+///
+/// `GamdlInterfaceMediaNotStreamableError("Media is not streamable: <id>")`
+/// fires from `interface/song.py` and `interface/music_video.py` whenever
+/// `is_media_streamable(media_metadata)` returns false — typically because
+/// the song / video has been removed from Apple Music, is region-locked
+/// out of the user's storefront, or is a library-only upload (for
+/// music-videos, the `is_library` branch also raises this same error).
+///
+/// The error string has existed since at least GAMDL 3.5.2, but on
+/// 3.7.1 and earlier it was masked for songs / library-only MVs by an
+/// upstream `KeyError: 'playParams'` traceback. GAMDL 3.7.2 (songs) and
+/// 3.7.3 (music-videos) added defensive `.get("playParams", {})` access,
+/// so this user-facing message now surfaces reliably for affected items.
+///
+/// Without this matcher the error falls through `classify_error` to the
+/// generic `unknown` bucket, leaving the user with no actionable guidance.
+/// We classify it as `media_not_streamable` so the activity log can
+/// surface a specific recovery suggestion (try a different URL or
+/// storefront; the content may be removed / region-locked / library-only).
+///
+/// Matches the case-insensitive literal `media is not streamable` so it
+/// catches the raw exception message regardless of whether it appears
+/// inside a Python traceback (`GamdlInterfaceMediaNotStreamableError:
+/// Media is not streamable: 1234567890`) or a bare stderr line from
+/// `extract_python_exception`.
+#[must_use]
+pub fn is_media_not_streamable_error(error_message: &str) -> bool {
+    error_message
+        .to_lowercase()
+        .contains("media is not streamable")
 }
 
 /// Detect GAMDL's music-video cover-art URL templating bug.
@@ -1933,6 +1976,76 @@ mod tests {
         let guidance = error_guidance("playlist_title_keyerror");
         assert!(guidance.contains("Apple Music Classical"));
         assert!(guidance.contains("glomatico/gamdl"));
+    }
+
+    #[test]
+    fn detects_media_not_streamable_error() {
+        // The bare exception message from `GamdlInterfaceMediaNotStreamableError`,
+        // as it appears in stderr after the GAMDL 3.7.2 (songs) / 3.7.3
+        // (music-videos) defensive `.get("playParams", {})` fix routes
+        // unstreamable items through the proper streamable check.
+        assert!(is_media_not_streamable_error(
+            "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1234567890"
+        ));
+        // Also matches the bare message extracted by `extract_python_exception`.
+        assert!(is_media_not_streamable_error("Media is not streamable: 1568443843"));
+        // Case-insensitive — should match even when nested in a traceback
+        // with mixed casing or wrapped log decoration.
+        assert!(is_media_not_streamable_error(
+            "ERROR    12:34:56 Media is not streamable: 999"
+        ));
+    }
+
+    #[test]
+    fn does_not_misclassify_streamable_phrasing() {
+        // Defensive guard: matcher must not collide with messages that
+        // talk about streamability in a different sense (e.g. health
+        // checks reporting on stream availability or future GAMDL log
+        // lines that mention "streamable" as a noun-adjective).
+        assert!(!is_media_not_streamable_error("Media is streamable"));
+        assert!(!is_media_not_streamable_error(
+            "Checking whether the media stream is available"
+        ));
+    }
+
+    #[test]
+    fn classifies_media_not_streamable_error() {
+        // GAMDL 3.7.2 (songs) — defensive playParams access lets the
+        // existing streamable check fire reliably; the surfaced error
+        // must route to its own bucket so the user sees the dedicated
+        // "removed / region-locked / library-only" guidance instead of
+        // the generic `unknown` fallback.
+        let stderr = "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1568443843";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn classifies_music_video_not_streamable_error() {
+        // Same shape for music-videos after the 3.7.3 defensive fix.
+        // `media.is_library = true` branch also raises this exception
+        // class (`music_video.py:456`).
+        let stderr = "gamdl.interface.exceptions.GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1568443895";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn media_not_streamable_takes_precedence_over_not_found() {
+        // The error string contains neither "not found" nor "404", but
+        // even if the wider exception text happens to include "not found"
+        // we want the specific `media_not_streamable` classification —
+        // the bucket order is asserted here to guard against future
+        // re-ordering regressions.
+        let stderr = "Media is not streamable: 9876 — content not found in catalog";
+        assert_eq!(classify_error(stderr), "media_not_streamable");
+    }
+
+    #[test]
+    fn media_not_streamable_guidance_is_actionable() {
+        // Users hitting this should know the content can't be played —
+        // not retried, not codec-swapped — and what to try instead.
+        let guidance = error_guidance("media_not_streamable");
+        assert!(guidance.contains("storefront") || guidance.contains("region"));
+        assert!(guidance.contains("removed") || guidance.contains("library"));
     }
 
     #[test]
