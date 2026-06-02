@@ -6,6 +6,12 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.0] - 2026-05-22
+
 ### ✨ Features
 
 - **(deps)** Add rclone as optional bundled tool + multi-endpoint updater fallback (prep for #858) (#863)
