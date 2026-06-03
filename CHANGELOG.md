@@ -9,6 +9,74 @@ This changelog is automatically generated from [conventional commits](https://ww
 ### 📚 Documentation
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Add PR security heuristics workflow + cross-source audit checks (#905)
+
+## Summary
+
+  Adapts the WebMS-Intra `pr-security.yml` approach to MeedyaDL's **Rust +
+  TypeScript + Tauri** stack. All checks are **non-blocking advisory** —
+  the merge gate stays with `ci.yml` (`cargo clippy -D warnings`, `cargo
+  test`, `cargo-deny`, `tsc`, `eslint`, CodeQL). This adds the *heuristic*
+  layer those gates don't cover and posts a **single upserted PR
+  comment**.
+
+  This PR is the first real-world exercise of the new workflow — it runs
+  `pr-security.yml` on itself.
+
+  ## What's added
+
+  | File | Purpose |
+  | --- | --- |
+  | `.github/workflows/pr-security.yml` | 8 advisory checks on PRs to
+  `main`/`release-candidate`/`beta`/`alpha`, one upserted comment |
+  | `tools/audit-checks/check_ipc_commands.py` | Every `#[tauri::command]`
+  is registered in `lib.rs` `generate_handler[]` **and** every frontend
+  `invoke('x')` targets a registered command |
+  | `tools/audit-checks/check_codec_registry.py` | Every `codecs.toml`
+  meta `resolves_to` target is a real codec section **and** every audio
+  `services.gamdl` flag is a `SongCodec` variant |
+  | `tools/audit-checks/README.md` | Local-run docs + how to add a check |
+  | `.github/pull_request_template.md` | Manual security-review checklist
+  |
+  | `.claude/CLAUDE.md` | One convention bullet documenting the above |
+
+  ## The 8 workflow checks
+
+  1. **gitleaks** secrets scan (redacted) · 2. **Rust `sh -c`**
+  shell-interpolation · 3. **`unsafe`** Rust · 4. **frontend sinks**
+  (`eval`/`dangerouslySetInnerHTML`/`innerHTML=`) · 5. **hardcoded paths**
+  · 6. **unpinned Actions** (non-SHA `uses:`) · 7. **sensitive/proprietary
+  path** touches (`assets/brand/` is proprietary) · 8. **cross-source
+  consistency** scripts.
+
+  Checks 2–7 scan only PR-changed files; check 8 validates whole-repo
+  state.
+
+  ## Adaptation notes
+
+  This is **not** a copy — WebMS-Intra is PHP. Dropped the inapplicable
+  PHP checks (PHP lint, mysqli SQL-injection, CSRF tokens, Psalm) and
+  re-targeted the heuristic layer onto MeedyaDL's own documented
+  invariants (the "no `sh -c`" subprocess rule, SHA-pinned Actions,
+  proprietary brand assets, the IPC contract). Added an **unpinned-Action
+  detector** WebMS lacks, and **upserts** one PR comment instead of
+  posting a fresh one per push.
+
+  ## Verification
+
+  - Both consistency scripts report **zero findings** on a clean tree;
+  negative-tested (injected a bad `invoke()`, a dangling `resolves_to`, a
+  bogus `gamdl=` flag → all caught, exit 1 under `--strict`).
+  - Every heuristic regex exercised against deliberately-bad inputs; the
+  unpinned-Action check finds **0 false positives** against the real
+  (fully SHA-pinned) repo.
+  - `actionlint` (with bundled shellcheck on the `run:` scripts) passes
+  clean.
+
 
 ## [1.10.0] - 2026-05-22
 
