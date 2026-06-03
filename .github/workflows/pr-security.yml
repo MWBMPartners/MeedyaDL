@@ -1,0 +1,328 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# PR Security Checks
+# ==================
+#
+# Defence-in-depth advisory gate that runs on every PR targeting a
+# protected branch. Adapted from the WebMS-Intra pr-security workflow to
+# MeedyaDL's Rust + TypeScript + Tauri stack.
+#
+# IMPORTANT: every check here is NON-BLOCKING (continue-on-error). The
+# merge gate stays with ci.yml — which already enforces the hard gates this
+# repo cares about (`cargo clippy -D warnings`, `cargo test`, `cargo-deny`,
+# `tsc`/`npm run type-check`, `eslint`, CodeQL for JS/TS + Actions). This
+# workflow adds the *heuristic* layer those gates don't cover, and posts a
+# single advisory comment on the PR. These are HEURISTICS — false positives
+# are expected. Review the findings; don't blindly act on them.
+#
+# Checks performed:
+#   1. Secrets scan (gitleaks CLI)            — high-confidence committed credentials
+#   2. Rust subprocess shell interpolation    — Command::new("sh") / .arg("-c") (CLAUDE.md ban)
+#   3. Unsafe Rust                            — `unsafe { }` / `unsafe fn` in non-test code
+#   4. Dangerous frontend sinks               — eval / new Function / dangerouslySetInnerHTML / innerHTML=
+#   5. Hardcoded absolute paths               — /Users//home/<user>/ C:\ literals
+#   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
+#   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
+#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry)
+#
+# Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
+# state (a drift can live in an unchanged file that this PR orphaned). The
+# audit scripts live in tools/audit-checks/ and are runnable locally.
+
+name: PR Security Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release-candidate
+      - beta
+      - alpha
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Static security checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      # No setup-python step: the audit-checks scripts are stdlib-only
+      # (re / sys / pathlib — the TOML is regex-parsed, not via tomllib), so
+      # the runner's preinstalled python3 is sufficient.
+
+      # =====================================================================
+      # 1) Secrets scan via gitleaks (CLI binary, not the action)
+      #
+      # We use the gitleaks CLI directly rather than gitleaks/gitleaks-action,
+      # which requires a paid GITLEAKS_LICENSE secret for org accounts. The
+      # CLI is MIT-licensed and free. Findings are surfaced (redacted) in the
+      # PR comment; we do not upload SARIF to keep the permission surface at
+      # contents:read + pull-requests:write.
+      # =====================================================================
+      - name: Install gitleaks CLI
+        id: install_gitleaks
+        continue-on-error: true
+        run: |
+          set -e
+          VERSION="8.21.2"
+          URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -fsSL "$URL" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan for committed secrets (gitleaks)
+        id: gitleaks
+        continue-on-error: true
+        if: steps.install_gitleaks.outcome == 'success'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          SECTION=/tmp/gitleaks-section.md
+          : > "$SECTION"
+          # `detect` scans the working tree + commits since the PR base.
+          # --redact stops actual secret values appearing in the log/report.
+          gitleaks detect \
+            --source . \
+            --log-opts "${BASE_SHA}..${HEAD_SHA}" \
+            --no-banner \
+            --redact \
+            --report-path /tmp/gitleaks.json \
+            --report-format json \
+            --exit-code 1
+          EXIT=$?
+          COUNT=0
+          if [ -f /tmp/gitleaks.json ]; then
+            COUNT=$(jq 'length' /tmp/gitleaks.json 2>/dev/null || echo 0)
+          fi
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$COUNT" -gt 0 ]; then
+            {
+              echo "### Committed secrets (gitleaks — values redacted)"
+              echo
+              echo '```'
+              jq -r '.[] | "  • \(.File):\(.StartLine) — \(.RuleID): \(.Description)"' /tmp/gitleaks.json 2>/dev/null | sort -u
+              echo '```'
+              echo
+            } > "$SECTION"
+            echo "::warning::gitleaks reported $COUNT potential secret(s) — review the PR comment"
+          fi
+          exit 0
+
+      # =====================================================================
+      # 2-7) Custom heuristic scan over the files changed in this PR,
+      #      plus 8) the whole-repo cross-source consistency scripts.
+      # =====================================================================
+      - name: Heuristic + consistency scan
+        id: heuristics
+        continue-on-error: true
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set +e
+          REPORT=/tmp/security-report.md
+          : > "$REPORT"
+
+          HITS=0
+          add_section() {
+            local title="$1"; local body="$2"
+            if [[ -n "$body" ]]; then
+              {
+                echo "### $title"
+                echo
+                echo '```'
+                echo "$body"
+                echo '```'
+                echo
+              } >> "$REPORT"
+              HITS=$((HITS + 1))
+            fi
+          }
+
+          # gitleaks section produced by the previous step (already fenced).
+          if [[ -s /tmp/gitleaks-section.md ]]; then
+            cat /tmp/gitleaks-section.md >> "$REPORT"
+            HITS=$((HITS + 1))
+          fi
+
+          # ---- Changed-file sets (present in the tree at HEAD) ------------
+          DIFF="git diff --name-only --diff-filter=ACMRT ${BASE_SHA} ${HEAD_SHA} --"
+          CHANGED_ALL=$($DIFF 2>/dev/null || true)
+          CHANGED_RUST=$(echo "$CHANGED_ALL" | grep -E '^src-tauri/.*\.rs$' || true)
+          CHANGED_RUST_NONTEST=$(echo "$CHANGED_RUST" | grep -vE '(^|/)(tests?|integration_tests)\.rs$|/tests/|_tests?\.rs$|/test_' || true)
+          CHANGED_TS=$(echo "$CHANGED_ALL" | grep -E '^src/.*\.(ts|tsx)$' | grep -vE '\.test\.(ts|tsx)$|/test/|__tests__' || true)
+          CHANGED_WF=$(echo "$CHANGED_ALL" | grep -E '^\.github/workflows/.*\.ya?ml$' || true)
+
+          echo "Changed (all): $(echo "$CHANGED_ALL" | grep -c . || true) file(s)"
+          echo "  Rust: $(echo "$CHANGED_RUST" | grep -c . || true) | TS: $(echo "$CHANGED_TS" | grep -c . || true) | workflows: $(echo "$CHANGED_WF" | grep -c . || true)"
+          echo
+
+          # ---- 2) Rust subprocess shell interpolation --------------------
+          # CLAUDE.md invariant: "No shell interpolation — all subprocess
+          # calls use parameterised Command::new().arg(); no sh -c format!()".
+          if [[ -n "$CHANGED_RUST_NONTEST" ]]; then
+            SHELL_HITS=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nE 'Command::new\(\s*"(sh|bash|zsh|cmd|powershell|pwsh)"|\.arg\(\s*"-c"|\b(sh|bash) -c\b' 2>/dev/null || true)
+            add_section "Rust subprocess shell interpolation (use parameterised Command::new().arg() — no sh -c)" "$SHELL_HITS"
+          fi
+
+          # ---- 3) Unsafe Rust --------------------------------------------
+          if [[ -n "$CHANGED_RUST_NONTEST" ]]; then
+            UNSAFE=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nE '\bunsafe\s*(\{|fn\b)' 2>/dev/null || true)
+            add_section "Unsafe Rust blocks/functions (justify the safety invariant in a comment)" "$UNSAFE"
+          fi
+
+          # ---- 4) Dangerous frontend sinks (XSS) -------------------------
+          # MeedyaDL renders Markdown help via rehype-sanitize; raw HTML
+          # injection of user/remote data is the risk. Advisory — confirm
+          # the source is sanitised/trusted.
+          if [[ -n "$CHANGED_TS" ]]; then
+            SINKS=$(echo "$CHANGED_TS" | xargs -r grep -nE 'dangerouslySetInnerHTML|\.innerHTML\s*=|\beval\s*\(|new[[:space:]]+Function\s*\(' 2>/dev/null || true)
+            add_section "Dangerous frontend sinks (eval / new Function / dangerouslySetInnerHTML / innerHTML=)" "$SINKS"
+          fi
+
+          # ---- 5) Hardcoded absolute filesystem paths --------------------
+          # CLAUDE.md #459: validate_path_safe rejects traversal; paths
+          # should derive from app_data_dir / env, never be hardcoded.
+          PATH_TARGETS=$(printf '%s\n%s\n' "$CHANGED_RUST_NONTEST" "$CHANGED_TS" | grep -E '.' || true)
+          if [[ -n "$PATH_TARGETS" ]]; then
+            PATHS=$(echo "$PATH_TARGETS" | xargs -r grep -nE "(['\"])(/Users/|/home/[^/\"' ]+/|C:\\\\)" 2>/dev/null || true)
+            add_section "Hardcoded absolute filesystem paths (derive from app_data_dir / std::env, not literals)" "$PATHS"
+          fi
+
+          # ---- 6) Unpinned GitHub Actions --------------------------------
+          # CLAUDE.md CI-hardening: release-critical actions are pinned to
+          # immutable commit SHAs, not mutable tags. Flag any `uses: x@ref`
+          # in changed workflows where ref is not a 40-hex SHA (local `./`
+          # and docker:// refs are exempt).
+          if [[ -n "$CHANGED_WF" ]]; then
+            UNPINNED=""
+            for f in $CHANGED_WF; do
+              [[ -f "$f" ]] || continue
+              while IFS= read -r hit; do
+                [[ -z "$hit" ]] && continue
+                ref="${hit##*@}"
+                ref="${ref%% *}"; ref="${ref%%#*}"; ref="${ref//[[:space:]]/}"
+                if ! echo "$ref" | grep -qiE '^[0-9a-f]{40}$'; then
+                  UNPINNED="${UNPINNED}${f}: ${hit#*:}"$'\n'
+                fi
+              done < <(grep -nE '^[[:space:]]*(-[[:space:]]+)?uses:[[:space:]]*[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+@' "$f" 2>/dev/null)
+            done
+            add_section "Unpinned GitHub Actions (pin to a 40-char commit SHA, not a tag)" "$UNPINNED"
+          fi
+
+          # ---- 7) Sensitive / proprietary path touches -------------------
+          # assets/brand is PROPRIETARY (not MIT — never change its license
+          # headers). capabilities/signing/tauri.conf.json/workflows are
+          # security-relevant surfaces. Advisory: confirm intentional.
+          SENSITIVE=$(echo "$CHANGED_ALL" | grep -E '^(assets/brand/|src-tauri/capabilities/|src-tauri/tauri\.conf\.json$|\.github/workflows/|\.github/rulesets/)|\.entitlements$|(^|/)(signing|codesign)' || true)
+          add_section "PR touches a sensitive / proprietary path (assets/brand is PROPRIETARY; confirm intentional)" "$SENSITIVE"
+
+          # ---- 8) Cross-source consistency scripts -----------------------
+          # Run whole-repo (not changed-file-scoped) — a drift can live in an
+          # unchanged file this PR orphaned. Each script exits 0; we surface
+          # any `•` bullets.
+          IPC=$(python3 tools/audit-checks/check_ipc_commands.py 2>&1 || true)
+          if echo "$IPC" | grep -q '•'; then
+            add_section "Tauri IPC contract drift (defined vs registered vs invoked)" "$(echo "$IPC" | grep -A100 '###')"
+          fi
+          CODECS=$(python3 tools/audit-checks/check_codec_registry.py 2>&1 || true)
+          if echo "$CODECS" | grep -q '•'; then
+            add_section "Codec registry drift (codecs.toml vs SongCodec / meta resolution)" "$(echo "$CODECS" | grep -A100 '###')"
+          fi
+
+          echo "hits=$HITS" >> "$GITHUB_OUTPUT"
+          echo "Total finding sections: $HITS"
+          if [[ -s "$REPORT" ]]; then
+            echo "----- report -----"
+            cat "$REPORT"
+          fi
+
+      # =====================================================================
+      # Post (or update) a single advisory comment on the PR.
+      # Upsert by hidden marker so repeated pushes edit one comment instead
+      # of spamming a new one each time.
+      # =====================================================================
+      - name: Upsert PR comment
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HITS: ${{ steps.heuristics.outputs.hits }}
+          GITLEAKS_COUNT: ${{ steps.gitleaks.outputs.count }}
+          GITLEAKS_OUTCOME: ${{ steps.install_gitleaks.outcome }}
+        run: |
+          MARKER='<!-- meedyadl-pr-security -->'
+          REPORT=/tmp/security-report.md
+          COMMENT=/tmp/comment.md
+
+          {
+            echo "$MARKER"
+            echo "## PR Security Checks"
+            echo
+            if [[ "${HITS:-0}" == "0" ]]; then
+              echo "✅ No heuristic or consistency findings on this PR."
+            else
+              echo "⚠️ **${HITS} category(ies) of findings** — these are heuristics, please review each:"
+              echo
+              cat "$REPORT"
+            fi
+            if [[ "${GITLEAKS_OUTCOME}" != "success" ]]; then
+              echo "> ℹ️ gitleaks CLI could not be installed this run — the secrets scan was skipped."
+              echo
+            fi
+            echo "<sub>Generated by \`.github/workflows/pr-security.yml\`. Non-blocking — the merge gate is \`ci.yml\`. Cross-source checks live in \`tools/audit-checks/\` and run locally. False positives are expected.</sub>"
+          } > "$COMMENT"
+
+          # Find an existing comment carrying our marker and edit it; else create.
+          EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .id" 2>/dev/null | head -n1 || true)
+
+          if [[ -n "$EXISTING" ]]; then
+            jq -Rs '{body: .}' "$COMMENT" | gh api --method PATCH \
+              "repos/${REPO}/issues/comments/${EXISTING}" --input - >/dev/null \
+              && echo "Updated existing comment ${EXISTING}" \
+              || gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$COMMENT"
+          else
+            jq -Rs '{body: .}' "$COMMENT" | gh api --method POST \
+              "repos/${REPO}/issues/${PR_NUMBER}/comments" --input - >/dev/null \
+              && echo "Created new comment" \
+              || gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file "$COMMENT"
+          fi
+
+      # =====================================================================
+      # Summary in the Actions UI (always visible, even on manual dispatch).
+      # =====================================================================
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### PR Security Checks"
+            echo
+            if [[ "${{ steps.install_gitleaks.outcome }}" == "success" ]]; then
+              echo "- gitleaks: ${{ steps.gitleaks.outputs.count || '0' }} potential secret(s)"
+            else
+              echo "- gitleaks: install failed — scan skipped"
+            fi
+            echo "- Heuristic + consistency: ${{ steps.heuristics.outputs.hits || '0' }} finding category(ies)"
+            echo
+            echo "Non-blocking advisory checks. Merge gate remains \`ci.yml\`."
+          } >> "$GITHUB_STEP_SUMMARY"
