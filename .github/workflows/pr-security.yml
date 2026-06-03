@@ -60,10 +60,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Python
-        uses: actions/setup-python@e348410041c5b0ca4452c8e292ca3936bac9ba7f # v6
-        with:
-          python-version: '3.11'
+      # No setup-python step: the audit-checks scripts are stdlib-only
+      # (re / sys / pathlib — the TOML is regex-parsed, not via tomllib), so
+      # the runner's preinstalled python3 is sufficient.
 
       # =====================================================================
       # 1) Secrets scan via gitleaks (CLI binary, not the action)
