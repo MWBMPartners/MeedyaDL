@@ -980,6 +980,17 @@ export interface QueueItemStatus {
   album_name?: string | null;
   /** Artist name from Apple Music API (populated during enrichment), or null */
   artist_name?: string | null;
+  /**
+   * Pre-resolved 120×120 JPEG thumbnail URL for the album cover, used
+   * by the queue-row Tier 1 album-art column (#911-2). Populated at
+   * enqueue time alongside `album_name` / `artist_name`; `null` for
+   * items queued before the early-metadata fetch returns, for
+   * non-Apple-Music services, or when the album lacks artwork.
+   *
+   * Render via `<img src={artwork_url} loading="lazy" />`. Fall back to
+   * a generic music-note placeholder on load failure or missing URL.
+   */
+  artwork_url?: string | null;
   /** Total number of tracks in this download, or null if unknown */
   total_tracks: number | null;
   /** Number of tracks completed so far, or null if not applicable */

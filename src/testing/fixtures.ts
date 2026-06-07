@@ -77,6 +77,7 @@ export const makeQueueItem = makeFixture<QueueItemStatus>({
   current_track: null,
   album_name: null,
   artist_name: null,
+  artwork_url: null,
   total_tracks: null,
   completed_tracks: null,
   speed: null,
