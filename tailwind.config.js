@@ -207,6 +207,46 @@ export default {
           },
         },
         /**
+         * service -- Brand colours for the five MediaServiceId values (#911-7).
+         *
+         * Usage: text-service-apple-music, bg-service-spotify/15,
+         *        border-service-bbc-iplayer/30.
+         *
+         * Resolves through CSS custom properties so the values adapt to
+         * light / dark / high-contrast / colour-vision-deficiency themes
+         * automatically. Hex values live in the theme CSS files; see
+         * `src/styles/themes/base.css` for the canonical light + dark
+         * palette plus the contrast-ratio audit table.
+         *
+         * **Brand-vs-status separation (anti-pattern 2** per
+         * `.claude/memory/project_multi_service_ui_direction.md`**)**:
+         * these tokens are for service identity ("this row came from
+         * Spotify"), NEVER for download status ("this row failed").
+         * Status pills use the `status.*` family above.
+         */
+        service: {
+          'apple-music': {
+            DEFAULT: 'var(--service-apple-music)',
+            bg: 'var(--service-apple-music-bg)',
+          },
+          'youtube-music': {
+            DEFAULT: 'var(--service-youtube-music)',
+            bg: 'var(--service-youtube-music-bg)',
+          },
+          youtube: {
+            DEFAULT: 'var(--service-youtube)',
+            bg: 'var(--service-youtube-bg)',
+          },
+          spotify: {
+            DEFAULT: 'var(--service-spotify)',
+            bg: 'var(--service-spotify-bg)',
+          },
+          'bbc-iplayer': {
+            DEFAULT: 'var(--service-bbc-iplayer)',
+            bg: 'var(--service-bbc-iplayer-bg)',
+          },
+        },
+        /**
          * border -- Border/divider colors at varying strengths.
          * Usage: border-border (default), border-border-light, border-border-strong
          * The DEFAULT key means `border-border` class uses the base --border variable.

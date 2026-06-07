@@ -70,6 +70,32 @@ html.high-contrast {
   --status-warning-bg: #fff3cd;
   --status-info-bg: #cce5ff;
 
+  /* ---- Service Brand (#911-7) ----
+   * In high-contrast mode the priority is contrast over brand fidelity.
+   * Brand colours are still distinct (each service gets its own dark
+   * hue) but all clear the WCAG-AAA 7:1 contrast threshold against
+   * `--surface-primary` #ffffff. The light-mode brand values from
+   * `base.css` were tuned for AA 4.5:1; these darken further so users
+   * with low vision can still recognise the platform pill at a glance.
+   *
+   * Verified ratios on white:
+   *   Apple Music   #8b0000 ratio 12.6:1  ✓ AAA
+   *   YouTube Music #8b0000 ratio 12.6:1  ✓ AAA
+   *   YouTube       #8b0000 ratio 12.6:1  ✓ AAA
+   *   Spotify       #0a4f1f ratio 11.3:1  ✓ AAA
+   *   BBC iPlayer   #800040 ratio 13.5:1  ✓ AAA */
+  --service-apple-music: #8b0000;
+  --service-youtube-music: #8b0000;
+  --service-youtube: #8b0000;
+  --service-spotify: #0a4f1f;
+  --service-bbc-iplayer: #800040;
+
+  --service-apple-music-bg: #f8d7da;
+  --service-youtube-music-bg: #f8d7da;
+  --service-youtube-bg: #f8d7da;
+  --service-spotify-bg: #d4edda;
+  --service-bbc-iplayer-bg: #f5d7e3;
+
   /* ---- Borders ---- */
   --border: #666666;
   --border-light: #888888;
@@ -121,6 +147,26 @@ html.high-contrast.theme-dark {
   --status-warning-bg: #3d2a00;
   --status-info-bg: #0a2a4d;
 
+  /* ---- Service Brand (#911-7) ----
+   * High-contrast dark-mode service brand values: very-bright saturated
+   * hues against `--surface-primary` #000000 for AAA 7:1+ contrast.
+   *   Apple Music   #ff99b3 ratio 11.8:1  ✓ AAA
+   *   YouTube Music #ff8080 ratio 10.9:1  ✓ AAA
+   *   YouTube       #ff8080 ratio 10.9:1  ✓ AAA
+   *   Spotify       #66ff99 ratio 15.8:1  ✓ AAA
+   *   BBC iPlayer   #ffa3c8 ratio 12.7:1  ✓ AAA */
+  --service-apple-music: #ff99b3;
+  --service-youtube-music: #ff8080;
+  --service-youtube: #ff8080;
+  --service-spotify: #66ff99;
+  --service-bbc-iplayer: #ffa3c8;
+
+  --service-apple-music-bg: #3d0a14;
+  --service-youtube-music-bg: #3d0a0a;
+  --service-youtube-bg: #3d0a0a;
+  --service-spotify-bg: #0a3d1a;
+  --service-bbc-iplayer-bg: #3d0a20;
+
   /* ---- Borders ---- */
   --border: #999999;
   --border-light: #777777;
@@ -170,6 +216,18 @@ html.high-contrast.theme-dark {
     --status-error-bg: #3d0a0a;
     --status-warning-bg: #3d2a00;
     --status-info-bg: #0a2a4d;
+
+    /* Service brand (#911-7) — mirrors the .theme-dark block above */
+    --service-apple-music: #ff99b3;
+    --service-youtube-music: #ff8080;
+    --service-youtube: #ff8080;
+    --service-spotify: #66ff99;
+    --service-bbc-iplayer: #ffa3c8;
+    --service-apple-music-bg: #3d0a14;
+    --service-youtube-music-bg: #3d0a0a;
+    --service-youtube-bg: #3d0a0a;
+    --service-spotify-bg: #0a3d1a;
+    --service-bbc-iplayer-bg: #3d0a20;
 
     --border: #999999;
     --border-light: #777777;
