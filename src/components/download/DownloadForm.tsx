@@ -110,7 +110,8 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Apple Music URL parser for multi-URL validation. */
-import { parseAppleMusicUrl } from '@/lib/url-parser';
+import { detectService, parseAppleMusicUrl } from '@/lib/url-parser';
+import { ServiceDownloadPreview } from './ServiceDownloadPreview';
 
 /** Single-operation async lifecycle hook (audit v2 #2). */
 import { useAsyncTask } from '@/hooks/useAsyncTask';
@@ -873,6 +874,29 @@ export function DownloadForm() {
               Supports songs, albums, playlists, music videos, and artist pages. Paste multiple URLs (one per line) to queue them all.
             </p>
           )}
+
+          {/* Per-service "what gets downloaded" preview card (#911-9).
+           * Rendered once the URL parses to a recognised service. Lists
+           * the artifacts the current settings will produce for the
+           * pasted URL — audio codec, lyrics formats, animated artwork,
+           * companions, MV relations, etc. — so the user can see ahead
+           * of time what's about to land on disk before hitting "Add to
+           * Queue."
+           *
+           * Hidden when the URL is invalid, empty, or multi-URL with no
+           * primary URL (preview against the first valid URL when in
+           * batch mode). Anti-pattern 3: this card is the approved
+           * alternative to auto-opening the service Settings tab on
+           * paste. */}
+          {urlInput && urlIsValid && (() => {
+            const primaryUrl = isMultiUrl
+              ? multiUrlInfo?.validUrls[0] ?? ''
+              : urlInput.trim();
+            const detected = detectService(primaryUrl);
+            return detected ? (
+              <ServiceDownloadPreview service={detected} urls={[primaryUrl]} />
+            ) : null;
+          })()}
 
           {/* Cookie validation warning -- shown when cookies are expired,
               missing, or invalid. Blocks downloads until cookies are fixed. */}
