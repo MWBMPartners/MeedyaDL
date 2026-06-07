@@ -1708,6 +1708,57 @@ export const MEDIA_SERVICE_LABELS: Record<MediaServiceId, string> = {
 };
 
 /**
+ * CSS custom-property references for service brand colours (#911-7).
+ *
+ * The actual hex values live in the theme CSS files
+ * (`src/styles/themes/base.css` and the a11y variants) so they adapt
+ * automatically to light / dark / high-contrast / colour-vision-
+ * deficiency modes. This constant exists so JavaScript code paths
+ * (e.g. dynamic inline styles, future filter-chip components) can
+ * still refer to the brand colour symbolically without hardcoding
+ * the hex.
+ *
+ * **Anti-pattern 2 reminder** (per
+ * `.claude/memory/project_multi_service_ui_direction.md`): brand
+ * colour and status colour MUST use distinct hue ranges. Don't use
+ * this constant to colour status indicators — that's what the
+ * `--status-*` token family is for. The `<StatusPill>` component
+ * (`src/components/common/StatusPill.tsx`) deliberately avoids
+ * importing this constant for exactly that reason.
+ *
+ * Tailwind utility classes are also generated from these tokens via
+ * `tailwind.config.js`'s `theme.colors.service.*`, so the same
+ * lookup is available as `text-service-apple-music`, `bg-service-
+ * spotify/15`, `border-service-bbc-iplayer/30`, etc.
+ *
+ * Uses `Record<MediaServiceId, string>` for compile-time exhaustiveness
+ * checking — adding a new MediaServiceId variant will cause a TypeScript
+ * error here until a brand colour is added.
+ */
+export const SERVICE_BRAND_COLOURS: Record<MediaServiceId, string> = {
+  'apple-music': 'var(--service-apple-music)',
+  'youtube-music': 'var(--service-youtube-music)',
+  youtube: 'var(--service-youtube)',
+  spotify: 'var(--service-spotify)',
+  'bbc-iplayer': 'var(--service-bbc-iplayer)',
+};
+
+/**
+ * CSS custom-property references for the soft tinted backgrounds that
+ * pair with the brand colours above (#911-7). Used by filter chips,
+ * service-tinted pills, and any other context where the brand colour
+ * is rendered against a tinted backdrop rather than the default
+ * surface. Mirrors the `--status-*-bg` pattern used by status pills.
+ */
+export const SERVICE_BRAND_BACKGROUNDS: Record<MediaServiceId, string> = {
+  'apple-music': 'var(--service-apple-music-bg)',
+  'youtube-music': 'var(--service-youtube-music-bg)',
+  youtube: 'var(--service-youtube-bg)',
+  spotify: 'var(--service-spotify-bg)',
+  'bbc-iplayer': 'var(--service-bbc-iplayer-bg)',
+};
+
+/**
  * Capabilities that a music service may support.
  *
  * This interface enables the UI to adapt based on what a given service

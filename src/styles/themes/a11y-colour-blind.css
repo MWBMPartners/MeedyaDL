@@ -53,6 +53,30 @@ html.cvd-deuteranopia {
   --status-error-bg: #fce4dc;
   --status-warning-bg: #fff5cc;
   --status-info-bg: #dbeafe;
+
+  /* Service brand (#911-7) — CVD-safe palette. Five hues chosen for
+   * mutual discriminability under deuteranopia (the red-green axis
+   * is compressed; the brand reds and Spotify green collapse to the
+   * same brownish-yellow). Each service is shifted to a different
+   * region of the surviving spectrum (blue / orange / teal / magenta
+   * / mid-purple) so they read distinct even when the user can't
+   * see the official brand hue. Brand fidelity is intentionally
+   * sacrificed for accessibility.
+   * Anti-pattern 2 (status ≠ brand colour) preserved: these five
+   * service hues are deliberately offset from the four `--status-*`
+   * tokens above so an "Apple Music queued" pill stays visually
+   * distinct from an "error" pill. */
+  --service-apple-music: #5b21b6; /* deep purple — distinct from status-info blue */
+  --service-youtube-music: #9a3412; /* dark orange-brown */
+  --service-youtube: #c2410c; /* mid orange — brighter than YT Music for discrim */
+  --service-spotify: #0e7490; /* dark cyan-teal */
+  --service-bbc-iplayer: #86198f; /* deep magenta */
+
+  --service-apple-music-bg: #ede9fe;
+  --service-youtube-music-bg: #fef3e2;
+  --service-youtube-bg: #fff7ed;
+  --service-spotify-bg: #ecfeff;
+  --service-bbc-iplayer-bg: #fae8ff;
 }
 
 /* Deuteranopia: Dark Mode (manual .theme-dark override) */
@@ -66,6 +90,20 @@ html.cvd-deuteranopia.theme-dark {
   --status-error-bg: #3d1f0a;
   --status-warning-bg: #3d3000;
   --status-info-bg: #0a2040;
+
+  /* Service brand (#911-7) — same CVD-safe hue families as light
+   * mode but brightened for dark surfaces. */
+  --service-apple-music: #a78bfa;
+  --service-youtube-music: #fb923c;
+  --service-youtube: #fdba74;
+  --service-spotify: #67e8f9;
+  --service-bbc-iplayer: #e879f9;
+
+  --service-apple-music-bg: #2a1a4d;
+  --service-youtube-music-bg: #3d1f0a;
+  --service-youtube-bg: #3d2000;
+  --service-spotify-bg: #0a3d40;
+  --service-bbc-iplayer-bg: #3d0a40;
 }
 
 /* Deuteranopia: Dark Mode (auto via prefers-color-scheme) */
@@ -80,6 +118,18 @@ html.cvd-deuteranopia.theme-dark {
     --status-error-bg: #3d1f0a;
     --status-warning-bg: #3d3000;
     --status-info-bg: #0a2040;
+
+    /* Service brand (#911-7) — mirrors the .theme-dark block above */
+    --service-apple-music: #a78bfa;
+    --service-youtube-music: #fb923c;
+    --service-youtube: #fdba74;
+    --service-spotify: #67e8f9;
+    --service-bbc-iplayer: #e879f9;
+    --service-apple-music-bg: #2a1a4d;
+    --service-youtube-music-bg: #3d1f0a;
+    --service-youtube-bg: #3d2000;
+    --service-spotify-bg: #0a3d40;
+    --service-bbc-iplayer-bg: #3d0a40;
   }
 }
 
@@ -101,6 +151,22 @@ html.cvd-protanopia {
   --status-error-bg: #fce4dc;
   --status-warning-bg: #fff5cc;
   --status-info-bg: #dbeafe;
+
+  /* Service brand (#911-7) — same CVD-safe palette as deuteranopia
+   * (both forms compress the red-green axis identically; the rare
+   * differences are too subtle to optimise for at the brand-token
+   * level. Future refinement tracked in #125). */
+  --service-apple-music: #5b21b6;
+  --service-youtube-music: #9a3412;
+  --service-youtube: #c2410c;
+  --service-spotify: #0e7490;
+  --service-bbc-iplayer: #86198f;
+
+  --service-apple-music-bg: #ede9fe;
+  --service-youtube-music-bg: #fef3e2;
+  --service-youtube-bg: #fff7ed;
+  --service-spotify-bg: #ecfeff;
+  --service-bbc-iplayer-bg: #fae8ff;
 }
 
 /* Protanopia: Dark Mode (manual .theme-dark override) */
@@ -114,6 +180,18 @@ html.cvd-protanopia.theme-dark {
   --status-error-bg: #3d1f0a;
   --status-warning-bg: #3d3000;
   --status-info-bg: #0a2040;
+
+  /* Service brand (#911-7) — mirrors the deuteranopia dark block */
+  --service-apple-music: #a78bfa;
+  --service-youtube-music: #fb923c;
+  --service-youtube: #fdba74;
+  --service-spotify: #67e8f9;
+  --service-bbc-iplayer: #e879f9;
+  --service-apple-music-bg: #2a1a4d;
+  --service-youtube-music-bg: #3d1f0a;
+  --service-youtube-bg: #3d2000;
+  --service-spotify-bg: #0a3d40;
+  --service-bbc-iplayer-bg: #3d0a40;
 }
 
 /* Protanopia: Dark Mode (auto via prefers-color-scheme) */
@@ -128,6 +206,18 @@ html.cvd-protanopia.theme-dark {
     --status-error-bg: #3d1f0a;
     --status-warning-bg: #3d3000;
     --status-info-bg: #0a2040;
+
+    /* Service brand (#911-7) — mirrors the .theme-dark block above */
+    --service-apple-music: #a78bfa;
+    --service-youtube-music: #fb923c;
+    --service-youtube: #fdba74;
+    --service-spotify: #67e8f9;
+    --service-bbc-iplayer: #e879f9;
+    --service-apple-music-bg: #2a1a4d;
+    --service-youtube-music-bg: #3d1f0a;
+    --service-youtube-bg: #3d2000;
+    --service-spotify-bg: #0a3d40;
+    --service-bbc-iplayer-bg: #3d0a40;
   }
 }
 
@@ -150,6 +240,23 @@ html.cvd-tritanopia {
   --status-error-bg: #f8d7da;
   --status-warning-bg: #fce4e6;
   --status-info-bg: #d1f0eb;
+
+  /* Service brand (#911-7) — tritanopia preserves red/green/pink
+   * fairly well; the official brand reds for Apple Music + YouTube +
+   * YT Music would collapse to a single colour. We separate them by
+   * shifting each to a distinct lightness + slight hue rotation
+   * within the red-warm spectrum so they remain discriminable. */
+  --service-apple-music: #c8163d; /* base brand red */
+  --service-youtube-music: #7c2d12; /* deep brown-red */
+  --service-youtube: #ea580c; /* bright orange */
+  --service-spotify: #14803c; /* base brand green */
+  --service-bbc-iplayer: #be185d; /* deep pink */
+
+  --service-apple-music-bg: #fef2f3;
+  --service-youtube-music-bg: #fef3e2;
+  --service-youtube-bg: #fff7ed;
+  --service-spotify-bg: #f0fdf4;
+  --service-bbc-iplayer-bg: #fdf2f8;
 }
 
 /* Tritanopia: Dark Mode (manual .theme-dark override) */
@@ -163,6 +270,18 @@ html.cvd-tritanopia.theme-dark {
   --status-error-bg: #3d0a0a;
   --status-warning-bg: #3d0a12;
   --status-info-bg: #0a3d33;
+
+  /* Service brand (#911-7) — bright tritanopia-safe variants. */
+  --service-apple-music: #ff6b8a;
+  --service-youtube-music: #d97757;
+  --service-youtube: #fb923c;
+  --service-spotify: #1ed760;
+  --service-bbc-iplayer: #ff85b3;
+  --service-apple-music-bg: #2a0510;
+  --service-youtube-music-bg: #2a1206;
+  --service-youtube-bg: #2a1c00;
+  --service-spotify-bg: #052e16;
+  --service-bbc-iplayer-bg: #2a0518;
 }
 
 /* Tritanopia: Dark Mode (auto via prefers-color-scheme) */
@@ -177,5 +296,17 @@ html.cvd-tritanopia.theme-dark {
     --status-error-bg: #3d0a0a;
     --status-warning-bg: #3d0a12;
     --status-info-bg: #0a3d33;
+
+    /* Service brand (#911-7) — mirrors the .theme-dark block above */
+    --service-apple-music: #ff6b8a;
+    --service-youtube-music: #d97757;
+    --service-youtube: #fb923c;
+    --service-spotify: #1ed760;
+    --service-bbc-iplayer: #ff85b3;
+    --service-apple-music-bg: #2a0510;
+    --service-youtube-music-bg: #2a1206;
+    --service-youtube-bg: #2a1c00;
+    --service-spotify-bg: #052e16;
+    --service-bbc-iplayer-bg: #2a0518;
   }
 }
