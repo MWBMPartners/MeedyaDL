@@ -243,6 +243,21 @@ pub struct QueueItemStatus {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artist_name: Option<String>,
 
+    /// Pre-resolved 120x120 JPEG thumbnail URL for the album cover, used
+    /// by the queue row Tier 1 album-art column (#911-2). Populated by
+    /// `try_fetch_metadata()` at enqueue time alongside `album_name` /
+    /// `artist_name`; remains `None` for non-Apple-Music services and
+    /// for items queued before the early-metadata fetch returns.
+    ///
+    /// The URL is built by substituting `{w}` / `{h}` / `{c}` / `{f}`
+    /// in `AlbumMetadata::artwork_url_template` (the same template the
+    /// `cover_art_fallback` service uses for full-size cover writes).
+    /// 120×120 covers a 60-pixel display at 2× retina. Frontend renders
+    /// via lazy-loaded `<img loading="lazy">`; image load failures fall
+    /// through to a generic music-note placeholder rendered client-side.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artwork_url: Option<String>,
+
     /// Total number of tracks to download. `Some(n)` for albums/playlists,
     /// `None` for single-track downloads. Used by the frontend to render
     /// "Track 3 of 12" style progress indicators.
@@ -527,6 +542,7 @@ mod tests {
             output_is_directory: false,
             album_name: Some("Test Album".to_string()),
             artist_name: Some("Test Artist".to_string()),
+            artwork_url: Some("https://example.com/cover-120x120.jpg".to_string()),
             warnings: Vec::new(),
             audio_traits: Vec::new(),
             mv_companion_count: None,
@@ -579,6 +595,7 @@ mod tests {
             output_is_directory: false,
             album_name: None,
             artist_name: None,
+            artwork_url: None,
             warnings: Vec::new(),
             audio_traits: Vec::new(),
             mv_companion_count: None,
@@ -624,6 +641,7 @@ mod tests {
             output_is_directory: false,
             album_name: Some("Done Album".to_string()),
             artist_name: None,
+            artwork_url: None,
             warnings: Vec::new(),
             audio_traits: Vec::new(),
             mv_companion_count: None,

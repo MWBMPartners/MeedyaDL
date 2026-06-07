@@ -1,21 +1,29 @@
 // Copyright (c) 2026 MeedyaSuite
 /**
- * @file Individual download queue item component.
+ * @file Individual download queue item component (#911 Phase 1).
  *
- * Displays the status, progress, and controls for a single download.
- * Rendered as a row within the {@link DownloadQueue} list. Each row shows:
+ * Displays the status, progress, and controls for a single download as
+ * a responsive multi-column row. Visibility tiers (per
+ * `.claude/memory/project_multi_service_ui_direction.md` anti-pattern 1):
  *
- *  - **Status icon** -- coloured Lucide icon reflecting the current state
- *    (queued, downloading, processing, complete, error, cancelled).
- *  - **URL** -- the Apple Music URL being downloaded (truncated with ellipsis).
- *  - **Current track** -- the track name currently being processed (if known).
- *  - **Fallback indicator** -- warning badge shown when the backend fell back
- *    to an alternative codec because the preferred codec was unavailable.
- *  - **Progress bar** -- horizontal bar shown for active downloads, with
- *    percentage driven by `item.progress` (0-100).
- *  - **Speed / ETA** -- transfer speed and estimated time remaining.
- *  - **Action buttons** -- context-sensitive: Open Folder (complete),
- *    Cancel (active/queued), Retry (error/cancelled).
+ *  - **Tier 1** (always visible):
+ *     - **Album-art thumbnail** — lazy-loaded 48×48 (#911-2)
+ *     - **Primary identifier** — `Artist — Album — Track` from the
+ *        early-metadata fetch; falls back to the URL when metadata
+ *        hasn't loaded yet (#911-3)
+ *     - **Status pill** — coloured rounded-full with icon + label,
+ *        rendered via the shared `<StatusPill>` (#911-4)
+ *     - **Inline actions** — Cancel / Retry buttons; hidden at 40%
+ *        opacity by default, full-opacity on row hover or keyboard
+ *        focus (#911-5)
+ *  - **Tier 2 (≥ md / 768px):** Platform / service icon (#911-1)
+ *  - **Tier 3 (≥ lg / 1024px):** Inline speed / ETA badge for active rows
+ *  - **Tier 4 (≥ xl / 1280px):** Codec / quality badge
+ *  - **Tier 5 (≥ 2xl / 1536px):** Relative submitted-at time
+ *
+ * Secondary rows (progress bar, error message, "Retry without Wrapper"
+ * pill, warnings list, file-action buttons) sit below the primary row
+ * and render full-width when their state predicate fires.
  *
  * ## Fallback chain indicator
  *
@@ -35,40 +43,18 @@
  *
  * @see https://react.dev/learn/passing-props-to-a-component
  *      React docs -- passing props to components.
- * @see https://lucide.dev/icons/  -- all icons used in state mapping.
- * @see https://tailwindcss.com/docs/animation#spin  -- spinner animation.
+ * @see StatusPill in @/components/common -- owns the state-→-pill mapping.
+ * @see PlatformIcon in @/lib/PlatformIcon -- service-platform icon renderer.
  */
-
-/**
- * Lucide React icons mapped to download states and action buttons.
- *
- * State icons:
- *  - `Clock`         -> queued        (@see https://lucide.dev/icons/clock)
- *  - `Download`      -> downloading   (@see https://lucide.dev/icons/download)
- *  - `Loader2`       -> processing    (@see https://lucide.dev/icons/loader-2)
- *  - `CheckCircle`   -> complete      (@see https://lucide.dev/icons/check-circle)
- *  - `XCircle`       -> error/cancel  (@see https://lucide.dev/icons/x-circle)
- *
- * Action icons:
- *  - `X`             -> cancel button (@see https://lucide.dev/icons/x)
- *  - `RotateCcw`     -> retry button  (@see https://lucide.dev/icons/rotate-ccw)
- *  - `FolderOpen`    -> open folder   (@see https://lucide.dev/icons/folder-open)
- *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
- *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
- */
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
-  Clock,
   Copy,
-  Download,
-  CheckCircle,
-  XCircle,
-  Loader2,
   X,
   RotateCcw,
   FolderOpen,
   FileOutput,
   AlertTriangle,
+  Music,
   Trash2,
   ChevronUp,
   ChevronDown,
@@ -76,12 +62,19 @@ import {
   ChevronsDown,
 } from 'lucide-react';
 
+import {
+  detectPlatform,
+  loadPlatformConfig,
+  subscribeToPlatformConfig,
+} from '@/lib/platform-config';
+import { PlatformIcon } from '@/lib/PlatformIcon';
+
 /**
  * ProgressBar: a horizontal bar component that visualises a 0-100
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar, ContextMenu, ErrorMessageDisplay } from '@/components/common';
+import { ProgressBar, ContextMenu, ErrorMessageDisplay, StatusPill } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -89,7 +82,7 @@ import type { ContextMenuItem } from '@/components/common';
  * @see QueueItemStatus in @/types/index.ts  -- full shape of a queue item.
  * @see DownloadState in @/types/index.ts    -- 'queued' | 'downloading' | ... union.
  */
-import type { QueueItemStatus, DownloadState } from '@/types';
+import type { QueueItemStatus } from '@/types';
 
 /**
  * Props for the {@link QueueItem} component.
@@ -184,51 +177,96 @@ interface QueueItemProps {
   canMoveDown: boolean;
 }
 
+// Per-state icon / colour / label mapping moved to `<StatusPill>`
+// (`src/components/common/StatusPill.tsx`) as part of #911-4 so every
+// per-row context (queue, history, library scan, future Cmd-K results)
+// renders the same status vocabulary. The legacy `STATE_CONFIG` map
+// + `StateIcon` / `stateColorClass` helpers were removed in the same
+// commit — the pill owns all of it now.
+
 /**
- * Static configuration mapping each {@link DownloadState} to its
- * visual representation: a Lucide icon component, a Tailwind CSS
- * colour class, and a human-readable label.
+ * Builds the primary identifier line for a queue row (#911-3 — replaces
+ * the raw URL render with human-readable metadata when available).
  *
- * Colour semantics follow the app's design-token system:
- *  - `text-content-tertiary` -- neutral / inactive (queued, cancelled)
- *  - `text-status-info`      -- blue / active (downloading)
- *  - `text-status-warning`   -- yellow / processing
- *  - `text-status-success`   -- green / complete
- *  - `text-status-error`     -- red / error
+ * Falls back gracefully:
+ *  - Artist + Album + current track → `Artist — Album — Track Title`
+ *  - Artist + Album only            → `Artist — Album`
+ *  - Just one of artist / album     → that one
+ *  - Nothing                        → the original URL
  *
- * The `Loader2` icon is used for 'processing' because it supports
- * the `animate-spin` class for a spinner effect.
- *
- * @see DownloadState in @/types/index.ts
- * @see https://tailwindcss.com/docs/animation#spin  -- animate-spin
+ * Returns `null` when called with neither metadata nor URLs (caller
+ * should never hit this — every queue item has at least one URL).
  */
-const STATE_CONFIG: Record<
-  DownloadState,
-  { icon: typeof Clock; colorClass: string; label: string }
-> = {
-  queued: { icon: Clock, colorClass: 'text-content-tertiary', label: 'Queued' },
-  downloading: {
-    icon: Download,
-    colorClass: 'text-status-info',
-    label: 'Downloading',
-  },
-  processing: {
-    icon: Loader2,
-    colorClass: 'text-status-warning',
-    label: 'Processing',
-  },
-  complete: {
-    icon: CheckCircle,
-    colorClass: 'text-status-success',
-    label: 'Complete',
-  },
-  error: { icon: XCircle, colorClass: 'text-status-error', label: 'Error' },
-  cancelled: {
-    icon: XCircle,
-    colorClass: 'text-content-tertiary',
-    label: 'Cancelled',
-  },
-};
+function formatPrimaryIdentifier(item: QueueItemStatus): string {
+  const artist = item.artist_name?.trim() || null;
+  const album = item.album_name?.trim() || null;
+  const segments: string[] = [];
+  if (artist) segments.push(artist);
+  if (album) segments.push(album);
+  if (segments.length === 0) return item.urls?.[0] ?? '';
+  return segments.join(' — ');
+}
+
+/**
+ * Formats an ISO 8601 timestamp into a compact relative-time badge
+ * for the Tier 5 (≥ 2xl) "submitted" column on queue rows (#911-0).
+ *
+ * Returns `"just now"`, `"5m"`, `"2h"`, `"3d"`, `"4w"` depending on age.
+ * Returns the empty string if the input doesn't parse.
+ *
+ * Deliberately compact — this is shown alongside other Tier 5 badges
+ * and shouldn't dominate the row. For verbose timestamps users can
+ * read `created_at` via the row tooltip or expand the row.
+ */
+function formatRelativeTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return '';
+  const diffMs = Date.now() - t;
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 30) return 'just now';
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d`;
+  const diffWk = Math.floor(diffDay / 7);
+  return `${diffWk}w`;
+}
+
+/**
+ * Renders the Tier 1 album-art thumbnail (#911-2). Shows a lazy-loaded
+ * `<img>` when the backend supplied an `artwork_url`; otherwise falls
+ * through to a generic music-note placeholder (Lucide `Music`).
+ *
+ * The `onError` handler swaps to the placeholder when the URL fails to
+ * load (network error, Apple Music CDN hiccup, malformed substitution).
+ * The placeholder uses the same dimensions + rounding as the loaded
+ * image so the row height stays stable.
+ */
+function AlbumArtThumbnail({ artworkUrl }: { artworkUrl: string | null | undefined }) {
+  const [errored, setErrored] = useState(false);
+  const showImage = artworkUrl && !errored;
+  return (
+    <div
+      className="w-12 h-12 flex-shrink-0 rounded-platform overflow-hidden bg-surface-elevated flex items-center justify-center text-content-tertiary"
+      aria-hidden="true"
+    >
+      {showImage ? (
+        <img
+          src={artworkUrl}
+          alt=""
+          loading="lazy"
+          className="w-full h-full object-cover"
+          onError={() => setErrored(true)}
+        />
+      ) : (
+        <Music size={20} />
+      )}
+    </div>
+  );
+}
 
 /**
  * Renders a single item in the download queue with status icon,
@@ -272,11 +310,21 @@ function QueueItemComponent({
   isSelected,
   onToggleSelect,
 }: QueueItemProps) {
-  /**
-   * Look up the visual configuration (icon, colour, label) for the
-   * current download state from the static `STATE_CONFIG` record.
-   */
-  const config = STATE_CONFIG[item.state];
+  // Kick off the platform-config IPC load on first mount so the Tier 2
+  // platform icon resolves. The helper is idempotent across rows — only
+  // the first row triggers the actual IPC call; subsequent rows reuse
+  // the module-level cache. The subscriber re-renders this row once
+  // the config arrives (typically <100ms after mount).
+  const [, setPlatformConfigReady] = useState(false);
+  useEffect(() => {
+    const unsubscribe = subscribeToPlatformConfig(() => setPlatformConfigReady(true));
+    loadPlatformConfig();
+    return unsubscribe;
+  }, []);
+
+  const platform = detectPlatform(item.urls);
+  const primaryIdentifier = formatPrimaryIdentifier(item);
+  const submittedRelative = formatRelativeTime(item.created_at);
 
   /** Right-click context menu position and visibility state. */
   const [contextMenu, setContextMenu] = useState<{
@@ -286,17 +334,12 @@ function QueueItemComponent({
   }>({ x: 0, y: 0, visible: false });
 
   /**
-   * Whether this completed item has non-fatal warnings. When true, the
-   * status icon switches from green CheckCircle to amber AlertTriangle
-   * to signal that the download succeeded but encountered issues.
+   * Whether this completed item has non-fatal warnings. Forwarded to
+   * `<StatusPill>` so the pill flips from green ("Complete") to amber
+   * ("Warnings") for the affected row.
    */
-  const hasWarnings = item.state === 'complete' && item.warnings && item.warnings.length > 0;
-
-  /** The Lucide icon component for the current state, overridden for warnings. */
-  const StateIcon = hasWarnings ? AlertTriangle : config.icon;
-
-  /** The color class, overridden to amber for completed-with-warnings. */
-  const stateColorClass = hasWarnings ? 'text-status-warning' : config.colorClass;
+  const hasWarnings =
+    item.state === 'complete' && item.warnings && item.warnings.length > 0;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -479,7 +522,7 @@ function QueueItemComponent({
      * `transition-colors` smoothly animates the background change.
      */
     <div
-      className={`px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
+      className={`queue-row-enter group px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
         isSelected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-secondary'
       }`}
       role="listitem"
@@ -487,74 +530,60 @@ function QueueItemComponent({
       onContextMenu={handleContextMenu}
     >
       {/*
-       * Top row: three-column flex layout (or four when bulk-select mode
-       * is active: checkbox | status icon | URL + track info | actions).
-       * `items-start` aligns all columns to the top edge.
+       * Top row: responsive flex columns (#911-0). Tier-1 columns
+       * (checkbox / album art / primary identifier / status icon /
+       * actions) are always visible. Tier 2+ columns reveal at
+       * Tailwind breakpoints (`md` 768, `lg` 1024, `xl` 1280, `2xl`
+       * 1536) so narrow windows stay scannable while wide windows
+       * surface monitoring data inline. Anti-pattern 1 in
+       * `.claude/memory/project_multi_service_ui_direction.md`:
+       * column visibility is responsive — never fixed density at
+       * all widths.
        */}
-      <div className="flex items-start gap-3">
-        {/* Bulk-select checkbox (#463). Only rendered when the parent
-         * has wired isSelected + onToggleSelect; otherwise the legacy
-         * 3-column layout is preserved. */}
+      <div className="flex items-center gap-3">
+        {/* Tier 1 — bulk-select checkbox (#463). Conditional on the
+         * parent passing isSelected + onToggleSelect; otherwise the
+         * row renders without a checkbox column. */}
         {isSelected !== undefined && onToggleSelect && (
           <input
             type="checkbox"
-            className="mt-1 accent-accent cursor-pointer"
+            className="accent-accent cursor-pointer flex-shrink-0"
             checked={isSelected}
             onChange={() => onToggleSelect(item.id)}
             aria-label={isSelected ? 'Deselect queue item' : 'Select queue item'}
           />
         )}
-        {/*
-         * Status icon column.
-         *
-         * The icon is coloured according to `config.colorClass` from
-         * `STATE_CONFIG`. For the 'processing' state, `animate-spin`
-         * is applied to the `Loader2` icon to create a spinner effect.
-         *
-         * `mt-0.5` nudges the icon down slightly to align with the
-         * first line of text. `flex-shrink-0` prevents the icon from
-         * being compressed when the URL text is long.
-         *
-         * @see https://tailwindcss.com/docs/animation#spin
-         */}
-        <div className={`mt-0.5 flex-shrink-0 ${stateColorClass}`}>
-          <StateIcon size={18} className={item.state === 'processing' ? 'animate-spin' : ''} />
+
+        {/* Tier 1 — album-art thumbnail (#911-2). Lazy-loaded; falls
+         * back to a music-note placeholder when artwork_url is null
+         * or the image fails to load. */}
+        <AlbumArtThumbnail artworkUrl={item.artwork_url} />
+
+        {/* Tier 2 (≥ md / 768px) — platform / service icon (#911-1).
+         * Hidden on narrow windows to keep the primary identifier
+         * readable; the album art alone already encodes content
+         * identity at that width. Click-to-expand affordance
+         * (future PR) will surface this column inline at any width. */}
+        <div className="hidden md:flex flex-shrink-0">
+          <PlatformIcon platform={platform} size={20} />
         </div>
 
-        {/*
-         * Center column: URL, current track name, and fallback indicator.
-         *
-         * `flex-1` absorbs remaining space between the icon and buttons.
-         * `min-w-0` is critical for `truncate` to work inside a flex
-         * container -- without it, the text would overflow instead of
-         * being truncated with an ellipsis.
-         *
-         * @see https://tailwindcss.com/docs/text-overflow#truncate
-         */}
+        {/* Tier 1 — primary identifier (Artist — Album — Track) +
+         * current-track caption + fallback indicator. `flex-1` claims
+         * the remaining horizontal space; `min-w-0` lets `truncate`
+         * work inside a flex container. */}
         <div className="flex-1 min-w-0">
-          {/*
-           * Primary URL text.
-           * Shows the first URL from the `item.urls` array (there is
-           * typically only one URL per download request).
-           * `truncate` clips long URLs with an ellipsis.
-           */}
-          <p className="text-sm text-content-primary truncate">{item.urls[0]}</p>
+          <p
+            className="text-sm text-content-primary truncate"
+            title={item.urls?.[0]}
+          >
+            {primaryIdentifier}
+          </p>
 
-          {/*
-           * Current track name and track counter -- shown when the backend
-           * reports which track is currently being downloaded/processed
-           * (for album and playlist downloads that contain multiple tracks).
-           *
-           * When `total_tracks` and `completed_tracks` are both available
-           * and the item is in an active state, a "Track N of M" counter
-           * is appended after the track name for aggregate progress context.
-           *
-           * Suppress the counter for `total_tracks === 1` — GAMDL v3.1
-           * emits `[Track   1/1  ]` for single-song URLs (new in 3.1;
-           * older GAMDL releases stayed silent), so the counter would
-           * read a redundant "(Track 1 of 1)" on every single-song
-           * download. #609.
-           */}
+          {/* Current-track + Track N/M caption — shown when the backend
+           * has reported per-track progress. Suppressed for
+           * `total_tracks === 1` per #609 (GAMDL v3.1 reports
+           * `[Track 1/1]` for single-song URLs). */}
           {item.current_track && (
             <p className="text-xs text-content-secondary mt-0.5 truncate">
               {item.current_track}
@@ -569,19 +598,8 @@ function QueueItemComponent({
             </p>
           )}
 
-          {/*
-           * Fallback chain indicator.
-           *
-           * Displayed when `item.fallback_occurred` is true, meaning
-           * the backend could not obtain the user's preferred codec
-           * and fell back to an alternative from the configured fallback
-           * chain (e.g., ALAC -> AAC).
-           *
-           * Shows a yellow warning icon + the codec that was actually
-           * used (`item.codec_used`).
-           *
-           * @see settings.music_fallback_chain in @/stores/settingsStore.ts
-           */}
+          {/* Fallback-chain indicator — when GAMDL couldn't get the
+           * preferred codec and fell back to something else. */}
           {item.fallback_occurred && (
             <div className="flex items-center gap-1 mt-1 text-xs text-status-warning">
               <AlertTriangle size={12} />
@@ -590,26 +608,58 @@ function QueueItemComponent({
           )}
         </div>
 
-        {/*
-         * Right column: context-sensitive action buttons.
-         *
-         * Which buttons are shown depends on the item's state:
-         *  - Complete + output_path: "Open folder" button.
-         *  - Active or queued:       "Cancel" button.
-         *  - Error or cancelled:     "Retry" button.
-         *
-         * `flex-shrink-0` prevents buttons from being compressed.
-         */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {/*
-           * "Cancel" button -- shown for active (downloading/processing)
-           * and queued downloads. Calls `onCancel(item.id)` which
-           * propagates up to the parent DownloadQueue and ultimately
-           * calls `downloadStore.cancelDownload()`.
-           *
-           * On hover, the icon turns red (`hover:text-status-error`)
-           * to signal the destructive nature of the action.
-           */}
+        {/* Tier 3 (≥ lg / 1024px) — inline speed/ETA badge for active
+         * downloads. The full-width progress bar still renders below
+         * the row; this column surfaces the headline number compactly
+         * for at-a-glance monitoring on wide windows. */}
+        {isActive && item.speed && (
+          <div
+            className="hidden lg:flex flex-shrink-0 text-xs text-content-tertiary whitespace-nowrap tabular-nums"
+            aria-label={item.eta ? `${item.speed}, ETA ${item.eta}` : item.speed}
+          >
+            {item.speed}
+            {item.eta ? ` · ${item.eta}` : ''}
+          </div>
+        )}
+
+        {/* Tier 4 (≥ xl / 1280px) — codec / quality badge. Reflects
+         * the codec the backend actually wrote (may differ from the
+         * requested codec when fallback occurred). */}
+        {item.codec_used && (
+          <div className="hidden xl:flex flex-shrink-0 px-2 py-0.5 rounded-full bg-surface-elevated text-[11px] text-content-secondary whitespace-nowrap uppercase tracking-wide">
+            {item.codec_used}
+          </div>
+        )}
+
+        {/* Tier 5 (≥ 2xl / 1536px) — relative submitted-at time.
+         * Compact format (just-now / 5m / 2h / 3d / 4w). Full
+         * timestamp is surfaced via the row's tooltip / context
+         * menu. */}
+        {submittedRelative && (
+          <div
+            className="hidden 2xl:flex flex-shrink-0 text-[11px] text-content-tertiary whitespace-nowrap tabular-nums"
+            title={`Queued ${item.created_at}`}
+          >
+            {submittedRelative}
+          </div>
+        )}
+
+        {/* Tier 1 — status pill (#911-4). Coloured rounded-full with
+         * icon + label. Replaces the previous icon-only indicator
+         * with a more scan-able pill that pairs colour, icon, and
+         * label into a single visual unit. */}
+        <StatusPill
+          state={item.state}
+          hasWarnings={hasWarnings}
+          className="flex-shrink-0"
+        />
+
+        {/* Tier 1 — inline action buttons (Cancel / Retry). Hover-
+         * revealed at 40% opacity by default; full opacity on row
+         * hover OR when any button within receives keyboard focus
+         * (`focus-within:opacity-100`) so Tab-navigation never loses
+         * track of the active button. #911-5. */}
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {(isActive || item.state === 'queued') && (
             <button
               onClick={() => onCancel(item.id)}
@@ -620,12 +670,6 @@ function QueueItemComponent({
               <X size={14} />
             </button>
           )}
-
-          {/*
-           * "Retry" button -- shown for failed or cancelled downloads.
-           * Calls `onRetry(item.id)` which propagates up to the parent
-           * DownloadQueue and ultimately calls `downloadStore.retryDownload()`.
-           */}
           {(item.state === 'error' || item.state === 'cancelled') && (
             <button
               onClick={() => onRetry(item.id)}
@@ -654,7 +698,7 @@ function QueueItemComponent({
        * @see ProgressBar in @/components/common
        */}
       {isActive && (
-        <div className="mt-2 pl-7">
+        <div className="mt-2 pl-[60px]">
           <ProgressBar value={item.state === 'downloading' ? item.progress : null} />
           {/*
            * Speed and ETA information -- shown when `item.speed` is
@@ -683,7 +727,7 @@ function QueueItemComponent({
        * `pl-7` aligns with the URL text above.
        */}
       {item.state === 'error' && item.error && (
-        <div className="mt-1.5 pl-7">
+        <div className="mt-1.5 pl-[60px]">
           <ErrorMessageDisplay
             message={item.error}
             sourceUrl={item.urls?.[0]}
@@ -703,7 +747,7 @@ function QueueItemComponent({
        * styling. Context-menu entry is the secondary path.
        */}
       {item.state === 'error' && item.used_wrapper && (
-        <div className="mt-2 pl-7" data-testid="retry-without-wrapper-pill">
+        <div className="mt-2 pl-[60px]" data-testid="retry-without-wrapper-pill">
           <button
             type="button"
             onClick={() => onRetryWithoutWrapper(item.id)}
@@ -724,7 +768,7 @@ function QueueItemComponent({
        * the progress section or error message.
        */}
       {hasWarnings && (
-        <div className="mt-1.5 pl-7 space-y-0.5">
+        <div className="mt-1.5 pl-[60px] space-y-0.5">
           {item.warnings.map((warning, i) => (
             <p key={i} className="text-xs text-status-warning">
               {warning}
@@ -743,7 +787,7 @@ function QueueItemComponent({
        * visual distinction from the inline icon buttons.
        */}
       {item.state === 'complete' && item.output_path && (
-        <div className="mt-2 pl-7 flex gap-2">
+        <div className="mt-2 pl-[60px] flex gap-2">
           {/* Hide "Open File" for directories (albums/playlists) -- not meaningful for multiple files */}
           {!item.output_is_directory && (
             <button

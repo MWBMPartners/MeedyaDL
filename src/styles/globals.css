@@ -260,6 +260,43 @@
 }
 
 /* ============================================================
+ * Queue row enter animation (#911-6)
+ * -----------------------------------
+ * Subtle fade + slide-down when a new queue row mounts. Applied via the
+ * `queue-row-enter` class on `QueueItem`'s outer container. The animation
+ * runs once on first render and does not repeat, so virtualizer-induced
+ * remounts on scroll don't re-fire the animation.
+ *
+ * The 220ms duration is deliberately short — long enough to register
+ * visually, short enough not to feel sluggish when queueing batches of
+ * URLs. The `cubic-bezier` easing eases out smoothly so the row settles
+ * into its final position rather than snapping.
+ *
+ * Respect for `prefers-reduced-motion` is handled by the reduced-motion
+ * media query below this block (suppresses all animations to 0.01ms).
+ *
+ * Reusable across History rows, Library Scan rows, and the future Cmd-K
+ * results panel — per the per-row vocabulary policy in
+ * `.claude/memory/project_multi_service_ui_direction.md`.
+ *
+ * @see QueueItem in src/components/download/QueueItem.tsx
+ * ============================================================ */
+@keyframes queue-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.queue-row-enter {
+  animation: queue-row-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ============================================================
  * Collapsible Sections (HTML <details>/<summary>)
  * ------------------------------------------------
  * Styles the native HTML disclosure elements used for collapsible
