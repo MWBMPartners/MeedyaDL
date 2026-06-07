@@ -152,14 +152,52 @@ jobs:
           # job-level `if:` comment above for the full incident write-up.
           git commit -m "chore(alpha): ${{ steps.version.outputs.version }}"
 
-      - name: Push alpha branch and tag
+      - name: Push alpha branch and tag (with rebase-on-conflict retry)
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
           # Fast-forward push of the version-bump commit. The branch
           # ruleset blocks non-fast-forward pushes; we never overwrite
           # history here.
-          git push origin alpha
+          #
+          # Rebase-retry loop (added after the 2026-06-07 incident
+          # where two PRs merged 9 seconds apart and the second
+          # workflow run won the race for `alpha`; the first run's
+          # push was rejected as "failed to push some refs" against
+          # a tip that had moved). The concurrency group at the top
+          # of the file SHOULD queue same-group runs, but in practice
+          # GitHub Actions occasionally schedules both rather than
+          # serialising. The defence here is per-push: refetch alpha,
+          # rebase the bump commit onto its new tip, and retry the
+          # push. The tag annotation already encodes the version
+          # number from `steps.version`, so the tag itself doesn't
+          # move — only the commit it points at gets rebased.
+          MAX_RETRIES=5
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
+            if git push origin alpha; then
+              echo "::notice::Pushed alpha branch on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" -eq "$MAX_RETRIES" ]; then
+              echo "::error::git push origin alpha failed after $MAX_RETRIES attempts; another concurrent merge keeps winning the race"
+              exit 1
+            fi
+            # Random 0–4 second jitter so two contending runs don't
+            # both retry at the same instant.
+            JITTER=$((RANDOM % 5))
+            echo "::warning::git push origin alpha rejected on attempt $attempt; refetching + rebasing + retrying in ${JITTER}s"
+            sleep "$JITTER"
+            git fetch origin alpha
+            # The bump commit is the single commit we authored; rebase
+            # it onto the now-current tip. The rebase is autostash-safe
+            # because we have no uncommitted changes at this point.
+            git rebase --rebase-merges FETCH_HEAD
+          done
+          # Re-create the tag against the (possibly rebased) HEAD so
+          # it points at the actually-pushed commit, then push it.
+          # If a previous attempt created the tag locally against the
+          # old HEAD, drop it first.
+          git tag -d "${{ steps.version.outputs.tag }}" 2>/dev/null || true
           git tag -a "${{ steps.version.outputs.tag }}" -m "Alpha ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
