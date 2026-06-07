@@ -662,6 +662,54 @@ pub struct ComponentVersion {
     pub installed: bool,
 }
 
+/// Temporary inline votify version probe used by `get_component_versions` in PR M9-1 (#101).
+///
+/// Runs `python -m pip show votify` in the managed Python environment and
+/// scrapes the `Version:` line. Returns `None` if Python isn't installed,
+/// votify isn't in the env, or the subprocess fails/times out (10 s
+/// budget — matches the GAMDL probe's allowance for stalled network
+/// mounts).
+///
+/// **Replaced in PR M9-2** by the fully-fledged
+/// `votify_service::get_votify_version` (mirroring
+/// `gamdl_service::get_gamdl_version`). For M9-1 we just need a real
+/// version string so the activity log + Updates page + capability cache
+/// have something meaningful to display.
+async fn probe_votify_version(app: &AppHandle) -> Option<String> {
+    use crate::utils::platform;
+
+    let python_dir = platform::get_python_dir(app);
+    let python_bin = platform::get_python_binary_path(&python_dir);
+    if !python_bin.exists() {
+        return None;
+    }
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        tokio::process::Command::new(&python_bin)
+            .args(["-m", "pip", "show", "votify"])
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix("Version:") {
+            let version = rest.trim().to_string();
+            if !version.is_empty() {
+                return Some(version);
+            }
+        }
+    }
+    None
+}
+
 /// Retrieves the version information for all MeedyaDL components.
 ///
 /// **Frontend caller:** `getComponentVersions()` in `src/lib/tauri-commands.ts`
@@ -695,6 +743,25 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
         name: "GAMDL".to_string(),
         version: gamdl_version.clone(),
         installed: gamdl_version.is_some(),
+    });
+
+    // votify version (via pip show) — PR M9-1 (#101).
+    //
+    // Temporary inline probe. The full `votify_service::get_votify_version()`
+    // helper (mirroring `gamdl_service::get_gamdl_version`) lands in PR M9-2
+    // alongside the rest of the votify subprocess wiring. For M9-1 we run
+    // the same `pip show` shell-out here so the activity log and the
+    // Updates / Diagnostics surfaces have a real version string to display
+    // — and so the version cache in `votify_capabilities` is populated for
+    // any caller that needs to gate on a feature.
+    let votify_version = probe_votify_version(&app).await;
+    super::super::services::votify_capabilities::set_detected_version(
+        votify_version.clone(),
+    );
+    versions.push(ComponentVersion {
+        name: "votify".to_string(),
+        version: votify_version,
+        installed: gamdl_version.is_some(), // Python presence proxies install availability
     });
 
     // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
