@@ -19,173 +19,17 @@
  * @see useDownloadStore -- source of queue item state
  */
 
-import { useMemo, useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
 import { formatActiveItemCaption } from '@/lib/progress-caption';
 import { computeItemProgress } from '@/lib/progress-percent';
-
-/**
- * Platform detection config — loaded once from engines.toml via IPC.
- * Each entry has URL patterns, an icon path, and a display name.
- * Populated by loadPlatformConfig() on first use; empty until then.
- */
-interface PlatformEntry {
-  id: string;
-  name: string;
-  icon: string;
-  patterns: string[];
-}
-
-let platformConfig: PlatformEntry[] = [];
-let configLoaded = false;
-/** Subscribers notified when platformConfig loads, so components re-render. */
-let configSubscribers: Array<() => void> = [];
-
-/**
- * Loads platform config from engines.toml via IPC (one-time).
- * Called lazily on first render of GlobalProgressBar.
- * Notifies subscribers when the config is ready so React components re-render.
- */
-async function loadPlatformConfig() {
-  if (configLoaded) return;
-  configLoaded = true;
-  try {
-    const { getPlatformConfig } = await import('@/lib/tauri-commands');
-    const platforms = await getPlatformConfig();
-    platformConfig = platforms
-      .filter((p) => p.enabled)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        icon: p.icon ? `/${p.icon}` : '',
-        patterns: p.url_patterns,
-      }));
-    // Notify all subscribers that config is ready
-    for (const cb of configSubscribers) cb();
-  } catch {
-    // IPC not ready yet — will retry on next render
-    configLoaded = false;
-  }
-}
-
-/**
- * Detects the download platform from the first URL of a queue item.
- * Matches against URL patterns from engines.toml (loaded via IPC).
- */
-function detectPlatform(urls?: string[]): PlatformEntry | undefined {
-  const raw = urls?.[0] ?? '';
-  try {
-    const parsed = new URL(raw);
-    const urlStr = parsed.hostname + parsed.pathname;
-    return platformConfig.find((p) =>
-      p.patterns.some((pattern) => urlStr.includes(pattern))
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Renders a platform icon for the progress bar. Fetches the local SVG and
- * renders it inline so `currentColor` inherits from the parent CSS context,
- * automatically adapting to light, dark, and colour-blind themes.
- *
- * Falls back to a local <img> tag if the inline SVG can't be loaded.
- * SVG content is cached in a module-level Map to avoid re-fetching.
- */
-const svgCache = new Map<string, string>();
-
-function PlatformIcon({ platform }: { platform: PlatformEntry | undefined }) {
-  const [svgHtml, setSvgHtml] = useState<string | null>(
-    () => (platform?.icon ? svgCache.get(platform.icon) ?? null : null)
-  );
-  const [useFallback, setUseFallback] = useState(false);
-
-  useEffect(() => {
-    if (!platform || !platform.icon) {
-      if (platform) setUseFallback(true);
-      return;
-    }
-    if (svgCache.has(platform.icon)) {
-      setSvgHtml(svgCache.get(platform.icon)!);
-      return;
-    }
-    // Ensure absolute path for Tauri production (base URL is tauri://localhost/)
-    const iconUrl = platform.icon.startsWith('/') ? platform.icon : `/${platform.icon}`;
-    fetch(iconUrl)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.text();
-      })
-      .then((text) => {
-        // Only accept SVG content (not HTML error pages)
-        if (text.includes('<svg')) {
-          // Defence-in-depth: parse the SVG via DOMParser and strip
-          // <script> elements + event handler attributes before inline
-          // rendering. Tauri's CSP already blocks inline scripts, but
-          // this prevents any bypass via onload/onerror/xlink:href.
-          const parser = new DOMParser();
-          const doc = parser.parseFromString(text, 'image/svg+xml');
-          const svgEl = doc.querySelector('svg');
-          if (!svgEl) {
-            setUseFallback(true);
-            return;
-          }
-          // Remove script elements and event handler attributes
-          doc.querySelectorAll('script').forEach((s) => s.remove());
-          doc.querySelectorAll('*').forEach((el) => {
-            for (const attr of [...el.attributes]) {
-              if (attr.name.startsWith('on')) {
-                el.removeAttribute(attr.name);
-              }
-            }
-          });
-          // Inject sizing attributes for container fill
-          svgEl.setAttribute('width', '100%');
-          svgEl.setAttribute('height', '100%');
-          svgEl.setAttribute('style', 'display:block');
-          const sanitized = svgEl.outerHTML;
-          svgCache.set(platform.icon, sanitized);
-          setSvgHtml(sanitized);
-        } else {
-          setUseFallback(true);
-        }
-      })
-      .catch(() => setUseFallback(true));
-  }, [platform]);
-
-  if (!platform) return null;
-
-  // Inline SVG: inherits currentColor from parent for theme adaptability.
-  // The SVG has no fixed width/height — it expands to fill the container.
-  if (svgHtml) {
-    return (
-      <span
-        className="flex-shrink-0 inline-flex items-center justify-center text-content-secondary [&>svg]:w-full [&>svg]:h-full"
-        style={{ width: 16, height: 16 }}
-        aria-label={platform.name}
-        dangerouslySetInnerHTML={{ __html: svgHtml }}
-      />
-    );
-  }
-
-  // Fallback: render the local icon as an <img> (no currentColor theming,
-  // but works under img-src 'self' without external network requests).
-  if (useFallback && platform.icon) {
-    return (
-      <img
-        src={platform.icon}
-        alt={platform.name}
-        width={16}
-        height={16}
-        className="flex-shrink-0"
-      />
-    );
-  }
-
-  return null; // Loading
-}
+import {
+  detectPlatform,
+  loadPlatformConfig,
+  subscribeToPlatformConfig,
+} from '@/lib/platform-config';
+import { PlatformIcon } from '@/lib/PlatformIcon';
 
 /**
  * Renders two stacked progress bars that are always visible at the bottom
@@ -204,19 +48,14 @@ export function GlobalProgressBar() {
   const queueItems = useDownloadStore((s) => s.queueItems);
 
   // Load platform config from engines.toml via IPC (one-time).
-  // Uses a subscriber pattern so the component re-renders when the
-  // async IPC resolves — without this, the module-level platformConfig
-  // would be empty on first render and the icon would never appear.
+  // Uses the subscribe helper so the component re-renders when the
+  // async IPC resolves — without this, the platform cache would be
+  // empty on first render and the icon would never appear.
   const [, setConfigReady] = useState(false);
   useEffect(() => {
-    const cb = () => setConfigReady(true);
-    configSubscribers.push(cb);
+    const unsubscribe = subscribeToPlatformConfig(() => setConfigReady(true));
     loadPlatformConfig();
-    // If config already loaded (e.g., hot reload), trigger immediately
-    if (platformConfig.length > 0) setConfigReady(true);
-    return () => {
-      configSubscribers = configSubscribers.filter((s) => s !== cb);
-    };
+    return unsubscribe;
   }, []);
 
   /**

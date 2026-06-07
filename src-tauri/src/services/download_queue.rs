@@ -1760,6 +1760,7 @@ impl DownloadQueue {
                     current_track: None,
                     album_name,
                     artist_name,
+                    artwork_url: None,
                     total_tracks: None,
                     completed_tracks: None,
                     speed: None,
@@ -3203,6 +3204,7 @@ impl DownloadQueue {
                     current_track: None,
                     album_name,
                     artist_name,
+                    artwork_url: None,
                     total_tracks: None,
                     completed_tracks: None,
                     speed: None,
@@ -7242,6 +7244,24 @@ pub fn process_queue(
                     }
                     if let Some(ref name) = meta.album_name {
                         item.status.album_name = Some(name.clone());
+                    }
+                    // Build the 120×120 JPEG thumbnail URL for the queue
+                    // row Tier 1 album-art column (#911-2). Apple Music's
+                    // artwork URL template uses `{w}` / `{h}` / `{c}` /
+                    // `{f}` placeholders that need concrete values. The
+                    // same template feeds the full-size cover write in
+                    // `cover_art_fallback::build_artwork_url`; we duplicate
+                    // the substitution here to avoid widening that
+                    // helper's visibility for one caller. 120 covers a
+                    // 60-pixel display at 2× retina.
+                    if let Some(ref template) = meta.artwork_url_template {
+                        item.status.artwork_url = Some(
+                            template
+                                .replace("{w}", "120")
+                                .replace("{h}", "120")
+                                .replace("{c}", "bb")
+                                .replace("{f}", "jpg"),
+                        );
                     }
                     // Capture the union of audioTraits across every track
                     // for the companion planner (#504). De-duplicate so
