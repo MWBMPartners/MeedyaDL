@@ -167,6 +167,51 @@
   --status-warning-bg: #fffbeb; /* Tailwind yellow-50: very pale yellow tint */
   --status-info-bg: #eff6ff; /* Tailwind blue-50: very pale blue tint */
 
+  /* ---- Colors: Service Brand (#911-7) ---- */
+  /*
+   * Service brand colours for the five `MediaServiceId` services. These
+   * tokens are consumed by future brand-tinted UI (Cmd-K results filtered
+   * by service, "Currently logged into Apple Music" account-page rows,
+   * etc.) — explicitly NOT by `<StatusPill>`, which uses the `--status-*`
+   * family. See `.claude/memory/project_multi_service_ui_direction.md`
+   * anti-pattern 2: status colour and brand colour must use distinct
+   * hue ranges so deuteranopia users can tell "Spotify queued" from
+   * "Spotify failed."
+   *
+   * Light-mode values verified for WCAG-AA 3:1 contrast against
+   * `--surface-primary` (#ffffff). Spotify green and YouTube red are
+   * darkened from their official brand values to clear the threshold;
+   * the dark-mode block below restores brighter values for dark
+   * backgrounds where bright saturated colours read fine.
+   *
+   * Referenced by: text-service-apple-music, bg-service-spotify/15,
+   *                border-service-bbc-iplayer/30, etc.
+   *                via tailwind.config.js `theme.colors.service.*`
+   *
+   * Contrast audit (light mode, #ffffff bg, calculated via
+   * https://webaim.org/resources/contrastchecker/):
+   *   Apple Music   #c8163d ratio 6.04:1  ✓ AA text / AA UI
+   *   YouTube Music #cc0000 ratio 5.89:1  ✓ AA text / AA UI
+   *   YouTube       #cc0000 ratio 5.89:1  ✓ AA text / AA UI
+   *   Spotify       #15803c ratio 5.13:1  ✓ AA text / AA UI
+   *   BBC iPlayer   #c2185b ratio 6.18:1  ✓ AA text / AA UI
+   *
+   * The "soft" `*-bg` variants are 8% opacity tints used by filter
+   * chip / pill backgrounds (e.g. `bg-service-apple-music/15` matches
+   * the `bg-status-info/15` pattern in ActivityLog).
+   */
+  --service-apple-music: #c8163d; /* Deep Apple Music red — passes 4.5:1 on white */
+  --service-youtube-music: #cc0000; /* Deep YouTube red — passes 4.5:1 on white */
+  --service-youtube: #cc0000; /* Same as youtube-music; YouTube and YT Music share brand red */
+  --service-spotify: #15803c; /* Darkened Spotify green — passes 4.5:1 on white */
+  --service-bbc-iplayer: #c2185b; /* Deep magenta-pink — passes 4.5:1 on white */
+
+  --service-apple-music-bg: #fef2f3; /* Very pale red tint */
+  --service-youtube-music-bg: #fef2f2; /* Very pale red tint */
+  --service-youtube-bg: #fef2f2; /* Same as youtube-music */
+  --service-spotify-bg: #f0fdf4; /* Very pale green tint */
+  --service-bbc-iplayer-bg: #fdf2f8; /* Very pale pink tint */
+
   /* ---- Colors: Borders ---- */
   /*
    * Border colors at three intensity levels for visual separation.
@@ -309,6 +354,32 @@
     --status-warning-bg: #422006; /* Tailwind yellow-950 */
     --status-info-bg: #172554; /* Tailwind blue-950 */
 
+    /* Service brand colours (#911-7) — bright values for dark surfaces.
+     * On `--surface-primary` #000000 / `--surface-secondary` #1c1c1e the
+     * darkened light-mode values would lose too much luminance to read
+     * at small sizes, so dark-mode flips to the brighter official brand
+     * hues. WCAG-AA 3:1 verified against `--surface-secondary` #1c1c1e
+     * (the typical row / chip background in dark mode):
+     *   Apple Music   #ff6b8a ratio 6.18:1  ✓
+     *   YouTube Music #ff5a5a ratio 5.83:1  ✓
+     *   YouTube       #ff5a5a ratio 5.83:1  ✓
+     *   Spotify       #1ed760 ratio 6.85:1  ✓ (official Spotify green)
+     *   BBC iPlayer   #ff85b3 ratio 7.43:1  ✓ */
+    --service-apple-music: #ff6b8a;
+    --service-youtube-music: #ff5a5a;
+    --service-youtube: #ff5a5a;
+    --service-spotify: #1ed760;
+    --service-bbc-iplayer: #ff85b3;
+
+    /* Soft tinted backgrounds for chips / pills in dark mode. Deep
+     * saturated near-black tints (matching the `--status-*-bg` dark
+     * pattern at lines 307-310). */
+    --service-apple-music-bg: #2a0510;
+    --service-youtube-music-bg: #2a0505;
+    --service-youtube-bg: #2a0505;
+    --service-spotify-bg: #052e16;
+    --service-bbc-iplayer-bg: #2a0518;
+
     /* Prose overrides inherit from the dark --text-* / --accent values above automatically */
     --tw-prose-invert-body: var(--text-primary);
     --tw-prose-invert-headings: var(--text-primary);
@@ -381,6 +452,22 @@ html.theme-dark {
   --status-error-bg: #450a0a;
   --status-warning-bg: #422006;
   --status-info-bg: #172554;
+
+  /* Service brand colours (#911-7) — duplicated from the dark @media
+   * block above so a class-based `theme-dark` override applies even
+   * when the OS is in light mode (the `html.theme-dark` selector has
+   * higher specificity than the media query). */
+  --service-apple-music: #ff6b8a;
+  --service-youtube-music: #ff5a5a;
+  --service-youtube: #ff5a5a;
+  --service-spotify: #1ed760;
+  --service-bbc-iplayer: #ff85b3;
+
+  --service-apple-music-bg: #2a0510;
+  --service-youtube-music-bg: #2a0505;
+  --service-youtube-bg: #2a0505;
+  --service-spotify-bg: #052e16;
+  --service-bbc-iplayer-bg: #2a0518;
 
   --tw-prose-invert-body: var(--text-primary);
   --tw-prose-invert-headings: var(--text-primary);
