@@ -4,7 +4,7 @@
 # Upstream GAMDL release watcher
 # ================================
 #
-# Weekly cron job that compares the latest GAMDL release on PyPI against the
+# Daily cron job that compares the latest GAMDL release on PyPI against the
 # `maximum_tested_version` declared in `src-tauri/tool-versions.toml`. When
 # PyPI ships a release beyond our validated ceiling, the workflow opens (or
 # updates) a GitHub Issue labelled `upstream-bump` so we can triage the
@@ -29,9 +29,22 @@ name: Upstream GAMDL Watch
 
 on:
   schedule:
-    # Run at 08:00 UTC every Monday. Weekly cadence is enough — PyPI release
-    # frequency for GAMDL has averaged a few weeks between minor bumps.
-    - cron: '0 8 * * 1'
+    # Run daily at 06:00 UTC. Daily cadence catches GAMDL same-day point
+    # releases (the project has shipped multiple within 24 h of each other
+    # — see the 2026-04 v3.4 + v3.5 same-day pair, the 2026-05 v3.7.2 +
+    # v3.7.3 same-day pair, etc.). The earlier weekly cadence let those
+    # collapse into one ticket, but a daily run means each release gets
+    # its own audit window before the next one lands and the open ticket
+    # is harder to triage.
+    #
+    # 06:00 UTC = 06:00 GMT / 07:00 BST / 02:00 EST / 23:00 PST previous
+    # day / 15:00 JST. Chosen as a quiet window across global maintainer
+    # time zones, far from typical CI rush hours.
+    #
+    # Same cadence is mirrored to the votify upstream watcher landing in
+    # PR M9-1 (#101) and every future engine watcher — one daily window,
+    # all engines polled.
+    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -185,9 +198,12 @@ jobs:
         if: steps.detect.outputs.breach == 'true' && github.event.inputs.dry_run != 'true'
         # Using the REST API via the pre-installed `gh` CLI. We search for an
         # existing open issue with a well-known title pattern and update it
-        # rather than spamming fresh issues every week — the weekly cron
-        # would otherwise create 52 duplicates in a year where upstream
-        # sits above the ceiling.
+        # rather than spamming fresh issues every day — the daily cron
+        # would otherwise create 365 duplicates in a year where upstream
+        # sits above the ceiling. The "update existing" path is now
+        # load-bearing rather than belt-and-braces: with the post-#919
+        # daily cadence, a stale audit ticket would be touched 7× more
+        # often than under the previous weekly schedule.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CEILING: ${{ steps.detect.outputs.ceiling }}
@@ -250,7 +266,7 @@ jobs:
 
           - Part of the long-running tracking issue #516.
           - Support window design: #518.
-          - This workflow: `.github/workflows/upstream-gamdl-watch.yml`. Runs weekly on Monday at 08:00 UTC.
+          - This workflow: `.github/workflows/upstream-gamdl-watch.yml`. Runs daily at 06:00 UTC.
 
           ---
 
