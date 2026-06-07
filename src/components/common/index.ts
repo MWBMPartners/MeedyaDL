@@ -159,6 +159,16 @@ export { FilePickerButton } from './FilePickerButton';
 export { ProgressBar } from './ProgressBar';
 
 /**
+ * Coloured status pill (icon + label inside a rounded-full container) used
+ * by the queue row Tier 1 status column (#911-4). Reusable for History
+ * rows, Library Scan rows, and the future Cmd-K results panel — per the
+ * per-row vocabulary policy in
+ * `.claude/memory/project_multi_service_ui_direction.md`.
+ */
+export { StatusPill } from './StatusPill';
+export type { StatusPillProps } from './StatusPill';
+
+/**
  * Dismissible banner displayed when component updates (GAMDL, app, Python) are available.
  * Rendered in App.tsx above the main content area.
  */

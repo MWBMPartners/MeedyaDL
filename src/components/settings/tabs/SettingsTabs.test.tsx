@@ -73,6 +73,12 @@ vi.mock('lucide-react', () => {
     Pause: stub('Pause'),
     Play: stub('Play'),
     Upload: stub('Upload'),
+    /* StatusPill (#911-4) is re-exported from @/components/common and
+     * imports its own state-→-icon map. The mock needs these icons or
+     * StatusPill fails to render when the barrel is touched. */
+    Clock: stub('Clock'),
+    Loader2: stub('Loader2'),
+    XCircle: stub('XCircle'),
   };
 });
 

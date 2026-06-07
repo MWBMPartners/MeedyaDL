@@ -1,21 +1,29 @@
 // Copyright (c) 2026 MeedyaSuite
 /**
- * @file Individual download queue item component.
+ * @file Individual download queue item component (#911 Phase 1).
  *
- * Displays the status, progress, and controls for a single download.
- * Rendered as a row within the {@link DownloadQueue} list. Each row shows:
+ * Displays the status, progress, and controls for a single download as
+ * a responsive multi-column row. Visibility tiers (per
+ * `.claude/memory/project_multi_service_ui_direction.md` anti-pattern 1):
  *
- *  - **Status icon** -- coloured Lucide icon reflecting the current state
- *    (queued, downloading, processing, complete, error, cancelled).
- *  - **URL** -- the Apple Music URL being downloaded (truncated with ellipsis).
- *  - **Current track** -- the track name currently being processed (if known).
- *  - **Fallback indicator** -- warning badge shown when the backend fell back
- *    to an alternative codec because the preferred codec was unavailable.
- *  - **Progress bar** -- horizontal bar shown for active downloads, with
- *    percentage driven by `item.progress` (0-100).
- *  - **Speed / ETA** -- transfer speed and estimated time remaining.
- *  - **Action buttons** -- context-sensitive: Open Folder (complete),
- *    Cancel (active/queued), Retry (error/cancelled).
+ *  - **Tier 1** (always visible):
+ *     - **Album-art thumbnail** — lazy-loaded 48×48 (#911-2)
+ *     - **Primary identifier** — `Artist — Album — Track` from the
+ *        early-metadata fetch; falls back to the URL when metadata
+ *        hasn't loaded yet (#911-3)
+ *     - **Status pill** — coloured rounded-full with icon + label,
+ *        rendered via the shared `<StatusPill>` (#911-4)
+ *     - **Inline actions** — Cancel / Retry buttons; hidden at 40%
+ *        opacity by default, full-opacity on row hover or keyboard
+ *        focus (#911-5)
+ *  - **Tier 2 (≥ md / 768px):** Platform / service icon (#911-1)
+ *  - **Tier 3 (≥ lg / 1024px):** Inline speed / ETA badge for active rows
+ *  - **Tier 4 (≥ xl / 1280px):** Codec / quality badge
+ *  - **Tier 5 (≥ 2xl / 1536px):** Relative submitted-at time
+ *
+ * Secondary rows (progress bar, error message, "Retry without Wrapper"
+ * pill, warnings list, file-action buttons) sit below the primary row
+ * and render full-width when their state predicate fires.
  *
  * ## Fallback chain indicator
  *
@@ -35,35 +43,12 @@
  *
  * @see https://react.dev/learn/passing-props-to-a-component
  *      React docs -- passing props to components.
- * @see https://lucide.dev/icons/  -- all icons used in state mapping.
- * @see https://tailwindcss.com/docs/animation#spin  -- spinner animation.
- */
-
-/**
- * Lucide React icons mapped to download states and action buttons.
- *
- * State icons:
- *  - `Clock`         -> queued        (@see https://lucide.dev/icons/clock)
- *  - `Download`      -> downloading   (@see https://lucide.dev/icons/download)
- *  - `Loader2`       -> processing    (@see https://lucide.dev/icons/loader-2)
- *  - `CheckCircle`   -> complete      (@see https://lucide.dev/icons/check-circle)
- *  - `XCircle`       -> error/cancel  (@see https://lucide.dev/icons/x-circle)
- *
- * Action icons:
- *  - `X`             -> cancel button (@see https://lucide.dev/icons/x)
- *  - `RotateCcw`     -> retry button  (@see https://lucide.dev/icons/rotate-ccw)
- *  - `FolderOpen`    -> open folder   (@see https://lucide.dev/icons/folder-open)
- *  - `FileOutput`    -> open file     (@see https://lucide.dev/icons/file-output)
- *  - `AlertTriangle` -> fallback warn (@see https://lucide.dev/icons/alert-triangle)
+ * @see StatusPill in @/components/common -- owns the state-→-pill mapping.
+ * @see PlatformIcon in @/lib/PlatformIcon -- service-platform icon renderer.
  */
 import { memo, useEffect, useState } from 'react';
 import {
-  Clock,
   Copy,
-  Download,
-  CheckCircle,
-  XCircle,
-  Loader2,
   X,
   RotateCcw,
   FolderOpen,
@@ -89,7 +74,7 @@ import { PlatformIcon } from '@/lib/PlatformIcon';
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar, ContextMenu, ErrorMessageDisplay } from '@/components/common';
+import { ProgressBar, ContextMenu, ErrorMessageDisplay, StatusPill } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -97,7 +82,7 @@ import type { ContextMenuItem } from '@/components/common';
  * @see QueueItemStatus in @/types/index.ts  -- full shape of a queue item.
  * @see DownloadState in @/types/index.ts    -- 'queued' | 'downloading' | ... union.
  */
-import type { QueueItemStatus, DownloadState } from '@/types';
+import type { QueueItemStatus } from '@/types';
 
 /**
  * Props for the {@link QueueItem} component.
@@ -192,51 +177,12 @@ interface QueueItemProps {
   canMoveDown: boolean;
 }
 
-/**
- * Static configuration mapping each {@link DownloadState} to its
- * visual representation: a Lucide icon component, a Tailwind CSS
- * colour class, and a human-readable label.
- *
- * Colour semantics follow the app's design-token system:
- *  - `text-content-tertiary` -- neutral / inactive (queued, cancelled)
- *  - `text-status-info`      -- blue / active (downloading)
- *  - `text-status-warning`   -- yellow / processing
- *  - `text-status-success`   -- green / complete
- *  - `text-status-error`     -- red / error
- *
- * The `Loader2` icon is used for 'processing' because it supports
- * the `animate-spin` class for a spinner effect.
- *
- * @see DownloadState in @/types/index.ts
- * @see https://tailwindcss.com/docs/animation#spin  -- animate-spin
- */
-const STATE_CONFIG: Record<
-  DownloadState,
-  { icon: typeof Clock; colorClass: string; label: string }
-> = {
-  queued: { icon: Clock, colorClass: 'text-content-tertiary', label: 'Queued' },
-  downloading: {
-    icon: Download,
-    colorClass: 'text-status-info',
-    label: 'Downloading',
-  },
-  processing: {
-    icon: Loader2,
-    colorClass: 'text-status-warning',
-    label: 'Processing',
-  },
-  complete: {
-    icon: CheckCircle,
-    colorClass: 'text-status-success',
-    label: 'Complete',
-  },
-  error: { icon: XCircle, colorClass: 'text-status-error', label: 'Error' },
-  cancelled: {
-    icon: XCircle,
-    colorClass: 'text-content-tertiary',
-    label: 'Cancelled',
-  },
-};
+// Per-state icon / colour / label mapping moved to `<StatusPill>`
+// (`src/components/common/StatusPill.tsx`) as part of #911-4 so every
+// per-row context (queue, history, library scan, future Cmd-K results)
+// renders the same status vocabulary. The legacy `STATE_CONFIG` map
+// + `StateIcon` / `stateColorClass` helpers were removed in the same
+// commit — the pill owns all of it now.
 
 /**
  * Builds the primary identifier line for a queue row (#911-3 — replaces
@@ -364,12 +310,6 @@ function QueueItemComponent({
   isSelected,
   onToggleSelect,
 }: QueueItemProps) {
-  /**
-   * Look up the visual configuration (icon, colour, label) for the
-   * current download state from the static `STATE_CONFIG` record.
-   */
-  const config = STATE_CONFIG[item.state];
-
   // Kick off the platform-config IPC load on first mount so the Tier 2
   // platform icon resolves. The helper is idempotent across rows — only
   // the first row triggers the actual IPC call; subsequent rows reuse
@@ -394,17 +334,12 @@ function QueueItemComponent({
   }>({ x: 0, y: 0, visible: false });
 
   /**
-   * Whether this completed item has non-fatal warnings. When true, the
-   * status icon switches from green CheckCircle to amber AlertTriangle
-   * to signal that the download succeeded but encountered issues.
+   * Whether this completed item has non-fatal warnings. Forwarded to
+   * `<StatusPill>` so the pill flips from green ("Complete") to amber
+   * ("Warnings") for the affected row.
    */
-  const hasWarnings = item.state === 'complete' && item.warnings && item.warnings.length > 0;
-
-  /** The Lucide icon component for the current state, overridden for warnings. */
-  const StateIcon = hasWarnings ? AlertTriangle : config.icon;
-
-  /** The color class, overridden to amber for completed-with-warnings. */
-  const stateColorClass = hasWarnings ? 'text-status-warning' : config.colorClass;
+  const hasWarnings =
+    item.state === 'complete' && item.warnings && item.warnings.length > 0;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -587,7 +522,7 @@ function QueueItemComponent({
      * `transition-colors` smoothly animates the background change.
      */
     <div
-      className={`px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
+      className={`queue-row-enter group px-4 py-3 border-b border-border-light last:border-b-0 transition-colors ${
         isSelected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-secondary'
       }`}
       role="listitem"
@@ -709,20 +644,22 @@ function QueueItemComponent({
           </div>
         )}
 
-        {/* Tier 1 — status icon. Coloured per STATE_CONFIG; spinner
-         * for the processing state. Status pill upgrade is scoped to
-         * the follow-up PR B (#911-4). */}
-        <div
-          className={`flex-shrink-0 ${stateColorClass}`}
-          title={hasWarnings ? 'Completed with warnings' : config.label}
-          aria-label={hasWarnings ? 'Completed with warnings' : config.label}
-        >
-          <StateIcon size={18} className={item.state === 'processing' ? 'animate-spin' : ''} />
-        </div>
+        {/* Tier 1 — status pill (#911-4). Coloured rounded-full with
+         * icon + label. Replaces the previous icon-only indicator
+         * with a more scan-able pill that pairs colour, icon, and
+         * label into a single visual unit. */}
+        <StatusPill
+          state={item.state}
+          hasWarnings={hasWarnings}
+          className="flex-shrink-0"
+        />
 
         {/* Tier 1 — inline action buttons (Cancel / Retry). Hover-
-         * reveal upgrade scoped to PR B (#911-5). */}
-        <div className="flex items-center gap-1 flex-shrink-0">
+         * revealed at 40% opacity by default; full opacity on row
+         * hover OR when any button within receives keyboard focus
+         * (`focus-within:opacity-100`) so Tab-navigation never loses
+         * track of the active button. #911-5. */}
+        <div className="flex items-center gap-1 flex-shrink-0 opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {(isActive || item.state === 'queued') && (
             <button
               onClick={() => onCancel(item.id)}
