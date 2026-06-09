@@ -540,15 +540,22 @@ impl Default for AppleMusicSettings {
     }
 }
 
-/// Per-service settings for Spotify downloads (stub).
+/// Per-service settings for Spotify downloads.
 ///
-/// Will be populated in milestone M8 (v2.0.0) when Votify
-/// integration is implemented.
+/// Populated through milestones M9-1 .. M9-6 as the votify
+/// integration lands. The `anti_ban` block is the safety-critical
+/// surface shipped in M9-4 — see
+/// [`crate::models::spotify_anti_ban::AntiBanSettings`] for the
+/// individual knobs.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SpotifySettings {
     /// Spotify cookies path (for premium auth).
     pub cookies_path: Option<String>,
+
+    /// Anti-ban configuration. Safety-on defaults — see the model
+    /// for rationale.
+    pub anti_ban: crate::models::spotify_anti_ban::AntiBanSettings,
 }
 
 /// Per-service settings for YouTube/YouTube Music downloads (stub).
@@ -1537,6 +1544,22 @@ pub struct AppSettings {
     #[serde(default)]
     pub dev_access_enabled: bool,
 
+    /// Spotify-download consent acknowledgment (M9-4).
+    ///
+    /// Spotify's terms of service prohibit automated downloads, and
+    /// accounts have been suspended in the wild for obvious bot
+    /// behaviour. Even with `dev_access_enabled` on, the first
+    /// Spotify queue attempt prompts the user to acknowledge the
+    /// account-ban risk; that acknowledgment is persisted here so
+    /// the modal doesn't recur.
+    ///
+    /// Defaults to `false`. The acknowledge IPC flips it to `true`;
+    /// there's no UI affordance to flip it back, so users who want
+    /// to disable Spotify must use the Settings > Services >
+    /// Spotify toggle (which is independent of this flag).
+    #[serde(default)]
+    pub spotify_consent_acknowledged: bool,
+
     // ================================================================
     // Application State
     // ================================================================
@@ -2061,6 +2084,10 @@ impl Default for AppSettings {
             // --- Internal / Developer ---
             // Developer access is disabled by default; activated via hidden gesture.
             dev_access_enabled: false,
+            // M9-4: first-run consent for Spotify downloads — off by default;
+            // the IPC `acknowledge_spotify_consent` flips it to true after
+            // the user accepts the account-ban-risk modal.
+            spotify_consent_acknowledged: false,
 
             // --- Application state ---
             // No previous version on first run; populated by load_settings().

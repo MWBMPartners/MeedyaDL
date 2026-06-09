@@ -161,3 +161,9 @@ pub mod download_index;
 /// P5). Wraps `services::profile_bundle` with the Tauri commands the
 /// Settings UI and import wizard call.
 pub mod profile_bundle;
+
+/// Spotify anti-ban IPC surface (M9-4). Consent acknowledgment,
+/// daily-cap status, counter reset, and the dispatch-gate preview
+/// the download form consumes before showing the Spotify path.
+/// Companion to `services::spotify_anti_ban`.
+pub mod spotify_anti_ban;

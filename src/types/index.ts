@@ -804,6 +804,14 @@ export interface AppSettings {
   activity_log_path_override: string;
   /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
   dev_access_enabled: boolean;
+  /**
+   * Spotify-download first-run consent acknowledgment (M9-4).
+   * Even with `dev_access_enabled` on, the first Spotify queue
+   * attempt requires the user to acknowledge the account-ban risk.
+   * Persisted here so the modal doesn't recur. Set to `true` via
+   * the `acknowledge_spotify_consent` IPC.
+   */
+  spotify_consent_acknowledged: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
   last_seen_version: string;
   /** Whether the setup wizard has been completed at least once */

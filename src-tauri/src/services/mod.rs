@@ -177,6 +177,17 @@ pub mod cover_art_fallback;
 /// integration lives in M9-4.
 pub mod best_cover_art_service;
 
+/// Anti-ban runtime for Spotify downloads (M9-4).
+///
+/// Pure-function throttle math (`compute_playback_throttle_delay`,
+/// `compute_inter_track_delay`) plus a persisted `DailyCapCounter`
+/// with local-midnight rollover. Companion to the
+/// `models::spotify_anti_ban::AntiBanSettings` struct.
+///
+/// The dispatch gate that consumes these primitives lives in the
+/// IPC layer — see `commands::spotify_anti_ban`.
+pub mod spotify_anti_ban;
+
 /// Python traceback diagnostic capture (#758).
 ///
 /// Scans GAMDL stdout/stderr buffers at process completion for
