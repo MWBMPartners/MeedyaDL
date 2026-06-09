@@ -287,6 +287,33 @@ pub fn reset_counter(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Increment the persisted daily-cap counter by `tracks`.
+///
+/// Called by the M9-5+ Spotify dispatch path after each successful
+/// track download (or batch of tracks for album downloads). Applies
+/// rollover before incrementing so a request that crosses local
+/// midnight starts counting against the new day, not the old one.
+///
+/// Returns the post-increment counter so the caller can surface
+/// "X / cap downloaded today" in the activity log without a second
+/// disk read.
+///
+/// # Errors
+///
+/// Persistence failures are surfaced — the caller decides whether
+/// to halt the dispatch or proceed (the in-memory value is still
+/// consistent even if the file write failed). `tracks == 0` is a
+/// no-op that still returns the current counter for symmetry.
+pub fn increment_counter(app: &AppHandle, tracks: u32) -> Result<DailyCapCounter, String> {
+    let mut counter = load_counter(app);
+    // saturating_add: the cap-check at dispatch time guarantees we
+    // never go past u32::MAX in practice, but defensive arithmetic
+    // beats a silent wrap-around if a future caller misuses this.
+    counter.count = counter.count.saturating_add(tracks);
+    save_counter(app, &counter)?;
+    Ok(counter)
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -451,5 +478,21 @@ mod tests {
         bump_counter_stamp();
         let after = counter_stamp();
         assert!(after >= before + 2);
+    }
+
+    // ---- increment helper pure-math sanity ----
+
+    #[test]
+    fn counter_saturates_at_u32_max_not_wraps() {
+        // The cap-check at dispatch time prevents this in practice,
+        // but if a future caller mishandles the gate, saturating
+        // beats a silent wrap-to-zero. Test the pre-condition the
+        // helper relies on, not the IO path.
+        let mut c = DailyCapCounter {
+            date: today_iso(),
+            count: u32::MAX - 1,
+        };
+        c.count = c.count.saturating_add(5);
+        assert_eq!(c.count, u32::MAX);
     }
 }

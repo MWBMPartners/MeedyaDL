@@ -884,9 +884,37 @@ export interface AppleMusicServiceSettings {
   content_advisory_in_filenames: boolean;
 }
 
-/** Spotify-specific service settings (stub for M8) */
+/** Spotify-specific service settings (M9-1..M9-6) */
 export interface SpotifyServiceSettings {
   cookies_path: string | null;
+  /**
+   * Session type — `"librespot"` (free-tier, Vorbis only),
+   * `"desktop"` (premium + Spotify DLL for FLAC — M9-5),
+   * or `"web"` (premium + Widevine `.wvd` for FLAC — M9-6).
+   * Null falls through to votify's default (`librespot`).
+   */
+  session_type: string | null;
+  /** Path to Spotify desktop DLL for `session_type = "desktop"` FLAC (M9-5) */
+  spotify_dll_path: string | null;
+  /** Path to Widevine `.wvd` for `session_type = "web"` FLAC (M9-6) */
+  wvd_path: string | null;
+  /** Anti-ban configuration block — see AntiBanSettings (M9-4) */
+  anti_ban: AntiBanSettings;
+}
+
+/**
+ * Anti-ban configuration for Spotify downloads (M9-4).
+ * Mirrors `models::spotify_anti_ban::AntiBanSettings`.
+ */
+export interface AntiBanSettings {
+  /** Real-time playback-speed throttle (the flagship mitigation). */
+  playback_speed_throttle_enabled: boolean;
+  /** Base seconds to wait between successive track downloads. */
+  inter_track_delay_seconds: number;
+  /** Maximum jitter to layer on top of the base delay. */
+  inter_track_jitter_seconds: number;
+  /** Hard daily ceiling. `0` is the "unlimited" sentinel. */
+  daily_download_cap: number;
 }
 
 /** YouTube/YouTube Music service settings (stub for M9) */

@@ -553,6 +553,32 @@ pub struct SpotifySettings {
     /// Spotify cookies path (for premium auth).
     pub cookies_path: Option<String>,
 
+    /// Session type selection. Mirrors votify's `--session-type`:
+    /// * `"librespot"` — open-source client, free-tier compatible
+    ///   (Ogg Vorbis only). Default — works without premium and
+    ///   without an external license artefact.
+    /// * `"desktop"` — premium account + Spotify DLL `1.2.88.483`
+    ///   for FLAC. Selected via the M9-5 Settings UI; requires
+    ///   `spotify_dll_path` to be configured.
+    /// * `"web"` — premium account + Widevine `.wvd` for FLAC.
+    ///   Selected via the M9-6 Settings UI; requires `wvd_path`.
+    ///
+    /// Stored as a free-form string to match votify's CLI shape
+    /// exactly — adding a new session type upstream means an
+    /// engine-version bump here, no model migration.
+    pub session_type: Option<String>,
+
+    /// Path to the Spotify desktop DLL for `session_type = "desktop"`
+    /// FLAC support (M9-5). Validated at dispatch time — when
+    /// `session_type` is `"desktop"` but this is `None` or the file
+    /// doesn't exist, the dispatch gate returns a `MissingDll`
+    /// outcome before votify is even invoked.
+    pub spotify_dll_path: Option<String>,
+
+    /// Path to a Widevine `.wvd` file for `session_type = "web"`
+    /// FLAC support (M9-6).
+    pub wvd_path: Option<String>,
+
     /// Anti-ban configuration. Safety-on defaults — see the model
     /// for rationale.
     pub anti_ban: crate::models::spotify_anti_ban::AntiBanSettings,

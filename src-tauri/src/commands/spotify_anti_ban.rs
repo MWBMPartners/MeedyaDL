@@ -175,8 +175,12 @@ pub fn evaluate_dispatch_gate(
 /// IPC entry — used by the React layer to **preview** the gate's
 /// answer before showing the download form's Spotify path.
 ///
-/// `start_download` will run the same evaluation internally when
-/// it begins accepting Spotify URLs in M9-5+.
+/// `start_download` runs the same [`evaluate_dispatch_gate`] call
+/// internally for every batch containing a Spotify URL (M9-5).
+/// Frontend should call this preview when the form first detects a
+/// Spotify URL so the appropriate modal (dev-access unlock /
+/// consent / cap warning) fires before the user clicks "Add to
+/// Queue."
 #[tauri::command]
 pub async fn check_spotify_dispatch_allowed(
     app: AppHandle,
@@ -286,5 +290,34 @@ mod tests {
             evaluate_dispatch_gate(&s, &c),
             DispatchGateOutcome::ConsentRequired
         );
+    }
+
+    #[test]
+    fn dispatch_gate_outcome_serialises_with_kind_discriminator() {
+        // The React layer routes on `kind`; pin the discriminator
+        // shape so renaming a variant in Rust doesn't silently
+        // break the modal-selection logic.
+        let json = serde_json::to_value(DispatchGateOutcome::DevAccessRequired).unwrap();
+        assert_eq!(json["kind"], "dev_access_required");
+
+        let cap = DispatchGateOutcome::DailyCapReached {
+            count: 100,
+            cap: 100,
+        };
+        let json = serde_json::to_value(cap).unwrap();
+        assert_eq!(json["kind"], "daily_cap_reached");
+        assert_eq!(json["count"], 100);
+        assert_eq!(json["cap"], 100);
+    }
+
+    #[test]
+    fn allowed_outcome_carries_no_payload() {
+        // Sanity: the `Allowed` variant is shapeless. A future PR
+        // adding fields here would force the React-side type union
+        // update; this test makes that change visible.
+        let json = serde_json::to_value(DispatchGateOutcome::Allowed).unwrap();
+        assert_eq!(json["kind"], "allowed");
+        // No additional fields beyond `kind`.
+        assert_eq!(json.as_object().unwrap().len(), 1);
     }
 }
