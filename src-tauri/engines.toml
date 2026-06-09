@@ -104,13 +104,19 @@ description = "Apple Music downloader with lossless, Atmos, and lyrics support"
 [engines.votify]
 name = "votify"
 required = true
-enabled = false
+# Enabled in PR M9-1 (Spotify integration foundation, #101). The engine is
+# registered + capability-gated + probed at startup, but the full subprocess
+# wiring (command construction, output parsing, settings UI) lands in
+# follow-up PRs M9-2 through M9-6. Until then download paths return a
+# friendly "Spotify downloads are not yet implemented" message, gated
+# behind dev_access_enabled per the EPIC design.
+enabled = true
 bundled = true                    # Core engine — pip installed into managed Python env
 install_method = "pip"
 pip_package = "votify"
 cli_command = "python -m votify"
 homepage = "https://github.com/glomatico/votify"
-description = "Spotify downloader with Ogg Vorbis and lyrics support"
+description = "Spotify downloader with Ogg Vorbis and AAC support, FLAC lossless deferred"
 
 [engines.ytdlp]
 name = "yt-dlp"

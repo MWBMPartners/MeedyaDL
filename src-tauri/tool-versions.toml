@@ -375,3 +375,42 @@ maximum_tested_version = "3.7.3"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
 recommended_version = "3.7.3"
+
+# Votify is installed via pip (mirrors the GAMDL pattern). Same support-
+# window contract: the running MeedyaDL build only "knows about" releases
+# within `[minimum_version, maximum_tested_version]`. Consumed by
+# `services::votify_capabilities` for:
+#
+#   * capping `pip install --upgrade` to the tested range (M9-2),
+#   * suppressing update prompts when upstream ships beyond our
+#     ceiling (M9-2 / future update banner), and
+#   * classifying the installed version at startup
+#     (Unsupported / Supported / Untested / NotInstalled).
+#
+# Bump `maximum_tested_version` / `recommended_version` every time we
+# validate a new votify release. `minimum_version` is the oldest
+# release MeedyaDL still supports — bump up only when an older release
+# drops a CLI feature we depend on (mirrors the GAMDL pattern where
+# minimum is held at 2.9.1 because that's where `--song-codec-priority`
+# became reliable for albums).
+#
+# Initial M9-1 window:
+#
+# - minimum_version = "1.9.0" — first 1.9.x release. Conservative floor;
+#   older 1.7.x/1.8.x lines exist but predate the AAC-medium / AAC-high
+#   default-codec flow MeedyaDL relies on for free + Premium accounts.
+# - maximum_tested_version = "1.9.9" — current latest on PyPI at the
+#   time of PR M9-1 landing (2026-06-07). No audit has been done yet;
+#   the M9-1 scaffold treats every flag MeedyaDL emits as conservative.
+# - recommended_version = "1.9.9" — same.
+#
+# When upstream votify ships 1.10.x or 2.x, the `upstream-engine-watch.yml`
+# workflow files an audit issue (#101 follow-up), same shape as the
+# existing GAMDL audit cadence (#898 / #767 / #711). The audit reviews
+# the upstream commits, decides whether the new release is admitted to
+# the support window with or without code changes, and bumps these
+# constants in a one-line PR (same shape as the GAMDL ceiling bumps).
+[votify]
+minimum_version = "1.9.0"
+maximum_tested_version = "1.9.9"
+recommended_version = "1.9.9"

@@ -397,6 +397,14 @@ pub mod bbc_iplayer_service;
 pub mod spotify_service;
 pub mod youtube_service;
 
+/// Version-aware capability flags for the installed `votify` CLI (#101).
+///
+/// Mirrors [`gamdl_capabilities`]. Lands in PR M9-1 as scaffolding —
+/// the [`VotifyFeature`] enum carries a placeholder variant until PR
+/// M9-2's audit produces real version-conditional gates. See the module
+/// docs for the full lifecycle.
+pub mod votify_capabilities;
+
 /// External queue watchdog (#818).
 ///
 /// Top-level tokio task — owned by the Tauri runtime, NOT spawned by
