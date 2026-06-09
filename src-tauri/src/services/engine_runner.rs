@@ -235,10 +235,20 @@ impl EngineCommandBuilder for GamdlCommandBuilder {
 // Stub command builders for future engines
 // ============================================================
 
-/// Command builder stub for the Votify engine (Spotify downloads).
+/// Command builder for the votify engine (Spotify downloads — #101 / M9).
 ///
-/// Not yet functional — will be implemented in milestone M8 (v2.0.0).
-/// Votify is a pip-installed Python package, similar to GAMDL.
+/// **PR M9-1 scaffolding.** The full subprocess wiring (argument
+/// construction from `VotifyOptions`, cookie path injection, output-
+/// template plumbing, real-time-throttle integration) lives in PR M9-2.
+/// For now `build_command` returns a friendly "not yet wired" error
+/// so the engine registry can resolve the builder + the capability
+/// gates exposed by [`super::votify_capabilities`] are reachable
+/// from the startup version probe.
+///
+/// The engine is still gated behind `dev_access_enabled` at the UI
+/// layer per the EPIC's anti-ban posture, so users on a fresh
+/// install never see Spotify in the download form until they unlock
+/// dev access (Konami code).
 pub struct VotifyCommandBuilder;
 
 impl EngineCommandBuilder for VotifyCommandBuilder {
@@ -252,7 +262,16 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("Votify engine is not yet implemented (planned for v2.0.0)".to_string())
+        // PR M9-1 registers + probes votify but does not dispatch any
+        // download through it yet. The message points users at the
+        // tracking issue so they know it's intentional, not a bug.
+        Err(
+            "Spotify download support is in active development — \
+             see https://github.com/MWBMPartners/MeedyaDL/issues/101 \
+             for status. (votify v1.9.x detected; command wiring lands \
+             in PR M9-2)"
+                .to_string(),
+        )
     }
 }
 
