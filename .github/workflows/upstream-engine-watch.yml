@@ -1,0 +1,317 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Upstream engine release watcher (generalised)
+# =============================================
+#
+# Daily cron job that compares the latest release on PyPI for each MeedyaDL
+# download engine against the `maximum_tested_version` declared in
+# `src-tauri/tool-versions.toml`. When PyPI ships a release beyond our
+# validated ceiling, the workflow opens (or updates) a GitHub Issue
+# labelled `upstream-<engine>` so we can triage the change before users
+# hit it.
+#
+# This file is the generalised successor to `upstream-gamdl-watch.yml`,
+# which was retired in PR M9-1 (#101) when votify joined the family.
+# The matrix below polls every engine MeedyaDL knows about; adding a
+# new engine (M8 BBC iPlayer get_iplayer / yt-dlp, M10 YouTube yt-dlp,
+# any future Tidal / Deezer / Amazon Music engines) is a one-entry
+# addition to the matrix plus a matching `[<engine>]` section in
+# `tool-versions.toml`.
+#
+# The support window is intentionally client-side (see #518):
+#
+#   * The respective `install_<engine>()` flows pin to `<engine>>=min,<=max`,
+#     so first-time setup never pulls an untested release.
+#   * The update banner suppresses prompts when PyPI advertises a version
+#     above the ceiling.
+#
+# Both of those protect users, but without this watcher we have no signal
+# that upstream moved — the first indicator would be a crash-report ticket
+# weeks later. That's exactly what bit us on 2026-04-21 when GAMDL v3.0
+# shipped with a breaking CLI change (see #516).
+#
+# To run manually: `gh workflow run "Upstream Engine Watch" --ref main`
+# Related issues: #101, #516, #518, #520, #898
+
+name: Upstream Engine Watch
+
+on:
+  schedule:
+    # Run daily at 06:00 UTC. Daily cadence catches same-day point
+    # releases (GAMDL has shipped multiple within 24 h of each other —
+    # see the 2026-04 v3.4 + v3.5 same-day pair, the 2026-05 v3.7.2 +
+    # v3.7.3 same-day pair). Earlier weekly cadence let those collapse
+    # into one ticket; daily gives each release its own audit window
+    # before the next one lands.
+    #
+    # 06:00 UTC = 06:00 GMT / 07:00 BST / 02:00 EST / 23:00 PST previous
+    # day / 15:00 JST. Chosen as a quiet window across global maintainer
+    # time zones, far from typical CI rush hours.
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print diagnostics without creating/updating issues'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  # `contents: read` for the checkout, `issues: write` to create / update
+  # the triage ticket. No other scopes needed — we deliberately avoid
+  # `pull-requests` so a compromised workflow run can't open unreviewed
+  # PRs.
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    name: Poll PyPI for ${{ matrix.engine.id }} ceiling breaches
+    runs-on: ubuntu-latest
+    strategy:
+      # Run each engine's check independently — one engine's PyPI
+      # flake shouldn't suppress the others. The matrix produces N
+      # parallel jobs (one per engine row); the cron fires once and
+      # the matrix expansion runs every row.
+      fail-fast: false
+      matrix:
+        engine:
+          - id: gamdl
+            display_name: GAMDL
+            pypi_package: gamdl
+            toml_section: gamdl
+            audit_label: upstream-gamdl
+            upstream_repo: glomatico/gamdl
+          - id: votify
+            display_name: votify
+            pypi_package: votify
+            toml_section: votify
+            audit_label: upstream-votify
+            upstream_repo: glomatico/votify
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Setup Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          # 3.11+ ships `tomllib` in the stdlib — no extra install step needed.
+          python-version: '3.12'
+
+      - name: Detect PyPI drift for ${{ matrix.engine.display_name }}
+        id: detect
+        # Environment-based inputs prevent shell injection from workflow
+        # dispatch parameters AND make the matrix values explicit. Every
+        # engine-specific value the Python step needs gets a named env
+        # entry rather than `${{ matrix.engine.* }}` interpolation in
+        # the script body — keeps the same script reusable across
+        # matrix rows.
+        env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          ENGINE_ID: ${{ matrix.engine.id }}
+          ENGINE_DISPLAY_NAME: ${{ matrix.engine.display_name }}
+          PYPI_PACKAGE: ${{ matrix.engine.pypi_package }}
+          TOML_SECTION: ${{ matrix.engine.toml_section }}
+        run: |
+          python <<'PY'
+          """Compare PyPI's latest release for this engine against our
+          support ceiling.
+
+          Writes outputs to $GITHUB_OUTPUT for the downstream step:
+            * `ceiling` — the maximum_tested_version from tool-versions.toml
+            * `minimum` — the minimum_version from tool-versions.toml
+            * `recommended` — the recommended_version from tool-versions.toml
+            * `latest`  — the info.version from PyPI
+            * `breach`  — "true" if latest > ceiling, else "false"
+
+          Additionally writes a markdown summary to $GITHUB_STEP_SUMMARY so
+          the workflow page is useful even when no issue is opened.
+          """
+          import json
+          import os
+          import pathlib
+          import sys
+          import tomllib
+          import urllib.request
+
+
+          def parse_semver(value: str) -> tuple[int, int, int]:
+              parts = value.split(".")
+              def _part(i: int) -> int:
+                  try:
+                      return int(parts[i])
+                  except (IndexError, ValueError):
+                      return 0
+              return _part(0), _part(1), _part(2)
+
+
+          def emit(name: str, value: str) -> None:
+              output_path = os.environ.get("GITHUB_OUTPUT")
+              if output_path:
+                  with open(output_path, "a", encoding="utf-8") as fh:
+                      fh.write(f"{name}={value}\n")
+
+
+          def summary(markdown: str) -> None:
+              summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+              if summary_path:
+                  with open(summary_path, "a", encoding="utf-8") as fh:
+                      fh.write(markdown + "\n")
+
+
+          engine_id = os.environ["ENGINE_ID"]
+          engine_display = os.environ["ENGINE_DISPLAY_NAME"]
+          pypi_package = os.environ["PYPI_PACKAGE"]
+          toml_section = os.environ["TOML_SECTION"]
+
+          # 1. Read the ceiling from tool-versions.toml.
+          toml_path = pathlib.Path("src-tauri/tool-versions.toml")
+          try:
+              with toml_path.open("rb") as fh:
+                  config = tomllib.load(fh)
+              ceiling = config[toml_section]["maximum_tested_version"]
+              minimum = config[toml_section]["minimum_version"]
+              recommended = config[toml_section]["recommended_version"]
+          except (FileNotFoundError, KeyError) as exc:
+              print(f"::error::Failed to read tool-versions.toml [{toml_section}]: {exc}")
+              sys.exit(1)
+
+          # 2. Query PyPI for the latest release.
+          pypi_url = f"https://pypi.org/pypi/{pypi_package}/json"
+          try:
+              with urllib.request.urlopen(pypi_url, timeout=15) as resp:
+                  payload = json.load(resp)
+              latest = payload["info"]["version"]
+          except Exception as exc:  # noqa: BLE001
+              print(f"::error::Failed to query PyPI for {pypi_package}: {exc}")
+              sys.exit(1)
+
+          breach = parse_semver(latest) > parse_semver(ceiling)
+
+          print(f"[{engine_display}] Ceiling (from tool-versions.toml): {ceiling}")
+          print(f"[{engine_display}] Minimum (from tool-versions.toml): {minimum}")
+          print(f"[{engine_display}] Recommended (from tool-versions.toml): {recommended}")
+          print(f"[{engine_display}] Latest (from PyPI): {latest}")
+          print(f"[{engine_display}] Breach: {breach}")
+
+          emit("ceiling", ceiling)
+          emit("minimum", minimum)
+          emit("recommended", recommended)
+          emit("latest", latest)
+          emit("breach", "true" if breach else "false")
+
+          summary(
+              f"## {engine_display} support window\n"
+              f"- Minimum supported: `{minimum}`\n"
+              f"- Maximum tested: `{ceiling}`\n"
+              f"- Recommended: `{recommended}`\n"
+              f"- Latest on PyPI: `{latest}`\n"
+              f"- **Breach**: {'YES' if breach else 'no'}\n"
+          )
+          PY
+
+      - name: Report no-breach status for ${{ matrix.engine.display_name }}
+        if: steps.detect.outputs.breach == 'false'
+        run: |
+          echo "::notice::${{ matrix.engine.display_name }} ${{ steps.detect.outputs.latest }} is within the supported ceiling (${{ steps.detect.outputs.ceiling }}) — no action required."
+
+      - name: Open or update tracking issue for ${{ matrix.engine.display_name }}
+        if: steps.detect.outputs.breach == 'true' && github.event.inputs.dry_run != 'true'
+        # Using the REST API via the pre-installed `gh` CLI. We search for an
+        # existing open issue with a well-known title pattern and update it
+        # rather than spamming fresh issues every day — at the daily cadence
+        # an unaddressed ticket would otherwise accumulate 365 duplicate
+        # comments in a year where upstream sits above the ceiling.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CEILING: ${{ steps.detect.outputs.ceiling }}
+          MINIMUM: ${{ steps.detect.outputs.minimum }}
+          RECOMMENDED: ${{ steps.detect.outputs.recommended }}
+          LATEST: ${{ steps.detect.outputs.latest }}
+          ENGINE_ID: ${{ matrix.engine.id }}
+          ENGINE_DISPLAY_NAME: ${{ matrix.engine.display_name }}
+          PYPI_PACKAGE: ${{ matrix.engine.pypi_package }}
+          AUDIT_LABEL: ${{ matrix.engine.audit_label }}
+          UPSTREAM_REPO: ${{ matrix.engine.upstream_repo }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE="upstream: ${ENGINE_DISPLAY_NAME} ${LATEST} is beyond MeedyaDL's tested ceiling (${CEILING})"
+
+          # Search for an existing open issue with this engine's label so
+          # we update rather than duplicate. The label is per-engine
+          # (upstream-gamdl / upstream-votify / etc.) so each engine's
+          # ticket stays in its own thread.
+          EXISTING=$(gh issue list --repo "$REPO" \
+            --state open \
+            --label "$AUDIT_LABEL" \
+            --json number,title \
+            --jq '.[0].number // empty')
+
+          BODY=$(cat <<EOF
+          ## What changed?
+
+          \`${PYPI_PACKAGE}\` is now at **${LATEST}** on PyPI, but MeedyaDL's
+          \`maximum_tested_version\` in \`src-tauri/tool-versions.toml\` is
+          still **${CEILING}**.
+
+          ## Support window
+
+          | Field | Value |
+          |---|---|
+          | Engine | \`${ENGINE_DISPLAY_NAME}\` |
+          | PyPI package | \`${PYPI_PACKAGE}\` |
+          | Minimum supported | \`${MINIMUM}\` |
+          | Maximum tested | \`${CEILING}\` |
+          | Recommended | \`${RECOMMENDED}\` |
+          | Latest on PyPI | \`${LATEST}\` |
+
+          ## Triage checklist
+
+          - [ ] Review the [${ENGINE_DISPLAY_NAME} ${LATEST} release notes](https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}) — are any CLI flags removed, renamed, or defaults changed?
+          - [ ] Check [upstream commits since v${CEILING}](https://github.com/${UPSTREAM_REPO}/compare/${CEILING}...main) for structural refactors (logging, output format, downloader module).
+          - [ ] Run \`cargo test --lib services::${ENGINE_ID}_capabilities::\` to confirm no capability gate regressions.
+          - [ ] If safe to admit: bump \`maximum_tested_version\` + \`recommended_version\` in \`src-tauri/tool-versions.toml\` to \`${LATEST}\`.
+          - [ ] If breaking: add a \`${ENGINE_DISPLAY_NAME}Feature\` capability gate (mirroring the existing GAMDL pattern in \`gamdl_capabilities.rs\`) before bumping the ceiling.
+          - [ ] Write an audit doc under \`.github/audits/${ENGINE_ID}-v${LATEST}-audit.md\` summarising findings.
+
+          ## Context
+
+          - Part of the long-running upstream-cadence tracking work (#516 / #518).
+          - The MeedyaDL support window is client-side: users only get prompted to upgrade to releases within \`[minimum, maximum_tested]\`. Bumping the ceiling is a deliberate per-release audit decision, not an automatic Dependabot bump.
+          - This workflow: \`.github/workflows/upstream-engine-watch.yml\`. Runs daily at 06:00 UTC for every engine declared in the matrix.
+
+          ---
+
+          _This ticket is opened and updated automatically by the upstream engine watcher. When you close it (manually or by merging a ceiling bump), the workflow will open a fresh ticket next time PyPI advertises yet another release above the new ceiling._
+          EOF
+          )
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$REPO" --body "$(cat <<COMMENT
+          Daily watcher tick — \`${PYPI_PACKAGE}\` is still at **${LATEST}** on PyPI (ceiling: \`${CEILING}\`).
+
+          $(date -u '+%Y-%m-%d %H:%M UTC')
+          COMMENT
+          )"
+            gh issue edit "$EXISTING" --repo "$REPO" --title "$TITLE" --body "$BODY"
+            echo "::notice::Updated existing tracking issue #${EXISTING} for ${ENGINE_DISPLAY_NAME}"
+          else
+            # Ensure the per-engine label exists. Labels created at the same
+            # name + colour are idempotent — gh returns non-zero on conflict
+            # which we tolerate.
+            gh label create "$AUDIT_LABEL" \
+              --repo "$REPO" \
+              --description "Upstream ${ENGINE_DISPLAY_NAME} release above MeedyaDL's tested ceiling" \
+              --color "FBCA04" \
+              2>/dev/null || true
+
+            NEW=$(gh issue create --repo "$REPO" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "$AUDIT_LABEL" \
+              --label "upstream-bump")
+            echo "::notice::Opened new tracking issue $NEW for ${ENGINE_DISPLAY_NAME}"
+          fi
