@@ -1099,6 +1099,26 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_promo_video_enabled: bool,
 
+    /// When enabled, MeedyaDL fetches the static cover art for an
+    /// album from every supported platform in parallel (Apple Music,
+    /// Spotify, future MusicBrainz / Tidal / Bandcamp) and embeds the
+    /// **highest-resolution** candidate into the audio file —
+    /// regardless of which platform the download itself came from.
+    ///
+    /// Tie-break (equal pixel area): Apple Music wins, since its
+    /// maximum native artwork is consistently higher quality than
+    /// the fall-back sources that match its dimensions in practice.
+    ///
+    /// Off by default — the feature is opt-in because it issues an
+    /// extra HTTP call per platform, and most users are happy with
+    /// the cover art the originating engine already wrote. Surface
+    /// lives at Settings > Cover Art.
+    ///
+    /// See `services/best_cover_art_service.rs` for the comparator
+    /// + tie-break logic (M9-3).
+    #[serde(default)]
+    pub best_cover_art_enabled: bool,
+
     /// Apple `MusicKit` Team ID for API authentication. This is the
     /// 10-character team identifier from the Apple Developer portal
     /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
@@ -1912,6 +1932,13 @@ impl Default for AppSettings {
             // folder when available. Gracefully skips when no credentials or
             // no promo video exists. Skipped for compilation albums.
             artist_promo_video_enabled: true,
+            // Off by default (M9-3): opt-in cross-platform cover-art
+            // resolution race. The feature issues one extra HTTP call
+            // per non-Apple platform per album, so we don't enable it
+            // on every download by default — users who want the
+            // highest-fidelity artwork can flip it on in Settings >
+            // Cover Art.
+            best_cover_art_enabled: false,
             musickit_team_id: None,
             musickit_key_id: None,
 

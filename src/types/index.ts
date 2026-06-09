@@ -662,6 +662,14 @@ export interface AppSettings {
   hide_animated_artwork: boolean;
   /** Download artist promotional video (editorial motion art) to the artist folder */
   artist_promo_video_enabled: boolean;
+  /**
+   * Cross-platform best-cover-art picker (M9-3). When enabled,
+   * MeedyaDL queries every supported platform's artwork endpoint
+   * in parallel, picks the highest-resolution candidate, and embeds
+   * it (Apple Music wins equal-pixel tie-breaks). Off by default
+   * since it issues an extra HTTP call per non-Apple platform.
+   */
+  best_cover_art_enabled: boolean;
   /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
