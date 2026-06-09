@@ -917,6 +917,22 @@ export interface AntiBanSettings {
   daily_download_cap: number;
 }
 
+/**
+ * Dispatch-gate outcome for a Spotify download request (M9-4 + M9-6).
+ *
+ * Returned by both the `check_spotify_dispatch_allowed` preview IPC
+ * and the `start_download` enforcement path. Routes on `kind` —
+ * the discriminator is serialised as snake_case via Rust's
+ * `#[serde(tag = "kind", rename_all = "snake_case")]`.
+ */
+export type DispatchGateOutcome =
+  | { kind: 'allowed' }
+  | { kind: 'dev_access_required' }
+  | { kind: 'consent_required' }
+  | { kind: 'missing_spotify_dll' }
+  | { kind: 'missing_wvd' }
+  | { kind: 'daily_cap_reached'; count: number; cap: number };
+
 /** YouTube/YouTube Music service settings (stub for M9) */
 export interface YouTubeServiceSettings {
   cookies_path: string | null;

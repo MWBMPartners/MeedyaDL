@@ -229,6 +229,26 @@ pub async fn start_download(
                         .to_string(),
                 );
             }
+            DispatchGateOutcome::MissingSpotifyDll => {
+                return Err(
+                    "Spotify desktop session needs the Spotify Windows \
+                     desktop DLL (Spotify v1.2.88.483 — 'Spotify.exe' / \
+                     'spotify.dll'). Set the path under Settings > \
+                     Services > Spotify > Session, or switch session_type \
+                     to 'librespot' / 'web'."
+                        .to_string(),
+                );
+            }
+            DispatchGateOutcome::MissingWvd => {
+                return Err(
+                    "Spotify web session needs a Widevine '.wvd' file. \
+                     Set the path under Settings > Services > Spotify > \
+                     Session, or switch session_type to 'librespot' / \
+                     'desktop'. (Widevine files are user-supplied; see \
+                     the help page for acquisition guidance.)"
+                        .to_string(),
+                );
+            }
             DispatchGateOutcome::DailyCapReached { count, cap } => {
                 return Err(format!(
                     "Spotify daily download cap reached ({count} / {cap}). \
