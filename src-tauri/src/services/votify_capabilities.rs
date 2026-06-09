@@ -22,13 +22,14 @@
 //!   * the future `votify_service::install_votify()` flow (M9-2), and
 //!   * the future Spotify download dispatch (M9-2 / M9-4).
 //!
-//! The [`VotifyFeature`] enum currently carries a single placeholder
-//! variant ([`VotifyFeature::Placeholder`]). Real version-conditional
-//! feature gates land in PR M9-2 alongside the votify CLI flag audit
-//! that maps each `VotifyOptions` field to a CLI flag — at that point
-//! the placeholder is replaced with concrete variants for any flag
-//! whose availability has changed across the support window
-//! (`1.9.0..=1.9.9`). The placeholder pattern matches GAMDL's early
+//! The [`VotifyFeature`] enum carries the concrete version-gated
+//! variants identified by the M9-2 release-notes audit
+//! ([`VotifyFeature::DesktopAacAndMp4Flac`] from v1.9.5,
+//! [`VotifyFeature::UpcTag`] from v1.9.7). Adding a new variant
+//! requires (a) the upstream release note that introduced the
+//! change, (b) a row in the support-window matrix, and (c) a unit
+//! test pinning the version → feature mapping. The pattern matches
+//! GAMDL's early
 //! capability rollout (#604 lifecycle).
 //!
 //! # Threading model
@@ -323,18 +324,24 @@ pub fn detected_version() -> Option<String> {
 /// variant — see e.g. #605 `WrapperM3u8Ip` for the canonical PR shape.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VotifyFeature {
-    /// Placeholder variant kept so the enum compiles before PR M9-2
-    /// lands real version-conditional gates.
+    /// AAC + MP4-container FLAC for `session_type = "desktop"` —
+    /// added in votify v1.9.5 (release note: *"Allow AAC and MP4
+    /// FLAC for desktop session type."*).
     ///
-    /// `is_available_on` returns `true` for any version that parses as
-    /// `>= minimum_version`. This is a deliberate no-op — it makes the
-    /// enum and the supporting [`supports`] / [`active_capabilities_summary`]
-    /// scaffolding exercise-able by the M9-1 tests without committing
-    /// to specific votify version semantics that haven't been audited
-    /// yet.
+    /// Consumers that emit an `--audio-quality` value containing
+    /// `aac-*` should gate the request on this flag (or fall back
+    /// to Vorbis) when `session_type = "desktop"` is active. Below
+    /// v1.9.5 votify rejects AAC for the desktop session.
+    DesktopAacAndMp4Flac,
+
+    /// `upc` metadata tag — added in votify v1.9.7 (release note:
+    /// *"Added UPC tag"*).
     ///
-    /// Will be removed when the first real gate lands in M9-2.
-    Placeholder,
+    /// Consumers should only include UPC in `--exclude-tags` lists
+    /// when this returns `true`; below v1.9.7 the tag doesn't exist
+    /// and the exclusion would be a no-op (harmless but noisy in the
+    /// activity log).
+    UpcTag,
 }
 
 impl VotifyFeature {
@@ -344,10 +351,8 @@ impl VotifyFeature {
     /// two-part ("1.9") and unparseable version strings gracefully.
     fn is_available_on(self, version: &str) -> bool {
         match self {
-            Self::Placeholder => {
-                let window = support_window();
-                is_version_at_least(version, &window.minimum)
-            }
+            Self::DesktopAacAndMp4Flac => is_version_at_least(version, "1.9.5"),
+            Self::UpcTag => is_version_at_least(version, "1.9.7"),
         }
     }
 }
@@ -374,17 +379,22 @@ pub fn supports(feature: VotifyFeature) -> bool {
 /// an item ran. Returns `"unknown"` when the version cache hasn't
 /// been populated yet, mirroring [`supports`]'s safe default.
 ///
-/// While only [`VotifyFeature::Placeholder`] exists, the output is
-/// either `"placeholder"` (version known + within support window) or
-/// `"(none)"` (version known but below `minimum`). PR M9-2 grows the
-/// list as real gates land.
+/// Output examples:
+///
+/// * v1.9.0 → `"(none)"` (version known but below every gate)
+/// * v1.9.5 → `"desktop-aac-and-mp4-flac"`
+/// * v1.9.7+ → `"desktop-aac-and-mp4-flac, upc-tag"`
+/// * No version cached → `"unknown"`
 #[must_use]
 pub fn active_capabilities_summary() -> String {
     let Some(ver) = detected_version() else {
         return "unknown".to_string();
     };
 
-    let all = [(VotifyFeature::Placeholder, "placeholder")];
+    let all = [
+        (VotifyFeature::DesktopAacAndMp4Flac, "desktop-aac-and-mp4-flac"),
+        (VotifyFeature::UpcTag, "upc-tag"),
+    ];
 
     let active: Vec<&str> = all
         .iter()
@@ -536,22 +546,36 @@ mod tests {
     fn supports_returns_false_when_version_unknown() {
         let _lock = test_lock();
         set_detected_version(None);
-        assert!(!supports(VotifyFeature::Placeholder));
+        assert!(!supports(VotifyFeature::DesktopAacAndMp4Flac));
+        assert!(!supports(VotifyFeature::UpcTag));
     }
 
     #[test]
-    fn supports_placeholder_when_version_within_window() {
+    fn supports_desktop_aac_inactive_below_1_9_5() {
         let _lock = test_lock();
-        let window = support_window();
-        set_detected_version(Some(window.minimum.clone()));
-        assert!(supports(VotifyFeature::Placeholder));
+        set_detected_version(Some("1.9.4".to_string()));
+        assert!(!supports(VotifyFeature::DesktopAacAndMp4Flac));
     }
 
     #[test]
-    fn supports_placeholder_false_below_minimum() {
+    fn supports_desktop_aac_active_at_1_9_5() {
         let _lock = test_lock();
-        set_detected_version(Some("0.1.0".to_string()));
-        assert!(!supports(VotifyFeature::Placeholder));
+        set_detected_version(Some("1.9.5".to_string()));
+        assert!(supports(VotifyFeature::DesktopAacAndMp4Flac));
+    }
+
+    #[test]
+    fn supports_upc_tag_inactive_below_1_9_7() {
+        let _lock = test_lock();
+        set_detected_version(Some("1.9.6".to_string()));
+        assert!(!supports(VotifyFeature::UpcTag));
+    }
+
+    #[test]
+    fn supports_upc_tag_active_at_1_9_7() {
+        let _lock = test_lock();
+        set_detected_version(Some("1.9.7".to_string()));
+        assert!(supports(VotifyFeature::UpcTag));
     }
 
     #[test]
@@ -562,20 +586,29 @@ mod tests {
     }
 
     #[test]
-    fn active_capabilities_summary_lists_active() {
+    fn active_capabilities_summary_lists_active_at_window_ceiling() {
         let _lock = test_lock();
         let window = support_window();
         set_detected_version(Some(window.maximum_tested.clone()));
         let summary = active_capabilities_summary();
-        // Placeholder is the only declared feature in M9-1 and is active for
-        // any version in the support window.
-        assert!(summary.contains("placeholder"), "summary '{summary}' should include placeholder");
+        // At the support-window ceiling (1.9.9), both gates fire.
+        assert!(
+            summary.contains("desktop-aac-and-mp4-flac"),
+            "summary '{summary}' should include desktop-aac-and-mp4-flac"
+        );
+        assert!(
+            summary.contains("upc-tag"),
+            "summary '{summary}' should include upc-tag"
+        );
     }
 
     #[test]
     fn active_capabilities_summary_none_when_below_minimum() {
         let _lock = test_lock();
-        set_detected_version(Some("0.1.0".to_string()));
+        set_detected_version(Some("1.9.0".to_string()));
+        // At the support floor every gate is below its activation
+        // point, so the summary degrades to "(none)" — same shape
+        // GAMDL's summary uses pre-feature-gate.
         assert_eq!(active_capabilities_summary(), "(none)");
     }
 
@@ -602,13 +635,14 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_feature_aware_of_minimum() {
-        // The placeholder consults the support window's minimum. Any future
-        // edit to `minimum_version` in tool-versions.toml should still leave
-        // this passing — but if someone changes the placeholder semantics
-        // without updating the test, the regression surfaces here.
-        let window = support_window();
-        assert!(VotifyFeature::Placeholder.is_available_on(&window.minimum));
-        assert!(!VotifyFeature::Placeholder.is_available_on("0.0.1"));
+    fn feature_gates_pin_to_their_release_notes() {
+        // These thresholds are sourced from the upstream release notes
+        // captured in the M9-2 audit. If a future release rewrites the
+        // CLI surface, the regression surfaces here rather than via a
+        // mysterious download failure.
+        assert!(VotifyFeature::DesktopAacAndMp4Flac.is_available_on("1.9.5"));
+        assert!(!VotifyFeature::DesktopAacAndMp4Flac.is_available_on("1.9.4"));
+        assert!(VotifyFeature::UpcTag.is_available_on("1.9.7"));
+        assert!(!VotifyFeature::UpcTag.is_available_on("1.9.6"));
     }
 }

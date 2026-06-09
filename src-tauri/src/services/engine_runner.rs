@@ -237,18 +237,17 @@ impl EngineCommandBuilder for GamdlCommandBuilder {
 
 /// Command builder for the votify engine (Spotify downloads — #101 / M9).
 ///
-/// **PR M9-1 scaffolding.** The full subprocess wiring (argument
-/// construction from `VotifyOptions`, cookie path injection, output-
-/// template plumbing, real-time-throttle integration) lives in PR M9-2.
-/// For now `build_command` returns a friendly "not yet wired" error
-/// so the engine registry can resolve the builder + the capability
-/// gates exposed by [`super::votify_capabilities`] are reachable
-/// from the startup version probe.
+/// Delegates to [`super::spotify_service::build_votify_command_public`]
+/// which handles Python path resolution, URL prefix validation,
+/// `VotifyOptions → CLI` conversion, and managed-tool-path
+/// auto-injection (FFmpeg / MP4Box / mp4decrypt). Mirrors the shape
+/// of [`GamdlCommandBuilder`].
 ///
 /// The engine is still gated behind `dev_access_enabled` at the UI
 /// layer per the EPIC's anti-ban posture, so users on a fresh
 /// install never see Spotify in the download form until they unlock
-/// dev access (Konami code).
+/// dev access (Konami code). M9-4 adds the dev-access gate + the
+/// first-run anti-ban consent modal.
 pub struct VotifyCommandBuilder;
 
 impl EngineCommandBuilder for VotifyCommandBuilder {
@@ -258,20 +257,20 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
 
     fn build_command(
         &self,
-        _app: &AppHandle,
-        _urls: &[String],
+        app: &AppHandle,
+        urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        // PR M9-1 registers + probes votify but does not dispatch any
-        // download through it yet. The message points users at the
-        // tracking issue so they know it's intentional, not a bug.
-        Err(
-            "Spotify download support is in active development — \
-             see https://github.com/MWBMPartners/MeedyaDL/issues/101 \
-             for status. (votify v1.9.x detected; command wiring lands \
-             in PR M9-2)"
-                .to_string(),
-        )
+        // Like [`GamdlCommandBuilder`] above, the typed options drive
+        // CLI construction directly — the generic `cli_args` param is
+        // ignored (the trait carries it for engines that don't have a
+        // typed option struct). `VotifyOptions::default()` produces an
+        // all-`None` shape; the queue layer passes a populated struct
+        // via the direct builder path until the dispatch refactor
+        // (M9-4) routes everything through this trait.
+        use crate::models::votify_options::VotifyOptions;
+        let options = VotifyOptions::default();
+        super::spotify_service::build_votify_command_public(app, urls, &options)
     }
 }
 
