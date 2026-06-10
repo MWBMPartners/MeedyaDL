@@ -168,6 +168,7 @@ import { LoadingSpinner } from './components/common';
 import { Modal } from './components/common/Modal';
 import PrereleaseNoticeModal from './components/common/PrereleaseNoticeModal';
 import CrashReportOptInModal from './components/common/CrashReportOptInModal';
+import SpotifyConsentModal from './components/common/SpotifyConsentModal';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -1097,6 +1098,11 @@ function App() {
        * and can be dismissed independently. */}
       <PrereleaseNoticeModal />
       <CrashReportOptInModal />
+      {/* M9-UI: Spotify first-run consent modal. Triggered from
+          DownloadForm.runPreflightAndSubmit when the user submits a
+          batch containing a Spotify URL and
+          spotify_consent_acknowledged is still false. */}
+      <SpotifyConsentModal />
       {/* Developer access passphrase prompt (triggered by Konami code) */}
       <Modal
         open={showDevPrompt}

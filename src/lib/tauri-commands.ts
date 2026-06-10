@@ -2281,3 +2281,79 @@ export interface IntegrityScanReport {
 export function runIntegrityScan(): Promise<IntegrityScanReport> {
   return invoke<IntegrityScanReport>('run_integrity_scan');
 }
+
+// ============================================================
+// M9-4/5/6/UI — Spotify anti-ban + dispatch gate IPC wrappers
+// ============================================================
+
+/**
+ * Spotify daily-cap counter snapshot — mirrors Rust struct
+ * `commands::spotify_anti_ban::DailyCapStatus`.
+ *
+ * `cap == 0` is the "unlimited" sentinel — the UI should render
+ * that as "Unlimited" rather than literal "0".
+ */
+export interface DailyCapStatus {
+  /** ISO-8601 local-calendar date the counter belongs to. */
+  date: string;
+  /** Tracks counted so far on `date`. */
+  count: number;
+  /** User's configured cap. `0` means unlimited. */
+  cap: number;
+  /** `true` when the next download would be blocked. */
+  at_cap: boolean;
+}
+
+/**
+ * Acknowledge the Spotify first-run consent flag (M9-4 / M9-UI).
+ *
+ * Flips `AppSettings::spotify_consent_acknowledged` to `true` and
+ * persists settings atomically. Idempotent — safe to call on an
+ * already-acknowledged state. The frontend should NOT also call
+ * `updateSettings({ spotify_consent_acknowledged: true })` — the
+ * IPC is the single source of truth and the double-write races
+ * the SHA-256 checksum companion.
+ */
+export function acknowledgeSpotifyConsent(): Promise<void> {
+  return invoke<void>('acknowledge_spotify_consent');
+}
+
+/**
+ * Get a read-only snapshot of the Spotify daily-cap counter.
+ *
+ * Always returns a populated `DailyCapStatus` (even when no
+ * counter file exists yet — fresh-today shape with count=0).
+ */
+export function getSpotifyDailyCapStatus(): Promise<DailyCapStatus> {
+  return invoke<DailyCapStatus>('get_spotify_daily_cap_status');
+}
+
+/**
+ * Reset the persisted Spotify daily-cap counter to zero for today.
+ *
+ * Gated on `dev_access_enabled` server-side — the UI also gates
+ * the button on this flag for the same reason (defence-in-depth).
+ */
+export function resetSpotifyDailyCapCounter(): Promise<void> {
+  return invoke<void>('reset_spotify_daily_cap_counter');
+}
+
+/**
+ * Preview the Spotify dispatch-gate outcome against current
+ * settings + counter state.
+ *
+ * The download form should call this when it detects a Spotify
+ * URL so the appropriate modal (unlock / consent / cap warning)
+ * fires before the user clicks "Add to Queue."
+ *
+ * `start_download` runs the same evaluation internally for every
+ * batch containing a Spotify URL — this is the **preview** of
+ * that decision, NOT a separate gate.
+ */
+export function checkSpotifyDispatchAllowed(): Promise<
+  import('@/types').DispatchGateOutcome
+> {
+  return invoke<import('@/types').DispatchGateOutcome>(
+    'check_spotify_dispatch_allowed'
+  );
+}
