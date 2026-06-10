@@ -132,11 +132,33 @@ jobs:
           # job-level `if:` comment above for the full incident write-up.
           git commit -m "chore(beta): ${{ steps.version.outputs.version }}"
 
-      - name: Push beta branch and tag
+      - name: Push beta branch and tag (with rebase-on-conflict retry)
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
-          git push origin beta
+          # Rebase-retry loop. See alpha-release.yml's matching step
+          # for the full incident write-up — two PRs merging seconds
+          # apart can occasionally win the same-channel push race even
+          # when the workflow's `concurrency` group is configured to
+          # queue. Same defence here: refetch beta, rebase the bump
+          # commit onto its new tip, retry the push.
+          MAX_RETRIES=5
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
+            if git push origin beta; then
+              echo "::notice::Pushed beta branch on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" -eq "$MAX_RETRIES" ]; then
+              echo "::error::git push origin beta failed after $MAX_RETRIES attempts; another concurrent merge keeps winning the race"
+              exit 1
+            fi
+            JITTER=$((RANDOM % 5))
+            echo "::warning::git push origin beta rejected on attempt $attempt; refetching + rebasing + retrying in ${JITTER}s"
+            sleep "$JITTER"
+            git fetch origin beta
+            git rebase --rebase-merges FETCH_HEAD
+          done
+          git tag -d "${{ steps.version.outputs.tag }}" 2>/dev/null || true
           git tag -a "${{ steps.version.outputs.tag }}" -m "Beta ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.tag }}"
 

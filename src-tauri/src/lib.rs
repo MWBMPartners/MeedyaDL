@@ -1195,6 +1195,12 @@ pub fn run() {
             commands::profile_bundle::peek_profile_bundle,
             commands::profile_bundle::import_profile,
             commands::profile_bundle::scan_for_bundles,
+            // Spotify anti-ban (M9-4): consent ack, daily-cap status,
+            // counter reset, dispatch-gate preview
+            commands::spotify_anti_ban::acknowledge_spotify_consent,
+            commands::spotify_anti_ban::get_spotify_daily_cap_status,
+            commands::spotify_anti_ban::reset_spotify_daily_cap_counter,
+            commands::spotify_anti_ban::check_spotify_dispatch_allowed,
             // Manifest import and folder scan
             commands::gamdl::import_manifest,
             commands::gamdl::scan_folder_for_manifests,

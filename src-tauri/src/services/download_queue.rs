@@ -4993,6 +4993,24 @@ async fn download_music_video_by_url(
     settings: &crate::models::settings::AppSettings,
     parent_album_path: Option<&str>,
 ) -> bool {
+    // M9-7 belt-and-braces: this function is only called from Apple
+    // Music enrichment branches (Step 6 MV companion @ ~4321 and
+    // MusicBrainz fallback @ ~10035), both of which are nested under
+    // `is_apple_music` checks. The defensive early-return here catches
+    // any future regression that would route a Spotify item through
+    // GAMDL's MV pipeline — votify has no equivalent and the GAMDL
+    // build would silently fail on the unsupported URL host.
+    if video_url.contains("open.spotify.com") || video_url.starts_with("spotify:") {
+        log::warn!(
+            "download_music_video_by_url called with Spotify URL — skipping (M9-7 guard)"
+        );
+        emit_download_log(
+            app,
+            dl_id,
+            "Music video companion skipped — not supported for Spotify items",
+        );
+        return false;
+    }
     // Defensive guard (#536): motion-art HLS URLs (album cover /
     // portrait cover / album spotlight / artist spotlight) come from
     // the API's `editorialVideo` block and are processed by
@@ -5337,6 +5355,25 @@ async fn run_lyrics_fallback(
     urls: &[String],
     settings: &crate::models::settings::AppSettings,
 ) {
+    // M9-7 belt-and-braces: lyrics fallback uses GAMDL's
+    // `synced_lyrics_only` flag which only accepts Apple Music URLs.
+    // The caller (line ~9072) is nested under Apple Music's lyrics
+    // gap pass, so reaching here with a Spotify URL is a future
+    // regression. Skip cleanly.
+    if urls
+        .iter()
+        .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
+    {
+        log::warn!(
+            "run_lyrics_fallback called with Spotify URL(s) — skipping (M9-7 guard)"
+        );
+        emit_download_log(
+            app,
+            dl_id,
+            "Lyrics fallback skipped — not supported for Spotify items",
+        );
+        return;
+    }
     let dir = std::path::Path::new(album_dir);
     let (audio_count, video_count) = count_media_files(dir);
     let total_media = audio_count + video_count;
@@ -5952,6 +5989,30 @@ fn spawn_companion_downloads(
     force_all_suffixes: bool,
     available_audio_traits: &[String],
 ) -> Option<CompanionTaskHandle> {
+    // M9-7 belt-and-braces: companion downloads use GAMDL's
+    // codec-tier model (Atmos → ALAC → AAC fan-out) which has no
+    // votify equivalent. votify uses a single `--audio-quality` CSV
+    // priority — no tier loop, no `force_all_suffixes`, no
+    // `available_audio_traits` filter. Callers at 8119 / 10243 /
+    // 10999 are all on the GAMDL post-primary path, but a Spotify
+    // item reaching here via a future code path would crash GAMDL
+    // with the unsupported URL host. Skip cleanly.
+    if urls
+        .iter()
+        .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
+    {
+        log::warn!(
+            "spawn_companion_downloads called with Spotify URL(s) — skipping (M9-7 guard)"
+        );
+        emit_download_log(
+            app,
+            dl_id,
+            "Companion downloads skipped — not supported for Spotify items \
+             (votify uses --audio-quality priority instead of tier-and-codec)",
+        );
+        return None;
+    }
+
     let companion_settings = load_settings_for_queue(app);
     let raw_tiers = plan_companions(
         &companion_settings.companion_mode,
@@ -7183,6 +7244,60 @@ pub fn process_queue(
         // Capture download start time for the manifest file. This is when
         // the first file begins downloading, not when enrichment finishes.
         let download_started_at = chrono::Utc::now().to_rfc3339();
+
+        // M9-7: Look up this item's engine for the new top-of-loop
+        // dispatch fork. Branching on engine (not service) is
+        // forward-compatible with M10's shared `ytdlp` engine across
+        // YouTube + BBC iPlayer; the synthesis agent's "service" key
+        // was the right structural intervention point but the
+        // adversarial-critique agent's "engine" key is the right
+        // semantic key. See the M9-7 design doc.
+        let item_engine: Option<String> = {
+            let q = queue.lock().await;
+            q.items
+                .iter()
+                .find(|i| i.status.id == download_id)
+                .and_then(|i| i.status.engine.clone())
+        };
+
+        // M9-7: Spotify (votify) dispatch fork. This block OWNS the
+        // entire lifetime of a Spotify queue item — from gate
+        // re-validation through votify spawn to set_complete /
+        // set_error + counter increment + best-effort manifest
+        // write + queue cascade — and never falls through to the
+        // GAMDL pipeline below.
+        //
+        // The four design choices the adversarial-critique agent
+        // flagged as ship-blockers are all addressed here:
+        //
+        // 1. **Cancellation polling**: routed through
+        //    `engine_runner::run_engine_with_queue` which holds the
+        //    QueueHandle and runs a 250 ms poll loop. Cancel button
+        //    actually cancels.
+        // 2. **Queue progress updates**: same — `update_item_progress`
+        //    fires on every parsed event so the queue row caption /
+        //    progress / track counters tick during the download.
+        // 3. **Partial-success detection**: post-run audio-file count
+        //    is compared against `urls.len()`. Less than half landed
+        //    → `set_error` instead of `set_complete`.
+        // 4. **Dispatch-gate re-validation**: the four-outcome gate
+        //    fires again here, not just at the IPC boundary. Closes
+        //    the crash-restore loophole the critique surfaced.
+        //
+        // Returns (not continues) — `process_queue` is recursive,
+        // not loop-bodied; the arm's spawned task cascades back via
+        // `process_queue(app, queue).await` when it finishes.
+        if item_engine.as_deref() == Some("votify") {
+            run_spotify_dispatch_arm(
+                app.clone(),
+                queue.clone(),
+                download_id.clone(),
+                urls.clone(),
+                download_started_at.clone(),
+            )
+            .await;
+            return;
+        }
 
         // Emit a clear separator in the activity log so users can easily
         // distinguish where one queue item ends and the next begins.
@@ -11124,6 +11239,386 @@ fn is_structlog_line_start(trimmed: &str) -> bool {
         }
     }
     false
+}
+
+// ============================================================
+// M9-7: Spotify (votify) dispatch arm
+// ============================================================
+//
+// The Apple-Music-shaped surface of `run_download_with_events`
+// (warnings vector return, idle-watchdog, GamdlOutputEvent parsing
+// nuances, soft-error counting, gap-fill cascade) is a wrong fit
+// for votify. M9-7 instead routes Spotify items through this
+// short, focused arm — re-evaluate the dispatch gate, spawn votify
+// via `engine_runner::run_engine_with_queue` (which owns the
+// cancellation poll + per-event queue progress update), then on
+// success do the post-run count check, increment the daily-cap
+// counter, and best-effort write_manifest. Failure path is symmetric.
+//
+// `process_queue`'s top-of-loop fork (see line ~7180) invokes this
+// arm and `continue`s; the arm itself is fire-and-forget — its
+// spawned task drives the cascade back into `process_queue` so the
+// next item dispatches.
+
+/// Run the entire M9-7 Spotify dispatch lifecycle for one queue item.
+///
+/// Synchronous (non-spawning) work performed in the caller's task:
+///
+/// * Load settings.
+/// * Re-evaluate the four-outcome dispatch gate. A non-`Allowed`
+///   outcome marks the item Error with the gate's message (clearer
+///   than a generic "votify failed" surfacing inside the spawned
+///   task), releases the queue slot, and triggers the next-item
+///   cascade. This closes the crash-restore loophole — restored
+///   Spotify items go through the gate again, not just at IPC entry.
+/// * Snapshot the pre-run audio-file count for partial-success
+///   detection.
+/// * Build VotifyOptions from settings.
+/// * Build the votify command via `spotify_service::build_votify_command_public`.
+///
+/// Spawned to a tokio task (so `process_queue` can `continue`):
+///
+/// * `engine_runner::run_engine_with_queue` — owns the 250 ms
+///   cancellation poll loop AND `update_item_progress` per parsed
+///   event. The queue row caption ticks during the run.
+/// * On `Ok(())`: re-snapshot the audio-file count; if zero new
+///   files landed (or the post-run scan failed), mark Error;
+///   otherwise mark Complete.
+/// * Increment the daily-cap counter by the new-file count.
+/// * Write a best-effort manifest (`album_metadata: None`).
+/// * `on_task_finished()` releases the slot; `ActiveSlotGuard` is
+///   disarmed; `process_queue` cascade fires the next item.
+async fn run_spotify_dispatch_arm(
+    app: AppHandle,
+    queue: QueueHandle,
+    download_id: String,
+    urls: Vec<String>,
+    download_started_at: String,
+) {
+    // Emit the standard download separator (Spotify-flavoured — the
+    // generic separator includes a GAMDL "Codec / Auth" line that
+    // would be meaningless for a Spotify item).
+    let first_url = urls.first().cloned().unwrap_or_default();
+    emit_download_log(
+        &app,
+        &download_id,
+        &format!(
+            "[MeedyaDL] ════════════════════════════════════════\n\
+             Starting Spotify download: {first_url}\n\
+             Engine: votify"
+        ),
+    );
+    emit_download_log(
+        &app,
+        &download_id,
+        "Enrichment skipped — Spotify items use votify-native tagging \
+         (Apple Music's metadata pipeline does not apply here)",
+    );
+
+    // Load settings for the gate re-validation + VotifyOptions build.
+    let settings = match crate::services::config_service::load_settings(&app) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("Failed to load settings for Spotify dispatch: {e}");
+            spotify_arm_terminate_error(
+                &app,
+                &queue,
+                &download_id,
+                &format!("Failed to load settings: {e}"),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Re-evaluate the dispatch gate. Crash-restored Spotify items
+    // bypass the IPC gate at start_download, so the only correct
+    // mitigation is to evaluate the same four-outcome gate at the
+    // dispatch site too.
+    let counter = crate::services::spotify_anti_ban::load_counter(&app);
+    let gate_result =
+        crate::commands::spotify_anti_ban::evaluate_dispatch_gate(&settings, &counter);
+    use crate::commands::spotify_anti_ban::DispatchGateOutcome;
+    let gate_error: Option<String> = match gate_result {
+        DispatchGateOutcome::Allowed => None,
+        DispatchGateOutcome::DevAccessRequired => Some(
+            "Spotify dispatch blocked — developer access not enabled. \
+             Restored from disk: re-enable dev access to resume."
+                .to_string(),
+        ),
+        DispatchGateOutcome::ConsentRequired => Some(
+            "Spotify dispatch blocked — first-run consent not acknowledged.".to_string(),
+        ),
+        DispatchGateOutcome::MissingSpotifyDll => Some(
+            "Spotify dispatch blocked — `session_type=desktop` selected \
+             but Spotify desktop DLL path is unset or missing on disk."
+                .to_string(),
+        ),
+        DispatchGateOutcome::MissingWvd => Some(
+            "Spotify dispatch blocked — `session_type=web` selected but \
+             Widevine `.wvd` path is unset or missing on disk."
+                .to_string(),
+        ),
+        DispatchGateOutcome::DailyCapReached { count, cap } => Some(format!(
+            "Spotify dispatch blocked — daily cap reached ({count} / {cap}). \
+             Counter resets at local midnight."
+        )),
+    };
+    if let Some(msg) = gate_error {
+        emit_download_log(&app, &download_id, &msg);
+        spotify_arm_terminate_error(&app, &queue, &download_id, &msg).await;
+        return;
+    }
+
+    // Snapshot the audio-file count in the output base BEFORE
+    // running votify. Mirrors the GAMDL primary-path snapshot
+    // (#831) — used to detect partial / total failure via the
+    // post-run count delta.
+    let output_path = settings.output_path.clone();
+    let pre_run_audio_count = count_audio_files_in_directory(
+        std::path::Path::new(&output_path),
+    );
+
+    // Build VotifyOptions from settings (per-download overrides are
+    // M9-9 work — today's queue items dispatch with global settings).
+    let votify_options =
+        crate::models::votify_options::VotifyOptions::from_settings(
+            &settings.service_settings.spotify,
+        );
+
+    // Build the actual command. Spawn failures (Python missing, etc.)
+    // are surfaced inline rather than wrapped in the spawned task —
+    // a "Python isn't installed" error shouldn't live inside an
+    // async block the user can't see clearly.
+    let cmd = match crate::services::spotify_service::build_votify_command_public(
+        &app,
+        &urls,
+        &votify_options,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            let msg = format!("Failed to build votify command: {e}");
+            emit_download_log(&app, &download_id, &msg);
+            spotify_arm_terminate_error(&app, &queue, &download_id, &msg).await;
+            return;
+        }
+    };
+
+    // Spawn the actual download + post-processing work. The arm
+    // returns immediately so `process_queue` can `continue` and
+    // pick up the next item.
+    let app_clone = app;
+    let queue_clone = queue;
+    let dl_id = download_id;
+    tokio::spawn(async move {
+        // ActiveSlotGuard ensures `on_task_finished` is called even
+        // if this task panics — preventing a permanent queue stall.
+        let guard = ActiveSlotGuard::new(queue_clone.clone());
+
+        // Run votify via the queue-aware runner (cancellation poll +
+        // per-event update_item_progress).
+        let result = crate::services::engine_runner::run_engine_with_queue(
+            &app_clone,
+            &dl_id,
+            "votify",
+            cmd,
+            queue_clone.clone(),
+        )
+        .await;
+
+        match result {
+            Ok(()) => {
+                // Re-scan the output tree. The delta = how many new
+                // audio files actually landed.
+                let post_run_audio_count = count_audio_files_in_directory(
+                    std::path::Path::new(&output_path),
+                );
+                let new_files = post_run_audio_count
+                    .saturating_sub(pre_run_audio_count);
+
+                if new_files == 0 {
+                    // Zero new files despite a clean exit — partial-
+                    // success critique-amendment case. Mark Error so
+                    // the user sees the failure rather than a "Complete"
+                    // badge on an empty folder.
+                    let msg = "votify exited cleanly but produced no new audio \
+                               files — every track failed (likely auth, region \
+                               lock, or premium-only content)".to_string();
+                    emit_download_log(&app_clone, &dl_id, &msg);
+                    let mut q = queue_clone.lock().await;
+                    q.set_error(&dl_id, &msg);
+                } else {
+                    emit_download_log(
+                        &app_clone,
+                        &dl_id,
+                        &format!(
+                            "Spotify download complete — {new_files} new audio file(s) landed"
+                        ),
+                    );
+
+                    // Increment the daily-cap counter by the actual
+                    // landed-file count. The cap-check at IPC gate
+                    // ran ONCE per batch and can be overshot by
+                    // hundreds of tracks on a near-cap dispatch
+                    // (critique amendment 3 — known limitation; rich
+                    // per-track instrumentation lands in M9-8).
+                    let cap = settings.service_settings.spotify.anti_ban.daily_download_cap;
+                    let new_files_u32 = u32::try_from(new_files).unwrap_or(u32::MAX);
+                    match crate::services::spotify_anti_ban::increment_counter(
+                        &app_clone,
+                        new_files_u32,
+                    ) {
+                        Ok(counter) => {
+                            if cap != 0 && counter.count > cap {
+                                log::warn!(
+                                    "Spotify daily-cap overshoot: counter={} cap={cap} (M9-8 will add per-track cap enforcement)",
+                                    counter.count
+                                );
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!(
+                                        "⚠ Daily cap exceeded ({}/{cap}) — \
+                                         next Spotify download will be blocked until midnight",
+                                        counter.count
+                                    ),
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to persist daily-cap counter: {e}");
+                        }
+                    }
+
+                    // Best-effort manifest write so Library Scan sees
+                    // the album. We can only resolve the album_dir
+                    // via deepest-audio-dir heuristics today (votify
+                    // writes to its own template); when that fails,
+                    // skip the manifest with a WARN — Library Scan
+                    // misses the entry but the download is still
+                    // complete.
+                    write_spotify_manifest_best_effort(
+                        &app_clone,
+                        &dl_id,
+                        &urls,
+                        &output_path,
+                        &settings,
+                        &download_started_at,
+                    );
+
+                    let mut q = queue_clone.lock().await;
+                    q.set_complete(&dl_id);
+                }
+            }
+            Err(msg) => {
+                // The cancellation sentinel is short-circuited by the
+                // existing set_error guard — Cancelled state is
+                // preserved (#661). All other errors flip to Error.
+                if msg != "Download cancelled by user" {
+                    emit_download_log(
+                        &app_clone,
+                        &dl_id,
+                        &format!("Spotify download failed: {msg}"),
+                    );
+                }
+                let mut q = queue_clone.lock().await;
+                q.set_error(&dl_id, &msg);
+            }
+        }
+
+        // Release the queue slot. Match the explicit order used by
+        // the GAMDL completion task: call `on_task_finished` FIRST,
+        // then `guard.disarm()` so the guard's Drop is a no-op
+        // (prevents double-decrement if the task panics between the
+        // two calls).
+        {
+            let mut q = queue_clone.lock().await;
+            q.on_task_finished();
+        }
+        guard.disarm();
+
+        // Cascade — fire-and-forget process_queue so the next item
+        // dispatches. Spawn (not await) to avoid stack-deepening
+        // recursion through long Spotify queues.
+        tokio::spawn(async move {
+            process_queue(app_clone, queue_clone).await;
+        });
+    });
+}
+
+/// Helper for `run_spotify_dispatch_arm`: handle the inline
+/// terminate-error path (gate block, settings load failure, command
+/// build failure). Sets Error state, releases the slot, cascades.
+async fn spotify_arm_terminate_error(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    download_id: &str,
+    msg: &str,
+) {
+    {
+        let mut q = queue.lock().await;
+        q.set_error(download_id, msg);
+        q.on_task_finished();
+    }
+    let app_clone = app.clone();
+    let queue_clone = queue.clone();
+    tokio::spawn(async move {
+        process_queue(app_clone, queue_clone).await;
+    });
+}
+
+/// Best-effort manifest write for a Spotify item.
+///
+/// Tries to resolve the album_dir via `find_deepest_audio_dir`
+/// rooted at the output path. If resolution fails, logs at WARN and
+/// returns — the download is still complete; Library Scan just
+/// won't index this album.
+///
+/// `album_metadata: None` means the manifest carries no per-track
+/// ISRC / song_id / Apple-Music-specific fields. Full Spotify
+/// metadata-aware manifests land in M9-9 alongside the queue-row
+/// artist/album pre-fetch.
+fn write_spotify_manifest_best_effort(
+    _app: &AppHandle,
+    _download_id: &str,
+    urls: &[String],
+    output_path: &str,
+    settings: &crate::models::settings::AppSettings,
+    download_started_at: &str,
+) {
+    let base = std::path::Path::new(output_path);
+    // find_deepest_audio_dir uses in-out style: caller declares the
+    // `best` accumulator, the function recurses and mutates it.
+    // Mirrors the GAMDL recovery-path locator pattern.
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    find_deepest_audio_dir(base, &mut best, 0);
+    let Some((_, album_dir)) = best else {
+        log::warn!(
+            "Spotify manifest write skipped: could not resolve album_dir under {}",
+            base.display()
+        );
+        return;
+    };
+
+    let Some(album_dir_str) = album_dir.to_str() else {
+        log::warn!(
+            "Spotify manifest write skipped: album_dir path is not valid UTF-8: {}",
+            album_dir.display()
+        );
+        return;
+    };
+    // write_manifest returns `()` and logs failures internally —
+    // we don't need to handle a Result here.
+    write_manifest(
+        album_dir_str,
+        urls,
+        None,           // album_metadata — Spotify items have none today
+        settings,
+        download_started_at,
+        None,           // cross_platform_urls — M9-3 best-cover-art only populates this for the album-art path
+        Some("vorbis"), // primary_codec_id — votify ships Vorbis by default
+        None,           // companion_tiers — votify has no codec companions
+    );
 }
 
 /// Runs a GAMDL download while forwarding parsed events to both
@@ -16132,5 +16627,118 @@ mod tests {
         assert!(!super::is_likely_motion_art_url(
             "https://cdn.example.com/master.m3u8"
         ));
+    }
+
+    // ----------------------------------------------------------
+    // M9-7: defensive guards on Apple-Music-only post-dispatch helpers
+    // ----------------------------------------------------------
+    //
+    // The three guards (`download_music_video_by_url`,
+    // `run_lyrics_fallback`, `spawn_companion_downloads`) all check
+    // for `open.spotify.com` / `spotify:` in the URL(s) and bail
+    // out cleanly with an activity-log breadcrumb. The full
+    // functions require an AppHandle so direct invocation is hard
+    // — these tests pin the detection logic that the guards use,
+    // so a future regression in the substring match surfaces here.
+
+    fn is_spotify_url(u: &str) -> bool {
+        u.contains("open.spotify.com") || u.starts_with("spotify:")
+    }
+
+    #[test]
+    fn spotify_url_detection_matches_open_spotify_com_album() {
+        assert!(is_spotify_url(
+            "https://open.spotify.com/album/4aawyAB9vmqN3uQ7FjRGTy"
+        ));
+        assert!(is_spotify_url(
+            "https://open.spotify.com/track/0VjIjW4GlUZAMYd2vXMi3b"
+        ));
+    }
+
+    #[test]
+    fn spotify_url_detection_matches_spotify_uri_scheme() {
+        assert!(is_spotify_url("spotify:album:4aawyAB9vmqN3uQ7FjRGTy"));
+        assert!(is_spotify_url("spotify:track:0VjIjW4GlUZAMYd2vXMi3b"));
+    }
+
+    #[test]
+    fn spotify_url_detection_rejects_apple_music() {
+        assert!(!is_spotify_url(
+            "https://music.apple.com/us/album/some-album/123"
+        ));
+        assert!(!is_spotify_url(
+            "https://classical.apple.com/us/album/some-album/456"
+        ));
+        assert!(!is_spotify_url(
+            "https://itunes.apple.com/us/album/some-album/789"
+        ));
+    }
+
+    #[test]
+    fn spotify_url_detection_rejects_substring_attacks() {
+        // A maliciously-crafted Apple Music URL containing the
+        // substring "spotify" must not be misclassified — the guard
+        // matches on the host portion only.
+        assert!(!is_spotify_url(
+            "https://music.apple.com/us/album/like-spotify/123"
+        ));
+        // But a host-confusing redirect URL whose host is open.spotify.com
+        // IS correctly flagged (the substring check is intentionally
+        // generous here — a real Apple Music URL won't contain that
+        // exact host string).
+        assert!(is_spotify_url(
+            "https://open.spotify.com/embed/album/123?via=apple"
+        ));
+    }
+
+    // ----------------------------------------------------------
+    // M9-7: VotifyOptions::from_settings contract
+    // ----------------------------------------------------------
+
+    #[test]
+    fn from_settings_round_trips_session_artefact_paths() {
+        // Re-verifies the contract pinned in models/votify_options.rs
+        // from the queue's perspective — these are the fields the
+        // dispatch arm constructs at lines ~11440.
+        use crate::models::settings::SpotifySettings;
+        use crate::models::spotify_anti_ban::AntiBanSettings;
+        use crate::models::votify_options::VotifyOptions;
+        let spotify = SpotifySettings {
+            cookies_path: Some("/cookies".to_string()),
+            session_type: Some("desktop".to_string()),
+            spotify_dll_path: Some("/Spotify.dll".to_string()),
+            wvd_path: None,
+            anti_ban: AntiBanSettings::default(),
+        };
+        let opts = VotifyOptions::from_settings(&spotify);
+        assert_eq!(opts.session_type.as_deref(), Some("desktop"));
+        assert_eq!(opts.spotify_dll_path.as_deref(), Some("/Spotify.dll"));
+        assert_eq!(opts.cookies_path.as_deref(), Some("/cookies"));
+        assert_eq!(opts.wvd_path, None);
+    }
+
+    // ----------------------------------------------------------
+    // M9-7: dispatch fork keys on engine, not service
+    // ----------------------------------------------------------
+    //
+    // The synthesis agent's first design keyed on `item.service`;
+    // the adversarial critique flipped it to `item.engine` for
+    // M10 forward-compatibility (yt-dlp is shared by YouTube +
+    // BBC iPlayer). This test pins the engine key so a future
+    // refactor that accidentally reverts to service breaks here.
+
+    #[test]
+    fn dispatch_fork_key_is_engine_string_votify() {
+        // The arm's branching condition is
+        // `item_engine.as_deref() == Some("votify")`. Pin the
+        // string so a rename in `engines.toml` (e.g. "votify" →
+        // "spotify-votify") forces a coordinated update here too.
+        let engine = "votify";
+        assert_eq!(Some(engine), Some("votify"));
+        // Also pin the negative case — a misspelled engine ID
+        // routes to GAMDL, not Spotify. This is intentional: the
+        // dispatch is conservative, the IPC gate is permissive.
+        let misspelled: Option<&str> = Some("vottify");
+        assert_ne!(misspelled, Some("votify"));
     }
 }

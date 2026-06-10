@@ -147,6 +147,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
   artist_promo_video_enabled: true, // Download artist promo video to artist folder (#453)
+  best_cover_art_enabled: false, // Cross-platform highest-resolution cover-art picker (M9-3) — opt-in
   musickit_team_id: null, // Apple Developer Team ID (10-char)
   musickit_key_id: null, // MusicKit private key identifier (10-char)
   // Metadata enrichment (opt-in post-download processing)
@@ -197,6 +198,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   gamdl_log_level: 'INFO', // GAMDL subprocess --log-level. Default matches GAMDL's compiled-in default; Developer Tools surface flips it to DEBUG (#768).
   activity_log_path_override: '', // Empty = use {app_data_dir}/logs/ for on-disk activity log (#541)
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
+  spotify_consent_acknowledged: false, // M9-4: first-run consent acknowledgment for Spotify downloads
   last_seen_version: '', // Last app version the user launched (empty = first run)
   setup_completed: false, // Whether the setup wizard has been completed at least once
   sidebar_collapsed: false, // UI preference: sidebar expanded by default

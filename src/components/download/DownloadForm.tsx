@@ -106,6 +106,7 @@ import {
   checkInternetBeforeDownload,
   checkOutputPathBeforeDownload,
   checkRedownloadStatus,
+  checkSpotifyDispatchAllowed,
   importManifest,
 } from '@/lib/tauri-commands';
 
@@ -410,6 +411,76 @@ export function DownloadForm() {
     } catch {
       // If the check fails (e.g., IPC error), proceed —
       // the queue pre-flight will catch it later.
+    }
+
+    // M9-UI: Spotify dispatch gate preview. When the submit batch
+    // contains any Spotify URL, ask the backend whether the dispatch
+    // would be allowed. The four-outcome gate maps to specific UX
+    // responses — the consent modal is the most common, but a
+    // dev-access-not-enabled outcome routes the user to the
+    // Settings > Advanced > Developer Tools page instead.
+    //
+    // Placed between output-path and cookies checks per the M9-UI
+    // verdict — cookies are an Apple-Music concern and a Spotify-only
+    // batch shouldn't trip the cookie check at all (though for mixed
+    // batches we still want to run cookies for the Apple Music side).
+    const urlsToSubmit: string[] =
+      isMultiUrl && multiUrlInfo
+        ? multiUrlInfo.validUrls
+        : urlInput.trim()
+          ? [urlInput.trim()]
+          : [];
+    const hasSpotify = urlsToSubmit.some(
+      (u) => u.includes('open.spotify.com') || u.startsWith('spotify:')
+    );
+    if (hasSpotify) {
+      try {
+        const gate = await checkSpotifyDispatchAllowed();
+        switch (gate.kind) {
+          case 'allowed':
+            break; // Proceed to the rest of preflight.
+          case 'consent_required': {
+            // Park the rest of preflight + submit on the modal's
+            // accept callback. Re-invoking runPreflightAndSubmit
+            // ensures we rebuild request state from current store
+            // values (rather than risking stale captures).
+            useUiStore.getState().setPendingSpotifyConsentCallback(
+              async () => {
+                await runPreflightAndSubmit();
+              }
+            );
+            useUiStore.getState().setShowSpotifyConsent(true);
+            return;
+          }
+          case 'dev_access_required':
+            addToast(
+              'Spotify downloads require developer access. Unlock via Settings > Advanced > Developer Tools.',
+              'warning'
+            );
+            return;
+          case 'missing_spotify_dll':
+            addToast(
+              'Spotify desktop session needs the Spotify DLL — set the path in Settings > Services > Spotify.',
+              'warning'
+            );
+            return;
+          case 'missing_wvd':
+            addToast(
+              'Spotify web session needs a Widevine .wvd file — set the path in Settings > Services > Spotify.',
+              'warning'
+            );
+            return;
+          case 'daily_cap_reached':
+            addToast(
+              `Spotify daily cap reached (${gate.count} / ${gate.cap}). Counter resets at local midnight.`,
+              'warning'
+            );
+            return;
+        }
+      } catch {
+        // IPC failure — let the backend's start_download enforcement
+        // handle it. The dispatch gate is also checked there.
+      }
     }
 
     // Check cookie readiness before queuing (catches mid-session expiry).

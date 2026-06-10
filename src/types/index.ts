@@ -662,6 +662,14 @@ export interface AppSettings {
   hide_animated_artwork: boolean;
   /** Download artist promotional video (editorial motion art) to the artist folder */
   artist_promo_video_enabled: boolean;
+  /**
+   * Cross-platform best-cover-art picker (M9-3). When enabled,
+   * MeedyaDL queries every supported platform's artwork endpoint
+   * in parallel, picks the highest-resolution candidate, and embeds
+   * it (Apple Music wins equal-pixel tie-breaks). Off by default
+   * since it issues an extra HTTP call per non-Apple platform.
+   */
+  best_cover_art_enabled: boolean;
   /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
   musickit_team_id: string | null;
   /** Apple MusicKit Key ID for API authentication (10-char, e.g. "ABC123DEFG") */
@@ -796,6 +804,14 @@ export interface AppSettings {
   activity_log_path_override: string;
   /** Internal developer access mode. Unlocks enhanced features. Not visible in normal Settings UI. */
   dev_access_enabled: boolean;
+  /**
+   * Spotify-download first-run consent acknowledgment (M9-4).
+   * Even with `dev_access_enabled` on, the first Spotify queue
+   * attempt requires the user to acknowledge the account-ban risk.
+   * Persisted here so the modal doesn't recur. Set to `true` via
+   * the `acknowledge_spotify_consent` IPC.
+   */
+  spotify_consent_acknowledged: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
   last_seen_version: string;
   /** Whether the setup wizard has been completed at least once */
@@ -868,10 +884,54 @@ export interface AppleMusicServiceSettings {
   content_advisory_in_filenames: boolean;
 }
 
-/** Spotify-specific service settings (stub for M8) */
+/** Spotify-specific service settings (M9-1..M9-6) */
 export interface SpotifyServiceSettings {
   cookies_path: string | null;
+  /**
+   * Session type — `"librespot"` (free-tier, Vorbis only),
+   * `"desktop"` (premium + Spotify DLL for FLAC — M9-5),
+   * or `"web"` (premium + Widevine `.wvd` for FLAC — M9-6).
+   * Null falls through to votify's default (`librespot`).
+   */
+  session_type: string | null;
+  /** Path to Spotify desktop DLL for `session_type = "desktop"` FLAC (M9-5) */
+  spotify_dll_path: string | null;
+  /** Path to Widevine `.wvd` for `session_type = "web"` FLAC (M9-6) */
+  wvd_path: string | null;
+  /** Anti-ban configuration block — see AntiBanSettings (M9-4) */
+  anti_ban: AntiBanSettings;
 }
+
+/**
+ * Anti-ban configuration for Spotify downloads (M9-4).
+ * Mirrors `models::spotify_anti_ban::AntiBanSettings`.
+ */
+export interface AntiBanSettings {
+  /** Real-time playback-speed throttle (the flagship mitigation). */
+  playback_speed_throttle_enabled: boolean;
+  /** Base seconds to wait between successive track downloads. */
+  inter_track_delay_seconds: number;
+  /** Maximum jitter to layer on top of the base delay. */
+  inter_track_jitter_seconds: number;
+  /** Hard daily ceiling. `0` is the "unlimited" sentinel. */
+  daily_download_cap: number;
+}
+
+/**
+ * Dispatch-gate outcome for a Spotify download request (M9-4 + M9-6).
+ *
+ * Returned by both the `check_spotify_dispatch_allowed` preview IPC
+ * and the `start_download` enforcement path. Routes on `kind` —
+ * the discriminator is serialised as snake_case via Rust's
+ * `#[serde(tag = "kind", rename_all = "snake_case")]`.
+ */
+export type DispatchGateOutcome =
+  | { kind: 'allowed' }
+  | { kind: 'dev_access_required' }
+  | { kind: 'consent_required' }
+  | { kind: 'missing_spotify_dll' }
+  | { kind: 'missing_wvd' }
+  | { kind: 'daily_cap_reached'; count: number; cap: number };
 
 /** YouTube/YouTube Music service settings (stub for M9) */
 export interface YouTubeServiceSettings {
