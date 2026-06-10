@@ -540,15 +540,48 @@ impl Default for AppleMusicSettings {
     }
 }
 
-/// Per-service settings for Spotify downloads (stub).
+/// Per-service settings for Spotify downloads.
 ///
-/// Will be populated in milestone M8 (v2.0.0) when Votify
-/// integration is implemented.
+/// Populated through milestones M9-1 .. M9-6 as the votify
+/// integration lands. The `anti_ban` block is the safety-critical
+/// surface shipped in M9-4 — see
+/// [`crate::models::spotify_anti_ban::AntiBanSettings`] for the
+/// individual knobs.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct SpotifySettings {
     /// Spotify cookies path (for premium auth).
     pub cookies_path: Option<String>,
+
+    /// Session type selection. Mirrors votify's `--session-type`:
+    /// * `"librespot"` — open-source client, free-tier compatible
+    ///   (Ogg Vorbis only). Default — works without premium and
+    ///   without an external license artefact.
+    /// * `"desktop"` — premium account + Spotify DLL `1.2.88.483`
+    ///   for FLAC. Selected via the M9-5 Settings UI; requires
+    ///   `spotify_dll_path` to be configured.
+    /// * `"web"` — premium account + Widevine `.wvd` for FLAC.
+    ///   Selected via the M9-6 Settings UI; requires `wvd_path`.
+    ///
+    /// Stored as a free-form string to match votify's CLI shape
+    /// exactly — adding a new session type upstream means an
+    /// engine-version bump here, no model migration.
+    pub session_type: Option<String>,
+
+    /// Path to the Spotify desktop DLL for `session_type = "desktop"`
+    /// FLAC support (M9-5). Validated at dispatch time — when
+    /// `session_type` is `"desktop"` but this is `None` or the file
+    /// doesn't exist, the dispatch gate returns a `MissingDll`
+    /// outcome before votify is even invoked.
+    pub spotify_dll_path: Option<String>,
+
+    /// Path to a Widevine `.wvd` file for `session_type = "web"`
+    /// FLAC support (M9-6).
+    pub wvd_path: Option<String>,
+
+    /// Anti-ban configuration. Safety-on defaults — see the model
+    /// for rationale.
+    pub anti_ban: crate::models::spotify_anti_ban::AntiBanSettings,
 }
 
 /// Per-service settings for YouTube/YouTube Music downloads (stub).
@@ -1099,6 +1132,26 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_promo_video_enabled: bool,
 
+    /// When enabled, MeedyaDL fetches the static cover art for an
+    /// album from every supported platform in parallel (Apple Music,
+    /// Spotify, future MusicBrainz / Tidal / Bandcamp) and embeds the
+    /// **highest-resolution** candidate into the audio file —
+    /// regardless of which platform the download itself came from.
+    ///
+    /// Tie-break (equal pixel area): Apple Music wins, since its
+    /// maximum native artwork is consistently higher quality than
+    /// the fall-back sources that match its dimensions in practice.
+    ///
+    /// Off by default — the feature is opt-in because it issues an
+    /// extra HTTP call per platform, and most users are happy with
+    /// the cover art the originating engine already wrote. Surface
+    /// lives at Settings > Cover Art.
+    ///
+    /// See `services/best_cover_art_service.rs` for the comparator
+    /// + tie-break logic (M9-3).
+    #[serde(default)]
+    pub best_cover_art_enabled: bool,
+
     /// Apple `MusicKit` Team ID for API authentication. This is the
     /// 10-character team identifier from the Apple Developer portal
     /// (e.g., `"ABCDE12345"`). Required when `animated_artwork_enabled`
@@ -1517,6 +1570,22 @@ pub struct AppSettings {
     #[serde(default)]
     pub dev_access_enabled: bool,
 
+    /// Spotify-download consent acknowledgment (M9-4).
+    ///
+    /// Spotify's terms of service prohibit automated downloads, and
+    /// accounts have been suspended in the wild for obvious bot
+    /// behaviour. Even with `dev_access_enabled` on, the first
+    /// Spotify queue attempt prompts the user to acknowledge the
+    /// account-ban risk; that acknowledgment is persisted here so
+    /// the modal doesn't recur.
+    ///
+    /// Defaults to `false`. The acknowledge IPC flips it to `true`;
+    /// there's no UI affordance to flip it back, so users who want
+    /// to disable Spotify must use the Settings > Services >
+    /// Spotify toggle (which is independent of this flag).
+    #[serde(default)]
+    pub spotify_consent_acknowledged: bool,
+
     // ================================================================
     // Application State
     // ================================================================
@@ -1912,6 +1981,13 @@ impl Default for AppSettings {
             // folder when available. Gracefully skips when no credentials or
             // no promo video exists. Skipped for compilation albums.
             artist_promo_video_enabled: true,
+            // Off by default (M9-3): opt-in cross-platform cover-art
+            // resolution race. The feature issues one extra HTTP call
+            // per non-Apple platform per album, so we don't enable it
+            // on every download by default — users who want the
+            // highest-fidelity artwork can flip it on in Settings >
+            // Cover Art.
+            best_cover_art_enabled: false,
             musickit_team_id: None,
             musickit_key_id: None,
 
@@ -2034,6 +2110,10 @@ impl Default for AppSettings {
             // --- Internal / Developer ---
             // Developer access is disabled by default; activated via hidden gesture.
             dev_access_enabled: false,
+            // M9-4: first-run consent for Spotify downloads — off by default;
+            // the IPC `acknowledge_spotify_consent` flips it to true after
+            // the user accepts the account-ban-risk modal.
+            spotify_consent_acknowledged: false,
 
             // --- Application state ---
             // No previous version on first run; populated by load_settings().

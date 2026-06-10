@@ -202,17 +202,51 @@ jobs:
             echo "::notice::Using pre-staged release notes from $NOTES_FILE"
             NOTES_PATH="$NOTES_FILE"
           else
-            # Tier 2: git-cliff diff between this tag and the
-            # previous tag of the same channel.
+            # Tier 2: git-cliff diff between this tag and the previous
+            # tag of the same channel for the same base version.
             # Strip the trailing `.N` from prerelease suffixes
-            # (`v1.10.0-alpha.14` → `*-alpha.*`) so we can find
-            # the previous tag in the same channel.
+            # (`v1.11.0-alpha.19` → channel `alpha`, base `1.11.0`) so
+            # we can find the previous tag in the same channel on the
+            # same base version.
+            #
+            # The earlier implementation searched `v*-alpha.*` which
+            # would semver-rank historic abandoned alphas (e.g.
+            # `v2.0.0-alpha.8` from 2025) above current alphas (e.g.
+            # `v1.11.0-alpha.19`), producing a months-of-commits
+            # changelog that blew through GitHub's 125 000-char body
+            # limit and failed the create-release API call. Constraining
+            # to the same base version keeps the range bounded.
+            #
+            # Fallback (e.g. when this is the FIRST alpha on a new base
+            # like `v1.11.0-alpha.18` after the `v1.10.0` → `v1.11.0`
+            # bump): use the matching channel on any LOWER base version
+            # whose tag sorts immediately below this one.
             STRIPPED="${TAG#v}"
             if [[ "$STRIPPED" == *-* ]]; then
               CHANNEL_SUFFIX=$(echo "$STRIPPED" | sed -E 's/.*-([a-z]+)\..*/\1/')
-              PREV_TAG=$(git tag --sort=-version:refname --list "v*-${CHANNEL_SUFFIX}.*" | grep -v "^$TAG$" | head -1 || true)
+              BASE_VERSION=$(echo "$STRIPPED" | sed -E 's/-.*//')
+              PREV_TAG=$(git tag --sort=-version:refname --list "v${BASE_VERSION}-${CHANNEL_SUFFIX}.*" | grep -v "^$TAG$" | head -1 || true)
+              if [ -z "$PREV_TAG" ]; then
+                # First channel tag on this base. Use the previous
+                # base version's last channel tag — or, failing that,
+                # the previous stable. Skip semver-higher historic
+                # leftovers by selecting only tags lexicographically
+                # below this one in the version-aware sort.
+                PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*-${CHANNEL_SUFFIX}.*" \
+                  | awk -v cur="$TAG" '$0 < cur { print; exit }' || true)
+              fi
+              if [ -z "$PREV_TAG" ]; then
+                # No same-channel predecessor at all. Use the previous
+                # stable as the absolute fallback.
+                PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" \
+                  | grep -vE '\-' \
+                  | awk -v cur="$TAG" '$0 < cur { print; exit }' || true)
+              fi
             else
-              PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" | grep -vE '\-' | grep -v "^$TAG$" | head -1 || true)
+              PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" \
+                | grep -vE '\-' \
+                | grep -v "^$TAG$" \
+                | head -1 || true)
             fi
             echo "::notice::Previous tag for $TAG = ${PREV_TAG:-<none>}"
 

@@ -143,11 +143,33 @@ jobs:
           # the downstream-suppression side effect of the `[skip ci]` fix.
           git commit -m "chore(rc): ${{ steps.version.outputs.version }}"
 
-      - name: Push release-candidate branch and tag
+      - name: Push release-candidate branch and tag (with rebase-on-conflict retry)
         if: ${{ !inputs.dry_run }}
         run: |
           set -euo pipefail
-          git push origin release-candidate
+          # Rebase-retry loop. See alpha-release.yml's matching step
+          # for the full incident write-up — two PRs merging seconds
+          # apart can occasionally win the same-channel push race even
+          # when the workflow's `concurrency` group is configured to
+          # queue. Same defence here: refetch release-candidate,
+          # rebase the bump commit onto its new tip, retry the push.
+          MAX_RETRIES=5
+          for attempt in $(seq 1 "$MAX_RETRIES"); do
+            if git push origin release-candidate; then
+              echo "::notice::Pushed release-candidate branch on attempt $attempt"
+              break
+            fi
+            if [ "$attempt" -eq "$MAX_RETRIES" ]; then
+              echo "::error::git push origin release-candidate failed after $MAX_RETRIES attempts; another concurrent merge keeps winning the race"
+              exit 1
+            fi
+            JITTER=$((RANDOM % 5))
+            echo "::warning::git push origin release-candidate rejected on attempt $attempt; refetching + rebasing + retrying in ${JITTER}s"
+            sleep "$JITTER"
+            git fetch origin release-candidate
+            git rebase --rebase-merges FETCH_HEAD
+          done
+          git tag -d "${{ steps.version.outputs.tag }}" 2>/dev/null || true
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release Candidate ${{ steps.version.outputs.version }}"
           git push origin "${{ steps.version.outputs.tag }}"
 

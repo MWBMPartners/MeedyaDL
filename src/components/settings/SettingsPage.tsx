@@ -83,6 +83,7 @@ import {
   Code, // Templates tab icon (code brackets for template syntax)
   Wrench, // Advanced tab icon
   Tag, // Metadata tab icon
+  Headphones, // Spotify tab icon (M9-UI) — generic "music service" cue
   Save, // Save button icon
   RotateCcw, // Reset button icon (counter-clockwise rotation)
 } from 'lucide-react';
@@ -111,6 +112,7 @@ import { CoverArtTab } from './tabs/CoverArtTab';
 import { TemplatesTab } from './tabs/TemplatesTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { MetadataTab } from './tabs/MetadataTab';
+import { SpotifyTab } from './tabs/SpotifyTab';
 
 /**
  * Shape of a single tab entry in the TABS configuration array.
@@ -151,6 +153,7 @@ const TABS: SettingsTab[] = [
   { id: 'cover-art', label: 'Cover Art', icon: Image, component: CoverArtTab },
   { id: 'metadata', label: 'Metadata', icon: Tag, component: MetadataTab },
   { id: 'templates', label: 'Templates', icon: Code, component: TemplatesTab },
+  { id: 'spotify', label: 'Spotify', icon: Headphones, component: SpotifyTab },
   { id: 'advanced', label: 'Advanced', icon: Wrench, component: AdvancedTab },
 ];
 
@@ -167,6 +170,11 @@ const SETTINGS_GROUPS: { label: string; tabs: string[] }[] = [
   { label: 'General', tabs: ['general'] },
   { label: 'Download', tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'] },
   { label: 'Authentication', tabs: ['cookies'] },
+  // M9-UI: Spotify tab joins a new 'Services' group between
+  // Authentication and System. YouTube + BBC iPlayer placeholder
+  // tabs will land in the same group as their integrations
+  // (M10 / M8 respectively) ship.
+  { label: 'Services', tabs: ['spotify'] },
   { label: 'System', tabs: ['tools', 'advanced'] },
 ];
 

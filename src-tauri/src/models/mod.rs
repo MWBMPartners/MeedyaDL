@@ -86,6 +86,14 @@ pub mod codec_registry;
 /// one-click re-download and multi-platform source tracking.
 pub mod manifest;
 
+/// Anti-ban settings model for Spotify downloads (M9-4).
+///
+/// `AntiBanSettings` carries the user-configurable knobs that shape
+/// the votify subprocess's traffic pattern to avoid tripping
+/// Spotify's bot-detection heuristics. Pure data — runtime
+/// behaviour lives in `services::spotify_anti_ban`.
+pub mod spotify_anti_ban;
+
 /// Metadata tag registry — config-driven tag definitions from tags.toml.
 ///
 /// Defines which Apple Music API JSON fields map to which MP4 freeform atoms.

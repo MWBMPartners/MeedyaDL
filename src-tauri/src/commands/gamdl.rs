@@ -160,7 +160,14 @@ pub async fn start_download(
         "music.apple.com",
         "classical.apple.com",
         "itunes.apple.com",
+        // Spotify (M9-5): host allowlist accepts Spotify URLs, but the
+        // dispatch gate immediately below enforces dev-access + consent
+        // + daily-cap before the URL is allowed to reach the queue.
+        "open.spotify.com",
     ];
+    // Whether any URL in the batch is a Spotify URL — drives the
+    // dispatch-gate check after host validation passes.
+    let mut has_spotify = false;
     for url in &request.urls {
         let parsed = url::Url::parse(url)
             .map_err(|e| format!("Invalid URL '{url}': {e}"))?;
@@ -176,7 +183,77 @@ pub async fn start_download(
             });
             if !is_supported {
                 return Err(format!(
-                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, and iTunes URLs are supported."
+                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, iTunes, and Spotify URLs are supported."
+                ));
+            }
+            if host.ends_with("open.spotify.com") {
+                has_spotify = true;
+            }
+        }
+    }
+
+    // M9-5 dispatch gate. When the batch contains any Spotify URL,
+    // we evaluate the four-outcome gate before any queue mutation
+    // happens. This means a partially-blocked batch (e.g. user
+    // pasted an Apple Music URL and a Spotify URL together while
+    // consent isn't acknowledged) fails fast with a Spotify-specific
+    // error rather than enqueuing the Apple side and silently
+    // dropping the Spotify side. The gate evaluation lives in
+    // commands::spotify_anti_ban::evaluate_dispatch_gate so the IPC
+    // preview and the dispatch enforcement share the exact same
+    // four-outcome logic — see #101 (M9-4).
+    if has_spotify {
+        use crate::commands::spotify_anti_ban::{evaluate_dispatch_gate, DispatchGateOutcome};
+        let counter = crate::services::spotify_anti_ban::load_counter(&app);
+        match evaluate_dispatch_gate(&settings, &counter) {
+            DispatchGateOutcome::Allowed => {
+                // Proceed — the gate is permissive. The actual votify
+                // subprocess dispatch is wired in subsequent M9-* PRs
+                // (queue-level routing); the IPC layer's job is to
+                // refuse-to-queue when the gate says block.
+                log::info!("Spotify dispatch gate: Allowed");
+            }
+            DispatchGateOutcome::DevAccessRequired => {
+                return Err(
+                    "Spotify downloads require developer access. \
+                     Unlock via Settings > Advanced > Developer Tools \
+                     (Konami code) before queueing Spotify URLs."
+                        .to_string(),
+                );
+            }
+            DispatchGateOutcome::ConsentRequired => {
+                return Err(
+                    "Spotify downloads require first-run consent. \
+                     Open the Spotify settings panel and accept the \
+                     account-ban-risk acknowledgment before queueing."
+                        .to_string(),
+                );
+            }
+            DispatchGateOutcome::MissingSpotifyDll => {
+                return Err(
+                    "Spotify desktop session needs the Spotify Windows \
+                     desktop DLL (Spotify v1.2.88.483 — 'Spotify.exe' / \
+                     'spotify.dll'). Set the path under Settings > \
+                     Services > Spotify > Session, or switch session_type \
+                     to 'librespot' / 'web'."
+                        .to_string(),
+                );
+            }
+            DispatchGateOutcome::MissingWvd => {
+                return Err(
+                    "Spotify web session needs a Widevine '.wvd' file. \
+                     Set the path under Settings > Services > Spotify > \
+                     Session, or switch session_type to 'librespot' / \
+                     'desktop'. (Widevine files are user-supplied; see \
+                     the help page for acquisition guidance.)"
+                        .to_string(),
+                );
+            }
+            DispatchGateOutcome::DailyCapReached { count, cap } => {
+                return Err(format!(
+                    "Spotify daily download cap reached ({count} / {cap}). \
+                     The counter resets at local midnight. To raise the cap, \
+                     edit Settings > Services > Spotify > Anti-ban."
                 ));
             }
         }

@@ -154,6 +154,27 @@ interface UiState {
   setShowCrashReportPrompt: (show: boolean) => void;
 
   /**
+   * Whether the Spotify first-run consent modal is visible (M9-UI).
+   * Flipped by `DownloadForm.runPreflightAndSubmit` when it detects
+   * a Spotify URL and `spotify_consent_acknowledged` is still false.
+   */
+  showSpotifyConsent: boolean;
+
+  /** Set the Spotify consent modal visibility. */
+  setShowSpotifyConsent: (show: boolean) => void;
+
+  /**
+   * Callback the consent modal invokes on user-accept (M9-UI).
+   * Captured at the point the modal opens so the form's submit flow
+   * can resume after consent without rebuilding request state from
+   * stale refs. Cleared on dismiss or after the callback fires.
+   */
+  pendingSpotifyConsentCallback: (() => Promise<void>) | null;
+
+  /** Set the pending consent callback. */
+  setPendingSpotifyConsentCallback: (cb: (() => Promise<void>) | null) => void;
+
+  /**
    * When set, the Help page should auto-navigate to this topic ID on mount.
    * Used by the `<HelpButton>` component for contextual deep-linking from
    * settings fields to their corresponding help documentation.
@@ -281,6 +302,8 @@ export const useUiStore = create<UiState>((set) => ({
   showSetupWizard: false, // Setup wizard hidden until <App> decides to show it
   showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
   showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
+  showSpotifyConsent: false, // M9-UI: Spotify first-run consent modal
+  pendingSpotifyConsentCallback: null, // M9-UI: callback to invoke on consent accept
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
   shortcutsHelpOpen: false, // Shortcuts help dialog closed until Cmd/Ctrl+Shift+? opens it (#465)
 
@@ -314,6 +337,9 @@ export const useUiStore = create<UiState>((set) => ({
   /** Show or hide the pre-release first-load notice modal. */
   setShowPrereleaseNotice: (show) => set({ showPrereleaseNotice: show }),
   setShowCrashReportPrompt: (show: boolean) => set({ showCrashReportPrompt: show }),
+  setShowSpotifyConsent: (show: boolean) => set({ showSpotifyConsent: show }),
+  setPendingSpotifyConsentCallback: (cb: (() => Promise<void>) | null) =>
+    set({ pendingSpotifyConsentCallback: cb }),
 
   /**
    * Navigate to the Help page and deep-link to a specific topic.

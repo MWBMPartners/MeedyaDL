@@ -179,3 +179,11 @@ export { UpdateBanner } from './UpdateBanner';
  * Used across all settings tabs for consistent section grouping.
  */
 export { SettingsSection } from './SettingsSection';
+
+/**
+ * Three-tier risk-level pill (M9-UI). Visual cue next to a settings
+ * control communicating the consequence of changing the value.
+ * Reusable across services. Icon + text — no colour-only signal.
+ */
+export { RiskPill } from './RiskPill';
+export type { RiskTier } from './RiskPill';

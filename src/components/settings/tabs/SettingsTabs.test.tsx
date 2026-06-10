@@ -79,6 +79,12 @@ vi.mock('lucide-react', () => {
     Clock: stub('Clock'),
     Loader2: stub('Loader2'),
     XCircle: stub('XCircle'),
+    /* M9-UI: RiskPill three-tier icons + ShieldOff for the Revoke
+     * Consent button + Headphones for the Spotify tab sidebar icon. */
+    ShieldCheck: stub('ShieldCheck'),
+    Shield: stub('Shield'),
+    ShieldOff: stub('ShieldOff'),
+    Headphones: stub('Headphones'),
   };
 });
 
