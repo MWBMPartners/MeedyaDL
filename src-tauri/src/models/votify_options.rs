@@ -307,6 +307,39 @@ pub struct VotifyOptions {
 }
 
 impl VotifyOptions {
+    /// Build a [`VotifyOptions`] from the global [`SpotifySettings`]
+    /// block on [`crate::models::settings::AppSettings`].
+    ///
+    /// Per-download overrides aren't supported by the queue yet —
+    /// every Spotify queue item dispatches with the global settings
+    /// applied unmodified. The merge pattern that GAMDL uses
+    /// (per-request `Option<T>` layers over global defaults) lands
+    /// in a follow-up alongside the Settings UI; until then this
+    /// constructor IS the configuration boundary.
+    ///
+    /// Anti-ban knobs (`wait_interval`, etc.) intentionally aren't
+    /// forwarded here — `wait_interval` is wired in this struct as
+    /// scaffolding for M9-8, but M9-7 doesn't yet pass any value
+    /// through to votify because the daily-cap counter and
+    /// dispatch-gate already provide a layered defence and adding a
+    /// rough wait without per-track instrumentation would just slow
+    /// downloads without actually shaping their traffic pattern.
+    /// See `services::spotify_anti_ban` for the helpers M9-8 will
+    /// wire in.
+    #[must_use]
+    pub fn from_settings(spotify: &crate::models::settings::SpotifySettings) -> Self {
+        Self {
+            session_type: spotify.session_type.clone(),
+            cookies_path: spotify.cookies_path.clone(),
+            wvd_path: spotify.wvd_path.clone(),
+            spotify_dll_path: spotify.spotify_dll_path.clone(),
+            // Anti-ban: M9-7 keeps wait_interval unset; M9-8 will
+            // populate it from `anti_ban.inter_track_delay_seconds`
+            // once per-track instrumentation lands.
+            ..Self::default()
+        }
+    }
+
     /// Translate the typed option struct into a flat CLI argv that
     /// can be appended after `python -m votify <urls>`.
     ///
@@ -587,6 +620,35 @@ mod tests {
                 "flag ordering should mirror struct grouping; got positions {positions:?}"
             );
         }
+    }
+
+    #[test]
+    fn from_settings_propagates_session_artefacts_but_not_anti_ban() {
+        // M9-7 contract: session_type, cookies_path, wvd_path, and
+        // spotify_dll_path flow from settings into options. Anti-ban
+        // knobs (wait_interval, anti_ban.*) deliberately do NOT —
+        // see the from_settings doc-comment for the M9-8 timing.
+        use crate::models::settings::SpotifySettings;
+        use crate::models::spotify_anti_ban::AntiBanSettings;
+        let spotify = SpotifySettings {
+            cookies_path: Some("/c.txt".to_string()),
+            session_type: Some("web".to_string()),
+            spotify_dll_path: Some("/spotify.dll".to_string()),
+            wvd_path: Some("/keys.wvd".to_string()),
+            anti_ban: AntiBanSettings {
+                inter_track_delay_seconds: 30, // M9-7 ignores this
+                ..Default::default()
+            },
+        };
+        let opts = VotifyOptions::from_settings(&spotify);
+        assert_eq!(opts.session_type.as_deref(), Some("web"));
+        assert_eq!(opts.cookies_path.as_deref(), Some("/c.txt"));
+        assert_eq!(opts.spotify_dll_path.as_deref(), Some("/spotify.dll"));
+        assert_eq!(opts.wvd_path.as_deref(), Some("/keys.wvd"));
+        assert_eq!(
+            opts.wait_interval, None,
+            "M9-7 must not propagate wait_interval — anti-ban knobs land in M9-8 with per-track instrumentation"
+        );
     }
 
     #[test]

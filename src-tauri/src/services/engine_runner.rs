@@ -198,6 +198,175 @@ pub async fn run_engine(
     }
 }
 
+/// Queue-aware variant of [`run_engine`] used by M9-7's Spotify dispatch.
+///
+/// Behaviour identical to `run_engine` PLUS:
+///
+/// 1. **Cancellation polling**: every 250 ms the function locks the
+///    queue, calls `is_cancelled(download_id)`, and on a positive hit
+///    kills the child, drains the reader tasks, and returns the
+///    cancellation sentinel string the queue's error handler
+///    short-circuits on (`"Download cancelled by user"`).
+/// 2. **Per-event queue progress updates**: every parsed
+///    `GamdlOutputEvent` is fed into `q.update_item_progress` in
+///    addition to the existing frontend `engine-output` / legacy
+///    `gamdl-output` emissions. This is the mechanism by which the
+///    queue row's progress / total_tracks / completed_tracks /
+///    processing_label / speed / eta tick during a download.
+///    Without this hook a Spotify item would stay frozen at the
+///    initial state until set_complete jumps it to 100% — exactly
+///    the misleading-snap behaviour Phase 3.5 fought to eliminate.
+///
+/// Mirrors the lifecycle of `download_queue::run_download_with_events`
+/// at one-tenth its surface area (the GAMDL runner additionally owns
+/// soft-error counting, idle watchdog, post-processing flag, gap-fill
+/// cascade — none of which apply to votify today).
+///
+/// # Errors
+///
+/// * `"Download cancelled by user"` — sentinel string the queue's
+///   error handler matches verbatim to skip the error-report write
+///   and preserve the already-set `Cancelled` state.
+/// * `"{engine} process exited with code {n}"` — non-zero exit code.
+/// * `"Failed to start / wait for / capture …"` — OS-level subprocess
+///   failures.
+pub async fn run_engine_with_queue(
+    app: &AppHandle,
+    download_id: &str,
+    engine_id: &str,
+    mut cmd: Command,
+    queue: super::download_queue::QueueHandle,
+) -> Result<(), String> {
+    log::info!(
+        "Starting {engine_id} download {download_id} (queue-aware)"
+    );
+
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+    cmd.kill_on_drop(true);
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start {engine_id} process: {e}"))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("Failed to capture {engine_id} stdout"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("Failed to capture {engine_id} stderr"))?;
+
+    // Spawn reader tasks. Unlike the queue-less variant, these own a
+    // clone of the QueueHandle so they can call update_item_progress
+    // alongside the frontend event emit. We use tokio::spawn directly
+    // (not spawn_line_reader) because the per-line work now includes
+    // an async lock acquisition that's clearer at the call site.
+    let stdout_task = spawn_queue_aware_reader(
+        app.clone(),
+        download_id.to_string(),
+        engine_id.to_string(),
+        "stdout",
+        stdout,
+        queue.clone(),
+    );
+    let stderr_task = spawn_queue_aware_reader(
+        app.clone(),
+        download_id.to_string(),
+        engine_id.to_string(),
+        "stderr",
+        stderr,
+        queue.clone(),
+    );
+
+    // 250 ms cancellation poll. Mirrors the loop in
+    // `download_queue::run_download_with_events` — periodically
+    // check is_cancelled; on positive hit, kill + drain + return.
+    let status = loop {
+        {
+            let q = queue.lock().await;
+            if q.is_cancelled(download_id) {
+                log::info!(
+                    "{engine_id} download {download_id} cancelled — killing process"
+                );
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = stdout_task.await;
+                let _ = stderr_task.await;
+                return Err("Download cancelled by user".to_string());
+            }
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            }
+            Err(e) => {
+                return Err(format!("Failed to wait for {engine_id} process: {e}"));
+            }
+        }
+    };
+
+    let _ = stdout_task.await;
+    let _ = stderr_task.await;
+
+    if status.success() {
+        log::info!("{engine_id} download {download_id} completed successfully");
+        Ok(())
+    } else {
+        let code = status.code().unwrap_or(-1);
+        Err(format!("{engine_id} process exited with code {code}"))
+    }
+}
+
+/// Spawn a queue-aware stdout/stderr reader.
+///
+/// Per parsed event:
+/// 1. Call `q.update_item_progress` so the queue row caption ticks.
+/// 2. Emit `engine-output` (generic channel) + `gamdl-output` (legacy
+///    alias) frontend events for backwards compatibility with the
+///    existing React listeners.
+///
+/// Tokio task — returns a JoinHandle the caller awaits to drain
+/// buffered output after the child exits.
+fn spawn_queue_aware_reader(
+    app: AppHandle,
+    download_id: String,
+    engine_id: String,
+    stream_label: &'static str,
+    stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    queue: super::download_queue::QueueHandle,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        use tokio::io::AsyncBufReadExt;
+        let reader = tokio::io::BufReader::new(stream);
+        let mut lines = reader.lines();
+        while let Ok(Some(raw_line)) = lines.next_line().await {
+            let event = process::parse_gamdl_output(&raw_line);
+            log::debug!("[{engine_id} {stream_label}] {raw_line}");
+
+            // Queue progress tick — locks held very briefly per line.
+            {
+                let mut q = queue.lock().await;
+                q.update_item_progress(&download_id, &event);
+            }
+
+            let progress = EngineProgress {
+                download_id: download_id.clone(),
+                engine: engine_id.clone(),
+                event: event.clone(),
+            };
+            let _ = app.emit("engine-output", &progress);
+            let legacy = super::gamdl_service::GamdlProgress {
+                download_id: download_id.clone(),
+                event,
+            };
+            let _ = app.emit("gamdl-output", &legacy);
+        }
+    })
+}
+
 // ============================================================
 // GAMDL command builder
 // ============================================================
