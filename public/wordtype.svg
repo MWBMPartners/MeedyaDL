@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright (c) 2024-2026 MeedyaSuite. All rights reserved. MeedyaDL brand assets are proprietary. -->
 <!--
-  MeedyaSuite Logotype — Text-only wordmark (Techy / Futuristic)
+  MeedyaSuite Wordtype — Text-only wordmark (Techy / Futuristic)
   ===============================================================
 
   Designed for use across the MeedyaSuite product family:
@@ -24,14 +24,14 @@
   declarations for fully self-contained, offline-capable rendering.
 
   Customisation via CSS custom properties:
-    logotype-primary         Brand gradient start   (default: #475569 slate)
-    logotype-secondary       Brand gradient end      (default: #94A3B8 silver)
-    logotype-accent          Suffix / highlights     (default: #64748B steel)
-    logotype-glow            Glow colour             (default: #94A3B8 silver)
-    logotype-shadow          Drop shadow colour      (default: rgba(0,0,0,0.3))
-    logotype-shadow-blur     Shadow blur radius      (default: 4)
-    logotype-animation-speed       Shimmer cycle duration   (default: 4s)
-    logotype-bracket-flash-speed   Bracket flash frequency  (default: 3s)
+    wordtype-primary         Brand gradient start   (default: #475569 slate)
+    wordtype-secondary       Brand gradient end      (default: #94A3B8 silver)
+    wordtype-accent          Suffix / highlights     (default: #64748B steel)
+    wordtype-glow            Glow colour             (default: #94A3B8 silver)
+    wordtype-shadow          Drop shadow colour      (default: rgba(0,0,0,0.3))
+    wordtype-shadow-blur     Shadow blur radius      (default: 4)
+    wordtype-animation-speed       Shimmer cycle duration   (default: 4s)
+    wordtype-bracket-flash-speed   Bracket flash frequency  (default: 3s)
 
   Colour modes (automatic):
     Light mode:   default palette (blue/purple/cyan)
@@ -52,12 +52,12 @@
     .dark.cb-deutan, .dark.cb-protan, .dark.cb-tritan
 
   Or set properties directly via JS:
-    svg.style.setProperty('logotype-primary', '#ffffff')
+    svg.style.setProperty('wordtype-primary', '#ffffff')
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1"
-     viewBox="0 0 600 130"
-     role="img" aria-label="MeedyaDL logotype">
-  <title>MeedyaDL Logotype</title>
+     viewBox="0 5 487 115"
+     role="img" aria-label="MeedyaDL wordtype">
+  <title>MeedyaDL Wordtype</title>
   <desc>MeedyaSuite horizontal wordmark — techy futuristic style</desc>
 
   <defs>
@@ -84,99 +84,99 @@
          Override these properties to adapt for any context:
            - Embed in a parent element with inline style overrides
            - Or apply a class: .dark, .cb-deutan, .cb-protan, .cb-tritan
-           - Or set via JS: svg.style.setProperty('--logotype-primary', '#fff') */
+           - Or set via JS: svg.style.setProperty('--wordtype-primary', '#fff') */
       :root {
-        --logotype-primary: #475569;
-        --logotype-secondary: #94A3B8;
-        --logotype-accent: #64748B;
-        --logotype-glow: #94A3B8;
-        --logotype-shadow: rgba(0, 0, 0, 0.3);
-        --logotype-shadow-blur: 4;
-        --logotype-animation-speed: 4s;
-        --logotype-bracket-flash-speed: 3s;
+        --wordtype-primary: #475569;
+        --wordtype-secondary: #94A3B8;
+        --wordtype-accent: #64748B;
+        --wordtype-glow: #94A3B8;
+        --wordtype-shadow: rgba(0, 0, 0, 0.3);
+        --wordtype-shadow-blur: 4;
+        --wordtype-animation-speed: 4s;
+        --wordtype-bracket-flash-speed: 3s;
       }
 
       /* Dark mode — near-white text for dark backgrounds */
       @media (prefers-color-scheme: dark) {
         :root {
-          --logotype-primary: #E2E8F0;
-          --logotype-secondary: #F8FAFC;
-          --logotype-accent: #CBD5E1;
-          --logotype-glow: #E2E8F0;
-          --logotype-shadow: rgba(0, 0, 0, 0.7);
-          --logotype-shadow-blur: 6;
+          --wordtype-primary: #E2E8F0;
+          --wordtype-secondary: #F8FAFC;
+          --wordtype-accent: #CBD5E1;
+          --wordtype-glow: #E2E8F0;
+          --wordtype-shadow: rgba(0, 0, 0, 0.7);
+          --wordtype-shadow-blur: 6;
         }
       }
 
       :root.dark, svg.dark {
-        --logotype-primary: #E2E8F0;
-        --logotype-secondary: #F8FAFC;
-        --logotype-accent: #CBD5E1;
-        --logotype-glow: #E2E8F0;
-        --logotype-shadow: rgba(0, 0, 0, 0.7);
-        --logotype-shadow-blur: 6;
+        --wordtype-primary: #E2E8F0;
+        --wordtype-secondary: #F8FAFC;
+        --wordtype-accent: #CBD5E1;
+        --wordtype-glow: #E2E8F0;
+        --wordtype-shadow: rgba(0, 0, 0, 0.7);
+        --wordtype-shadow-blur: 6;
       }
 
       /* ── Colour-blind palettes (light background) ────── */
       :root.cb-deutan, svg.cb-deutan {
-        --logotype-primary: #648FFF;
-        --logotype-secondary: #FFB000;
-        --logotype-accent: #785EF0;
-        --logotype-glow: #648FFF;
+        --wordtype-primary: #648FFF;
+        --wordtype-secondary: #FFB000;
+        --wordtype-accent: #785EF0;
+        --wordtype-glow: #648FFF;
       }
 
       :root.cb-protan, svg.cb-protan {
-        --logotype-primary: #648FFF;
-        --logotype-secondary: #DC267F;
-        --logotype-accent: #FFB000;
-        --logotype-glow: #648FFF;
+        --wordtype-primary: #648FFF;
+        --wordtype-secondary: #DC267F;
+        --wordtype-accent: #FFB000;
+        --wordtype-glow: #648FFF;
       }
 
       :root.cb-tritan, svg.cb-tritan {
-        --logotype-primary: #D55E00;
-        --logotype-secondary: #CC79A7;
-        --logotype-accent: #D55E00;
-        --logotype-glow: #CC79A7;
+        --wordtype-primary: #D55E00;
+        --wordtype-secondary: #CC79A7;
+        --wordtype-accent: #D55E00;
+        --wordtype-glow: #CC79A7;
       }
 
       /* ── Colour-blind palettes (dark background) ─────── */
       :root.dark.cb-deutan, svg.dark.cb-deutan, :root.cb-deutan-dark, svg.cb-deutan-dark {
-        --logotype-primary: #85AAFF;
-        --logotype-secondary: #FFC940;
-        --logotype-accent: #9B85FF;
-        --logotype-glow: #85AAFF;
-        --logotype-shadow: rgba(0, 0, 0, 0.7);
+        --wordtype-primary: #85AAFF;
+        --wordtype-secondary: #FFC940;
+        --wordtype-accent: #9B85FF;
+        --wordtype-glow: #85AAFF;
+        --wordtype-shadow: rgba(0, 0, 0, 0.7);
       }
 
       :root.dark.cb-protan, svg.dark.cb-protan, :root.cb-protan-dark, svg.cb-protan-dark {
-        --logotype-primary: #85AAFF;
-        --logotype-secondary: #FF5CA1;
-        --logotype-accent: #FFC940;
-        --logotype-glow: #85AAFF;
-        --logotype-shadow: rgba(0, 0, 0, 0.7);
+        --wordtype-primary: #85AAFF;
+        --wordtype-secondary: #FF5CA1;
+        --wordtype-accent: #FFC940;
+        --wordtype-glow: #85AAFF;
+        --wordtype-shadow: rgba(0, 0, 0, 0.7);
       }
 
       :root.dark.cb-tritan, svg.dark.cb-tritan, :root.cb-tritan-dark, svg.cb-tritan-dark {
-        --logotype-primary: #FF8533;
-        --logotype-secondary: #E09DBF;
-        --logotype-accent: #FF8533;
-        --logotype-glow: #E09DBF;
-        --logotype-shadow: rgba(0, 0, 0, 0.7);
+        --wordtype-primary: #FF8533;
+        --wordtype-secondary: #E09DBF;
+        --wordtype-accent: #FF8533;
+        --wordtype-glow: #E09DBF;
+        --wordtype-shadow: rgba(0, 0, 0, 0.7);
       }
 
       /* ── Gradient Stops ──────────────────────────────────── */
-      #logotype-grad-brand stop:first-child {
-        stop-color: var(--logotype-primary);
+      #wordtype-grad-brand stop:first-child {
+        stop-color: var(--wordtype-primary);
       }
-      #logotype-grad-brand stop:last-child {
-        stop-color: var(--logotype-secondary);
+      #wordtype-grad-brand stop:last-child {
+        stop-color: var(--wordtype-secondary);
       }
 
-      #logotype-grad-suffix stop:first-child {
-        stop-color: var(--logotype-accent);
+      #wordtype-grad-suffix stop:first-child {
+        stop-color: var(--wordtype-accent);
       }
-      #logotype-grad-suffix stop:last-child {
-        stop-color: var(--logotype-primary);
+      #wordtype-grad-suffix stop:last-child {
+        stop-color: var(--wordtype-primary);
       }
 
       /* ── Typography ──────────────────────────────────────── */
@@ -186,7 +186,7 @@
         font-size: 72px;
         letter-spacing: 2px;
         /* No text-transform — casing comes from the text content itself */
-        fill: url(#logotype-grad-brand-anim);
+        fill: url(#wordtype-grad-brand-anim);
       }
 
       #product-suffix {
@@ -196,10 +196,10 @@
         letter-spacing: 2px;
         /* No text-transform — respects per-product casing:
            "DL", "DB", "Manager" etc. */
-        fill: url(#logotype-grad-suffix-anim);
+        fill: url(#wordtype-grad-suffix-anim);
         /* Subtle stroke adds visual weight to match the prefix */
         paint-order: stroke fill;
-        stroke: url(#logotype-grad-suffix-anim);
+        stroke: url(#wordtype-grad-suffix-anim);
         stroke-width: 1.5px;
         stroke-linejoin: round;
       }
@@ -212,7 +212,7 @@
       /* ── Accent Bracket Decorations ──────────────────────── */
       .bracket-deco {
         fill: none;
-        stroke: var(--logotype-accent);
+        stroke: var(--wordtype-accent);
         stroke-width: 3.5;
         stroke-linecap: square;
         opacity: 0.6;
@@ -220,20 +220,20 @@
 
       /* ── Circuit Dot Separators ──────────────────────────── */
       .circuit-dot {
-        fill: url(#logotype-grad-dots-anim);
+        fill: url(#wordtype-grad-dots-anim);
       }
 
       /* ── Glow Filter ─────────────────────────────────────── */
       #glow-filter feDropShadow {
-        flood-color: var(--logotype-glow);
+        flood-color: var(--wordtype-glow);
       }
 
       /* ── Animations ──────────────────────────────────────── */
       @keyframes shimmer-cycle {
-        0%   { stop-color: var(--logotype-primary); }
-        33%  { stop-color: var(--logotype-accent); }
-        66%  { stop-color: var(--logotype-secondary); }
-        100% { stop-color: var(--logotype-primary); }
+        0%   { stop-color: var(--wordtype-primary); }
+        33%  { stop-color: var(--wordtype-accent); }
+        66%  { stop-color: var(--wordtype-secondary); }
+        100% { stop-color: var(--wordtype-primary); }
       }
 
       @keyframes scan-sweep {
@@ -257,75 +257,75 @@
       }
 
       /* Animated gradient stops */
-      #logotype-grad-brand-anim stop:nth-child(1) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
+      #wordtype-grad-brand-anim stop:nth-child(1) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
       }
-      #logotype-grad-brand-anim stop:nth-child(2) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.33);
+      #wordtype-grad-brand-anim stop:nth-child(2) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.33);
       }
-      #logotype-grad-brand-anim stop:nth-child(3) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.66);
+      #wordtype-grad-brand-anim stop:nth-child(3) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.66);
       }
 
       /* Animated gradient stops — suffix (offset timing from prefix) */
-      #logotype-grad-suffix-anim stop:nth-child(1) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.5);
+      #wordtype-grad-suffix-anim stop:nth-child(1) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.5);
       }
-      #logotype-grad-suffix-anim stop:nth-child(2) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.83);
+      #wordtype-grad-suffix-anim stop:nth-child(2) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.83);
       }
-      #logotype-grad-suffix-anim stop:nth-child(3) {
-        animation: shimmer-cycle var(--logotype-animation-speed) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.16);
+      #wordtype-grad-suffix-anim stop:nth-child(3) {
+        animation: shimmer-cycle var(--wordtype-animation-speed) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.16);
       }
 
       /* Animated gradient stops — circuit dots (faster, independent rhythm) */
       @keyframes dot-shimmer {
-        0%   { stop-color: var(--logotype-accent); }
-        50%  { stop-color: var(--logotype-primary); }
-        100% { stop-color: var(--logotype-accent); }
+        0%   { stop-color: var(--wordtype-accent); }
+        50%  { stop-color: var(--wordtype-primary); }
+        100% { stop-color: var(--wordtype-accent); }
       }
 
-      #logotype-grad-dots-anim stop:nth-child(1) {
-        animation: dot-shimmer calc(var(--logotype-animation-speed) * 0.6) ease-in-out infinite;
+      #wordtype-grad-dots-anim stop:nth-child(1) {
+        animation: dot-shimmer calc(var(--wordtype-animation-speed) * 0.6) ease-in-out infinite;
       }
-      #logotype-grad-dots-anim stop:nth-child(2) {
-        animation: dot-shimmer calc(var(--logotype-animation-speed) * 0.6) ease-in-out infinite;
-        animation-delay: calc(var(--logotype-animation-speed) * 0.3);
+      #wordtype-grad-dots-anim stop:nth-child(2) {
+        animation: dot-shimmer calc(var(--wordtype-animation-speed) * 0.6) ease-in-out infinite;
+        animation-delay: calc(var(--wordtype-animation-speed) * 0.3);
       }
 
       /* Scan line sweep */
       #scan-line {
-        animation: scan-sweep calc(var(--logotype-animation-speed) * 2) linear infinite;
+        animation: scan-sweep calc(var(--wordtype-animation-speed) * 2) linear infinite;
       }
 
       /* Bracket flicker */
       .bracket-deco {
-        animation: bracket-flicker var(--logotype-bracket-flash-speed) steps(1) infinite;
+        animation: bracket-flicker var(--wordtype-bracket-flash-speed) steps(1) infinite;
       }
 
       /* Circuit dot pulse */
       .circuit-dot:nth-child(1) {
-        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+        animation: dot-pulse calc(var(--wordtype-animation-speed) * 0.5) ease-in-out infinite;
       }
       .circuit-dot:nth-child(2) {
-        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+        animation: dot-pulse calc(var(--wordtype-animation-speed) * 0.5) ease-in-out infinite;
         animation-delay: 0.3s;
       }
       .circuit-dot:nth-child(3) {
-        animation: dot-pulse calc(var(--logotype-animation-speed) * 0.5) ease-in-out infinite;
+        animation: dot-pulse calc(var(--wordtype-animation-speed) * 0.5) ease-in-out infinite;
         animation-delay: 0.6s;
       }
 
       /* ── Reduced Motion ──────────────────────────────────── */
       @media (prefers-reduced-motion: reduce) {
-        #logotype-grad-brand-anim stop,
-        #logotype-grad-suffix-anim stop,
-        #logotype-grad-dots-anim stop,
+        #wordtype-grad-brand-anim stop,
+        #wordtype-grad-suffix-anim stop,
+        #wordtype-grad-dots-anim stop,
         #scan-line,
         .bracket-deco,
         .circuit-dot {
@@ -338,42 +338,42 @@
     </style>
 
     <!-- Static gradient fallback -->
-    <linearGradient id="logotype-grad-brand" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="wordtype-grad-brand" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" />
       <stop offset="100%" />
     </linearGradient>
 
     <!-- Animated brand gradient -->
-    <linearGradient id="logotype-grad-brand-anim" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="wordtype-grad-brand-anim" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%"   stop-color="#475569" />
       <stop offset="50%"  stop-color="#64748B" />
       <stop offset="100%" stop-color="#94A3B8" />
     </linearGradient>
 
     <!-- Product suffix gradient (static fallback) -->
-    <linearGradient id="logotype-grad-suffix" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="wordtype-grad-suffix" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" />
       <stop offset="100%" />
     </linearGradient>
 
     <!-- Product suffix gradient (animated, offset from brand prefix) -->
-    <linearGradient id="logotype-grad-suffix-anim" x1="0%" y1="0%" x2="100%" y2="0%">
+    <linearGradient id="wordtype-grad-suffix-anim" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%"   stop-color="#64748B" />
       <stop offset="50%"  stop-color="#94A3B8" />
       <stop offset="100%" stop-color="#475569" />
     </linearGradient>
 
     <!-- Circuit dots gradient (animated, independent faster rhythm) -->
-    <linearGradient id="logotype-grad-dots-anim" x1="0%" y1="0%" x2="0%" y2="100%">
+    <linearGradient id="wordtype-grad-dots-anim" x1="0%" y1="0%" x2="0%" y2="100%">
       <stop offset="0%"   stop-color="#64748B" />
       <stop offset="100%" stop-color="#94A3B8" />
     </linearGradient>
 
     <!-- Scan line gradient -->
-    <linearGradient id="logotype-grad-scan" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%"   stop-color="var(--logotype-glow)" stop-opacity="0" />
-      <stop offset="50%"  stop-color="var(--logotype-glow)" stop-opacity="0.3" />
-      <stop offset="100%" stop-color="var(--logotype-glow)" stop-opacity="0" />
+    <linearGradient id="wordtype-grad-scan" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="var(--wordtype-glow)" stop-opacity="0" />
+      <stop offset="50%"  stop-color="var(--wordtype-glow)" stop-opacity="0.3" />
+      <stop offset="100%" stop-color="var(--wordtype-glow)" stop-opacity="0" />
     </linearGradient>
 
     <!-- Drop shadow for visibility on any background.
@@ -382,14 +382,14 @@
          properties so they adapt to light/dark mode. -->
     <filter id="text-shadow" x="-10%" y="-20%" width="130%" height="160%">
       <!-- Layer 1: dark drop shadow for contrast on light/dark/image backgrounds -->
-      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="var(--logotype-shadow)" flood-opacity="0.5" result="shadow" />
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="var(--wordtype-shadow)" flood-opacity="0.5" result="shadow" />
       <!-- Layer 2: coloured neon glow for brand feel -->
-      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="var(--logotype-glow)" flood-opacity="0.2" />
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="var(--wordtype-glow)" flood-opacity="0.2" />
     </filter>
 
     <!-- Drop shadow for bracket decorations -->
     <filter id="bracket-shadow" x="-40%" y="-20%" width="180%" height="150%">
-      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="var(--logotype-shadow)" flood-opacity="0.5" />
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="var(--wordtype-shadow)" flood-opacity="0.5" />
     </filter>
   </defs>
 
@@ -410,9 +410,9 @@
     <!-- Circuit dot separators — three dots in a vertical stack
          between brand and suffix, evoking a data bus / circuit trace -->
     <g id="circuit-dots" aria-hidden="true">
-      <circle class="circuit-dot" cx="418" cy="58" r="3" opacity="0.6" />
-      <circle class="circuit-dot" cx="418" cy="72" r="3" opacity="0.4" />
-      <circle class="circuit-dot" cx="418" cy="86" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="342" cy="58" r="3" opacity="0.6" />
+      <circle class="circuit-dot" cx="342" cy="72" r="3" opacity="0.4" />
+      <circle class="circuit-dot" cx="342" cy="86" r="3" opacity="0.6" />
     </g>
 
     <!-- Product suffix: swap this text per product.
@@ -423,19 +423,19 @@
          script below auto-positions this element and resizes the
          canvas to fit any suffix length. -->
     <text id="product-suffix"
-          x="434" y="90"
+          x="345" y="90"
           filter="url(#text-shadow)">DL</text>
 
     <!-- Decorative right bracket -->
     <polyline id="bracket-right" class="bracket-deco"
-              points="524,18 530,18 530,108 524,108"
+              points="473,18 479,18 479,108 473,108"
               filter="url(#bracket-shadow)" />
 
     <!-- Horizontal scan line — sweeps across the wordmark like a
          terminal cursor or HUD scanner. Pure decoration. -->
     <line id="scan-line"
           x1="-100" y1="70" x2="-60" y2="70"
-          stroke="url(#logotype-grad-scan)"
+          stroke="url(#wordtype-grad-scan)"
           stroke-width="40"
           opacity="0" />
   </g>
@@ -466,13 +466,13 @@
 
       // ── ?mode= / #hash mode switch with inline fallback ──
       var MODES = {
-        'dark': {'--logotype-primary':'#E2E8F0','--logotype-secondary':'#F8FAFC','--logotype-accent':'#CBD5E1','--logotype-glow':'#E2E8F0','--logotype-shadow':'rgba(0,0,0,0.7)'},
-        'cb-deutan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#FFB000','--logotype-accent':'#785EF0','--logotype-glow':'#648FFF'},
-        'cb-protan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#DC267F','--logotype-accent':'#FFB000','--logotype-glow':'#648FFF'},
-        'cb-tritan': {'--logotype-primary':'#D55E00','--logotype-secondary':'#CC79A7','--logotype-accent':'#D55E00','--logotype-glow':'#CC79A7'},
-        'cb-deutan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FFC940','--logotype-accent':'#9B85FF','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
-        'cb-protan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FF5CA1','--logotype-accent':'#FFC940','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
-        'cb-tritan-dark': {'--logotype-primary':'#FF8533','--logotype-secondary':'#E09DBF','--logotype-accent':'#FF8533','--logotype-glow':'#E09DBF','--logotype-shadow':'rgba(0,0,0,0.7)'}
+        'dark': {'--wordtype-primary':'#E2E8F0','--wordtype-secondary':'#F8FAFC','--wordtype-accent':'#CBD5E1','--wordtype-glow':'#E2E8F0','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+        'cb-deutan': {'--wordtype-primary':'#648FFF','--wordtype-secondary':'#FFB000','--wordtype-accent':'#785EF0','--wordtype-glow':'#648FFF'},
+        'cb-protan': {'--wordtype-primary':'#648FFF','--wordtype-secondary':'#DC267F','--wordtype-accent':'#FFB000','--wordtype-glow':'#648FFF'},
+        'cb-tritan': {'--wordtype-primary':'#D55E00','--wordtype-secondary':'#CC79A7','--wordtype-accent':'#D55E00','--wordtype-glow':'#CC79A7'},
+        'cb-deutan-dark': {'--wordtype-primary':'#85AAFF','--wordtype-secondary':'#FFC940','--wordtype-accent':'#9B85FF','--wordtype-glow':'#85AAFF','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+        'cb-protan-dark': {'--wordtype-primary':'#85AAFF','--wordtype-secondary':'#FF5CA1','--wordtype-accent':'#FFC940','--wordtype-glow':'#85AAFF','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+        'cb-tritan-dark': {'--wordtype-primary':'#FF8533','--wordtype-secondary':'#E09DBF','--wordtype-accent':'#FF8533','--wordtype-glow':'#E09DBF','--wordtype-shadow':'rgba(0,0,0,0.7)'}
       };
       try {
         var search = window.location.search || '';
@@ -527,7 +527,7 @@
 
         // Resize the viewBox to fit
         var totalW = brX + MARGIN;
-        svg.setAttribute('viewBox', '0 0 ' + totalW + ' 130');
+        svg.setAttribute('viewBox', '0 5 ' + totalW + ' 115');
       };
 
       // Try to use Font Face API; fall back to a timeout for older browsers

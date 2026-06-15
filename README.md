@@ -3,7 +3,7 @@
     <source media="(prefers-color-scheme: dark)" srcset="assets/brand/logo.svg"><img src="assets/brand/logo.png" alt="MeedyaDL Logo" height="96">
   </picture>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="assets/brand/logotype.svg"><img src="assets/brand/logotype.png" alt="MeedyaDL" height="96">
+    <source media="(prefers-color-scheme: light)" srcset="assets/brand/wordtype.svg"><img src="assets/brand/wordtype.png" alt="MeedyaDL" height="96">
   </picture>
 </p>
 <p align="center">
@@ -86,7 +86,7 @@
 - **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
 - **CodeQL workflow** — GitHub CodeQL static analysis for Actions YAML and JavaScript/TypeScript. Rust is intentionally excluded (build hangs indefinitely) since Rust code quality is covered by clippy and cargo test in CI
-- **Brand assets** — vinyl/reel icon design with animated SVG logo and logotype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + logotype via `<object>` tags with static PNG/text fallbacks
+- **Brand assets** — vinyl/reel icon design with animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + wordtype via `<object>` tags with static PNG/text fallbacks
 
 ---
 

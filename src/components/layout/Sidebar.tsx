@@ -164,7 +164,7 @@ export function Sidebar() {
   const toggleSidebar = useUiStore((s) => s.toggleSidebar);
   /**
    * Colour-blind mode setting — determines which SVG colour mode to use
-   * for the sidebar logo and logotype. Maps to ?mode= URL parameter.
+   * for the sidebar logo and wordtype. Maps to ?mode= URL parameter.
    * See: https://github.com/MWBMPartners/MeedyaDL/issues/220
    */
   const colourBlindMode = useSettingsStore((s) => s.settings.colour_blind_mode);
@@ -263,7 +263,7 @@ export function Sidebar() {
           className="w-16 h-16 rounded-platform flex-shrink-0 no-drag"
         />
         {/*
-         * Animated brand logotype (SVG with gradient shimmer).
+         * Animated brand wordtype (SVG with gradient shimmer).
          * Hidden when the sidebar is collapsed. Falls back to text + static PNG.
          * `no-drag` exempts this from the drag-region so that future
          * interactive elements placed here (e.g., a dropdown) will work.
@@ -271,7 +271,7 @@ export function Sidebar() {
         {!sidebarCollapsed && (
           <>
             <img
-              src={`/logotype.svg${svgMode}`}
+              src={`/wordtype.svg${svgMode}`}
               alt="MeedyaDL"
               className="h-16 flex-1 min-w-0 no-drag"
               onError={(e) => {
