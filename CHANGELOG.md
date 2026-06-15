@@ -12,6 +12,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
