@@ -7,7 +7,7 @@
 // Renders animated SVG files frame-by-frame in a headless browser,
 // then assembles the frames into APNG files with full alpha transparency.
 //
-// Generates all colour mode variants for both logo and logotype:
+// Generates all colour mode variants for both logo and wordtype:
 //   - default (light), dark, cb-deutan, cb-protan, cb-tritan,
 //     cb-deutan-dark, cb-protan-dark, cb-tritan-dark
 //
@@ -54,8 +54,8 @@ const SVGS = [
     durationSeconds: 8,
   },
   {
-    name: 'logotype',
-    svgFile: resolve(BRAND_DIR, 'logotype.svg'),
+    name: 'wordtype',
+    svgFile: resolve(BRAND_DIR, 'wordtype.svg'),
     width: 600,
     height: 130,
     fps: 15,
@@ -232,17 +232,17 @@ function generateInlineStyleJS(svgName, mode) {
     'cb-protan-dark': {'--logo-primary':'#85AAFF','--logo-secondary':'#FF5CA1','--logo-accent':'#FFC940','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
     'cb-tritan-dark': {'--logo-primary':'#FF8533','--logo-secondary':'#E09DBF','--logo-accent':'#FF8533','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
   };
-  const LOGOTYPE_MODES = {
-    'dark': {'--logotype-primary':'#E2E8F0','--logotype-secondary':'#F8FAFC','--logotype-accent':'#CBD5E1','--logotype-glow':'#E2E8F0','--logotype-shadow':'rgba(0,0,0,0.7)'},
-    'cb-deutan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#FFB000','--logotype-accent':'#785EF0','--logotype-glow':'#648FFF'},
-    'cb-protan': {'--logotype-primary':'#648FFF','--logotype-secondary':'#DC267F','--logotype-accent':'#FFB000','--logotype-glow':'#648FFF'},
-    'cb-tritan': {'--logotype-primary':'#D55E00','--logotype-secondary':'#CC79A7','--logotype-accent':'#D55E00','--logotype-glow':'#CC79A7'},
-    'cb-deutan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FFC940','--logotype-accent':'#9B85FF','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
-    'cb-protan-dark': {'--logotype-primary':'#85AAFF','--logotype-secondary':'#FF5CA1','--logotype-accent':'#FFC940','--logotype-glow':'#85AAFF','--logotype-shadow':'rgba(0,0,0,0.7)'},
-    'cb-tritan-dark': {'--logotype-primary':'#FF8533','--logotype-secondary':'#E09DBF','--logotype-accent':'#FF8533','--logotype-glow':'#E09DBF','--logotype-shadow':'rgba(0,0,0,0.7)'},
+  const WORDTYPE_MODES = {
+    'dark': {'--wordtype-primary':'#E2E8F0','--wordtype-secondary':'#F8FAFC','--wordtype-accent':'#CBD5E1','--wordtype-glow':'#E2E8F0','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-deutan': {'--wordtype-primary':'#648FFF','--wordtype-secondary':'#FFB000','--wordtype-accent':'#785EF0','--wordtype-glow':'#648FFF'},
+    'cb-protan': {'--wordtype-primary':'#648FFF','--wordtype-secondary':'#DC267F','--wordtype-accent':'#FFB000','--wordtype-glow':'#648FFF'},
+    'cb-tritan': {'--wordtype-primary':'#D55E00','--wordtype-secondary':'#CC79A7','--wordtype-accent':'#D55E00','--wordtype-glow':'#CC79A7'},
+    'cb-deutan-dark': {'--wordtype-primary':'#85AAFF','--wordtype-secondary':'#FFC940','--wordtype-accent':'#9B85FF','--wordtype-glow':'#85AAFF','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-protan-dark': {'--wordtype-primary':'#85AAFF','--wordtype-secondary':'#FF5CA1','--wordtype-accent':'#FFC940','--wordtype-glow':'#85AAFF','--wordtype-shadow':'rgba(0,0,0,0.7)'},
+    'cb-tritan-dark': {'--wordtype-primary':'#FF8533','--wordtype-secondary':'#E09DBF','--wordtype-accent':'#FF8533','--wordtype-glow':'#E09DBF','--wordtype-shadow':'rgba(0,0,0,0.7)'},
   };
 
-  const modes = svgName === 'logo' ? LOGO_MODES : LOGOTYPE_MODES;
+  const modes = svgName === 'logo' ? LOGO_MODES : WORDTYPE_MODES;
   const props = modes[mode];
   if (!props) return '';
 

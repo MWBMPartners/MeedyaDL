@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2024-2026 MeedyaSuite. All rights reserved. MeedyaDL brand assets are proprietary. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"
+     preserveAspectRatio="xMidYMid meet"
+     role="img" aria-label="MeedyaDL logo">
+  <title>MeedyaDL Logo (dynamic chevron field)</title>
+  <desc>Vinyl disc and film reel crossfade over a full field of cascading download chevrons</desc>
+
+  <defs>
+    <style>
+      :root {
+        --logo-primary: #475569;
+        --logo-secondary: #94A3B8;
+        --logo-accent: #64748B;
+        --logo-disc: #64748B;
+        --logo-disc-highlight: #94A3B8;
+        --logo-vinyl: #475569;
+        --logo-vinyl-groove: #546478;
+        --logo-vinyl-groove-alt: #64748B;
+        --logo-shadow: rgba(0, 0, 0, 0.35);
+        --logo-glow: rgba(148, 163, 184, 0.25);
+        --logo-animation-speed: 2.5s;
+        --logo-transition-speed: 8s;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --logo-primary: #E2E8F0; --logo-secondary: #F8FAFC;
+          --logo-accent: #CBD5E1; --logo-disc: #94A3B8;
+          --logo-disc-highlight: #CBD5E1; --logo-vinyl: #64748B;
+          --logo-vinyl-groove: #7A8A9E; --logo-vinyl-groove-alt: #94A3B8;
+          --logo-shadow: rgba(0, 0, 0, 0.7);
+          --logo-glow: rgba(226, 232, 240, 0.15);
+        }
+      }
+      :root.dark, svg.dark {
+        --logo-primary: #E2E8F0; --logo-secondary: #F8FAFC;
+        --logo-accent: #CBD5E1; --logo-disc: #94A3B8;
+        --logo-disc-highlight: #CBD5E1; --logo-vinyl: #64748B;
+        --logo-vinyl-groove: #7A8A9E; --logo-vinyl-groove-alt: #94A3B8;
+        --logo-shadow: rgba(0, 0, 0, 0.7);
+        --logo-glow: rgba(226, 232, 240, 0.15);
+      }
+      :root.cb-deutan, svg.cb-deutan {
+        --logo-primary: #648FFF; --logo-secondary: #FFB000;
+        --logo-accent: #785EF0; --logo-disc: #7B8FAA;
+        --logo-disc-highlight: #9BADC4; --logo-vinyl: #5A6E87;
+        --logo-vinyl-groove: #6A7E97; --logo-vinyl-groove-alt: #7B8FAA;
+      }
+      :root.cb-protan, svg.cb-protan {
+        --logo-primary: #648FFF; --logo-secondary: #DC267F;
+        --logo-accent: #FFB000; --logo-disc: #7B8FAA;
+        --logo-disc-highlight: #9BADC4; --logo-vinyl: #5A6E87;
+        --logo-vinyl-groove: #6A7E97; --logo-vinyl-groove-alt: #7B8FAA;
+      }
+      :root.cb-tritan, svg.cb-tritan {
+        --logo-primary: #D55E00; --logo-secondary: #CC79A7;
+        --logo-accent: #D55E00; --logo-disc: #7B8FAA;
+        --logo-disc-highlight: #9BADC4; --logo-vinyl: #5A6E87;
+        --logo-vinyl-groove: #6A7E97; --logo-vinyl-groove-alt: #7B8FAA;
+      }
+      :root.dark.cb-deutan, svg.dark.cb-deutan, :root.cb-deutan-dark, svg.cb-deutan-dark {
+        --logo-primary: #85AAFF; --logo-secondary: #FFC940;
+        --logo-accent: #9B85FF; --logo-disc: #8A9AB5;
+        --logo-disc-highlight: #B8C5D8; --logo-vinyl: #5A6A82;
+        --logo-vinyl-groove: #6E7E96; --logo-vinyl-groove-alt: #8A9AB5;
+        --logo-shadow: rgba(0,0,0,0.7);
+      }
+      :root.dark.cb-protan, svg.dark.cb-protan, :root.cb-protan-dark, svg.cb-protan-dark {
+        --logo-primary: #85AAFF; --logo-secondary: #FF5CA1;
+        --logo-accent: #FFC940; --logo-disc: #8A9AB5;
+        --logo-disc-highlight: #B8C5D8; --logo-vinyl: #5A6A82;
+        --logo-vinyl-groove: #6E7E96; --logo-vinyl-groove-alt: #8A9AB5;
+        --logo-shadow: rgba(0,0,0,0.7);
+      }
+      :root.dark.cb-tritan, svg.dark.cb-tritan, :root.cb-tritan-dark, svg.cb-tritan-dark {
+        --logo-primary: #FF8533; --logo-secondary: #E09DBF;
+        --logo-accent: #FF8533; --logo-disc: #8A9AB5;
+        --logo-disc-highlight: #B8C5D8; --logo-vinyl: #5A6A82;
+        --logo-vinyl-groove: #6E7E96; --logo-vinyl-groove-alt: #8A9AB5;
+        --logo-shadow: rgba(0,0,0,0.7);
+      }
+
+      /* ── Crossfade ───────────────────────────────────────── */
+      @keyframes show-audio { 0%,40%{opacity:1}50%,90%{opacity:0}100%{opacity:1} }
+      @keyframes show-video { 0%,40%{opacity:0}50%,90%{opacity:1}100%{opacity:0} }
+      #vinyl-wrapper { animation: show-audio var(--logo-transition-speed) ease-in-out infinite; }
+      #reel-wrapper  { animation: show-video var(--logo-transition-speed) ease-in-out infinite; }
+
+      /* ── Rotation ────────────────────────────────────────── */
+      @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
+      #vinyl-spin { animation: spin calc(var(--logo-animation-speed)*3.2) linear infinite; transform-origin:256px 256px; }
+      #reel-spin  { animation: spin calc(var(--logo-animation-speed)*3.2) linear infinite; transform-origin:256px 256px; }
+
+      /* ── Chevron cascade ─────────────────────────────────── */
+      @keyframes chev-fall {
+        0%   { opacity:0; transform:translateY(-18px); }
+        15%  { opacity:0.75; }
+        85%  { opacity:0.75; }
+        100% { opacity:0; transform:translateY(18px); }
+      }
+
+      /* All chevrons in the group share the same base style */
+      #chevron-field .chev {
+        fill: none;
+        stroke: url(#grad-chev);
+        stroke-width: 7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        opacity: 0;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #vinyl-wrapper{animation:none!important;opacity:1!important}
+        #reel-wrapper{animation:none!important;opacity:0!important}
+        #vinyl-spin,#reel-spin{animation:none!important}
+        .chev{animation:none!important;opacity:0.5!important;transform:none!important}
+      }
+    </style>
+
+    <linearGradient id="grad-chev" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="var(--logo-primary)" />
+      <stop offset="100%" stop-color="var(--logo-secondary)" />
+    </linearGradient>
+
+    <filter id="disc-shadow" x="-15%" y="-12%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="var(--logo-shadow)" flood-opacity="0.5" />
+    </filter>
+    <filter id="outer-glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="0" stdDeviation="12" flood-color="var(--logo-glow)" flood-opacity="1" />
+    </filter>
+    <filter id="chev-shadow" x="-40%" y="-40%" width="180%" height="180%">
+      <feDropShadow dx="0" dy="1" stdDeviation="3" flood-color="var(--logo-shadow)" flood-opacity="0.5" />
+    </filter>
+
+    <clipPath id="disc-clip"><circle cx="256" cy="256" r="237" /></clipPath>
+  </defs>
+
+  <!-- ═══════════ CHEVRON FIELD (dynamically generated) ═══════════ -->
+  <g id="chevron-field" filter="url(#chev-shadow)">
+    <!-- Chevrons are generated by the script below to fill the
+         full rendered area, regardless of aspect ratio -->
+  </g>
+
+  <!-- ═══════════ DISC / REEL ═══════════ -->
+  <g id="emblem" filter="url(#outer-glow)">
+    <circle cx="256" cy="256" r="240" fill="var(--logo-disc)" filter="url(#disc-shadow)" />
+
+    <!-- ── VINYL ───────────────────────────────────────────── -->
+    <g id="vinyl-wrapper" clip-path="url(#disc-clip)">
+      <g id="vinyl-spin">
+        <circle cx="256" cy="256" r="235" fill="var(--logo-vinyl)" />
+        <!-- Grooves (dense, ~3px spacing, alternating thick/thin like real vinyl) -->
+        <circle cx="256" cy="256" r="230" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="227" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="224" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="221" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="218" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="215" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="212" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="209" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="206" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="203" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="200" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="197" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="194" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="191" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="188" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="185" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="182" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="179" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="176" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="173" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="170" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="167" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="164" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="161" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="158" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="155" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="152" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="149" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="146" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="143" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="140" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="137" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="134" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="131" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="128" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="125" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="122" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="119" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="116" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="113" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="110" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="107" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="104" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="101" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="98" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.8" />
+        <circle cx="256" cy="256" r="95" fill="none" stroke="var(--logo-vinyl-groove-alt)" stroke-width="0.3" opacity="0.5" />
+        <circle cx="256" cy="256" r="92" fill="none" stroke="var(--logo-vinyl-groove)" stroke-width="0.6" opacity="0.4" />
+        <!-- Primary sheen -->
+        <ellipse cx="180" cy="180" rx="155" ry="60" fill="white" opacity="0.03" transform="rotate(-40,180,180)" />
+        <!-- Secondary sheen -->
+        <ellipse cx="345" cy="345" rx="95" ry="35" fill="white" opacity="0.015" transform="rotate(-40,345,345)" />
+        <!-- Dark counterpoint -->
+        <ellipse cx="350" cy="190" rx="100" ry="35" fill="black" opacity="0.015" transform="rotate(40,350,190)" />
+        <!-- Label -->
+        <circle cx="256" cy="256" r="85" fill="var(--logo-disc-highlight)" />
+        <circle cx="256" cy="256" r="83" fill="none" stroke="var(--logo-accent)" stroke-width="0.8" />
+        <line x1="216" y1="238" x2="296" y2="238" stroke="var(--logo-accent)" stroke-width="1.5" opacity="0.4" />
+        <line x1="224" y1="250" x2="288" y2="250" stroke="var(--logo-accent)" stroke-width="1" opacity="0.3" />
+        <line x1="232" y1="275" x2="280" y2="275" stroke="var(--logo-accent)" stroke-width="1" opacity="0.3" />
+        <ellipse cx="248" cy="267" rx="7" ry="5" fill="var(--logo-secondary)" opacity="0.45" transform="rotate(-15,248,267)" />
+        <rect x="254" y="250" width="2.5" height="18" rx="1" fill="var(--logo-secondary)" opacity="0.45" />
+        <path d="M256.5,250 Q265,253 262,260" fill="none" stroke="var(--logo-secondary)" stroke-width="1.5" stroke-linecap="round" opacity="0.45" />
+      </g>
+      <!-- Spindle (static) -->
+      <circle cx="256" cy="256" r="8" fill="var(--logo-vinyl)" stroke="var(--logo-vinyl-groove-alt)" stroke-width="1.5" />
+      <circle cx="254" cy="254" r="2" fill="white" opacity="0.07" />
+      <!-- Rim bevel -->
+      <circle cx="256" cy="256" r="235" fill="none" stroke="white" stroke-width="0.8" opacity="0.05" />
+    </g>
+
+    <!-- ── FILM REEL ───────────────────────────────────────── -->
+    <g id="reel-wrapper" opacity="0" clip-path="url(#disc-clip)">
+      <g id="reel-spin">
+        <circle cx="256" cy="256" r="235" fill="var(--logo-vinyl)" />
+        <circle cx="256" cy="256" r="232" fill="none" stroke="var(--logo-disc-highlight)" stroke-width="2.5" />
+        <!-- Sprocket channel -->
+        <circle cx="256" cy="256" r="218" fill="none" stroke="var(--logo-disc-highlight)" stroke-width="20" stroke-dasharray="18 14" opacity="0.35" />
+        <!-- 4 kidney-shaped reel windows (elliptical arcs for clean curves) -->
+        <!-- Top window -->
+        <ellipse cx="256" cy="100" rx="52" ry="38" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+        <!-- Right window -->
+        <ellipse cx="412" cy="256" rx="38" ry="52" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+        <!-- Bottom window -->
+        <ellipse cx="256" cy="412" rx="52" ry="38" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+        <!-- Left window -->
+        <ellipse cx="100" cy="256" rx="38" ry="52" fill="var(--logo-vinyl-groove-alt)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+        <!-- Ribs -->
+        <line x1="256" y1="35" x2="256" y2="145" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+        <line x1="477" y1="256" x2="367" y2="256" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+        <line x1="256" y1="477" x2="256" y2="367" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+        <line x1="35" y1="256" x2="145" y2="256" stroke="var(--logo-disc-highlight)" stroke-width="5" opacity="0.5" />
+        <!-- Hub -->
+        <circle cx="256" cy="256" r="76" fill="var(--logo-vinyl)" stroke="var(--logo-disc-highlight)" stroke-width="3" />
+        <line x1="256" y1="184" x2="256" y2="224" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <line x1="194" y1="220" x2="222" y2="240" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <line x1="194" y1="292" x2="222" y2="272" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <line x1="256" y1="328" x2="256" y2="288" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <line x1="318" y1="292" x2="290" y2="272" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <line x1="318" y1="220" x2="290" y2="240" stroke="var(--logo-disc-highlight)" stroke-width="6" stroke-linecap="round" opacity="0.55" />
+        <circle cx="256" cy="256" r="32" fill="var(--logo-disc-highlight)" opacity="0.5" />
+        <!-- Sheen -->
+        <ellipse cx="180" cy="180" rx="155" ry="60" fill="white" opacity="0.025" transform="rotate(-40,180,180)" />
+        <!-- Dark counterpoint -->
+        <ellipse cx="350" cy="190" rx="100" ry="35" fill="black" opacity="0.012" transform="rotate(40,350,190)" />
+      </g>
+      <!-- Window depth shadows (static) -->
+      <!-- Window inner shadows (top edge of each ellipse) -->
+      <ellipse cx="256" cy="97" rx="48" ry="10" fill="black" opacity="0.08" />
+      <ellipse cx="415" cy="256" rx="10" ry="48" fill="black" opacity="0.08" />
+      <ellipse cx="256" cy="415" rx="48" ry="10" fill="black" opacity="0.08" />
+      <ellipse cx="97" cy="256" rx="10" ry="48" fill="black" opacity="0.08" />
+      <!-- Rim highlight -->
+      <circle cx="256" cy="256" r="234" fill="none" stroke="white" stroke-width="1" opacity="0.06" />
+      <!-- Centre pin (static) -->
+      <circle cx="256" cy="256" r="9" fill="var(--logo-vinyl)" stroke="var(--logo-disc-highlight)" stroke-width="1.5" />
+      <circle cx="254" cy="254" r="2.5" fill="white" opacity="0.08" />
+    </g>
+  </g>
+
+  <!-- ═══════════ MODE SWITCH + DYNAMIC CHEVRON GENERATION ═══════════ -->
+  <script type="text/javascript">
+    // <![CDATA[
+    (function () {
+      var svg = document.querySelector('svg');
+      if (!svg) return;
+
+      // Mode switch — reads ?mode= param and applies CSS class + inline fallback
+      var MODES = {
+        'dark': {'--logo-primary':'#E2E8F0','--logo-secondary':'#F8FAFC','--logo-accent':'#CBD5E1','--logo-disc':'#94A3B8','--logo-disc-highlight':'#CBD5E1','--logo-vinyl':'#64748B','--logo-vinyl-groove':'#7A8A9E','--logo-vinyl-groove-alt':'#94A3B8','--logo-shadow':'rgba(0,0,0,0.7)','--logo-glow':'rgba(226,232,240,0.15)'},
+        'cb-deutan': {'--logo-primary':'#648FFF','--logo-secondary':'#FFB000','--logo-accent':'#785EF0','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+        'cb-protan': {'--logo-primary':'#648FFF','--logo-secondary':'#DC267F','--logo-accent':'#FFB000','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+        'cb-tritan': {'--logo-primary':'#D55E00','--logo-secondary':'#CC79A7','--logo-accent':'#D55E00','--logo-disc':'#7B8FAA','--logo-disc-highlight':'#9BADC4','--logo-vinyl':'#5A6E87','--logo-vinyl-groove':'#6A7E97','--logo-vinyl-groove-alt':'#7B8FAA'},
+        'cb-deutan-dark': {'--logo-primary':'#85AAFF','--logo-secondary':'#FFC940','--logo-accent':'#9B85FF','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
+        'cb-protan-dark': {'--logo-primary':'#85AAFF','--logo-secondary':'#FF5CA1','--logo-accent':'#FFC940','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'},
+        'cb-tritan-dark': {'--logo-primary':'#FF8533','--logo-secondary':'#E09DBF','--logo-accent':'#FF8533','--logo-disc':'#8A9AB5','--logo-disc-highlight':'#B8C5D8','--logo-vinyl':'#5A6A82','--logo-vinyl-groove':'#6E7E96','--logo-vinyl-groove-alt':'#8A9AB5','--logo-shadow':'rgba(0,0,0,0.7)'}
+      };
+      try {
+        // Try ?mode= query param first, then fall back to #hash
+        // (Edge strips query params from file:// SVG URLs, but preserves hashes)
+        // Usage: logo.svg?mode=dark  OR  logo.svg#dark
+        var search = window.location.search || '';
+        var hash = window.location.hash || '';
+        var p = new URLSearchParams(search);
+        var m = p.get('mode') || hash.replace('#', '') || null;
+        if (m && m !== 'light') {
+          // Apply CSS class(es)
+          if (m.indexOf('-dark') > 0 && m.indexOf('cb-') === 0) {
+            svg.classList.add('dark');
+            svg.classList.add(m.replace('-dark', ''));
+          } else {
+            svg.classList.add(m);
+          }
+          // Also apply as inline styles (fallback for Edge file:// and SVG contexts
+          // where class-based custom property overrides don't take effect)
+          var props = MODES[m];
+          if (props) {
+            for (var key in props) {
+              svg.style.setProperty(key, props[key]);
+            }
+          }
+        }
+      } catch (e) {}
+
+      // Dynamic chevron field generation.
+      // Measures the actual rendered area of the SVG element and
+      // generates chevron columns/rows to fill it completely,
+      // regardless of the container's aspect ratio.
+      var NS = 'http://www.w3.org/2000/svg';
+      var field = document.getElementById('chevron-field');
+      if (!field) return;
+
+      function generateChevrons() {
+        // Clear any previously generated chevrons
+        while (field.firstChild) field.removeChild(field.firstChild);
+
+        // Get the SVG's rendered size in screen pixels
+        var rect = svg.getBoundingClientRect();
+        var w = rect.width;
+        var h = rect.height;
+        if (w === 0 || h === 0) return;
+
+        // The viewBox is 512x512 but the rendered area may differ.
+        // Calculate how much extra space exists beyond the viewBox
+        // in SVG coordinate units.
+        var vb = svg.viewBox.baseVal;
+        var vbW = vb.width || 512;
+        var vbH = vb.height || 512;
+
+        // Scale factor: how many SVG units per screen pixel
+        var scaleX = vbW / w;
+        var scaleY = vbH / h;
+
+        // The actual SVG coordinate area visible on screen
+        var aspect = w / h;
+        var visW, visH, offX, offY;
+
+        if (aspect > 1) {
+          // Wider than tall: extra horizontal space
+          visH = vbH;
+          visW = vbH * aspect;
+          offX = vb.x - (visW - vbW) / 2;
+          offY = vb.y;
+        } else {
+          // Taller than wide: extra vertical space
+          visW = vbW;
+          visH = vbW / aspect;
+          offX = vb.x;
+          offY = vb.y - (visH - vbH) / 2;
+        }
+
+        // Chevron grid parameters (in SVG coordinate units)
+        var colSpacing = 50;
+        var rowSpacing = 65;
+        var chevW = 24;  // width of each V
+        var chevH = 18;  // height of each V
+
+        // Generate columns and rows to cover the full visible area
+        var cols = Math.ceil(visW / colSpacing) + 2;
+        var rows = Math.ceil(visH / rowSpacing) + 2;
+        var startX = offX - colSpacing;
+        var startY = offY - rowSpacing;
+
+        var delays = [0.00, 0.10, 0.05, 0.15, 0.08, 0.18, 0.12, 0.03, 0.16, 0.07];
+        var rowInc = 0.22;
+
+        for (var c = 0; c < cols; c++) {
+          var cx = startX + c * colSpacing + colSpacing / 2;
+          var baseDelay = delays[c % delays.length];
+
+          for (var r = 0; r < rows; r++) {
+            var cy = startY + r * rowSpacing;
+            var delay = (baseDelay + r * rowInc) % 1.8;
+
+            var path = document.createElementNS(NS, 'path');
+            path.setAttribute('class', 'chev');
+            path.setAttribute('d',
+              'M' + (cx - chevW / 2) + ',' + cy +
+              ' L' + cx + ',' + (cy + chevH) +
+              ' L' + (cx + chevW / 2) + ',' + cy
+            );
+            path.setAttribute('style',
+              'animation:chev-fall 1.8s ease-in-out infinite ' + delay.toFixed(2) + 's'
+            );
+            field.appendChild(path);
+          }
+        }
+      }
+
+      // Generate on load and on resize
+      generateChevrons();
+      var resizeTimer;
+      window.addEventListener('resize', function () {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(generateChevrons, 150);
+      });
+    })();
+    // ]]>
+  </script>
+</svg>

@@ -1545,7 +1545,7 @@ All brand assets live in `assets/brand/`:
 assets/brand/
 ├── icon.svg               # Source SVG icon (vinyl/reel design with CSS colour modes)
 ├── logo.svg               # Animated SVG logo (vinyl/reel crossfade animation)
-├── logotype.svg           # Animated SVG logotype (gradient shimmer wordmark)
+├── wordtype.svg           # Animated SVG wordtype (gradient shimmer wordmark)
 ├── brandkit.html          # Self-contained brand kit page (previews all assets)
 ├── icon[-mode].png        # Rendered icon PNGs (1024x1024, 8 modes)
 ├── icon[-mode].ico        # Windows ICO files (16-256px, 8 modes)
@@ -1554,7 +1554,7 @@ assets/brand/
 ├── icon[-mode]-liquidglass.icns  # Liquid Glass variant ICNS (8 modes)
 ├── favicon[-mode].ico     # Favicon ICOs (16-48px, 8 modes)
 ├── logo[-mode].png        # Animated logo as APNG (8 modes)
-└── logotype[-mode].png    # Animated logotype as APNG (8 modes)
+└── wordtype[-mode].png    # Animated wordtype as APNG (8 modes)
 ```
 
 **Colour modes** (8 total): default (light), dark, cb-deutan, cb-protan, cb-tritan, cb-deutan-dark, cb-protan-dark, cb-tritan-dark.
@@ -1578,11 +1578,11 @@ Renders `icon.svg` in all 8 colour modes using Puppeteer (headless browser), the
 
 ### APNG Generation (`scripts/svg-to-apng.mjs`)
 
-Renders animated SVGs (logo.svg and logotype.svg) frame-by-frame in Puppeteer, then assembles frames into Animated PNG files using ffmpeg:
+Renders animated SVGs (logo.svg and wordtype.svg) frame-by-frame in Puppeteer, then assembles frames into Animated PNG files using ffmpeg:
 
 - Captures frames at 15 fps for 8 seconds (120 frames per variant)
 - Auto-trims content bounds with 4px padding
-- Generates all 8 colour mode variants for both logo and logotype
+- Generates all 8 colour mode variants for both logo and wordtype
 
 **Requirements**: `puppeteer` (npm), `ffmpeg` (for APNG assembly).
 
@@ -1604,13 +1604,13 @@ Run at the start of each new calendar year or automate in CI.
 
 ### Brand Asset License
 
-Brand assets (logo, logotype, icon) in `assets/brand/` are **proprietary** to MeedyaDL. They are NOT covered by the MIT license that applies to the source code. Do not redistribute, modify, or use the brand assets outside of MeedyaDL without written permission.
+Brand assets (logo, wordtype, icon) in `assets/brand/` are **proprietary** to MeedyaDL. They are NOT covered by the MIT license that applies to the source code. Do not redistribute, modify, or use the brand assets outside of MeedyaDL without written permission.
 
 ---
 
-## MeedyaSuite Logotype SVG — Customisation Guide
+## MeedyaSuite Wordtype SVG — Customisation Guide
 
-The logotype SVG at `assets/brand/new/logotype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
+The wordtype SVG at `assets/brand/new/wordtype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
 
 ### Changing Colours / Gradients
 
@@ -1618,8 +1618,8 @@ All colours are controlled via CSS custom properties in the SVG's `<style>` bloc
 
 | Mode | Trigger | Properties |
 |------|---------|-----------|
-| **Light** (default) | Default / `?mode=light` | `--logotype-primary: #475569` (dark slate), `--logotype-secondary: #94A3B8` (silver), `--logotype-accent: #64748B` (steel), `--logotype-glow: #94A3B8` |
-| **Dark** | `@media (prefers-color-scheme: dark)` / `.dark` class / `?mode=dark` | `--logotype-primary: #CBD5E1`, `--logotype-secondary: #F1F5F9`, `--logotype-accent: #94A3B8`, `--logotype-glow: #CBD5E1` |
+| **Light** (default) | Default / `?mode=light` | `--wordtype-primary: #475569` (dark slate), `--wordtype-secondary: #94A3B8` (silver), `--wordtype-accent: #64748B` (steel), `--wordtype-glow: #94A3B8` |
+| **Dark** | `@media (prefers-color-scheme: dark)` / `.dark` class / `?mode=dark` | `--wordtype-primary: #CBD5E1`, `--wordtype-secondary: #F1F5F9`, `--wordtype-accent: #94A3B8`, `--wordtype-glow: #CBD5E1` |
 | **Colour-blind (light)** | `.cb-deutan` / `.cb-protan` / `.cb-tritan` class or `?mode=cb-deutan` etc. | Uses IBM's colour-blind-safe palette (blue/amber/pink variants) |
 | **Colour-blind (dark)** | `.dark.cb-deutan` or `?mode=cb-deutan-dark` etc. | Brighter versions of the CB palettes for dark backgrounds |
 
@@ -1627,18 +1627,18 @@ All colours are controlled via CSS custom properties in the SVG's `<style>` bloc
 
 ```css
 :root {
-  --logotype-primary: #475569;     /* Gradient start — darkest colour */
-  --logotype-secondary: #94A3B8;   /* Gradient end — lightest colour */
-  --logotype-accent: #64748B;      /* Suffix, dots, brackets, underline */
-  --logotype-glow: #94A3B8;        /* Neon glow filter colour */
-  --logotype-shadow: rgba(0,0,0,0.3); /* Drop shadow colour */
+  --wordtype-primary: #475569;     /* Gradient start — darkest colour */
+  --wordtype-secondary: #94A3B8;   /* Gradient end — lightest colour */
+  --wordtype-accent: #64748B;      /* Suffix, dots, brackets, underline */
+  --wordtype-glow: #94A3B8;        /* Neon glow filter colour */
+  --wordtype-shadow: rgba(0,0,0,0.3); /* Drop shadow colour */
 }
 ```
 
 **At runtime** (e.g., from the app), override via:
-- URL parameter: `logotype.svg?mode=dark`
-- CSS class: `<svg class="dark">` or `<div class="dark"><img src="logotype.svg"></div>`
-- JavaScript: `svgElement.style.setProperty('--logotype-primary', '#ff0000')`
+- URL parameter: `wordtype.svg?mode=dark`
+- CSS class: `<svg class="dark">` or `<div class="dark"><img src="wordtype.svg"></div>`
+- JavaScript: `svgElement.style.setProperty('--wordtype-primary', '#ff0000')`
 
 ### Changing Animation Speed
 
@@ -1646,14 +1646,14 @@ Two CSS custom properties control all animation timing:
 
 | Property | Default | Controls |
 |----------|---------|----------|
-| `--logotype-animation-speed` | `4s` | Gradient shimmer on brand prefix, suffix, and circuit dots |
-| `--logotype-bracket-flash-speed` | `3s` | Bracket flicker/flash frequency |
+| `--wordtype-animation-speed` | `4s` | Gradient shimmer on brand prefix, suffix, and circuit dots |
+| `--wordtype-bracket-flash-speed` | `3s` | Bracket flicker/flash frequency |
 
 To make animations faster, reduce the values; slower, increase them:
 ```css
 :root {
-  --logotype-animation-speed: 2s;        /* Faster shimmer */
-  --logotype-bracket-flash-speed: 1.5s;  /* Faster bracket flash */
+  --wordtype-animation-speed: 2s;        /* Faster shimmer */
+  --wordtype-bracket-flash-speed: 1.5s;  /* Faster bracket flash */
 }
 ```
 
