@@ -371,10 +371,44 @@ minimum_version = "2.9.1"
 #   * No new CLI flags / INI keys / wrapper-protocol changes / URL
 #     regex changes / `GamdlFeature` gate. Same zero-or-minimal-code-
 #     change admission shape as v3.3 / v3.5 / v3.5.1 / v3.5.2 / v3.7.1.
-maximum_tested_version = "3.7.3"
+#
+# 3.7.4 audit (#925, 2026-06-14, audit doc at
+# `.github/audits/gamdl-v3.7.4-audit.md`):
+#   * Pure upstream reliability patch — 5 commits, 7 files (5
+#     functional + 2 version-bump). Same bug-fix-only shape as v3.3 /
+#     v3.5 / v3.5.1 / v3.5.2.
+#   * `a9e7538` (`interface/song.py`): new private
+#     `_switch_m3u8_master_url_to_default()` regex rewrites HLS
+#     variant master URLs to the canonical `_default.m3u8` form.
+#     Internal to GAMDL's HLS pipeline — MeedyaDL never inspects
+#     m3u8 URLs; the only references in our codebase are comments
+#     about GAMDL's debug-log key.
+#   * `b66c06a` (`api/apple_music.py`): token-extraction regex
+#     hardened — Apple renamed the home-page bundle from
+#     `index-legacy-*.js` to `index-*.js`; tightened JWT capture to
+#     require structurally valid `eyJ*.eyJ*.*` segments inside
+#     quotes. Internal to GAMDL's own `get_token()` — MeedyaDL's
+#     `apple_music_api.rs::TokenSource` chain (user MusicKit JWT >
+#     embedded > web-player keychain) is independent.
+#   * `fb143ad` (`interface/base.py::get_cover_bytes`): explicit
+#     30s timeout + `follow_redirects=True` on cover-art HTTP
+#     fetches. Reliability win — MeedyaDL observes the resulting
+#     cover-image *files* on disk, not the HTTP path.
+#   * `69c2a8a` (`api/exceptions.py::GamdlApiResponseError`):
+#     `content` typed `Any | None` (was `str | None`); non-string
+#     content now JSON-serialised via `json.dumps()` with `TypeError`
+#     fallback to `str()`. The `Resource Not Found` literal that
+#     `process::is_storefront_mismatch_error` keys on is preserved;
+#     `PYTHON_EXCEPTION_REGEX` keys on the class-name prefix, not
+#     content. Verified compatible.
+#   * No new CLI flags / INI keys / output-line format changes /
+#     exception classes / log-level changes / `GamdlFeature` gate
+#     thresholds. Same zero-code-change admission shape as v3.3 /
+#     v3.5 / v3.5.1 / v3.5.2 / v3.7.1.
+maximum_tested_version = "3.7.4"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.7.3"
+recommended_version = "3.7.4"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases

@@ -375,8 +375,11 @@ pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
             found.push((p, mtime, meta.len()));
         }
     }
-    // Newest first, capped at 5.
-    found.sort_by(|a, b| b.1.cmp(&a.1));
+    // Newest first, capped at 5. `sort_by_key` with `Reverse` is the
+    // clippy-preferred form when the closure's body is just a `cmp`
+    // on a single field — `cargo clippy -- -D warnings` enforces
+    // `clippy::unnecessary_sort_by` from Rust 1.96+.
+    found.sort_by_key(|b| std::cmp::Reverse(b.1));
     found.truncate(5);
 
     let mut out = Vec::with_capacity(found.len());
