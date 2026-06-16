@@ -22,13 +22,107 @@
  * focused on the page-level shell (header, action buttons, modals).
  */
 
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Download } from 'lucide-react';
 
 import type { QueueItemStatus } from '@/types';
 
 import { QueueItem } from './QueueItem';
+
+/**
+ * #911 Phase 1 item 0 sub-item — sticky column header strip.
+ *
+ * Inlined inside this file (rather than extracted to a separate
+ * component) because it's used by exactly one consumer and weighs
+ * ~50 LOC. Promotion to a standalone file is cheap if Phase 2 adds
+ * service-filter chips or sortable columns that grow the surface.
+ *
+ * The strip mirrors the responsive-tier vocabulary of `QueueItem.tsx`:
+ * each label uses the SAME `hidden md:flex` / `hidden lg:flex` /
+ * `hidden xl:flex` / `hidden 2xl:flex` class as the row column it
+ * labels, so labels appear/disappear in lockstep with their columns.
+ *
+ * Column alignment is preserved via shared structural rules: same
+ * outer `flex items-center gap-3 px-4`, same `flex-shrink-0` discipline
+ * on every non-flex-1 cell, same album-art spacer width (`w-12 h-12`)
+ * even though the strip doesn't render an actual thumbnail. The
+ * bulk-select checkbox column reserves a fixed spacer when
+ * `hasSelection` is true so column alignment doesn't shift when
+ * selection mode toggles.
+ *
+ * A11y note: the strip uses `role="row"` + `role="columnheader"`
+ * children. The labels themselves are visible-only chrome — the row's
+ * status pill / metadata cells carry their own accessible names — but
+ * the `role` annotations let assistive tech announce "Status column,
+ * sortable" once we add sort, and make the strip linear-scrollable
+ * separately from the data rows.
+ */
+function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
+  return (
+    <div
+      role="row"
+      className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-light bg-surface-secondary px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-content-tertiary"
+    >
+      {/* Optional bulk-select column spacer — w-4 matches the
+       * checkbox + accent-accent footprint in QueueItem.tsx so the
+       * downstream columns stay byte-for-byte aligned. */}
+      {hasSelection && <div className="w-4 flex-shrink-0" aria-hidden="true" />}
+
+      {/* Album-art column spacer — no label (the thumbnail itself is
+       * the column's content; a label would be redundant). w-12 h-12
+       * matches AlbumArtThumbnail's footprint. */}
+      <div className="w-12 h-12 flex-shrink-0" aria-hidden="true" />
+
+      {/* Tier 2 — Platform label (hidden below md, matching the
+       * row's `hidden md:flex` platform icon column). */}
+      <div
+        role="columnheader"
+        className="hidden md:flex flex-shrink-0 w-5 justify-center"
+      >
+        <span aria-hidden="true">Svc</span>
+      </div>
+
+      {/* Tier 1 — primary identifier column header. The row's
+       * primary-identifier cell uses `flex-1 min-w-0`; the header
+       * matches exactly so its label tracks the cell's left edge
+       * at every breakpoint. */}
+      <div role="columnheader" className="flex-1 min-w-0">
+        Artist — Album — Track
+      </div>
+
+      {/* Tier 3 — Speed / ETA (≥ lg). */}
+      <div role="columnheader" className="hidden lg:flex flex-shrink-0">
+        Speed / ETA
+      </div>
+
+      {/* Tier 4 — Codec / quality (≥ xl). */}
+      <div role="columnheader" className="hidden xl:flex flex-shrink-0">
+        Codec
+      </div>
+
+      {/* Tier 5 — Submitted (≥ 2xl). */}
+      <div role="columnheader" className="hidden 2xl:flex flex-shrink-0">
+        Submitted
+      </div>
+
+      {/* Tier 1 — Status pill column header. Must sit between the
+       * Tier 5 timestamp and the actions reservation so it aligns
+       * with the row's StatusPill placement. */}
+      <div role="columnheader" className="flex-shrink-0">
+        Status
+      </div>
+
+      {/* Actions + chevron column — no label (icons in the row are
+       * self-explanatory via `title` / `aria-label`). Width reserved
+       * so the last data column doesn't drift right when actions
+       * appear/disappear per row state. The narrow `w-20` is a
+       * reasonable approximation of the Cancel + Retry + Chevron
+       * cluster at hover-revealed full-opacity. */}
+      <div className="w-20 flex-shrink-0" aria-hidden="true" />
+    </div>
+  );
+}
 
 /**
  * Props for the {@link QueueListVirtualized} component.
@@ -84,6 +178,42 @@ export function QueueListVirtualized({
     .map((i) => i.id);
 
   /**
+   * Defensive measurement closure (#911 Phase 1 sub-item — virtualiser
+   * hardening). Direct mirror of `ActivityLog.tsx::measureElement`
+   * (the post-#442 / #575 fix). The `useCallback` empty-dep
+   * stabilisation matters now that the click-to-expand affordance
+   * makes Queue rows dynamic-height for the first time: a fresh
+   * closure on every render was observed elsewhere (ActivityLog) to
+   * interact with TanStack's measurement cache in ways that produce
+   * row-overlap bugs under fast-update workloads.
+   *
+   * Fallback to `80` (the legacy estimate) when the element ref is
+   * null — happens only momentarily during initial mount.
+   */
+  const measureElement = useCallback(
+    (element: Element | null | undefined) =>
+      element?.getBoundingClientRect().height ?? 80,
+    [],
+  );
+
+  /**
+   * Stable per-item key (#911 Phase 1 sub-item — virtualiser
+   * hardening). Without this, TanStack keys its measurement cache
+   * by positional index, so when the queue reorders (#782) cached
+   * row heights attach to the wrong items and the resulting
+   * `translateY()` offsets overlap adjacent rows. Same root cause
+   * as #575 in ActivityLog.
+   *
+   * Wrapped in `useCallback([queueItems])` so the identity changes
+   * only when the queue array itself changes — minor optimisation
+   * for the memoised render path.
+   */
+  const getItemKey = useCallback(
+    (index: number) => queueItems[index]?.id ?? index,
+    [queueItems],
+  );
+
+  /**
    * Virtualizer config mirrors `ActivityLog.tsx`:
    *   - `estimateSize` is a single-line guess; the dynamic
    *     `measureElement` ref on each row replaces it with the
@@ -101,7 +231,8 @@ export function QueueListVirtualized({
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 80, // single-line item baseline; measureElement adjusts
     overscan: 10,
-    getItemKey: (index) => queueItems[index]?.id ?? index,
+    measureElement,
+    getItemKey,
   });
 
   // Empty state — bail out before wiring the virtualizer container so
@@ -125,10 +256,16 @@ export function QueueListVirtualized({
   return (
     <div
       ref={scrollRef}
-      className="flex-1 overflow-y-auto"
+      // `scroll-padding-top: 44px` keeps the focused button visible
+      // when Tab focus enters a row whose top edge is under the
+      // sticky column header (44px = header's py-2 + text-[10px]
+      // line-height + border-b — verified during the #911 sticky
+      // header build).
+      className="flex-1 overflow-y-auto [scroll-padding-top:44px]"
       role="list"
       aria-label="Download queue items"
     >
+      <QueueColumnHeader hasSelection={selectedIds !== undefined} />
       <div
         style={{
           height: `${virtualizer.getTotalSize()}px`,

@@ -46,7 +46,7 @@
  * @see StatusPill in @/components/common -- owns the state-→-pill mapping.
  * @see PlatformIcon in @/lib/PlatformIcon -- service-platform icon renderer.
  */
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useId, useState } from 'react';
 import {
   Copy,
   X,
@@ -61,6 +61,8 @@ import {
   ChevronsUp,
   ChevronsDown,
 } from 'lucide-react';
+
+import { QueueItemExpandPanel } from './QueueItemExpandPanel';
 
 import {
   detectPlatform,
@@ -332,6 +334,25 @@ function QueueItemComponent({
     y: number;
     visible: boolean;
   }>({ x: 0, y: 0, visible: false });
+
+  /**
+   * Click-to-expand affordance (#911 Phase 1 item 0 sub-item).
+   *
+   * Per-row useState matches the existing `contextMenu` precedent.
+   * Lifting to a parent `Set<id>` is unnecessary because rows are
+   * memoised + virtualised and the expansion state is intentionally
+   * ephemeral (a virtualiser-recycled DOM node mounts fresh; if the
+   * user wanted persistence across re-virtualisation they'd use the
+   * `data-index` / `row id` keying that already exists in
+   * `QueueListVirtualized.tsx`'s `getItemKey`).
+   *
+   * Each row gets a stable `useId()` so the chevron's
+   * `aria-controls` matches the panel's `id` — required by the
+   * WAI-ARIA Disclosure Pattern. The id is also unique across
+   * multiple simultaneously-expanded rows.
+   */
+  const [expanded, setExpanded] = useState(false);
+  const detailsPanelId = useId();
 
   /**
    * Whether this completed item has non-fatal warnings. Forwarded to
@@ -681,7 +702,69 @@ function QueueItemComponent({
             </button>
           )}
         </div>
+
+        {/*
+         * #911 Phase 1 item 0 sub-item — click-to-expand disclosure
+         * chevron. Placed AFTER the actions cluster (not inside) so
+         * its own `opacity-100` isn't subject to the cluster's
+         * `opacity-40 group-hover:opacity-100` cascade. Disclosure
+         * controls must be persistently visible per the WAI-ARIA
+         * Disclosure Pattern — non-pointer users (keyboard, switch,
+         * voice control) need to see the affordance exists before
+         * they've already focused into the row.
+         *
+         * Tab order intent: Cancel/Retry come first (inside the
+         * cluster), Expand last. Convention is "safest action last
+         * in tab order" so an accidental Enter doesn't trigger a
+         * destructive Cancel.
+         *
+         * Reduced-motion compliance: the `transition-transform`
+         * snaps cleanly via globals.css's `*` reduced-motion guard
+         * (zeroes transition-duration to 0.01ms). No explicit
+         * `motion-safe:` prefix needed.
+         */}
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          aria-expanded={expanded}
+          aria-controls={detailsPanelId}
+          aria-label={
+            expanded
+              ? 'Hide additional download details'
+              : 'Show additional download details'
+          }
+          className="flex-shrink-0 ml-1 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
+          title={expanded ? 'Hide details' : 'Show details'}
+        >
+          <ChevronDown
+            size={14}
+            className={`transition-transform duration-200 ${
+              expanded ? 'rotate-180' : ''
+            }`}
+            aria-hidden="true"
+          />
+        </button>
       </div>
+
+      {/*
+       * Click-to-expand row detail panel — only mounts when
+       * `expanded` is true. The panel mounts BEFORE the file-action
+       * row so the visual order reads:
+       *   Primary row → Progress → Error → Retry-no-wrapper → Warnings
+       *   → Expand panel → File actions → Context menu portal.
+       * Putting it ahead of the file-action row groups the read-only
+       * inspection content together; the action buttons stay at the
+       * bottom where users expect them.
+       */}
+      {expanded && (
+        <QueueItemExpandPanel
+          item={item}
+          panelId={detailsPanelId}
+          primaryIdentifier={primaryIdentifier}
+          platformLabel={platform?.name ?? null}
+          submittedRelative={submittedRelative}
+        />
+      )}
 
       {/*
        * Progress section -- only rendered for active downloads.

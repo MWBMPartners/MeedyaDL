@@ -124,3 +124,78 @@ describe('QueueItem — "Retry without Wrapper" visibility (#890)', () => {
     expect(pill.getAttribute('title')).toContain('cookie-based authentication');
   });
 });
+
+/**
+ * #911 Phase 1 sub-item — click-to-expand disclosure pattern.
+ *
+ * Pins the WAI-ARIA Disclosure contract: chevron carries
+ * `aria-expanded`, click toggles it, `aria-controls` resolves to the
+ * panel's id, and the panel is in the DOM only when expanded.
+ */
+describe('QueueItem — click-to-expand row affordance (#911-0)', () => {
+  it('renders the chevron with aria-expanded="false" initially', () => {
+    const item = makeQueueItem({ state: 'queued' });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    const chevron = screen.getByLabelText('Show additional download details');
+    expect(chevron.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('does NOT render the panel before the chevron is clicked', () => {
+    const item = makeQueueItem({ state: 'queued' });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  it('flips aria-expanded to true and reveals the panel on click', () => {
+    const item = makeQueueItem({
+      state: 'complete',
+      output_path: '/some/path',
+      created_at: '2026-06-15T12:00:00.000Z',
+    });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    const chevron = screen.getByLabelText('Show additional download details');
+    fireEvent.click(chevron);
+    expect(chevron.getAttribute('aria-expanded')).toBe('true');
+    const panel = screen.getByRole('region');
+    expect(panel).toBeTruthy();
+  });
+
+  it('aria-controls id on the chevron matches the panel id', () => {
+    const item = makeQueueItem({ state: 'complete', output_path: '/x' });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    const chevron = screen.getByLabelText('Show additional download details');
+    const controlsId = chevron.getAttribute('aria-controls');
+    expect(controlsId).toBeTruthy();
+    fireEvent.click(chevron);
+    const panel = screen.getByRole('region');
+    expect(panel.getAttribute('id')).toBe(controlsId);
+  });
+
+  it('collapses the panel and flips aria-expanded back to false on second click', () => {
+    const item = makeQueueItem({ state: 'queued' });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    const chevron = screen.getByLabelText('Show additional download details');
+    fireEvent.click(chevron); // expand
+    fireEvent.click(chevron); // collapse
+    expect(chevron.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  it('panel exposes the full URL in a monospace selectable cell separate from the row identifier', () => {
+    const item = makeQueueItem({
+      urls: ['https://music.apple.com/us/album/very/long/9999'],
+      state: 'queued',
+    });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    fireEvent.click(screen.getByLabelText('Show additional download details'));
+    // The same URL appears twice (truncated in the row identifier +
+    // full inside the panel) so we scope the assertion to the panel
+    // region and check the value cell carries the font-mono class
+    // that signals the selectable-copy-paste rendering path.
+    const panel = screen.getByRole('region');
+    const fullUrlCell = panel.querySelector('.font-mono');
+    expect(fullUrlCell?.textContent).toBe(
+      'https://music.apple.com/us/album/very/long/9999'
+    );
+  });
+});

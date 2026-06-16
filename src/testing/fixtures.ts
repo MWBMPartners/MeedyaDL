@@ -89,6 +89,15 @@ export const makeQueueItem = makeFixture<QueueItemStatus>({
   codec_used: null,
   fallback_occurred: false,
   used_wrapper: false,
+  // Fields surfaced by the #911 Phase 1 expand-row detail panel.
+  // Defaults match the "no extra data" path so existing tests
+  // continue to render rows with no panel content; tests that
+  // exercise the panel override these explicitly.
+  output_is_directory: false,
+  audio_traits: [],
+  mv_companion_count: null,
+  created_at: '2026-06-15T12:00:00.000Z',
+  warnings: [],
 } as QueueItemStatus);
 
 /**
