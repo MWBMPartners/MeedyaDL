@@ -630,13 +630,34 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   abortAll: async () => {
     try {
+      // #911-8: Snapshot URLs that are about to be aborted so the
+      // user can undo within the 5-second toast window. Mirrors the
+      // `clearAll` undo mechanism — same `_undoBuffer` slot,
+      // same `undoBufferTimerHandle` reset semantics.
+      //
+      // We snapshot BEFORE the IPC because `getQueueStatus` after
+      // the abort returns items already flipped to `Cancelled`. The
+      // pre-abort state set is: `queued` + `downloading` + `processing`,
+      // matching the three categories `AbortSummary` reports back.
+      const abortableUrls = get().queueItems
+        .filter(
+          (i) =>
+            i.state === 'queued' ||
+            i.state === 'downloading' ||
+            i.state === 'processing'
+        )
+        .flatMap((i) => i.urls ?? []);
+
       const summary = await commands.abortAllDownloads();
       const total = summary.queuedCancelled + summary.downloadingStopped + summary.processingStopped;
 
       // Refresh the queue snapshot so the UI reflects the state change
       // without waiting for the subsequent `queue-updated` event.
       const status = await commands.getQueueStatus();
-      set({ queueItems: status.items });
+      set({
+        queueItems: status.items,
+        _undoBuffer: abortableUrls.length > 0 ? abortableUrls : null,
+      });
 
       if (total > 0) {
         const { addToast } = useUiStore.getState();
@@ -650,7 +671,52 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         if (summary.processingStopped > 0) {
           parts.push(`${summary.processingStopped} processing`);
         }
-        addToast(`Aborted — stopped ${parts.join(', ')}`, 'info');
+
+        // #911-8: surface the Undo action whenever there's at least
+        // one URL in the buffer (effectively whenever `total > 0`).
+        // 5 s window matches `clearAll` — long enough for an "oh no"
+        // double-take, short enough that the user isn't burdened by
+        // a lingering call-to-action when they meant the abort.
+        addToast(
+          `Aborted — stopped ${parts.join(', ')}`,
+          'info',
+          5000,
+          'undo-abort',
+          abortableUrls.length > 0
+            ? {
+                label: 'Undo',
+                onClick: () => {
+                  const urls = get()._undoBuffer;
+                  if (urls && urls.length > 0) {
+                    // Re-enqueue each URL through the standard
+                    // start_download IPC. The backend's existing
+                    // duplicate-URL detection still fires (#510), so
+                    // an undo that races a manual re-enqueue stays
+                    // safe.
+                    for (const url of urls) {
+                      commands.startDownload({ urls: [url] }).catch(() => {});
+                    }
+                    set({ _undoBuffer: null });
+                    addToast(
+                      `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
+                      'success'
+                    );
+                  }
+                },
+              }
+            : undefined
+        );
+
+        // Mirror the #894 fix from `clearAll`: cancel the existing
+        // expiry timer (if any) before scheduling a new one so rapid
+        // destructive ops don't accumulate orphan setTimeout closures.
+        if (undoBufferTimerHandle !== null) {
+          clearTimeout(undoBufferTimerHandle);
+        }
+        undoBufferTimerHandle = setTimeout(() => {
+          set({ _undoBuffer: null });
+          undoBufferTimerHandle = null;
+        }, 5000);
       }
 
       return total;
