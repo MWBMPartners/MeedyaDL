@@ -54,6 +54,55 @@ use crate::context_err;
 /// See: <https://docs.rs/keyring/latest/keyring/struct.Entry.html>
 const SERVICE_NAME: &str = "io.github.meedyadl";
 
+/// Keychain accounts the universal `store_credential` / `get_credential` /
+/// `delete_credential` IPCs are allowed to touch.
+///
+/// **Adding to this list MUST be reviewed for post-XSS exfiltration
+/// risk** — high-sensitivity entries should ideally have dedicated
+/// per-secret IPCs (e.g. `has_webplayer_token`, `clear_webplayer_token`,
+/// `check_dev_access`) rather than ride the universal accessor.
+///
+/// Pre-#938, these three IPCs accepted **any** key string, so any
+/// post-XSS attacker (hostile help-content markdown, compromised npm
+/// dep, future stored-XSS) could `invoke('get_credential', { key:
+/// 'webplayer_developer_token' })` or worse — `'musickit_private_key'`
+/// — and exfiltrate Apple Developer credentials from the OS keychain.
+/// The allowlist closes that escalation path while preserving the only
+/// legitimate frontend caller in
+/// `src/components/settings/tabs/AdvancedTab.tsx`.
+///
+/// Current entries:
+/// * `musickit_private_key` — set/get by the AdvancedTab MusicKit
+///   credentials editor.
+///
+/// Other keychain accounts stay reachable only via their dedicated
+/// IPCs:
+/// * `webplayer_developer_token` → `has_webplayer_token`,
+///   `clear_webplayer_token`.
+/// * `dev_access_token` → `check_dev_access`, `activate_dev_access`,
+///   `deactivate_dev_access`.
+const ALLOWED_CREDENTIAL_KEYS: &[&str] = &["musickit_private_key"];
+
+/// Verify that the supplied credential key is on the allowlist.
+///
+/// The error message is deliberately generic — it does NOT disclose
+/// which keys are on the allowlist or what's gated elsewhere, so an
+/// attacker can't use the IPC error response as a key-enumeration
+/// oracle.
+fn check_credential_key_allowed(key: &str) -> Result<(), String> {
+    if ALLOWED_CREDENTIAL_KEYS.contains(&key) {
+        Ok(())
+    } else {
+        // Logged with WARN so an operator inspecting the tracing log
+        // can see brute-force probes after the fact, but the IPC
+        // response stays opaque.
+        log::warn!(
+            "Credential IPC rejected disallowed key '{key}' (allowlist enforcement, #938)"
+        );
+        Err(format!("Unknown credential key: {key}"))
+    }
+}
+
 /// Stores a credential securely in the OS keychain.
 ///
 /// **Frontend caller:** `storeCredential(key, value)` in `src/lib/tauri-commands.ts`
@@ -85,6 +134,11 @@ const SERVICE_NAME: &str = "io.github.meedyadl";
 /// The value is never logged — only the key name is logged for auditability.
 #[tauri::command]
 pub async fn store_credential(key: String, value: String) -> Result<(), String> {
+    // #938 — reject any key not on the allowlist BEFORE creating a
+    // keyring handle, so an attacker probing the IPC can't enumerate
+    // valid keys via keyring-error vs allowlist-error response shapes.
+    check_credential_key_allowed(&key)?;
+
     // Create a keyring entry handle for the (service, key) pair.
     // Entry::new() can fail if the OS keychain backend is unavailable.
     // See: https://docs.rs/keyring/latest/keyring/struct.Entry.html#method.new
@@ -132,6 +186,13 @@ pub async fn store_credential(key: String, value: String) -> Result<(), String> 
 /// * `Err(String)` - Keychain access error (locked, permission denied, etc.).
 #[tauri::command]
 pub async fn get_credential(key: String) -> Result<Option<String>, String> {
+    // #938 — reject any key not on the allowlist. CRITICAL: return
+    // `Err` (not `Ok(None)`) so the response distinguishes
+    // "you're not allowed to read this" from "this key is unset". An
+    // `Ok(None)` would let an attacker probe whether a sensitive key
+    // exists via the response shape.
+    check_credential_key_allowed(&key)?;
+
     // Create a keyring entry handle for the lookup
     let entry = context_err!(
         keyring::Entry::new(SERVICE_NAME, &key),
@@ -176,6 +237,13 @@ pub async fn get_credential(key: String) -> Result<Option<String>, String> {
 /// * `Err(String)` - Keychain access error (locked, permission denied, etc.).
 #[tauri::command]
 pub async fn delete_credential(key: String) -> Result<(), String> {
+    // #938 — reject any key not on the allowlist before touching the
+    // keyring. Same threat model as store_credential: an attacker
+    // shouldn't be able to delete dedicated-IPC keys
+    // (`webplayer_developer_token`, `dev_access_token`) via the
+    // universal accessor.
+    check_credential_key_allowed(&key)?;
+
     // Create a keyring entry handle for the deletion
     let entry = context_err!(
         keyring::Entry::new(SERVICE_NAME, &key),
@@ -500,6 +568,8 @@ pub async fn deactivate_dev_access(app: tauri::AppHandle) -> Result<(), String> 
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn musickit_id_normalization_logic() {
         let team = " ab12cd34ef ".trim().to_ascii_uppercase();
@@ -508,5 +578,87 @@ mod tests {
         assert_eq!(key, "99ZZ88YY77");
         assert_eq!(team.len(), 10);
         assert_eq!(key.len(), 10);
+    }
+
+    // ----------------------------------------------------------
+    // Credential allowlist tests (#938)
+    // ----------------------------------------------------------
+    //
+    // Pin the allowlist contract — if a future contributor adds a key
+    // here, they need to deliberately update these tests (which forces
+    // the post-XSS-risk review the allowlist's whole purpose).
+
+    #[test]
+    fn allowlist_accepts_musickit_private_key() {
+        // The single legitimate frontend caller (AdvancedTab.tsx).
+        assert!(check_credential_key_allowed("musickit_private_key").is_ok());
+    }
+
+    #[test]
+    fn allowlist_rejects_webplayer_developer_token() {
+        // Critical: this key MUST stay off the allowlist — it has a
+        // dedicated IPC (`has_webplayer_token` / `clear_webplayer_token`).
+        // If a future PR adds it here, the post-XSS escalation primitive
+        // returns.
+        assert!(check_credential_key_allowed("webplayer_developer_token").is_err());
+    }
+
+    #[test]
+    fn allowlist_rejects_dev_access_token() {
+        // Critical: this key MUST stay off the allowlist — it's the
+        // dev-access sentinel set/cleared by `activate_dev_access` /
+        // `deactivate_dev_access`. Allowlist'ing it would let any
+        // post-XSS script read the unlock sentinel.
+        assert!(check_credential_key_allowed("dev_access_token").is_err());
+    }
+
+    #[test]
+    fn allowlist_rejects_arbitrary_keys() {
+        // Defence against probing — random keys, fuzzing payloads,
+        // common credential-naming guesses all rejected.
+        for key in &[
+            "",
+            "wrapper_url",
+            "musickit_private_key_v2",
+            "../../../etc/passwd",
+            "musickit_private_key\0extra",
+            "MusicKit_Private_Key", // case-sensitive — exact match required
+            "musickit_private_key ", // trailing space — exact match required
+        ] {
+            assert!(
+                check_credential_key_allowed(key).is_err(),
+                "key '{}' should be rejected by allowlist",
+                key
+            );
+        }
+    }
+
+    #[test]
+    fn allowlist_error_message_is_generic_not_enumerable() {
+        // Verify the error response doesn't leak allowlist contents —
+        // an attacker shouldn't be able to use the error string to
+        // enumerate which keys are valid.
+        let err1 = check_credential_key_allowed("alpha_key").unwrap_err();
+        let err2 = check_credential_key_allowed("beta_key").unwrap_err();
+
+        // Both errors should be the same generic shape (just the key
+        // echoed back), NOT something like "alpha_key — try
+        // 'musickit_private_key' instead".
+        assert!(err1.starts_with("Unknown credential key:"));
+        assert!(err2.starts_with("Unknown credential key:"));
+
+        // And critically, MUST NOT mention any allowed key.
+        for allowed in ALLOWED_CREDENTIAL_KEYS {
+            assert!(
+                !err1.contains(allowed),
+                "error must not enumerate allowed key '{}'",
+                allowed
+            );
+            assert!(
+                !err2.contains(allowed),
+                "error must not enumerate allowed key '{}'",
+                allowed
+            );
+        }
     }
 }
