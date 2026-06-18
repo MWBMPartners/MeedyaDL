@@ -37,7 +37,11 @@ jobs:
   rc:
     name: Build release-candidate tag
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    # Recursion break — guard on commit subject, not actor identity.
+    # See alpha-release.yml for the full incident write-up.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(rc):')
     steps:
       - name: Checkout release-candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -104,17 +108,43 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          # `[skip ci]` is critical: this push lands on the same `release-candidate`
-          # branch that triggers this workflow, and our `RELEASE_PAT` causes
-          # GitHub to attribute the bot's push to the PAT owner (a human
-          # account), which defeats the `if: github.actor != 'github-actions[bot]'`
-          # guard at the job level. Without `[skip ci]` the workflow loops:
-          # a single human push produces N consecutive RC tags before someone
-          # notices (rc.1 → rc.2 → … → rc.21 occurred on 2026-05-08).
-          # The marker is parsed at GitHub's trigger layer so the workflow
-          # is never even queued for the bot's own push. Belt-and-braces with
-          # the existing actor check.
-          git commit -m "chore(rc): ${{ steps.version.outputs.version }} [skip ci]"
+          # Recursion break is now at the job-level `if:` above, keyed on
+          # the literal `chore(rc):` prefix of THIS commit subject.
+          #
+          # ## Why not `[skip ci]`?
+          #
+          # The original fix appended `[skip ci]` to this commit message
+          # to prevent the bot's push from re-triggering this workflow.
+          # That works — a single human push to `release-candidate` had
+          # previously generated rc.1 → rc.2 → … → rc.21 before someone
+          # noticed (incident: 2026-05-08). The reason recursion happens
+          # at all is that `RELEASE_PAT` attributes the bot's push to a
+          # real human account, defeating the
+          # `if: github.actor != 'github-actions[bot]'` guard.
+          #
+          # ## Why the `[skip ci]` fix was ALSO broken
+          #
+          # `[skip ci]` is read by GitHub at the EVENT-DISPATCH layer.
+          # When a commit subject contains it, GitHub suppresses EVERY
+          # workflow that would otherwise have triggered — not just the
+          # one trying to avoid recursion. The version-bump commit is
+          # what the tag points at; when the tag is pushed, GitHub
+          # inspects `head_commit.message`, sees `[skip ci]`, and
+          # silently rejects `release.yml` (which should fire on tag
+          # pushes to build installers). Result: every alpha/beta/rc
+          # tag pushed but no installers built — release.yml had to be
+          # manually dispatched every cut.
+          #
+          # ## Current solution
+          #
+          # The job-level `if:` is evaluated AFTER event dispatch — the
+          # workflow IS dispatched on every push (including our own
+          # version-bump push), but the job inside immediately exits
+          # when it detects its own commit subject. Other workflows
+          # triggered by the same event (release.yml on the tag push)
+          # are not affected. Recursion is still broken; release.yml
+          # now sees the tag push as it should.
+          git commit -m "chore(rc): ${{ steps.version.outputs.version }}"
 
       - name: Push release-candidate branch and tag
         if: ${{ !inputs.dry_run }}
