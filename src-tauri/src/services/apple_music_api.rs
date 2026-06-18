@@ -64,6 +64,29 @@ const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 /// Keychain service name (shared with `credentials.rs`).
 const SERVICE_NAME: &str = "io.github.meedyadl";
 
+/// Browser-grade User-Agent for Apple Music API requests (#935 follow-up).
+///
+/// Apple Music's anti-abuse infrastructure on `amp-api.music.apple.com`
+/// and `api.music.apple.com` is widely reported to flag non-browser
+/// User-Agent strings — custom strings (our previous `"meedyadl"`),
+/// library defaults (`reqwest/0.12.x`), and empty headers are all
+/// candidate signals for rate-limiting, empty bodies, or outright
+/// 403s. We accompany every request with the `Origin:
+/// https://music.apple.com` header anyway (mandatory for the
+/// `/syllable-lyrics` CORS preflight), so a Safari-on-macOS UA is
+/// the most plausible match for what the Apple Music web player
+/// itself would send.
+///
+/// **Rotate this string as Safari's version increments** — a UA
+/// stuck on Safari 17 a year from now is itself a flag. If a
+/// stale-UA-related regression appears, bump the `Version/17.x`
+/// segment to whatever the current Safari ships.
+///
+/// Verified-mid-2026 against the public Safari Technology Preview
+/// release notes; matches the UA on `music.apple.com` first-party
+/// XHRs to `amp-api` for users running stock macOS Safari.
+const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+
 /// Identifies which mechanism provided the MusicKit developer token.
 ///
 /// Used by callers of `resolve_premium_feature_token()` for diagnostic
@@ -359,7 +382,7 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -878,7 +901,7 @@ pub async fn fetch_album_metadata(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -1336,7 +1359,7 @@ pub async fn fetch_music_video_relations(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", APPLE_BROWSER_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Music video relation lookup failed: {e}"))?;
@@ -1507,7 +1530,7 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -2221,7 +2244,7 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", APPLE_BROWSER_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2407,7 +2430,7 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", APPLE_BROWSER_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
@@ -2607,7 +2630,7 @@ pub async fn fetch_syllable_lyrics(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Music-User-Token", music_user_token)
         .header("Origin", "https://music.apple.com")
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
@@ -2729,7 +2752,7 @@ pub async fn fetch_artist_promo_video(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
