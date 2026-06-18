@@ -431,9 +431,26 @@ pub fn check_dev_access(app: tauri::AppHandle) -> bool {
 /// `dev_access_enabled` in settings. Returns whether activation succeeded.
 ///
 /// On failure, returns `false` silently (no error hint to prevent brute-forcing).
+///
+/// **Rate-limited** at 5 attempts per 60-second sliding window (#940). Plain
+/// SHA-256 with no salt and no throttle is wordlist-trivial for any code with
+/// IPC access (post-XSS, hostile markdown, compromised npm dep); the limit
+/// turns thousands-of-attempts-per-second brute force into ≤5/min. Legit users
+/// type the passphrase by hand so the cap has zero UX cost. Mirrors the
+/// existing rate-limiter pattern used by `start_download`,
+/// `import_cookies_from_browser`, and `check_all_updates`.
 #[tauri::command]
 pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> bool {
     use sha2::{Digest, Sha256};
+
+    // Reject after 5 attempts in the rolling 60-second window. The IPC
+    // returns `-> bool` (not Result) so we map the rate-limit Err to
+    // a plain `false` — visually indistinguishable to the attacker from
+    // a wrong-passphrase rejection, denying them a usable oracle.
+    if crate::utils::rate_limiter::check_rate_limit("activate_dev_access", 5, 60).is_err() {
+        log::warn!("activate_dev_access: rate-limited (possible brute-force attempt)");
+        return false;
+    }
 
     // Hash the provided passphrase and compare against the embedded hash.
     let hash = format!("{:x}", Sha256::digest(passphrase.as_bytes()));
