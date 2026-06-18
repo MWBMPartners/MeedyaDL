@@ -9365,6 +9365,8 @@ pub fn process_queue(
                                     ),
                                 );
                                 match super::musicbrainz_service::lookup_videos_for_tracks(
+                                    &enrich_app,
+                                    &enrich_dl_id,
                                     &isrc_tracks,
                                 )
                                 .await
