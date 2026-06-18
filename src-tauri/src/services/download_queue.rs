@@ -3942,19 +3942,35 @@ async fn spawn_music_video_companion_inner(
     ) {
         Ok(Some(pair)) => pair,
         Ok(None) => {
-            log::debug!(
-                "Music video companion skipped for {dl_id}: no MusicKit token available"
+            // No token at all — usually means the user enabled MV
+            // companion in Settings without providing MusicKit
+            // credentials. Surface the actionable next step instead
+            // of debug-logging silently (#942).
+            emit_download_log(
+                app,
+                dl_id,
+                "Music video lookup skipped — MusicKit credentials required (Settings > Quality > Video Quality)",
             );
             return;
         }
         Err(e) => {
-            log::debug!("Music video companion token resolution failed for {dl_id}: {e}");
-            emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
+            // Token resolution erred (e.g., invalid private key PEM,
+            // expired embedded token). Surface the full error so the
+            // user can route to the right setting (#942).
+            emit_download_warn(
+                app,
+                dl_id,
+                &format!("Music video lookup skipped — MusicKit token resolution failed: {e}"),
+            );
             return;
         }
     };
 
-    log::debug!("Music video companion: using MusicKit token from {token_source}");
+    crate::utils::activity_log::emit_verbose_download_log(
+        app,
+        dl_id,
+        &format!("Music video companion: using MusicKit token from {token_source}"),
+    );
 
     // Fetch music video relationships
     let relations =
@@ -3963,8 +3979,14 @@ async fn spawn_music_video_companion_inner(
         {
             Ok(r) => r,
             Err(e) => {
-                log::debug!("Music video relation lookup failed for {dl_id}: {e}");
-                emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
+                // Relation lookup failed (network, API error, etc.) —
+                // surface the actual error rather than the generic
+                // "lookup failed" (#942).
+                emit_download_warn(
+                    app,
+                    dl_id,
+                    &format!("Music video relation lookup failed: {e}"),
+                );
                 return;
             }
         };
