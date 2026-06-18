@@ -92,7 +92,7 @@ tmp/
 temp/
 *.tmp
 .temp/
-.debugLogs/
+.debugLogs/*
 .examplefiles/*
 
 # ============================================================
