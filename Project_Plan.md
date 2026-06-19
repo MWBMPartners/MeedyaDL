@@ -372,7 +372,7 @@ The architecture is designed with a `MediaService` trait pattern (`src-tauri/src
 
 ---
 
-### Milestone 8 — Spotify Support (v2.0.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
+### Milestone 9 — Spotify Support (v2.1.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
 
 **Status:** 🔲 Planned
 
@@ -419,11 +419,11 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 9 — YouTube Support (v2.1.0) — [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104)
+### Milestone 10 — YouTube Support (v2.2.0) — [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104)
 
 **Status:** 🔲 Planned
 
-YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 10.
+YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the fallback engine for BBC iPlayer in Milestone 8.
 
 #### YouTube Architecture Changes
 
@@ -468,7 +468,7 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 10 — BBC iPlayer Support (v2.2.0) — [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102)
+### Milestone 8 — BBC iPlayer Support (v2.0.0) — [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102)
 
 **Status:** 🔲 Planned
 
@@ -526,7 +526,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 - ✅ **Service registry** — `EngineRegistry` in `engine_registry.rs` provides runtime query layer for `engines.toml` with `resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`. `EngineCommandBuilder` trait + `run_engine()` in `engine_runner.rs` abstract subprocess spawning (#107)
 - ✅ **Per-service settings** — `PerServiceSettings` in `settings.rs` nests per-service config (Apple Music, Spotify stub, YouTube stub) with `engine_priority` overrides per platform (#107)
 - ✅ **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services (#314)
-- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
+- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M10) and BBC iPlayer (M8); install once, share across services
 - ✅ **Service-aware fallback chains** — engine fallback via `try_engine_fallback()` for multi-engine platforms (e.g., BBC iPlayer: get_iplayer → yt-dlp) (#107)
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
 - 🔲 **Per-service settings UI tabs** — infrastructure exists but needs React Settings page integration
@@ -567,7 +567,7 @@ None at this time.
 - **All dependencies are self-contained** in the app data directory — no system-wide installations
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
-- **yt-dlp is shared** between YouTube (M9) and BBC iPlayer (M10) — install once, configure per-service
+- **yt-dlp is shared** between YouTube (M10) and BBC iPlayer (M8) — install once, configure per-service
 
 ---
 

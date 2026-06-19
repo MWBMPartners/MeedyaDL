@@ -858,12 +858,12 @@ export interface AppleMusicServiceSettings {
   content_advisory_in_filenames: boolean;
 }
 
-/** Spotify-specific service settings (stub for M8) */
+/** Spotify-specific service settings (stub for M9) */
 export interface SpotifyServiceSettings {
   cookies_path: string | null;
 }
 
-/** YouTube/YouTube Music service settings (stub for M9) */
+/** YouTube/YouTube Music service settings (stub for M10) */
 export interface YouTubeServiceSettings {
   cookies_path: string | null;
 }

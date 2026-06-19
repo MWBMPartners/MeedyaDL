@@ -237,7 +237,7 @@ impl EngineCommandBuilder for GamdlCommandBuilder {
 
 /// Command builder stub for the Votify engine (Spotify downloads).
 ///
-/// Not yet functional — will be implemented in milestone M8 (v2.0.0).
+/// Not yet functional — will be implemented in milestone M9 (v2.1.0).
 /// Votify is a pip-installed Python package, similar to GAMDL.
 pub struct VotifyCommandBuilder;
 
@@ -252,15 +252,15 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("Votify engine is not yet implemented (planned for v2.0.0)".to_string())
+        Err("Votify engine is not yet implemented (planned for v2.1.0)".to_string())
     }
 }
 
-/// Command builder stub for yt-dlp (YouTube / BBC iPlayer downloads).
+/// Command builder stub for yt-dlp (BBC iPlayer / YouTube downloads).
 ///
-/// Not yet functional — will be implemented in milestones M9/M10.
-/// yt-dlp is a pip-installed Python package shared between YouTube
-/// and BBC iPlayer services.
+/// Not yet functional — will be implemented in milestones M8/M10.
+/// yt-dlp is a pip-installed Python package shared between BBC iPlayer
+/// (fallback engine) and YouTube (primary engine).
 pub struct YtdlpCommandBuilder;
 
 impl EngineCommandBuilder for YtdlpCommandBuilder {
@@ -274,13 +274,13 @@ impl EngineCommandBuilder for YtdlpCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("yt-dlp engine is not yet implemented (planned for v2.1.0)".to_string())
+        Err("yt-dlp engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 
 /// Command builder stub for get_iplayer (BBC iPlayer primary engine).
 ///
-/// Not yet functional — will be implemented in milestone M10.
+/// Not yet functional — will be implemented in milestone M8 (v2.0.0).
 /// get_iplayer uses a different installation method (system binary,
 /// not pip) and has a distinct CLI interface.
 pub struct GetIplayerCommandBuilder;
@@ -296,7 +296,7 @@ impl EngineCommandBuilder for GetIplayerCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("get_iplayer engine is not yet implemented (planned for v2.2.0)".to_string())
+        Err("get_iplayer engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 
