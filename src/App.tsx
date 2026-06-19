@@ -947,7 +947,10 @@ function App() {
                 .getState()
                 .addToast(`URL received from external link${codecSuffix}`, 'info');
 
-              console.log(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
+              // dev-only diagnostic; the user already gets the toast above
+              // (#951 — matches the console.debug convention in useTheme.ts
+              // and main.tsx, suppressed at default browser log levels)
+              console.debug(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
             } catch (err) {
               console.error('Error in deep-link-download handler:', err);
             }
