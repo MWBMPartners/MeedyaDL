@@ -707,6 +707,12 @@ function QueueItemComponent({
             type="button"
             onClick={() => onRetryWithoutWrapper(item.id)}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+            // `aria-label` carries the long-form context that
+            // distinguishes this from the standard Retry button — screen
+            // readers don't reliably announce `title`, so the
+            // cookie-vs-wrapper auth distinction would otherwise be
+            // invisible to assistive tech users (#945).
+            aria-label="Retry without wrapper (uses cookie-based authentication)"
             title="Disable wrapper and retry with cookie-based authentication"
           >
             <RotateCcw size={12} />
@@ -748,6 +754,9 @@ function QueueItemComponent({
               type="button"
               onClick={handleOpenFile}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+              // a11y: long-form label for screen readers (#945) — the
+              // visible "Open File" text alone doesn't say WHERE / HOW.
+              aria-label="Open downloaded file in default application"
               title="Open in default application"
             >
               <FileOutput size={12} />
@@ -758,6 +767,10 @@ function QueueItemComponent({
             type="button"
             onClick={handleOpenFolder}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
+            // a11y: long-form label for screen readers (#945) — "Open
+            // Folder" by itself doesn't say it's the file manager, not
+            // the file's contents.
+            aria-label="Reveal downloaded file's folder in file manager"
             title="Reveal in file manager"
           >
             <FolderOpen size={12} />

@@ -85,6 +85,30 @@ on:
         type: boolean
         default: false
 
+# Concurrency guard — #944.
+#
+# `release.yml` is the only long-running workflow without a concurrency
+# group, leaving tag-push + workflow_dispatch recovery dispatches free
+# to race for the same tag. When that happens, both runs upload to the
+# same artifact name (one fails), both call the per-platform
+# "Release in progress…" placeholder (the wrong one wins the final
+# Release body), and both race to flip the prerelease flag. The
+# downstream symptom is the half-built release object documented in
+# CLAUDE.md's "Release pipeline gotchas" section.
+#
+# `inputs.tag` covers the workflow_dispatch case (explicit tag input);
+# `github.ref` covers the normal push-trigger case (the tag ref). They
+# never collide because the tag ref and the dispatch input always
+# resolve to the same logical tag when both target the same tag.
+#
+# `cancel-in-progress: false` is intentional — we want a second
+# invocation for the SAME tag to QUEUE behind the first rather than
+# cancel it. A half-built release object is strictly worse than waiting
+# the ~10 minutes for the in-flight run to settle.
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ============================================================
   # Build and Publish Release Installers

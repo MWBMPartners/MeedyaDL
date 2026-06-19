@@ -241,7 +241,46 @@ minimum_version = "2.9.1"
 #     the default `INFO` log level. No `GamdlFeature` gate touched.
 #   * Same zero-code-change admission shape as v3.3 (playlist fix),
 #     v3.5 (iTunes lookup fix), and v3.5.1 (music-video 403 fix).
-maximum_tested_version = "3.5.2"
+#
+# 3.6, 3.7, 3.7.1 admission (covered by the cumulative #898 audit):
+#   * No surface-level changes inspected against the support window —
+#     all bug-fix / refactor-only releases bridging 3.5.2 → 3.7.2.
+#
+# 3.7.2 + 3.7.3 validation (#898, audit `.github/audits/gamdl-v3.7.2-v3.7.3-audit.md`):
+#   * (3.7.2) `interface/music_video.py::get_tags` switches title /
+#     album fields to uncensored variants (`trackName` / `collectionName`);
+#     routes the censored variants into sort-order atoms (`sonm` /
+#     `soal`). MeedyaDL writes neither sort atom — no collision.
+#   * (3.7.2 + 3.7.3) Defensive `.get('playParams', {}).get('isLibrary')`
+#     access in both song and music-video paths prevents bare KeyError
+#     tracebacks for unstreamable / library-only items. New `media_not_streamable`
+#     classifier bucket added in MeedyaDL `utils/process.rs` to surface the
+#     now-reachable message cleanly.
+#   * No CLI / INI / wrapper-protocol surface change.
+#
+# 3.7.4 validation (#925, audit `.github/audits/gamdl-v3.7.4-audit.md`):
+#   * 5-commit upstream reliability patch (4 functional + 1 version bump).
+#     — `interface/song.py::_switch_m3u8_master_url_to_default` regex-
+#       rewrites HLS variant master URLs to the canonical `_default.m3u8`
+#       form across `_get_m3u8_from_playback` and
+#       `_get_m3u8_master_url_from_metadata`. Internal to GAMDL's HLS
+#       pipeline; MeedyaDL never inspects m3u8 URLs.
+#     — `api/apple_music.py` token-extraction regex updated for Apple's
+#       `index-legacy-*.js` → `index-*.js` home-page bundle rename + JWT
+#       capture tightened to require structurally valid 3-segment tokens.
+#       Independent of MeedyaDL's own 3-tier `TokenSource` chain.
+#     — `interface/base.py::get_cover_bytes` adds explicit 30s timeout +
+#       `follow_redirects=True` on the httpx client. Reliability win;
+#       MeedyaDL observes resulting files on disk, not the HTTP path.
+#     — `api/exceptions.py::GamdlApiResponseError.content` typed `Any | None`;
+#       non-string content JSON-serialised via `json.dumps()` with `TypeError`
+#       fallback to `str()`. `process::is_storefront_mismatch_error` keys
+#       on the preserved `Resource Not Found` literal; `PYTHON_EXCEPTION_REGEX`
+#       keys on the class-name prefix — both verified compatible.
+#   * No CLI / INI / output-format / regex / log surface change. No
+#     `GamdlFeature` gate touched.
+#   * Same zero-code-change admission shape as v3.3, v3.5, v3.5.1, v3.5.2.
+maximum_tested_version = "3.7.4"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.5.2"
+recommended_version = "3.7.4"

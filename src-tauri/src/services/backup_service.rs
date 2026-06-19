@@ -166,6 +166,17 @@ pub fn restore_from_backup(app: &AppHandle, snapshot_dir: &Path) -> Result<Resto
         ));
     }
 
+    // #939 — defence against caller-supplied path escape. Without this
+    // check, any code with IPC access (post-XSS, hostile markdown,
+    // compromised npm dep) could call `restoreFromBackup('/tmp/attacker')`
+    // and the backend would dutifully copy attacker-supplied
+    // settings.json / queue.json / history.json over the live files,
+    // taking control of cookies path, wrapper URL (auth tokens), and
+    // MusicKit JWT on next load. Canonicalising the parent and
+    // requiring exact equality with `{app_data_dir}/backups/` closes
+    // the gap without changing the legitimate UI flow.
+    assert_snapshot_under_backups_root(app, snapshot_dir)?;
+
     let app_data = platform::get_app_data_dir(app);
     let mut restored = Vec::new();
     let mut skipped = Vec::new();
@@ -259,12 +270,49 @@ pub fn list_backups(app: &AppHandle) -> Result<Vec<BackupEntry>, String> {
 
 /// Remove a specific snapshot directory by absolute path. Used by the
 /// UI's per-entry delete button.
-pub fn delete_backup(snapshot_dir: &Path) -> Result<(), String> {
+///
+/// Path containment is verified — only directories whose parent is the
+/// canonical `{app_data_dir}/backups/` root may be deleted. See #939 for
+/// the threat-model rationale.
+pub fn delete_backup(app: &AppHandle, snapshot_dir: &Path) -> Result<(), String> {
     if !snapshot_dir.exists() {
         return Ok(());
     }
+    assert_snapshot_under_backups_root(app, snapshot_dir)?;
     fs::remove_dir_all(snapshot_dir)
         .map_err(|e| format!("Failed to delete snapshot {snapshot_dir:?}: {e}"))
+}
+
+/// Verify that `snapshot_dir` is a direct child of `{app_data_dir}/backups/`.
+///
+/// Canonicalises both paths first so symlink-based escape attempts are
+/// rejected. Returns `Err` with a clear message on mismatch so the
+/// caller-side IPC can propagate it to the user (or log it for an audit
+/// trail). Returns `Ok(())` only when the snapshot's parent matches the
+/// backups root byte-for-byte after canonicalisation.
+///
+/// #939 — closes the arbitrary-path-write/delete vulnerability where a
+/// subverted WebView could pass any path into `restore_from_backup` /
+/// `delete_backup` and the backend would trust it.
+fn assert_snapshot_under_backups_root(app: &AppHandle, snapshot_dir: &Path) -> Result<(), String> {
+    let canonical_snapshot_parent = snapshot_dir
+        .parent()
+        .ok_or_else(|| "Snapshot path has no parent directory".to_string())?
+        .canonicalize()
+        .map_err(|e| format!("Failed to canonicalise snapshot parent: {e}"))?;
+
+    let canonical_backups_root = backups_root(app)
+        .canonicalize()
+        .map_err(|e| format!("Failed to canonicalise backups root: {e}"))?;
+
+    if canonical_snapshot_parent != canonical_backups_root {
+        return Err(format!(
+            "Snapshot path must live directly under {}/, not {}",
+            canonical_backups_root.display(),
+            canonical_snapshot_parent.display(),
+        ));
+    }
+    Ok(())
 }
 
 /// Trim the backups directory down to `keep` most-recent snapshots.

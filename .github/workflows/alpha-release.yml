@@ -52,7 +52,27 @@ jobs:
     # Skip the workflow when the push was made by this very job (the
     # `chore(alpha): X.Y.Z-alpha.N` commit pushed in the final step would
     # otherwise re-trigger the workflow and cause an infinite loop).
-    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    #
+    # The guard is keyed on the **commit subject**, not the actor —
+    # because RELEASE_PAT attributes the push to the PAT owner (a real
+    # human account), defeating any `github.actor != 'github-actions[bot]'`
+    # check. Looking at the commit subject is reliable: any push WE made
+    # in the final step has the literal prefix `chore(alpha):`, and no
+    # human push starts that way.
+    #
+    # An older incarnation appended `[skip ci]` to the version-bump
+    # commit instead of using this job-level guard. That worked to stop
+    # recursion but had a serious downstream side-effect: `[skip ci]`
+    # propagated through to the tag-push event (GitHub inspects
+    # head_commit.message at event-dispatch layer), which then suppressed
+    # `release.yml` and every other workflow that should fire on the tag.
+    # Result: alpha tags pushed but no installers built — release.yml
+    # had to be manually dispatched after every alpha cut. The job-level
+    # `if:` here gives us the recursion break without affecting any
+    # other workflow's view of the tag push.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(alpha):')
     steps:
       - name: Checkout alpha
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -123,11 +143,11 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          # `[skip ci]` prevents the bot's push from re-triggering this same
-          # workflow (RELEASE_PAT attributes the push to the PAT owner, not
-          # github-actions[bot], which defeats the actor check). See the
-          # release-candidate-release.yml comment for the full incident write-up.
-          git commit -m "chore(alpha): ${{ steps.version.outputs.version }} [skip ci]"
+          # Recursion break is now at the JOB-LEVEL `if:` above, keyed on
+          # the literal `chore(alpha):` prefix of this commit subject. We
+          # deliberately do NOT append `[skip ci]` here — that tag would
+          # propagate to the tag-push event and suppress release.yml.
+          git commit -m "chore(alpha): ${{ steps.version.outputs.version }}"
 
       - name: Push alpha branch and tag
         if: ${{ !inputs.dry_run }}

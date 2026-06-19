@@ -33,7 +33,14 @@ jobs:
   beta:
     name: Build beta tag
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    # See alpha-release.yml for the full incident write-up. Tl;dr:
+    # `RELEASE_PAT` attributes the push to a human account so the actor
+    # check is unreliable; we guard on the commit subject instead.
+    # `[skip ci]` is intentionally NOT used so it doesn't propagate to
+    # the tag-push event and suppress release.yml.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      !startsWith(github.event.head_commit.message, 'chore(beta):')
     steps:
       - name: Checkout beta
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -100,11 +107,11 @@ jobs:
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          # `[skip ci]` prevents the bot's push from re-triggering this same
-          # workflow (RELEASE_PAT attributes the push to the PAT owner, not
-          # github-actions[bot], which defeats the actor check). See the
-          # release-candidate-release.yml comment for the full incident write-up.
-          git commit -m "chore(beta): ${{ steps.version.outputs.version }} [skip ci]"
+          # Recursion break is at the job-level `if:` above, keyed on
+          # the `chore(beta):` prefix of this commit subject. We
+          # deliberately do NOT append `[skip ci]` here — see
+          # alpha-release.yml for the full incident write-up.
+          git commit -m "chore(beta): ${{ steps.version.outputs.version }}"
 
       - name: Push beta branch and tag
         if: ${{ !inputs.dry_run }}

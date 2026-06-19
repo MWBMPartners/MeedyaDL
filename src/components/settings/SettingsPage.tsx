@@ -143,8 +143,8 @@ interface SettingsTab {
  */
 const TABS: SettingsTab[] = [
   { id: 'general', label: 'General', icon: SettingsIcon, component: GeneralTab },
-  { id: 'quality', label: 'Quality', icon: Music, component: QualityTab },
-  { id: 'fallback', label: 'Fallback', icon: ArrowDownUp, component: FallbackTab },
+  { id: 'quality', label: 'Codec & Resolution', icon: Music, component: QualityTab },
+  { id: 'fallback', label: 'Codec Fallback Order', icon: ArrowDownUp, component: FallbackTab },
   { id: 'tools', label: 'Tools', icon: Package, component: ToolsTab },
   { id: 'cookies', label: 'Cookies', icon: Cookie, component: CookiesTab },
   { id: 'lyrics', label: 'Lyrics', icon: FileText, component: LyricsTab },

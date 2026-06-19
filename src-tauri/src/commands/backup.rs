@@ -88,10 +88,15 @@ pub async fn restore_from_backup(
 ///
 /// **Frontend caller:** `deleteBackup(snapshotPath)` in
 /// `src/lib/tauri-commands.ts`.
+///
+/// Backed by `backup_service::delete_backup` which now requires `app`
+/// for path-containment verification (#939). A subverted WebView passing
+/// an arbitrary path is rejected with a clear error.
 #[tauri::command]
-pub async fn delete_backup(snapshot_path: String) -> Result<(), String> {
+pub async fn delete_backup(app: AppHandle, snapshot_path: String) -> Result<(), String> {
     let path = PathBuf::from(snapshot_path);
-    tauri::async_runtime::spawn_blocking(move || backup_service::delete_backup(&path))
+    let app_clone = app.clone();
+    tauri::async_runtime::spawn_blocking(move || backup_service::delete_backup(&app_clone, &path))
         .await
         .map_err(|e| format!("Delete backup task panicked: {e}"))?
 }

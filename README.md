@@ -254,6 +254,10 @@ MeedyaDL is built with a modern, performance-first tech stack:
 | **Registry** | TOML configs (engines, codecs, tags) | Declarative per-platform engine routing and metadata |
 | **Engines** | Python (standalone), GAMDL, votify, yt-dlp | Service-specific download and decryption |
 
+### Reference documentation
+
+- [**Apple Music TTML Lyrics Specification**](https://github.com/MWBMPartners/MeedyaSuite-core/blob/main/crates/meedya-lyrics/docs/APPLE_MUSIC_TTML_SPEC.md) — comprehensive reverse-engineered reference for Apple's syllable/word/line-level lyric TTML format (the format `meedya-lyrics` parses and MeedyaDL relies on for Enhanced LRC generation). Covers endpoint contract, namespaces, granularity tiers, full element/attribute schema, background-vocal handling, and cross-format conversion. Lives in [MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) so it can be shared with sister projects (iLyricsDB, MeedyaConverter).
+
 ---
 
 ## 🚀 Quick Start
