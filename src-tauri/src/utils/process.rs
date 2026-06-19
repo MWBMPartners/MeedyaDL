@@ -265,6 +265,57 @@ pub fn is_python_traceback_noise(line: &str) -> bool {
     trimmed.chars().all(|c| c == '^')
 }
 
+/// Reports whether `line` is a recurring ffprobe demuxing-error noise
+/// line that should be suppressed from the user-facing activity log
+/// when verbose mode is off (#847).
+///
+/// During enrichment, MeedyaDL runs ffprobe several times per track
+/// (codec detection, ReplayGain, mediainfo, …). Each invocation against
+/// a freshly-written M4A occasionally trips an
+/// "Invalid data found when processing input" warning that ffmpeg's
+/// stderr emits for the partial-moov-atom case at byte 0. Downloads
+/// complete fine; ffprobe falls through to a valid result on retry.
+/// But the noise produces ~20 entries per album in the activity log —
+/// reported in #847 as the most-aggravating recurring log noise.
+///
+/// Modelled exactly on [`is_python_traceback_noise`] (#660): the
+/// on-disk activity-log writer still records the line regardless so
+/// the forensic record stays complete; this helper just gates the
+/// per-line `activity-log` Tauri event when verbose is off.
+///
+/// The match is intentionally tight on the recognisable prefix —
+/// `[in#0/<demuxer-list> @ 0x…] Error during demuxing: ` — to avoid
+/// suppressing genuine ffmpeg errors that happen to share the
+/// "demuxing" / "invalid data" wording. The hex pointer in the
+/// bracket varies per invocation so we match by structure
+/// (`[in#0/…@ 0x…]` substring) rather than literal.
+#[must_use]
+pub fn is_ffprobe_demux_noise(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    // Required prefix shape — `[in#<digit>/<demuxer-list> @ 0x<hex>]`.
+    // `in#0/mov,mp4,m4a,3gp,3g2,mj2` is the typical demuxer-list ffmpeg
+    // selects for Apple-Music-shipped M4A files, but we keep this
+    // generic so future demuxer-list shifts don't slip past the gate.
+    let Some(after_in_marker) = trimmed.strip_prefix("[in#") else {
+        return false;
+    };
+    let Some(after_at_sign) = after_in_marker.split_once(" @ 0x").map(|(_, r)| r) else {
+        return false;
+    };
+    let Some(after_close_bracket) = after_at_sign.split_once("] ").map(|(_, r)| r) else {
+        return false;
+    };
+    // Required tail — both substrings present (order-flexible). Apple's
+    // ffmpeg has been stable on this exact wording since 5.x; if it
+    // changes upstream this gate fails open and noise resumes — which
+    // is the safe default vs accidentally suppressing genuine errors.
+    after_close_bracket.starts_with("Error during demuxing: ")
+        && after_close_bracket.contains("Invalid data found when processing input")
+}
+
 /// Reports whether `line` matches the Python exception summary pattern
 /// (e.g. `TypeError: …`, `httpx.ConnectError: Connection refused`).
 ///
@@ -1477,6 +1528,96 @@ mod tests {
         assert!(!is_python_traceback_noise("Downloading album..."));
         assert!(!is_python_traceback_noise(
             "[INFO     12:34:56] [Track 1/12] Downloading \"Hello\""
+        ));
+    }
+
+    // ----------------------------------------------------------
+    // ffprobe demuxing-noise detector tests (#847)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_ffprobe_demux_noise_recognises_canonical_apple_music_shape() {
+        // Verbatim from the #847 issue report — fires every track during
+        // enrichment.
+        assert!(is_ffprobe_demux_noise(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x954c14000] Error during demuxing: Invalid data found when processing input"
+        ));
+    }
+
+    #[test]
+    fn is_ffprobe_demux_noise_tolerates_leading_whitespace_and_alt_hex_widths() {
+        // Some ffmpeg builds prefix the line with a single space; some
+        // hex pointers are wider on 64-bit platforms.
+        assert!(is_ffprobe_demux_noise(
+            "  [in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x7b8c1c000] Error during demuxing: Invalid data found when processing input"
+        ));
+        assert!(is_ffprobe_demux_noise(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0xff00ff00ff00ff00] Error during demuxing: Invalid data found when processing input"
+        ));
+    }
+
+    #[test]
+    fn is_ffprobe_demux_noise_recognises_alternate_demuxer_lists() {
+        // Future-proofing — ffmpeg's auto-selected demuxer list may
+        // change as more formats are added. The match keys on the
+        // structural `[in#<digit>/<list> @ 0x<hex>]` shape, not the
+        // exact comma-separated demuxer names.
+        assert!(is_ffprobe_demux_noise(
+            "[in#0/aac @ 0xabc123] Error during demuxing: Invalid data found when processing input"
+        ));
+        assert!(is_ffprobe_demux_noise(
+            "[in#1/wav,mp3 @ 0x1234] Error during demuxing: Invalid data found when processing input"
+        ));
+    }
+
+    #[test]
+    fn is_ffprobe_demux_noise_rejects_genuine_ffmpeg_errors() {
+        // Other ffmpeg errors that happen to share words must NOT be
+        // suppressed — they're rare but actionable when they fire.
+        // Pattern requires BOTH "Error during demuxing:" prefix AND
+        // "Invalid data found when processing input" — so e.g. a
+        // muxer error or a generic "Invalid data" without the demuxing
+        // prefix passes through.
+        assert!(!is_ffprobe_demux_noise(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 0x954c14000] Error muxing packet (track 2)"
+        ));
+        assert!(!is_ffprobe_demux_noise(
+            "[in#0/mov @ 0x1234] Could not find codec parameters for stream 0"
+        ));
+        assert!(!is_ffprobe_demux_noise(
+            "Invalid data found when processing input"
+        ));
+        // No `[in#…]` prefix → not the noise we're after.
+        assert!(!is_ffprobe_demux_noise(
+            "Error during demuxing: Invalid data found when processing input"
+        ));
+    }
+
+    #[test]
+    fn is_ffprobe_demux_noise_rejects_unrelated_lines() {
+        assert!(!is_ffprobe_demux_noise(""));
+        assert!(!is_ffprobe_demux_noise("  "));
+        assert!(!is_ffprobe_demux_noise(
+            "[INFO     12:34:56] [Track 1/12] Downloading \"Hello\""
+        ));
+        assert!(!is_ffprobe_demux_noise(
+            "Traceback (most recent call last):"
+        ));
+        // Line that LOOKS like a bracketed prefix but uses a different
+        // shape (e.g. structlog's `[level    HH:MM:SS]` prefix on
+        // GAMDL v3.0+ wrapped lines).
+        assert!(!is_ffprobe_demux_noise(
+            "[INFO     12:34:56] [in#0/mov,mp4 @ 0x1234] Error during demuxing: Invalid data found when processing input"
+        ));
+    }
+
+    #[test]
+    fn is_ffprobe_demux_noise_requires_zero_x_hex_pointer_form() {
+        // ffmpeg always prints the pointer as `0x<hex>`; if upstream
+        // ever switches format the gate fails open (noise resumes)
+        // rather than over-suppressing.
+        assert!(!is_ffprobe_demux_noise(
+            "[in#0/mov,mp4,m4a,3gp,3g2,mj2 @ 12345] Error during demuxing: Invalid data found when processing input"
         ));
     }
 
