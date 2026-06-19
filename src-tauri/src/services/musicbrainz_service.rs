@@ -272,6 +272,8 @@ pub struct TrackLookupInfo {
 /// # Returns
 /// All discovered music video URLs, deduplicated by URL.
 pub async fn lookup_videos_for_tracks(
+    app: &tauri::AppHandle,
+    download_id: &str,
     tracks: &[(String, Option<String>)],
 ) -> Result<Vec<MusicVideoUrl>, String> {
     // Convert legacy (song_id, isrc) pairs to TrackLookupInfo
@@ -285,7 +287,7 @@ pub async fn lookup_videos_for_tracks(
         })
         .collect();
 
-    lookup_videos_for_tracks_enhanced(&infos).await
+    lookup_videos_for_tracks_enhanced(app, download_id, &infos).await
 }
 
 /// Enhanced track video lookup with 3-tier discovery priority.
@@ -295,8 +297,12 @@ pub async fn lookup_videos_for_tracks(
 /// 2. ISRC → MusicBrainz recording search
 /// 3. MusicBrainz recording ID → direct lookup (from AcoustID)
 pub async fn lookup_videos_for_tracks_enhanced(
+    app: &tauri::AppHandle,
+    download_id: &str,
     tracks: &[TrackLookupInfo],
 ) -> Result<Vec<MusicVideoUrl>, String> {
+    use crate::utils::activity_log::{emit_download_log, emit_verbose_download_log};
+
     let mut all_videos = Vec::new();
     let mut seen_urls = std::collections::HashSet::new();
     let mut request_count = 0;
@@ -312,9 +318,13 @@ pub async fn lookup_videos_for_tracks_enhanced(
             }
             request_count += 1;
 
-            log::debug!(
-                "MusicBrainz: Tier 1 — looking up song {} via Apple Music URL",
-                track.song_id
+            emit_verbose_download_log(
+                app,
+                download_id,
+                &format!(
+                    "MusicBrainz: Tier 1 — looking up song {} via Apple Music URL",
+                    track.song_id
+                ),
             );
 
             // Search MusicBrainz for recordings linked to this Apple Music URL
@@ -326,12 +336,28 @@ pub async fn lookup_videos_for_tracks_enhanced(
                         }
                     }
                     found = true;
+                    emit_download_log(
+                        app,
+                        download_id,
+                        &format!(
+                            "MusicBrainz: matched song {} via Apple Music URL (Tier 1)",
+                            track.song_id
+                        ),
+                    );
                 }
                 Ok(None) => {
-                    log::debug!("MusicBrainz: Tier 1 — no match for URL {am_url}");
+                    emit_verbose_download_log(
+                        app,
+                        download_id,
+                        &format!("MusicBrainz: Tier 1 — no match for URL {am_url}"),
+                    );
                 }
                 Err(e) => {
-                    log::debug!("MusicBrainz: Tier 1 — URL lookup failed: {e}");
+                    emit_verbose_download_log(
+                        app,
+                        download_id,
+                        &format!("MusicBrainz: Tier 1 — URL lookup failed: {e}"),
+                    );
                 }
             }
         }
@@ -344,9 +370,13 @@ pub async fn lookup_videos_for_tracks_enhanced(
                 }
                 request_count += 1;
 
-                log::debug!(
-                    "MusicBrainz: Tier 2 — looking up song {} via ISRC {isrc}",
-                    track.song_id
+                emit_verbose_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "MusicBrainz: Tier 2 — looking up song {} via ISRC {isrc}",
+                        track.song_id
+                    ),
                 );
 
                 match lookup_recording_by_isrc(isrc).await {
@@ -357,12 +387,28 @@ pub async fn lookup_videos_for_tracks_enhanced(
                             }
                         }
                         found = true;
+                        emit_download_log(
+                            app,
+                            download_id,
+                            &format!(
+                                "MusicBrainz: matched song {} via ISRC {isrc} (Tier 2)",
+                                track.song_id
+                            ),
+                        );
                     }
                     Ok(None) => {
-                        log::debug!("MusicBrainz: Tier 2 — no match for ISRC {isrc}");
+                        emit_verbose_download_log(
+                            app,
+                            download_id,
+                            &format!("MusicBrainz: Tier 2 — no match for ISRC {isrc}"),
+                        );
                     }
                     Err(e) => {
-                        log::debug!("MusicBrainz: Tier 2 — ISRC lookup failed: {e}");
+                        emit_verbose_download_log(
+                            app,
+                            download_id,
+                            &format!("MusicBrainz: Tier 2 — ISRC lookup failed: {e}"),
+                        );
                     }
                 }
             }
@@ -376,9 +422,13 @@ pub async fn lookup_videos_for_tracks_enhanced(
                 }
                 request_count += 1;
 
-                log::debug!(
-                    "MusicBrainz: Tier 3 — looking up song {} via recording ID {mb_id}",
-                    track.song_id
+                emit_verbose_download_log(
+                    app,
+                    download_id,
+                    &format!(
+                        "MusicBrainz: Tier 3 — looking up song {} via recording ID {mb_id}",
+                        track.song_id
+                    ),
                 );
 
                 match lookup_recording_by_id(mb_id).await {
@@ -388,12 +438,28 @@ pub async fn lookup_videos_for_tracks_enhanced(
                                 all_videos.push(video.clone());
                             }
                         }
+                        emit_download_log(
+                            app,
+                            download_id,
+                            &format!(
+                                "MusicBrainz: matched song {} via recording ID {mb_id} (Tier 3)",
+                                track.song_id
+                            ),
+                        );
                     }
                     Ok(None) => {
-                        log::debug!("MusicBrainz: Tier 3 — no match for recording ID {mb_id}");
+                        emit_verbose_download_log(
+                            app,
+                            download_id,
+                            &format!("MusicBrainz: Tier 3 — no match for recording ID {mb_id}"),
+                        );
                     }
                     Err(e) => {
-                        log::debug!("MusicBrainz: Tier 3 — ID lookup failed: {e}");
+                        emit_verbose_download_log(
+                            app,
+                            download_id,
+                            &format!("MusicBrainz: Tier 3 — ID lookup failed: {e}"),
+                        );
                     }
                 }
             }

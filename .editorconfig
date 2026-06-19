@@ -1,0 +1,56 @@
+# EditorConfig (https://editorconfig.org) — root-level config so every
+# contributor's editor lands on the same whitespace/EOL/indent conventions
+# without needing per-IDE tweaks. Reduces PR diff noise from "my editor
+# trims trailing whitespace, theirs doesn't" or "my IDE indents at 2,
+# theirs at 4".
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Rust — community-standard 4-space indent + rustfmt's settings.
+[*.rs]
+indent_size = 4
+max_line_length = 100
+
+# Python — PEP-8 4-space indent.
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+# Makefiles — REQUIRE tab indentation (will not execute otherwise).
+[Makefile]
+indent_style = tab
+
+# TOML — Cargo.toml etc. 4-space indent matches `cargo fmt`.
+[*.toml]
+indent_size = 4
+
+# YAML — 2-space indent is canonical, but some workflows nest 4 levels
+# deep and benefit from a tighter look.
+[*.yml]
+indent_size = 2
+
+[*.yaml]
+indent_size = 2
+
+# Markdown — preserve trailing whitespace because two-trailing-spaces is
+# the canonical line-break syntax. Some tools strip it; this restores
+# editor-side behaviour.
+[*.md]
+trim_trailing_whitespace = false
+
+# JSON — 2 spaces matches `tsc --init` / `tauri.conf.json` style.
+[*.json]
+indent_size = 2
+
+# Shell scripts — keep at 2 (override the file-level 2 explicitly so
+# future changes don't accidentally flip them).
+[*.sh]
+indent_size = 2
