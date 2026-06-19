@@ -313,12 +313,17 @@ mod tests {
     use super::*;
 
     fn temp_db() -> std::path::PathBuf {
+        // macOS clock resolution can collide if two tests in the same
+        // process call `temp_db()` in the same nanosecond — observed
+        // CI failure on macos-14 (run 27811727783) where two tests
+        // landed on the same DB path, opened it in different modes,
+        // and one hit `SqliteFailure(Error { code: ReadOnly,
+        // extended_code: 1032 }, "attempt to write a readonly
+        // database")`. UUID v4 guarantees per-call uniqueness
+        // regardless of clock resolution.
         let dir = std::env::temp_dir().join(format!(
             "meedyadl_query_test_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            uuid::Uuid::new_v4().simple()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("test.db")
