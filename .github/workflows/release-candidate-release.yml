@@ -63,9 +63,12 @@ jobs:
     # and dispatched `release.yml` manually. The job-level `if:` here
     # only gates *this* workflow, leaving every other workflow free to
     # receive the tag push event as normal — both problems solved.
+    # See alpha-release.yml for the recursion-guard rationale + the
+    # PR #954 incident write-up (human commit was silently suppressed
+    # by the original looser `startsWith` check).
     if: |
       github.event_name == 'workflow_dispatch' ||
-      !startsWith(github.event.head_commit.message, 'chore(rc):')
+      !(startsWith(github.event.head_commit.message, 'chore(rc): ') && contains(github.event.head_commit.message, '-rc.'))
     steps:
       - name: Checkout release-candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
