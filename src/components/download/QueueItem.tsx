@@ -685,7 +685,9 @@ function QueueItemComponent({
             <button
               onClick={() => onCancel(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-elevated transition-colors"
-              title="Cancel"
+              // a11y: title matches aria-label so sighted-hover tooltip
+              // and screen-reader announcement say the same thing (#950)
+              title="Cancel download"
               aria-label="Cancel download"
             >
               <X size={14} />
@@ -695,7 +697,9 @@ function QueueItemComponent({
             <button
               onClick={() => onRetry(item.id)}
               className="p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-              title="Retry"
+              // a11y: title matches aria-label so sighted-hover tooltip
+              // and screen-reader announcement say the same thing (#950)
+              title="Retry download"
               aria-label="Retry download"
             >
               <RotateCcw size={14} />
