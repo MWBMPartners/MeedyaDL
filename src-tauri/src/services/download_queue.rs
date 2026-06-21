@@ -11841,10 +11841,12 @@ async fn run_download_with_events(
                         if should_emit {
                             // Suppress Python traceback noise from the user-
                             // facing activity-log feed when verbose is off
-                            // (#660). The helper unconditionally writes to
+                            // (#660). Same gate for ffprobe demuxing noise
+                            // (#847). The helper unconditionally writes to
                             // disk so support requests stay debuggable.
-                            let is_traceback_noise =
-                                process::is_python_traceback_noise(&clean_line);
+                            let is_known_noise =
+                                process::is_python_traceback_noise(&clean_line)
+                                    || process::is_ffprobe_demux_noise(&clean_line);
                             // Phase 3.5h: humanise GAMDL "codec skip" lines
                             // — strip "(media ID: NNN)" and the Python-repr
                             // codec list. Idempotent + safe on non-matching
@@ -11855,7 +11857,7 @@ async fn run_download_with_events(
                                 &download_id,
                                 "stdout",
                                 humanised,
-                                verbose || !is_traceback_noise,
+                                verbose || !is_known_noise,
                             );
                         }
                     }
@@ -12035,12 +12037,15 @@ async fn run_download_with_events(
                             set.insert(clean_line.clone())
                         };
                         if should_emit {
-                            // Suppress Python traceback noise from the
-                            // user-facing activity-log feed in non-verbose
-                            // mode (#660). The helper unconditionally writes
-                            // to disk so support requests stay debuggable.
-                            let is_traceback_noise =
-                                process::is_python_traceback_noise(&clean_line);
+                            // Suppress Python traceback noise (#660) and
+                            // recurring ffprobe demuxing-error lines (#847)
+                            // from the user-facing activity-log feed in
+                            // non-verbose mode. The helper unconditionally
+                            // writes to disk so support requests stay
+                            // debuggable.
+                            let is_known_noise =
+                                process::is_python_traceback_noise(&clean_line)
+                                    || process::is_ffprobe_demux_noise(&clean_line);
                             // Phase 3.5h: humanise GAMDL "codec skip" lines
                             // (strips "(media ID: NNN)" + Python-repr codec
                             // list).
@@ -12050,7 +12055,7 @@ async fn run_download_with_events(
                                 &download_id,
                                 "stderr",
                                 humanised,
-                                verbose || !is_traceback_noise,
+                                verbose || !is_known_noise,
                             );
                         }
                     }

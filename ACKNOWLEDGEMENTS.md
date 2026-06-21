@@ -31,6 +31,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 
 | Crate | Version | Licence | Description |
 |-------|---------|---------|-------------|
+| aes-gcm | 0.10 | MIT/Apache-2.0 | AES-GCM authenticated encryption (Profile Bundle export, credential vault) |
 | arboard | 3.6 | MIT/Apache-2.0 | Cross-platform clipboard access |
 | base64 | 0.22 | MIT/Apache-2.0 | Base64 encoding/decoding (animated artwork, API payloads) |
 | chrono | 0.4 | MIT/Apache-2.0 | Date and time library |
@@ -43,11 +44,16 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
+| meedya-fingerprint | (git, branch=main) | MIT | Shared audio-fingerprint primitives (Chromaprint + ebur128) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
+| meedya-lyrics | (git, branch=main) | MIT | Shared lyrics primitives (TTML parser + classifier + Lyricsfile YAML + LRC offset round-trip) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
+| pbkdf2 | 0.12 | MIT/Apache-2.0 | Password-based key derivation (Profile Bundle export passphrase) |
+| rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter) |
 | regex | 1.12 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12-0.13 | MIT/Apache-2.0 | HTTP client |
 | rookie | 0.5 | — | Browser cookie extraction |
 | roxmltree | 0.21 | MIT/Apache-2.0 | XML parsing (TTML lyrics) |
+| rusqlite | 0.31 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
 | rusty-chromaprint | 0.2 | MIT | Audio fingerprinting (AcoustID) |
 | sentry | 0.46 | MIT | Crash reporting SDK |
 | sentry-tracing | 0.46 | MIT | Sentry integration for `tracing` events |
