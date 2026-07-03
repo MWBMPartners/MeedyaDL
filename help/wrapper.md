@@ -6,7 +6,7 @@
 
 | You're on … | Wrapper to install | Default endpoint |
 |---|---|---|
-| GAMDL **2.9.1 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
+| GAMDL **3.0 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
 | GAMDL **3.6 and newer** | **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) | One HTTP endpoint: `http://127.0.0.1` (port 80) |
 
 You can check which GAMDL version MeedyaDL has installed in
