@@ -19,10 +19,17 @@
 //!
 //! Rather than pinning `MeedyaDL` to a single GAMDL line, we detect the
 //! installed version at runtime and only emit flags / INI keys the
-//! installed release actually understands. Because `MeedyaDL` still
-//! supports GAMDL `>= 2.9.1` (the first release with native
-//! `--song-codec-priority` album support), every capability gate is
-//! version-range-aware rather than a simple "is v3+?" check.
+//! installed release actually understands. `MeedyaDL` supports the GAMDL
+//! `v3.x` line only (`>= 3.0`; v2 support was dropped 2026-07-03) — split
+//! across two wrapper generations (v3.0–v3.5.x wrapper-v1, v3.6+
+//! wrapper-v2). Every capability gate stays version-range-aware rather
+//! than a simple "is v3+?" check because behaviour still varies WITHIN
+//! the v3 line (e.g. `--no-exceptions` effective on <3.1 and >=3.8 but a
+//! no-op between; native muxing / wrapper-v2 from 3.6; assets-API
+//! non-web-codec unlock from 3.8). Some gates keyed on the old `2.9.1`
+//! floor (native codec priority, classical-host rewrite, storefront INI
+//! strip) are now always-true inside the window but keep their exact
+//! version-math predicates — still correct and unknown-version-safe.
 //!
 //! # Threading model
 //!
@@ -272,9 +279,10 @@ fn is_parseable_semver(version: &str) -> bool {
 
 /// Pip version specifier string for `pip install --upgrade`.
 ///
-/// Example output: `gamdl>=2.9.1,<=3.0`. Consumers pass this to
+/// Example output: `gamdl>=3.0,<=3.8.1`. Consumers pass this to
 /// `pip install --upgrade {spec}` so the resolver can pick the
-/// newest validated release without jumping to an untested major.
+/// newest validated release without jumping to an untested version
+/// (and never resolves down to a dropped v2 release).
 #[must_use]
 pub fn pip_version_spec() -> String {
     let window = support_window();

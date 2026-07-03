@@ -101,9 +101,22 @@ version_flag = "version"
 # release that still supports `--song-codec-priority` for albums
 # (native fallback chain support; older releases silently degrade).
 [gamdl]
-# Lowest release we still support. Anything below degrades features
-# (native codec priority, modern error classification) silently.
-minimum_version = "2.9.1"
+# Lowest release we still support. Raised 2.9.1 → 3.0 (2026-07-03): GAMDL
+# v2 support is DROPPED. The supported line is now GAMDL v3.x only, split
+# across two wrapper generations:
+#   * v3.0 – v3.5.x  — wrapper-v1 (WorldObservationLog/wrapper): three local
+#     sockets (HTTP account 30020 + TCP m3u8 20020 + TCP decrypt 10020).
+#   * v3.6+          — wrapper-v2 (glomatico/wrapper-v2): single HTTP daemon
+#     (`--wrapper-url`), gated by `GamdlFeature::WrapperUrl` (>= 3.6).
+# Both wrapper generations remain fully supported; the Settings UI renders
+# the correct fields for whichever GAMDL is installed. Dropping v2 removes
+# the pre-3.0 `--fetch-extra-tags` era from the SUPPORTED set (the
+# `FetchExtraTags` capability gate now never returns true inside the window
+# — harmless, it just goes inert; a follow-up may remove the dead plumbing).
+# The v2.9.1-keyed gates (NativeCodecPriority / ClassicalMusicHostRequired /
+# StorefrontIniKeyStripped) are always-true inside [3.0, ceiling] and keep
+# their version-math predicates unchanged (still correct + unknown-safe).
+minimum_version = "3.0"
 # Highest release MeedyaDL has been tested against. Upstream may ship
 # newer versions before we validate them; see module docs in
 # `gamdl_capabilities.rs` for how that scenario is handled.
@@ -454,10 +467,33 @@ minimum_version = "2.9.1"
 #     `FFmpegPath` shape already in the file. Downstream
 #     `is_python_traceback_noise` filter (#660) already suppresses
 #     the noise either way — UX / defence-in-depth, not urgent.
-maximum_tested_version = "3.8"
+#
+# 3.8.1 audit (2026-07-03, audit doc at
+# `.github/audits/gamdl-v3.8.1-audit.md`):
+#   * ZERO-code-change admission. One functional commit (`30f02156`,
+#     "Support non-enhanced song HLS playlists") + version bump. Fixes
+#     an upstream issue that prevented some songs from downloading with
+#     non-web codecs (follow-up to v3.8's `/v1/play/assets` change).
+#   * `30f02156` touches only `gamdl/interface/song.py` (renames the
+#     private `_get_stream_info` → `_get_stream_info_nonweb` and adds
+#     private `_is_enhanced_m3u8_master` / `_get_stream_info_enhanced` /
+#     `_get_stream_info_nonenhanced` / `_get_playlist_from_codec_*`
+#     helpers — all internal to GAMDL's HLS stream-info selection) and
+#     `gamdl/cli/interactive_prompts.py` (`ask_song_codec` codec-choice
+#     label, only reachable in GAMDL's interactive prompt which MeedyaDL
+#     never invokes — it passes explicit codecs via CLI and pre-auths the
+#     wrapper). No new CLI flags / INI keys / exception classes /
+#     output-line shapes. The only added log statements are
+#     `logger.bind(action=...)` structlog context binds that fire at
+#     DEBUG only (MeedyaDL runs INFO). MeedyaDL never parses m3u8 /
+#     stream-info, so the HTTP / auth / parsing / regex surfaces are all
+#     zero-touch. Reinforces v3.8's wrapper-less non-web-codec support —
+#     a free reliability win. Same shape as v3.3 / v3.5 / v3.5.1 /
+#     v3.5.2 / v3.7.4.
+maximum_tested_version = "3.8.1"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.8"
+recommended_version = "3.8.1"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases
