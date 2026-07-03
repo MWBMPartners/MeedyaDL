@@ -350,15 +350,20 @@ fn execute_after_queue_action(app: &AppHandle) {
 
     let mut settings = load_settings_for_queue(app);
 
-    // Resolve which action to execute: one-shot overrides persistent
-    let action = settings
-        .after_queue_once
-        .take() // consume one-shot
-        .unwrap_or(settings.after_queue_action);
+    // Resolve which action to execute: one-shot overrides persistent.
+    // `take()` empties `after_queue_once`, so we must capture whether it was
+    // set BEFORE the take — otherwise the persist-and-clear block below is
+    // dead code (`is_some()` on the already-emptied field is always false),
+    // and a one-shot that was ever persisted to settings.json would re-fire
+    // on every subsequent queue completion (e.g. "Shut down" firing forever).
+    let one_shot = settings.after_queue_once.take(); // consume one-shot
+    let had_one_shot = one_shot.is_some();
+    let action = one_shot.unwrap_or(settings.after_queue_action);
 
-    // Clear one-shot in saved settings if it was set
-    if settings.after_queue_once.is_some() {
-        settings.after_queue_once = None;
+    // Persist the cleared one-shot to disk when one was set. `take()` above
+    // already set `settings.after_queue_once = None`, so writing `settings`
+    // now records the cleared state.
+    if had_one_shot {
         // Save updated settings (clear the one-shot flag)
         let data_dir = crate::utils::platform::get_app_data_dir(app);
         let settings_path = data_dir.join("settings.json");
