@@ -64,6 +64,16 @@ const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 /// Keychain service name (shared with `credentials.rs`).
 const SERVICE_NAME: &str = "io.github.meedyadl";
 
+/// Browser-grade User-Agent used for Apple Music catalog / amp-api requests
+/// that ride the web-player developer-token tier. Apple's edges
+/// (`amp-api.music.apple.com`, the motion-art CDN) increasingly reject the
+/// bare `meedyadl` UA — matching the Safari string the web player sends keeps
+/// premium fields (`editorialVideo`, syllable TTML) in the response and avoids
+/// sporadic 403s. Shared by `fetch_album_metadata`, `fetch_syllable_lyrics`,
+/// the animated-artwork HLS fetch, and the artist-promo-video lookup so the
+/// string lives in exactly one place.
+pub(crate) const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+
 /// Identifies which mechanism provided the MusicKit developer token.
 ///
 /// Used by callers of `resolve_premium_feature_token()` for diagnostic
@@ -955,10 +965,7 @@ pub async fn fetch_album_metadata(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Origin", "https://music.apple.com")
         .header("Referer", "https://music.apple.com/")
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-        )
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -2770,19 +2777,29 @@ pub async fn fetch_syllable_lyrics(
     song_id: &str,
     music_user_token: &str,
 ) -> Result<Option<String>, String> {
+    // amp-api is the canonical syllable-lyrics endpoint (matches the ITAM
+    // Enhancer userscript base URL). `?extend=ttmlLocalizations` is REQUIRED:
+    // Apple ships some songs' word-timed TTML under
+    // `attributes.ttmlLocalizations` rather than `attributes.ttml`, and
+    // without the extend flag those tracks return an empty `ttml` field —
+    // silently degrading the user to line-level LRC with no error. (#936)
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics"
+        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations"
     );
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
 
-    let client = crate::utils::http_client::build_simple(30)?;
+    let client = crate::utils::http_client::build_simple(15)?;
 
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Music-User-Token", music_user_token)
-        .header("User-Agent", "meedyadl")
+        // `amp-api.music.apple.com` rejects the request (or strips premium
+        // fields) without an Origin header; the browser sends it
+        // automatically, so a Rust client must set it explicitly. (#936)
+        .header("Origin", "https://music.apple.com")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
@@ -2810,20 +2827,14 @@ pub async fn fetch_syllable_lyrics(
         }
     }
 
-    // The response is a JSON envelope containing TTML content.
-    // Extract the TTML string from data[0].attributes.ttml
+    // The response is a JSON envelope containing TTML content under either
+    // `attributes.ttml` or `attributes.ttmlLocalizations` (#936).
     let json: serde_json::Value = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse syllable-lyrics response: {e}"))?;
 
-    let ttml = json
-        .get("data")
-        .and_then(|d| d.get(0))
-        .and_then(|d| d.get("attributes"))
-        .and_then(|a| a.get("ttml"))
-        .and_then(|t| t.as_str())
-        .map(String::from);
+    let ttml = extract_syllable_ttml_from_response(&json);
 
     if ttml.is_some() {
         log::debug!("Syllable-lyrics TTML fetched for song {song_id}");
@@ -2832,6 +2843,34 @@ pub async fn fetch_syllable_lyrics(
     }
 
     Ok(ttml)
+}
+
+/// Extract the TTML body string from a `/syllable-lyrics` response envelope.
+///
+/// Apple emits the TTML body under one of two attribute keys: `ttml` (the
+/// older default shape) or `ttmlLocalizations` (some tracks only). The ITAM
+/// Enhancer userscript's verified contract is "try ttml first, fall back to
+/// ttmlLocalizations as a string" — both are flat strings, and an empty
+/// string counts as "missing" so we never propagate a zero-length TTML
+/// downstream. Extracted as a free function so it can be unit-tested against
+/// synthetic JSON without going through reqwest. (#936)
+fn extract_syllable_ttml_from_response(json: &serde_json::Value) -> Option<String> {
+    let attrs = json
+        .get("data")
+        .and_then(|d| d.get(0))
+        .and_then(|d| d.get("attributes"));
+
+    attrs
+        .and_then(|a| a.get("ttml"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            attrs
+                .and_then(|a| a.get("ttmlLocalizations"))
+                .and_then(|t| t.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .map(String::from)
 }
 
 // ============================================================
@@ -3106,6 +3145,102 @@ mod tests {
             extract_motion_url_chain(&ev, &["motionTallVideo3x4", "motionDetailTall"]).as_deref(),
             Some("https://portrait.com/m.m3u8")
         );
+    }
+
+    // ----------------------------------------------------------
+    // Syllable-lyrics TTML extraction (#936)
+    //
+    // The wire-protocol audit against the ITAM Enhancer userscript
+    // identified that Apple emits the syllable-lyrics TTML body under
+    // either `attributes.ttml` OR `attributes.ttmlLocalizations` — the
+    // pre-#936 alpha code only read the former, so tracks whose body sits
+    // in the latter silently returned `Ok(None)` and the user got
+    // line-only Enhanced LRC with no error surfaced. These tests pin the
+    // fallback contract so a future refactor can't accidentally remove
+    // either branch.
+    // ----------------------------------------------------------
+
+    fn syllable_response_with(ttml: serde_json::Value, ttml_loc: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {
+                    "attributes": {
+                        "ttml": ttml,
+                        "ttmlLocalizations": ttml_loc,
+                    }
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn extract_syllable_ttml_prefers_ttml_field_when_populated() {
+        let envelope = syllable_response_with(
+            serde_json::json!("<tt>PRIMARY</tt>"),
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>PRIMARY</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_falls_back_to_ttml_localizations_when_ttml_missing() {
+        let envelope = syllable_response_with(
+            serde_json::Value::Null,
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>LOCALIZED</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_falls_back_when_ttml_is_empty_string() {
+        // Apple sometimes ships an empty string in the unused field rather
+        // than omitting the key — treat empty same as missing so we land on
+        // the populated alternative.
+        let envelope = syllable_response_with(
+            serde_json::json!(""),
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>LOCALIZED</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_both_fields_empty() {
+        let envelope = syllable_response_with(serde_json::json!(""), serde_json::json!(""));
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_both_fields_null() {
+        let envelope = syllable_response_with(serde_json::Value::Null, serde_json::Value::Null);
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_for_empty_data_array() {
+        let envelope = serde_json::json!({ "data": [] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_attributes_missing() {
+        let envelope = serde_json::json!({ "data": [{}] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_for_malformed_envelope() {
+        // No `data` key at all — defensive against unexpected error shapes.
+        let envelope = serde_json::json!({ "errors": [{ "status": "401" }] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
     }
 
     // ----------------------------------------------------------
