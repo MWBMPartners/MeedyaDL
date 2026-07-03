@@ -2915,10 +2915,16 @@ pub async fn fetch_artist_promo_video(
     log::debug!("Querying Apple Music API for artist promo video: {url}");
 
     let client = crate::utils::http_client::build_simple(15)?;
+    // Browser-grade headers (#970) — this catalog call fetches the artist's
+    // `editorialVideo` (ArtistSpotlightCover.mp4). Like the album-metadata
+    // and syllable-lyrics calls, amp-api strips premium fields / 403s the
+    // web-player-token tier without an Origin header + Safari UA.
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
