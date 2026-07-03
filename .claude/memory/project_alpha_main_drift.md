@@ -1,11 +1,38 @@
 ---
 name: project-alpha-main-drift
-description: v1.10.0 stable shipped WITHOUT GAMDL 3.6 code (PR #855 merged alpha, never main). Forward-port pending via issue #873.
+description: alpha↔main↔beta divergence — alpha has 40 feature commits neither beta nor main have; main/beta are 655-679 ahead of alpha. Big reconciliation still pending. Do NOT run realign-alpha before promoting alpha's commits.
 metadata:
   type: project
 ---
 
-# Alpha / main drift incident (discovered 2026-05-23)
+# Alpha / main drift (ongoing — updated 2026-07-03)
+
+**Status:** OPEN. The original #873 rationalisation approach is superseded;
+the drift persists and grew. See `.github/HANDOFF.md` for the current
+session state.
+
+## Current topology (2026-07-03)
+
+```text
+main (1.10.1) ⊇ beta (1.9.4)          [beta ahead of main: 0]
+alpha (1.11.0-alpha.25) = +40 feature commits neither beta nor main have
+main/beta = 655-679 commits ahead of alpha
+```
+
+- The 40 alpha-only commits = M9 Spotify, brand refresh, #911 multi-service
+  UI, Profile Bundle, Lyricsfile, SQLite index, GAMDL 3.6/3.7 gates. These
+  must flow **alpha→beta→main** at the next stable cut.
+- **DO NOT run `realign-alpha`** (fast-forwards alpha onto main) before those
+  land in main — it would clobber the 40 commits.
+- The full alpha↔main merge has a **~69-file conflict surface** (version
+  strings, workflows, docs, Rust sources) — a dedicated multi-session
+  workstream, still the biggest pending item.
+- Two consolidation prep PRs exist (2026-07-03, NOT merged): **#967** (alpha —
+  gamdl v3.8/v3.8.1, security fixes, artwork, syllable-lyrics fix, dep mirror,
+  v2-drop) and **#968** (main — dep bumps + dependabot.yml fix routing future
+  dep PRs through alpha). Merge #968 then #967; then tackle the big reconciliation.
+
+## Historical origin (2026-05-23)
 
 **Status:** OPEN — tracked in #873 as a dedicated rationalisation PR.
 
