@@ -133,14 +133,16 @@ If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0)
 The **[wrapper](https://github.com/WorldObservationLog/wrapper)** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running daemon that handles Apple ID authentication and DRM key exchange directly.
 
 > **Two wrapper flavours, picked automatically based on your GAMDL version.**
-> MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL ≤ 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
+> MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL 3.0 – 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
+>
+> **MeedyaDL requires GAMDL v3.x** (v2 support was dropped). If you're on GAMDL v2, upgrade to **v3.5** (if you use wrapper-v1) or the recommended latest **3.8.1** (if you're cookie-only). See [`help/wrapper.md`](help/wrapper.md) → *Upgrading from GAMDL v2*.
 
 ### When to Use It
 
-Most users should stick with **cookie-based authentication** (the default — works for the entire `aac-web` / `aac-he-web` codec family with no extra setup). The wrapper is useful if you:
+Most users should stick with **cookie-based authentication** (the default — works for the entire `aac-web` / `aac-he-web` codec family with no extra setup). **On GAMDL 3.8+ the wrapper is needed for ALAC (lossless) only** — a new HLS asset endpoint made every other non-web codec (including **Atmos** and **AC3**) work cookie-only. The wrapper is useful if you:
 
-- Need reliable access to **ALAC**, **Atmos**, **AC3**, or other FairPlay-protected codecs
-- Need the non-`aac-web` AAC variants (`aac`, `aac-he`, `aac-binaural`, etc.) on GAMDL 3.6+
+- Need **ALAC** (lossless) — the one codec that still requires a wrapper on GAMDL 3.8+
+- Are on **GAMDL 3.0 – 3.7.x** and need **Atmos**, **AC3**, or the non-`aac-web` AAC variants (`aac`, `aac-he`, `aac-binaural`, …) — these need a wrapper on those older releases but *not* on 3.8+
 - Experience frequent cookie expiration issues
 - Are comfortable running local server software (or — on GAMDL 3.6+ — Docker on macOS/Windows)
 
