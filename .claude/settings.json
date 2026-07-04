@@ -6,5 +6,8 @@
       "Bash(gh project item-add 6 --owner MWBMPartners --url https://github.com/MWBMPartners/MeedyaDL/issues/147)",
       "Read(//Users/lance.manasse/Projects/Coding and Development/MWBM Partners Ltd/GitHub/MeedyaDL/**)"
     ]
+  },
+  "enabledPlugins": {
+    "codex@openai-codex": true
   }
 }
