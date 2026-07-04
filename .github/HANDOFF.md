@@ -26,9 +26,14 @@ can resume cleanly. Read it top-to-bottom before continuing.
 
 ## 2. Open PRs (staged, NOT merged)
 
-### #967 → alpha — "consolidated alpha PR" (12 commits)
-Supersedes the three original alpha PRs (#955, #960, #966), which stay open
-until #967 merges. Contents:
+> **PR hygiene (2026-07-04):** the 5 superseded originals (#955/#960/#966 →
+> #967; #958/#959 → #968) are now **CLOSED** and their branches deleted, so
+> exactly **two** PRs remain open (#967, #968) — no stacking/race risk.
+
+### #967 → alpha — "consolidated alpha PR" (16 commits)
+Supersedes #955/#960/#966 (now closed). Contents (highlights — see git log for
+the full list; later commits added GAMDL v3.8.1 + v2-drop, wrapper-migration
+docs, and more security quick-wins):
 1. GAMDL v3.8 audit + `--no-exceptions` 3-era gate + quick-xml deny.toml unblock
 2. Security hardening (credential allowlist #938, backup containment #939) +
    release-yml recursion-guard tightening
