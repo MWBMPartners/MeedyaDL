@@ -90,26 +90,34 @@ ignore = [
     # paste — unmaintained (transitive dependency from lofty, used for ReplayGain tagging)
     "RUSTSEC-2024-0436", # paste — unmaintained (archived by dtolnay, no security issue)
 
-    # glib 0.18.x — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
-    # impls. Transitive chain: webkit2gtk 2.0.2 → wry 0.55.1 → tauri-runtime-wry
-    # → tauri 2.11.0 (Linux-only target — glib is not pulled in on macOS or
-    # Windows builds). The advisory's trigger requires constructing a
-    # VariantStrIter and iterating it; MeedyaDL does not use glib's GVariant
-    # APIs directly. wry uses webkit2gtk for the WebView surface but does
-    # not iterate VariantStrIter from any user-reachable code path. Patched
-    # in glib 0.20+, which requires the GTK4 ecosystem; will be resolved
-    # naturally when Tauri migrates to GTK4 (same upstream pin as the other
-    # gtk-rs unmaintained advisories above).
-    "RUSTSEC-2024-0429", # glib — VariantStrIter unsoundness (Linux-only, not user-reachable)
+    # glib — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
+    # impls. Removed from the tree at some point during the Tauri dependency
+    # churn (cargo-deny reports "advisory-not-detected"); the ignore is
+    # kept commented for forensic traceability of past exposure.
+    # "RUSTSEC-2024-0429", # glib — no longer in the tree (advisory-not-detected)
 
     # Security advisories with demonstrably unreachable code paths (carve-out
     # (b) in the policy comment above). Each entry MUST cite the specific
     # advisory trigger conditions that do NOT apply to our usage, an internal
     # tracker issue, and an upstream tracker URL.
     #
-    # (Currently empty — RUSTSEC-2026-0097 / `rand 0.7.3` build-only chain
-    #  was dropped upstream and no longer matches any crate in the tree.
-    #  Re-add here if a similar carve-out becomes necessary in the future.)
+    # quick-xml 0.39.4 — two DoS advisories on the O(N²) attribute /
+    # namespace scan hot paths. Transitive chain: quick-xml → plist 1.9.0
+    # → tauri 2.11.2 → MeedyaDL. Both are DoS via crafted XML with either
+    # many attributes on a single tag (0194) or many `xmlns:` declarations
+    # on a single tag (0195). MeedyaDL never feeds untrusted XML into the
+    # plist → tauri path — the only XML the app parses via this chain is
+    # Tauri's own bundled `tauri.conf.json` (JSON, not XML), its own build
+    # metadata, and the Apple-signed macOS updater manifest (all inputs
+    # under our control or Apple's). User-supplied lyrics TTML is parsed
+    # via the separate `roxmltree` crate (in `enhanced_lyrics_service.rs`,
+    # not via quick-xml). Patched in quick-xml 0.41.0 which requires a
+    # coordinated bump through plist and Tauri; will resolve naturally
+    # once Tauri 2.12+ ships that upgrade chain. Upstream trackers:
+    # https://github.com/tafia/quick-xml/issues/970
+    # https://github.com/tafia/quick-xml/issues/978
+    "RUSTSEC-2026-0194", # quick-xml — O(N²) attributes() (DoS, no untrusted XML on the plist path)
+    "RUSTSEC-2026-0195", # quick-xml — NsReader unbounded push (DoS, no untrusted XML on the plist path)
 ]
 
 # ============================================================

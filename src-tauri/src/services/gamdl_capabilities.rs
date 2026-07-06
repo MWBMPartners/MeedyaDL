@@ -19,10 +19,17 @@
 //!
 //! Rather than pinning `MeedyaDL` to a single GAMDL line, we detect the
 //! installed version at runtime and only emit flags / INI keys the
-//! installed release actually understands. Because `MeedyaDL` still
-//! supports GAMDL `>= 2.9.1` (the first release with native
-//! `--song-codec-priority` album support), every capability gate is
-//! version-range-aware rather than a simple "is v3+?" check.
+//! installed release actually understands. `MeedyaDL` supports the GAMDL
+//! `v3.x` line only (`>= 3.0`; v2 support was dropped 2026-07-03) — split
+//! across two wrapper generations (v3.0–v3.5.x wrapper-v1, v3.6+
+//! wrapper-v2). Every capability gate stays version-range-aware rather
+//! than a simple "is v3+?" check because behaviour still varies WITHIN
+//! the v3 line (e.g. `--no-exceptions` effective on <3.1 and >=3.8 but a
+//! no-op between; native muxing / wrapper-v2 from 3.6; assets-API
+//! non-web-codec unlock from 3.8). Some gates keyed on the old `2.9.1`
+//! floor (native codec priority, classical-host rewrite, storefront INI
+//! strip) are now always-true inside the window but keep their exact
+//! version-math predicates — still correct and unknown-version-safe.
 //!
 //! # Threading model
 //!
@@ -272,9 +279,10 @@ fn is_parseable_semver(version: &str) -> bool {
 
 /// Pip version specifier string for `pip install --upgrade`.
 ///
-/// Example output: `gamdl>=2.9.1,<=3.0`. Consumers pass this to
+/// Example output: `gamdl>=3.0,<=3.8.1`. Consumers pass this to
 /// `pip install --upgrade {spec}` so the resolver can pick the
-/// newest validated release without jumping to an untested major.
+/// newest validated release without jumping to an untested version
+/// (and never resolves down to a dropped v2 release).
 #[must_use]
 pub fn pip_version_spec() -> String {
     let window = support_window();
@@ -394,16 +402,35 @@ pub enum GamdlFeature {
 
     /// `--no-exceptions` CLI flag has an observable effect.
     ///
-    /// Present in every release, but v3.1 (`dc6f2e8`, "Use
-    /// ExceptionPrettyPrinter and .exception logging") removed every
-    /// consumer of the flag — `cli.py` no longer calls
-    /// `traceback.print_exc()` and unconditionally routes exceptions
-    /// through structlog's `ExceptionPrettyPrinter`. The flag is still
-    /// accepted by the CLI parser but has no effect on output.
+    /// Three-era history (mirrors [`Self::FFmpegPath`]):
     ///
-    /// Returns `true` for v2.x and v3.0 only. MeedyaDL continues to set
-    /// the field on `GamdlOptions`; the actual CLI emission is gated by
-    /// this capability in `to_cli_args()`.
+    /// - `< 3.1` — **effective** (original era). Upstream `cli.py`
+    ///   honours the flag on its trace-suppression path.
+    /// - `3.1 .. 3.7.4` — **no-op**. Upstream commit `dc6f2e8`
+    ///   ("Use ExceptionPrettyPrinter and .exception logging")
+    ///   removed every consumer of the flag; the CLI parser accepts
+    ///   it, but `structlog`'s `ExceptionPrettyPrinter` is added to
+    ///   the processor list unconditionally so tracebacks always
+    ///   surface regardless.
+    /// - `>= 3.8` — **effective again**. Upstream commit `58f4548`
+    ///   ("Respect no exceptions option") gates the
+    ///   `ExceptionPrettyPrinter` on `not config.no_exceptions`,
+    ///   restoring the suppression behaviour to what it was on the
+    ///   pre-3.1 code path.
+    ///
+    /// So the predicate is `true` on either the pre-3.1 or the >=3.8
+    /// eras, `false` on the 3.1..3.7.4 no-op window. Same three-era
+    /// shape as [`Self::FFmpegPath`] which was removed in v3.6 then
+    /// reinstated in v3.7.
+    ///
+    /// MeedyaDL continues to set the field on `GamdlOptions` on
+    /// every version so the value survives the capability-cache
+    /// warm-up window; the actual CLI emission (via `to_cli_args()`)
+    /// and the pre-emission dance in `download_queue::merge_options`
+    /// are both gated by this capability. Downstream
+    /// `is_python_traceback_noise` (#660) suppresses the console
+    /// noise regardless of the flag, so the visible effect for users
+    /// is mostly a shorter, cleaner activity log on 3.8+.
     NoExceptionsFlag,
 
     // ---------------------------------------------------------------------
@@ -553,8 +580,16 @@ impl GamdlFeature {
             }
             // Added in v3.0 — v2.9.x rejects it at CLI parse time.
             Self::PlaylistFolderTemplate => is_version_at_least(version, "3.0"),
-            // No-op starting v3.1 — flag is accepted but ignored.
-            Self::NoExceptionsFlag => !is_version_at_least(version, "3.1"),
+            // Three-era predicate — see the [`NoExceptionsFlag`]
+            // variant's doc comment for the full history. Effective
+            // on either the pre-3.1 era (original) or the >= 3.8 era
+            // (reinstated by upstream `58f4548`); no-op on the
+            // 3.1..3.7.4 window because `structlog`'s
+            // `ExceptionPrettyPrinter` was in the processor list
+            // unconditionally. Same shape as `FFmpegPath` above.
+            Self::NoExceptionsFlag => {
+                !is_version_at_least(version, "3.1") || is_version_at_least(version, "3.8")
+            }
             // GAMDL v3.6 family (#853):
             // Added in v3.6 — single HTTP URL replacing the three wrapper-v1 sockets.
             Self::WrapperUrl => is_version_at_least(version, "3.6"),
@@ -706,18 +741,44 @@ mod tests {
     }
 
     #[test]
-    fn no_exceptions_flag_is_effective_below_v31() {
+    fn no_exceptions_flag_three_era_predicate() {
+        // Three-era predicate: effective on < 3.1 (original era) and
+        // >= 3.8 (upstream `58f4548` reinstated), no-op on 3.1..3.7.4.
+        // Same shape as the `FFmpegPath` gate (removed in v3.6,
+        // reinstated in v3.7). See the variant's doc comment for
+        // the full incident history.
         let _lock = test_lock();
+
+        // Era 1 — effective (< 3.1).
         set_detected_version(Some("2.9.3".to_string()));
         assert!(supports(GamdlFeature::NoExceptionsFlag));
         set_detected_version(Some("3.0".to_string()));
         assert!(supports(GamdlFeature::NoExceptionsFlag));
         set_detected_version(Some("3.0.5".to_string()));
         assert!(supports(GamdlFeature::NoExceptionsFlag));
+
+        // Era 2 — no-op (3.1..3.7.4). Upstream removed every consumer;
+        // MeedyaDL must NOT emit the flag on this range or the
+        // spawned command line lies about intent.
         set_detected_version(Some("3.1".to_string()));
         assert!(!supports(GamdlFeature::NoExceptionsFlag));
         set_detected_version(Some("3.2.0".to_string()));
         assert!(!supports(GamdlFeature::NoExceptionsFlag));
+        set_detected_version(Some("3.5.2".to_string()));
+        assert!(!supports(GamdlFeature::NoExceptionsFlag));
+        set_detected_version(Some("3.7.4".to_string()));
+        assert!(!supports(GamdlFeature::NoExceptionsFlag));
+
+        // Era 3 — effective again (>= 3.8). Upstream `58f4548` gated
+        // `ExceptionPrettyPrinter` on `not config.no_exceptions`, so
+        // emitting the flag once more suppresses tracebacks.
+        set_detected_version(Some("3.8".to_string()));
+        assert!(supports(GamdlFeature::NoExceptionsFlag));
+        set_detected_version(Some("3.8.1".to_string()));
+        assert!(supports(GamdlFeature::NoExceptionsFlag));
+        set_detected_version(Some("3.9.0".to_string()));
+        assert!(supports(GamdlFeature::NoExceptionsFlag));
+
         set_detected_version(None);
     }
 
@@ -769,12 +830,28 @@ mod tests {
         let summary = active_capabilities_summary();
         // v3.5 supports: NativeCodecPriority, PlaylistFolderTemplate,
         // WrapperM3u8Ip. Does NOT support FetchExtraTags (removed in 3.0)
-        // or NoExceptionsFlag (no-op since 3.1).
+        // or NoExceptionsFlag (no-op on the 3.1..3.7.4 window).
         assert!(summary.contains("native_codec_priority"));
         assert!(summary.contains("playlist_folder_template"));
         assert!(summary.contains("wrapper_m3u8_ip"));
         assert!(!summary.contains("fetch_extra_tags"));
         assert!(!summary.contains("no_exceptions_flag"));
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn active_capabilities_summary_lists_v3_8_features() {
+        // v3.8 reinstated `NoExceptionsFlag` (upstream `58f4548`) — the
+        // summary output must reflect it so operators reading the
+        // startup log can confirm the flag is being emitted again.
+        let _lock = test_lock();
+        set_detected_version(Some("3.8".to_string()));
+        let summary = active_capabilities_summary();
+        assert!(summary.contains("native_codec_priority"));
+        assert!(summary.contains("playlist_folder_template"));
+        assert!(summary.contains("no_exceptions_flag"));
+        // FetchExtraTags stays removed (upstream never brought it back).
+        assert!(!summary.contains("fetch_extra_tags"));
         set_detected_version(None);
     }
 

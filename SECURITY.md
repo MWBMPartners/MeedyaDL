@@ -27,7 +27,7 @@ Running MeedyaDL with components **outside** the listed ranges (e.g. a manually 
 
 The Apple Music wrapper used for FairPlay-protected codecs is **not bundled with MeedyaDL** and is deployed independently by the user. MeedyaDL supports two upstream wrapper projects depending on the installed GAMDL release:
 
-- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 2.9.1 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). Native binaries available for Windows / macOS / Linux.
+- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 3.0 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). Native binaries available for Windows / macOS / Linux.
 - **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) — required by GAMDL 3.6+. C++ daemon built with the Android NDK, running inside a Linux chroot. Exposes one HTTP REST API. Requires Docker on macOS/Windows; requires `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges on native Linux. **The user is responsible for extracting Apple Music for Android's `.so` libraries** and staging them into the wrapper's `rootfs/system/lib64/` — these `.so` files are Apple's proprietary code and are not redistributed by the wrapper-v2 upstream OR by MeedyaDL.
 
 **Threat surface introduced by the wrapper:**

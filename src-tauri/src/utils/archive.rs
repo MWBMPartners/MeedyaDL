@@ -430,6 +430,24 @@ pub async fn extract_tar_gz(archive_path: &Path, dest: &Path) -> Result<(), Stri
                 continue;
             }
 
+            // Security: reject symlink / hardlink entries. This loop uses
+            // `entry.unpack()` (below), which does NOT confine a link's
+            // target — a malicious archive could plant a symlink pointing
+            // outside `dest`, then a subsequent regular-file entry would
+            // write *through* that link to escape the extraction directory
+            // (tar-slip via symlink, which the `..`/absolute check above
+            // does not catch). MeedyaDL only extracts tool-binary archives,
+            // which never legitimately contain links, so rejecting them
+            // outright is safe and closes the vector.
+            let entry_type = entry.header().entry_type();
+            if entry_type.is_symlink() || entry_type.is_hard_link() {
+                log::warn!(
+                    "Skipping tar symlink/hardlink entry (not permitted in tool archives): {}",
+                    entry_path.display()
+                );
+                continue;
+            }
+
             let outpath = dest.join(&entry_path);
 
             // Create parent directories as needed

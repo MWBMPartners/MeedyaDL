@@ -2213,7 +2213,7 @@ A second gotcha: GAMDL 3.6 added an InquirerPy interactive credential prompt in 
 
 ### Backwards compatibility
 
-MeedyaDL still supports every release in the 2.9.1 – 3.5.x window. The emission gates are runtime — they read from the in-memory version cache populated by the dependency probe — so a single MeedyaDL build serves both wrapper-v1 and wrapper-v2 users without behaviour drift. Settings file forward-compat: v6 adds `wrapper_url` non-destructively; downgrading the GAMDL install just re-shows the v1 UI without losing the v1 socket addresses.
+MeedyaDL still supports every release in the 3.0 – 3.5.x window. The emission gates are runtime — they read from the in-memory version cache populated by the dependency probe — so a single MeedyaDL build serves both wrapper-v1 and wrapper-v2 users without behaviour drift. Settings file forward-compat: v6 adds `wrapper_url` non-destructively; downgrading the GAMDL install just re-shows the v1 UI without losing the v1 socket addresses.
 
 ### Adding the next GAMDL major (v3.7+ / v4.0)
 

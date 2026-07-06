@@ -823,7 +823,14 @@ pub async fn import_profile(
                 let basename = name
                     .strip_prefix(entry::ACTIVITY_LOG_PREFIX)
                     .unwrap_or(&name);
-                std::fs::write(log_dir.join(basename), &bytes)
+                // Zip-Slip defence: skip entries that would escape log_dir.
+                let Some(dest) = safe_bundle_dest(&log_dir, basename) else {
+                    log::warn!(
+                        "Skipping profile-bundle activity-log entry with unsafe path: {basename}"
+                    );
+                    continue;
+                };
+                std::fs::write(&dest, &bytes)
                     .map_err(|e| format!("Failed to write activity-log file: {e}"))?;
                 result.activity_log_files_restored += 1;
             }
@@ -846,7 +853,11 @@ pub async fn import_profile(
                 .map_err(|e| format!("Failed to read {name}: {e}"))?
             {
                 let rel = name.strip_prefix(entry::MANIFESTS_PREFIX).unwrap_or(&name);
-                let dest = root.join(rel);
+                // Zip-Slip defence: skip entries that would escape the output root.
+                let Some(dest) = safe_bundle_dest(&root, rel) else {
+                    log::warn!("Skipping profile-bundle manifest entry with unsafe path: {rel}");
+                    continue;
+                };
                 if let Some(parent) = dest.parent() {
                     std::fs::create_dir_all(parent).ok();
                 }
@@ -912,6 +923,32 @@ pub async fn import_profile(
     Ok(result)
 }
 
+/// Zip-Slip defence for profile-bundle restore.
+///
+/// A `.meedyabundle` is a ZIP-family archive whose entry names are fully
+/// attacker-controllable, and MeedyaDL auto-discovers bundles from the
+/// Downloads folder / OS file-association / drag-drop. The restore loops
+/// join each entry's suffix onto a destination root (`{output_path}/` for
+/// manifests, `{app_data}/logs/` for activity logs). Without a containment
+/// check, an entry named `../../../../.zshrc` (or an absolute path) would
+/// let a crafted bundle write arbitrary files outside the intended root —
+/// arbitrary file write / code execution.
+///
+/// This returns the safe joined path, or `None` when `rel` is absolute or
+/// contains any `..` component (either of which escapes `base`). Callers
+/// must skip `None` entries. Only `Normal` and `CurDir` components are
+/// permitted; `ParentDir`, `RootDir`, and `Prefix` are all rejected.
+fn safe_bundle_dest(base: &std::path::Path, rel: &str) -> Option<std::path::PathBuf> {
+    let rel_path = std::path::Path::new(rel);
+    for component in rel_path.components() {
+        match component {
+            std::path::Component::Normal(_) | std::path::Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(base.join(rel_path))
+}
+
 /// Helper: enumerate every entry name in the open archive that
 /// starts with `prefix`. Used by the activity-log + manifests
 /// restore loops which deal with N files under a single section
@@ -925,6 +962,41 @@ fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn safe_bundle_dest_allows_plain_and_nested_names() {
+        let base = std::path::Path::new("/tmp/base");
+        assert_eq!(
+            safe_bundle_dest(base, "manifest.meedyadl"),
+            Some(base.join("manifest.meedyadl"))
+        );
+        assert_eq!(
+            safe_bundle_dest(base, "Artist/Album/manifest.meedyadl"),
+            Some(base.join("Artist/Album/manifest.meedyadl"))
+        );
+        // A leading `./` is harmless and normalises within base.
+        assert_eq!(
+            safe_bundle_dest(base, "./a.json"),
+            Some(base.join("./a.json"))
+        );
+    }
+
+    #[test]
+    fn safe_bundle_dest_rejects_parent_traversal() {
+        let base = std::path::Path::new("/tmp/base");
+        assert_eq!(safe_bundle_dest(base, "../escape.json"), None);
+        assert_eq!(safe_bundle_dest(base, "a/../../escape.json"), None);
+        assert_eq!(safe_bundle_dest(base, "../../.zshrc"), None);
+    }
+
+    #[test]
+    fn safe_bundle_dest_rejects_absolute_paths() {
+        let base = std::path::Path::new("/tmp/base");
+        assert_eq!(safe_bundle_dest(base, "/etc/passwd"), None);
+        // Windows-style absolute/prefix components are also rejected on the
+        // platforms that parse them; on unix these parse as Normal segments,
+        // which stay contained, so we only assert the unix-absolute case here.
+    }
 
     #[test]
     fn format_size_buckets_correctly() {

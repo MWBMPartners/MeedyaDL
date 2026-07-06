@@ -504,14 +504,44 @@ async fn download_hls_to_mp4(
     );
 
     // Run FFmpeg to download the HLS stream and remux to MP4.
-    // Flags:
-    //   -i {url}          -- input HLS stream
-    //   -c copy           -- copy streams without re-encoding (preserves HEVC quality)
+    //
+    // ### Browser-grade headers (added 2026-06-21 — reliability fix)
+    //
+    // Apple's motion-art CDN edges (`mvod-akamaized.itunes.apple.com`
+    // and friends) have tightened over the past year and now reject
+    // requests that lack browser-grade headers. FFmpeg's default
+    // User-Agent (`Lavf/<version>`) gets a 403 on either the master
+    // m3u8, a variant playlist, or a segment fetch — and from the
+    // user's point of view this manifests as "animated artwork
+    // doesn't work reliably" even when MeedyaDL successfully
+    // discovered the HLS URL from the catalog API.
+    //
+    // We pass the same `Origin` / `Referer` / `User-Agent` triple
+    // that the Apple Music web player sends. Mirrors the
+    // syllable-lyrics fix (#935/#936) but applied at the HLS layer.
+    //
+    // FFmpeg's `-headers` flag takes a `\r\n`-delimited blob; the
+    // trailing `\r\n` is mandatory or the last header line is
+    // silently dropped. `-user_agent` is a dedicated flag because
+    // FFmpeg would otherwise also append its default `Lavf` UA;
+    // the dedicated flag cleanly overrides.
+    //
+    // Other flags:
+    //   -i {url}             -- input HLS stream
+    //   -c copy              -- copy streams without re-encoding (preserves HEVC quality)
     //   -movflags +faststart -- move moov atom to start for faster playback
-    //   -y                -- overwrite output file if it exists
-    //   -loglevel warning -- suppress verbose output, only show warnings/errors
+    //   -y                   -- overwrite output file if it exists
+    //   -loglevel warning    -- suppress verbose output, only show warnings/errors
+    // Shared browser-grade UA (single source of truth in apple_music_api).
+    let browser_user_agent = apple_music_api::APPLE_BROWSER_USER_AGENT;
+    let apple_music_headers = "Origin: https://music.apple.com\r\nReferer: https://music.apple.com/\r\n";
+
     let output = Command::new(&ffmpeg_bin)
         .args([
+            "-user_agent",
+            browser_user_agent,
+            "-headers",
+            apple_music_headers,
             "-i",
             m3u8_url,
             "-c",

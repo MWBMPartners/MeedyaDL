@@ -64,6 +64,16 @@ const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 /// Keychain service name (shared with `credentials.rs`).
 const SERVICE_NAME: &str = "io.github.meedyadl";
 
+/// Browser-grade User-Agent used for Apple Music catalog / amp-api requests
+/// that ride the web-player developer-token tier. Apple's edges
+/// (`amp-api.music.apple.com`, the motion-art CDN) increasingly reject the
+/// bare `meedyadl` UA — matching the Safari string the web player sends keeps
+/// premium fields (`editorialVideo`, syllable TTML) in the response and avoids
+/// sporadic 403s. Shared by `fetch_album_metadata`, `fetch_syllable_lyrics`,
+/// the animated-artwork HLS fetch, and the artist-promo-video lookup so the
+/// string lives in exactly one place.
+pub(crate) const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+
 /// Identifies which mechanism provided the MusicKit developer token.
 ///
 /// Used by callers of `resolve_premium_feature_token()` for diagnostic
@@ -934,11 +944,28 @@ pub async fn fetch_album_metadata(
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
 
+    // Browser-grade headers (added 2026-06-21).
+    //
+    // `Origin: https://music.apple.com` is the critical header for
+    // users on the web-player-extracted developer token tier. When
+    // absent, `amp-api.music.apple.com`'s edge silently strips the
+    // `editorialVideo` block from the response — so animated artwork
+    // URLs that DO exist for the album never reach MeedyaDL, and the
+    // activity log lies with "not offered by Apple Music".
+    //
+    // Adding the header is a no-op for users on full MusicKit
+    // credentials (Apple doesn't gate full-JWT responses on Origin)
+    // and a real fix for users on the web-player-token tier. The
+    // Referer + Safari User-Agent match what the web client sends,
+    // mirroring the syllable-lyrics fix (#935/#936) at the catalog
+    // layer.
     let client = crate::utils::http_client::build_simple(30)?;
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -1055,24 +1082,35 @@ pub async fn fetch_album_metadata(
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
 
-    // Extract animated artwork HLS URLs from editorialVideo
+    // Extract animated artwork HLS URLs from editorialVideo.
+    //
+    // Priority chains follow the ITAM Enhancer userscript's canonical
+    // mapping (https://skriptey.github.io/Userscripts/ITAMenhancer/),
+    // which prefers the full-resolution `motion{Square,Tall}Video*` keys
+    // over the cropped `motionDetail*` keys we used to be the only
+    // probe for. Background: per the discovery audit (2026-06-21), a
+    // number of recent Apple Music releases ship the full-resolution
+    // variant under `motionSquareVideo1x1` / `motionTallVideo3x4`
+    // *only*; the legacy `motionDetailSquare` / `motionDetailTall`
+    // keys are absent, so the previous single-key extraction silently
+    // produced `None` and the activity log lied with "not offered by
+    // Apple Music" for albums that demonstrably have animated artwork.
+    //
+    // `extract_motion_url` also handles the localised/nested shape
+    // (`"video": { "url": "https://..." }`) that some non-US storefronts
+    // emit, since `as_str()` on an object silently returns None.
     let editorial_video = attributes.get("editorialVideo");
 
     let artwork_square_url = editorial_video
-        .and_then(|ev| ev.get("motionDetailSquare"))
-        .and_then(|m| m.get("video"))
-        .and_then(|v| v.as_str())
-        .map(std::string::ToString::to_string);
+        .and_then(|ev| extract_motion_url_chain(ev, &["motionSquareVideo1x1", "motionDetailSquare"]));
 
     let artwork_tall_url = editorial_video
-        .and_then(|ev| ev.get("motionDetailTall"))
-        .and_then(|m| m.get("video"))
-        .and_then(|v| v.as_str())
-        .map(std::string::ToString::to_string);
+        .and_then(|ev| extract_motion_url_chain(ev, &["motionTallVideo3x4", "motionDetailTall"]));
 
     // #538: Album-level 16:9 editorial spotlight video. The same
-    // `editorialVideo` block can carry both portrait (`motionDetailTall`)
-    // and wide (`motionArtistFullscreen16x9` / `motionArtistWide16x9`)
+    // `editorialVideo` block can carry both portrait
+    // (`motionTallVideo3x4` / `motionDetailTall`) and wide
+    // (`motionArtistFullscreen16x9` / `motionArtistWide16x9`)
     // variants; the wide variants are album-cinematic teasers
     // distinct from the static album cover. Priority matches the
     // artist-spotlight code path (#455 / #538): prefer
@@ -1081,14 +1119,9 @@ pub async fn fetch_album_metadata(
     // already covered by `artwork_square_url`/`artwork_tall_url`
     // and intentionally excluded — they're tightly cropped around
     // the cover and would look wrong as a 16:9 spotlight.
-    let album_spotlight_url = editorial_video
-        .and_then(|ev| {
-            ev.get("motionArtistFullscreen16x9")
-                .or_else(|| ev.get("motionArtistWide16x9"))
-        })
-        .and_then(|m| m.get("video"))
-        .and_then(|v| v.as_str())
-        .map(std::string::ToString::to_string);
+    let album_spotlight_url = editorial_video.and_then(|ev| {
+        extract_motion_url_chain(ev, &["motionArtistFullscreen16x9", "motionArtistWide16x9"])
+    });
 
     // Static cover artwork (#756). The `artwork.url` is a template
     // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
@@ -1146,6 +1179,44 @@ pub async fn fetch_album_metadata(
         artwork_height,
         raw_json: album_data.clone(),
     }))
+}
+
+/// Extract the HLS master-playlist URL from one motion key inside an
+/// `editorialVideo` block. Two shapes observed in the wild:
+///
+/// - `"motionDetailSquare": { "video": "https://.../master.m3u8" }` —
+///   string-valued `video`, the legacy and still-most-common shape
+/// - `"motionDetailSquare": { "video": { "url": "https://.../master.m3u8" } }` —
+///   nested-object shape on some recent / localised storefronts
+///
+/// The legacy single-key extraction (`.as_str()` on `video`) silently
+/// returned `None` for the nested shape, leading the activity log to
+/// emit "not offered by Apple Music" for albums that *did* have
+/// animated artwork in that variant. Returns `None` when the key is
+/// missing OR when neither shape yields a string URL.
+fn extract_motion_url(motion_block: Option<&serde_json::Value>) -> Option<String> {
+    let video = motion_block?.get("video")?;
+    if let Some(s) = video.as_str() {
+        return Some(s.to_string());
+    }
+    video
+        .get("url")
+        .and_then(|v| v.as_str())
+        .map(std::string::ToString::to_string)
+}
+
+/// Try each key in `priority_chain` in order against `editorial_video`,
+/// returning the first non-empty HLS URL. Used by the album-metadata
+/// parser for square / portrait / spotlight variants. Mirrors ITAM
+/// Enhancer's `pick(...)` helper — keys are tried left-to-right so the
+/// highest-quality variant we recognise wins.
+fn extract_motion_url_chain(
+    editorial_video: &serde_json::Value,
+    priority_chain: &[&str],
+) -> Option<String> {
+    priority_chain
+        .iter()
+        .find_map(|key| extract_motion_url(editorial_video.get(*key)))
 }
 
 /// Parse track metadata from the album API response's relationships.tracks field.
@@ -2706,19 +2777,29 @@ pub async fn fetch_syllable_lyrics(
     song_id: &str,
     music_user_token: &str,
 ) -> Result<Option<String>, String> {
+    // amp-api is the canonical syllable-lyrics endpoint (matches the ITAM
+    // Enhancer userscript base URL). `?extend=ttmlLocalizations` is REQUIRED:
+    // Apple ships some songs' word-timed TTML under
+    // `attributes.ttmlLocalizations` rather than `attributes.ttml`, and
+    // without the extend flag those tracks return an empty `ttml` field —
+    // silently degrading the user to line-level LRC with no error. (#936)
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics"
+        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations"
     );
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
 
-    let client = crate::utils::http_client::build_simple(30)?;
+    let client = crate::utils::http_client::build_simple(15)?;
 
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Music-User-Token", music_user_token)
-        .header("User-Agent", "meedyadl")
+        // `amp-api.music.apple.com` rejects the request (or strips premium
+        // fields) without an Origin header; the browser sends it
+        // automatically, so a Rust client must set it explicitly. (#936)
+        .header("Origin", "https://music.apple.com")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
@@ -2746,20 +2827,14 @@ pub async fn fetch_syllable_lyrics(
         }
     }
 
-    // The response is a JSON envelope containing TTML content.
-    // Extract the TTML string from data[0].attributes.ttml
+    // The response is a JSON envelope containing TTML content under either
+    // `attributes.ttml` or `attributes.ttmlLocalizations` (#936).
     let json: serde_json::Value = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse syllable-lyrics response: {e}"))?;
 
-    let ttml = json
-        .get("data")
-        .and_then(|d| d.get(0))
-        .and_then(|d| d.get("attributes"))
-        .and_then(|a| a.get("ttml"))
-        .and_then(|t| t.as_str())
-        .map(String::from);
+    let ttml = extract_syllable_ttml_from_response(&json);
 
     if ttml.is_some() {
         log::debug!("Syllable-lyrics TTML fetched for song {song_id}");
@@ -2768,6 +2843,34 @@ pub async fn fetch_syllable_lyrics(
     }
 
     Ok(ttml)
+}
+
+/// Extract the TTML body string from a `/syllable-lyrics` response envelope.
+///
+/// Apple emits the TTML body under one of two attribute keys: `ttml` (the
+/// older default shape) or `ttmlLocalizations` (some tracks only). The ITAM
+/// Enhancer userscript's verified contract is "try ttml first, fall back to
+/// ttmlLocalizations as a string" — both are flat strings, and an empty
+/// string counts as "missing" so we never propagate a zero-length TTML
+/// downstream. Extracted as a free function so it can be unit-tested against
+/// synthetic JSON without going through reqwest. (#936)
+fn extract_syllable_ttml_from_response(json: &serde_json::Value) -> Option<String> {
+    let attrs = json
+        .get("data")
+        .and_then(|d| d.get(0))
+        .and_then(|d| d.get("attributes"));
+
+    attrs
+        .and_then(|a| a.get("ttml"))
+        .and_then(|t| t.as_str())
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            attrs
+                .and_then(|a| a.get("ttmlLocalizations"))
+                .and_then(|t| t.as_str())
+                .filter(|s| !s.is_empty())
+        })
+        .map(String::from)
 }
 
 // ============================================================
@@ -2812,10 +2915,16 @@ pub async fn fetch_artist_promo_video(
     log::debug!("Querying Apple Music API for artist promo video: {url}");
 
     let client = crate::utils::http_client::build_simple(15)?;
+    // Browser-grade headers (#970) — this catalog call fetches the artist's
+    // `editorialVideo` (ArtistSpotlightCover.mp4). Like the album-metadata
+    // and syllable-lyrics calls, amp-api strips premium fields / 403s the
+    // web-player-token tier without an Origin header + Safari UA.
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -2916,6 +3025,229 @@ pub async fn fetch_artist_promo_video(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ----------------------------------------------------------
+    // Animated artwork JSON path extraction (2026-06-21)
+    //
+    // Pins the ITAM-Enhancer-priority chain and the nested-shape
+    // tolerance so a future Apple API shape change is caught
+    // immediately by CI rather than silently emitting "not offered".
+    // ----------------------------------------------------------
+
+    fn json(s: &str) -> serde_json::Value {
+        serde_json::from_str(s).expect("test JSON must parse")
+    }
+
+    #[test]
+    fn extract_motion_url_handles_string_video_shape() {
+        let block = json(r#"{"video": "https://example.com/master.m3u8"}"#);
+        assert_eq!(
+            extract_motion_url(Some(&block)).as_deref(),
+            Some("https://example.com/master.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_handles_nested_video_url_shape() {
+        let block = json(r#"{"video": {"url": "https://example.com/nested.m3u8"}}"#);
+        assert_eq!(
+            extract_motion_url(Some(&block)).as_deref(),
+            Some("https://example.com/nested.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_returns_none_when_video_missing() {
+        let block = json(r#"{"other": "field"}"#);
+        assert!(extract_motion_url(Some(&block)).is_none());
+    }
+
+    #[test]
+    fn extract_motion_url_returns_none_for_none_input() {
+        assert!(extract_motion_url(None).is_none());
+    }
+
+    #[test]
+    fn extract_motion_url_chain_prefers_first_key() {
+        // ITAM Enhancer prefers motionSquareVideo1x1 over motionDetailSquare;
+        // when both exist the chain must return the preferred one.
+        let ev = json(
+            r#"{
+                "motionSquareVideo1x1": {"video": "https://preferred.com/m.m3u8"},
+                "motionDetailSquare":   {"video": "https://legacy.com/m.m3u8"}
+            }"#,
+        );
+        assert_eq!(
+            extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+                .as_deref(),
+            Some("https://preferred.com/m.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_chain_falls_through_to_legacy_key() {
+        // Real-world case: album only exposes motionDetailSquare.
+        // Previous single-key extraction would have worked for this case
+        // but missed the inverse (only motionSquareVideo1x1 present, see
+        // below). The chain must handle both.
+        let ev = json(
+            r#"{"motionDetailSquare": {"video": "https://legacy.com/m.m3u8"}}"#,
+        );
+        assert_eq!(
+            extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+                .as_deref(),
+            Some("https://legacy.com/m.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_chain_finds_preferred_only_key() {
+        // The bug this fix addresses: recent releases sometimes ONLY
+        // ship motionSquareVideo1x1 / motionTallVideo3x4. The legacy
+        // single-key extractor silently returned None for these.
+        let ev = json(
+            r#"{"motionSquareVideo1x1": {"video": "https://only-preferred.com/m.m3u8"}}"#,
+        );
+        assert_eq!(
+            extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+                .as_deref(),
+            Some("https://only-preferred.com/m.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_chain_returns_none_when_all_keys_absent() {
+        let ev = json(r#"{"someOtherKey": {"video": "x"}}"#);
+        assert!(
+            extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_chain_skips_keys_with_missing_video_field() {
+        // Defensive: a key exists but `.video` is absent — chain should
+        // continue to the next candidate rather than short-circuit.
+        let ev = json(
+            r#"{
+                "motionSquareVideo1x1": {"unrelated": "field"},
+                "motionDetailSquare":   {"video": "https://fallback.com/m.m3u8"}
+            }"#,
+        );
+        assert_eq!(
+            extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+                .as_deref(),
+            Some("https://fallback.com/m.m3u8")
+        );
+    }
+
+    #[test]
+    fn extract_motion_url_chain_portrait_chain_matches_square_shape() {
+        // Symmetry check: portrait uses the same two-key pattern.
+        let ev = json(
+            r#"{"motionTallVideo3x4": {"video": "https://portrait.com/m.m3u8"}}"#,
+        );
+        assert_eq!(
+            extract_motion_url_chain(&ev, &["motionTallVideo3x4", "motionDetailTall"]).as_deref(),
+            Some("https://portrait.com/m.m3u8")
+        );
+    }
+
+    // ----------------------------------------------------------
+    // Syllable-lyrics TTML extraction (#936)
+    //
+    // The wire-protocol audit against the ITAM Enhancer userscript
+    // identified that Apple emits the syllable-lyrics TTML body under
+    // either `attributes.ttml` OR `attributes.ttmlLocalizations` — the
+    // pre-#936 alpha code only read the former, so tracks whose body sits
+    // in the latter silently returned `Ok(None)` and the user got
+    // line-only Enhanced LRC with no error surfaced. These tests pin the
+    // fallback contract so a future refactor can't accidentally remove
+    // either branch.
+    // ----------------------------------------------------------
+
+    fn syllable_response_with(ttml: serde_json::Value, ttml_loc: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "data": [
+                {
+                    "attributes": {
+                        "ttml": ttml,
+                        "ttmlLocalizations": ttml_loc,
+                    }
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn extract_syllable_ttml_prefers_ttml_field_when_populated() {
+        let envelope = syllable_response_with(
+            serde_json::json!("<tt>PRIMARY</tt>"),
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>PRIMARY</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_falls_back_to_ttml_localizations_when_ttml_missing() {
+        let envelope = syllable_response_with(
+            serde_json::Value::Null,
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>LOCALIZED</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_falls_back_when_ttml_is_empty_string() {
+        // Apple sometimes ships an empty string in the unused field rather
+        // than omitting the key — treat empty same as missing so we land on
+        // the populated alternative.
+        let envelope = syllable_response_with(
+            serde_json::json!(""),
+            serde_json::json!("<tt>LOCALIZED</tt>"),
+        );
+        assert_eq!(
+            extract_syllable_ttml_from_response(&envelope),
+            Some("<tt>LOCALIZED</tt>".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_both_fields_empty() {
+        let envelope = syllable_response_with(serde_json::json!(""), serde_json::json!(""));
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_both_fields_null() {
+        let envelope = syllable_response_with(serde_json::Value::Null, serde_json::Value::Null);
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_for_empty_data_array() {
+        let envelope = serde_json::json!({ "data": [] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_when_attributes_missing() {
+        let envelope = serde_json::json!({ "data": [{}] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
+
+    #[test]
+    fn extract_syllable_ttml_returns_none_for_malformed_envelope() {
+        // No `data` key at all — defensive against unexpected error shapes.
+        let envelope = serde_json::json!({ "errors": [{ "status": "401" }] });
+        assert_eq!(extract_syllable_ttml_from_response(&envelope), None);
+    }
 
     // ----------------------------------------------------------
     // Storefront-rewrite tests (#666)
