@@ -350,15 +350,20 @@ fn execute_after_queue_action(app: &AppHandle) {
 
     let mut settings = load_settings_for_queue(app);
 
-    // Resolve which action to execute: one-shot overrides persistent
-    let action = settings
-        .after_queue_once
-        .take() // consume one-shot
-        .unwrap_or(settings.after_queue_action);
+    // Resolve which action to execute: one-shot overrides persistent.
+    // `take()` empties `after_queue_once`, so we must capture whether it was
+    // set BEFORE the take — otherwise the persist-and-clear block below is
+    // dead code (`is_some()` on the already-emptied field is always false),
+    // and a one-shot that was ever persisted to settings.json would re-fire
+    // on every subsequent queue completion (e.g. "Shut down" firing forever).
+    let one_shot = settings.after_queue_once.take(); // consume one-shot
+    let had_one_shot = one_shot.is_some();
+    let action = one_shot.unwrap_or(settings.after_queue_action);
 
-    // Clear one-shot in saved settings if it was set
-    if settings.after_queue_once.is_some() {
-        settings.after_queue_once = None;
+    // Persist the cleared one-shot to disk when one was set. `take()` above
+    // already set `settings.after_queue_once = None`, so writing `settings`
+    // now records the cleared state.
+    if had_one_shot {
         // Save updated settings (clear the one-shot flag)
         let data_dir = crate::utils::platform::get_app_data_dir(app);
         let settings_path = data_dir.join("settings.json");
@@ -3517,46 +3522,46 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     }
 
     // Default to `--no-exceptions` so GAMDL prints a single user-facing
-    // line per failure instead of a full Python traceback. Version matrix:
+    // line per failure instead of a full Python traceback. Three-era
+    // version matrix (see `GamdlFeature::NoExceptionsFlag` doc for the
+    // full history):
     //
-    //   * v2.x: flag suppresses `traceback.print_exc()` — fully
-    //     effective.
-    //   * v3.0: flag still suppresses `traceback.print_exc()`, but
-    //     structlog's default processors prepend
-    //     `[ERROR  HH:MM:SS]` to the printed line, which keeps the
-    //     activity log mostly clean.
-    //   * v3.1+: flag is a no-op. Upstream commit `dc6f2e8` removed
-    //     every `traceback.print_exc()` call and switched to
-    //     `structlog.processors.ExceptionPrettyPrinter` + `log.exception`.
-    //     The flag is still accepted by the CLI parser but nothing
-    //     consumes it.
+    //   * `< 3.1` — flag suppresses `traceback.print_exc()`; fully
+    //     effective. Activity log stays clean.
+    //   * `3.1..3.7.4` — flag is a no-op. Upstream commit `dc6f2e8`
+    //     ("Use ExceptionPrettyPrinter and .exception logging")
+    //     removed every consumer; `structlog`'s
+    //     `ExceptionPrettyPrinter` is added to the processor list
+    //     unconditionally so tracebacks surface regardless. MeedyaDL's
+    //     activity log therefore renders pretty-printed exception
+    //     blocks on this range even with `verbose_gamdl_exceptions=false`.
+    //   * `>= 3.8` — flag effective again. Upstream commit `58f4548`
+    //     ("Respect no exceptions option") gates the
+    //     `ExceptionPrettyPrinter` on `not config.no_exceptions`,
+    //     restoring the suppression behaviour.
     //
-    // MeedyaDL's activity log may therefore surface pretty-printed
-    // exception blocks on v3.1 regardless of `verbose_gamdl_exceptions`.
-    // Users debugging upstream issues can still flip the
-    // `verbose_gamdl_exceptions` setting to get the full stack trace
-    // back; in that case we leave `no_exceptions` as `None` so
+    // Users debugging upstream issues can flip
+    // `verbose_gamdl_exceptions` on to get the full stack trace back;
+    // in that case we leave `no_exceptions` as `None` so
     // `to_cli_args()` never emits the flag.
     //
-    // The actual CLI arg emission is further gated by
-    // `GamdlFeature::NoExceptionsFlag` in `to_cli_args()` — on v3.1 we
-    // silently drop the flag to avoid adding noise to the debug log and
-    // to make it clear to anyone reading the spawned command line that
-    // the flag would have no effect.
+    // We route the version gate through `GamdlFeature::NoExceptionsFlag`
+    // — the capability enum is the single source of truth. Emitting a
+    // flag the subprocess will silently ignore is misleading to
+    // anyone reading the spawned command line; the pre-3.1 and >= 3.8
+    // eras both flip the gate to `true`, the 3.1..3.7.4 window flips
+    // it to `false`. Unknown version (capability cache not yet
+    // populated on the first download of the session) also flips to
+    // `false` — the flag is safe to omit on every release since 2.x
+    // (upstream never rejects it), so omitting when uncertain is a
+    // free defensive default.
     if !settings.verbose_gamdl_exceptions {
         options.no_exceptions = Some(true);
     }
-    // Drop the flag when we've positively detected a v3.1+ release —
-    // upstream ignores it there, so emitting would be log noise and
-    // misleading to anyone reading the spawned command line. When the
-    // version is unknown (capability cache not yet populated, first
-    // download of the session), keep emitting: the flag is accepted on
-    // every GAMDL version since 2.x and suppresses tracebacks on the
-    // majority of our user base (v2.x / v3.0).
-    if let Some(ver) = super::gamdl_capabilities::detected_version() {
-        if super::gamdl_service::is_version_at_least(&ver, "3.1") {
-            options.no_exceptions = None;
-        }
+    if !super::gamdl_capabilities::supports(
+        super::gamdl_capabilities::GamdlFeature::NoExceptionsFlag,
+    ) {
+        options.no_exceptions = None;
     }
 
     // Apply exclude tags

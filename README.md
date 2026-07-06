@@ -110,7 +110,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | Component | Role | Supported range | Recommended | Source of truth |
 | --- | --- | --- | --- | --- |
 | **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
-| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. | **2.9.1 – 3.7** | 3.7 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3 only** — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.8.1** | 3.8.1 | `src-tauri/tool-versions.toml` → `[gamdl]` |
 | **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain / BPM analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
@@ -133,14 +133,16 @@ If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0)
 The **[wrapper](https://github.com/WorldObservationLog/wrapper)** is an alternative authentication method for advanced users. Instead of using browser cookies, it connects to a locally-running daemon that handles Apple ID authentication and DRM key exchange directly.
 
 > **Two wrapper flavours, picked automatically based on your GAMDL version.**
-> MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL ≤ 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
+> MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL 3.0 – 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
+>
+> **MeedyaDL requires GAMDL v3.x** (v2 support was dropped). If you're on GAMDL v2, upgrade to **v3.5** (if you use wrapper-v1) or the recommended latest **3.8.1** (if you're cookie-only). See [`help/wrapper.md`](help/wrapper.md) → *Upgrading from GAMDL v2*.
 
 ### When to Use It
 
-Most users should stick with **cookie-based authentication** (the default — works for the entire `aac-web` / `aac-he-web` codec family with no extra setup). The wrapper is useful if you:
+Most users should stick with **cookie-based authentication** (the default — works for the entire `aac-web` / `aac-he-web` codec family with no extra setup). **On GAMDL 3.8+ the wrapper is needed for ALAC (lossless) only** — a new HLS asset endpoint made every other non-web codec (including **Atmos** and **AC3**) work cookie-only. The wrapper is useful if you:
 
-- Need reliable access to **ALAC**, **Atmos**, **AC3**, or other FairPlay-protected codecs
-- Need the non-`aac-web` AAC variants (`aac`, `aac-he`, `aac-binaural`, etc.) on GAMDL 3.6+
+- Need **ALAC** (lossless) — the one codec that still requires a wrapper on GAMDL 3.8+
+- Are on **GAMDL 3.0 – 3.7.x** and need **Atmos**, **AC3**, or the non-`aac-web` AAC variants (`aac`, `aac-he`, `aac-binaural`, …) — these need a wrapper on those older releases but *not* on 3.8+
 - Experience frequent cookie expiration issues
 - Are comfortable running local server software (or — on GAMDL 3.6+ — Docker on macOS/Windows)
 

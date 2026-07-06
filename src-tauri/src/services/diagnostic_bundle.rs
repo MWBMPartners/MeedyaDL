@@ -188,7 +188,17 @@ pub fn build_diagnostic_bundle(
     // --- Final size sanity check + GitHub URL truncation ---
     const GITHUB_BODY_LIMIT: usize = 65_536;
     let issue_body = if body.len() > GITHUB_BODY_LIMIT {
-        let head = &body[..GITHUB_BODY_LIMIT.saturating_sub(200)];
+        // Slice on a UTF-8 char boundary. A raw byte-offset slice
+        // (`&body[..n]`) panics when `n` lands mid-codepoint, which
+        // happens whenever the bundle contains multi-byte characters
+        // (non-ASCII track/artist names, filenames) — exactly the
+        // large-library users who most need diagnostics. Walk the
+        // target index down to the nearest boundary at or below it.
+        let mut cut = GITHUB_BODY_LIMIT.saturating_sub(200);
+        while cut > 0 && !body.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        let head = &body[..cut];
         format!(
             "{head}\n\n_(bundle truncated — original size {} bytes; copy the full markdown from the review modal if needed)_\n",
             body.len()
@@ -255,6 +265,11 @@ fn redact_credential_fields(value: &mut serde_json::Value) {
         "cookie",
         "private",
         "wrapper_account_url",
+        // #977: the wrapper-v2 `wrapper_url` (#853) can embed credentials
+        // but was omitted here — it leaked into bundles pasted into public
+        // GitHub issues. Listed explicitly (not a bare `wrapper` substring,
+        // which would wrongly redact the `use_wrapper` boolean flag).
+        "wrapper_url",
         "musickit_team_id",
         "musickit_key_id",
         "secret",
@@ -393,6 +408,7 @@ mod tests {
             "musickit_key_id": "XYZ987",
             "cookies_path": "/Users/alice/cookies.txt",
             "wrapper_account_url": "http://example/?token=secret",
+            "wrapper_url": "http://user:pass@wrapper.lan",
             "use_wrapper": true,
             "language": "en-GB",
         });
@@ -402,7 +418,10 @@ mod tests {
         assert_eq!(obj["musickit_key_id"], "<redacted>");
         assert_eq!(obj["cookies_path"], "<redacted>");
         assert_eq!(obj["wrapper_account_url"], "<redacted>");
-        // Non-sensitive fields stay.
+        // #977: wrapper-v2 wrapper_url must be redacted too.
+        assert_eq!(obj["wrapper_url"], "<redacted>");
+        // Non-sensitive fields stay (the `use_wrapper` boolean flag must
+        // NOT be caught — it contains "wrapper" but is not a secret).
         assert_eq!(obj["use_wrapper"], true);
         assert_eq!(obj["language"], "en-GB");
         assert_eq!(obj["output_path"], "/Users/alice/Music");

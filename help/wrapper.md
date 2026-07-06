@@ -6,7 +6,7 @@
 
 | You're on … | Wrapper to install | Default endpoint |
 |---|---|---|
-| GAMDL **2.9.1 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
+| GAMDL **3.0 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
 | GAMDL **3.6 and newer** | **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) | One HTTP endpoint: `http://127.0.0.1` (port 80) |
 
 You can check which GAMDL version MeedyaDL has installed in
@@ -14,21 +14,59 @@ You can check which GAMDL version MeedyaDL has installed in
 
 ---
 
+## Upgrading from GAMDL v2 (support dropped)
+
+MeedyaDL now supports **GAMDL v3.x only** — GAMDL v2 support was dropped.
+If you're still on a GAMDL v2 release, MeedyaDL flags it as unsupported and
+downloads may fail. **Upgrade GAMDL** — which version to pick depends on
+your wrapper setup:
+
+- **If you use wrapper-v1** (the three-socket wrapper): upgrade to
+  **GAMDL v3.5** — the *last* release that works with wrapper-v1. Going
+  past 3.5 (to 3.6+) requires migrating to **wrapper-v2**, a Docker-based
+  setup with extra manual steps (see below), so stay on 3.5 until you're
+  ready for that.
+- **If you don't use a wrapper** (cookie-only): upgrade straight to the
+  **recommended latest** (3.8.1). On GAMDL 3.8+, every non-web codec
+  *except ALAC* downloads without any wrapper at all (see the next
+  section) — so cookie-only users get the best experience on the newest
+  release.
+
+> **Heads-up on the future:** GAMDL v3.5 (and wrapper-v1) won't be
+> supported forever. A later MeedyaDL release may raise the floor past
+> 3.5, at which point continuing to use wrapper-gated codecs (ALAC, and
+> on older GAMDL also Atmos/AC3) will require **wrapper-v2** — a Docker
+> container plus extracting Apple Music for Android's `.so` libraries. If
+> you rely on wrapper-v1 today, it's worth planning that migration.
+
+---
+
 ## When you actually need a wrapper
 
 Most users don't. The catalog API, song metadata, lyrics, artwork, and
 the entire `aac-web` / `aac-he-web` codec family all work with cookie-only
-authentication. Wrapper auth is required for:
+authentication. **What still needs a wrapper depends on your GAMDL version:**
+
+**GAMDL 3.8 and newer — wrapper needed for ALAC only.** GAMDL 3.8
+introduced a new HLS asset endpoint that unlocks every non-web codec —
+`aac`, `aac-he`, `aac-binaural`, `aac-downmix`, and even **Atmos** and
+**AC3** — *without* a wrapper. On 3.8+ the only codec that still requires
+wrapper auth is **ALAC** (lossless). (3.8.1 further fixed some songs that
+previously failed on non-web codecs.) If you don't need ALAC lossless, you
+can skip wrapper setup entirely on 3.8+.
+
+**GAMDL 3.0 – 3.7.x — wrapper needed for the full non-web set.** On these
+releases wrapper auth is required for:
 
 - **ALAC** (lossless), **Atmos** (Dolby Atmos), **AC3** (Dolby Digital).
 - **Music videos** (on certain regional content).
-- The pre-3.6 `aac` / `aac-he` / `aac-binaural` / `aac-downmix` codec
-  variants (the ones that don't end in `-web`).
+- The `aac` / `aac-he` / `aac-binaural` / `aac-downmix` codec variants
+  (the ones that don't end in `-web`).
 - The full set of audio traits / spatial audio flags on certain albums.
 
 If your music library is fine with lossy AAC at 256 kbps, you can skip
-wrapper setup entirely — MeedyaDL will use `aac-web` on GAMDL 3.6+ and
-fall back gracefully on older releases.
+wrapper setup entirely on any supported version — MeedyaDL uses `aac-web`
+and falls back gracefully.
 
 ---
 
