@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.1] - 2026-06-19
+
 ### 🐛 Bug Fixes
 
 - Bundled audit hardening + #935 syllable lyrics + #937 release pipeline + repo hygiene (closes #935, #937, #938-#946) (#947)
@@ -19,7 +26,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.1 [skip ci]
 
 ### 🔄 CI/CD
 
