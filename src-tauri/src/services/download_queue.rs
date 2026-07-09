@@ -8992,11 +8992,16 @@ pub fn process_queue(
                                                         if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttml")) {
                                                             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                                                                 if name.starts_with(&pattern) {
-                                                                    // Read the file and check for word-level timing
+                                                                    // Read the file and check for word-level timing.
+                                                                    // Uses span-presence (not the itunes:timing attribute
+                                                                    // string) as the authoritative signal (#969) -- Apple
+                                                                    // labels word-timed TTML inconsistently ("Word",
+                                                                    // "Syllable", or the attribute omitted entirely), so a
+                                                                    // substring check against itunes:timing="Word" missed
+                                                                    // files that already had usable word timing and
+                                                                    // triggered a needless re-fetch.
                                                                     if let Ok(content) = std::fs::read_to_string(&path) {
-                                                                        if content.contains("itunes:timing=\"Word\"")
-                                                                            || content.contains("itunes:timing='Word'")
-                                                                        {
+                                                                        if super::enhanced_lyrics_service::ttml_has_word_timing(&content) {
                                                                             return false; // Already has word-level timing
                                                                         }
                                                                     }

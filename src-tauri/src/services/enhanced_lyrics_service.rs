@@ -41,6 +41,17 @@
 //   - `"Line"` -- line-level timing only (on `<p>` elements)
 //   - absent/`"None"` -- unsynced lyrics
 //
+// **Important (#969):** In practice Apple labels word-timed TTML
+// inconsistently -- sometimes `"Word"`, sometimes `"Syllable"`, and
+// sometimes the attribute is omitted entirely even though `<span begin="">`
+// children are physically present in the document. Treating the attribute
+// string as authoritative silently down-converts perfectly good word-level
+// lyrics to line-level. This module therefore treats `itunes:timing` as
+// advisory only -- the actual presence of `<span begin="">` children on a
+// `<p>` element is what decides whether a line is emitted with word-level
+// timestamps. The only case that skips the span scan is an explicit
+// `itunes:timing="None"`, which signals genuinely unsynced lyrics.
+//
 // Background vocals are marked with `ttm:role="x-bg"` on `<span>` elements
 // and are conventionally wrapped in parentheses.
 //
@@ -87,14 +98,29 @@ pub struct EnhancedLrcResult {
     pub has_word_timing: bool,
 }
 
-/// Timing mode detected from the TTML document.
+/// Timing mode detected from the TTML document's `itunes:timing` attribute.
+///
+/// **Advisory only (#969):** this value is a hint, not a guarantee. Apple's
+/// TTML labelling is inconsistent -- word-timed documents are sometimes
+/// marked `"Word"`, sometimes `"Syllable"` (which maps to [`TimingMode::Line`]
+/// here since it isn't one of the two recognised values), and sometimes the
+/// attribute is omitted altogether even though `<span begin="">` children are
+/// present. The authoritative signal for "does this line have word-level
+/// timing?" is span presence, checked directly in [`ttml_to_enhanced_lrc`]
+/// and [`ttml_has_word_timing`] -- `TimingMode` only gates the one case that
+/// should skip the span scan entirely (`"None"`, i.e. genuinely unsynced).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TimingMode {
     /// Word-by-word timing (`itunes:timing="Word"`)
     Word,
-    /// Line-level timing only (`itunes:timing="Line"` or default)
+    /// Line-level timing only, or an unrecognised/absent value (e.g.
+    /// `itunes:timing="Syllable"` or the attribute missing entirely).
+    /// Despite the name, lines under this mode still get scanned for
+    /// `<span begin="">` children and are promoted to word-level output
+    /// when found.
     Line,
-    /// No timing information (unsynced lyrics)
+    /// No timing information (unsynced lyrics) -- `itunes:timing="None"`.
+    /// This is the only mode that skips the span scan.
     None,
 }
 
@@ -223,9 +249,17 @@ pub fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, S
 ///
 /// Parses the TTML XML, extracts metadata and timing information, and
 /// produces an Enhanced LRC string. If word-level timing is available
-/// (`itunes:timing="Word"` and `<span>` elements with `begin` attributes),
-/// the output includes inline `<mm:ss.xx>` word timestamps. Otherwise,
-/// standard line-level `[mm:ss.xx]` timestamps are used.
+/// (`<span>` elements with `begin` attributes are present on a `<p>`), the
+/// output includes inline `<mm:ss.xx>` word timestamps. Otherwise, standard
+/// line-level `[mm:ss.xx]` timestamps are used.
+///
+/// **Note (#969):** span presence, not the `itunes:timing` attribute value,
+/// decides word-vs-line output. Apple's TTML labels word-timed documents
+/// inconsistently (`"Word"`, `"Syllable"`, or the attribute omitted
+/// entirely), so trusting the attribute string alone silently discards
+/// word-level timestamps that are physically present in the file. The only
+/// attribute value that suppresses the span scan is an explicit `"None"`,
+/// which signals genuinely unsynced lyrics.
 pub fn ttml_to_enhanced_lrc(ttml_content: &str) -> Result<EnhancedLrcResult, String> {
     let doc = roxmltree::Document::parse(ttml_content)
         .map_err(|e| format!("Failed to parse TTML XML: {e}"))?;
@@ -259,8 +293,13 @@ pub fn ttml_to_enhanced_lrc(ttml_content: &str) -> Result<EnhancedLrcResult, Str
         };
         let line_ts = format_lrc_time(line_seconds);
 
-        if timing == TimingMode::Word {
-            // Try to build an Enhanced LRC line with word-level timestamps
+        if timing != TimingMode::None {
+            // Try to build an Enhanced LRC line with word-level timestamps.
+            // Gated on "not explicitly unsynced" rather than "itunes:timing
+            // == Word" (#969) -- span presence below is the authoritative
+            // signal; the `itunes:timing` attribute is only advisory and
+            // Apple labels word-timed TTML inconsistently ("Word",
+            // "Syllable", or omitted entirely).
             let spans: Vec<_> = node
                 .children()
                 .filter(|c| is_ttml_element(c, "span") && c.attribute("begin").is_some())
@@ -312,6 +351,28 @@ pub fn ttml_to_enhanced_lrc(ttml_content: &str) -> Result<EnhancedLrcResult, Str
     })
 }
 
+/// Returns whether a TTML document actually contains word-level timing.
+///
+/// This is the robust "does this file have word timing?" predicate (#969):
+/// it parses the document and checks for the *physical presence* of
+/// `<span begin="...">` children anywhere in the document, rather than
+/// trusting the `itunes:timing` attribute string. Apple labels word-timed
+/// TTML inconsistently -- `"Word"`, `"Syllable"`, or the attribute omitted
+/// entirely -- so callers that need to decide "should I re-fetch/upgrade
+/// this lyrics file?" should use this function instead of a substring/regex
+/// check against `itunes:timing="Word"`.
+///
+/// Returns `false` if the content fails to parse as XML.
+pub fn ttml_has_word_timing(ttml_content: &str) -> bool {
+    let doc = match roxmltree::Document::parse(ttml_content) {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+
+    doc.descendants()
+        .any(|node| is_ttml_element(&node, "span") && node.attribute("begin").is_some())
+}
+
 /// Embeds Enhanced LRC content into an M4A/M4V file's `©lyr` metadata atom.
 ///
 /// Uses the `mp4ameta` crate to read the existing tag, set the lyrics data,
@@ -346,7 +407,14 @@ fn is_ttml_element(node: &roxmltree::Node, local_name: &str) -> bool {
 /// Detects the timing mode from the `itunes:timing` attribute on `<tt>`.
 ///
 /// Checks both known iTunes namespace URIs. Falls back to `Line` if the
-/// attribute is missing (most TTML files still have line-level timing).
+/// attribute is missing or holds an unrecognised value (e.g. `"Syllable"`).
+///
+/// **Advisory only (#969):** this attribute is a hint used only to decide
+/// whether to skip the span scan entirely (`"None"`). It does NOT gate
+/// whether word-level output is produced -- that decision is made purely by
+/// whether `<span begin="">` children are present on each `<p>`, since Apple
+/// labels word-timed TTML inconsistently and sometimes omits the attribute
+/// even when word timing is physically present in the document.
 fn detect_timing_mode(root: &roxmltree::Node) -> TimingMode {
     let timing_value = root
         .attribute((ITUNES_NS_INTERNAL, "timing"))
@@ -844,5 +912,127 @@ mod tests {
 
         let result = ttml_to_enhanced_lrc(ttml).unwrap();
         assert!(result.lrc_content.contains("[ar:Taylor Swift]"));
+    }
+
+    // ----------------------------------------------------------
+    // Span-presence authoritative over itunes:timing attribute (#969)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn syllable_labelled_with_spans_produces_word_timing() {
+        // Apple sometimes labels word-timed TTML "Syllable" instead of
+        // "Word". Span presence must still win and produce word-level
+        // output with inline <mm:ss.xx> timestamps.
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Syllable" xml:lang="en-US">
+          <body>
+            <div>
+              <p begin="00:12.450" end="00:15.800">
+                <span begin="00:12.450" end="00:13.200">Hello </span>
+                <span begin="00:13.200" end="00:14.100">world </span>
+                <span begin="00:14.100" end="00:15.800">today</span>
+              </p>
+            </div>
+          </body>
+        </tt>"#;
+
+        let result = ttml_to_enhanced_lrc(ttml).unwrap();
+        assert!(result.has_word_timing);
+        assert!(result
+            .lrc_content
+            .contains("[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today"));
+    }
+
+    #[test]
+    fn absent_timing_attribute_with_spans_produces_word_timing() {
+        // No itunes:timing attribute at all, but <span begin> children are
+        // present. Word-level output must still be produced.
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata">
+          <body>
+            <div>
+              <p begin="00:01.000" end="00:03.000">
+                <span begin="00:01.000" end="00:02.000">Test </span>
+                <span begin="00:02.000" end="00:03.000">text</span>
+              </p>
+            </div>
+          </body>
+        </tt>"#;
+
+        let result = ttml_to_enhanced_lrc(ttml).unwrap();
+        assert!(result.has_word_timing);
+        assert!(result
+            .lrc_content
+            .contains("[00:01.00]<00:01.00>Test <00:02.00>text"));
+    }
+
+    #[test]
+    fn explicit_line_timing_without_spans_stays_line_level() {
+        // itunes:timing="Line" and no <span> children at all: no regression
+        // from the span-presence change -- this must remain line-level.
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Line">
+          <body>
+            <div>
+              <p begin="00:12.450" end="00:15.800">Hello world today</p>
+            </div>
+          </body>
+        </tt>"#;
+
+        let result = ttml_to_enhanced_lrc(ttml).unwrap();
+        assert!(!result.has_word_timing);
+        assert!(result
+            .lrc_content
+            .contains("[00:12.45]Hello world today"));
+    }
+
+    // ----------------------------------------------------------
+    // ttml_has_word_timing
+    // ----------------------------------------------------------
+
+    #[test]
+    fn has_word_timing_true_for_span_bearing_doc() {
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Syllable">
+          <body>
+            <div>
+              <p begin="00:01.000" end="00:03.000">
+                <span begin="00:01.000" end="00:02.000">Test </span>
+                <span begin="00:02.000" end="00:03.000">text</span>
+              </p>
+            </div>
+          </body>
+        </tt>"#;
+
+        assert!(ttml_has_word_timing(ttml));
+    }
+
+    #[test]
+    fn has_word_timing_false_for_line_only_doc() {
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Line">
+          <body>
+            <div>
+              <p begin="00:12.450" end="00:15.800">Hello world today</p>
+            </div>
+          </body>
+        </tt>"#;
+
+        assert!(!ttml_has_word_timing(ttml));
+    }
+
+    #[test]
+    fn has_word_timing_false_for_malformed_xml() {
+        assert!(!ttml_has_word_timing("not valid xml <><>"));
     }
 }
