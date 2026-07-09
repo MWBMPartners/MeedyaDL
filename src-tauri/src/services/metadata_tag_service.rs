@@ -2178,39 +2178,45 @@ pub async fn try_fetch_metadata(
         }
     };
 
-    let jwt = match apple_music_api::resolve_musickit_developer_token(
+    // Web-dev-key path: use the 3-tier premium-feature resolver (user
+    // MusicKit JWT -> embedded build token -> web-player token from the OS
+    // keychain) rather than the 2-tier basic-catalog resolver. Without this,
+    // a user who authenticated only via the Apple Music web player (no
+    // MusicKit developer credentials and no embedded build token) received
+    // `None` album metadata during enrichment, which silently disabled the
+    // Step 1b syllable / word-by-word lyrics fetch (and the richer Apple
+    // Music API tags) -- even though Step 1b itself already resolves the
+    // web-player token. The animated-artwork path already fetches catalog
+    // metadata with this resolver, so this aligns enrichment with the
+    // established pattern. Tier 1 (user JWT) still wins whenever present, so
+    // the MusicKit-credentials path is unchanged.
+    let jwt = match apple_music_api::resolve_premium_feature_token(
         team_id,
         key_id,
         private_key.as_deref(),
     ) {
-        Ok(jwt) => {
-            let Some(jwt) = jwt else {
+        Ok(pair) => {
+            let Some((jwt, token_source)) = pair else {
                 log_event(
-                    "Apple Music API: no MusicKit credentials or embedded token configured, skipping API metadata",
+                    "Apple Music API: no MusicKit credentials, embedded token, or web-player token available, skipping API metadata",
                 );
                 return None;
             };
             log_event("Apple Music API: token ready, fetching album metadata...");
-            // Verbose: show token source details for debugging auth issues.
+            // Verbose: show the resolved token source (user credentials /
+            // embedded build token / web player) for debugging auth issues.
             if let Some((app_handle, dl_id)) = event_context {
                 crate::utils::activity_log::emit_verbose_download_log(
                     app_handle,
                     dl_id,
-                    &format!(
-                        "MusicKit token source: {}",
-                        if team_id.is_some() && key_id.is_some() && private_key.is_some() {
-                            "user credentials"
-                        } else {
-                            "embedded build token"
-                        }
-                    ),
+                    &format!("MusicKit token source: {token_source}"),
                 );
             }
             jwt
         }
         Err(e) => {
-            log::warn!("Failed to generate MusicKit JWT for enrichment: {e}");
-            log_event(&format!("Apple Music API: JWT generation failed: {e}"));
+            log::warn!("Failed to resolve MusicKit token for enrichment: {e}");
+            log_event(&format!("Apple Music API: token resolution failed: {e}"));
             return None;
         }
     };
