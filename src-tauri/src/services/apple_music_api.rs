@@ -908,6 +908,41 @@ pub fn resolve_premium_feature_token(
 // Apple Music Catalog API
 // ============================================================
 
+/// Applies the browser-grade headers Apple Music's amp-api / api hosts expect
+/// (Authorization bearer + Origin + browser User-Agent), plus an optional
+/// Music-User-Token for account/region-gated resources. Centralises the
+/// header set so all catalog/premium calls stay consistent (#970) and
+/// prevents the header-drift class of 403s.
+///
+/// Mirrors the browser-grade headers `fetch_album_metadata` established
+/// (2026-06-21): `Origin: https://music.apple.com` is the critical header
+/// for users on the web-player-extracted developer token tier -- without it
+/// amp-api silently strips premium fields (or 403s outright) instead of
+/// erroring loudly. `Referer` + the Safari `User-Agent` match what the web
+/// client sends. Adding these headers is a no-op for full-MusicKit-JWT
+/// users (Apple doesn't gate full-JWT responses on Origin).
+///
+/// `music_user_token` is `None` for the catalog-only calls; when `Some`,
+/// the `Music-User-Token` header is added using the same header NAME
+/// `fetch_syllable_lyrics` already sends (MeedyaDL intentionally uses
+/// `Music-User-Token`, not `Media-User-Token`).
+fn apply_apple_music_headers(
+    req: reqwest::RequestBuilder,
+    jwt: &str,
+    music_user_token: Option<&str>,
+) -> reqwest::RequestBuilder {
+    let req = req
+        .header("Authorization", format!("Bearer {jwt}"))
+        .header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header("User-Agent", APPLE_BROWSER_USER_AGENT);
+
+    match music_user_token {
+        Some(token) => req.header("Music-User-Token", token),
+        None => req,
+    }
+}
+
 /// Fetch comprehensive album metadata from the Apple Music catalog API.
 ///
 /// Makes a single enriched API call that returns:
@@ -960,12 +995,9 @@ pub async fn fetch_album_metadata(
     // mirroring the syllable-lyrics fix (#935/#936) at the catalog
     // layer.
     let client = crate::utils::http_client::build_simple(30)?;
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {jwt}"))
-        .header("Origin", "https://music.apple.com")
-        .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
+    // #971: pass the subscriber's Music-User-Token here (instead of `None`)
+    // once account/region-gated album resources need it.
+    let response = apply_apple_music_headers(client.get(&url), jwt, None)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -1464,10 +1496,14 @@ pub async fn fetch_music_video_relations(
             chunk.len()
         );
 
-        let response = client
-            .get(&url)
-            .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+        // Browser-grade headers (#970) -- this call previously sent only
+        // `Authorization` + a bare `User-Agent: "meedyadl"`, missing the
+        // `Origin` header amp-api's edge expects from the web-player-token
+        // tier. Routed through the shared helper so it stays in sync with
+        // `fetch_album_metadata` / `fetch_artist_promo_video`.
+        // #971: pass the subscriber's Music-User-Token here (instead of
+        // `None`) once account/region-gated music-video lookups need it.
+        let response = apply_apple_music_headers(client.get(&url), jwt, None)
             .send()
             .await
             .map_err(|e| format!("Music video relation lookup failed: {e}"))?;
@@ -2919,12 +2955,9 @@ pub async fn fetch_artist_promo_video(
     // `editorialVideo` (ArtistSpotlightCover.mp4). Like the album-metadata
     // and syllable-lyrics calls, amp-api strips premium fields / 403s the
     // web-player-token tier without an Origin header + Safari UA.
-    let response = client
-        .get(&url)
-        .header("Authorization", format!("Bearer {jwt}"))
-        .header("Origin", "https://music.apple.com")
-        .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
+    // #971: pass the subscriber's Music-User-Token here (instead of `None`)
+    // once account/region-gated artist resources need it.
+    let response = apply_apple_music_headers(client.get(&url), jwt, None)
         .send()
         .await
         .map_err(|e| format!("Apple Music API request failed: {e}"))?;
@@ -2995,13 +3028,14 @@ pub async fn fetch_artist_promo_video(
         "motionArtistWide16x9",
     ];
 
-    let video_url = video_keys.iter().find_map(|key| {
-        editorial_video
-            .get(*key)
-            .and_then(|m| m.get("video"))
-            .and_then(|v| v.as_str())
-            .map(std::string::ToString::to_string)
-    });
+    // Routed through the shared `extract_motion_url_chain` helper (#970)
+    // so promo-video parsing tolerates both observed `editorialVideo` shapes
+    // -- `{"video": "https://...m3u8"}` (legacy, string-valued) and
+    // `{"video": {"url": "https://...m3u8"}}` (nested, some storefronts) --
+    // the same way the album animated-artwork path already does. The old
+    // bare `.as_str()` extraction here silently returned `None` for the
+    // nested shape.
+    let video_url = extract_motion_url_chain(editorial_video, &video_keys);
 
     match video_url {
         Some(url) => {
