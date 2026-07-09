@@ -8981,7 +8981,15 @@ pub fn process_queue(
                                         // Scan existing TTML files to find which tracks lack word-level timing
                                         let dir_for_scan = album_dir.clone();
                                         let tracks_needing_upgrade: Vec<_> = metadata.tracks.iter()
-                                            .filter(|t| t.has_lyrics == Some(true))
+                                            // Attempt tracks whose `hasLyrics` flag is true OR absent
+                                            // (None). Apple omits the flag on some album tracks even
+                                            // when word-level lyrics exist; only an explicit
+                                            // `hasLyrics == false` is a reliable "no lyrics" signal.
+                                            // A track with genuinely no lyrics simply 404s and is
+                                            // skipped by fetch_syllable_lyrics (Ok(None)), so treating
+                                            // None as "try anyway" only adds a cheap probe, never a
+                                            // spurious write. (ITAMenhancer uses the same heuristic.)
+                                            .filter(|t| t.has_lyrics != Some(false))
                                             .filter(|t| {
                                                 // Check if a TTML file exists and already has word-level timing
                                                 let ttml_path = std::path::Path::new(&dir_for_scan);
