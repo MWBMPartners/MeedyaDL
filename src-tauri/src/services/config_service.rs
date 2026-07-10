@@ -990,6 +990,20 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
                 "wrapper_url = {}",
                 sanitize_ini_value(&settings.wrapper_url)
             ));
+            // GAMDL ≥ v3.8.2 — wrapper-v2 decryption moved off the
+            // HTTP `wrapper_url` endpoint onto its own native TCP
+            // host/port pair (`wrapper_decrypt_host` /
+            // `wrapper_decrypt_port`). Reuse the existing combined
+            // `wrapper_decrypt_ip` ("host:port") setting and split it
+            // at the LAST `:` (IPv6-safe). A malformed value with no
+            // colon is skipped cleanly rather than writing a partial
+            // key pair.
+            if supports(GamdlFeature::WrapperDecryptHostPort) {
+                if let Some((host, port)) = settings.wrapper_decrypt_ip.rsplit_once(':') {
+                    lines.push(format!("wrapper_decrypt_host = {}", sanitize_ini_value(host)));
+                    lines.push(format!("wrapper_decrypt_port = {}", sanitize_ini_value(port)));
+                }
+            }
         } else {
             // GAMDL ≤ 3.5.x — wrapper-v1 triple.
             lines.push(format!(
@@ -1364,6 +1378,41 @@ mod tests {
         settings.wrapper_m3u8_ip = "10.0.0.1:20020".to_string();
         let ini = settings_to_ini(&settings);
         assert!(!ini.contains("wrapper_m3u8_ip"));
+    }
+
+    #[test]
+    fn ini_includes_wrapper_decrypt_host_port_on_v382() {
+        // GAMDL 3.8.2 splits wrapper-v2 decryption off the HTTP
+        // `wrapper_url` endpoint onto its own native TCP host/port
+        // pair. MeedyaDL reuses the existing combined
+        // `wrapper_decrypt_ip` setting and splits it at the last `:`.
+        let _guard = VersionGuard::new(Some("3.8.2"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_url = "http://192.168.1.50".to_string();
+        settings.wrapper_decrypt_ip = "192.168.1.50:10020".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_url = http://192.168.1.50"));
+        assert!(ini.contains("wrapper_decrypt_host = 192.168.1.50"));
+        assert!(ini.contains("wrapper_decrypt_port = 10020"));
+        assert!(!ini.contains("wrapper_decrypt_ip ="));
+    }
+
+    #[test]
+    fn ini_omits_wrapper_decrypt_host_port_on_v381() {
+        // Wrapper-v2 releases older than 3.8.2 don't recognise the
+        // split host/port keys yet — `cleanup_unknown_params()` would
+        // silently drop them, but MeedyaDL stays self-consistent with
+        // the detected CLI and omits the write entirely.
+        let _guard = VersionGuard::new(Some("3.8.1"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_url = "http://192.168.1.50".to_string();
+        settings.wrapper_decrypt_ip = "192.168.1.50:10020".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_url = http://192.168.1.50"));
+        assert!(!ini.contains("wrapper_decrypt_host"));
+        assert!(!ini.contains("wrapper_decrypt_port"));
     }
 
     // ----------------------------------------------------------

@@ -702,7 +702,12 @@ pub struct GamdlOptions {
     pub use_wrapper: Option<bool>,
     /// Wrapper server URL
     pub wrapper_account_url: Option<String>,
-    /// Decryption server address
+    /// Decryption server address (`host:port`), emitted on wrapper-v1
+    /// releases as the combined `--wrapper-decrypt-ip` flag. On
+    /// wrapper-v2 GAMDL >= 3.8.2 (`GamdlFeature::WrapperDecryptHostPort`)
+    /// this same value is reused and split at the last `:` into the
+    /// separate `--wrapper-decrypt-host` / `--wrapper-decrypt-port`
+    /// flags — no dedicated settings field needed.
     pub wrapper_decrypt_ip: Option<String>,
     /// m3u8 server address (host:port) used by GAMDL v3.1+ to fetch the HLS
     /// master playlist URL from the wrapper instead of Apple's API. Only
@@ -975,6 +980,25 @@ impl GamdlOptions {
             if let Some(ref url) = self.wrapper_url {
                 args.push("--wrapper-url".to_string());
                 args.push(url.clone());
+            }
+            // GAMDL ≥ 3.8.2 — wrapper-v2 decryption moved off the HTTP
+            // `--wrapper-url` endpoint (`POST /decrypt`) onto its own
+            // native TCP host/port pair. Not nested inside the
+            // `wrapper_url` check above — the decrypt address is
+            // independent of whether `wrapper_url` itself is set.
+            // Reuse the existing combined `wrapper_decrypt_ip`
+            // ("host:port") setting and split it at the LAST `:`
+            // (IPv6-safe). A malformed value with no colon is skipped
+            // entirely rather than emitting a partial/broken flag.
+            if supports(GamdlFeature::WrapperDecryptHostPort) {
+                if let Some(ref addr) = self.wrapper_decrypt_ip {
+                    if let Some((host, port)) = addr.rsplit_once(':') {
+                        args.push("--wrapper-decrypt-host".to_string());
+                        args.push(host.to_string());
+                        args.push("--wrapper-decrypt-port".to_string());
+                        args.push(port.to_string());
+                    }
+                }
             }
         } else {
             // GAMDL ≤ 3.5.x — wrapper-v1 triple.
@@ -1476,6 +1500,79 @@ mod tests {
         let args = options.to_cli_args();
         set_detected_version(None);
         assert_eq!(args, vec!["--wrapper-m3u8-ip", "127.0.0.1:20020"]);
+    }
+
+    #[test]
+    fn wrapper_v2_decrypt_host_port_split_on_v382() {
+        // GAMDL 3.8.2 splits wrapper-v2 decryption off the HTTP
+        // `--wrapper-url` endpoint onto its own native TCP host/port
+        // pair. MeedyaDL reuses the existing combined
+        // `wrapper_decrypt_ip` setting and splits it at the last `:`.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.8.2".to_string()));
+        let options = GamdlOptions {
+            wrapper_url: Some("http://192.168.1.50".to_string()),
+            wrapper_decrypt_ip: Some("192.168.1.50:10020".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+
+        assert!(args.contains(&"--wrapper-url".to_string()));
+        assert!(args.contains(&"--wrapper-decrypt-host".to_string()));
+        assert!(args.contains(&"192.168.1.50".to_string()));
+        assert!(args.contains(&"--wrapper-decrypt-port".to_string()));
+        assert!(args.contains(&"10020".to_string()));
+        assert!(!args.contains(&"--wrapper-decrypt-ip".to_string()));
+    }
+
+    #[test]
+    fn wrapper_v2_decrypt_host_port_absent_before_v382() {
+        // Wrapper-v2 releases older than 3.8.2 (3.6 .. 3.8.1) don't
+        // recognise the split flags at all — emitting them would crash
+        // Click with "no such option". The split flags must be absent;
+        // `--wrapper-url` (unrelated to the decrypt address) still
+        // emits normally.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        for v in ["3.6", "3.7.4", "3.8", "3.8.1"] {
+            set_detected_version(Some(v.to_string()));
+            let options = GamdlOptions {
+                wrapper_url: Some("http://192.168.1.50".to_string()),
+                wrapper_decrypt_ip: Some("192.168.1.50:10020".to_string()),
+                ..Default::default()
+            };
+            let args = options.to_cli_args();
+            assert!(
+                !args.contains(&"--wrapper-decrypt-host".to_string()),
+                "{v}: --wrapper-decrypt-host must be absent (added in 3.8.2)"
+            );
+            assert!(
+                !args.contains(&"--wrapper-decrypt-port".to_string()),
+                "{v}: --wrapper-decrypt-port must be absent (added in 3.8.2)"
+            );
+        }
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn wrapper_v2_decrypt_host_port_malformed_value_skipped() {
+        // A malformed `wrapper_decrypt_ip` (no `:` separator) must not
+        // panic and must not emit a partial/broken flag pair.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.8.2".to_string()));
+        let options = GamdlOptions {
+            wrapper_url: Some("http://192.168.1.50".to_string()),
+            wrapper_decrypt_ip: Some("noport".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+
+        assert!(!args.contains(&"--wrapper-decrypt-host".to_string()));
+        assert!(!args.contains(&"--wrapper-decrypt-port".to_string()));
     }
 
     // ----------------------------------------------------------
