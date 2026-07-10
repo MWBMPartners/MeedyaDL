@@ -290,7 +290,7 @@ export function UpdatesPage() {
                         Pre-Release
                       </span>
                     )}
-                    {update.is_untested && (
+                    {update.is_untested && !update.no_compatible_wheel && (
                       <span
                         className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
                         title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
@@ -298,16 +298,45 @@ export function UpdatesPage() {
                         Untested
                       </span>
                     )}
+                    {/*
+                     * Not Installable badge -- takes priority over
+                     * "Untested" (suppressed above via
+                     * `!update.no_compatible_wheel`). Shown when the
+                     * latest GAMDL release has no wheel published for
+                     * the Python interpreter bundled with this MeedyaDL
+                     * build, so `pip install` would fall through to a
+                     * source build the bundled runtime can't perform.
+                     */}
+                    {update.no_compatible_wheel && (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
+                        title="No compatible wheel has been published for this platform yet -- installing would fail."
+                      >
+                        Not Installable
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {/* GAMDL upgrade */}
+                    {/*
+                     * GAMDL upgrade -- disabled when `no_compatible_wheel`
+                     * is set, since the underlying pip install is
+                     * guaranteed to fail (no wheel for our bundled
+                     * Python interpreter, and no toolchain to build the
+                     * sdist from source).
+                     */}
                     {update.name === 'GAMDL' && (
                       <Button
                         variant="primary"
                         size="sm"
                         icon={<RefreshCw size={12} />}
                         loading={isUpgrading}
+                        disabled={update.no_compatible_wheel}
+                        title={
+                          update.no_compatible_wheel
+                            ? 'No compatible wheel published for this platform yet -- upgrade would fail'
+                            : undefined
+                        }
                         onClick={() =>
                           handleUpgradeGamdl(update.is_untested ? update.latest_version : null)
                         }
@@ -390,13 +419,31 @@ export function UpdatesPage() {
                  * upgrade is installable but hasn't been audited against
                  * MeedyaDL's GAMDL CLI / INI surface yet. Hidden when
                  * `is_prerelease` already covers the warning so users don't
-                 * see two stacked amber paragraphs.
+                 * see two stacked amber paragraphs, and hidden when
+                 * `no_compatible_wheel` is true since that's a harder
+                 * blocker with its own paragraph below.
                  */}
-                {update.is_untested && !update.is_prerelease && (
+                {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
                   <p className="text-[11px] text-status-warning mb-3">
                     This GAMDL release was published after MeedyaDL&apos;s last compatibility verification.
                     The upgrade is installable, but compatibility with MeedyaDL&apos;s functionality isn&apos;t
                     guaranteed — install at your own risk, or wait for the next MeedyaDL version to validate it.
+                  </p>
+                )}
+
+                {/*
+                 * Not-installable warning -- shown when the latest GAMDL
+                 * release has no wheel published for the Python
+                 * interpreter bundled with this MeedyaDL build. Takes
+                 * priority over the "Untested" warning above (harder
+                 * blocker: the Upgrade button is disabled, not just risky).
+                 */}
+                {update.no_compatible_wheel && (
+                  <p className="text-[11px] text-status-warning mb-3">
+                    Not installable — no compatible wheel has been published for this platform yet.
+                    Installing would fall back to a source build MeedyaDL&apos;s bundled Python runtime
+                    can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build with a
+                    matching Python runtime.
                   </p>
                 )}
 

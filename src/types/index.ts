@@ -1883,6 +1883,20 @@ export interface ComponentUpdate {
    * this flag is set. Currently only set for the GAMDL component.
    */
   is_untested: boolean;
+  /**
+   * Whether the latest available version has **no installable wheel**
+   * for the Python interpreter bundled with this MeedyaDL build.
+   *
+   * `true` means installing this release would fall through to a
+   * source (sdist) build — which the bundled Python runtime has no
+   * compiler toolchain for — and is guaranteed to fail. This is a
+   * harder blocker than `is_untested`: the Updates page disables the
+   * Upgrade button and shows a "not installable" note instead of just
+   * warning. Currently only set for the GAMDL component; always
+   * `false` for other components, and defaults to `false` on any
+   * network/parse error (never a false alarm on a transient failure).
+   */
+  no_compatible_wheel: boolean;
   /** Release notes or description of the update, or null */
   description: string | null;
   /** URL to the release page (GitHub releases, PyPI, etc.), or null */
