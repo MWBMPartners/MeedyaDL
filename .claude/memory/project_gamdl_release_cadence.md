@@ -19,10 +19,12 @@ Upstream GAMDL has been shipping at an unusual cadence — four releases between
 
 **How to apply:** When the user asks to audit a new GAMDL release, follow the checklist above. Default expectation is "ceiling bump only" — flag any deviation prominently. The audit document goes in `.github/audits/`, and a tracking issue should be filed (Lance always wants an issue per piece of work — see `feedback_github_issues.md`).
 
-## v3.8.2 — the first NON-admission (2026-07-10)
+## v3.8.2 — admitted, after a stale-data false hold (2026-07-10)
 
-GAMDL 3.8.2 broke the zero-code-change streak in a new way: it shipped a compiled **Rust/PyO3 extension** (`gamdl._ammuxer`) with only a single `cp310` Linux-x86_64 wheel + an sdist. MeedyaDL's bundled CPython 3.12.8 (no Rust toolchain) can't install it on ANY platform → **ceiling HELD at 3.8.1** (issue #1009, audit `gamdl-v3.8.2-audit.md`).
+GAMDL 3.8.2 shipped a compiled **Rust/PyO3 `ammuxer` extension**. An initial audit HELD at 3.8.1 believing 3.8.2 had no installable wheel — but that was **stale/incomplete PyPI data** (only a `cp310-cp310-manylinux` wheel + sdist were live when first checked; a cache-busted re-check + live `pip download` found `cp310-abi3` wheels for macOS/Windows-x64/Windows-ARM64/Linux-x64/Linux-aarch64). 3.8.2 was **ADMITTED** (ceiling → 3.8.2); only Linux ARMv7 lacks a wheel (routine `--only-binary` install auto-falls-back to 3.8.1 there). Issue #1009, audit `gamdl-v3.8.2-audit.md`.
 
-**New audit gate — wheel availability.** Add a step to the checklist: check PyPI `gamdl/{version}/json` `urls` for a wheel matching the bundled interpreter (`py3-none-any`, `cpXY`, or `abi3`). If a release ships only platform/ABI-specific wheels that don't cover MeedyaDL's runtime (or only an sdist for a package that now needs a compiler), it is **NOT admissible** regardless of CLI/INI surface cleanliness. The `no_compatible_wheel` flag (`update_checker.rs`) automates the user-facing side; the audit must still make the hold decision explicitly.
+**New audit gate — wheel availability (and RE-CHECK it).** Add a step: query PyPI `gamdl/{version}/json` `urls` for a wheel matching the bundled interpreter (`py3-none-any`, `cpXY`, or **`abi3`**) AND the platform. **A wheel set can be incomplete for hours after a release** (wheels upload incrementally; the JSON API is CDN-cached) — cache-bust (`?cb=…`) and/or use `pip download --only-binary=:all: --platform … --python-version …` to confirm before concluding "no wheel". The `no_compatible_wheel` flag (`update_checker.rs`, platform-aware) automates the user-facing side.
+
+**Also new:** GAMDL↔wrapper-v2 version lockstep (3.8.2 hard-requires wrapper-v2 0.0.2, native TCP decrypt on a separate host/port). MeedyaDL admits it via `GamdlFeature::WrapperDecryptHostPort` (emit decrypt host/port) + a `/me` version preflight + the `wrapper_version_mismatch` classifier.
 
 **Also new:** GAMDL↔wrapper-v2 version lockstep (3.8.2 hard-requires wrapper-v2 0.0.2). Even a held ceiling needs an error classifier for the skew (`wrapper_version_mismatch` in `process.rs`).
