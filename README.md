@@ -122,6 +122,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 
 - **Install flow**: `install_gamdl()` invokes `pip install --upgrade 'gamdl>={min},<={max}'`, so the resolver never pulls a GAMDL release we haven't validated.
 - **Update prompts**: the update banner (`services::update_checker`) queries `gamdl_capabilities::should_offer_upgrade()` — if PyPI advertises a GAMDL version beyond `maximum_tested_version`, no upgrade is suggested. Users who manually upgrade outside the range will still see their installed version, and a startup activity-log entry warns them that downloads may fail on CLI changes until the next MeedyaDL release catches up.
+- **GAMDL 3.8.2 is intentionally held back.** GAMDL 3.8.2 ships a compiled Rust extension with no wheel compatible with MeedyaDL's bundled Python (CPython 3.12), so it cannot be installed on any platform. The ceiling stays at **3.8.1**; the Updates page marks 3.8.2 **"Not Installable"** and disables its upgrade button. See [`.github/audits/gamdl-v3.8.2-audit.md`](.github/audits/gamdl-v3.8.2-audit.md).
 - **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
 
 If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0), please open an issue before upgrading so we can validate and bump the ceiling.
