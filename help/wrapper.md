@@ -308,3 +308,13 @@ on a private-range IP (`10/8`, `172.16-31/12`, `192.168/16`), the
 note is just confirming you understand wrapper-v2 has no
 network-layer auth. See the "Security caveat" section above for
 mitigations if you need stronger isolation.
+
+## GAMDL ↔ wrapper-v2 version lockstep
+
+GAMDL and wrapper-v2 are separate projects and must be kept on compatible versions:
+
+- **GAMDL 3.0 – 3.5.x** → wrapper-v1 (three local sockets).
+- **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt). This is MeedyaDL's current supported range.
+- **GAMDL 3.8.2** → wrapper-v2 **0.0.2** (native TCP decrypt). **Not yet supported by MeedyaDL** — its Rust extension has no installable wheel for the bundled Python.
+
+**Do not rebuild or upgrade your wrapper-v2 container to 0.0.2 while MeedyaDL is on GAMDL ≤ 3.8.1.** GAMDL 3.8.1 still calls the HTTP `POST /decrypt` endpoint that 0.0.2 removed, so decryption will fail with a 404. If MeedyaDL reports a *"GAMDL and the wrapper-v2 daemon must be upgraded together"* error, your two versions have drifted apart — rebuild wrapper-v2 at the 0.0.1 (HTTP) era to match GAMDL 3.8.1.

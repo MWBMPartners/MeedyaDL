@@ -490,6 +490,35 @@ minimum_version = "3.0"
 #     zero-touch. Reinforces v3.8's wrapper-less non-web-codec support —
 #     a free reliability win. Same shape as v3.3 / v3.5 / v3.5.1 /
 #     v3.5.2 / v3.7.4.
+#
+# 3.8.2 audit (#1009, 2026-07-10, audit doc at
+# `.github/audits/gamdl-v3.8.2-audit.md`) — DECISION: **HOLD ceiling at
+# 3.8.1; do NOT admit 3.8.2.** First GAMDL release MeedyaDL cannot install
+# at all. 3.8.2 replaced the pure-Python `amdecrypt.py` with a compiled
+# **Rust/PyO3 extension** (`gamdl._ammuxer`, imported unconditionally) and
+# publishes exactly one binary wheel —
+# `gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl` — plus an sdist.
+# MeedyaDL runs GAMDL on bundled python-build-standalone CPython 3.12.8 with
+# no Rust toolchain, so `pip install gamdl==3.8.2` finds no compatible wheel
+# (cp310 != cp312; Linux-x86_64-only) and source-builds the sdist → maturin
+# → cargo → FAILS on all six target platforms (macOS arm64, Win x64/ARM64,
+# Linux x64/aarch64/armv7). Wheel-availability is now a first-class audit
+# gate — a release is only admissible when PyPI publishes wheels matching
+# MeedyaDL's bundled interpreter/platforms (ideally abi3-py310).
+#   Other 3.8.2 changes (benign while held):
+#   * Hard-requires wrapper-v2 0.0.2 (exact-match on `GET /me` at CLI
+#     startup); moved decrypt off HTTP `POST /decrypt` to a native TCP
+#     protocol with new `--wrapper-decrypt-host` / `--wrapper-decrypt-port`
+#     (correctly-spelled INI keys). Version-skew hazard: GAMDL <=3.8.1 +
+#     wrapper-v2 0.0.2 -> `POST /decrypt` 404; GAMDL 3.8.2 + wrapper-v2
+#     <=0.0.1 -> startup error. Users on our ceiling must keep wrapper-v2 at
+#     the 0.0.1 / HTTP era.
+#   * Song stream-lookup tries playback metadata before the assets API —
+#     internal, zero MeedyaDL surface (like v3.8.1).
+#   Hardening shipped WITHOUT bumping the ceiling: pip `--only-binary=gamdl`
+#   guardrail; `ComponentUpdate.no_compatible_wheel` (disables the doomed
+#   "Untested" upgrade button); `wrapper_version_mismatch` error classifier;
+#   `WrapperV2Me.version` capture. Full admission plan in the audit doc.
 maximum_tested_version = "3.8.1"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`.
