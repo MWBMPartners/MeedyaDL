@@ -116,6 +116,24 @@ pub struct ComponentUpdate {
     /// always `false` for the app, Python, pip engines, and binary tools.
     #[serde(default)]
     pub is_untested: bool,
+    /// Whether the latest available version has **no installable wheel**
+    /// for the Python interpreter bundled with this MeedyaDL build.
+    ///
+    /// `true` means `pip install` for this release would fall through to
+    /// a source (sdist) build — which the bundled
+    /// python-build-standalone runtime has no compiler toolchain for —
+    /// and is guaranteed to fail. Computed by checking whether the
+    /// release's PyPI file list contains a wheel tagged `py3-none-any`,
+    /// the bundled interpreter's `cpXY` tag, or `abi3`; if none match,
+    /// this is `true`. Mirrors [`Self::is_untested`]'s "amber badge"
+    /// pattern but is a harder blocker: the frontend disables the
+    /// Upgrade button entirely rather than just warning. Currently only
+    /// set for the GAMDL component; always `false` for the app, Python,
+    /// pip engines, and binary tools, and defaults to `false` on any
+    /// network/parse error so a transient PyPI hiccup never produces a
+    /// false alarm.
+    #[serde(default)]
+    pub no_compatible_wheel: bool,
     /// Human-readable description of the update (e.g., release notes excerpt).
     /// For app updates: truncated first 200 chars of the GitHub release body.
     pub description: Option<String>,
@@ -197,6 +215,117 @@ pub struct UpdateCheckResult {
 /// rationale.
 fn is_gamdl_compatible(version: &str) -> bool {
     gamdl_capabilities::should_offer_upgrade(version)
+}
+
+// ============================================================
+// GAMDL wheel-compatibility check (no_compatible_wheel)
+// ============================================================
+//
+// GAMDL 3.8.2 (2026-07-09) shipped a compiled Rust extension and
+// published only a single platform wheel
+// (`cp310-cp310-manylinux_2_34_x86_64`) plus an sdist. MeedyaDL's
+// bundled python-build-standalone runtime is CPython 3.12
+// (`python_manager::PYTHON_VERSION`), which doesn't match that wheel's
+// ABI tag and has no compiler toolchain to build the sdist — so
+// `pip install gamdl==3.8.2` on a MeedyaDL install is guaranteed to
+// fail, slowly and confusingly. This section detects that situation
+// ahead of time so the Updates page can disable the doomed upgrade
+// button instead of letting the user click it.
+
+/// Derives a CPython wheel-tag prefix (e.g. `cp312`) from a
+/// dotted version string (e.g. `3.12.8`).
+///
+/// Pure/no I/O so the bundled-interpreter → wheel-tag mapping stays
+/// correct automatically if `python_manager::PYTHON_VERSION` is ever
+/// bumped, without needing a second hardcoded constant here. Only the
+/// major and minor components are used — wheel ABI tags never encode
+/// the patch version (`cp312`, not `cp3128`).
+fn derive_cpython_tag(python_version: &str) -> String {
+    let mut parts = python_version.split('.');
+    let major = parts.next().unwrap_or("3");
+    let minor = parts.next().unwrap_or("0");
+    format!("cp{major}{minor}")
+}
+
+/// Returns `true` if at least one of the given wheel filenames is
+/// installable on an interpreter tagged `cpython_tag`.
+///
+/// A `.whl` filename is considered installable if its compatibility
+/// tag segment contains any of:
+/// - `py3-none-any` — a universal wheel, works on any Python 3.x
+/// - `cpython_tag` (e.g. `cp312`) — an exact CPython ABI match
+/// - `abi3` — the stable ABI, forward-compatible across CPython minors
+///
+/// Non-wheel distributions (sdists, `.tar.gz`) are ignored — only a
+/// `.whl` file skips the "build from source" path pip would otherwise
+/// fall back to.
+///
+/// Pure function (no I/O) so it's independently unit-testable; the
+/// caller fetches `filenames` from PyPI and is responsible for
+/// defaulting to "compatible" (`false` for `no_compatible_wheel`) on
+/// any network/parse error, so a transient PyPI hiccup never produces
+/// a false alarm.
+fn has_compatible_wheel<S: AsRef<str>>(filenames: &[S], cpython_tag: &str) -> bool {
+    filenames.iter().any(|f| {
+        let f = f.as_ref();
+        f.ends_with(".whl")
+            && (f.contains("py3-none-any") || f.contains(cpython_tag) || f.contains("abi3"))
+    })
+}
+
+/// Fetches the list of distribution filenames PyPI has published for a
+/// specific GAMDL release (wheels and sdists alike).
+///
+/// Queries `https://pypi.org/pypi/gamdl/{version}/json` (the
+/// version-scoped PyPI JSON API — distinct from the package-level
+/// endpoint `check_latest_gamdl_version` uses, which only returns the
+/// latest version string, not per-release file lists) and extracts the
+/// `filename` field of every entry in the `urls` array.
+///
+/// # Errors
+/// Returns `Err` on network failure, a non-2xx HTTP response, or a
+/// response body that doesn't parse as the expected JSON shape. Callers
+/// treat this as "unknown compatibility" and default to not flagging
+/// the release, per the "never false-alarm on a transient failure"
+/// policy documented on [`ComponentUpdate::no_compatible_wheel`].
+async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String>, String> {
+    let url = format!("https://pypi.org/pypi/gamdl/{version}/json");
+
+    // Matches the timeout/User-Agent convention used by the sibling
+    // per-package PyPI lookup in `pip_engine_service::check_latest_pypi_version`.
+    let client = crate::utils::http_client::build_simple(10)?;
+
+    let response = client
+        .get(&url)
+        .header("User-Agent", "MeedyaDL")
+        .send()
+        .await
+        .map_err(|e| format!("PyPI request failed for gamdl {version}: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "PyPI returned HTTP {} for gamdl {version}",
+            response.status()
+        ));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse PyPI response for gamdl {version}: {e}"))?;
+
+    let filenames = json["urls"]
+        .as_array()
+        .ok_or_else(|| format!("PyPI response for gamdl {version} has no 'urls' array"))?
+        .iter()
+        .filter_map(|entry| {
+            entry["filename"]
+                .as_str()
+                .map(std::string::ToString::to_string)
+        })
+        .collect();
+
+    Ok(filenames)
 }
 
 /// Compares two semver version strings and returns true if `latest` is strictly newer than `current`.
@@ -589,9 +718,7 @@ async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, Strin
         .get("tag_name")
         .and_then(|v| v.as_str())
         .map(String::from);
-    let version = tag
-        .as_ref()
-        .map(|t| t.trim_start_matches('v').to_string());
+    let version = tag.as_ref().map(|t| t.trim_start_matches('v').to_string());
 
     match (version, tag) {
         (Some(v), Some(t)) => Ok(Some((v, t))),
@@ -633,12 +760,38 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         .as_ref()
         .is_some_and(|v| gamdl_capabilities::is_above_tested_ceiling(v));
 
+    // Wheel-compatibility check (#gamdl-3.8.2-hardening): flags a
+    // release that has no installable wheel for the bundled CPython
+    // interpreter, which would otherwise send `pip install` down a
+    // guaranteed-to-fail source build. Only attempted when there's a
+    // latest version to check; any network/parse failure is logged at
+    // debug and defaults to "not flagged" so a transient PyPI hiccup
+    // never blocks or false-alarms the user.
+    let no_compatible_wheel = match &latest {
+        Some(v) => match fetch_gamdl_release_wheel_filenames(v).await {
+            Ok(filenames) => {
+                let cpython_tag = derive_cpython_tag(python_manager::get_target_python_version());
+                !has_compatible_wheel(&filenames, &cpython_tag)
+            }
+            Err(e) => {
+                log::debug!("Could not determine wheel compatibility for GAMDL {v}: {e}");
+                false
+            }
+        },
+        None => false,
+    };
+
     let description = if update_available {
-        Some(if is_untested {
+        Some(if no_compatible_wheel {
+            // Takes priority over the "untested" wording below — a
+            // missing wheel is a harder blocker (guaranteed pip
+            // failure) than an unaudited-but-installable release.
+            "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
+                .to_string()
+        } else if is_untested {
             // Surface the warning in the description text so it shows up
             // even in places that don't render the dedicated badge.
-            "New GAMDL version available on PyPI (untested with this MeedyaDL build)"
-                .to_string()
+            "New GAMDL version available on PyPI (untested with this MeedyaDL build)".to_string()
         } else {
             "New GAMDL version available on PyPI".to_string()
         })
@@ -653,6 +806,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         update_available,
         is_compatible,
         is_untested,
+        no_compatible_wheel,
         description,
         release_url: latest.map(|v| format!("https://pypi.org/project/gamdl/{v}/")),
         release_body: None,
@@ -731,6 +885,7 @@ async fn check_app_update(
                 update_available: false,
                 is_compatible: true,
                 is_untested: false,
+                no_compatible_wheel: false, // Only computed for GAMDL
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -774,6 +929,7 @@ async fn check_app_update(
                 update_available: false,
                 is_compatible: true,
                 is_untested: false,
+                no_compatible_wheel: false, // Only computed for GAMDL
                 description: None,
                 release_url: None,
                 release_body: None,
@@ -902,6 +1058,7 @@ fn parse_release_from_response(
         // Untested-vs-tested only applies to GAMDL (whose CLI surface
         // we audit per-version). MeedyaDL releases are self-contained.
         is_untested: false,
+        no_compatible_wheel: false, // Only computed for GAMDL
         description: body,
         release_url: html_url,
         release_body: full_body,
@@ -1101,6 +1258,7 @@ async fn check_github_tool_update(
         update_available,
         is_compatible: true,
         is_untested: false,
+        no_compatible_wheel: false, // Only computed for GAMDL
         description: if update_available {
             Some(format!("Newer version of {display_name} available"))
         } else {
@@ -1141,6 +1299,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // and test it with GAMDL before shipping.
         is_compatible: true,
         is_untested: false,
+        no_compatible_wheel: false, // Only computed for GAMDL
         description: if update_available {
             Some(format!("Python {target} available (portable runtime)"))
         } else {
@@ -1235,6 +1394,7 @@ async fn check_pip_engine_update(
         update_available,
         is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
         is_untested: false,  // Untested-vs-tested only applies to GAMDL
+        no_compatible_wheel: false, // Only computed for GAMDL
         description,
         release_url,
         release_body: None,
@@ -1258,14 +1418,8 @@ mod tests {
     /// an unexpected tag never downgrades a user's stability selection.
     #[test]
     fn test_update_channel_from_tag() {
-        assert_eq!(
-            UpdateChannel::from_tag("v1.0.0"),
-            UpdateChannel::Stable
-        );
-        assert_eq!(
-            UpdateChannel::from_tag("1.0.0"),
-            UpdateChannel::Stable
-        );
+        assert_eq!(UpdateChannel::from_tag("v1.0.0"), UpdateChannel::Stable);
+        assert_eq!(UpdateChannel::from_tag("1.0.0"), UpdateChannel::Stable);
         // Legacy cron-channel tags (Nightly/Weekly/Monthly removed in v1.11.0)
         // classify as Alpha so installs running an old nightly build still see
         // updates from the alpha channel after the cron channels were removed.
@@ -1289,10 +1443,7 @@ mod tests {
             UpdateChannel::from_tag("v1.0.0-beta.1"),
             UpdateChannel::Beta
         );
-        assert_eq!(
-            UpdateChannel::from_tag("v1.0.0-rc.1"),
-            UpdateChannel::Rc
-        );
+        assert_eq!(UpdateChannel::from_tag("v1.0.0-rc.1"), UpdateChannel::Rc);
         // Unknown suffix: fall back to Stable (safe default)
         assert_eq!(
             UpdateChannel::from_tag("v1.0.0-unreleased.x"),
@@ -1359,6 +1510,83 @@ mod tests {
         assert!(!is_newer("1.0.0", "1.0.0"));
         // Downgrade: 1.0.0 is not newer than 2.0.0
         assert!(!is_newer("2.0.0", "1.0.0"));
+    }
+
+    /// `derive_cpython_tag` splits a dotted Python version string into
+    /// the `cpXY` wheel-tag prefix pip/PyPI use, taking only the major
+    /// and minor components (wheel ABI tags never encode patch version).
+    #[test]
+    fn test_derive_cpython_tag() {
+        assert_eq!(derive_cpython_tag("3.12.8"), "cp312");
+        assert_eq!(derive_cpython_tag("3.10.0"), "cp310");
+        assert_eq!(derive_cpython_tag("3.9.18"), "cp39");
+        // Two-part version (no patch): still derives correctly.
+        assert_eq!(derive_cpython_tag("3.12"), "cp312");
+    }
+
+    /// `has_compatible_wheel` is the pure predicate behind
+    /// `ComponentUpdate::no_compatible_wheel`. Covers the three
+    /// "installable" tag shapes (`py3-none-any`, exact `cpXY` match,
+    /// `abi3`), the GAMDL 3.8.2 real-world case (cp310-only wheel on a
+    /// cp312 runtime), a pure-sdist release, and an empty file list.
+    #[test]
+    fn test_has_compatible_wheel() {
+        // Universal wheel: installable on any interpreter.
+        assert!(has_compatible_wheel(
+            &["gamdl-3.8.1-py3-none-any.whl"],
+            "cp312"
+        ));
+
+        // Exact CPython ABI match.
+        assert!(has_compatible_wheel(
+            &["gamdl-3.9.0-cp312-cp312-manylinux_2_34_x86_64.whl"],
+            "cp312"
+        ));
+
+        // Stable ABI wheel (abi3) — forward-compatible across minors.
+        assert!(has_compatible_wheel(
+            &["somepkg-1.0.0-cp39-abi3-manylinux_2_34_x86_64.whl"],
+            "cp312"
+        ));
+
+        // GAMDL 3.8.2's real-world shape: only a cp310 wheel + an sdist,
+        // checked against our cp312 runtime — no match, so this MUST be
+        // flagged as having no compatible wheel.
+        assert!(!has_compatible_wheel(
+            &[
+                "gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl",
+                "gamdl-3.8.2.tar.gz",
+            ],
+            "cp312"
+        ));
+
+        // Same release, but checked against a cp310 runtime — matches.
+        assert!(has_compatible_wheel(
+            &[
+                "gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl",
+                "gamdl-3.8.2.tar.gz",
+            ],
+            "cp310"
+        ));
+
+        // Pure sdist release: no `.whl` file at all — never installable
+        // without a source build.
+        assert!(!has_compatible_wheel(&["gamdl-1.0.0.tar.gz"], "cp312"));
+
+        // Empty file list (e.g. yanked release): no wheel.
+        let empty: [&str; 0] = [];
+        assert!(!has_compatible_wheel(&empty, "cp312"));
+
+        // Hypothetical future release that adds a cp312 wheel alongside
+        // the cp310 one — should NOT be flagged.
+        assert!(has_compatible_wheel(
+            &[
+                "gamdl-3.9.0-cp310-cp310-manylinux_2_34_x86_64.whl",
+                "gamdl-3.9.0-cp312-cp312-manylinux_2_34_x86_64.whl",
+                "gamdl-3.9.0.tar.gz",
+            ],
+            "cp312"
+        ));
     }
 
     /// `is_gamdl_compatible` is a thin alias over
