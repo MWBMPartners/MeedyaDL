@@ -566,10 +566,11 @@ pub struct WrapperV2Me {
     #[serde(default)]
     pub runtime: WrapperV2RuntimeBlock,
     /// Wrapper-v2 daemon version string (e.g. `"0.0.2"`), if reported.
-    /// Captured for diagnostics only — GAMDL 3.8.2 hard-requires `0.0.2`
-    /// (an exact-match check at CLI startup), but MeedyaDL's ceiling is
-    /// GAMDL 3.8.1 so no version preflight is enforced here yet. The
-    /// enforcing preflight lands when GAMDL 3.8.2 is admitted.
+    /// GAMDL 3.8.2 hard-requires `0.0.2` — an exact-match check on this
+    /// field at CLI startup, aborting the process on any mismatch.
+    /// [`check_wrapper_v2_auth`] enforces a preflight warning ahead of
+    /// that failure once the detected GAMDL release is 3.8.2+
+    /// (`GamdlFeature::WrapperDecryptHostPort`).
     #[serde(default)]
     pub version: Option<String>,
 }
@@ -671,15 +672,38 @@ pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, Strin
 pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning> {
     match fetch_wrapper_v2_me(wrapper_url).await {
         Ok(me) => {
-            // Capture the daemon version for diagnostics (no enforcement
-            // yet — MeedyaDL's ceiling is GAMDL 3.8.1). GAMDL 3.8.2 will
-            // hard-require wrapper-v2 0.0.2, so surfacing it now helps
-            // correlate version-skew failures ahead of that admission.
+            // Capture the daemon version for diagnostics either way —
+            // useful for correlating version-skew failures even on
+            // GAMDL releases below the enforcing threshold.
             log::debug!(
                 "wrapper-v2 /me reports version {:?} (auth state: {})",
                 me.version,
                 me.auth.state
             );
+
+            // GAMDL 3.8.2 exact-matches wrapper-v2's `version` field at
+            // CLI startup and aborts the process on any mismatch (it
+            // hard-requires 0.0.2, the release that added the native
+            // TCP decrypt host/port pair). Warn ahead of that failure
+            // when we can see a *concrete* mismatch. A daemon that
+            // doesn't report `version` at all (`None`) is left alone —
+            // only a known-wrong version should block/warn, never an
+            // unknown one.
+            if crate::services::gamdl_capabilities::supports(
+                crate::services::gamdl_capabilities::GamdlFeature::WrapperDecryptHostPort,
+            ) {
+                if let Some(ref version) = me.version {
+                    if version != "0.0.2" {
+                        return Some(PreflightWarning {
+                            check: PreflightCheck::WrapperV2Auth,
+                            message: format!(
+                                "Wrapper-v2 daemon at {wrapper_url} reports version {version}, but the detected GAMDL release requires wrapper-v2 0.0.2 (native TCP decrypt, added alongside GAMDL 3.8.2). GAMDL exact-matches this version at CLI startup and will abort — upgrade the wrapper-v2 daemon to 0.0.2."
+                            ),
+                        });
+                    }
+                }
+            }
+
             if me.auth.state == "authenticated" {
                 None
             } else {

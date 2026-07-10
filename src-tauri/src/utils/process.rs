@@ -1190,7 +1190,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
         "media_not_streamable" => "Apple Music says this content isn't streamable — it may have been removed, isn't licensed in your storefront, or is a personal-library upload that catalog tooling can't fetch. Try the catalog URL for the same album in a different storefront, or pick a release that's still available.",
-        "wrapper_version_mismatch" => "GAMDL and the wrapper-v2 daemon must be upgraded together. MeedyaDL currently targets GAMDL ≤ 3.8.1, which needs wrapper-v2 0.0.1 (HTTP decrypt); rebuild your wrapper-v2 container to match, and do not upgrade it to 0.0.2 until MeedyaDL admits GAMDL 3.8.2.",
+        "wrapper_version_mismatch" => "GAMDL and the wrapper-v2 daemon must be upgraded together. GAMDL 3.8.2+ requires wrapper-v2 0.0.2 (native TCP decrypt, on its own host/port); GAMDL 3.6–3.8.1 require wrapper-v2 0.0.1 (HTTP decrypt). Check your GAMDL version and rebuild your wrapper-v2 container to the matching daemon version.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -2303,9 +2303,13 @@ mod tests {
     fn wrapper_version_mismatch_guidance_is_actionable() {
         // Users hitting this should be told to align the two
         // independent projects' versions, not to retry or swap codecs.
+        // GAMDL 3.8.2 requires wrapper-v2 0.0.2 (native TCP decrypt);
+        // 3.6-3.8.1 requires 0.0.1 (HTTP decrypt) — the guidance must
+        // reflect both eras, not just the older one.
         let guidance = error_guidance("wrapper_version_mismatch");
         assert!(guidance.contains("wrapper-v2"));
-        assert!(guidance.contains("3.8.1") || guidance.contains("upgraded together"));
+        assert!(guidance.contains("upgraded together"));
+        assert!(guidance.contains("0.0.2"));
     }
 
     #[test]
