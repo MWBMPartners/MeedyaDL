@@ -3443,6 +3443,14 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     ));
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
+    // `wrapper_url` (#853) is the wrapper-v2 HTTP base URL, accepted by
+    // GAMDL >= 3.6 via `--wrapper-url`. Harmless to set unconditionally
+    // on the options struct — `to_cli_args()` only emits it when
+    // `GamdlFeature::WrapperUrl` is supported by the detected release,
+    // so wrapper-v1 downloads never see the flag.
+    if settings.use_wrapper {
+        options.wrapper_url = Some(settings.wrapper_url.clone());
+    }
     // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
     // detected GAMDL release supports it and the user has wrapper mode on.
     // Older releases don't know the flag (would parse-error), and cookie-
@@ -7051,10 +7059,15 @@ pub fn process_queue(
                 };
                 // Wrapper decryption socket reachability (#743). Needed for
                 // every wrapper-v1 release. Cookie downloads still skip the
-                // probe (no decrypt socket consulted). wrapper-v2 has no
-                // equivalent TCP probe — decryption is bundled into the
-                // single HTTP endpoint.
-                let wrapper_decrypt_future = if use_wrapper_v1 {
+                // probe (no decrypt socket consulted). wrapper-v2 had no
+                // equivalent TCP probe through GAMDL 3.8.1 — decryption was
+                // bundled into the single HTTP endpoint — but GAMDL 3.8.2
+                // (`GamdlFeature::WrapperDecryptHostPort`) split decryption
+                // back out onto its own native TCP host/port pair, so the
+                // same probe now also applies to wrapper-v2 on 3.8.2+.
+                let wrapper_decrypt_future = if use_wrapper_v1
+                    || (use_wrapper_v2 && supports(GamdlFeature::WrapperDecryptHostPort))
+                {
                     Some(
                         crate::services::health_check_service::check_wrapper_decrypt_health(
                             &settings.wrapper_decrypt_ip,
@@ -7154,15 +7167,30 @@ pub fn process_queue(
                         // carries `None` and the loop emits a "cleared"
                         // event so any stale toast is dismissed.
                         v.push((PreflightCheck::WrapperM3u8, wrapper_m3u8_warning));
-                        // Decrypt probe runs on every wrapper download
-                        // regardless of GAMDL version — the decrypt flag
-                        // exists in every supported release (#743).
-                        v.push((PreflightCheck::WrapperDecrypt, wrapper_decrypt_warning));
                     }
                     if use_wrapper_v2 {
                         // wrapper-v2 single-endpoint preflights (#853).
                         v.push((PreflightCheck::WrapperV2Health, wrapper_v2_health_warning));
                         v.push((PreflightCheck::WrapperV2Auth, wrapper_v2_auth_warning));
+                    }
+                    // Decrypt probe runs on every wrapper-v1 download
+                    // regardless of GAMDL version — the decrypt flag exists
+                    // in every supported wrapper-v1 release (#743) — and,
+                    // from GAMDL 3.8.2+, on wrapper-v2 too now that
+                    // decryption was split back out onto its own native TCP
+                    // host/port (`GamdlFeature::WrapperDecryptHostPort`),
+                    // closing the same #743 bug class (silently falling
+                    // back to the compile-time 127.0.0.1 default on
+                    // remote/LAN wrapper setups) for wrapper-v2 users.
+                    // Single push site — `use_wrapper_v1` and
+                    // `use_wrapper_v2` are mutually exclusive so this
+                    // matches the `wrapper_decrypt_future` gate above
+                    // exactly and avoids moving `wrapper_decrypt_warning`
+                    // from two branches.
+                    if use_wrapper_v1
+                        || (use_wrapper_v2 && supports(GamdlFeature::WrapperDecryptHostPort))
+                    {
+                        v.push((PreflightCheck::WrapperDecrypt, wrapper_decrypt_warning));
                     }
                     // Always check output path (applies to all auth modes)
                     v.push((PreflightCheck::OutputPath, output_path_warning));

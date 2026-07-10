@@ -561,6 +561,25 @@ pub enum GamdlFeature {
     ///   future GAMDL re-adds storefront as a real CLI/INI option we
     ///   adjust the gate then.
     StorefrontIniKeyStripped,
+
+    /// `--wrapper-decrypt-host` / `--wrapper-decrypt-port` CLI flags and
+    /// `wrapper_decrypt_host` / `wrapper_decrypt_port` INI keys.
+    ///
+    /// Introduced in GAMDL v3.8.2. Wrapper-v2 decryption moved from an
+    /// HTTP `POST /decrypt` call riding `--wrapper-url` to a native TCP
+    /// protocol on a **separate** host/port, splitting the combined
+    /// wrapper-v1 `--wrapper-decrypt-ip` (`host:port` string) into two
+    /// discrete options. GAMDL 3.8.2 also hard-requires wrapper-v2
+    /// `0.0.2` — it exact-matches the `version` field returned by
+    /// `GET /me` at CLI startup and aborts on any mismatch.
+    ///
+    /// This capability applies only inside the wrapper-v2
+    /// ([`Self::WrapperUrl`]) family — wrapper-v1 keeps using the
+    /// combined `--wrapper-decrypt-ip` flag unconditionally. Emitting
+    /// `--wrapper-decrypt-host` / `--wrapper-decrypt-port` on a
+    /// wrapper-v2 release older than 3.8.2 (3.6 .. 3.8.1) would crash
+    /// Click with "no such option" — the flags didn't exist yet.
+    WrapperDecryptHostPort,
 }
 
 impl GamdlFeature {
@@ -618,6 +637,9 @@ impl GamdlFeature {
             // every release via `cleanup_unknown_params()`. Effective on
             // the entire support window.
             Self::StorefrontIniKeyStripped => is_version_at_least(version, "2.9.1"),
+            // Added in v3.8.2 — wrapper-v2 decrypt moved from HTTP
+            // (riding `--wrapper-url`) to a separate TCP host/port.
+            Self::WrapperDecryptHostPort => is_version_at_least(version, "3.8.2"),
         }
     }
 }
@@ -662,6 +684,7 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::FFmpegPath, "ffmpeg_path"),
         (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
         (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
+        (GamdlFeature::WrapperDecryptHostPort, "wrapper_decrypt_host_port"),
     ];
 
     let active: Vec<&str> = all
@@ -1226,6 +1249,41 @@ mod tests {
         assert!(
             !supports(GamdlFeature::StorefrontIniKeyStripped),
             "None: unknown version, omit-storefront-INI optimisation must NOT engage"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `WrapperDecryptHostPort` requires GAMDL v3.8.2 — the release that
+    /// split wrapper-v2's combined decrypt address into separate
+    /// `--wrapper-decrypt-host` / `--wrapper-decrypt-port` flags. Must be
+    /// `false` on every earlier wrapper-v2 release (3.6 .. 3.8.1) since
+    /// the flags didn't exist yet and would crash Click, and `false` on
+    /// the unknown/None version per the safe-default policy.
+    #[test]
+    fn wrapper_decrypt_host_port_requires_v382() {
+        let _lock = test_lock();
+
+        for v in ["3.6", "3.7.4", "3.8", "3.8.1"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                !supports(GamdlFeature::WrapperDecryptHostPort),
+                "{v}: split decrypt host/port flags must NOT be emitted (added in 3.8.2)"
+            );
+        }
+
+        for v in ["3.8.2", "3.9", "4.0"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::WrapperDecryptHostPort),
+                "{v}: split decrypt host/port flags must be emitted"
+            );
+        }
+
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::WrapperDecryptHostPort),
+            "None: unknown version, split decrypt flags must NOT be emitted"
         );
 
         set_detected_version(None);
