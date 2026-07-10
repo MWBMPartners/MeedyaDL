@@ -1367,8 +1367,12 @@ pub struct AppSettings {
     /// Decryption server address (`host:port`) used by GAMDL when
     /// `use_wrapper` is `true`. GAMDL opens an outbound TCP connection
     /// to this address to send encrypted samples for FairPlay decryption
-    /// (see `gamdl/downloader/amdecrypt.py::decrypt_samples` —
-    /// `asyncio.open_connection(host, port)`). Required for the
+    /// (historically `gamdl/downloader/amdecrypt.py::decrypt_samples` via
+    /// `asyncio.open_connection(host, port)`; GAMDL 3.8.2 deleted that
+    /// Python module in favour of a native Rust `ammuxer` engine —
+    /// MeedyaDL doesn't invoke either implementation directly). This
+    /// `host:port` socket applies to the wrapper-v1 generation (GAMDL
+    /// v3.0–v3.5.x). Required for the
     /// wrapper to be reachable when it's NOT running on the same host
     /// as MeedyaDL/GAMDL — the third leg of the wrapper triangle
     /// alongside `wrapper_account_url` and `wrapper_m3u8_ip`. Without
