@@ -2,114 +2,105 @@
 
 **Last updated:** 2026-07-10
 **Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27)
-**Branch context:** alpha (1.11.0-alpha.27), main (1.10.1), beta (1.9.4)
 
-Read top-to-bottom before continuing. Supersedes the 2026-07-03 handoff (that
-session's #967/#968 have since merged; #967 is commit `c8530014` on alpha).
+Read top-to-bottom before continuing. Supersedes the earlier 2026-07-03 handoff.
 
 ---
 
 ## 1. Standing constraints (READ FIRST)
 
-- **Do NOT open a PR yet.** The user is queueing more work and wants a SINGLE
-  PR at the end (not stacked PRs — avoids merge-race conditions). Keep
-  committing to the working branch; hold the PR until explicitly told.
-- **Do NOT push / force-push / reset-hard / modify remotes** without an explicit
-  instruction. Committing to the local working branch IS authorised this
-  session ("commit individually"). Local branch ops (ff, delete) are fine.
-- **Model tiering:** Fable 5 for deep planning (sequential, not parallel — the
-  user explicitly said no parallel agents); Sonnet/Haiku for implementation;
-  Opus only when necessary. Fable was available this session.
-- Per-unit workflow: detailed GitHub issue + individual commit + doc/memory
-  update. Security-review each diff before committing.
+- **Do NOT open a PR yet.** Single PR at the end (no stacking / merge-race).
+  Keep committing to the working branch; hold the PR until told.
+- **Do NOT push / force-push / reset-hard / modify remotes** without explicit
+  instruction. Committing to the local working branch IS authorised this session.
+- **Model tiering:** Fable 5 for deep planning (sequential, no parallel agents);
+  Sonnet/Haiku for implementation; Opus for orchestration/verification.
+- Per-unit: detailed GitHub issue + individual commit + security-review the diff.
+- **`cargo fmt`:** CI does NOT gate on it; the repo has pre-existing drift.
+  rustfmt ONLY your touched files (never whole-crate `cargo fmt`) or it pollutes
+  the diff with unrelated reformatting.
 
 ---
 
-## 2. This session's work (branch `prep/alpha-gamdl-3.8.2-plus-2026-07-10`)
-
-8 commits, all verified (full lib suite **1459/1459**, frontend type-check
-clean, no `fmt`/clippy regressions in touched files):
+## 2. This session — 12 commits, all verified (full lib suite 1465/1465, type-check clean)
 
 | Commit | What | Issue |
 | --- | --- | --- |
-| `bc9e8212` | #969 word-timing keyed on `<span begin>` presence, not the `itunes:timing` label (both sites + `ttml_has_word_timing` + 6 tests) | #969 |
-| `abfe689a` | Gap-A: enrichment metadata via 3-tier premium resolver → syllable lyrics work on the **web-dev-key** path | #1008 |
-| `44acdc88` | Gap-B: attempt syllable fetch for tracks with absent `hasLyrics` flag | #1008 |
-| `0e06350e` | #970: shared `apple_music_headers` helper + harden `fetch_music_video_relations` + nested promo-video extraction (MUT param wired `None` for #971) | #970 |
-| `256e4868` | G2: `ComponentUpdate.no_compatible_wheel` guard + "Not Installable" badge/disabled button + pip `--only-binary=gamdl` | #1009 |
-| `3f7e0302` | G3: `wrapper_version_mismatch` error classifier (both skews) + `WrapperV2Me.version` capture + stale `amdecrypt.py` doc | #1009 |
-| `a3541c42` | docs: v3.8.2 audit doc + tool-versions.toml audit trail + CLAUDE.md + memory + README + help/wrapper.md | #1009 |
+| `bc9e8212` | #969 word-timing keyed on `<span begin>` presence, not the `itunes:timing` label | #969 |
+| `abfe689a` | Gap-A: enrichment metadata via 3-tier premium resolver → syllable lyrics on the **web-dev-key** path | #1008 |
+| `44acdc88` | Gap-B: attempt syllable fetch for `hasLyrics == None` tracks | #1008 |
+| `0e06350e` | #970: shared `apple_music_headers` helper + harden `fetch_music_video_relations` + nested promo extraction | #970 |
+| `256e4868` | GAMDL `no_compatible_wheel` guard + pip `--only-binary=gamdl` | #1009 |
+| `3f7e0302` | `wrapper_version_mismatch` error classifier + `WrapperV2Me.version` capture | #1009 |
+| `a3541c42` | (superseded) v3.8.2 audit doc — original HOLD decision | #1009 |
+| `ff0b212c` | handoff refresh | — |
+| `b4e4e59e` | housekeeping (meedyadl-v2 deleted, Swagger dropped) | — |
+| `a504fcb4` | **wrapper-v2 0.0.2 native TCP decrypt** — `WrapperDecryptHostPort` gate + CLI/INI emission + `wrapper_url` thread + TCP preflight + `/me` version warn + guidance flip | #1009 |
+| `e4ea8620` | platform-aware `no_compatible_wheel` (flag only ARMv7) | #1009 |
+| `c8823f78` | **admit GAMDL 3.8.2** (ceiling → 3.8.2) + flip all docs hold→admit | #1009 |
 
 ---
 
-## 3. GAMDL v3.8.2 — DECISION: HOLD at 3.8.1
+## 3. GAMDL v3.8.2 — DECISION: **ADMITTED** (ceiling → 3.8.2)
 
-**v3.8.2 (2026-07-09) is NOT admitted; ceiling stays 3.8.1.** It replaced
-Python `amdecrypt.py` with a compiled Rust/PyO3 extension (`gamdl._ammuxer`)
-and publishes only a `cp310-cp310-manylinux_2_34_x86_64` wheel + sdist —
-MeedyaDL's bundled CPython 3.12.8 (no Rust toolchain) can install it on **zero**
-of 6 platforms. Verified against PyPI + source. Full analysis + admission plan:
-`.github/audits/gamdl-v3.8.2-audit.md` (issue #1009).
-- **Wheel-availability is now a first-class audit gate** (see the cadence memory).
-- v3.8.2 also hard-requires **wrapper-v2 0.0.2** (native TCP decrypt); GAMDL and
-  wrapper-v2 must be upgraded in lockstep (help/wrapper.md documents this).
-- Admission plan (when wheels appear): bump ceiling; add
-  `GamdlFeature::WrapperDecryptHostPort` (≥3.8.2) emitting
-  `wrapper_decrypt_host`/`wrapper_decrypt_port` from the existing
-  `wrapper_decrypt_ip` split; re-enable TCP decrypt preflight for wrapper-v2;
-  add `/me` version preflight (uses the newly-captured `WrapperV2Me.version`).
+> An initial pass HELD at 3.8.1 on **stale PyPI data**. A cache-busted re-check +
+> live `pip download` found 3.8.2 ships **`cp310-abi3`** wheels for **5 of 6**
+> platforms (macOS universal2, Win x64/ARM64, Linux x64/aarch64). Only **Linux
+> ARMv7** lacks a wheel. Reversed to ADMITTED. Lesson recorded in the cadence memory.
 
-GAMDL v3+ support (v2 dropped; wrapper-v1 for 3.0–3.5, wrapper-v2 for 3.6+) is
-verified intact — gates + 32/32 `gamdl_capabilities` tests unchanged.
+- **abi3 verified genuine:** `import gamdl._ammuxer` + `python -m gamdl --version`
+  run on CPython **3.14** (≠ the cp310 tag) ⇒ loads on the bundled 3.12.
+- **Per-platform install:** `gamdl>=3.0,<=3.8.2` + `--only-binary=gamdl` →
+  3.8.2 on the 5 wheel platforms, **auto-fallback to 3.8.1 on ARMv7**.
+- **Wrapper-v2 0.0.2** is the one real code change: decrypt moved from HTTP
+  `POST /decrypt` to a native TCP host/port. MeedyaDL now emits
+  `--wrapper-decrypt-host`/`--wrapper-decrypt-port` (CLI+INI) from `wrapper_decrypt_ip`
+  on 3.8.2+ (`GamdlFeature::WrapperDecryptHostPort`), runs the TCP decrypt
+  preflight for wrapper-v2, and warns via a `/me` version preflight. No settings-schema bump.
+- Audit doc: `.github/audits/gamdl-v3.8.2-audit.md`.
+
+### ⏳ PRE-STABLE GATE — live smoke-test (NOT done; can't be static)
+Before this ceiling reaches **stable**, on each shipping platform:
+1. `import gamdl._ammuxer` + a **real song download** decrypts+muxes on the
+   bundled cp312 (import verified on 3.14; the decrypt path wants a live run,
+   esp. Windows + Linux-arm).
+2. Real **wrapper-v2 0.0.2** round-trip — local + remote/LAN (decrypt host/port).
+3. Version-skew: GAMDL 3.8.2 + wrapper-v2 ≤ 0.0.1 aborts → the new preflight warns.
+4. A **music-video** download (local-key decrypt via ammuxer).
+5. `pip install --only-binary=gamdl gamdl==3.8.2` resolves on 5 platforms; range
+   falls back to 3.8.1 on ARMv7.
 
 ---
 
-## 4. Animated art + syllable lyrics — state (ITAMenhancer cross-verified)
+## 4. Animated art + syllable lyrics (ITAMenhancer cross-verified)
 
-- **Square + portrait animated art:** works on both auth paths (MusicKit JWT +
-  web-dev-key). #970 hardened the header consistency.
-- **Syllable/word lyrics:** #969 (label-vs-span) + Gap-A (web-key path) fixed →
-  now works on both paths. **⚠ Gap-A needs live validation** with a
-  web-player-only account (does `api.music.apple.com` accept the AMPWebPlay
-  token for the album catalog call? the artwork path's 2026-06-21 comments say
-  yes).
-- **Open follow-ups (enriched with ITAM specs, most need LIVE testing):**
-  #971 (MUT on catalog — foundation wired), #972 (HLS resolution select),
-  #973 (`&l={locale}`), #974 (native fMP4 concat), #1010 (web-token expiry —
-  safe, no live test), #1011 (`extend=audioTraits`), #1012 (dead
-  `fetch_syllable_lyrics` IPC — `for consideration`).
+- Square + portrait art work on both auth paths (#970 hardened header consistency).
+- Syllable/word lyrics: #969 (label→span) + Gap-A (web-key path) fixed → work on
+  both paths. **⚠ Gap-A needs live validation** with a web-player-only account.
+- Follow-ups (ITAM specs added; most need LIVE testing): #971 (MUT on catalog —
+  foundation wired), #972 (HLS resolution), #973 (`&l={locale}`), #974 (native
+  fMP4 concat), #1010 (web-token expiry — safe, no live test), #1011
+  (`extend=audioTraits`), #1012 (dead `fetch_syllable_lyrics` IPC — `for consideration`).
 
 ---
 
 ## 5. Branch state
 
-- **Local `main`** fast-forwarded to `origin/main` (aligned).
-- **Remote branches** are all structural channel branches (alpha/beta/nightly/
-  release-candidate/main) — no stray feature/prep branches (already pruned).
-  Nothing to delete/consolidate. (beta/rc look stale — a release-process note,
-  not a cleanup action; deleting channel branches needs explicit go-ahead.)
-- **`meedyadl-v2`** deleted 2026-07-10 (owner decision; tip `f8326bf8`). It was
-  a stale local-only copy of the April-2026-deleted v2 branch — no unrecovered
-  work (modules already extracted; see `project_meedyadl_v2_archive.md`). Local
-  is now fully aligned with GitHub (alpha, main, + this working branch).
+Local `main` fast-forwarded; `meedyadl-v2` deleted (owner decision); no stray
+feature/prep branches. Local aligned with GitHub (alpha, main, + this branch).
 
 ---
 
-## 6. Remaining / deferred (this session)
+## 6. Remaining / deferred
 
-1. **Swagger/OpenAPI docs — DROPPED** (owner decision 2026-07-10: "none,
-   ignore"). No repo spec exists; MeedyaDL is a Tauri IPC app; the claude.ai
-   Swagger connector needs auth. Not pursued.
-2. **Live-validation pass** for #971–#974 + Gap-A (needs real Apple Music
-   credentials + a running app — can't be done statically). #1010 (web-token
-   expiry) is safe to implement without live testing.
+1. **Live smoke-test** of GAMDL 3.8.2 (§3 gate) before the ceiling ships stable.
+2. **Live-validation** of the art/lyrics follow-ups (#971–#974, Gap-A).
 3. **Open the single PR** (`prep/alpha-gamdl-3.8.2-plus-2026-07-10` → `alpha`)
-   when the user says go — held for now so more queued work folds into ONE PR
-   (no stacking). Monitor CI, fix as issues appear. Rewrite the release-please
-   PR body later per the CLAUDE.md gold-standard format.
-4. **Strategy `for consideration`:** #1013 (upstream GAMDL wheel matrix /
-   abi3 — the path to unblocking 3.8.2+) and #1014 (per-platform support
-   window). These gate the next GAMDL ceiling advance.
+   when the user says go. Monitor CI, fix as issues appear.
+4. Strategy: #1013 retargeted to **ARMv7 wheel only** (upstream already ships
+   abi3 for 5/6); #1014 (per-platform window) — no longer urgent (range +
+   `--only-binary` handles ARMv7 today).
+5. Swagger/OpenAPI — DROPPED (owner decision).
 
 ---
 
@@ -117,20 +108,17 @@ verified intact — gates + 32/32 `gamdl_capabilities` tests unchanged.
 
 ```bash
 cd src-tauri && export PATH="$HOME/.cargo/bin:$PATH"
-cargo test --lib                                   # 1459/1459
-cargo test --lib services::gamdl_capabilities      # 32/32
-cargo test --lib services::enhanced_lyrics_service # 26/26
-cargo test --lib utils::process                    # 142/142
-cargo test --lib services::apple_music_api          # 134/134
-cargo test --lib services::update_checker           # 15/15
+cargo test --lib                                    # 1465/1465
+cargo test --lib services::gamdl_capabilities       # 33/33 (incl. WrapperDecryptHostPort)
+cargo test --lib services::update_checker           # 15/15 (platform-aware wheel)
 cd .. && npm run type-check                          # clean
-# Note: CI does NOT gate on `cargo fmt --check`; repo has pre-existing fmt drift.
-# When editing, rustfmt ONLY your touched files (not whole-crate cargo fmt).
+# GAMDL 3.8.2 abi3 verification (done, passed on CPython 3.14):
+python3 -m venv /tmp/v && /tmp/v/bin/pip install --only-binary=gamdl 'gamdl==3.8.2' \
+  && /tmp/v/bin/python -c "import gamdl._ammuxer; print('ok')" \
+  && /tmp/v/bin/python -m gamdl --version
 ```
 
-## 8. Issues opened this session
+## 8. Issues this session
 
-#1008 (web-key syllable + hasLyrics filter — fixed), #1009 (GAMDL v3.8.2 hold +
-hardening — fixed), #1010 (web-token expiry), #1011 (audioTraits extend), #1012
-(dead IPC cleanup, `for consideration`). Enriched: #970 (fixed), #969 (fixed),
-#971/#972/#973/#974 (ITAM specs added, live-test-gated).
+Fixed: #969, #970, #1008, #1009 (all the code above). Filed: #1010, #1011,
+#1012, #1013 (retargeted ARMv7), #1014. Enriched: #971–#974.
