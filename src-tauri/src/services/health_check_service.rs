@@ -551,20 +551,27 @@ pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<Prefligh
 ///
 /// ```json
 /// {
-///   "version": "0.2.0",
+///   "version": "0.0.2",
 ///   "runtime": { "playback_ready": true },
 ///   "auth":    { "state": "authenticated" | "logged_out" | "logging_in" }
 /// }
 /// ```
 ///
-/// We only deserialise the fields we act on (`auth.state` for the
-/// login gate and `runtime.playback_ready` for the FairPlay-ready
-/// signal). Everything else is dropped.
+/// We deserialise the fields we act on (`auth.state` for the login gate
+/// and `runtime.playback_ready` for the FairPlay-ready signal) plus the
+/// daemon `version` (captured for diagnostics). Everything else is dropped.
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct WrapperV2Me {
     pub auth: WrapperV2AuthBlock,
     #[serde(default)]
     pub runtime: WrapperV2RuntimeBlock,
+    /// Wrapper-v2 daemon version string (e.g. `"0.0.2"`), if reported.
+    /// Captured for diagnostics only — GAMDL 3.8.2 hard-requires `0.0.2`
+    /// (an exact-match check at CLI startup), but MeedyaDL's ceiling is
+    /// GAMDL 3.8.1 so no version preflight is enforced here yet. The
+    /// enforcing preflight lands when GAMDL 3.8.2 is admitted.
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -664,6 +671,15 @@ pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, Strin
 pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning> {
     match fetch_wrapper_v2_me(wrapper_url).await {
         Ok(me) => {
+            // Capture the daemon version for diagnostics (no enforcement
+            // yet — MeedyaDL's ceiling is GAMDL 3.8.1). GAMDL 3.8.2 will
+            // hard-require wrapper-v2 0.0.2, so surfacing it now helps
+            // correlate version-skew failures ahead of that admission.
+            log::debug!(
+                "wrapper-v2 /me reports version {:?} (auth state: {})",
+                me.version,
+                me.auth.state
+            );
             if me.auth.state == "authenticated" {
                 None
             } else {

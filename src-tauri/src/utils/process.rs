@@ -1146,6 +1146,15 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // broader "content may be removed" message.
     } else if is_media_not_streamable_error(error_message) {
         "media_not_streamable"
+    // Wrapper-v2 / GAMDL version skew: GAMDL 3.8.2 hard-requires wrapper-v2
+    // 0.0.2 (and moved decrypt off HTTP `POST /decrypt`), while MeedyaDL's
+    // current ceiling (GAMDL <= 3.8.1) needs the older wrapper-v2 0.0.1.
+    // Matched before the generic `not_found` fallback (same ordering
+    // discipline as `media_not_streamable`) so a reverse-skew "404" on the
+    // removed `/decrypt` endpoint gets the specific wrapper-version guidance
+    // instead of the generic "content not found" message.
+    } else if is_wrapper_version_mismatch_error(error_message) {
+        "wrapper_version_mismatch"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -1181,6 +1190,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
         "media_not_streamable" => "Apple Music says this content isn't streamable — it may have been removed, isn't licensed in your storefront, or is a personal-library upload that catalog tooling can't fetch. Try the catalog URL for the same album in a different storefront, or pick a release that's still available.",
+        "wrapper_version_mismatch" => "GAMDL and the wrapper-v2 daemon must be upgraded together. MeedyaDL currently targets GAMDL ≤ 3.8.1, which needs wrapper-v2 0.0.1 (HTTP decrypt); rebuild your wrapper-v2 container to match, and do not upgrade it to 0.0.2 until MeedyaDL admits GAMDL 3.8.2.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -1289,6 +1299,41 @@ pub fn is_media_not_streamable_error(error_message: &str) -> bool {
     error_message
         .to_lowercase()
         .contains("media is not streamable")
+}
+
+/// Detect a wrapper-v2 / GAMDL version-skew failure (2026-07).
+///
+/// GAMDL 3.8.2 hard-requires wrapper-v2 0.0.2 — it exact-matches the
+/// `version` field of `GET /me`'s response at CLI startup and exits
+/// immediately on a mismatch. The same release also moved decryption
+/// from the HTTP `POST /decrypt` endpoint to a native TCP protocol.
+/// Because GAMDL and wrapper-v2 are independent projects with no shared
+/// release cadence, users can easily end up with a mismatched pair:
+///
+/// * **Forward skew** — GAMDL 3.8.2 against wrapper-v2 <= 0.0.1: GAMDL
+///   exits at startup with `Unsupported wrapper-v2 API version. gamdl
+///   requires wrapper-v2 0.0.2`.
+/// * **Reverse skew** — GAMDL <= 3.8.1 (MeedyaDL's current ceiling)
+///   against wrapper-v2 0.0.2: the removed HTTP endpoint yields
+///   something like `wrapper-v2: POST /decrypt failed HTTP 404` at
+///   decrypt time.
+///
+/// Without this matcher both shapes fall through `classify_error` to
+/// the generic `unknown` bucket, leaving the user with no signal that
+/// the fix is to align GAMDL and wrapper-v2 versions rather than retry
+/// or swap codecs. We classify both as `wrapper_version_mismatch` so
+/// the activity log can surface the specific upgrade-together guidance.
+///
+/// Matches either the literal forward-skew message, or the combination
+/// of `/decrypt` + `404` for the reverse-skew shape — requiring both
+/// substrings avoids false positives on unrelated 404s (e.g. a wrong
+/// storefront `Resource Not Found`) that happen to also mention
+/// `/decrypt` in a stack frame path.
+#[must_use]
+pub fn is_wrapper_version_mismatch_error(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("unsupported wrapper-v2 api version")
+        || (lower.contains("/decrypt") && lower.contains("404"))
 }
 
 /// Detect GAMDL's music-video cover-art URL templating bug.
@@ -2187,6 +2232,80 @@ mod tests {
         let guidance = error_guidance("media_not_streamable");
         assert!(guidance.contains("storefront") || guidance.contains("region"));
         assert!(guidance.contains("removed") || guidance.contains("library"));
+    }
+
+    #[test]
+    fn detects_wrapper_version_mismatch_forward_skew() {
+        // GAMDL 3.8.2 exits immediately at CLI startup when wrapper-v2
+        // reports anything other than "0.0.2" from `GET /me`.
+        assert!(is_wrapper_version_mismatch_error(
+            "Unsupported wrapper-v2 API version. gamdl requires wrapper-v2 0.0.2"
+        ));
+        // Case-insensitive — should match regardless of log wrapping.
+        assert!(is_wrapper_version_mismatch_error(
+            "ERROR    12:34:56 Unsupported wrapper-v2 API version. gamdl requires wrapper-v2 0.0.2"
+        ));
+    }
+
+    #[test]
+    fn detects_wrapper_version_mismatch_reverse_skew() {
+        // GAMDL <= 3.8.1 still calls the HTTP `POST /decrypt` endpoint,
+        // which wrapper-v2 0.0.2 removed in favour of a native TCP
+        // protocol — surfaces as a 404 against that path.
+        assert!(is_wrapper_version_mismatch_error(
+            "wrapper-v2: POST /decrypt failed HTTP 404"
+        ));
+        assert!(is_wrapper_version_mismatch_error(
+            "httpx.HTTPStatusError: Client error '404 Not Found' for url 'http://127.0.0.1:10020/decrypt'"
+        ));
+    }
+
+    #[test]
+    fn does_not_misclassify_unrelated_errors_as_wrapper_version_mismatch() {
+        // A generic 404 with no `/decrypt` in it must not match — this
+        // is what routes ordinary "content not found" errors to the
+        // `not_found` bucket instead.
+        assert!(!is_wrapper_version_mismatch_error("404 Not Found"));
+        // `/decrypt` alone (e.g. a successful decrypt log line) must
+        // not match without an accompanying 404.
+        assert!(!is_wrapper_version_mismatch_error(
+            "Connecting to wrapper-v2 /decrypt endpoint"
+        ));
+        assert!(!is_wrapper_version_mismatch_error(
+            "wrapper-v2 API version supported"
+        ));
+    }
+
+    #[test]
+    fn classifies_wrapper_version_mismatch_forward_skew() {
+        let stderr = "Unsupported wrapper-v2 API version. gamdl requires wrapper-v2 0.0.2";
+        assert_eq!(classify_error(stderr), "wrapper_version_mismatch");
+    }
+
+    #[test]
+    fn classifies_wrapper_version_mismatch_reverse_skew() {
+        let stderr = "wrapper-v2: POST /decrypt failed HTTP 404";
+        assert_eq!(classify_error(stderr), "wrapper_version_mismatch");
+    }
+
+    #[test]
+    fn wrapper_version_mismatch_takes_precedence_over_not_found() {
+        // The message also contains a generic "not found"-ish token —
+        // the bucket order is asserted here to guard against future
+        // re-ordering regressions putting the generic `not_found`
+        // classification ahead of the specific version-mismatch one.
+        let stderr =
+            "Unsupported wrapper-v2 API version. gamdl requires wrapper-v2 0.0.2 — resource not found";
+        assert_eq!(classify_error(stderr), "wrapper_version_mismatch");
+    }
+
+    #[test]
+    fn wrapper_version_mismatch_guidance_is_actionable() {
+        // Users hitting this should be told to align the two
+        // independent projects' versions, not to retry or swap codecs.
+        let guidance = error_guidance("wrapper_version_mismatch");
+        assert!(guidance.contains("wrapper-v2"));
+        assert!(guidance.contains("3.8.1") || guidance.contains("upgraded together"));
     }
 
     #[test]
