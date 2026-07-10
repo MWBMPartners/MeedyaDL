@@ -150,7 +150,25 @@ pub async fn install_gamdl(
     };
     log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
-        .args(["-m", "pip", "install", "--upgrade", &pip_spec])
+        // `--only-binary=gamdl` restricts ONLY the `gamdl` package itself
+        // (not its dependency tree) to pre-built wheels. GAMDL 3.8.2
+        // shipped a compiled Rust extension with a single
+        // `cp310-cp310-manylinux_2_34_x86_64` wheel + an sdist — our
+        // bundled python-build-standalone runtime is CPython 3.12
+        // (`python_manager::PYTHON_VERSION`), so pip would otherwise
+        // silently fall back to building the sdist from source, which
+        // needs a Rust toolchain the bundled runtime doesn't have. This
+        // flag turns that slow, confusing failure into a fast, clean
+        // "no matching distribution" pip error. No-op for the current
+        // support ceiling (3.8.1 ships a universal `py3-none-any` wheel).
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+            "--only-binary=gamdl",
+            &pip_spec,
+        ])
         .output()
         .await
         .map_err(|e| format!("Failed to run pip install: {e}"))?;
@@ -232,10 +250,7 @@ pub async fn install_gamdl(
 /// * Python isn't installed.
 /// * `pip install --force-reinstall` exits non-zero.
 /// * Post-install version probe fails.
-pub async fn install_gamdl_version(
-    app: &AppHandle,
-    target: &str,
-) -> Result<String, String> {
+pub async fn install_gamdl_version(app: &AppHandle, target: &str) -> Result<String, String> {
     // Cheap sanity check on the version string. We accept anything pip
     // will accept (X.Y, X.Y.Z, X.Y.Z.devN, X.Y.ZrcN, …) — the bar is
     // just "no shell metacharacters, no whitespace, starts with a
@@ -243,9 +258,9 @@ pub async fn install_gamdl_version(
     let trimmed = target.trim();
     if trimmed.is_empty()
         || !trimmed.starts_with(|c: char| c.is_ascii_digit())
-        || trimmed
-            .chars()
-            .any(|c| c.is_whitespace() || matches!(c, '`' | '$' | ';' | '&' | '|' | '<' | '>' | '"' | '\''))
+        || trimmed.chars().any(|c| {
+            c.is_whitespace() || matches!(c, '`' | '$' | ';' | '&' | '|' | '<' | '>' | '"' | '\'')
+        })
     {
         return Err(format!(
             "Invalid GAMDL version string '{target}' — expected a PyPI-compatible version like '2.9.3' or '3.5.2'."
@@ -268,7 +283,19 @@ pub async fn install_gamdl_version(
     log::info!("Pip spec: {pip_spec} (force-reinstall)");
 
     let output = Command::new(&python_bin)
-        .args(["-m", "pip", "install", "--force-reinstall", &pip_spec])
+        // See the comment on the `install_gamdl` pip invocation above:
+        // `--only-binary=gamdl` keeps a future sdist-only GAMDL release
+        // (e.g. one that ships a compiled extension without a wheel for
+        // our bundled CPython ABI) from triggering a source build that
+        // the bundled runtime has no toolchain for.
+        .args([
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--only-binary=gamdl",
+            &pip_spec,
+        ])
         .output()
         .await
         .map_err(|e| format!("Failed to run pip install: {e}"))?;
