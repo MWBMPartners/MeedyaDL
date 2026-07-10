@@ -492,37 +492,44 @@ minimum_version = "3.0"
 #     v3.5.2 / v3.7.4.
 #
 # 3.8.2 audit (#1009, 2026-07-10, audit doc at
-# `.github/audits/gamdl-v3.8.2-audit.md`) — DECISION: **HOLD ceiling at
-# 3.8.1; do NOT admit 3.8.2.** First GAMDL release MeedyaDL cannot install
-# at all. 3.8.2 replaced the pure-Python `amdecrypt.py` with a compiled
-# **Rust/PyO3 extension** (`gamdl._ammuxer`, imported unconditionally) and
-# publishes exactly one binary wheel —
-# `gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl` — plus an sdist.
-# MeedyaDL runs GAMDL on bundled python-build-standalone CPython 3.12.8 with
-# no Rust toolchain, so `pip install gamdl==3.8.2` finds no compatible wheel
-# (cp310 != cp312; Linux-x86_64-only) and source-builds the sdist → maturin
-# → cargo → FAILS on all six target platforms (macOS arm64, Win x64/ARM64,
-# Linux x64/aarch64/armv7). Wheel-availability is now a first-class audit
-# gate — a release is only admissible when PyPI publishes wheels matching
-# MeedyaDL's bundled interpreter/platforms (ideally abi3-py310).
-#   Other 3.8.2 changes (benign while held):
-#   * Hard-requires wrapper-v2 0.0.2 (exact-match on `GET /me` at CLI
-#     startup); moved decrypt off HTTP `POST /decrypt` to a native TCP
-#     protocol with new `--wrapper-decrypt-host` / `--wrapper-decrypt-port`
-#     (correctly-spelled INI keys). Version-skew hazard: GAMDL <=3.8.1 +
-#     wrapper-v2 0.0.2 -> `POST /decrypt` 404; GAMDL 3.8.2 + wrapper-v2
-#     <=0.0.1 -> startup error. Users on our ceiling must keep wrapper-v2 at
-#     the 0.0.1 / HTTP era.
+# `.github/audits/gamdl-v3.8.2-audit.md`) — DECISION: **ADMITTED** (ceiling
+# 3.8.1 → 3.8.2). NOTE: an initial pass HELD at 3.8.1 on stale PyPI data
+# (only a `cp310-cp310-manylinux` wheel + sdist were live when first
+# checked). A re-check found GAMDL 3.8.2 publishes **`cp310-abi3`** wheels
+# (stable ABI, load on CPython 3.10+, incl. our bundled 3.12) for macOS
+# universal2, Windows x64/ARM64, and Linux x86_64/aarch64 — installable on
+# **5 of 6** target platforms. Only **Linux ARMv7** has no wheel (sdist →
+# needs Rust → fails). Verified: the `cp310-abi3` extension imports +
+# `python -m gamdl --version` runs on CPython 3.14 (!= 3.10 ⇒ genuinely
+# abi3). **Wheel-availability is now a first-class audit gate.**
+#   Per-platform behaviour: the routine install spec (`gamdl>=3.0,<=3.8.2`)
+#   plus the `--only-binary=gamdl` guardrail resolves to **3.8.2 on the 5
+#   wheel platforms and cleanly falls back to 3.8.1 on ARMv7** (its universal
+#   `py3-none-any` wheel is still in range). The `no_compatible_wheel` UI
+#   guard is now platform-aware and flags only ARMv7.
+#   MeedyaDL changes for admission:
+#   * 3.8.2 replaced Python `amdecrypt.py` with a native Rust `ammuxer`
+#     extension — MeedyaDL invokes GAMDL as a subprocess, so no direct code
+#     impact beyond installation.
+#   * 3.8.2 hard-requires **wrapper-v2 0.0.2** (exact-match on `GET /me`) and
+#     moved decrypt off HTTP `POST /decrypt` to a native TCP host/port
+#     (`--wrapper-decrypt-host`/`--wrapper-decrypt-port`, default
+#     127.0.0.1:10020). New `GamdlFeature::WrapperDecryptHostPort` (>= 3.8.2)
+#     emits those from the existing `wrapper_decrypt_ip` setting (CLI + INI);
+#     the wrapper-v2 TCP decrypt preflight now runs on 3.8.2+; a `/me`
+#     version preflight warns when the daemon != 0.0.2. Version-skew:
+#     GAMDL 3.8.2 + wrapper-v2 <=0.0.1 -> startup error; GAMDL <=3.8.1 +
+#     wrapper-v2 0.0.2 -> `POST /decrypt` 404 — keep the two in lockstep.
 #   * Song stream-lookup tries playback metadata before the assets API —
-#     internal, zero MeedyaDL surface (like v3.8.1).
-#   Hardening shipped WITHOUT bumping the ceiling: pip `--only-binary=gamdl`
-#   guardrail; `ComponentUpdate.no_compatible_wheel` (disables the doomed
-#   "Untested" upgrade button); `wrapper_version_mismatch` error classifier;
-#   `WrapperV2Me.version` capture. Full admission plan in the audit doc.
-maximum_tested_version = "3.8.1"
+#     internal, zero MeedyaDL surface.
+#   PRE-RELEASE GATE: a live smoke-test (real song + music-video download on
+#   3.8.2, and a real wrapper-v2 0.0.2 round-trip incl. remote/LAN decrypt)
+#   should pass on each shipping platform before this ceiling reaches stable.
+maximum_tested_version = "3.8.2"
 # What the installer will resolve to when run with no override. Always
-# within `[minimum_version, maximum_tested_version]`.
-recommended_version = "3.8.1"
+# within `[minimum_version, maximum_tested_version]`. ARMv7 auto-falls-back
+# to 3.8.1 via `--only-binary` since 3.8.2 has no ARMv7 wheel.
+recommended_version = "3.8.2"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases

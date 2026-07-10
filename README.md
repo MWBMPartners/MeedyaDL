@@ -110,7 +110,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | Component | Role | Supported range | Recommended | Source of truth |
 | --- | --- | --- | --- | --- |
 | **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
-| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3 only** — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.8.1** | 3.8.1 | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3 only** — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.8.2** | 3.8.2 | `src-tauri/tool-versions.toml` → `[gamdl]` |
 | **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain / BPM analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
@@ -122,7 +122,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 
 - **Install flow**: `install_gamdl()` invokes `pip install --upgrade 'gamdl>={min},<={max}'`, so the resolver never pulls a GAMDL release we haven't validated.
 - **Update prompts**: the update banner (`services::update_checker`) queries `gamdl_capabilities::should_offer_upgrade()` — if PyPI advertises a GAMDL version beyond `maximum_tested_version`, no upgrade is suggested. Users who manually upgrade outside the range will still see their installed version, and a startup activity-log entry warns them that downloads may fail on CLI changes until the next MeedyaDL release catches up.
-- **GAMDL 3.8.2 is intentionally held back.** GAMDL 3.8.2 ships a compiled Rust extension with no wheel compatible with MeedyaDL's bundled Python (CPython 3.12), so it cannot be installed on any platform. The ceiling stays at **3.8.1**; the Updates page marks 3.8.2 **"Not Installable"** and disables its upgrade button. See [`.github/audits/gamdl-v3.8.2-audit.md`](.github/audits/gamdl-v3.8.2-audit.md).
+- **GAMDL 3.8.2 is supported** (admitted 2026-07-10). It ships a compiled Rust extension as `cp310-abi3` wheels for macOS, Windows x64/ARM64, and Linux x64/aarch64 — installable on those platforms. **Linux ARMv7 has no 3.8.2 wheel**, so it automatically stays on 3.8.1 (still in the support window). An earlier note here said 3.8.2 was held back; that was based on incomplete PyPI data and has been corrected. See [`.github/audits/gamdl-v3.8.2-audit.md`](.github/audits/gamdl-v3.8.2-audit.md).
 - **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
 
 If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0), please open an issue before upgrading so we can validate and bump the ceiling.
@@ -136,7 +136,7 @@ The **[wrapper](https://github.com/WorldObservationLog/wrapper)** is an alternat
 > **Two wrapper flavours, picked automatically based on your GAMDL version.**
 > MeedyaDL supports BOTH **wrapper-v1** (the original three-socket service for GAMDL 3.0 – 3.5.x) and **wrapper-v2** (the new single-HTTP-endpoint daemon required by GAMDL 3.6+). The Settings UI renders the correct fields for whichever GAMDL is installed. See the full breakdown in [`help/wrapper.md`](help/wrapper.md).
 >
-> **MeedyaDL requires GAMDL v3.x** (v2 support was dropped). If you're on GAMDL v2, upgrade to **v3.5** (if you use wrapper-v1) or the recommended latest **3.8.1** (if you're cookie-only). See [`help/wrapper.md`](help/wrapper.md) → *Upgrading from GAMDL v2*.
+> **MeedyaDL requires GAMDL v3.x** (v2 support was dropped). If you're on GAMDL v2, upgrade to **v3.5** (if you use wrapper-v1) or the recommended latest **3.8.2** (if you're cookie-only; Linux ARMv7 stays on 3.8.1 — no 3.8.2 wheel). See [`help/wrapper.md`](help/wrapper.md) → *Upgrading from GAMDL v2*.
 
 ### When to Use It
 

@@ -101,7 +101,7 @@ rewrite: a single C++ daemon (built with the Android NDK) that exposes
 | `POST` | `/login` | Apple ID sign-in |
 | `POST` | `/login/2fa` | HSA2 second factor |
 | `GET` | `/playback` | Apple Music playback dispatch (replaces the m3u8 socket) |
-| `POST` | `/decrypt` | FairPlay sample decrypt batch (binary protocol) |
+| `POST` | `/decrypt` | FairPlay sample decrypt batch (binary protocol) — **wrapper-v2 0.0.1 only** (GAMDL 3.6 – 3.8.1). On wrapper-v2 **0.0.2** (GAMDL 3.8.2+), decrypt moves to a raw **TCP** port (default `10020`), not this HTTP route — see "GAMDL ↔ wrapper-v2 version lockstep" below. |
 | `DELETE` | `/login` | Clear cached tokens |
 
 In MeedyaDL, **Settings → Advanced → Wrapper** shows a single **Wrapper
@@ -314,7 +314,7 @@ mitigations if you need stronger isolation.
 GAMDL and wrapper-v2 are separate projects and must be kept on compatible versions:
 
 - **GAMDL 3.0 – 3.5.x** → wrapper-v1 (three local sockets).
-- **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt). This is MeedyaDL's current supported range.
-- **GAMDL 3.8.2** → wrapper-v2 **0.0.2** (native TCP decrypt). **Not yet supported by MeedyaDL** — its Rust extension has no installable wheel for the bundled Python.
+- **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt).
+- **GAMDL 3.8.2** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported.
 
-**Do not rebuild or upgrade your wrapper-v2 container to 0.0.2 while MeedyaDL is on GAMDL ≤ 3.8.1.** GAMDL 3.8.1 still calls the HTTP `POST /decrypt` endpoint that 0.0.2 removed, so decryption will fail with a 404. If MeedyaDL reports a *"GAMDL and the wrapper-v2 daemon must be upgraded together"* error, your two versions have drifted apart — rebuild wrapper-v2 at the 0.0.1 (HTTP) era to match GAMDL 3.8.1.
+GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2 exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2 with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper decryption IP** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.
