@@ -16,3 +16,5 @@ The `meedyadl-v2` branch was an early multi-service refactoring attempt that div
 **Why:** The branch had useful code that would otherwise have been lost; dropping it without extracting first would have meant re-implementing those modules from scratch when M8–M10 work begins.
 
 **How to apply:** This memory is now historic — the live multi-service prep is on `prep/expanded-services-groundwork` (see the multi-service groundwork memory). Don't reference `prep/refactoring/supported-service-expansion` in suggestions; that working branch no longer exists. The recovered modules are already integrated into the live prep branch and registered in `mod.rs`.
+
+**2026-07-10 cleanup:** a stale local-only copy of the old branch (tip `f8326bf8`, last commit 2026-02-25) still lingered on one dev machine after the April-2026 remote deletion. It was pruned 2026-07-10 (owner decision) to align local with GitHub — no unique unrecovered work (its useful modules were already extracted, per the list above). There is now no `meedyadl-v2` branch anywhere.
