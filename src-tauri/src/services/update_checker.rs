@@ -248,13 +248,30 @@ fn derive_cpython_tag(python_version: &str) -> String {
 }
 
 /// Returns `true` if at least one of the given wheel filenames is
-/// installable on an interpreter tagged `cpython_tag`.
+/// installable on an interpreter tagged `cpython_tag`, running on a
+/// platform whose wheel filename must contain every substring in
+/// `platform_tags`.
 ///
-/// A `.whl` filename is considered installable if its compatibility
-/// tag segment contains any of:
-/// - `py3-none-any` — a universal wheel, works on any Python 3.x
-/// - `cpython_tag` (e.g. `cp312`) — an exact CPython ABI match
-/// - `abi3` — the stable ABI, forward-compatible across CPython minors
+/// A `.whl` filename is considered installable if either:
+/// - it contains `py3-none-any` — a universal wheel, platform- and
+///   ABI-independent, so it's always compatible (short-circuits the
+///   platform check entirely), OR
+/// - it contains `cpython_tag` (e.g. `cp312`) OR `abi3` (the stable ABI,
+///   forward-compatible across CPython minors) **AND** it contains every
+///   substring in `platform_tags`.
+///
+/// The platform check matters because a compiled-extension release (like
+/// GAMDL 3.8.2, which ships a Rust extension) can publish an `abi3` wheel
+/// for most platforms while omitting one entirely (Linux ARMv7) — without
+/// the platform gate, the presence of an `abi3` wheel for *any* other
+/// platform would wrongly mark the release as installable everywhere.
+///
+/// An empty `platform_tags` slice means "platform unknown" (see
+/// [`wheel_platform_tags()`]) — the `.all()` over an empty slice is
+/// vacuously `true`, so the platform gate degrades to a no-op and this
+/// falls back to the pre-platform-aware ABI/py3 check. This is the safe
+/// default: an unrecognised compile target should never falsely flag a
+/// release as incompatible.
 ///
 /// Non-wheel distributions (sdists, `.tar.gz`) are ignored — only a
 /// `.whl` file skips the "build from source" path pip would otherwise
@@ -265,12 +282,69 @@ fn derive_cpython_tag(python_version: &str) -> String {
 /// defaulting to "compatible" (`false` for `no_compatible_wheel`) on
 /// any network/parse error, so a transient PyPI hiccup never produces
 /// a false alarm.
-fn has_compatible_wheel<S: AsRef<str>>(filenames: &[S], cpython_tag: &str) -> bool {
+fn has_compatible_wheel<S: AsRef<str>>(
+    filenames: &[S],
+    cpython_tag: &str,
+    platform_tags: &[&str],
+) -> bool {
     filenames.iter().any(|f| {
         let f = f.as_ref();
         f.ends_with(".whl")
-            && (f.contains("py3-none-any") || f.contains(cpython_tag) || f.contains("abi3"))
+            && (f.contains("py3-none-any")
+                || ((f.contains(cpython_tag) || f.contains("abi3"))
+                    && platform_tags.iter().all(|tag| f.contains(tag))))
     })
+}
+
+/// Returns the filename substrings a `.whl` file must contain to be
+/// considered installable on the current compile target's OS/architecture.
+///
+/// Mirrors the `cfg!()` dispatch pattern used by
+/// [`get_platform_asset_patterns()`] below, but targets PyPI wheel
+/// filename conventions
+/// (`{name}-{version}-{python_tag}-{abi_tag}-{platform_tag}.whl`) instead
+/// of GitHub release asset names. Every substring in the returned slice
+/// must be present in a wheel filename (`has_compatible_wheel` ANDs
+/// them) — e.g. Linux x86_64 needs both `linux` and `x86_64` to
+/// distinguish `manylinux_2_34_x86_64` from `manylinux_2_34_aarch64`.
+///
+/// The Linux ARMv7 case is the reason this function exists: GAMDL 3.8.2
+/// publishes `abi3` wheels for macOS, both Windows arches, and both
+/// 64-bit Linux arches, but ships **no** wheel at all for Linux ARMv7 —
+/// so `linux_armv7l` never appears in the release's filename list and
+/// this platform is correctly left unmatched.
+///
+/// Returns an empty slice for an unrecognised target; callers should
+/// treat that as "platform unknown, don't gate on it" rather than
+/// "no platform matches" — see the empty-slice handling in
+/// [`has_compatible_wheel`].
+fn wheel_platform_tags() -> &'static [&'static str] {
+    if cfg!(target_os = "macos") {
+        // Universal2/fat wheels use a single `macosx` prefix regardless
+        // of arch (e.g. `macosx_11_0_arm64.macosx_10_12_universal2`).
+        &["macosx"]
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            &["win_arm64"]
+        } else {
+            // x86_64 (also works on ARM64 via Windows emulation)
+            &["win_amd64"]
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            &["linux", "aarch64"]
+        } else if cfg!(target_arch = "arm") {
+            // 32-bit ARM (Raspberry Pi 32-bit etc.) — manylinux wheel
+            // tags spell this `linux_armv7l`.
+            &["linux", "armv7"]
+        } else {
+            // x86_64
+            &["linux", "x86_64"]
+        }
+    } else {
+        // Unknown platform — don't gate on it (see doc comment above).
+        &[]
+    }
 }
 
 /// Fetches the list of distribution filenames PyPI has published for a
@@ -771,7 +845,7 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         Some(v) => match fetch_gamdl_release_wheel_filenames(v).await {
             Ok(filenames) => {
                 let cpython_tag = derive_cpython_tag(python_manager::get_target_python_version());
-                !has_compatible_wheel(&filenames, &cpython_tag)
+                !has_compatible_wheel(&filenames, &cpython_tag, wheel_platform_tags())
             }
             Err(e) => {
                 log::debug!("Could not determine wheel compatibility for GAMDL {v}: {e}");
@@ -1524,40 +1598,66 @@ mod tests {
         assert_eq!(derive_cpython_tag("3.12"), "cp312");
     }
 
+    /// The real GAMDL 3.8.2 PyPI release file list — `abi3` wheels for
+    /// macOS (universal2), both Windows arches, and both 64-bit Linux
+    /// arches, a legacy `cp310`-exact Linux x86_64 wheel, and an sdist.
+    /// Notably: **no Linux ARMv7 wheel at all**, which is exactly the gap
+    /// [`has_compatible_wheel`]'s platform gate exists to catch.
+    const GAMDL_382: [&str; 7] = [
+        "gamdl-3.8.2-cp310-abi3-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl",
+        "gamdl-3.8.2-cp310-abi3-manylinux_2_34_aarch64.whl",
+        "gamdl-3.8.2-cp310-abi3-manylinux_2_34_x86_64.whl",
+        "gamdl-3.8.2-cp310-abi3-win_amd64.whl",
+        "gamdl-3.8.2-cp310-abi3-win_arm64.whl",
+        "gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl",
+        "gamdl-3.8.2.tar.gz",
+    ];
+
     /// `has_compatible_wheel` is the pure predicate behind
     /// `ComponentUpdate::no_compatible_wheel`. Covers the three
     /// "installable" tag shapes (`py3-none-any`, exact `cpXY` match,
-    /// `abi3`), the GAMDL 3.8.2 real-world case (cp310-only wheel on a
-    /// cp312 runtime), a pure-sdist release, and an empty file list.
+    /// `abi3`) combined with the platform gate: the GAMDL 3.8.2
+    /// real-world release (`abi3` wheels for every platform except Linux
+    /// ARMv7), a pure-sdist release, an empty file list, and the
+    /// empty-`platform_tags` "platform unknown" degrade path.
     #[test]
     fn test_has_compatible_wheel() {
-        // Universal wheel: installable on any interpreter.
+        // Universal wheel: installable on any interpreter AND any
+        // platform — short-circuits the platform gate entirely, so even
+        // an unrelated platform_tags value (e.g. Linux ARMv7, which this
+        // wheel obviously isn't built for) must still match.
         assert!(has_compatible_wheel(
             &["gamdl-3.8.1-py3-none-any.whl"],
-            "cp312"
+            "cp312",
+            &["linux", "armv7"]
         ));
 
-        // Exact CPython ABI match.
+        // Exact CPython ABI match, platform tags satisfied.
         assert!(has_compatible_wheel(
             &["gamdl-3.9.0-cp312-cp312-manylinux_2_34_x86_64.whl"],
-            "cp312"
+            "cp312",
+            &["linux", "x86_64"]
         ));
 
-        // Stable ABI wheel (abi3) — forward-compatible across minors.
+        // Stable ABI wheel (abi3) — forward-compatible across minors —
+        // with matching platform tags.
         assert!(has_compatible_wheel(
             &["somepkg-1.0.0-cp39-abi3-manylinux_2_34_x86_64.whl"],
-            "cp312"
+            "cp312",
+            &["linux", "x86_64"]
         ));
 
-        // GAMDL 3.8.2's real-world shape: only a cp310 wheel + an sdist,
-        // checked against our cp312 runtime — no match, so this MUST be
-        // flagged as having no compatible wheel.
+        // GAMDL 3.8.2's real-world shape: only a cp310-exact wheel + an
+        // sdist for this filename, checked against our cp312 runtime —
+        // no ABI match regardless of platform, so this MUST be flagged
+        // as having no compatible wheel.
         assert!(!has_compatible_wheel(
             &[
                 "gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl",
                 "gamdl-3.8.2.tar.gz",
             ],
-            "cp312"
+            "cp312",
+            &["linux", "x86_64"]
         ));
 
         // Same release, but checked against a cp310 runtime — matches.
@@ -1566,16 +1666,21 @@ mod tests {
                 "gamdl-3.8.2-cp310-cp310-manylinux_2_34_x86_64.whl",
                 "gamdl-3.8.2.tar.gz",
             ],
-            "cp310"
+            "cp310",
+            &["linux", "x86_64"]
         ));
 
         // Pure sdist release: no `.whl` file at all — never installable
-        // without a source build.
-        assert!(!has_compatible_wheel(&["gamdl-1.0.0.tar.gz"], "cp312"));
+        // without a source build, regardless of platform_tags.
+        assert!(!has_compatible_wheel(
+            &["gamdl-1.0.0.tar.gz"],
+            "cp312",
+            &[]
+        ));
 
         // Empty file list (e.g. yanked release): no wheel.
         let empty: [&str; 0] = [];
-        assert!(!has_compatible_wheel(&empty, "cp312"));
+        assert!(!has_compatible_wheel(&empty, "cp312", &[]));
 
         // Hypothetical future release that adds a cp312 wheel alongside
         // the cp310 one — should NOT be flagged.
@@ -1585,8 +1690,44 @@ mod tests {
                 "gamdl-3.9.0-cp312-cp312-manylinux_2_34_x86_64.whl",
                 "gamdl-3.9.0.tar.gz",
             ],
-            "cp312"
+            "cp312",
+            &["linux", "x86_64"]
         ));
+
+        // --- GAMDL 3.8.2 fixture: platform-aware coverage ---
+        //
+        // Every 64-bit platform (macOS universal2, both Windows arches,
+        // both 64-bit Linux arches) has a compatible `abi3` wheel...
+        assert!(has_compatible_wheel(&GAMDL_382, "cp312", &["macosx"]));
+        assert!(has_compatible_wheel(&GAMDL_382, "cp312", &["win_amd64"]));
+        assert!(has_compatible_wheel(&GAMDL_382, "cp312", &["win_arm64"]));
+        assert!(has_compatible_wheel(
+            &GAMDL_382,
+            "cp312",
+            &["linux", "x86_64"]
+        ));
+        assert!(has_compatible_wheel(
+            &GAMDL_382,
+            "cp312",
+            &["linux", "aarch64"]
+        ));
+
+        // ...except Linux ARMv7, which GAMDL 3.8.2 does not publish a
+        // wheel for at all. This is the key case this platform-aware
+        // rework exists to fix: the old platform-blind check would have
+        // wrongly reported this as compatible (it saw `abi3` in the
+        // *other* platforms' wheel filenames) and let an ARMv7 user
+        // click into a doomed sdist build.
+        assert!(!has_compatible_wheel(
+            &GAMDL_382,
+            "cp312",
+            &["linux", "armv7"]
+        ));
+
+        // An empty platform_tags slice ("platform unknown") degrades to
+        // the pre-platform-aware ABI/py3 check — still true here because
+        // the fixture has abi3 wheels present.
+        assert!(has_compatible_wheel(&GAMDL_382, "cp312", &[]));
     }
 
     /// `is_gamdl_compatible` is a thin alias over
