@@ -88,26 +88,28 @@ verified intact — gates + 32/32 `gamdl_capabilities` tests unchanged.
   release-candidate/main) — no stray feature/prep branches (already pruned).
   Nothing to delete/consolidate. (beta/rc look stale — a release-process note,
   not a cleanup action; deleting channel branches needs explicit go-ahead.)
-- **`meedyadl-v2`** (local-only archive, 24 unique commits, last 2026-02-25, on
-  no remote) — **AWAITING OWNER DECISION**: keep as local archive / push to a
-  remote `archive/*` tag then delete / delete outright. Not touched.
+- **`meedyadl-v2`** deleted 2026-07-10 (owner decision; tip `f8326bf8`). It was
+  a stale local-only copy of the April-2026-deleted v2 branch — no unrecovered
+  work (modules already extracted; see `project_meedyadl_v2_archive.md`). Local
+  is now fully aligned with GitHub (alpha, main, + this working branch).
 
 ---
 
 ## 6. Remaining / deferred (this session)
 
-1. **Swagger/OpenAPI docs** — user asked to update "once queued tasks
-   complete". **BLOCKED / needs clarification:** no OpenAPI spec exists in the
-   repo, MeedyaDL is a Tauri IPC app (not HTTP), and the **claude.ai Swagger MCP
-   connector needs auth** (unavailable non-interactively). Awaiting scope: IPC
-   command surface? the planned Cloudflare-Workers MeedyaDL API? the Swagger
-   connector?
-2. **`meedyadl-v2` decision** (§5).
-3. **Live-validation pass** for #971–#974 + Gap-A (needs real Apple Music
-   credentials + a running app — can't be done statically).
-4. **Open the single PR** (`prep/alpha-gamdl-3.8.2-plus-2026-07-10` → `alpha`)
-   when the user says go. Monitor CI, fix as issues appear. Rewrite the
-   release-please PR body later per the CLAUDE.md gold-standard format.
+1. **Swagger/OpenAPI docs — DROPPED** (owner decision 2026-07-10: "none,
+   ignore"). No repo spec exists; MeedyaDL is a Tauri IPC app; the claude.ai
+   Swagger connector needs auth. Not pursued.
+2. **Live-validation pass** for #971–#974 + Gap-A (needs real Apple Music
+   credentials + a running app — can't be done statically). #1010 (web-token
+   expiry) is safe to implement without live testing.
+3. **Open the single PR** (`prep/alpha-gamdl-3.8.2-plus-2026-07-10` → `alpha`)
+   when the user says go — held for now so more queued work folds into ONE PR
+   (no stacking). Monitor CI, fix as issues appear. Rewrite the release-please
+   PR body later per the CLAUDE.md gold-standard format.
+4. **Strategy `for consideration`:** #1013 (upstream GAMDL wheel matrix /
+   abi3 — the path to unblocking 3.8.2+) and #1014 (per-platform support
+   window). These gate the next GAMDL ceiling advance.
 
 ---
 
