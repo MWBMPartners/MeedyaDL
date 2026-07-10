@@ -1,181 +1,134 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-03
-**Branch context:** alpha (1.11.0-alpha.25), main (1.10.1), beta (1.9.4)
+**Last updated:** 2026-07-10
+**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27)
+**Branch context:** alpha (1.11.0-alpha.27), main (1.10.1), beta (1.9.4)
 
-This document captures the state of a large multi-workstream session so work
-can resume cleanly. Read it top-to-bottom before continuing.
+Read top-to-bottom before continuing. Supersedes the 2026-07-03 handoff (that
+session's #967/#968 have since merged; #967 is commit `c8530014` on alpha).
 
 ---
 
 ## 1. Standing constraints (READ FIRST)
 
-- **Do NOT merge any PRs.** The user wants to review + merge in single,
-  deliberate steps to avoid PR-stacking race conditions. Prep PRs are
-  staged and left open.
-- **Do NOT open new stacked PRs.** Fold additional work into the existing
-  consolidation branches (`#967` for alpha-bound work, `#968` for main).
-- **Monthly spend limit was hit** mid-session — multi-agent Workflows/subagents
-  fail with "You've hit your monthly spend limit". Do remaining work **inline**
-  until the limit resets or is raised. (Planning-with-Fable/Opus +
-  implement-with-Sonnet delegation is blocked while the limit holds.)
-- Git safety: never push/force-push/reset-hard/modify remote without explicit
-  instruction. Local branch deletion is fine (recoverable via reflog).
+- **Do NOT open a PR yet.** The user is queueing more work and wants a SINGLE
+  PR at the end (not stacked PRs — avoids merge-race conditions). Keep
+  committing to the working branch; hold the PR until explicitly told.
+- **Do NOT push / force-push / reset-hard / modify remotes** without an explicit
+  instruction. Committing to the local working branch IS authorised this
+  session ("commit individually"). Local branch ops (ff, delete) are fine.
+- **Model tiering:** Fable 5 for deep planning (sequential, not parallel — the
+  user explicitly said no parallel agents); Sonnet/Haiku for implementation;
+  Opus only when necessary. Fable was available this session.
+- Per-unit workflow: detailed GitHub issue + individual commit + doc/memory
+  update. Security-review each diff before committing.
 
 ---
 
-## 2. Open PRs (staged, NOT merged)
+## 2. This session's work (branch `prep/alpha-gamdl-3.8.2-plus-2026-07-10`)
 
-> **PR hygiene (2026-07-04):** the 5 superseded originals (#955/#960/#966 →
-> #967; #958/#959 → #968) are now **CLOSED** and their branches deleted, so
-> exactly **two** PRs remain open (#967, #968) — no stacking/race risk.
+8 commits, all verified (full lib suite **1459/1459**, frontend type-check
+clean, no `fmt`/clippy regressions in touched files):
 
-### #967 → alpha — "consolidated alpha PR" (16 commits)
-Supersedes #955/#960/#966 (now closed). Contents (highlights — see git log for
-the full list; later commits added GAMDL v3.8.1 + v2-drop, wrapper-migration
-docs, and more security quick-wins):
-1. GAMDL v3.8 audit + `--no-exceptions` 3-era gate + quick-xml deny.toml unblock
-2. Security hardening (credential allowlist #938, backup containment #939) +
-   release-yml recursion-guard tightening
-3. Animated cover art reliability — browser-grade HTTP headers + expanded
-   JSON path chain (square `motionSquareVideo1x1`→`motionDetailSquare`,
-   portrait `motionTallVideo3x4`→`motionDetailTall`, nested `.video.url`)
-4. Dependency mirror — 14 npm + 2 cargo bumps matching #958/#959 (keeps
-   alpha's tree aligned with main)
-5. **HIGH: syllable-lyrics regression fix** — #936 (amp-api +
-   `?extend=ttmlLocalizations` + Origin + `APPLE_BROWSER_USER_AGENT` +
-   `extract_syllable_ttml_from_response` fallback) ported to alpha; alpha was
-   silently degrading word-by-word lyrics to line-level
-6. Artist-promo-video header hardening (#970 partial)
-7. **HIGH sec: Zip-Slip fix** in profile-bundle restore (`safe_bundle_dest`)
-8. **HIGH: after-queue one-shot re-fire fix** (`.take()` dead-code)
-9. **HIGH sec: version-bump.mjs shell-injection fix** (anchored semver regex)
-10. **MED sec: symlink tar-slip fix** in archive extraction (#976, closed)
-11. GAMDL v3.8.1 audit + **drop GAMDL v2 support** (min 2.9.1 → 3.0)
-12. Doc updates for the v2-drop (GAMDL range 2.9.1 → 3.0 across user docs)
-
-CI: green as of last dispatch (re-dispatch after each push — PRs to alpha
-need manual `gh workflow run "CI" --ref <branch>`). Tests added this session
-all pass (syllable 8/8, Zip-Slip 3/3, gamdl_capabilities 32/32, motion-url 10/10).
-
-### #968 → main — "consolidated dependency bumps" (4 commits)
-1. cargo-minor-patch (log 0.4.33, uuid 1.23.4) — from #959
-2. npm-minor-patch (14 updates) — from #958
-3. **dependabot.yml root-cause fix** — main's config said `target-branch: "main"`,
-   contradicting the documented alpha-channel-promotion intent; now targets
-   alpha so future dep PRs flow alpha→beta→main
-4. deny.toml quick-xml RUSTSEC-2026-0194/0195 ignore (main lacked it)
-
-CI: green. #956/#957 were already CLOSED (Dependabot superseded them with
-#958/#959) — no action needed.
-
-**Recommended merge order (when the user is ready):** #968 → main first,
-then #967 → alpha. Then the separate big alpha→beta→main reconciliation.
+| Commit | What | Issue |
+| --- | --- | --- |
+| `bc9e8212` | #969 word-timing keyed on `<span begin>` presence, not the `itunes:timing` label (both sites + `ttml_has_word_timing` + 6 tests) | #969 |
+| `abfe689a` | Gap-A: enrichment metadata via 3-tier premium resolver → syllable lyrics work on the **web-dev-key** path | #1008 |
+| `44acdc88` | Gap-B: attempt syllable fetch for tracks with absent `hasLyrics` flag | #1008 |
+| `0e06350e` | #970: shared `apple_music_headers` helper + harden `fetch_music_video_relations` + nested promo-video extraction (MUT param wired `None` for #971) | #970 |
+| `256e4868` | G2: `ComponentUpdate.no_compatible_wheel` guard + "Not Installable" badge/disabled button + pip `--only-binary=gamdl` | #1009 |
+| `3f7e0302` | G3: `wrapper_version_mismatch` error classifier (both skews) + `WrapperV2Me.version` capture + stale `amdecrypt.py` doc | #1009 |
+| `a3541c42` | docs: v3.8.2 audit doc + tool-versions.toml audit trail + CLAUDE.md + memory + README + help/wrapper.md | #1009 |
 
 ---
 
-## 3. Branch topology + the big reconciliation (NOT done)
+## 3. GAMDL v3.8.2 — DECISION: HOLD at 3.8.1
 
-```
-main (1.10.1) ⊇ beta (1.9.4)          [beta ahead of main: 0]
-alpha (1.11.0-alpha.25) = +40 feature commits neither beta nor main have
-main/beta = 655–679 commits ahead of alpha (stable history + backports)
-```
+**v3.8.2 (2026-07-09) is NOT admitted; ceiling stays 3.8.1.** It replaced
+Python `amdecrypt.py` with a compiled Rust/PyO3 extension (`gamdl._ammuxer`)
+and publishes only a `cp310-cp310-manylinux_2_34_x86_64` wheel + sdist —
+MeedyaDL's bundled CPython 3.12.8 (no Rust toolchain) can install it on **zero**
+of 6 platforms. Verified against PyPI + source. Full analysis + admission plan:
+`.github/audits/gamdl-v3.8.2-audit.md` (issue #1009).
+- **Wheel-availability is now a first-class audit gate** (see the cadence memory).
+- v3.8.2 also hard-requires **wrapper-v2 0.0.2** (native TCP decrypt); GAMDL and
+  wrapper-v2 must be upgraded in lockstep (help/wrapper.md documents this).
+- Admission plan (when wheels appear): bump ceiling; add
+  `GamdlFeature::WrapperDecryptHostPort` (≥3.8.2) emitting
+  `wrapper_decrypt_host`/`wrapper_decrypt_port` from the existing
+  `wrapper_decrypt_ip` split; re-enable TCP decrypt preflight for wrapper-v2;
+  add `/me` version preflight (uses the newly-captured `WrapperV2Me.version`).
 
-The release ladder (alpha→beta→main) ran backwards historically — feature
-work landed on main directly instead of flowing up. The 40 alpha-only commits
-(M9 Spotify, brand refresh, #911 multi-service UI, Profile Bundle, Lyricsfile,
-SQLite index, GAMDL 3.6/3.7 gates) must flow **alpha→beta→main** at the next
-stable cut. **Do NOT run `realign-alpha`** (fast-forwards alpha onto main)
-before those land in main — it would clobber them. The full alpha↔main merge
-has a ~69-file conflict surface (version strings, workflows, docs, Rust
-sources) — a dedicated multi-session workstream, tracked as the biggest
-pending item.
-
----
-
-## 4. Issues filed this session (#969–#1000)
-
-**Functional-break sweep (vs GAMDL v3.8):** #969 (lyrics span-begin keying),
-#970 (artwork shared-header-helper refactor — partial), #971 (Media-User-Token
-on catalog calls), #972 (HLS resolution selection for motion art), #973
-(`&l={locale}` localized variants), #974 (native fMP4 concat — drop FFmpeg
-from motion-art path).
-
-**Security + lint sweep (30 findings, 4 HIGH fixed in #967):** #975 (traceback
-credential redaction — MED, deferred, needs URL-in-text redactor), #977–#998
-(medium/low: SHA-256 pinning gaps, Spotify wiring gaps, platform-install bugs,
-UX correctness, CSP Sentry host, etc.). #976 (symlink tar-slip) CLOSED — fixed.
-
-**GAMDL v3.8.1:** #999 (v3.8.1 admission + v2-drop tracker), #1000 (remove
-dead `fetch_extra_tags` v2-only plumbing — `for consideration`).
-
-Already-known / referenced: #938/#939 (fixed in #967), #955/#960/#966
-(superseded by #967), #961/#962/#963/#964/#965 (prior artwork/gamdl follow-ups).
+GAMDL v3+ support (v2 dropped; wrapper-v1 for 3.0–3.5, wrapper-v2 for 3.6+) is
+verified intact — gates + 32/32 `gamdl_capabilities` tests unchanged.
 
 ---
 
-## 5. GAMDL support policy (current)
+## 4. Animated art + syllable lyrics — state (ITAMenhancer cross-verified)
 
-- **v3.x only** — minimum bumped 2.9.1 → 3.0 (v2 dropped 2026-07-03).
-- Ceiling: 3.8.1 (recommended 3.8.1).
-- v3.0–v3.5.x → wrapper-v1 (WorldObservationLog/wrapper, 3 sockets).
-- v3.6+ → wrapper-v2 (glomatico/wrapper-v2, single `--wrapper-url` daemon).
-- Both wrapper generations fully supported; Settings UI adapts to the
-  installed GAMDL.
-- Audit trail: `.github/audits/gamdl-v3.8-audit.md`, `gamdl-v3.8.1-audit.md`.
-
-**Animated cover art (square + portrait) + syllable/word-by-word lyrics** are
-supported ITAM-Enhancer-style via the 3-tier token resolver
-(`resolve_premium_feature_token`): user MusicKit JWT (account/certs) →
-embedded build token → web-player dev key. All landed/hardened in #967.
-
----
-
-## 6. Branch audit result
-
-- **59 local branches deleted** (68 → 9): 42 merged-via-PR + 16 closed-unmerged/
-  superseded/stale + 1 stale prep branch. Squash-merge means `git branch
-  --merged` finds nothing — cross-referenced against GitHub PR history instead.
-- **Kept:** `meedyadl-v2` (local-only historic archive, 24 commits — deletion
-  would lose it) and `prep/refactoring/supported-service-expansion` (Apr-2026
-  multi-service planning — low-risk to keep). **Flagged for owner decision.**
-- **No abandoned-but-valuable work found** to consolidate — everything was
-  merged-equivalent, rejected, or stale.
-- **Remote branches recommended for deletion (NOT executed — remote push):**
-  `chore/docs-housekeeping-2026-06-19`, `fix/847-ffprobe-demuxing-noise-filter`
-  (both closed-unmerged PRs). Awaiting explicit go-ahead.
+- **Square + portrait animated art:** works on both auth paths (MusicKit JWT +
+  web-dev-key). #970 hardened the header consistency.
+- **Syllable/word lyrics:** #969 (label-vs-span) + Gap-A (web-key path) fixed →
+  now works on both paths. **⚠ Gap-A needs live validation** with a
+  web-player-only account (does `api.music.apple.com` accept the AMPWebPlay
+  token for the album catalog call? the artwork path's 2026-06-21 comments say
+  yes).
+- **Open follow-ups (enriched with ITAM specs, most need LIVE testing):**
+  #971 (MUT on catalog — foundation wired), #972 (HLS resolution select),
+  #973 (`&l={locale}`), #974 (native fMP4 concat), #1010 (web-token expiry —
+  safe, no live test), #1011 (`extend=audioTraits`), #1012 (dead
+  `fetch_syllable_lyrics` IPC — `for consideration`).
 
 ---
 
-## 7. Deferred work (next session)
+## 5. Branch state
 
-1. **Merge #968 then #967** (when the user decides) + close superseded
-   #955/#960/#966 + delete their branches.
-2. **The big alpha→beta→main reconciliation** (69-file conflict; multi-session).
-3. **Remaining security quick-wins** (#975, #977–#998) — fix the safe
-   self-contained ones (fold into #967 while it's open, or a fresh alpha PR
-   after #967 merges). #975 needs a proper URL-in-text redaction helper.
-4. **Enhancement discovery** — the workflow failed on the spend limit; re-run
-   (`Workflow({scriptPath: '…/enhancement-discovery-wf_073fc0db-31d.js',
-   resumeFromRunId: 'wf_073fc0db-31d'})`) once the limit resets, OR do a
-   lighter inline pass.
-5. **`fetch_extra_tags` dead-code removal** (#1000) once v2 is fully sunset.
-6. **Remote stale-branch deletion** (§6) — needs go-ahead.
+- **Local `main`** fast-forwarded to `origin/main` (aligned).
+- **Remote branches** are all structural channel branches (alpha/beta/nightly/
+  release-candidate/main) — no stray feature/prep branches (already pruned).
+  Nothing to delete/consolidate. (beta/rc look stale — a release-process note,
+  not a cleanup action; deleting channel branches needs explicit go-ahead.)
+- **`meedyadl-v2`** (local-only archive, 24 unique commits, last 2026-02-25, on
+  no remote) — **AWAITING OWNER DECISION**: keep as local archive / push to a
+  remote `archive/*` tag then delete / delete outright. Not touched.
 
 ---
 
-## 8. Verification cheatsheet
+## 6. Remaining / deferred (this session)
+
+1. **Swagger/OpenAPI docs** — user asked to update "once queued tasks
+   complete". **BLOCKED / needs clarification:** no OpenAPI spec exists in the
+   repo, MeedyaDL is a Tauri IPC app (not HTTP), and the **claude.ai Swagger MCP
+   connector needs auth** (unavailable non-interactively). Awaiting scope: IPC
+   command surface? the planned Cloudflare-Workers MeedyaDL API? the Swagger
+   connector?
+2. **`meedyadl-v2` decision** (§5).
+3. **Live-validation pass** for #971–#974 + Gap-A (needs real Apple Music
+   credentials + a running app — can't be done statically).
+4. **Open the single PR** (`prep/alpha-gamdl-3.8.2-plus-2026-07-10` → `alpha`)
+   when the user says go. Monitor CI, fix as issues appear. Rewrite the
+   release-please PR body later per the CLAUDE.md gold-standard format.
+
+---
+
+## 7. Verification cheatsheet
 
 ```bash
-# CI on the two prep PRs (re-dispatch after each push to alpha-targeted branches)
-gh run list --branch prep/alpha-consolidated-955-960-966 --workflow CI --limit 1
-gh run list --branch prep/main-consolidated-deps-958-959 --workflow CI --limit 1
-gh workflow run "CI" --ref prep/alpha-consolidated-955-960-966   # manual dispatch
-
-# Key test suites touched this session
-cd src-tauri
-cargo test --lib services::gamdl_capabilities            # 32/32
-cargo test --lib services::apple_music_api::tests::extract_syllable   # 8/8
-cargo test --lib commands::profile_bundle::tests::safe_bundle         # 3/3
+cd src-tauri && export PATH="$HOME/.cargo/bin:$PATH"
+cargo test --lib                                   # 1459/1459
+cargo test --lib services::gamdl_capabilities      # 32/32
+cargo test --lib services::enhanced_lyrics_service # 26/26
+cargo test --lib utils::process                    # 142/142
+cargo test --lib services::apple_music_api          # 134/134
+cargo test --lib services::update_checker           # 15/15
+cd .. && npm run type-check                          # clean
+# Note: CI does NOT gate on `cargo fmt --check`; repo has pre-existing fmt drift.
+# When editing, rustfmt ONLY your touched files (not whole-crate cargo fmt).
 ```
+
+## 8. Issues opened this session
+
+#1008 (web-key syllable + hasLyrics filter — fixed), #1009 (GAMDL v3.8.2 hold +
+hardening — fixed), #1010 (web-token expiry), #1011 (audioTraits extend), #1012
+(dead IPC cleanup, `for consideration`). Enriched: #970 (fixed), #969 (fixed),
+#971/#972/#973/#974 (ITAM specs added, live-test-gated).
