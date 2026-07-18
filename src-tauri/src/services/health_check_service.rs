@@ -705,7 +705,27 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
             }
 
             if me.auth.state == "authenticated" {
-                None
+                // Authenticated, but FairPlay decrypt may still be
+                // un-initialised. On GAMDL 3.8.2+ a non-web-codec download
+                // would then fail mid-flight with `wrapper-v2: decrypt
+                // unavailable (503)` (#319) — the daemon is reachable and
+                // signed in, just not ready to decrypt. Surface that as a
+                // cheap pre-download warning (restart the daemon) instead of
+                // letting tracks start failing. `aac-web` needs no decryptor,
+                // so this is informational for AAC-only users.
+                if me.runtime.playback_ready {
+                    None
+                } else {
+                    Some(PreflightWarning {
+                        check: PreflightCheck::WrapperV2Auth,
+                        message: format!(
+                            "Wrapper-v2 daemon at {wrapper_url} is signed in but FairPlay playback is \
+                             not ready (playback_ready=false) — ALAC/Atmos/AC3 downloads will fail with \
+                             a decrypt error. Restart the wrapper-v2 daemon and check its logs for \
+                             Apple-library initialisation. AAC (aac-web) is unaffected."
+                        ),
+                    })
+                }
             } else {
                 Some(PreflightWarning {
                     check: PreflightCheck::WrapperV2Auth,
