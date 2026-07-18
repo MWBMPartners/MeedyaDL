@@ -10950,6 +10950,45 @@ pub fn process_queue(
                             );
                             false
                         }
+                        "rate_limit" => {
+                            // Apple is throttling license-exchange requests (HTTP
+                            // 429) — a server-side, per-account cooldown that
+                            // clears in HOURS, not minutes (upstream gamdl#306).
+                            // Retrying immediately, or letting the serial queue
+                            // march on to the next item, just extends the ban. So
+                            // mark this item failed AND pause the queue so the
+                            // cascade stops feeding new items into an active 429.
+                            // Already-downloaded files are preserved (GAMDL
+                            // overwrite=false), so resuming later only fetches the
+                            // gap. The `!should_retry` path below additionally
+                            // skips the error report, companion spawn, and
+                            // auto-retry-without-wrapper for this category.
+                            let mut q = queue_clone.lock().await;
+                            q.set_error(&dl_id, &error_msg);
+                            q.on_task_finished();
+                            q.pause();
+                            drop(q);
+                            emit_app_log(
+                                &app_clone,
+                                "Apple Music is rate-limiting license requests (HTTP 429). \
+                                 Queue paused — this cooldown usually lasts 1–2+ hours. Resume \
+                                 from the Queue page once it lifts; already-downloaded files are \
+                                 kept, so you'll only re-fetch what's missing.",
+                            );
+                            let _ = app_clone.emit(
+                                "queue-rate-limited",
+                                serde_json::json!({ "download_id": dl_id }),
+                            );
+                            emit_download_error(
+                                &app_clone,
+                                &dl_id,
+                                &format!(
+                                    "Rate limited by Apple Music (HTTP 429) — queue paused: \
+                                     {error_msg}"
+                                ),
+                            );
+                            false
+                        }
                         _ => {
                             // Non-retriable error (e.g., authentication, invalid URL).
                             // Mark as failed and don't retry.
@@ -11019,7 +11058,10 @@ pub fn process_queue(
                          wrapper_url={}, error_category={error_category}",
                             wrapper_url_for_logging.as_deref().unwrap_or("none"),
                         );
-                        if wrapper_url_for_logging.is_some() {
+                        // Skip the cookie auto-retry for rate limits — a 429 is a
+                        // per-account server-side cooldown, so re-running via
+                        // cookies just fires MORE license requests into the ban.
+                        if wrapper_url_for_logging.is_some() && error_category != "rate_limit" {
                             let ar_settings = load_settings_for_queue(&app_clone);
                             log::debug!(
                                 "Download {dl_id} auto_retry_without_wrapper={}",
@@ -11067,8 +11109,10 @@ pub fn process_queue(
                         // Save a download error report so the user can optionally
                         // report it to GitHub Issues via Settings > Advanced.
                         // Skip for network errors — these are connectivity issues,
-                        // not application bugs, and would just add noise.
-                        if error_category != "network" {
+                        // not application bugs, and would just add noise. Also skip
+                        // rate_limit — a 429 is a server-side Apple throttle, not a
+                        // MeedyaDL bug, so a crash report is pure noise (gamdl#306).
+                        if error_category != "network" && error_category != "rate_limit" {
                             // Start with a redacted settings snapshot, then add
                             // error-specific fields on top.
                             let mut context = settings_snapshot_for_context(&app_clone);
@@ -11154,8 +11198,10 @@ pub fn process_queue(
 
                         // Spawn companion downloads on failure — unless the error
                         // is network-related (network is down, so companions would
-                        // also fail and just waste time + clutter the Activity Log).
-                        if error_category != "network" {
+                        // also fail and just waste time + clutter the Activity Log)
+                        // or a rate limit (companions would fire more license
+                        // requests into an active 429 — gamdl#306).
+                        if error_category != "network" && error_category != "rate_limit" {
                             let traits = read_audio_traits(&queue_clone, &dl_id).await;
                             let _ = spawn_companion_downloads(
                                 &app_clone,
