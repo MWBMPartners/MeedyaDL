@@ -16,6 +16,26 @@
  */
 
 import { useUiStore, __resetToastWorkerForTests } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import * as notificationPlugin from '@tauri-apps/plugin-notification';
+
+/**
+ * Mock the Tauri notification plugin (#993).
+ *
+ * `addToast` dynamically imports this module (`import('@tauri-apps/plugin-notification')`)
+ * to send native OS notifications when `notification_style` includes 'native'.
+ * `vi.mock()` calls are hoisted by Vitest to the top of the module, so this
+ * mock is already registered by the time that dynamic import executes --
+ * hoisting applies to dynamic `import()` the same way it does to static
+ * `import` declarations.
+ *
+ * Default: permission already granted, so `sendNotification` is reachable.
+ */
+vi.mock('@tauri-apps/plugin-notification', () => ({
+  isPermissionGranted: vi.fn().mockResolvedValue(true),
+  requestPermission: vi.fn().mockResolvedValue('granted'),
+  sendNotification: vi.fn(),
+}));
 
 /**
  * Reset the store to its initial state before each test.
@@ -32,6 +52,17 @@ beforeEach(() => {
   // #894: the centralised dismissal worker is module-scoped state;
   // reset it between tests so each starts from a clean baseline.
   __resetToastWorkerForTests();
+  // #993: clear notification-plugin spy call history (but keep the
+  // mockResolvedValue/mockReturnValue implementations above intact --
+  // mockClear() only resets .mock.calls/.mock.results, not the implementation).
+  vi.mocked(notificationPlugin.isPermissionGranted).mockClear();
+  vi.mocked(notificationPlugin.requestPermission).mockClear();
+  vi.mocked(notificationPlugin.sendNotification).mockClear();
+  // Reset settings to a known baseline (native + in-app) so notification
+  // tests aren't affected by a prior test's `useSettingsStore.setState()`.
+  useSettingsStore.setState((state) => ({
+    settings: { ...state.settings, notification_style: 'native_and_in_app' },
+  }));
 });
 
 describe('uiStore', () => {
@@ -262,6 +293,97 @@ describe('uiStore', () => {
       expect(messages).toEqual(['forever']);
 
       vi.useRealTimers();
+    });
+  });
+
+  // =========================================================================
+  // Native OS Notification Dedup (#993)
+  // =========================================================================
+  describe('addToast — native notification dedup', () => {
+    it('sends exactly one native notification for a duplicate in-app message', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'native_and_in_app' },
+      }));
+
+      useUiStore.getState().addToast('Same message', 'warning');
+      useUiStore.getState().addToast('Same message', 'warning');
+
+      // The native send is fired-and-forget inside async promise chains
+      // (dynamic import -> isPermissionGranted -> requestPermission ->
+      // sendNotification), so poll until they settle instead of asserting
+      // synchronously.
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
+      });
+
+      // The in-app dedup (pre-existing behaviour, `state.toasts.some(...)`
+      // in the `set()` updater) should still leave exactly one toast.
+      const { toasts } = useUiStore.getState();
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].message).toBe('Same message');
+    });
+
+    it('still sends a native notification for two distinct messages', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'native_and_in_app' },
+      }));
+
+      useUiStore.getState().addToast('First message', 'info');
+      // Let the first call's fire-and-forget dynamic import
+      // (`import('@tauri-apps/plugin-notification')`) settle before firing
+      // the second. Two same-specifier dynamic imports issued in the same
+      // tick race in Vitest's mock resolution (a test-harness quirk, not a
+      // real-app concern -- the browser/Tauri runtime has no such race);
+      // sequencing them here keeps the assertion meaningful instead of flaky.
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
+      });
+
+      useUiStore.getState().addToast('Second message', 'info');
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(2);
+      });
+
+      expect(useUiStore.getState().toasts).toHaveLength(2);
+    });
+
+    it('sends a native notification for every repeat in native_only mode (state-based dedup is impossible)', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'native_only' },
+      }));
+
+      useUiStore.getState().addToast('Repeated native-only', 'warning');
+      // See the sequencing note above -- avoid firing two same-specifier
+      // dynamic imports in the same tick.
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
+      });
+
+      useUiStore.getState().addToast('Repeated native-only', 'warning');
+
+      // native_only never populates the in-app `toasts` array, so
+      // `isDuplicateInApp` can never be true -- the carve-out in the
+      // gate must let both sends through.
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(2);
+      });
+
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    });
+
+    it('does not send a native notification in in_app_only mode', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'in_app_only' },
+      }));
+
+      useUiStore.getState().addToast('In-app only', 'info');
+
+      // Give any stray microtasks a chance to run, then assert the spy
+      // was never invoked (nothing to wait FOR here, so a short real-timer
+      // flush is used instead of vi.waitFor).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
+      expect(useUiStore.getState().toasts).toHaveLength(1);
     });
   });
 
