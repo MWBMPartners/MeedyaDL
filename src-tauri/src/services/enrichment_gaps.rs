@@ -28,9 +28,9 @@
 //! | Rich SRT | Every audio file has a sibling `.srt` |
 //! | WebVTT | Every audio file has a sibling `.vtt` |
 //! | ASS subtitles | Every audio file has a sibling `.ass` |
-//! | Animated artwork (square) | `FrontCover.mp4` exists in the album dir |
-//! | Animated artwork (portrait) | `FrontCoverPortrait.mp4` exists |
-//! | Album spotlight video | `AlbumSpotlightCover.mp4` exists |
+//! | Animated artwork (square) | `FrontCover.mp4` (or hidden `.FrontCover.mp4` on Linux) exists in the album dir |
+//! | Animated artwork (portrait) | `FrontCoverPortrait.mp4` / legacy `PortraitCover.mp4` (or their hidden `.`-prefixed variants) exists |
+//! | Album spotlight video | `AlbumSpotlightCover.mp4` (or hidden `.AlbumSpotlightCover.mp4` on Linux) exists |
 //! | Static cover fallback | `Cover.{jpg,png}` exists |
 //!
 //! For tag-embedded enrichments (AcoustID, ReplayGain, MusicBrainz,
@@ -234,14 +234,14 @@ pub fn scan_album_dir(
     // manifests have a single source, but a multi-source manifest
     // (e.g. re-downloaded from a different platform) uses the union
     // of completion records as the authoritative state.
-    let mut combined: BTreeMap<&'static str, bool> = BTreeMap::new();
+    let mut combined: BTreeMap<String, bool> = BTreeMap::new();
     if let Some(mf) = manifest {
         for source in &mf.sources {
             if let Some(records) = &source.enrichment {
                 for (key, rec) in records {
                     let complete = rec.completed_at.is_some();
                     combined
-                        .entry(key_as_static_str(key))
+                        .entry(key.clone())
                         .and_modify(|c| *c = *c || complete)
                         .or_insert(complete);
                 }
@@ -296,20 +296,6 @@ pub fn scan_album_dir(
     }
 }
 
-/// Resolve a manifest-key string back to a `'static str` matching
-/// the canonical [`EnrichmentStage::manifest_key`]. Strings not in
-/// the registry fall through to a leaked-`'static` (one-time
-/// allocation) — handles forward-compat with manifests from a
-/// future MeedyaDL that registered new stages we don't know yet.
-fn key_as_static_str(key: &str) -> &'static str {
-    for &stage in EnrichmentStage::ALL {
-        if stage.manifest_key() == key {
-            return stage.manifest_key();
-        }
-    }
-    Box::leak(key.to_string().into_boxed_str())
-}
-
 /// Reliable file-based detector for sidecar/cover-bearing stages.
 /// Returns `true` when the stage's output is present.
 fn file_detector(
@@ -322,9 +308,23 @@ fn file_detector(
         EnrichmentStage::RichSrt => all_have_sibling(audio_files, "srt"),
         EnrichmentStage::WebVtt => all_have_sibling(audio_files, "vtt"),
         EnrichmentStage::AssSubtitles => all_have_sibling(audio_files, "ass"),
-        EnrichmentStage::AnimatedArtworkSquare => album_dir.join("FrontCover.mp4").exists(),
-        EnrichmentStage::AnimatedArtworkPortrait => album_dir.join("FrontCoverPortrait.mp4").exists(),
-        EnrichmentStage::AlbumSpotlight => album_dir.join("AlbumSpotlightCover.mp4").exists(),
+        // #990: animated artwork may be hidden by
+        // `animated_artwork_service::hide_file` — on Linux this is a
+        // `.`-prefix rename (the filename changes, unlike macOS
+        // `chflags hidden` / Windows `attrib +H` which preserve it).
+        // `hide_animated_artwork` defaults to true, so checking only
+        // the visible name here would false-positive "missing" on
+        // every Linux download and trigger repeated re-downloads.
+        EnrichmentStage::AnimatedArtworkSquare => exists_maybe_hidden(album_dir, "FrontCover.mp4"),
+        EnrichmentStage::AnimatedArtworkPortrait => {
+            // `FrontCoverPortrait.mp4` is the current filename
+            // (renamed from `PortraitCover.mp4` post-v0.38); legacy
+            // files on disk were never auto-renamed, so both names
+            // are checked, each with the hidden-variant fallback.
+            exists_maybe_hidden(album_dir, "FrontCoverPortrait.mp4")
+                || exists_maybe_hidden(album_dir, "PortraitCover.mp4")
+        }
+        EnrichmentStage::AlbumSpotlight => exists_maybe_hidden(album_dir, "AlbumSpotlightCover.mp4"),
         EnrichmentStage::StaticCoverFallback => {
             album_dir.join("Cover.jpg").exists()
                 || album_dir.join("Cover.png").exists()
@@ -338,6 +338,21 @@ fn file_detector(
         // `has_reliable_file_detector` and returns "unknown".
         _ => false,
     }
+}
+
+/// Does `dir/name` exist, either under its visible name or the
+/// Linux dot-hidden variant (`.name`)? (#990)
+///
+/// `animated_artwork_service::hide_file` hides animated-artwork
+/// files after download when `hide_animated_artwork` is enabled
+/// (default: true). macOS uses `chflags hidden` and Windows uses
+/// `attrib +H` — both preserve the filename, so the visible-name
+/// check already works there. Linux has no filesystem-level hidden
+/// attribute, so it falls back to a `.`-prefix rename, which
+/// *changes* the filename. Checking only the visible name on Linux
+/// always reports "missing" for a file that's actually present.
+fn exists_maybe_hidden(dir: &Path, name: &str) -> bool {
+    dir.join(name).exists() || dir.join(format!(".{name}")).exists()
 }
 
 /// Does every audio file have a sibling with the given extension?
@@ -421,25 +436,43 @@ mod tests {
         }
     }
 
+    /// #989 regression test: unknown manifest keys (from a future
+    /// MeedyaDL that registered new enrichment stages we don't know
+    /// yet) must not change the gap report — the `combined` map
+    /// used to key on a `Box::leak`-ed `'static str` per unknown key,
+    /// leaking heap memory on every Library Scan without ever being
+    /// read back (the status loop only queries known
+    /// `stage.manifest_key()` values, so an unknown key is
+    /// unreachable dead weight). The scan result for a manifest with
+    /// extra unknown keys must be byte-identical to the same scan
+    /// without them.
     #[test]
-    fn manifest_key_round_trip_via_key_as_static_str() {
-        for &stage in EnrichmentStage::ALL {
-            let key = stage.manifest_key();
-            let returned = key_as_static_str(key);
-            assert_eq!(key, returned);
-        }
-    }
+    fn unknown_manifest_keys_do_not_change_report() {
+        let tmp = tempfile::tempdir().unwrap();
+        let known_only = make_manifest(vec![
+            ("replaygain", Some("2026-05-18T00:00:00Z")),
+            ("acoustid", None),
+        ]);
+        let with_unknown = make_manifest(vec![
+            ("replaygain", Some("2026-05-18T00:00:00Z")),
+            ("acoustid", None),
+            ("future_stage_x", Some("2026-05-18T00:00:00Z")),
+            ("future_stage_y", None),
+        ]);
 
-    #[test]
-    fn unknown_key_in_manifest_is_preserved_as_leaked_static() {
-        // A manifest from a future MeedyaDL might record a stage
-        // we don't know yet. We accept the string forward so the
-        // detector doesn't crash; the unknown stage just shows
-        // up nowhere (since our ALL iteration only checks known
-        // stages). Sanity test that the helper at least returns
-        // the same string.
-        let unknown = key_as_static_str("future_stage_we_dont_know");
-        assert_eq!(unknown, "future_stage_we_dont_know");
+        let report_known_only = scan_album_dir(tmp.path(), Some(&known_only));
+        let report_with_unknown = scan_album_dir(tmp.path(), Some(&with_unknown));
+
+        // `EnrichmentGapReport` only derives `Serialize`, not
+        // `PartialEq` — compare via JSON so the whole shape
+        // (per-stage status/label/key + the three summary counts)
+        // is asserted identical in one go.
+        let json_known_only = serde_json::to_string(&report_known_only).unwrap();
+        let json_with_unknown = serde_json::to_string(&report_with_unknown).unwrap();
+        assert_eq!(
+            json_known_only, json_with_unknown,
+            "unknown manifest keys must not alter the gap report"
+        );
     }
 
     #[test]
@@ -536,6 +569,66 @@ mod tests {
                 .status,
             "complete"
         );
+    }
+
+    /// #990 regression test: `exists_maybe_hidden` (and therefore
+    /// the animated-artwork detectors that use it) must find the
+    /// dot-prefixed name that Linux's `hide_animated_artwork`
+    /// rename produces, not just the visible name.
+    #[test]
+    fn exists_maybe_hidden_finds_dot_prefixed_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(!exists_maybe_hidden(tmp.path(), "FrontCover.mp4"));
+        File::create(tmp.path().join(".FrontCover.mp4")).unwrap();
+        assert!(exists_maybe_hidden(tmp.path(), "FrontCover.mp4"));
+    }
+
+    /// Square animated artwork hidden via the Linux dot-rename
+    /// (`.FrontCover.mp4`) must report "complete", not "missing".
+    #[test]
+    fn hidden_square_artwork_reports_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        File::create(tmp.path().join(".FrontCover.mp4")).unwrap();
+        let report = scan_album_dir(tmp.path(), None);
+        let square = report
+            .stages
+            .iter()
+            .find(|s| s.stage == EnrichmentStage::AnimatedArtworkSquare)
+            .unwrap();
+        assert_eq!(square.status, "complete");
+    }
+
+    /// The legacy portrait filename (`PortraitCover.mp4`, pre-#455
+    /// rename, never auto-migrated on disk) must still be detected
+    /// as complete, visible-name case.
+    #[test]
+    fn legacy_portrait_filename_reports_complete() {
+        let tmp = tempfile::tempdir().unwrap();
+        File::create(tmp.path().join("PortraitCover.mp4")).unwrap();
+        let report = scan_album_dir(tmp.path(), None);
+        let portrait = report
+            .stages
+            .iter()
+            .find(|s| s.stage == EnrichmentStage::AnimatedArtworkPortrait)
+            .unwrap();
+        assert_eq!(portrait.status, "complete");
+    }
+
+    /// An empty album dir has none of the animated-artwork files —
+    /// all three stages must report "missing", not a false
+    /// "complete" from an overly permissive hidden-file check.
+    #[test]
+    fn empty_dir_reports_animated_artwork_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let report = scan_album_dir(tmp.path(), None);
+        for stage in [
+            EnrichmentStage::AnimatedArtworkSquare,
+            EnrichmentStage::AnimatedArtworkPortrait,
+            EnrichmentStage::AlbumSpotlight,
+        ] {
+            let status = report.stages.iter().find(|s| s.stage == stage).unwrap();
+            assert_eq!(status.status, "missing", "{stage:?} should be missing in an empty dir");
+        }
     }
 
     #[test]
