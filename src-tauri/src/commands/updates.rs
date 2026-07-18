@@ -191,8 +191,38 @@ pub async fn upgrade_gamdl(
 /// Uses `pip install --upgrade` to update the package. Works for any
 /// pip engine: votify, yt-dlp, ofscraper, etc. GAMDL has its own
 /// upgrade path via `upgrade_gamdl()` with compatibility gating.
+///
+/// # Security (#985)
+/// `package` is attacker-influenceable IPC input. Two independent
+/// layers guard the subsequent `pip install --upgrade <package>`
+/// subprocess call: (1) this function rejects any package that isn't
+/// declared as a known engine's `pip_package` in `engines.toml`
+/// (enforced here, against the single source of truth for which
+/// packages MeedyaDL is actually meant to manage); (2)
+/// `pip_engine_service::install_pip_engine` independently rejects
+/// anything that isn't a syntactically bare PyPI package name (no
+/// URLs, VCS refs, paths, or CLI flags) — defence in depth in case a
+/// future engine registry entry is ever misconfigured.
 #[tauri::command]
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
+    // Layer 1: only allow packages that a known engine actually declares.
+    // This is the registry-driven allowlist — `pip_package` values come
+    // from the compiled-in engines.toml, not from user/IPC input.
+    let registry = crate::services::engine_registry::EngineRegistry::load();
+    let is_known_engine_package = registry
+        .engines
+        .values()
+        .any(|engine| engine.pip_package.as_deref() == Some(package.as_str()));
+    if !is_known_engine_package {
+        let msg = format!(
+            "Refusing to upgrade '{package}': it is not a pip_package declared by any \
+             engine in engines.toml."
+        );
+        log::warn!("{msg}");
+        emit_app_log(&app, &msg);
+        return Err(msg);
+    }
+
     log::info!("Upgrading {package}...");
     emit_app_log(&app, &format!("Upgrading {package}..."));
     match crate::services::pip_engine_service::install_pip_engine(&app, &package).await {
