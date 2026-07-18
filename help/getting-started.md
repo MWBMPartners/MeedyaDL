@@ -92,7 +92,7 @@ Follow the same Debian / Ubuntu instructions above using the ARM64 `.deb` packag
 The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard consists of **6 steps**:
 
 1. **Welcome** -- Introduction and overview of the setup process.
-2. **Python Installation** -- The application downloads and installs a sandboxed Python environment into its data directory.
+2. **Python** -- MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then builds an isolated environment from it (your system Python is never modified), skipping the download entirely. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
 3. **GAMDL Installation** -- The GAMDL command-line tool is downloaded and configured automatically.
 4. **Dependency Installation** -- Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
 5. **Cookie Import** -- You will be prompted to import your Apple Music cookies (see below).
