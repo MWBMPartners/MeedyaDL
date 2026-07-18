@@ -74,6 +74,7 @@ import type {
   PlatformInfo,
   QueueStatus,
   StartDownloadResult,
+  SystemPython,
   UpdateCheckResult,
 } from '@/types';
 
@@ -216,6 +217,44 @@ export function checkPythonStatus(): Promise<DependencyStatus> {
  */
 export function installPython(): Promise<string> {
   return invoke<string>('install_python');
+}
+
+/**
+ * Detects compatible Python interpreters already installed on the system (#1017).
+ *
+ * Rust handler: `detect_system_pythons()` in `src-tauri/src/commands/dependencies.rs`
+ * Returns: `SystemPython[]` sorted best-first (floor-meeting, newest version).
+ *
+ * Lets the setup wizard offer "use your existing Python" instead of forcing a
+ * portable download. An empty array means nothing usable was found.
+ *
+ * Called by: SetupWizard Python step
+ *
+ * @returns Promise resolving to the list of detected interpreters
+ */
+export function detectSystemPythons(): Promise<SystemPython[]> {
+  return invoke<SystemPython[]>('detect_system_pythons');
+}
+
+/**
+ * Provisions the managed Python by building a venv from a chosen system
+ * interpreter (#1017), instead of downloading the portable runtime.
+ *
+ * Rust handler: `use_system_python(interpreter)` in
+ * `src-tauri/src/commands/dependencies.rs`
+ * Returns: `DependencyStatus` mirroring `check_python_status`.
+ *
+ * Rejects (with a user-facing message) when the interpreter is unrunnable,
+ * below Python 3.10, or missing the `venv`/`ensurepip` module — callers should
+ * fall back to the portable-download flow.
+ *
+ * Called by: SetupWizard Python step
+ *
+ * @param interpreter - Absolute path to the system Python interpreter
+ * @returns Promise resolving to the provisioned Python status
+ */
+export function useSystemPython(interpreter: string): Promise<DependencyStatus> {
+  return invoke<DependencyStatus>('use_system_python', { interpreter });
 }
 
 /**

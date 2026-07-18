@@ -120,7 +120,15 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
     //   macOS/Linux: {app_data}/python/bin/python3
     //   Windows:     {app_data}/python/python.exe
     let python_dir = crate::utils::platform::get_python_dir(&app);
-    let python_bin = crate::utils::platform::get_python_binary_path(&python_dir);
+    // Runtime-resolve so a system-Python venv (#1017) reports the venv binary
+    // path (matters on Windows: venv → Scripts/python.exe, portable → root).
+    let python_bin = crate::utils::platform::resolve_managed_python_binary(&python_dir);
+
+    // A venv built from a system Python earns the "System" badge; the managed
+    // portable runtime shows no badge (source: None).
+    let source = python_manager::get_python_source(&app)
+        .filter(python_manager::PythonSourceRecord::is_system_venv)
+        .map(|_| "system".to_string());
 
     Ok(DependencyStatus {
         // Display the expected version in the name (e.g., "Python 3.12")
@@ -130,7 +138,7 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
         version,
         // Convert PathBuf to String for JSON serialization
         path: python_bin.to_str().map(std::string::ToString::to_string),
-        source: None, // Python is always managed (portable runtime)
+        source,
     })
 }
 
@@ -169,6 +177,59 @@ pub async fn install_python(app: AppHandle) -> Result<String, String> {
     log::info!("Python {version} installed");
     emit_app_log(&app, &format!("Python {version} installed"));
     Ok(version)
+}
+
+/// Detects compatible Python interpreters already installed on the system (#1017).
+///
+/// **Frontend caller:** `detectSystemPythons()` in `src/lib/tauri-commands.ts`
+///
+/// Returns candidates newest-first (floor-meeting ahead of too-old) so the
+/// setup wizard can offer "use your existing Python" instead of forcing the
+/// portable download. Never errors — an empty list simply means nothing usable
+/// was found and the UI falls back to the portable-download flow.
+///
+/// # Errors
+/// Infallible in practice; the `Result` wrapper keeps the IPC signature uniform.
+#[tauri::command]
+pub async fn detect_system_pythons() -> Result<Vec<python_manager::SystemPython>, String> {
+    Ok(python_manager::detect_system_pythons().await)
+}
+
+/// Provisions the managed Python by building a `venv` from a chosen system
+/// interpreter (#1017) instead of downloading the portable runtime.
+///
+/// **Frontend caller:** `useSystemPython(interpreter)` in `src/lib/tauri-commands.ts`
+///
+/// Returns a [`DependencyStatus`] mirroring [`check_python_status`] so the
+/// wizard can reuse the same "installed" rendering.
+///
+/// # Errors
+/// Returns a user-facing error when the interpreter is unrunnable, below the
+/// GAMDL floor (3.10), or missing the `venv`/`ensurepip` module — in which case
+/// the frontend should fall back to the portable-download flow.
+#[tauri::command]
+pub async fn use_system_python(
+    app: AppHandle,
+    interpreter: String,
+) -> Result<DependencyStatus, String> {
+    log::info!("Provisioning managed Python from system interpreter: {interpreter}");
+    emit_app_log(
+        &app,
+        &format!("Provisioning Python from your system interpreter: {interpreter}"),
+    );
+    let version = python_manager::provision_venv_from_system_python(&app, &interpreter).await?;
+    emit_app_log(&app, &format!("Python {version} ready (from your system Python)"));
+
+    let python_dir = crate::utils::platform::get_python_dir(&app);
+    let python_bin = crate::utils::platform::resolve_managed_python_binary(&python_dir);
+    Ok(DependencyStatus {
+        name: format!("Python {version}"),
+        required: true,
+        installed: true,
+        version: Some(version),
+        path: python_bin.to_str().map(std::string::ToString::to_string),
+        source: Some("system".to_string()),
+    })
 }
 
 /// Checks whether GAMDL is installed in the portable Python environment.
