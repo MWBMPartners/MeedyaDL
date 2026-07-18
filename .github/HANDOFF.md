@@ -1,9 +1,37 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-10
+**Last updated:** 2026-07-18
 **Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27)
 
-Read top-to-bottom before continuing. Supersedes the earlier 2026-07-03 handoff.
+Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
+
+---
+
+## 0. Current session (2026-07-18) — IN PROGRESS
+
+Picking up after the GAMDL 3.8.2 admission (§2–§3). This session's agenda, in order:
+
+1. **Git hygiene (DONE):** the working tree showed 722 phantom `100644→100755`
+   executable-bit flips (an accidental repo-wide `chmod`; committed mode is `644`,
+   zero content delta). Neutralised locally via `git config core.fileMode false`
+   (non-destructive; keeps the committed `644` modes). `.claude/settings.local.json`
+   (personal permission allowlist w/ machine-specific paths) is now gitignored.
+2. **Python detection UX (setup wizard):** a fresh macOS install shows "Python Not
+   Found" even when a system Python (e.g. Homebrew `python@3.14`) is present.
+   Investigating whether to detect + offer to reuse system Python (mirrors the
+   tool "Browse" affordance, #278) vs. the current always-download-portable flow.
+3. **GAMDL v3.8.4 admission review** (release
+   <https://github.com/glomatico/gamdl/releases/tag/3.8.4>): full cross-version
+   diff 3.8.2→3.8.4 to decide ceiling bump + any MeedyaDL-facing code changes.
+   Deep analysis via sequential Fable-5 agents (fallback Opus).
+4. **GAMDL open-issues mitigation sweep:** review open upstream GAMDL issues for
+   problems MeedyaDL can mitigate **on its own side** (no GAMDL edits). Seed
+   example: <https://github.com/glomatico/gamdl/issues/306#issuecomment-4930074744>.
+5. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
+
+Model tiering this session: Fable 5 (sequential) for deep planning/analysis/
+orchestration → fallback Opus; Sonnet/Haiku for implementation; Opus for the
+hardest implementation. Push IS authorised this session; still **no PR**.
 
 ---
 
@@ -11,8 +39,10 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-03 handoff.
 
 - **Do NOT open a PR yet.** Single PR at the end (no stacking / merge-race).
   Keep committing to the working branch; hold the PR until told.
-- **Do NOT push / force-push / reset-hard / modify remotes** without explicit
-  instruction. Committing to the local working branch IS authorised this session.
+- **Do NOT force-push / reset-hard / modify remotes** without explicit
+  instruction. Committing AND pushing to the local working branch IS authorised
+  this session (owner instruction 2026-07-18: "STAGE, COMMIT and PUSH … commit &
+  PUSH each change individually"). Still **no PR** — hold until told.
 - **Model tiering:** Fable 5 for deep planning (sequential, no parallel agents);
   Sonnet/Haiku for implementation; Opus for orchestration/verification.
 - Per-unit: detailed GitHub issue + individual commit + security-review the diff.
