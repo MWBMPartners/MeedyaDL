@@ -292,7 +292,7 @@ interface UiState {
  * the keys you return are overwritten; all other state fields are preserved.
  * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state}
  */
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state values
   // -------------------------------------------------------------------------
@@ -380,10 +380,26 @@ export const useUiStore = create<UiState>((set) => ({
       }
     }
 
+    // #993: Determine up front whether this message is already showing as an
+    // in-app toast. The in-app `set()` updater below (see the `state.toasts.some(...)`
+    // check) already deduplicates identical messages, but that check runs AFTER
+    // the native notification would have fired -- so a repeated warning/error that
+    // gets correctly deduped in-app was still stacking N identical OS banners.
+    const isDuplicateInApp = get().toasts.some((t) => t.message === message);
+
     // Send native OS notification when notification_style includes native.
     // Errors are surfaced to the WebView console so future regressions can
     // be diagnosed instead of failing silently (#658).
-    if (style === 'native_and_in_app' || style === 'native_only') {
+    //
+    // Gate on in-app dedup EXCEPT in 'native_only' mode: in that mode the
+    // `toasts` array is intentionally always empty (see the early return
+    // below), so `isDuplicateInApp` can never be true and state-based dedup
+    // is impossible -- gating on it there would silently suppress every
+    // native notification after the first.
+    if (
+      (style === 'native_and_in_app' && !isDuplicateInApp) ||
+      style === 'native_only'
+    ) {
       const typeLabel = type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Info';
       import('@tauri-apps/plugin-notification').then(({ isPermissionGranted, requestPermission, sendNotification }) => {
         isPermissionGranted()
