@@ -63,6 +63,13 @@ cookies.txt
 auth/
 
 # ============================================================
+# Claude Code (local, machine-specific)
+# ============================================================
+# Personal permission allowlist + local overrides — contains machine-specific
+# absolute paths and per-developer settings. Shared config lives in settings.json.
+.claude/settings.local.json
+
+# ============================================================
 # Operating System
 # ============================================================
 .DS_Store
