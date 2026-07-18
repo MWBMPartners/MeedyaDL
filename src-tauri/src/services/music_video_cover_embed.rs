@@ -24,7 +24,7 @@
 //! `download_queue.rs::extract_music_video_subtitles_for_dl` next to
 //! the existing subtitle-extract + lyrics-pair steps.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use mp4ameta::{Img, ImgFmt, Tag};
 
@@ -56,30 +56,7 @@ pub enum EmbedOutcome {
 /// mismatch). This keeps the call site one match arm per outcome
 /// instead of nested Result/match handling.
 pub fn embed_and_remove_sidecar(video_path: &Path) -> EmbedOutcome {
-    // Candidate sidecar extensions, in the order GAMDL writes them
-    // (jpg is the default `save_cover` extension; png is the
-    // `cover_format=Png` option's output).
-    let extensions = ["jpg", "jpeg", "png"];
-
-    let Some(stem) = video_path.file_stem() else {
-        return EmbedOutcome::NoSidecar;
-    };
-
-    let parent = match video_path.parent() {
-        Some(p) => p,
-        None => return EmbedOutcome::NoSidecar,
-    };
-
-    let mut sidecar_path = None;
-    for ext in extensions {
-        let candidate = parent.join(stem).with_extension(ext);
-        if candidate.is_file() {
-            sidecar_path = Some(candidate);
-            break;
-        }
-    }
-
-    let Some(sidecar_path) = sidecar_path else {
+    let Some(sidecar_path) = find_sidecar(video_path) else {
         return EmbedOutcome::NoSidecar;
     };
 
@@ -161,6 +138,39 @@ pub fn embed_and_remove_sidecar(video_path: &Path) -> EmbedOutcome {
         sidecar_filename,
         bytes_embedded: bytes_len,
     }
+}
+
+/// Look for a sibling cover sidecar (`.jpg`, `.jpeg`, or `.png`) with
+/// the same stem as `video_path`. Returns the first candidate that
+/// exists on disk, checked in the order GAMDL writes them (jpg is
+/// the default `save_cover` extension; png is the
+/// `cover_format=Png` option's output).
+///
+/// # Bug fix (#980)
+///
+/// `Path::with_extension` replaces everything **after the last
+/// dot** in the file name, not the trailing extension GAMDL wrote.
+/// For a stem containing a dot — `Mr. Brightside`, any `feat.` /
+/// `Vol. 2` / `Pt. 1` title — `parent.join(stem).with_extension(ext)`
+/// mangles the candidate: `Mr. Brightside` + `.with_extension("jpg")`
+/// produces `Mr.jpg` instead of `Mr. Brightside.jpg`. Building the
+/// candidate via string concatenation (`format!("{stem_str}.{ext}")`)
+/// preserves the full stem, dots included.
+fn find_sidecar(video_path: &Path) -> Option<PathBuf> {
+    // Candidate sidecar extensions, in the order GAMDL writes them.
+    const EXTENSIONS: [&str; 3] = ["jpg", "jpeg", "png"];
+
+    let stem_str = video_path.file_stem().and_then(|s| s.to_str())?;
+    let parent = video_path.parent()?;
+
+    for ext in EXTENSIONS {
+        let candidate = parent.join(format!("{stem_str}.{ext}"));
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 /// Guess the image format from the file extension first, falling
@@ -248,5 +258,49 @@ mod tests {
         }
         // Sidecar must still exist — Failed means we kept the file.
         assert!(sidecar.is_file(), "sidecar must NOT be deleted on a failed embed");
+    }
+
+    /// #980 regression test: a dotted video stem (`Mr. Brightside`)
+    /// must resolve to the correctly-named sidecar (`Mr.
+    /// Brightside.jpg`), not the truncated `Mr.jpg` that
+    /// `Path::with_extension` would produce by replacing everything
+    /// after the last dot in the stem.
+    #[test]
+    fn find_sidecar_handles_dotted_stem() {
+        let tmp = TempDir::new().unwrap();
+        let video = tmp.path().join("Mr. Brightside.mp4");
+        let correct_sidecar = tmp.path().join("Mr. Brightside.jpg");
+        // Decoy: what the buggy `with_extension` call used to produce.
+        let decoy_sidecar = tmp.path().join("Mr.jpg");
+
+        fs::write(&video, [0; 16]).unwrap();
+        fs::write(&correct_sidecar, [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        fs::write(&decoy_sidecar, [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+
+        let found = find_sidecar(&video);
+        assert_eq!(found, Some(correct_sidecar), "must select the full-stem sidecar, not the dot-truncated decoy");
+    }
+
+    /// Without a dotted stem, `find_sidecar` still finds the plain
+    /// sidecar — sanity check that the string-concat rewrite didn't
+    /// break the common case.
+    #[test]
+    fn find_sidecar_handles_plain_stem() {
+        let tmp = TempDir::new().unwrap();
+        let video = tmp.path().join("song.mp4");
+        let sidecar = tmp.path().join("song.jpg");
+        fs::write(&video, [0; 16]).unwrap();
+        fs::write(&sidecar, [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+
+        assert_eq!(find_sidecar(&video), Some(sidecar));
+    }
+
+    /// No matching sidecar at all → `None`.
+    #[test]
+    fn find_sidecar_returns_none_when_absent() {
+        let tmp = TempDir::new().unwrap();
+        let video = tmp.path().join("song.mp4");
+        fs::write(&video, [0; 16]).unwrap();
+        assert_eq!(find_sidecar(&video), None);
     }
 }
