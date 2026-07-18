@@ -1123,6 +1123,8 @@ pub fn run() {
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
+            commands::dependencies::detect_system_pythons,
+            commands::dependencies::use_system_python,
             commands::dependencies::check_gamdl_status,
             commands::dependencies::install_gamdl,
             commands::dependencies::install_gamdl_version,

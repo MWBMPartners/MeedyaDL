@@ -1224,6 +1224,26 @@ export interface DependencyStatus {
 }
 
 /**
+ * A compatible Python interpreter discovered on the user's system (#1017).
+ *
+ * Mirrors: Rust struct `SystemPython` in
+ * `src-tauri/src/services/python_manager.rs` (serialized `camelCase`).
+ *
+ * Offered by the setup wizard as an alternative to downloading the portable
+ * runtime — choosing one provisions a venv from it at `{app_data}/python/`.
+ */
+export interface SystemPython {
+  /** Canonical interpreter path (`sys.executable`). */
+  path: string;
+  /** Detected version string, e.g. "3.14.6". */
+  version: string;
+  /** Whether the version meets GAMDL's floor (Python 3.10+). */
+  meetsFloor: boolean;
+  /** Human-readable provenance label (e.g. "Homebrew", "python.org", "pyenv"). */
+  source: string;
+}
+
+/**
  * Version information for a single MeedyaDL component.
  *
  * Mirrors: Rust struct `ComponentVersion` in `src-tauri/src/commands/dependencies.rs`

@@ -35,8 +35,9 @@
 import { create } from 'zustand';
 
 // DependencyStatus -- { name, required, installed, version, path } shape from the backend.
-// Mirrors the Rust `DependencyStatus` struct serialized over the IPC boundary.
-import type { DependencyStatus } from '@/types';
+// SystemPython -- a detected system interpreter offered for reuse (#1017).
+// Mirrors the Rust structs serialized over the IPC boundary.
+import type { DependencyStatus, SystemPython } from '@/types';
 
 // Type-safe wrappers for Tauri IPC commands related to dependency management.
 // Each function maps to a `#[tauri::command]` handler in the Rust backend.
@@ -82,6 +83,18 @@ interface DependencyState {
    * MP4Box, N_m3u8DL-RE). All are required for full functionality.
    */
   tools: DependencyStatus[];
+
+  /**
+   * Compatible system Python interpreters detected on the machine (#1017).
+   * Empty until `detectSystemPythons()` runs. The setup wizard uses these to
+   * offer "use your existing Python" instead of forcing the portable download.
+   */
+  systemPythons: SystemPython[];
+
+  /**
+   * `true` while `detectSystemPythons()` is probing the system for interpreters.
+   */
+  isDetectingPythons: boolean;
 
   // ---------------------------------------------------------------------------
   // Operation tracking flags
@@ -154,6 +167,25 @@ interface DependencyState {
   installPython: () => Promise<string>;
 
   /**
+   * Detect compatible system Python interpreters (#1017) and store them in
+   * `systemPythons`. Non-fatal — a failure simply yields an empty list so the
+   * wizard falls back to the portable-download flow.
+   * IPC call: `commands.detectSystemPythons()` -> Rust `detect_system_pythons`
+   */
+  detectSystemPythons: () => Promise<void>;
+
+  /**
+   * Provision the managed Python by building a venv from a chosen system
+   * interpreter (#1017) instead of downloading the portable runtime.
+   * IPC call: `commands.useSystemPython(interpreter)` -> Rust `use_system_python`
+   * After success, updates the `python` status.
+   * @param interpreter -- Absolute path to the system Python interpreter
+   * @returns The provisioned Python version string
+   * @throws If provisioning fails (too old / PEP 668 / missing venv module)
+   */
+  useSystemPython: (interpreter: string) => Promise<string>;
+
+  /**
    * Install GAMDL via pip into the portable Python environment.
    * IPC call: `commands.installGamdl()` -> Rust `install_gamdl`
    * After installation, automatically re-checks GAMDL status.
@@ -214,7 +246,9 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
   python: null, // Python status unknown until first check
   gamdl: null, // GAMDL status unknown until first check
   tools: [], // No tool statuses until first check
+  systemPythons: [], // No system interpreters detected until first detect (#1017)
   isChecking: false, // No check in progress
+  isDetectingPythons: false, // No system-Python detection in progress (#1017)
   isInstalling: false, // No installation in progress
   installingName: null, // No component being installed
   error: null, // No error
@@ -315,6 +349,48 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
       // Store the error for UI display and clear installation flags.
       set({ error: msg, isInstalling: false, installingName: null });
       // Re-throw so the calling component (e.g., SetupWizard) can handle the failure.
+      throw new Error(msg, { cause: e });
+    }
+  },
+
+  /**
+   * Detect compatible system Python interpreters (#1017).
+   *
+   * Non-fatal: a detection failure is swallowed (logged to the console) and
+   * leaves `systemPythons` empty, so the wizard simply falls back to offering
+   * the portable download. Does NOT set `error` — nothing has gone wrong from
+   * the user's perspective.
+   */
+  detectSystemPythons: async () => {
+    set({ isDetectingPythons: true });
+    try {
+      const systemPythons = await commands.detectSystemPythons();
+      set({ systemPythons, isDetectingPythons: false });
+    } catch (e) {
+      console.warn('[dependency] system Python detection failed:', e);
+      set({ systemPythons: [], isDetectingPythons: false });
+    }
+  },
+
+  /**
+   * Provision the managed Python from a chosen system interpreter (#1017).
+   *
+   * Builds a venv at `{app_data}/python/` so no portable download is needed.
+   * Mirrors the `installPython` lifecycle (flags + re-check + re-throw).
+   *
+   * @param interpreter -- Absolute path to the system Python interpreter
+   * @returns The provisioned Python version string
+   */
+  useSystemPython: async (interpreter: string) => {
+    set({ isInstalling: true, installingName: 'Python', error: null });
+    try {
+      // The Rust command returns a DependencyStatus mirroring check_python_status.
+      const python = await commands.useSystemPython(interpreter);
+      set({ python, isInstalling: false, installingName: null });
+      return python.version ?? '';
+    } catch (e) {
+      const msg = String(e);
+      set({ error: msg, isInstalling: false, installingName: null });
       throw new Error(msg, { cause: e });
     }
   },
