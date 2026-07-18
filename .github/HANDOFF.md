@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-07-18
-**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27)
+**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27; **now bumped to 1.12.0-alpha.28**)
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
@@ -46,26 +46,68 @@ Picking up after the GAMDL 3.8.2 admission (§2–§3). Agenda + status:
      catalog `artistName` (gamdl#326).
    - **#1024** (`c538c247`) — troubleshooting note for the save-playlist
      first-track bug (gamdl#322, docs-only).
-5. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
+5. **Minor version bump — DONE (`35617b99`).** 1.11.0 → **1.12.0-alpha.28** across
+   all 5 manifests (package.json, package-lock, tauri.conf.json, Cargo.toml,
+   Cargo.lock). Reflects the session's feature work; stays on the alpha channel
+   (counter 27→28, no reset). `bump-version.mjs` handles 4 files; package-lock
+   synced via `npm install --package-lock-only`.
+6. **Backlog triage + fix batch — DONE.** Fable-5-triaged the 83 open issues into
+   a validated batch (security + self-contained correctness), Opus-gated each,
+   implemented via **sequential Sonnet agents** (each `cargo test`/`type-check`-
+   verified locally). Shipped **13 fixes + closed 2**:
+   - **Security:** #975 (`0d71deaa`, credential-redact tracebacks before crash
+     reports / GitHub issues), #985 (`ef13bd0a`, validate pip package name +
+     engine-registry allowlist), #977 (`26f403db`, release.yml tag-shape
+     validation → block shell-injection / secret exfil), #988 (`ad6e0e9b`, pin
+     cargo-binstall + git-cliff in the contents:write job).
+   - **Correctness/perf:** #980 (`d7f9a3f2`, MV cover sidecar dotted-stem),
+     #989 + #990 (`d8a00067`, stop `Box::leak`ing manifest keys + detect hidden
+     animated art on Linux), #1010 (`87d4b78a`, expire stale web-player token),
+     #994 (`b09e40fd`, cache `humanise_codec_skip_line` regexes), #992
+     (`2238f2d4`, History "Open Folder" reveals the album dir not the parent),
+     #996 (`4b8601d6`, tool reinstall stage-and-swap — failed upgrade keeps the
+     old binary).
+   - **Frontend:** #993 (`4622864c`, dedup native OS notifications).
+   - **Closed as already-fixed:** #951 (console.debug), #950 (QueueItem aria).
+7. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
 
 ### ✅ VERIFIED LOCALLY (toolchain installed mid-session)
 
 The device had no Rust/Node toolchain (fresh clone). Installed **rustup (Rust
 1.97.1 stable)** + **Node v26.5.0** (both persist: `~/.cargo` + Homebrew), then:
 
-- **`cargo test --lib` → 1476 passed, 0 failed, 1 ignored** (baseline was 1465;
-  +11 are this session's new tests). Everything in #1017–#1024 **compiles clean**
-  — including the two new `download_queue.rs` match arms (`rate_limit`,
-  `io_transient`) and all `process.rs` / `python_manager.rs` additions.
-- **`npm run type-check` → clean** (verifies #1017 TS: `SystemPython`,
-  `dependencyStore`, `tauri-commands`, `PythonStep`).
+- **`cargo test --lib` → 1504 passed, 0 failed, 1 ignored** (baseline 1465; the
+  ~39 new tests are this session's — Python detection, the GAMDL-mitigation
+  classifiers, and the backlog batch). Everything compiles clean — incl. the two
+  new `download_queue.rs` match arms (`rate_limit`, `io_transient`), the
+  stage-and-swap in `dependency_manager.rs`, and all `process.rs` /
+  `python_manager.rs` / `crash_report_service.rs` additions.
+- **`npm run type-check` → clean** and **`npm run test` (vitest) → 560/560**
+  (incl. the 4 new #993 notification-dedup tests).
 - The full run surfaced ONE pre-existing flaky test (`config_service::
-  ini_includes_wrapper_when_enabled`, unrelated to this session) — fixed under
-  **#1025** (`03c8e393`, added a `VersionGuard`) + closed. `package-lock.json`
-  version staleness synced to alpha.27 (`99cb69ba`).
+  ini_includes_wrapper_when_enabled`, unrelated) — fixed under **#1025**
+  (`03c8e393`, added a `VersionGuard`) + closed. `package-lock.json` version
+  staleness synced (`99cb69ba`, then again in the 1.12.0 bump).
+- **Known non-blocker:** a PRE-EXISTING clippy lint `useless_borrows_in_formatting`
+  at `download_queue.rs:7691` (untouched this session) — a 1-line fix if CI
+  clippy-gates; left for a future pass.
 
 So the whole session is now **locally verified**, not just CI-gated. Future
 sessions on this machine have the toolchain; the standard cheatsheet in §7 works.
+
+### Deferred / next (from the backlog triage — not yet done)
+
+Fable-5 validated but NOT implemented this session (good next-session targets):
+`#981` (Linux x64 FFmpeg tar.xz declared TarGz — needs a `TarXz` archive format +
+`lzma-rs` dep; **Opus**), `#982` (GPAC NSIS `/D=` quoting for spaced Windows
+usernames — needs `cargo check --target x86_64-pc-windows-msvc`), `#1011`
+(`extend=audioTraits` — static + additive but wants a live confirm), `#949`
+(reduced — M8/M9/M10 numbering still wrong in `engine_runner.rs:448/470`,
+`types/index.ts:936`, `HelpViewer.tsx`, `help/supported-services.md`), `#984`
+(offline-installer pip-pin the gamdl spec from `tool-versions.toml`), `#987`
+(tool checksum verification — needs mirror-published hashes), `#983`/`#991`/`#997`/
+`#998` (need design/UX decisions first). Full validated specs + the "explicitly
+dropped" list are in the triage record (this session's second Fable-5 agent).
 
 Model tiering: Fable 5 (sequential, one at a time) for deep analysis → fallback
 Opus; Sonnet/Haiku for implementation; Opus for the hardest. Push IS authorised
