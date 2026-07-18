@@ -1087,6 +1087,19 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // CloudMounter-mounted MEGA drive timing out on cover art writes).
     } else if is_io_error(error_message) {
         "io"
+    // Permission-denied (EACCES / [Errno 13]) has two flavours (#323):
+    //   * On GAMDL's own temp staging file (`gamdl_temp…`) it's almost always a
+    //     TRANSIENT lock — antivirus or a file indexer scanning the just-written
+    //     file on Windows — and an immediate re-download succeeds. Classify as
+    //     `io_transient` so the queue retries it (bounded).
+    //   * Anywhere else (e.g. the output directory) it's a real, persistent
+    //     permission problem → `io`, not retried.
+    } else if lower.contains("[errno 13]") || lower.contains("permission denied") {
+        if lower.contains("gamdl_temp") {
+            "io_transient"
+        } else {
+            "io"
+        }
     // Network errors: transient, may resolve on retry.
     // Includes Python httpx/httpcore exceptions (ConnectError, ReadTimeout, etc.),
     // common socket-level messages (connection refused, timed out, etc.), and
@@ -1199,6 +1212,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "auth" => "Try refreshing your cookies (Settings > Authentication) or check your wrapper connection.",
         "network" => "Check your internet connection. The download will auto-retry when connectivity is restored.",
         "io" => "Check that your output directory is accessible and has sufficient disk space.",
+        "io_transient" => "A file was briefly locked (permission denied) while GAMDL wrote to its temp folder — usually antivirus or a file indexer scanning the new file. MeedyaDL retries automatically. If it keeps happening, add MeedyaDL's Temp folder (Settings > Tools > Temp path) to your antivirus exclusions.",
         "codec" => "This format may not be available for this content. Try a different quality setting.",
         "not_found" => "This content may have been removed from Apple Music or the URL may be incorrect.",
         "rate_limit" => "Apple Music is rate-limiting license requests (HTTP 429) — a per-account, server-side throttle that usually clears after 1–2+ hours, not minutes. MeedyaDL has paused the queue so it stops adding to the throttle; resume it from the Queue page once the cooldown lifts. Smaller batches help avoid it, and already-downloaded files are preserved (so a later run only re-fetches what's missing).",
@@ -2421,6 +2435,20 @@ mod tests {
         let g = error_guidance("license_declined");
         assert!(g.to_lowercase().contains("license"));
         assert!(g.to_lowercase().contains("not a rate limit"));
+    }
+
+    #[test]
+    fn classifies_transient_temp_permission_denied() {
+        // gamdl#323: EACCES on GAMDL's temp staging file = transient AV/indexer lock.
+        let temp = "mutagen.MutagenError: [Errno 13] Permission denied: \
+                    'C:/Users/x/AppData/Local/Temp/gamdl_temp_abc/track_staged.m4a'";
+        assert_eq!(classify_error(temp), "io_transient");
+        // Persistent EACCES elsewhere (output dir) stays io — NOT retried.
+        assert_eq!(
+            classify_error("[Errno 13] Permission denied: '/Volumes/Music/out.m4a'"),
+            "io"
+        );
+        assert!(error_guidance("io_transient").to_lowercase().contains("antivirus"));
     }
 
     #[test]
