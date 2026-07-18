@@ -27,7 +27,7 @@ your wrapper setup:
   setup with extra manual steps (see below), so stay on 3.5 until you're
   ready for that.
 - **If you don't use a wrapper** (cookie-only): upgrade straight to the
-  **recommended latest** (3.8.1). On GAMDL 3.8+, every non-web codec
+  **recommended latest** (3.8.4). On GAMDL 3.8+, every non-web codec
   *except ALAC* downloads without any wrapper at all (see the next
   section) — so cookie-only users get the best experience on the newest
   release.
@@ -315,6 +315,6 @@ GAMDL and wrapper-v2 are separate projects and must be kept on compatible versio
 
 - **GAMDL 3.0 – 3.5.x** → wrapper-v1 (three local sockets).
 - **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt).
-- **GAMDL 3.8.2** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported.
+- **GAMDL 3.8.2 – 3.8.4** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported. (3.8.2 introduced the 0.0.2 protocol; 3.8.3/3.8.4 keep it unchanged — 3.8.4 also fixes a wrapper-decrypt bug that could corrupt the end of some songs.)
 
-GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2 exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2 with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper decryption IP** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.
+GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2+ exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2+ with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper decryption IP** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.
