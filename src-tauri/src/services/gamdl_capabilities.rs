@@ -1272,7 +1272,7 @@ mod tests {
             );
         }
 
-        for v in ["3.8.2", "3.9", "4.0"] {
+        for v in ["3.8.2", "3.8.3", "3.8.4", "3.9", "4.0"] {
             set_detected_version(Some(v.to_string()));
             assert!(
                 supports(GamdlFeature::WrapperDecryptHostPort),

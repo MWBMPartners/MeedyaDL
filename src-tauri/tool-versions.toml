@@ -525,11 +525,43 @@ minimum_version = "3.0"
 #   PRE-RELEASE GATE: a live smoke-test (real song + music-video download on
 #   3.8.2, and a real wrapper-v2 0.0.2 round-trip incl. remote/LAN decrypt)
 #   should pass on each shipping platform before this ceiling reaches stable.
-maximum_tested_version = "3.8.2"
+#
+# 3.8.3 + 3.8.4 audit (#1018, 2026-07-18, audit doc at
+# `.github/audits/gamdl-v3.8.3-v3.8.4-audit.md`) — DECISION: **ADMITTED**
+# (ceiling 3.8.2 → 3.8.4). ZERO-CODE-CHANGE ceiling bump (same shape as
+# 3.3 / 3.5 / 3.5.1 / 3.5.2 / 3.7.4 / 3.8.1). The whole 3.8.2→3.8.4 delta
+# (14 commits, 9 files) has NO Python-source change — only the `__version__`
+# string moves. Everything else:
+#   * 3.8.3 (2026-07-12) — pyo3 0.23.5→0.27.2 for Python-3.14 sdist-build
+#     support + mechanical Rust API renames (`py.allow_threads`→`py.detach`,
+#     `downcast`→`cast`) INSIDE the private `_ammuxer` extension. `abi3-py310`
+#     unchanged ⇒ still loads on the bundled 3.12 and reused system Python
+#     >= 3.10. Plus the CI wheel-publishing workflow that formalised the
+#     5-platform abi3 matrix.
+#   * 3.8.4 (2026-07-16) — ONE Rust commit (`e4887d34`, `ammuxer/src/media.rs`):
+#     a `flush_then_write_immediate()` helper in `decrypt_track_wrapper()` that
+#     flushes queued batched samples before immediate writes so payload order
+#     matches the `stsz` table — FIXES corrupted/truncated song endings on
+#     wrapper-decrypt downloads (a data-corruption bug present in 3.8.2/3.8.3).
+#     Internal to `_ammuxer`; MeedyaDL observes output files, not the mux path.
+#   Wheel gate re-verified LIVE (PyPI JSON, 2026-07-18): 3.8.3 + 3.8.4 ship the
+#   IDENTICAL `cp310-abi3` set to 3.8.2 (macOS universal2, Win x64/ARM64,
+#   Linux x64/aarch64) — still no ARMv7 wheel, `requires-python >=3.10`. So
+#   `gamdl>=3.0,<=3.8.4` + `--only-binary=gamdl` resolves 3.8.4 on 5/6 and
+#   ARMv7 keeps falling back to 3.8.1 — unchanged behaviour.
+#   `gamdl/api/wrapper.py` untouched ⇒ `TARGET_WRAPPER_API_VERSION` stays
+#   0.0.2, so the `/me` preflight + `wrapper_version_mismatch` guidance and
+#   every 3.8.2-keyed gate (via `GamdlFeature::WrapperDecryptHostPort` >= 3.8.2)
+#   inherit 3.8.4 correctly. No `GamdlFeature`, regex, classifier, or settings-
+#   schema change.
+#   PRE-RELEASE GATE: carry the 3.8.2 live smoke-test forward, RETARGETED at
+#   3.8.4 — add a song-ending integrity check on a wrapper-decrypted ALAC song
+#   (3.8.2 is now known-bad there per `e4887d34`).
+maximum_tested_version = "3.8.4"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`. ARMv7 auto-falls-back
-# to 3.8.1 via `--only-binary` since 3.8.2 has no ARMv7 wheel.
-recommended_version = "3.8.2"
+# to 3.8.1 via `--only-binary` since 3.8.2–3.8.4 have no ARMv7 wheel.
+recommended_version = "3.8.4"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases
