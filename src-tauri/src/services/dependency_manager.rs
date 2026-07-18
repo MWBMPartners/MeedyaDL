@@ -528,28 +528,48 @@ async fn get_mirror_download_url(
 ///   1. Primary upstream source (hardcoded URL or upstream GitHub API)
 ///   2. MeedyaSuite/MeedyaDL-Tools mirror repository (fallback)
 ///
+/// ## Stage-and-swap (#996)
+///
+/// Downloads extract into a *sibling staging directory*
+/// (`{tool_dir}.staging`), never directly into `tool_dir`. The real
+/// `tool_dir` is only touched — via [`promote_staged_install`] — once a
+/// download has fully succeeded. Previously this function deleted
+/// `tool_dir` *before* attempting any download, so a reinstall that failed
+/// on both primary and mirror (e.g. the #981 Linux x86_64 tar.xz bug,
+/// where primary can never extract) destroyed the user's previously
+/// working installation, leaving GAMDL unable to run at all. Under
+/// stage-and-swap, a total failure leaves `tool_dir` byte-for-byte
+/// unchanged.
+///
 /// # Arguments
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
-/// * `tool_dir` - The target extraction directory
+/// * `tool_dir` - The target installation directory
 async fn download_tool_with_fallback(
     tool_id: &str,
     tool_dir: &std::path::Path,
 ) -> Result<(), String> {
-    // Prepare the directory (clean up any existing contents)
-    if tool_dir.exists() {
-        log::info!("Removing existing {tool_id} installation");
-        std::fs::remove_dir_all(tool_dir)
-            .map_err(|e| format!("Failed to remove existing {tool_id} directory: {e}"))?;
-    }
-    std::fs::create_dir_all(tool_dir)
-        .map_err(|e| format!("Failed to create tool directory: {e}"))?;
+    // Sibling staging directory — never the real tool_dir. Named
+    // `{tool_dir}.staging` so it lives alongside (not inside) the real
+    // install and can't collide with a legitimate tool subdirectory.
+    let staging = tool_dir.with_file_name(format!(
+        "{}.staging",
+        tool_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("tool")
+    ));
+    // Clear out any leftover staging dir from a prior crashed/interrupted
+    // attempt, then create a fresh one.
+    std::fs::remove_dir_all(&staging).ok();
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| format!("Failed to create staging directory: {e}"))?;
 
-    // Try primary upstream source
+    // Try primary upstream source, extracting into staging (not tool_dir).
     let primary_error = match get_tool_download_url(tool_id).await {
         Ok((url, format)) => {
             log::info!("Downloading {tool_id} from primary source: {url}");
-            match archive::download_and_extract(&url, tool_dir, format).await {
-                Ok(()) => return Ok(()),
+            match archive::download_and_extract(&url, &staging, format).await {
+                Ok(()) => return promote_staged_install(&staging, tool_dir),
                 Err(e) => {
                     log::warn!("Primary download failed for {tool_id}: {e}");
                     e
@@ -562,29 +582,82 @@ async fn download_tool_with_fallback(
         }
     };
 
-    // Primary failed — clean up and try mirror
-    if tool_dir.exists() {
-        std::fs::remove_dir_all(tool_dir).ok();
-    }
-    std::fs::create_dir_all(tool_dir)
-        .map_err(|e| format!("Failed to recreate tool directory: {e}"))?;
+    // Primary failed — reset staging (tool_dir is untouched) and try mirror.
+    std::fs::remove_dir_all(&staging).ok();
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| format!("Failed to recreate staging directory: {e}"))?;
 
     log::info!("Trying mirror fallback for {tool_id}...");
     match get_mirror_download_url(tool_id).await {
         Ok((mirror_url, mirror_format)) => {
             log::info!("Downloading {tool_id} from mirror: {mirror_url}");
-            archive::download_and_extract(&mirror_url, tool_dir, mirror_format)
-                .await
-                .map_err(|e| {
-                    format!(
+            match archive::download_and_extract(&mirror_url, &staging, mirror_format).await {
+                Ok(()) => promote_staged_install(&staging, tool_dir),
+                Err(e) => {
+                    let _ = std::fs::remove_dir_all(&staging);
+                    Err(format!(
                         "All download sources failed for {tool_id}.\n  Primary: {primary_error}\n  Mirror: {e}"
-                    )
-                })
+                    ))
+                }
+            }
         }
-        Err(mirror_err) => Err(format!(
-            "All download sources failed for {tool_id}.\n  Primary: {primary_error}\n  Mirror: {mirror_err}"
-        )),
+        Err(mirror_err) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            Err(format!(
+                "All download sources failed for {tool_id}.\n  Primary: {primary_error}\n  Mirror: {mirror_err}"
+            ))
+        }
     }
+}
+
+/// Atomically-ish swaps a freshly-staged install into place (#996).
+///
+/// Two-step so it works on Windows, where renaming onto an existing
+/// directory fails: move the old `tool_dir` aside to `{tool_dir}.old`,
+/// move `staging` into `tool_dir`'s place, then delete the old dir. If the
+/// final rename fails (e.g. cross-device on some exotic setup), the old
+/// dir is best-effort restored so the user isn't left with neither.
+///
+/// # Arguments
+/// * `staging` - The sibling staging directory containing the fresh install
+/// * `tool_dir` - The real installation directory to replace
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the old install can't be moved aside or the
+/// staged install can't be promoted. In both cases the function tries to
+/// leave the filesystem in a recoverable state (old install restored when
+/// possible) rather than a half-swapped one.
+fn promote_staged_install(
+    staging: &std::path::Path,
+    tool_dir: &std::path::Path,
+) -> Result<(), String> {
+    let backup = tool_dir.with_file_name(format!(
+        "{}.old",
+        tool_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("tool")
+    ));
+    if backup.exists() {
+        std::fs::remove_dir_all(&backup).ok();
+    }
+    if tool_dir.exists() {
+        std::fs::rename(tool_dir, &backup)
+            .or_else(|_| std::fs::remove_dir_all(tool_dir))
+            .map_err(|e| format!("Failed to move aside existing install {}: {e}", tool_dir.display()))?;
+    }
+    if let Some(parent) = tool_dir.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    std::fs::rename(staging, tool_dir).map_err(|e| {
+        if backup.exists() {
+            let _ = std::fs::rename(&backup, tool_dir);
+        }
+        format!("Failed to promote staged install {}: {e}", tool_dir.display())
+    })?;
+    let _ = std::fs::remove_dir_all(&backup);
+    Ok(())
 }
 
 // ============================================================
@@ -2178,4 +2251,87 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Promoting over an EXISTING install replaces its contents entirely —
+    /// this is the #996 regression scenario (reinstall must not leave the
+    /// old binary lying around next to / mixed with the new one). Also
+    /// asserts staging is consumed and no `.old` backup dir is left behind
+    /// on the happy path.
+    #[test]
+    fn promote_staged_install_replaces_existing_tool_dir() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        std::fs::write(tool_dir.join("old.txt"), b"old binary").unwrap();
+
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("new.txt"), b"new binary").unwrap();
+
+        promote_staged_install(&staging, &tool_dir).unwrap();
+
+        // New content is in place, old content is gone.
+        assert!(tool_dir.join("new.txt").exists());
+        assert!(!tool_dir.join("old.txt").exists());
+
+        // Staging is consumed.
+        assert!(!staging.exists());
+
+        // No leftover backup dir.
+        let backup = base.path().join("ffmpeg.old");
+        assert!(!backup.exists());
+    }
+
+    /// Promoting to a FRESH path (tool_dir doesn't exist yet) — the
+    /// first-ever install case. Staging contents become tool_dir directly.
+    #[test]
+    fn promote_staged_install_to_fresh_path() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("mp4decrypt");
+        let staging = base.path().join("mp4decrypt.staging");
+
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("mp4decrypt"), b"binary contents").unwrap();
+
+        assert!(!tool_dir.exists());
+
+        promote_staged_install(&staging, &tool_dir).unwrap();
+
+        assert!(tool_dir.join("mp4decrypt").exists());
+        assert_eq!(
+            std::fs::read(tool_dir.join("mp4decrypt")).unwrap(),
+            b"binary contents"
+        );
+    }
+
+    /// The staging directory is always consumed (renamed away) after a
+    /// successful promote, regardless of whether tool_dir pre-existed.
+    #[test]
+    fn promote_staged_install_consumes_staging_dir() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("mp4box");
+        let staging = base.path().join("mp4box.staging");
+
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        std::fs::write(tool_dir.join("existing.txt"), b"v1").unwrap();
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join("existing.txt"), b"v2").unwrap();
+
+        assert!(staging.exists());
+
+        promote_staged_install(&staging, &tool_dir).unwrap();
+
+        assert!(!staging.exists());
+        assert_eq!(
+            std::fs::read(tool_dir.join("existing.txt")).unwrap(),
+            b"v2"
+        );
+    }
 }
