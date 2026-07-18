@@ -29,8 +29,12 @@
 // - Tokio async runtime and process spawning: https://docs.rs/tokio/latest/tokio/
 // - Tauri app handle and path resolution: https://v2.tauri.app/develop/calling-rust/
 
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::AppHandle;
+
+use serde::{Deserialize, Serialize};
 
 // `archive` provides download_and_extract() and set_executable() helpers.
 // `platform` provides cross-platform path resolution for Python directories and binaries.
@@ -201,6 +205,18 @@ pub async fn install_python(app: &AppHandle) -> Result<String, String> {
         python_dir.display()
     );
 
+    // Record the provenance so the rest of the app knows this is the managed
+    // portable runtime (as opposed to a venv built from a system Python, #1017).
+    // Best-effort — a missing marker just falls back to "portable" semantics.
+    write_source_marker(
+        &python_dir,
+        &PythonSourceRecord {
+            source: PYTHON_SOURCE_PORTABLE.to_string(),
+            interpreter: None,
+            version: version.clone(),
+        },
+    );
+
     Ok(version)
 }
 
@@ -267,7 +283,10 @@ async fn get_python_version_from_binary(python_bin: &PathBuf) -> Result<String, 
 /// * `Err(message)` - An error occurred while checking
 pub async fn check_python_status(app: &AppHandle) -> Result<Option<String>, String> {
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Runtime resolution: tolerant of both the portable layout AND a venv
+    // provisioned from a system Python (#1017) — matters on Windows where the
+    // venv interpreter lives under `Scripts/` rather than the portable root.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     // If the binary doesn't exist, Python is not installed
     if !python_bin.exists() {
@@ -316,8 +335,8 @@ pub const fn get_target_python_version() -> &'static str {
 /// # Arguments
 /// * `python_dir` - The directory where Python is installed (e.g., {`app_data}/python`/)
 pub async fn get_installed_python_version(python_dir: &std::path::Path) -> Option<String> {
-    // Resolve the binary path (e.g., python/bin/python3 on Unix, python/python.exe on Windows)
-    let python_bin = crate::utils::platform::get_python_binary_path(python_dir);
+    // Resolve the binary path (portable OR system-venv layout, #1017).
+    let python_bin = crate::utils::platform::resolve_managed_python_binary(python_dir);
     if !python_bin.exists() {
         return None;
     }
@@ -352,4 +371,468 @@ pub async fn uninstall_python(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ============================================================
+// System Python detection + reuse (#1017)
+//
+// Rather than always downloading the portable runtime, MeedyaDL can detect a
+// compatible Python already on the machine and provision a `venv` from it into
+// `{app_data}/python/`. On Unix that venv exposes exactly `bin/python3` +
+// `bin/pip3` — the same paths the portable runtime uses — so every existing
+// `{python} -m gamdl` / `-m pip` call site keeps working unchanged. A venv is
+// required (not a bare interpreter reference) because modern system Pythons
+// (Homebrew 3.12+, most distros) are PEP 668 "externally-managed" and reject
+// `pip install` into the base environment.
+// ============================================================
+
+/// Minimum acceptable CPython `(major, minor)` for a *reused* system Python.
+///
+/// Forced by GAMDL 3.8.2+: its compiled `_ammuxer` decrypt/mux extension ships
+/// as a `cp310-abi3` wheel, which loads on any CPython >= 3.10 (the stable ABI
+/// is forward-compatible across minors) but NOT on 3.9 or earlier. A reused
+/// system Python only has to clear this floor; it need not match the bundled
+/// portable [`PYTHON_VERSION`] (3.12).
+const MIN_SYSTEM_PYTHON: (u32, u32) = (3, 10);
+
+/// `source` value written to the provenance marker for the managed portable runtime.
+const PYTHON_SOURCE_PORTABLE: &str = "portable";
+/// `source` value written to the provenance marker for a venv built from a system Python.
+const PYTHON_SOURCE_SYSTEM_VENV: &str = "system-venv";
+
+/// A Python interpreter discovered on the user's system, offered as an
+/// alternative to downloading the portable runtime (#1017).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemPython {
+    /// Canonical interpreter path (`sys.executable`), suitable for passing to
+    /// [`provision_venv_from_system_python`].
+    pub path: String,
+    /// Detected version string, e.g. `"3.14.6"`.
+    pub version: String,
+    /// Whether `version` meets [`MIN_SYSTEM_PYTHON`].
+    pub meets_floor: bool,
+    /// Human-readable provenance label for the UI (Homebrew / python.org / etc.).
+    pub source: String,
+}
+
+/// Provenance marker persisted at `{python_dir}/.meedya-python-source.json`.
+///
+/// Lets the rest of the app distinguish the managed portable runtime from a
+/// venv built out of a system Python — most importantly so the Updates page
+/// does NOT offer to "update" a user-provided Python to the portable
+/// [`PYTHON_VERSION`] (which would silently replace their chosen interpreter).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PythonSourceRecord {
+    /// Either [`PYTHON_SOURCE_PORTABLE`] or [`PYTHON_SOURCE_SYSTEM_VENV`].
+    pub source: String,
+    /// For a system venv: the source interpreter the venv was built from.
+    #[serde(default)]
+    pub interpreter: Option<String>,
+    /// The resolved interpreter version at provision time.
+    pub version: String,
+}
+
+impl PythonSourceRecord {
+    /// True when this managed Python is a venv built from a user's system Python.
+    #[must_use]
+    pub fn is_system_venv(&self) -> bool {
+        self.source == PYTHON_SOURCE_SYSTEM_VENV
+    }
+}
+
+/// One line of interpreter probe output: version + real executable path.
+struct ProbeResult {
+    version: String,
+    exe: String,
+}
+
+/// Tiny Python snippet that prints `MAJOR.MINOR.MICRO|<sys.executable>` on one
+/// line. Using `sys.executable` (rather than the invoked name) gives us the
+/// REAL interpreter path for dedup and for building the venv, so `python3`,
+/// `python3.14`, and an absolute Homebrew path that all resolve to the same
+/// binary collapse to a single candidate.
+const PROBE_SCRIPT: &str =
+    "import sys;print(f\"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}|{sys.executable}\")";
+
+/// Parses a dotted version string into `(major, minor, micro)`.
+///
+/// Accepts `"3.14.6"`, `"3.12"` (micro defaults to 0), and tolerates trailing
+/// junk on the micro component (`"3.11.0rc1"` → `(3, 11, 0)`). Returns `None`
+/// when there are fewer than two numeric components.
+fn parse_version_tuple(v: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = v.trim().split('.');
+    let major = parts.next()?.trim().parse::<u32>().ok()?;
+    let minor = parts.next()?.trim().parse::<u32>().ok()?;
+    // Micro is optional; strip any non-digit suffix (e.g. "0rc1").
+    let micro = parts
+        .next()
+        .map(|s| {
+            let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse::<u32>().unwrap_or(0)
+        })
+        .unwrap_or(0);
+    Some((major, minor, micro))
+}
+
+/// Whether a `(major, minor)` clears [`MIN_SYSTEM_PYTHON`].
+fn version_meets_floor(major: u32, minor: u32) -> bool {
+    (major, minor) >= MIN_SYSTEM_PYTHON
+}
+
+/// Orders two version strings; unparsable strings sort lowest.
+fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let pa = parse_version_tuple(a).unwrap_or((0, 0, 0));
+    let pb = parse_version_tuple(b).unwrap_or((0, 0, 0));
+    pa.cmp(&pb)
+}
+
+/// Classifies a resolved interpreter path into a UI-friendly provenance label.
+fn classify_source(exe: &str) -> String {
+    let lower = exe.to_lowercase();
+    if lower.contains("/opt/homebrew") || lower.contains("/usr/local/cellar") || lower.contains("homebrew") {
+        "Homebrew".to_string()
+    } else if lower.contains("python.framework") || lower.contains("/library/frameworks") {
+        "python.org".to_string()
+    } else if lower.contains(".pyenv") {
+        "pyenv".to_string()
+    } else if lower.contains("windowsapps") {
+        "Microsoft Store".to_string()
+    } else {
+        "System".to_string()
+    }
+}
+
+/// Runs `<program> [extra_args...] -c <PROBE_SCRIPT>` with a short timeout and
+/// parses the `version|exe` line. Returns `None` on spawn failure, non-zero
+/// exit, timeout, or unparsable output. No shell is involved and all arguments
+/// are fixed/parameterised.
+async fn probe_interpreter(program: &str, extra_args: &[&str]) -> Option<ProbeResult> {
+    let mut cmd = tokio::process::Command::new(program);
+    cmd.args(extra_args).arg("-c").arg(PROBE_SCRIPT);
+    let output = tokio::time::timeout(Duration::from_secs(2), cmd.output())
+        .await
+        .ok()? // timed out
+        .ok()?; // spawn/IO error
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.trim();
+    let (version, exe) = line.split_once('|')?;
+    // Reject anything whose version we can't parse (guards against surprise output).
+    parse_version_tuple(version)?;
+    Some(ProbeResult {
+        version: version.to_string(),
+        exe: exe.trim().to_string(),
+    })
+}
+
+/// Builds the ordered list of interpreter candidates `(program, extra_args)` to
+/// probe for the current platform. Absolute paths are pre-filtered by existence
+/// to avoid pointless spawns; bare names are always tried (PATH resolves them).
+fn candidate_interpreters() -> Vec<(String, Vec<String>)> {
+    let mut candidates: Vec<(String, Vec<String>)> = Vec::new();
+    // Minor versions to probe by explicit name, newest first.
+    const MINORS: &[&str] = &["3.14", "3.13", "3.12", "3.11", "3.10"];
+
+    if cfg!(target_os = "windows") {
+        // The `py` launcher is the canonical way to find Pythons on Windows.
+        candidates.push(("py".to_string(), vec!["-3".to_string()]));
+        for m in MINORS {
+            candidates.push(("py".to_string(), vec![format!("-{m}")]));
+        }
+        // PATH fallbacks.
+        candidates.push(("python".to_string(), vec![]));
+        candidates.push(("python3".to_string(), vec![]));
+    } else {
+        // Bare PATH names (newest-specific first, then the generic python3).
+        for m in MINORS {
+            candidates.push((format!("python{m}"), vec![]));
+        }
+        candidates.push(("python3".to_string(), vec![]));
+
+        // Well-known absolute install locations. Only add those that exist.
+        let mut abs: Vec<String> = Vec::new();
+        for dir in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"] {
+            abs.push(format!("{dir}/python3"));
+            for m in MINORS {
+                abs.push(format!("{dir}/python{m}"));
+            }
+        }
+        // pyenv shims.
+        if let Some(home) = std::env::var_os("HOME") {
+            let shim = Path::new(&home).join(".pyenv/shims/python3");
+            abs.push(shim.to_string_lossy().to_string());
+        }
+        // macOS python.org framework builds: /Library/Frameworks/Python.framework/Versions/*/bin/python3
+        let versions_dir = Path::new("/Library/Frameworks/Python.framework/Versions");
+        if let Ok(entries) = std::fs::read_dir(versions_dir) {
+            for entry in entries.flatten() {
+                let bin = entry.path().join("bin/python3");
+                if bin.exists() {
+                    abs.push(bin.to_string_lossy().to_string());
+                }
+            }
+        }
+        for p in abs {
+            if Path::new(&p).exists() {
+                candidates.push((p, vec![]));
+            }
+        }
+    }
+    candidates
+}
+
+/// Detects compatible Python interpreters already installed on the system,
+/// deduplicated by their real (`sys.executable`) path.
+///
+/// Candidates that fail to run, time out, or produce unparsable output are
+/// silently skipped. The result is sorted so the best choice is first:
+/// floor-meeting interpreters ahead of too-old ones, then highest version.
+/// Interpreters BELOW the floor are still returned (with `meets_floor = false`)
+/// so the UI can explain *why* an otherwise-present Python can't be reused.
+pub async fn detect_system_pythons() -> Vec<SystemPython> {
+    let candidates = candidate_interpreters();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut results: Vec<SystemPython> = Vec::new();
+
+    for (program, extra) in candidates {
+        let extra_refs: Vec<&str> = extra.iter().map(String::as_str).collect();
+        let Some(pr) = probe_interpreter(&program, &extra_refs).await else {
+            continue;
+        };
+        // Dedup by canonicalised real path.
+        let canonical = std::fs::canonicalize(&pr.exe)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| pr.exe.clone());
+        if !seen.insert(canonical) {
+            continue;
+        }
+        let (major, minor, _) = parse_version_tuple(&pr.version).unwrap_or((0, 0, 0));
+        results.push(SystemPython {
+            source: classify_source(&pr.exe),
+            path: pr.exe,
+            meets_floor: version_meets_floor(major, minor),
+            version: pr.version,
+        });
+    }
+
+    // Best first: floor-meeting before too-old, then newest version.
+    results.sort_by(|a, b| {
+        b.meets_floor
+            .cmp(&a.meets_floor)
+            .then_with(|| cmp_versions(&b.version, &a.version))
+    });
+    results
+}
+
+/// Path to the provenance marker inside a managed Python directory.
+fn source_marker_path(python_dir: &Path) -> PathBuf {
+    python_dir.join(".meedya-python-source.json")
+}
+
+/// Best-effort write of the provenance marker. A failure here is non-fatal —
+/// the app falls back to portable semantics when the marker is absent.
+fn write_source_marker(python_dir: &Path, record: &PythonSourceRecord) {
+    match serde_json::to_string_pretty(record) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(source_marker_path(python_dir), json) {
+                log::warn!("Failed to write Python source marker: {e}");
+            }
+        }
+        Err(e) => log::warn!("Failed to serialise Python source marker: {e}"),
+    }
+}
+
+/// Reads the provenance marker for the managed Python, if present.
+///
+/// Returns `None` when Python isn't provisioned yet, the marker is missing (a
+/// portable install from before #1017), or the file is unreadable/corrupt — all
+/// of which the caller should treat as the portable default.
+#[must_use]
+pub fn get_python_source(app: &AppHandle) -> Option<PythonSourceRecord> {
+    let path = source_marker_path(&platform::get_python_dir(app));
+    let data = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+/// Provisions the managed Python by building a `venv` from a user-chosen system
+/// interpreter, instead of downloading the portable runtime (#1017).
+///
+/// Steps: validate the interpreter + version floor → wipe any existing managed
+/// Python → `<interpreter> -m venv {app_data}/python` → verify the venv
+/// interpreter runs → write the provenance marker. GAMDL is installed into the
+/// venv later by the normal `install_gamdl` flow.
+///
+/// # Errors
+/// Returns a user-facing `Err(String)` when the interpreter can't be run, is
+/// below [`MIN_SYSTEM_PYTHON`], or `venv`/`ensurepip` is unavailable (common on
+/// Debian/Ubuntu, which split `python3-venv` into a separate package) — in
+/// which case the caller should fall back to the portable download.
+pub async fn provision_venv_from_system_python(
+    app: &AppHandle,
+    interpreter: &str,
+) -> Result<String, String> {
+    log::info!("Provisioning managed Python from system interpreter: {interpreter}");
+
+    // Step 1: probe the interpreter (also re-validates it's a real Python 3).
+    let probe = probe_interpreter(interpreter, &[]).await.ok_or_else(|| {
+        format!(
+            "Could not run the selected Python at '{interpreter}'. Make sure it is a valid Python 3 executable."
+        )
+    })?;
+    let (major, minor, _) = parse_version_tuple(&probe.version).ok_or_else(|| {
+        format!("Unrecognised Python version reported by '{interpreter}': {}", probe.version)
+    })?;
+    if !version_meets_floor(major, minor) {
+        return Err(format!(
+            "Python {} is too old — GAMDL needs Python {}.{}+ (its compiled decrypt module is a cp310-abi3 wheel). Choose a newer Python or download the portable runtime.",
+            probe.version, MIN_SYSTEM_PYTHON.0, MIN_SYSTEM_PYTHON.1
+        ));
+    }
+
+    // Step 2: wipe any existing managed Python so the venv starts clean.
+    let python_dir = platform::get_python_dir(app);
+    let app_data_dir = platform::get_app_data_dir(app);
+    if python_dir.exists() {
+        std::fs::remove_dir_all(&python_dir).map_err(|e| {
+            format!("Failed to remove existing Python directory {}: {e}", python_dir.display())
+        })?;
+    }
+    std::fs::create_dir_all(&app_data_dir).map_err(|e| {
+        format!("Failed to create app data directory {}: {e}", app_data_dir.display())
+    })?;
+
+    // Step 3: create the venv. Uses the interpreter's own `venv` module — no
+    // shell, fixed arguments.
+    let output = tokio::process::Command::new(interpreter)
+        .arg("-m")
+        .arg("venv")
+        .arg(&python_dir)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to launch '{interpreter} -m venv': {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Debian/Ubuntu ship Python without ensurepip/venv unless python3-venv
+        // is installed; surface that specifically so the message is actionable.
+        let hint = if stderr.contains("ensurepip") || stderr.contains("No module named venv") {
+            " This Python is missing the 'venv'/'ensurepip' module — on Debian/Ubuntu install the 'python3-venv' package, or download the portable runtime instead."
+        } else {
+            ""
+        };
+        // Best-effort cleanup of a partial venv.
+        let _ = std::fs::remove_dir_all(&python_dir);
+        return Err(format!(
+            "Failed to create a virtual environment from '{interpreter}'.{hint}\n{}",
+            stderr.trim()
+        ));
+    }
+
+    // Step 4: verify the venv interpreter actually runs.
+    let venv_bin = platform::resolve_managed_python_binary(&python_dir);
+    if !venv_bin.exists() {
+        let _ = std::fs::remove_dir_all(&python_dir);
+        return Err(format!(
+            "Virtual environment created but no Python binary was found at {}",
+            venv_bin.display()
+        ));
+    }
+    let version = get_python_version_from_binary(&venv_bin).await?;
+
+    // Step 5: record provenance (suppresses portable-Python "update" prompts).
+    write_source_marker(
+        &python_dir,
+        &PythonSourceRecord {
+            source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
+            interpreter: Some(interpreter.to_string()),
+            version: version.clone(),
+        },
+    );
+
+    log::info!(
+        "Provisioned system-Python venv ({version}) from {interpreter} at {}",
+        python_dir.display()
+    );
+    Ok(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_full_version() {
+        assert_eq!(parse_version_tuple("3.14.6"), Some((3, 14, 6)));
+        assert_eq!(parse_version_tuple(" 3.12.8 "), Some((3, 12, 8)));
+    }
+
+    #[test]
+    fn parses_two_component_version() {
+        assert_eq!(parse_version_tuple("3.10"), Some((3, 10, 0)));
+    }
+
+    #[test]
+    fn tolerates_prerelease_micro_suffix() {
+        assert_eq!(parse_version_tuple("3.11.0rc1"), Some((3, 11, 0)));
+    }
+
+    #[test]
+    fn rejects_garbage_version() {
+        assert_eq!(parse_version_tuple(""), None);
+        assert_eq!(parse_version_tuple("python"), None);
+        assert_eq!(parse_version_tuple("3"), None); // needs at least major.minor
+    }
+
+    #[test]
+    fn floor_is_310() {
+        assert!(version_meets_floor(3, 10));
+        assert!(version_meets_floor(3, 12));
+        assert!(version_meets_floor(4, 0));
+        assert!(!version_meets_floor(3, 9));
+        assert!(!version_meets_floor(2, 7));
+    }
+
+    #[test]
+    fn version_ordering_is_numeric_not_lexical() {
+        // "3.9" must sort BELOW "3.10" (lexical string compare would get this wrong).
+        assert_eq!(cmp_versions("3.9.0", "3.10.0"), std::cmp::Ordering::Less);
+        assert_eq!(cmp_versions("3.14.6", "3.12.8"), std::cmp::Ordering::Greater);
+        assert_eq!(cmp_versions("3.12.0", "3.12.0"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn classifies_provenance_labels() {
+        assert_eq!(classify_source("/opt/homebrew/bin/python3.14"), "Homebrew");
+        assert_eq!(
+            classify_source("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"),
+            "python.org"
+        );
+        assert_eq!(classify_source("/Users/x/.pyenv/versions/3.11.0/bin/python3"), "pyenv");
+        assert_eq!(classify_source("/usr/bin/python3"), "System");
+    }
+
+    #[test]
+    fn source_record_roundtrips_and_flags_venv() {
+        let venv = PythonSourceRecord {
+            source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
+            interpreter: Some("/opt/homebrew/bin/python3.14".to_string()),
+            version: "3.14.6".to_string(),
+        };
+        assert!(venv.is_system_venv());
+        let json = serde_json::to_string(&venv).unwrap();
+        let back: PythonSourceRecord = serde_json::from_str(&json).unwrap();
+        assert!(back.is_system_venv());
+        assert_eq!(back.interpreter.as_deref(), Some("/opt/homebrew/bin/python3.14"));
+
+        let portable = PythonSourceRecord {
+            source: PYTHON_SOURCE_PORTABLE.to_string(),
+            interpreter: None,
+            version: "3.12.8".to_string(),
+        };
+        assert!(!portable.is_system_venv());
+    }
 }

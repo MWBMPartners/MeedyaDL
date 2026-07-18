@@ -146,6 +146,52 @@ pub fn get_python_binary_path(python_dir: &Path) -> PathBuf {
     }
 }
 
+/// Resolves the *managed* Python interpreter at runtime, tolerant of BOTH the
+/// python-build-standalone (portable) layout AND a `venv` created from a system
+/// Python (issue #1017 — "reuse a compatible system Python").
+///
+/// # Why this exists (Windows only, in practice)
+/// - **macOS / Linux:** the portable distribution and a `venv` produce the SAME
+///   binary path (`{dir}/bin/python3`), so this is identical to
+///   [`get_python_binary_path`].
+/// - **Windows:** the portable `install_only` distribution puts `python.exe` at
+///   the ROOT of `{dir}`, whereas a `venv` puts it under `{dir}/Scripts/`. When
+///   MeedyaDL provisions from a system Python we run `python -m venv {dir}`, so
+///   the interpreter lands in `Scripts/`. This resolver probes both so every
+///   `{python} -m gamdl` / `-m pip` call site keeps working regardless of how
+///   the managed Python was provisioned.
+///
+/// The two layouts are mutually exclusive on disk (the target dir is wiped
+/// before either a portable extract or a `venv` create), so ordering only
+/// matters as a fallback default: when NEITHER exists (a fresh machine, or a
+/// pre-install existence probe), this returns the portable-root path so the
+/// wizard's "not installed" detection is preserved.
+///
+/// Unlike [`get_python_binary_path`] (a pure path computation used for the
+/// portable install target and in path-shape unit tests), this function touches
+/// the filesystem. Use this for RUNTIME resolution; use the pure variant when
+/// you specifically mean "where the portable install writes its binary".
+#[must_use]
+pub fn resolve_managed_python_binary(python_dir: &Path) -> PathBuf {
+    if cfg!(target_os = "windows") {
+        // Portable (install_only) → root python.exe. venv → Scripts/python.exe.
+        let root = python_dir.join("python.exe");
+        if root.exists() {
+            return root;
+        }
+        let venv = python_dir.join("Scripts").join("python.exe");
+        if venv.exists() {
+            return venv;
+        }
+        // Neither present yet: default to the portable-root path so existence
+        // probes (e.g. `check_python_status`) correctly report "not installed".
+        root
+    } else {
+        // macOS/Linux: portable and venv both expose bin/python3.
+        python_dir.join("bin").join("python3")
+    }
+}
+
 /// Returns the path to the pip binary for the current platform.
 ///
 /// The pip location mirrors the Python installation layout:
