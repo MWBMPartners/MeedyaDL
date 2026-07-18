@@ -233,6 +233,57 @@ static ANSI_ESCAPE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07").expect("Invalid ANSI escape regex")
 });
 
+// ---------------------------------------------------------------
+// `humanise_codec_skip_line` regexes (#994).
+//
+// These were previously compiled fresh on every call via
+// `regex::Regex::new(...)` inside the function body, each guarded by
+// a defensive `match ... Err(_) => return ...` fallback. Hoisted to
+// module-level `LazyLock` statics to match the compile-once
+// convention used by every other regex in this module — this is a
+// hot path (runs once per activity-log line during companion /
+// fallback downloads), so per-call compilation was needless
+// per-line CPU overhead. The `Err(_)` fallback arms are dropped
+// because a `LazyLock::new` with `.expect(...)` fails fast at first
+// access (effectively "at compile time" for a hard-coded pattern)
+// rather than needing a runtime fallback.
+// ---------------------------------------------------------------
+
+/// Strips `(media ID: <digits>)` — the parens and any internal
+/// whitespace. Tolerates variations in spacing.
+static MEDIA_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\s*\(media ID:\s*\d+\)").expect("Invalid media ID regex")
+});
+
+/// #832: strips GAMDL 3.x's verbose `(Unavailable requested format
+/// candidates: ...)` parenthetical. See `humanise_codec_skip_line`
+/// for the full rationale on the greedy `.*\)$` match.
+static UNAVAILABLE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\s*\(Unavailable requested format candidates:.*\)$")
+        .expect("Invalid unavailable-candidates regex")
+});
+
+/// Matches the Python-repr codec list block, e.g.
+/// `[<SongCodec.AC3: 'ac3'>, <SongCodec.ATMOS: 'atmos'>]`.
+static CODEC_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\[\s*(?:<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>\s*,?\s*)+\]")
+        .expect("Invalid codec list regex")
+});
+
+/// Matches a single `<SongCodec.NAME: 'id'>` entry inside a matched
+/// codec-list block (used to walk all entries via `captures_iter`).
+static INNER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>").expect("Invalid inner codec regex")
+});
+
+/// GAMDL 3.x multi-codec line shape (companion mode "all formats
+/// failed") — matches the lowercase comma-separated codec list
+/// immediately preceding the literal `not available` tail.
+static LC_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:,\s*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)\s+not available")
+        .expect("Invalid lowercase codec list regex")
+});
+
 /// Strips ANSI escape sequences from a string.
 ///
 /// Used to clean subprocess output before emitting it to the Activity Log
@@ -878,11 +929,7 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
 
     // Strip "(media ID: <digits>)" — the parens and any internal
     // whitespace. Tolerate variations in spacing.
-    let media_id_re = match regex::Regex::new(r"\s*\(media ID:\s*\d+\)") {
-        Ok(re) => re,
-        Err(_) => return line.to_string(), // shouldn't happen; defensive
-    };
-    let mut out = media_id_re.replace_all(line, "").to_string();
+    let mut out = MEDIA_ID_RE.replace_all(line, "").to_string();
 
     // #832: also strip GAMDL 3.x's verbose
     // `(Unavailable requested format candidates: Dolby Atmos
@@ -899,12 +946,7 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     // consumes the whole verbose block in one go. The activity-log
     // is line-delimited so there's no risk of swallowing content
     // from a following line.
-    let unavailable_re =
-        match regex::Regex::new(r"\s*\(Unavailable requested format candidates:.*\)$") {
-            Ok(re) => re,
-            Err(_) => return out,
-        };
-    out = unavailable_re.replace_all(&out, "").to_string();
+    out = UNAVAILABLE_RE.replace_all(&out, "").to_string();
 
     // Replace the Python-repr codec list with friendly display labels.
     // `[<SongCodec.AC3: 'ac3'>, <SongCodec.ATMOS: 'atmos'>]`
@@ -912,25 +954,17 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     // GAMDL CLI identifier; pass each through `pretty_codec_label` so
     // users see "Atmos" / "AAC Legacy" / etc. rather than the raw
     // enum forms.
-    let codec_re = match regex::Regex::new(r"\[\s*(?:<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>\s*,?\s*)+\]") {
-        Ok(re) => re,
-        Err(_) => return out,
-    };
-    if let Some(captures_iter) = codec_re.captures_iter(&out.clone()).next() {
+    if let Some(captures_iter) = CODEC_RE.captures_iter(&out.clone()).next() {
         // Walk all captures inside the matched bracket region by
         // re-running a simpler per-codec regex.
-        let inner_re = regex::Regex::new(r"<SongCodec\.[A-Z_0-9]+:\s*'([a-z0-9_-]+)'>")
-            .ok();
-        if let Some(inner) = inner_re {
-            let codecs: Vec<String> = inner
-                .captures_iter(captures_iter.get(0).map_or("", |m| m.as_str()))
-                .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
-                .collect();
-            if !codecs.is_empty() {
-                let pretty: Vec<String> = codecs.iter().map(|c| pretty_codec_label(c)).collect();
-                let friendly = format!("{} not available", pretty.join(", "));
-                out = codec_re.replace(&out, friendly.as_str()).to_string();
-            }
+        let codecs: Vec<String> = INNER_RE
+            .captures_iter(captures_iter.get(0).map_or("", |m| m.as_str()))
+            .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
+            .collect();
+        if !codecs.is_empty() {
+            let pretty: Vec<String> = codecs.iter().map(|c| pretty_codec_label(c)).collect();
+            let friendly = format!("{} not available", pretty.join(", "));
+            out = CODEC_RE.replace(&out, friendly.as_str()).to_string();
         }
     }
 
@@ -942,12 +976,7 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     // suffix and rewrite the list with pretty labels. Pinning to the
     // "not available" tail keeps this from accidentally rewriting other
     // codec-shaped substrings elsewhere in the line.
-    let lc_list_re =
-        match regex::Regex::new(r"([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:,\s*[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)\s+not available") {
-            Ok(re) => re,
-            Err(_) => return out,
-        };
-    if let Some(caps) = lc_list_re.captures(&out.clone()) {
+    if let Some(caps) = LC_LIST_RE.captures(&out.clone()) {
         if let Some(list_match) = caps.get(1) {
             let list_text = list_match.as_str();
             let codec_tokens: Vec<&str> =
@@ -976,7 +1005,7 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
                     .map(|t| pretty_codec_label(t))
                     .collect();
                 let replacement = format!("{} not available", pretty.join(", "));
-                out = lc_list_re.replace(&out, replacement.as_str()).to_string();
+                out = LC_LIST_RE.replace(&out, replacement.as_str()).to_string();
             }
         }
     }
