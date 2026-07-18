@@ -530,6 +530,40 @@ async fn enrich_single_file(
         None // Skip ffprobe when MediaInfo succeeded
     };
 
+    // Silent-corruption guard (#1021 / upstream gamdl#328): when BOTH probes
+    // were available and NEITHER found a decodable audio stream, the
+    // "downloaded" file is very likely still-encrypted / truncated / audio-less
+    // — GAMDL can exit 0 on such files, so without this the file is silently
+    // tagged and reported Complete. Warn loudly instead.
+    //
+    // We key ONLY on the structured probe RESULT (both `None`), never on
+    // ffprobe stderr text — #847 showed demux stderr noise fires on perfectly
+    // good files. `ffprobe_path.is_some()` ensures ffprobe actually ran, so a
+    // missing-tool `None` can never masquerade as corruption. (When MediaInfo
+    // succeeds, `mediainfo_result` is `Some` and this is skipped; when it fails,
+    // ffprobe runs and a healthy file yields `Some(audio_info)`.)
+    if mediainfo_result.is_none() && audio_info.is_none() && ffprobe_path.is_some() {
+        log::warn!(
+            "No decodable audio stream in {} — possible silent corruption (gamdl#328)",
+            file_path.display()
+        );
+        if let Some((app_handle, dl_id)) = event_context {
+            let filename = file_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?");
+            crate::utils::activity_log::emit_download_log(
+                app_handle,
+                dl_id,
+                &format!(
+                    "⚠ Possible corrupt or empty file — no audio stream found in \"{filename}\" \
+                     (MediaInfo and ffprobe both detected none). It may be truncated or \
+                     still-encrypted; re-download with overwrite off to replace just this file."
+                ),
+            );
+        }
+    }
+
     // Determine the effective codec for tag writing.
     // Priority: MediaInfo > ffprobe > requested codec.
     // When native priority was used, the actual codec is detected from the
