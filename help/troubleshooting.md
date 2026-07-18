@@ -99,10 +99,20 @@ If you paste a URL from a country other than your Apple Music account region (e.
 
 #### Too Many Requests
 
-Apple Music limits the number of requests that can be made in a given time period. If you are downloading many items simultaneously, you may hit this limit.
+Apple Music enforces a per-account limit on **license (DRM-key) requests**. It's most often hit part-way through a large album, playlist, or discography — the download starts fine and then every remaining track fails with HTTP 429.
 
-- **Cause:** Too many requests have been sent to Apple Music's servers in a short period of time.
-- **Solution:** Reduce the number of concurrent downloads in **Settings > General** tab. Wait a few minutes before retrying, as the rate limit will reset automatically. If you are downloading a large playlist or discography, consider reducing concurrency to 2-3 simultaneous downloads to avoid triggering rate limits.
+- **Cause:** Apple's per-account license-request throttle — not a MeedyaDL bug.
+- **What MeedyaDL does:** on an HTTP 429, MeedyaDL **automatically pauses the queue** so it stops adding to the throttle (continuing would only extend the block and burn more license requests). Your already-downloaded files are kept.
+- **Solution:** wait for the cooldown — it is usually **1–2+ hours**, not minutes — then click **Resume** on the Queue page. Because completed files are preserved (downloads don't overwrite), resuming only re-fetches what's still missing. Downloading in **smaller batches** (a few albums at a time rather than a whole discography) is the best way to avoid triggering it in the first place.
+
+---
+
+### Playlist Save Errors
+
+#### The first playlist track fails with "Save Playlist" enabled
+
+- **Cause:** A known bug in GAMDL's playlist-file writer (upstream [gamdl#322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
+- **Solution:** Retry the failed first track on its own, or download the album it belongs to. If you don't need the `.m3u8` playlist sidecar, turning **Save Playlist** off also avoids the bug. This is a GAMDL-side issue — MeedyaDL will pick up the fix automatically once it lands upstream and is admitted to the support window.
 
 ---
 
