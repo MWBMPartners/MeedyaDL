@@ -33,6 +33,7 @@ import {
   searchHistory,
   startDownload,
   deleteHistoryEntry,
+  resolveRevealPath,
 } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -140,12 +141,27 @@ export function HistoryPage() {
     }
   }, [addToast]);
 
-  /** Opens the output folder for a history entry via the shell. */
+  /**
+   * Opens the output folder for a history entry via the shell.
+   *
+   * `file_path` is ambiguous by construction: album downloads store the
+   * album *directory*, single-file downloads store the *file* (#992). The
+   * backend's `resolveRevealPath()` stats the path and returns the right
+   * folder for either case. If that IPC call fails for any reason, fall
+   * back to the old unconditional "strip the last path segment" regex —
+   * this preserves today's (imperfect, but working-for-files) behaviour
+   * rather than leaving the button dead.
+   */
   const handleOpenFolder = useCallback(async (filePath: string) => {
     try {
       const { open } = await import('@tauri-apps/plugin-shell');
-      // Open the parent directory if filePath is a file
-      const path = filePath.replace(/[/\\][^/\\]+$/, '');
+      let path: string;
+      try {
+        path = await resolveRevealPath(filePath);
+      } catch (resolveErr) {
+        console.error('Failed to resolve reveal path, falling back to regex strip:', resolveErr);
+        path = filePath.replace(/[/\\][^/\\]+$/, '');
+      }
       await open(path);
     } catch (err) {
       console.error('Failed to open folder:', err);

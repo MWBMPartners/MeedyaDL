@@ -2182,6 +2182,28 @@ export function deleteHistoryEntry(id: string): Promise<void> {
   return invoke<void>('delete_history_entry', { id });
 }
 
+/**
+ * Resolves the folder to reveal for a history entry's stored path (#992).
+ *
+ * Rust handler: `resolve_reveal_path()` in `src-tauri/src/commands/history.rs`
+ *
+ * `HistoryEntry.file_path` is ambiguous: album downloads record the album
+ * *directory*, while single-file downloads record the *file* itself. This
+ * stats the path on disk and returns the path itself when it's a
+ * directory, or its parent when it's a file — replacing the old
+ * unconditional "strip the last path segment" regex, which incorrectly
+ * climbed one level above album directories and revealed the parent
+ * artist folder instead of the album folder.
+ *
+ * Called by: HistoryPage "Open Folder" action
+ *
+ * @param filePath - The `file_path` value from a `HistoryEntry`.
+ * @returns Promise resolving to the folder path to open.
+ */
+export function resolveRevealPath(filePath: string): Promise<string> {
+  return invoke<string>('resolve_reveal_path', { filePath });
+}
+
 // ============================================================
 // API Field Audit Commands
 // ============================================================
