@@ -12,10 +12,71 @@
 // `commands/crash_reports.rs`.
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
+use regex::Regex;
 use tauri::AppHandle;
 
 use crate::models::crash_report::CrashReport;
 use crate::utils::platform;
+
+/// Matches an embedded `http(s)://` URL in free text, stopping at
+/// whitespace or common textual delimiters (quotes, angle brackets) so
+/// a URL quoted inside a log line (`for url 'http://...'`) or wrapped in
+/// Markdown backticks doesn't swallow trailing prose.
+static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"https?://[^\s'"<>]+"#).expect("Invalid URL redaction regex")
+});
+
+/// Redacts credentials from any URLs embedded in free text (crash
+/// backtraces).
+///
+/// Python tracebacks captured from GAMDL/httpx frequently embed the
+/// full request URL in the exception summary (e.g.
+/// `httpx.ConnectError: ... url: 'http://127.0.0.1:30020/account?token=SECRET'`).
+/// Two redactions are applied to every matched URL:
+///
+/// 1. **Query string** — truncated at the first `?` (mirrors
+///    `download_queue::redact_url_query`), since query parameters on
+///    wrapper URLs frequently carry auth tokens.
+/// 2. **Userinfo** — if an `@` appears before the first `/` following
+///    `://` (i.e. `scheme://user:pass@host/...`), the `user:pass`
+///    segment is replaced with `[redacted]`.
+///
+/// Idempotent: running this on already-redacted text is a no-op, since
+/// a redacted URL has no `?` and no `user:pass@` left to strip.
+pub(crate) fn redact_urls_in_text(text: &str) -> String {
+    URL_RE
+        .replace_all(text, |caps: &regex::Captures| redact_single_url(&caps[0]))
+        .into_owned()
+}
+
+/// Applies the query-string-truncation and userinfo-stripping rules
+/// described on [`redact_urls_in_text`] to a single URL string.
+fn redact_single_url(url: &str) -> String {
+    // Truncate at the first '?' — drops the entire query string,
+    // including any auth tokens it carries.
+    let truncated = match url.find('?') {
+        Some(idx) => &url[..idx],
+        None => url,
+    };
+
+    // Strip userinfo: look for "://", then check whether an '@' appears
+    // before the first '/' that follows it (i.e. within the authority
+    // component, not later in the path).
+    if let Some(scheme_end) = truncated.find("://") {
+        let after_scheme = &truncated[scheme_end + 3..];
+        let authority_end = after_scheme.find('/').unwrap_or(after_scheme.len());
+        let authority = &after_scheme[..authority_end];
+        if let Some(at_idx) = authority.find('@') {
+            let host_and_rest = &after_scheme[at_idx + 1..];
+            let scheme_prefix = &truncated[..scheme_end + 3];
+            return format!("{scheme_prefix}[redacted]@{host_and_rest}");
+        }
+    }
+
+    truncated.to_string()
+}
 
 /// Returns the path to the crash reports directory.
 /// Creates the directory if it does not exist.
@@ -198,7 +259,13 @@ pub fn export_crash_report(app: &AppHandle, id: &str) -> Result<String, String> 
     }
 
     if let Some(ref bt) = report.backtrace {
-        md.push_str(&format!("\n### Backtrace\n\n```\n{bt}\n```\n"));
+        // Belt-and-braces redaction: the backtrace should already be
+        // redacted at capture time (traceback_diagnostic.rs), but a
+        // second pass here is idempotent and guards against any other
+        // future writer of `CrashReport.backtrace` that forgets to
+        // redact before saving.
+        let redacted_bt = redact_urls_in_text(bt);
+        md.push_str(&format!("\n### Backtrace\n\n```\n{redacted_bt}\n```\n"));
     }
 
     if !report.context.is_empty() {
@@ -278,8 +345,11 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
         body.push_str(&format!("\n**Location:** `{loc}`\n"));
     }
 
-    // Backtrace with truncation logic for URL length limits
-    if let Some(ref bt) = report.backtrace {
+    // Backtrace with truncation logic for URL length limits.
+    // Belt-and-braces redaction (see `export_crash_report` above) before
+    // this goes into a *public* GitHub issue body.
+    if let Some(ref raw_bt) = report.backtrace {
+        let bt = redact_urls_in_text(raw_bt);
         let lines: Vec<&str> = bt.lines().collect();
         if body.len() + bt.len() + 50 > MAX_BODY_CHARS && lines.len() > 25 {
             // Truncate: keep first 15 + last 5 lines (most diagnostic)
@@ -403,5 +473,62 @@ pub fn clear_old_reports(app: &AppHandle) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// #975 — an httpx exception summary embeds the full request URL,
+    /// including an auth token query parameter. The redacted text must
+    /// keep enough of the URL to be diagnostically useful (host + path)
+    /// while dropping the token entirely.
+    #[test]
+    fn redacts_query_string_token_from_url() {
+        let input = "httpx.ConnectError: ... for url 'http://pi.local:30020/account?token=SECRET'";
+        let out = redact_urls_in_text(input);
+        assert!(
+            out.contains("pi.local:30020/account"),
+            "expected host+path to survive redaction, got: {out}"
+        );
+        assert!(!out.contains("SECRET"), "token value leaked: {out}");
+        assert!(!out.contains("token="), "query key leaked: {out}");
+    }
+
+    /// A URL with embedded `user:pass` userinfo (rare, but possible for
+    /// self-hosted wrapper setups behind basic auth) must have the
+    /// credentials stripped while the host stays visible for diagnosis.
+    #[test]
+    fn redacts_userinfo_credentials_from_url() {
+        let input = "http://user:pass@host/x";
+        let out = redact_urls_in_text(input);
+        assert!(
+            out.contains("[redacted]@host"),
+            "expected userinfo placeholder, got: {out}"
+        );
+        assert!(!out.contains("user:pass"), "credentials leaked: {out}");
+    }
+
+    /// Multiple URLs in the same line (e.g. a retry log showing both the
+    /// original and fallback wrapper URL) must each be redacted
+    /// independently — `replace_all` should not stop at the first match.
+    #[test]
+    fn redacts_multiple_urls_in_one_line() {
+        let input =
+            "primary http://a.example.com/x?token=AAA failed, retrying http://b.example.com/y?token=BBB";
+        let out = redact_urls_in_text(input);
+        assert!(!out.contains("AAA"), "first token leaked: {out}");
+        assert!(!out.contains("BBB"), "second token leaked: {out}");
+        assert!(out.contains("a.example.com/x"), "first host lost: {out}");
+        assert!(out.contains("b.example.com/y"), "second host lost: {out}");
+    }
+
+    /// Plain text with no embedded URL must pass through unchanged — the
+    /// regex should not misfire on ordinary traceback prose.
+    #[test]
+    fn plain_text_without_url_is_unchanged() {
+        let input = "TypeError: Task was destroyed but it is pending!";
+        assert_eq!(redact_urls_in_text(input), input);
     }
 }
