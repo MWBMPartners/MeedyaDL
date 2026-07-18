@@ -1359,15 +1359,31 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // next time they check. The actual update requires reinstalling Python.
     let target = python_manager::get_target_python_version();
 
+    // A venv built from a user's system Python (#1017) must NOT be "updated" to
+    // the portable PYTHON_VERSION — that would silently replace the interpreter
+    // the user deliberately chose (and would be a downgrade for e.g. a 3.14
+    // system Python). Suppress the prompt entirely for that provenance.
+    let is_system_venv =
+        python_manager::get_python_source(app).is_some_and(|s| s.is_system_venv());
+
     // Only show an update if Python is installed AND the installed version is
     // older than the target. If Python is not installed, the setup wizard
     // handles installation — we don't show it as an "update".
-    let update_available = current.as_ref().is_some_and(|c| is_newer(c, target));
+    let update_available =
+        !is_system_venv && current.as_ref().is_some_and(|c| is_newer(c, target));
+
+    // For a reused system Python, report its own version as the "latest" so the
+    // Updates page reads "up to date" rather than dangling the portable version.
+    let latest_version = if is_system_venv {
+        current.clone().or_else(|| Some(target.to_string()))
+    } else {
+        Some(target.to_string())
+    };
 
     Ok(ComponentUpdate {
         name: "Python Runtime".to_string(),
         current_version: current,
-        latest_version: Some(target.to_string()),
+        latest_version,
         update_available,
         // Python updates are always compatible since we control the version
         // and test it with GAMDL before shipping.

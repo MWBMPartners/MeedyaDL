@@ -113,7 +113,7 @@ pub async fn install_gamdl(
 
     // Resolve the Python binary path
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     // Verify Python is installed before attempting pip install
     if !python_bin.exists() {
@@ -270,7 +270,7 @@ pub async fn install_gamdl_version(app: &AppHandle, target: &str) -> Result<Stri
     log::info!("Installing GAMDL version {trimmed} via pip --force-reinstall (per #522)…");
 
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err(
@@ -337,7 +337,7 @@ pub async fn install_gamdl_version(app: &AppHandle, target: &str) -> Result<Stri
 /// * `Err(message)` - Python is not available or pip failed
 pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String> {
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     // If Python isn't installed, GAMDL can't be either
     if !python_bin.exists() {
@@ -474,7 +474,7 @@ fn build_gamdl_command(
     // Resolve the portable Python binary path from app data directory.
     // This is the same Python installed by python_manager::install_python().
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err("Python is not installed. Run the setup wizard first.".to_string());
