@@ -20,6 +20,38 @@ use tokio::process::Command;
 
 use crate::utils::platform;
 
+/// True only for a bare PyPI package name (no URLs, VCS refs, paths, or flags).
+///
+/// PyPI package names are restricted to ASCII letters, digits, `.`, `-`,
+/// and `_`. But pip's "install target" grammar accepts far more than a
+/// bare package name — direct URLs (`pkg @ https://evil/x.whl`), VCS
+/// refs (`git+https://...`), local paths (`./local`, `/abs/path`), and
+/// arbitrary CLI-flag-shaped strings (`--index-url=http://evil`) — any
+/// of which can point pip at attacker-controlled code (including build
+/// hooks that execute at install time) if forwarded verbatim from an
+/// untrusted caller (#985).
+///
+/// This function is a strict allowlist: non-empty, at most 80 chars,
+/// first AND last character ASCII-alphanumeric, and every character
+/// drawn from `[A-Za-z0-9._-]`. This rejects `@`, `:`, `/`, whitespace,
+/// and a leading `-` (which pip/argparse would otherwise interpret as
+/// a flag).
+#[must_use]
+pub fn is_safe_pip_package_name(name: &str) -> bool {
+    if name.is_empty() || name.len() > 80 {
+        return false;
+    }
+
+    let first_is_alnum = name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric());
+    let last_is_alnum = name.chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric());
+    if !first_is_alnum || !last_is_alnum {
+        return false;
+    }
+
+    name.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+}
+
 /// Installs a pip package into the managed Python environment.
 ///
 /// Runs `python -m pip install --upgrade <package>` and returns
@@ -31,8 +63,18 @@ use crate::utils::platform;
 ///
 /// # Returns
 /// * `Ok(version)` - The installed version string
-/// * `Err(message)` - If Python is missing or pip install failed
+/// * `Err(message)` - If Python is missing, pip install failed, or
+///   `package` fails the [`is_safe_pip_package_name`] allowlist check.
 pub async fn install_pip_engine(app: &AppHandle, package: &str) -> Result<String, String> {
+    // Security guard (#985): `package` may originate from an IPC call
+    // (`upgrade_pip_engine`). Refuse anything that isn't a bare PyPI
+    // package name before it ever reaches a subprocess argv.
+    if !is_safe_pip_package_name(package) {
+        return Err(format!(
+            "Refusing to run pip on an unsafe package spec: {package}"
+        ));
+    }
+
     log::info!("Installing {package} via pip...");
 
     let python_dir = platform::get_python_dir(app);
@@ -132,7 +174,18 @@ pub async fn get_pip_engine_version(
 /// # Arguments
 /// * `app` - Tauri app handle for locating the Python binary
 /// * `package` - PyPI package name
+///
+/// # Errors
+/// Returns an error if Python is missing, pip uninstall failed, or
+/// `package` fails the [`is_safe_pip_package_name`] allowlist check.
 pub async fn uninstall_pip_engine(app: &AppHandle, package: &str) -> Result<(), String> {
+    // Security guard (#985): same rationale as `install_pip_engine`.
+    if !is_safe_pip_package_name(package) {
+        return Err(format!(
+            "Refusing to run pip on an unsafe package spec: {package}"
+        ));
+    }
+
     log::info!("Uninstalling {package} via pip...");
 
     let python_dir = platform::get_python_dir(app);
@@ -197,4 +250,52 @@ pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, 
         .map(std::string::ToString::to_string);
 
     Ok(version)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real-world engine package names (from engines.toml) must all
+    /// pass the allowlist — this guard must never block a legitimate
+    /// upgrade/install of a known engine.
+    #[test]
+    fn accepts_known_engine_package_names() {
+        for name in ["votify", "yt-dlp", "ofscraper", "gamdl"] {
+            assert!(
+                is_safe_pip_package_name(name),
+                "expected {name:?} to be accepted"
+            );
+        }
+    }
+
+    /// #985 — a raw `package` string forwarded verbatim to
+    /// `pip install --upgrade <package>` lets an attacker point pip at
+    /// a URL, VCS ref, local path, or extra CLI flags. None of these
+    /// shapes may pass the allowlist.
+    #[test]
+    fn rejects_unsafe_package_specs() {
+        let unsafe_specs = [
+            "foo @ https://evil/x.whl",
+            "--index-url=http://evil",
+            "git+https://x",
+            "./local",
+            "gamdl; rm -rf ~",
+            "",
+        ];
+        for spec in unsafe_specs {
+            assert!(
+                !is_safe_pip_package_name(spec),
+                "expected {spec:?} to be rejected"
+            );
+        }
+    }
+
+    /// The 80-character length cap rejects pathologically long specs
+    /// even if every individual character would otherwise be allowed.
+    #[test]
+    fn rejects_overlong_package_name() {
+        let long_name = "a".repeat(200);
+        assert!(!is_safe_pip_package_name(&long_name));
+    }
 }
