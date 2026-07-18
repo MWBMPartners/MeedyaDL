@@ -1010,6 +1010,18 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
                 "wrapper_account_url = {}",
                 sanitize_ini_value(&settings.wrapper_account_url)
             ));
+            // Wrapper-v1 decryption socket ("host:port"). The `--wrapper-decrypt-ip`
+            // CLI flag is emitted for every wrapper-v1 release (gamdl_options.rs),
+            // and the decrypt preflight (#743/#744) probes this address — but the
+            // INI twin was never written (#1026). Emit it here (unconditional,
+            // matching the always-emitted CLI flag) so config.ini stays consistent
+            // with the CLI and its `wrapper_account_url` / `wrapper_m3u8_ip`
+            // siblings; needed for remote/LAN wrapper-v1 setups (else GAMDL falls
+            // back to its compile-time 127.0.0.1:10020 default).
+            lines.push(format!(
+                "wrapper_decrypt_ip = {}",
+                sanitize_ini_value(&settings.wrapper_decrypt_ip)
+            ));
             // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write
             // keeps the emitted INI self-consistent with the detected
             // CLI — older releases drop unknown keys via
@@ -1362,9 +1374,15 @@ mod tests {
         let mut settings = default_settings();
         settings.use_wrapper = true;
         settings.wrapper_account_url = "http://localhost:9999".to_string();
+        settings.wrapper_decrypt_ip = "10.0.0.5:10020".to_string();
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("use_wrapper = true"));
         assert!(ini.contains("wrapper_account_url = http://localhost:9999"));
+        // #1026: the wrapper-v1 decrypt socket must also land in the INI
+        // (was CLI-only before), consistent with the account_url sibling.
+        assert!(ini.contains("wrapper_decrypt_ip = 10.0.0.5:10020"));
+        // Wrapper-v1 must NOT emit the wrapper-v2 single-endpoint key.
+        assert!(!ini.contains("wrapper_url ="));
     }
 
     #[test]
