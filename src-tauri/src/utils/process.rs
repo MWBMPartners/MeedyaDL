@@ -1155,6 +1155,14 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // instead of the generic "content not found" message.
     } else if is_wrapper_version_mismatch_error(error_message) {
         "wrapper_version_mismatch"
+    // Wrapper-v2 decrypt not ready (#319): the daemon is up + authenticated
+    // but FairPlay playback isn't initialised (`runtime.playback_ready` is
+    // false), so GAMDL 3.8.2+ raises `wrapper-v2: decrypt unavailable (503)`
+    // mid-download for non-web codecs. Distinct from a version mismatch — the
+    // daemon version is fine, it just isn't ready. Matched before the generic
+    // fallback so the user gets "restart the daemon" guidance, not a raw error.
+    } else if lower.contains("decrypt unavailable") {
+        "wrapper_decrypt_unavailable"
     // Content not found: the URL is invalid or the content was removed.
     } else if lower.contains("not found") || lower.contains("404") || lower.contains("no results") {
         "not_found"
@@ -1200,6 +1208,7 @@ pub fn error_guidance(category: &str) -> &'static str {
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
         "media_not_streamable" => "Apple Music says this content isn't streamable — it may have been removed, isn't licensed in your storefront, or is a personal-library upload that catalog tooling can't fetch. Try the catalog URL for the same album in a different storefront, or pick a release that's still available.",
         "wrapper_version_mismatch" => "GAMDL and the wrapper-v2 daemon must be upgraded together. GAMDL 3.8.2+ requires wrapper-v2 0.0.2 (native TCP decrypt, on its own host/port); GAMDL 3.6–3.8.1 require wrapper-v2 0.0.1 (HTTP decrypt). Check your GAMDL version and rebuild your wrapper-v2 container to the matching daemon version.",
+        "wrapper_decrypt_unavailable" => "The wrapper-v2 daemon is signed in but its FairPlay decryptor isn't ready, so ALAC/Atmos/AC3 (non-web codecs) can't be decrypted. Restart the wrapper-v2 daemon and check its logs for Apple-library initialisation, then retry. AAC (aac-web) downloads without the decryptor and is unaffected.",
         _ => "Check the Activity Log for more details. If this persists, report it via Settings > Advanced > Error Reporting.",
     }
 }
@@ -2412,6 +2421,18 @@ mod tests {
         let g = error_guidance("license_declined");
         assert!(g.to_lowercase().contains("license"));
         assert!(g.to_lowercase().contains("not a rate limit"));
+    }
+
+    #[test]
+    fn classifies_wrapper_decrypt_unavailable() {
+        // gamdl#319: daemon up + authenticated but FairPlay not ready.
+        assert_eq!(
+            classify_error("OSError: wrapper-v2: decrypt unavailable (503)"),
+            "wrapper_decrypt_unavailable"
+        );
+        let g = error_guidance("wrapper_decrypt_unavailable");
+        assert!(g.to_lowercase().contains("restart"));
+        assert!(g.to_lowercase().contains("aac-web"));
     }
 
     #[test]
