@@ -9,29 +9,41 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ## 0. Current session (2026-07-18) — IN PROGRESS
 
-Picking up after the GAMDL 3.8.2 admission (§2–§3). This session's agenda, in order:
+Picking up after the GAMDL 3.8.2 admission (§2–§3). Agenda + status:
 
-1. **Git hygiene (DONE):** the working tree showed 722 phantom `100644→100755`
-   executable-bit flips (an accidental repo-wide `chmod`; committed mode is `644`,
-   zero content delta). Neutralised locally via `git config core.fileMode false`
-   (non-destructive; keeps the committed `644` modes). `.claude/settings.local.json`
-   (personal permission allowlist w/ machine-specific paths) is now gitignored.
-2. **Python detection UX (setup wizard):** a fresh macOS install shows "Python Not
-   Found" even when a system Python (e.g. Homebrew `python@3.14`) is present.
-   Investigating whether to detect + offer to reuse system Python (mirrors the
-   tool "Browse" affordance, #278) vs. the current always-download-portable flow.
-3. **GAMDL v3.8.4 admission review** (release
-   <https://github.com/glomatico/gamdl/releases/tag/3.8.4>): full cross-version
-   diff 3.8.2→3.8.4 to decide ceiling bump + any MeedyaDL-facing code changes.
-   Deep analysis via sequential Fable-5 agents (fallback Opus).
-4. **GAMDL open-issues mitigation sweep:** review open upstream GAMDL issues for
-   problems MeedyaDL can mitigate **on its own side** (no GAMDL edits). Seed
-   example: <https://github.com/glomatico/gamdl/issues/306#issuecomment-4930074744>.
+1. **Git hygiene — DONE (`d0790557`).** Working tree showed 722 phantom
+   `100644→100755` executable-bit flips (accidental repo-wide `chmod`; committed
+   mode `644`, zero content delta). Neutralised via `git config core.fileMode
+   false` (local, non-destructive). `.claude/settings.local.json` now gitignored.
+2. **Python detection UX — DONE (#1017, `7fb07ed7` + help `dddbf4d9`).** Setup
+   wizard now DETECTS a compatible system Python (PATH / Homebrew / python.org /
+   pyenv / Windows `py`; floor 3.10) and REUSES it by building a venv at
+   `{app_data}/python/` (PEP-668-safe), keeping the portable download as the
+   fallback. Venv-aware `platform::resolve_managed_python_binary` (Windows
+   `Scripts/`); provenance marker suppresses the portable "update" nag for
+   system-venv installs. 8 unit tests. See CLAUDE.md "System-Python reuse".
+3. **GAMDL v3.8.4 admission — DONE (#1018, `59dbaefa`).** ADMITTED, ceiling
+   3.8.2 → 3.8.4 (covers 3.8.3). ZERO-code-change bump: the whole 3.8.2→3.8.4
+   delta has no Python-source change (pyo3 0.27 for Py3.14 sdist builds + CI
+   wheels + one `_ammuxer` Rust fix `e4887d34` for corrupted song endings on
+   wrapper-decrypt — a bug in 3.8.2/3.8.3). Wheels re-verified live (5× cp310-abi3,
+   no ARMv7). Audit `.github/audits/gamdl-v3.8.3-v3.8.4-audit.md`. **3.8.4 fixes
+   a data-corruption bug in the currently-recommended 3.8.2 → real user win.**
+4. **GAMDL open-issues mitigation sweep — IN PROGRESS.** Reviewing open upstream
+   GAMDL issues for problems MeedyaDL can mitigate **on its own side** (no GAMDL
+   edits). Seed: <https://github.com/glomatico/gamdl/issues/306#issuecomment-4930074744>.
+   Fable-5 analysis agent running; Opus validates + implements each.
 5. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
 
-Model tiering this session: Fable 5 (sequential) for deep planning/analysis/
-orchestration → fallback Opus; Sonnet/Haiku for implementation; Opus for the
-hardest implementation. Push IS authorised this session; still **no PR**.
+Model tiering: Fable 5 (sequential, one at a time) for deep analysis → fallback
+Opus; Sonnet/Haiku for implementation; Opus for the hardest. Push IS authorised
+this session; still **no PR**.
+
+**Environment caveat this session:** the sandbox has **no Rust/Node toolchain**
+(`~/.cargo` absent, `npm` missing), so `cargo test --lib` / `npm run type-check`
+could NOT be run locally — every commit is validated by CI-on-push, compensated
+by careful by-hand review. Also `gh` token lacks `read:project` (couldn't add
+issues to project 6; issues themselves are filed/updated).
 
 ---
 
