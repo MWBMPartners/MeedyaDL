@@ -29,11 +29,35 @@ Picking up after the GAMDL 3.8.2 admission (§2–§3). Agenda + status:
    wrapper-decrypt — a bug in 3.8.2/3.8.3). Wheels re-verified live (5× cp310-abi3,
    no ARMv7). Audit `.github/audits/gamdl-v3.8.3-v3.8.4-audit.md`. **3.8.4 fixes
    a data-corruption bug in the currently-recommended 3.8.2 → real user win.**
-4. **GAMDL open-issues mitigation sweep — IN PROGRESS.** Reviewing open upstream
-   GAMDL issues for problems MeedyaDL can mitigate **on its own side** (no GAMDL
-   edits). Seed: <https://github.com/glomatico/gamdl/issues/306#issuecomment-4930074744>.
-   Fable-5 analysis agent running; Opus validates + implements each.
+4. **GAMDL open-issues mitigation sweep — DONE.** Surveyed all 12 open upstream
+   GAMDL issues (Fable-5 agent, Opus-validated). 7 mitigable, 5 rejected (3
+   because MeedyaDL already handles them). Shipped 5 mitigations + docs:
+   - **#1019** (`89dedb2d`, `c538c247`) — rate-limit guard (seed gamdl#306): a
+     429 now pauses the queue (stops the serial cascade extending Apple's ban),
+     skips the error report + companions + wrapper auto-retry, and gets honest
+     "hours not minutes" guidance. Folds gamdl#307 (`license_declined`).
+   - **#1020** (`e977d509`) — wrapper-v2 `playback_ready=false` preflight warning
+     + `wrapper_decrypt_unavailable` classifier for the 503 (gamdl#319).
+   - **#1021** (`b25a546c`) — silent-corruption guard: warn when both probes
+     find no audio stream (gamdl#328); #847-safe (result-keyed, not stderr).
+   - **#1022** (`1a652cc4`) — transient `[Errno 13]` on GAMDL temp files →
+     retriable `io_transient` + AV-exclusion guidance (gamdl#323).
+   - **#1023** (`f604e91e`) — correct multi-artist Album Artist (`aART`) from the
+     catalog `artistName` (gamdl#326).
+   - **#1024** (`c538c247`) — troubleshooting note for the save-playlist
+     first-track bug (gamdl#322, docs-only).
 5. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
+
+### ⚠ CRITICAL: this session's Rust/TS was NOT compiled locally
+
+The sandbox had no toolchain, so **none of #1017–#1024 ran `cargo test`/`type-check`**.
+Every commit is validated by review only — **CI-on-push is the real gate.**
+First next step for whoever picks this up (or CI): run `cd src-tauri && cargo
+test --lib` + `npm run type-check`. Highest-risk change: the new
+`download_queue.rs` match arms (`rate_limit`, `io_transient`) — verify they
+compile and the existing 1465-test suite still passes. New unit tests to look
+for: `process::tests` (license_declined, wrapper_decrypt_unavailable,
+io_transient) and `python_manager::tests` (8 detection/marker tests).
 
 Model tiering: Fable 5 (sequential, one at a time) for deep analysis → fallback
 Opus; Sonnet/Haiku for implementation; Opus for the hardest. Push IS authorised
