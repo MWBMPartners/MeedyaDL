@@ -1161,6 +1161,14 @@ pub fn classify_error(error_message: &str) -> &'static str {
     // Rate limiting: the server is throttling requests; retry after delay.
     } else if lower.contains("rate limit") || lower.contains("429") || lower.contains("too many") {
         "rate_limit"
+    // License declined (#307): Apple's license-exchange endpoint refused a
+    // playback license for a specific track with a NON-429 status (e.g.
+    // `Status code: 200` carrying `status:-1002`). The 429 rate-limit case is
+    // already caught above; this catches the "Apple just won't license this
+    // one track" case so the user gets codec/storefront guidance instead of a
+    // raw traceback. Keyed on the endpoint phrase GAMDL surfaces.
+    } else if lower.contains("license exchange") {
+        "license_declined"
     // External tool errors: FFmpeg, mp4decrypt, etc. failed during post-processing.
     } else if lower.contains("ffmpeg")
         || lower.contains("mp4decrypt")
@@ -1185,7 +1193,8 @@ pub fn error_guidance(category: &str) -> &'static str {
         "io" => "Check that your output directory is accessible and has sufficient disk space.",
         "codec" => "This format may not be available for this content. Try a different quality setting.",
         "not_found" => "This content may have been removed from Apple Music or the URL may be incorrect.",
-        "rate_limit" => "Apple Music is rate-limiting requests. Wait a few minutes and retry.",
+        "rate_limit" => "Apple Music is rate-limiting license requests (HTTP 429) — a per-account, server-side throttle that usually clears after 1–2+ hours, not minutes. MeedyaDL has paused the queue so it stops adding to the throttle; resume it from the Queue page once the cooldown lifts. Smaller batches help avoid it, and already-downloaded files are preserved (so a later run only re-fetches what's missing).",
+        "license_declined" => "Apple declined a playback license for this track — this is NOT a rate limit. It's usually codec- or region-specific: try a different codec (e.g. AAC), a different storefront, or skip this track.",
         "tool" => "A required tool (FFmpeg, mp4decrypt, etc.) may be missing or outdated. Check Settings > Tools.",
         "playlist_title_keyerror" => "Some tracks in this playlist are missing required metadata — this is a known upstream GAMDL limitation with certain Apple Music Classical playlists (see issue #588). Try downloading the individual albums instead, or report it upstream at https://github.com/glomatico/gamdl/issues.",
         "library_webplayback_keyerror" => "Library URLs (music.apple.com/.../library/albums/l.XXXX) use a different Apple Music API endpoint than catalog URLs and aren't fully supported by GAMDL yet — it expects a 'songList' field that the library endpoint doesn't return (issue #570). Download the catalog version of the album instead by searching for it on music.apple.com, or report the gap upstream at https://github.com/glomatico/gamdl/issues.",
@@ -2381,6 +2390,28 @@ mod tests {
     fn classifies_rate_limit_errors() {
         assert_eq!(classify_error("Rate limit exceeded"), "rate_limit");
         assert_eq!(classify_error("HTTP 429 too many requests"), "rate_limit");
+        // The upstream gamdl#306 shape: a 429 on the license-exchange endpoint
+        // must classify as rate_limit (429 wins over the license-declined
+        // branch), so the queue-pause guard fires.
+        assert_eq!(
+            classify_error("Error fetching license exchange data (Status code: 429)"),
+            "rate_limit"
+        );
+    }
+
+    #[test]
+    fn classifies_non_429_license_refusal_as_license_declined() {
+        // gamdl#307: Apple refused a license for one track with a non-429 status.
+        assert_eq!(
+            classify_error(
+                "Error fetching license exchange data (Status code: 200): {\"status\":-1002}"
+            ),
+            "license_declined"
+        );
+        // Guidance must exist and NOT claim it's a rate limit.
+        let g = error_guidance("license_declined");
+        assert!(g.to_lowercase().contains("license"));
+        assert!(g.to_lowercase().contains("not a rate limit"));
     }
 
     #[test]
