@@ -214,7 +214,13 @@ pub fn write_diagnostic_if_any(
         source: "traceback_diagnostic".to_string(),
         panic_message: Some(format!("{n} distinct Python traceback group(s) captured")),
         location: None,
-        backtrace: Some(format_groups(&groups)),
+        // Redact any auth tokens / credentials embedded in URLs the
+        // Python exception summary echoed back (e.g. httpx
+        // ConnectError messages include the full request URL) before
+        // the backtrace is ever written to disk (#975).
+        backtrace: Some(crash_report_service::redact_urls_in_text(&format_groups(
+            &groups,
+        ))),
         context,
     };
 
