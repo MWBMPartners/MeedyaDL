@@ -11039,6 +11039,37 @@ pub fn process_queue(
                             );
                             false
                         }
+                        "io_transient" => {
+                            // Transient permission-denied on GAMDL's own temp
+                            // staging file (#323) — almost always an antivirus /
+                            // file-indexer lock on Windows that clears on a retry.
+                            // Reuse the bounded network-retry counter so we retry a
+                            // couple of times but never loop forever.
+                            let mut q = queue_clone.lock().await;
+                            q.set_error(&dl_id, &error_msg);
+                            q.on_task_finished();
+                            if let Some((attempt, total)) = q.try_network_retry(&dl_id) {
+                                drop(q);
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    &format!(
+                                        "Temp file was briefly locked (antivirus/indexer) — \
+                                         retrying (attempt {attempt} of {total})"
+                                    ),
+                                );
+                                true
+                            } else {
+                                drop(q);
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "Temp file stayed locked after retries — add MeedyaDL's Temp \
+                                     folder (Settings > Tools) to your antivirus exclusions.",
+                                );
+                                false
+                            }
+                        }
                         "rate_limit" => {
                             // Apple is throttling license-exchange requests (HTTP
                             // 429) — a server-side, per-account cooldown that
