@@ -717,6 +717,28 @@ async fn enrich_single_file(
                     &metadata.raw_json,
                     matched_track.map(|t| &t.raw_json),
                 );
+
+                // Correct the STANDARD album-artist (`aART`) atom from the
+                // catalog's full album-artist string (#326). GAMDL tags `aART`
+                // with only the FIRST artist on multi-artist albums ("Drake"
+                // instead of "Drake & 21 Savage"); the catalog `artistName`
+                // carries the complete display string. This runs inside the
+                // album-match guard above, so a sibling album's artist can never
+                // leak in. The registry only writes the freeform `AlbumArtistSort`
+                // atom — most players read the standard `aART`, which is what we
+                // fix here.
+                if let Some(ref api_album_artist) = metadata.artist_name {
+                    let current = tag.album_artist().map(str::to_string);
+                    if current.as_deref() != Some(api_album_artist.as_str()) {
+                        log::debug!(
+                            "Correcting album-artist (aART) for {}: '{}' -> '{}'",
+                            tag_path.display(),
+                            current.as_deref().unwrap_or("<none>"),
+                            api_album_artist,
+                        );
+                        tag.set_album_artist(api_album_artist.clone());
+                    }
+                }
             }
         }
 
