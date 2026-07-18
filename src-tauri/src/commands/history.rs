@@ -74,3 +74,76 @@ pub fn get_lifetime_stats(
 ) -> crate::services::stats_service::LifetimeStats {
     crate::services::stats_service::get_lifetime_stats(&app)
 }
+
+/// Resolves the folder to reveal for a history entry's stored path (#992).
+///
+/// `HistoryEntry.file_path` is ambiguous by construction: album downloads
+/// record the album *directory*, while single-file downloads record the
+/// *file* itself. There's no `output_is_directory` flag on the struct (and
+/// older rows predate any such flag), so this stats the path directly —
+/// the path itself if it is a directory, otherwise its parent.
+///
+/// Called by the frontend's "Open Folder" action instead of the old
+/// unconditional `path.replace(/[/\\][^/\\]+$/, '')` regex strip, which
+/// incorrectly climbed one level above album directories and revealed the
+/// parent artist folder instead of the album folder.
+///
+/// Falls back to the input string unchanged if it has no parent (e.g. a
+/// root path) — the caller's regex-based fallback handles the case where
+/// this command itself is unreachable (IPC failure).
+#[tauri::command]
+pub fn resolve_reveal_path(file_path: String) -> String {
+    let p = std::path::Path::new(&file_path);
+    if p.is_dir() {
+        file_path
+    } else {
+        p.parent()
+            .map(|q| q.to_string_lossy().into_owned())
+            .unwrap_or(file_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A real directory resolves to itself — this is the album-download
+    /// case that #992 was about (the stored path IS the folder to reveal).
+    #[test]
+    fn resolve_reveal_path_returns_directory_itself() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dir_path = dir.path().to_string_lossy().into_owned();
+
+        let resolved = resolve_reveal_path(dir_path.clone());
+
+        assert_eq!(resolved, dir_path);
+    }
+
+    /// A real file resolves to its parent directory — the single-file
+    /// download case, matching the old regex-strip behaviour.
+    #[test]
+    fn resolve_reveal_path_returns_parent_of_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file_path = dir.path().join("track.m4a");
+        std::fs::write(&file_path, b"fake audio").unwrap();
+
+        let resolved = resolve_reveal_path(file_path.to_string_lossy().into_owned());
+
+        assert_eq!(resolved, dir.path().to_string_lossy().into_owned());
+    }
+
+    /// A nonexistent path (e.g. the user moved/deleted the file after
+    /// download) with a parent still resolves to that parent — `is_dir()`
+    /// is `false` for missing paths, so the file branch (parent) applies.
+    /// This preserves today's UX: users can still open the containing
+    /// folder even if the exact file is gone.
+    #[test]
+    fn resolve_reveal_path_nonexistent_path_returns_parent() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let missing_path = dir.path().join("no-such-file.m4a");
+
+        let resolved = resolve_reveal_path(missing_path.to_string_lossy().into_owned());
+
+        assert_eq!(resolved, dir.path().to_string_lossy().into_owned());
+    }
+}
