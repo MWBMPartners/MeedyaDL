@@ -264,11 +264,82 @@ jobs:
             fi
             echo "::notice::Previous tag for $TAG = ${PREV_TAG:-<none>}"
 
+            # Cumulative anchor for PRERELEASE notes (#1027): the newest STABLE
+            # tag (git version-sort, prereleases stripped). For a prerelease
+            # this is always the right "since the last stable" baseline; a
+            # backwards/empty range (pathological) simply renders no content and
+            # is dropped below.
+            PREV_STABLE=""
+            if [[ "$STRIPPED" == *-* ]]; then
+              PREV_STABLE=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" | grep -vE -- '-' | head -1 || true)
+              echo "::notice::Cumulative anchor (last stable) for $TAG = ${PREV_STABLE:-<none>}"
+            fi
+
             GENERATED="$RUNNER_TEMP/release-notes-${TAG}.md"
-            if command -v git-cliff &>/dev/null && [ -n "$PREV_TAG" ]; then
-              if git-cliff --strip header --tag "$TAG" "${PREV_TAG}..${TAG}" > "$GENERATED" 2>/dev/null; then
-                if [ -s "$GENERATED" ]; then
+            INC="$RUNNER_TEMP/inc-${TAG}.md"
+            CUM="$RUNNER_TEMP/cum-${TAG}.md"
+
+            # git-cliff renders a `## [version]` header even when EVERY commit
+            # in the range is skipped, so `-s` is not a real content check.
+            # "Has content" == at least one `### <group>` section heading.
+            has_content() { grep -q '^### ' "$1" 2>/dev/null; }
+
+            if command -v git-cliff &>/dev/null; then
+              if [[ "$STRIPPED" != *-* ]]; then
+                # Stable tags: original single-range render (unchanged).
+                if [ -n "$PREV_TAG" ] && git-cliff --strip header --tag "$TAG" "${PREV_TAG}..${TAG}" > "$GENERATED" 2>/dev/null && [ -s "$GENERATED" ]; then
                   echo "::notice::Generated release notes via git-cliff (${PREV_TAG}..${TAG})"
+                  NOTES_PATH="$GENERATED"
+                fi
+              else
+                # Prerelease (#1027): a detailed "New in this build" slice (full
+                # render, incl. commit bodies) since the previous same-channel
+                # tag, PLUS a compact subjects-only "since the last stable" slice
+                # so every prerelease is self-describing even when the delta is
+                # dependency/housekeeping-only (the in-app updater serves only
+                # the newest body, and alpha users skip intermediate builds).
+                [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
+                if [ -n "$PREV_STABLE" ]; then
+                  # --ignore-tags collapses the intermediate prerelease tags so
+                  # the cumulative view is ONE section, not one per alpha. The
+                  # pattern has NO leading '-' (git-cliff parses that as a flag).
+                  # The compact body template lives in .github/cliff-cumulative-body.tera
+                  # (subjects only — the full cliff.toml template embeds every
+                  # commit body → ~25x larger + risks the size guard).
+                  git-cliff --strip all --tag "$TAG" \
+                    --ignore-tags '(alpha|beta|rc|nightly|weekly|monthly)\.[0-9]' \
+                    --body "$(cat .github/cliff-cumulative-body.tera)" \
+                    "${PREV_STABLE}..${TAG}" > "$CUM" 2>/dev/null || true
+                fi
+                {
+                  if [ -n "${PREV_TAG:-}" ] && has_content "$INC"; then
+                    echo "## New in this build (since ${PREV_TAG})"
+                    echo
+                    grep -v '^## \[' "$INC"
+                    echo
+                  elif [ -n "${PREV_TAG:-}" ]; then
+                    echo "_No user-facing changes since ${PREV_TAG} — dependency and internal housekeeping updates only._"
+                    echo
+                  fi
+                  if [ -n "${PREV_STABLE:-}" ] && has_content "$CUM"; then
+                    echo "## All changes since ${PREV_STABLE} (the last stable release)"
+                    echo
+                    cat "$CUM"
+                  fi
+                } > "$GENERATED"
+
+                # Body-size guard: GitHub caps release bodies at 125 000 chars
+                # and finalize-release later appends a ~3 000-char download guide.
+                MAX_NOTES_BYTES=100000
+                if [ "$(wc -c < "$GENERATED")" -gt "$MAX_NOTES_BYTES" ]; then
+                  head -c "$MAX_NOTES_BYTES" "$GENERATED" > "${GENERATED}.tmp"
+                  sed -i '$ d' "${GENERATED}.tmp"
+                  printf '\n\n_Notes truncated — see [CHANGELOG.md](https://github.com/%s/blob/main/CHANGELOG.md) for the full list._\n' "$REPO" >> "${GENERATED}.tmp"
+                  mv "${GENERATED}.tmp" "$GENERATED"
+                fi
+
+                if has_content "$GENERATED"; then
+                  echo "::notice::Generated prerelease notes (incremental: ${PREV_TAG:-none}; cumulative: ${PREV_STABLE:-none})"
                   NOTES_PATH="$GENERATED"
                 fi
               fi
