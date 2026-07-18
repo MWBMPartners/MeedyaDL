@@ -48,16 +48,24 @@ Picking up after the GAMDL 3.8.2 admission (§2–§3). Agenda + status:
      first-track bug (gamdl#322, docs-only).
 5. Per-unit: GitHub issue (create/update) + individual commit + push. **No PR.**
 
-### ⚠ CRITICAL: this session's Rust/TS was NOT compiled locally
+### ✅ VERIFIED LOCALLY (toolchain installed mid-session)
 
-The sandbox had no toolchain, so **none of #1017–#1024 ran `cargo test`/`type-check`**.
-Every commit is validated by review only — **CI-on-push is the real gate.**
-First next step for whoever picks this up (or CI): run `cd src-tauri && cargo
-test --lib` + `npm run type-check`. Highest-risk change: the new
-`download_queue.rs` match arms (`rate_limit`, `io_transient`) — verify they
-compile and the existing 1465-test suite still passes. New unit tests to look
-for: `process::tests` (license_declined, wrapper_decrypt_unavailable,
-io_transient) and `python_manager::tests` (8 detection/marker tests).
+The device had no Rust/Node toolchain (fresh clone). Installed **rustup (Rust
+1.97.1 stable)** + **Node v26.5.0** (both persist: `~/.cargo` + Homebrew), then:
+
+- **`cargo test --lib` → 1476 passed, 0 failed, 1 ignored** (baseline was 1465;
+  +11 are this session's new tests). Everything in #1017–#1024 **compiles clean**
+  — including the two new `download_queue.rs` match arms (`rate_limit`,
+  `io_transient`) and all `process.rs` / `python_manager.rs` additions.
+- **`npm run type-check` → clean** (verifies #1017 TS: `SystemPython`,
+  `dependencyStore`, `tauri-commands`, `PythonStep`).
+- The full run surfaced ONE pre-existing flaky test (`config_service::
+  ini_includes_wrapper_when_enabled`, unrelated to this session) — fixed under
+  **#1025** (`03c8e393`, added a `VersionGuard`) + closed. `package-lock.json`
+  version staleness synced to alpha.27 (`99cb69ba`).
+
+So the whole session is now **locally verified**, not just CI-gated. Future
+sessions on this machine have the toolchain; the standard cheatsheet in §7 works.
 
 Model tiering: Fable 5 (sequential, one at a time) for deep analysis → fallback
 Opus; Sonnet/Haiku for implementation; Opus for the hardest. Push IS authorised
