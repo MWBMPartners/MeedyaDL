@@ -38,6 +38,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -779,6 +780,44 @@ pub fn store_private_key_in_keychain(pem: &str) -> Result<(), String> {
         .map_err(|e| format!("Failed to store MusicKit private key: {e}"))
 }
 
+/// Extract the `exp` (expiry) Unix timestamp from a JWT's payload
+/// segment, without verifying the signature.
+///
+/// We don't need cryptographic verification here — the API server
+/// is the actual authority on whether the token is valid. This is
+/// purely a cheap client-side staleness check to avoid handing out
+/// a token we already know has expired (#1010). A JWT has three
+/// dot-separated segments (`header.payload.signature`); the payload
+/// is base64url-encoded (no padding) JSON.
+///
+/// Returns `None` for anything that isn't a well-formed 3-segment
+/// JWT with a base64url-decodable, JSON-parseable payload containing
+/// a numeric `exp` claim — including plain non-JWT strings, which
+/// the caller treats as "can't tell, don't block on it".
+fn jwt_exp_unix(token: &str) -> Option<i64> {
+    let payload_b64 = token.split('.').nth(1)?;
+    let payload_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .ok()?;
+    let payload: serde_json::Value = serde_json::from_slice(&payload_bytes).ok()?;
+    payload.get("exp")?.as_i64()
+}
+
+/// Is a web player developer token stale — already expired, or
+/// expiring within a 5-minute clock-skew safety margin?
+///
+/// Fails **open** (`false`, i.e. "not stale") when the token isn't a
+/// parseable JWT or carries no `exp` claim. The goal of this check
+/// is purely to stop handing out a token we can positively prove is
+/// dead; an inability to parse it is not proof of anything, so we
+/// let it through and let the API call itself be the final judge.
+fn webplayer_token_is_stale(token: &str, now_unix: i64) -> bool {
+    match jwt_exp_unix(token) {
+        Some(exp) => exp <= now_unix + 300, // 5-minute clock-skew margin
+        None => false,
+    }
+}
+
 /// Retrieve the web player developer token from the OS keychain.
 ///
 /// This token is extracted opportunistically from the Apple Music login
@@ -786,10 +825,25 @@ pub fn store_private_key_in_keychain(pem: &str) -> Result<(), String> {
 /// for premium API features (syllable-lyrics, animated artwork, music video
 /// relations) when the user has not configured their own MusicKit credentials.
 ///
+/// # Expiry check (#1010)
+///
+/// The stored token is a JWT with a short lifetime. Previously this
+/// function returned whatever was in the keychain unconditionally,
+/// so once the token expired every premium-feature call using it
+/// would silently 401 forever until the user happened to re-login.
+/// Now the token's `exp` claim is checked against the current time
+/// (with a 5-minute safety margin) before it's handed back; a stale
+/// token is treated the same as "no token" so
+/// `resolve_premium_feature_token()` correctly falls through past
+/// this tier instead of returning a dead token. The keychain entry
+/// itself is **not** deleted on staleness — a fresh login overwrites
+/// it naturally via `store_webplayer_token_in_keychain`, and deleting
+/// it here would just add another failure mode for no benefit.
+///
 /// # Returns
-/// * `Ok(Some(String))` - Web player token found in keychain
+/// * `Ok(Some(String))` - Web player token found in keychain and not stale
 /// * `Ok(None)` - No token stored (user hasn't logged in via the login window,
-///   or the token was cleared)
+///   the token was cleared, or the stored token is stale)
 /// * `Err(String)` - Keychain access error
 pub fn get_webplayer_token_from_keychain() -> Result<Option<String>, String> {
     let entry = keyring::Entry::new(SERVICE_NAME, WEBPLAYER_TOKEN_KEYCHAIN_KEY)
@@ -797,7 +851,18 @@ pub fn get_webplayer_token_from_keychain() -> Result<Option<String>, String> {
 
     match entry.get_password() {
         Ok(token) if token.trim().is_empty() => Ok(None),
-        Ok(token) => Ok(Some(token)),
+        Ok(token) => {
+            let now = chrono::Utc::now().timestamp();
+            if webplayer_token_is_stale(&token, now) {
+                log::warn!(
+                    "Web player developer token in keychain is stale (expired or expiring \
+                     within 5 minutes) — treating as absent. Re-login via the Apple Music \
+                     login window to refresh it."
+                );
+                return Ok(None);
+            }
+            Ok(Some(token))
+        }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(format!("Failed to retrieve web player token: {e}")),
     }
@@ -4749,5 +4814,83 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv\n\
         assert!(!is_library_url(
             "https://music.apple.com/us/artist/the-beatles/136975"
         ));
+    }
+
+    // ----------------------------------------------------------
+    // Web player token staleness checks (#1010)
+    //
+    // These exercise the pure helpers only — no keychain access, no
+    // wall-clock reads. `now_unix` is always injected so the tests
+    // are deterministic regardless of when they run.
+    // ----------------------------------------------------------
+
+    /// Build a syntactically-valid (unsigned) JWT string with the
+    /// given JSON payload, matching the `header.payload.signature`
+    /// shape `jwt_exp_unix` parses. The header and signature segments
+    /// are never inspected by the code under test, so dummy values
+    /// are fine.
+    fn make_jwt(payload_json: &str) -> String {
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_json);
+        format!("header.{payload_b64}.sig")
+    }
+
+    #[test]
+    fn jwt_exp_unix_extracts_exp_claim() {
+        let token = make_jwt(r#"{"exp":1700000000}"#);
+        assert_eq!(jwt_exp_unix(&token), Some(1_700_000_000));
+    }
+
+    #[test]
+    fn jwt_exp_unix_returns_none_for_non_jwt() {
+        assert_eq!(jwt_exp_unix("not-a-jwt-at-all"), None);
+    }
+
+    #[test]
+    fn jwt_exp_unix_returns_none_for_missing_exp_claim() {
+        let token = make_jwt(r#"{"sub":"user"}"#);
+        assert_eq!(jwt_exp_unix(&token), None);
+    }
+
+    #[test]
+    fn jwt_exp_unix_returns_none_for_garbage_payload_segment() {
+        // Second segment isn't valid base64url.
+        assert_eq!(jwt_exp_unix("header.not-valid-base64!!!.sig"), None);
+    }
+
+    #[test]
+    fn webplayer_token_is_stale_true_for_already_expired_token() {
+        let token = make_jwt(r#"{"exp":1000}"#);
+        assert!(webplayer_token_is_stale(&token, 2000));
+    }
+
+    #[test]
+    fn webplayer_token_is_stale_true_within_five_minute_skew_margin() {
+        // exp is 100s in the future — inside the 300s safety margin,
+        // so still treated as stale (about to expire counts as
+        // "don't hand this out").
+        let now = 1_700_000_000_i64;
+        let token = make_jwt(&format!(r#"{{"exp":{}}}"#, now + 100));
+        assert!(webplayer_token_is_stale(&token, now));
+    }
+
+    #[test]
+    fn webplayer_token_is_stale_false_for_far_future_expiry() {
+        let now = 1_700_000_000_i64;
+        let token = make_jwt(&format!(r#"{{"exp":{}}}"#, now + 86_400)); // 1 day out
+        assert!(!webplayer_token_is_stale(&token, now));
+    }
+
+    #[test]
+    fn webplayer_token_is_stale_fails_open_for_non_jwt_opaque_string() {
+        assert!(!webplayer_token_is_stale(
+            "plain-opaque-token-string",
+            9_999_999_999
+        ));
+    }
+
+    #[test]
+    fn webplayer_token_is_stale_fails_open_for_jwt_without_exp_claim() {
+        let token = make_jwt(r#"{"sub":"user"}"#);
+        assert!(!webplayer_token_is_stale(&token, 9_999_999_999));
     }
 }
