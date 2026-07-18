@@ -1352,6 +1352,13 @@ mod tests {
 
     #[test]
     fn ini_includes_wrapper_when_enabled() {
+        // Pin a wrapper-v1 GAMDL version (#1025): `wrapper_account_url` is only
+        // emitted when `WrapperUrl` (GAMDL >= 3.6) is NOT supported — for >= 3.6
+        // `settings_to_ini` emits `wrapper_url` instead. Without this guard the
+        // test reads the process-global version cache and flakes when a
+        // concurrent version-setting test leaves it at a 3.6+/3.8.x value.
+        // VersionGuard also holds the global capability_cache_test_lock.
+        let _guard = VersionGuard::new(Some("3.5"));
         let mut settings = default_settings();
         settings.use_wrapper = true;
         settings.wrapper_account_url = "http://localhost:9999".to_string();
