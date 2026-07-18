@@ -204,12 +204,17 @@ jobs:
           # doesn't block the release — the tier-3 fallback covers
           # the no-git-cliff case.
           if ! command -v git-cliff &>/dev/null; then
-            curl -fsSL https://github.com/cargo-bins/cargo-binstall/releases/latest/download/cargo-binstall-x86_64-unknown-linux-musl.tgz \
+            # Pinned versions (#988) — no `releases/latest` / unversioned
+            # installs in a contents:write job that holds release secrets.
+            # Bump these deliberately when upgrading the toolchain.
+            BINSTALL_VERSION="1.21.0"
+            GITCLIFF_VERSION="2.13.1"
+            curl -fsSL "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz" \
               | tar -xz -C /usr/local/bin/ 2>/dev/null || true
             if command -v cargo-binstall &>/dev/null; then
-              cargo-binstall --no-confirm git-cliff || true
+              cargo-binstall --no-confirm "git-cliff@${GITCLIFF_VERSION}" || true
             else
-              cargo install --locked git-cliff || true
+              cargo install --locked git-cliff --version "${GITCLIFF_VERSION}" || true
             fi
           fi
           git-cliff --version 2>/dev/null || echo "::warning::git-cliff unavailable; release notes will use the static fallback"
