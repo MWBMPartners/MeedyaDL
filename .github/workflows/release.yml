@@ -149,6 +149,15 @@ jobs:
           else
             TAG="$REF_NAME"
           fi
+          # Shape-validate before the tag flows into the ~9 downstream
+          # expression-interpolated run: shells (#977). A workflow_dispatch
+          # actor could otherwise inject shell metacharacters via inputs.tag
+          # and exfiltrate the code-signing secrets. Accept only vX.Y.Z with an
+          # optional semver-legal pre-release suffix — no spaces/semicolons/etc.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid release tag format: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           # Prerelease flag derives from the tag suffix.
           STRIPPED="${TAG#v}"
@@ -417,10 +426,18 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "name=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            TAG="$INPUT_TAG"
           else
-            echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
+            TAG="$REF_NAME"
           fi
+          # Shape-validate before the tag is interpolated into downstream
+          # run: shells and release commands (#977). Rejects any tag carrying
+          # shell metacharacters injected via a workflow_dispatch input.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid release tag format: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
 
       # Step 0b: Extract the numeric version (strip 'v' prefix) for asset filenames.
       # Asset files use the version without 'v': MeedyaDL_0.6.4_aarch64.dmg
@@ -1248,10 +1265,18 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         run: |
           if [ -n "$INPUT_TAG" ]; then
-            echo "name=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+            TAG="$INPUT_TAG"
           else
-            echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
+            TAG="$REF_NAME"
           fi
+          # Shape-validate before the tag is interpolated into downstream
+          # run: shells and release commands (#977). Rejects any tag carrying
+          # shell metacharacters injected via a workflow_dispatch input.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid release tag format: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
 
       # Rebuild latest.json from release assets to fix the race condition
       # where parallel tauri-action builds overwrite each other's entries.
