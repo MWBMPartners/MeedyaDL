@@ -113,11 +113,36 @@ Model tiering: Fable 5 (sequential, one at a time) for deep analysis → fallbac
 Opus; Sonnet/Haiku for implementation; Opus for the hardest. Push IS authorised
 this session; still **no PR**.
 
-**Environment caveat this session:** the sandbox has **no Rust/Node toolchain**
-(`~/.cargo` absent, `npm` missing), so `cargo test --lib` / `npm run type-check`
-could NOT be run locally — every commit is validated by CI-on-push, compensated
-by careful by-hand review. Also `gh` token lacks `read:project` (couldn't add
-issues to project 6; issues themselves are filed/updated).
+**Toolchain (installed mid-session, persists):** Rust 1.97.1 (rustup, `~/.cargo`)
++ Node v26.5.0 (Homebrew) + git-cliff 2.13.1 (Homebrew). So `cargo test --lib`
+(1504 pass), `npm run type-check` / `npm run test` (560 pass), and local
+git-cliff dry-runs all work now. (`gh` token still lacks `read:project` — issues
+are filed/updated but not added to project 6.)
+
+### Session continued — wrapper-v1 audit + release-notes fix
+
+8. **GAMDL 3.0–3.5.x wrapper-v1 audit — DONE (owner request).** Verified the
+   support window `[3.0, 3.8.4]`, all capability gates (WrapperUrl≥3.6 → v1 for
+   ≤3.5.x, WrapperM3u8Ip 3.1–3.5.x, WrapperDecryptHostPort≥3.8.2, NativeMuxing/
+   AacWebCodecRename≥3.6), CLI emission (all three v1 sockets), and preflights
+   are correct for wrapper-v1. One gap fixed: **#1026** (`701430dc`) — the
+   wrapper-v1 INI branch was missing `wrapper_decrypt_ip` (CLI had it; #743/#744
+   never added the INI twin). Low-impact (CLI is authoritative) but closes the
+   inconsistency for remote/LAN wrapper-v1.
+9. **Prerelease release-notes fix — DONE (owner report: alpha releases list no
+   changes). #1027** (`3d4b8b6c` + docs `b1a7dd9f`). Root cause: cliff.toml
+   didn't skip the `chore(alpha): X.Y.Z-alpha.N` version-bump commit (rendered as
+   `🧹 Maintenance — (alpha) X` noise), and a dep-only alpha had nothing else.
+   Fix (Fable-5-designed, Opus-validated empirically with git-cliff 2.13.1):
+   cliff.toml skips the machine pure-bump shape (+ `chore(version)` + internal
+   `docs(handoff)`) while KEEPING human `chore(alpha)` housekeeping; release.yml
+   prerelease tier-2 assembles **"New in this build"** (full) + compact
+   **"All changes since <last stable>"** (`.github/cliff-cumulative-body.tera`
+   + `--ignore-tags` collapse). **Backfilled `v1.11.0-alpha.19…28`** via
+   `gh release edit` (footers preserved; .27/.28 are genuinely deps-only →
+   honest preamble + cumulative). **⚠ Merge caveat:** rebase-merge (not squash)
+   the prep→alpha PR so the ~30 conventional commits group individually in the
+   next alpha's notes.
 
 ---
 
