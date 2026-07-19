@@ -169,14 +169,17 @@ impl ShutdownSignal {
 // crate::utils::activity_log (shared across commands and services).
 // The import is at the top of this file.
 
-/// Strips query parameters from a URL before logging to prevent credential leakage.
+/// Strips query parameters AND userinfo credentials from a URL before
+/// logging, preventing credential leakage into plaintext log files.
 ///
 /// Wrapper URLs may contain authentication tokens as query parameters
-/// (e.g., `http://host:port/?token=abc`). Logging these would persist tokens
-/// in plaintext log files. This function returns the URL up to (but not
-/// including) the `?` character, preserving only the scheme, host, port, and path.
-fn redact_url_query(url: &str) -> &str {
-    url.split('?').next().unwrap_or(url)
+/// (e.g., `http://host:port/?token=abc`) or embedded Basic-Auth-style
+/// credentials in the URL's userinfo component
+/// (`http://user:pass@host:port/...`). Delegates to
+/// `crash_report_service::redact_single_url`, which already implements
+/// both redactions, so the two call sites can't drift out of sync.
+fn redact_url_query(url: &str) -> String {
+    crate::services::crash_report_service::redact_single_url(url)
 }
 
 /// Notification throttling state: tracks last notification time per category
@@ -582,7 +585,7 @@ pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
     status
         .urls
         .first()
-        .map(|u| redact_url_query(u).to_string())
+        .map(|u| redact_url_query(u))
         .unwrap_or_else(|| "unknown content".to_string())
 }
 
@@ -12321,14 +12324,15 @@ async fn run_download_with_events(
             .map(|u| redact_url_query(u))
             .unwrap_or_default();
         let gamdl_version = crate::services::gamdl_capabilities::detected_version();
-        // `url_for_report` is already `&str` (redact_url_query returns
-        // a borrowed slice of its input). Passing `&url_for_report`
-        // would create `&&str` and trigger clippy's `needless_borrow`
-        // under Rust 1.95+, breaking CI.
+        // `url_for_report` is an owned `String` (redact_url_query now
+        // delegates to `crash_report_service::redact_single_url`, which
+        // also strips `user:pass@` userinfo and therefore must return an
+        // owned value). `write_diagnostic_if_any` takes `url: &str`, so
+        // borrow here.
         let outcome = crate::services::traceback_diagnostic::write_diagnostic_if_any(
             app,
             download_id,
-            url_for_report,
+            &url_for_report,
             gamdl_version.as_deref(),
             item_state,
             &raw_snapshot,
@@ -12687,6 +12691,20 @@ async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandle) {
         crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue")
     {
         log::warn!("{e}");
+    }
+
+    // Restrict queue.json to owner-only read/write on Unix — queue items
+    // can embed the configured output path and, indirectly, wrapper
+    // endpoint details, so it shouldn't be world-readable (mirrors the
+    // settings.json 0600 hardening, #459).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) =
+            std::fs::set_permissions(&queue_path, std::fs::Permissions::from_mode(0o600))
+        {
+            log::debug!("Failed to set queue.json permissions: {e}");
+        }
     }
 }
 

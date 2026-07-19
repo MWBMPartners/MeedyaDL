@@ -159,6 +159,24 @@ pub fn decrypt_credentials(
             NONCE_LEN
         )));
     }
+    // Denial-of-service guard: `params.iterations` comes straight from
+    // the untrusted bundle file (`credentials.kdf-params.json`). A
+    // crafted bundle could declare an absurd iteration count to turn a
+    // routine import into a multi-minute (or effectively unbounded)
+    // PBKDF2 hang before the wrong-password/right-password outcome is
+    // even known. Clamp to a sane range — below this floor is a
+    // trivially weak KDF (not our concern to accept), above this ceiling
+    // is almost certainly a hostile value rather than a legitimate
+    // future security bump — and reject anything outside it before key
+    // derivation starts.
+    const MIN_ITERATIONS: u32 = 10_000;
+    const MAX_ITERATIONS: u32 = 5_000_000;
+    if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&params.iterations) {
+        return Err(CredentialError::KdfParams(format!(
+            "iteration count {} is outside the accepted range ({MIN_ITERATIONS}..={MAX_ITERATIONS})",
+            params.iterations
+        )));
+    }
     let key = derive_key(password, &salt, params.iterations);
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -240,5 +258,42 @@ mod tests {
             "pbkdf2-hmac-sha256+aes-256-gcm"
         );
         assert_eq!(enc.kdf_params.iterations, PBKDF2_ITERATIONS);
+    }
+
+    // ----------------------------------------------------------
+    // Iteration-count DoS guard (security audit F8)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn decrypt_rejects_absurdly_high_iteration_count() {
+        let mut enc = encrypt_credentials("pw", b"payload").unwrap();
+        // A crafted bundle could declare billions of iterations to hang
+        // the import on PBKDF2 before the password is even checked.
+        enc.kdf_params.iterations = 50_000_000;
+        let err = decrypt_credentials("pw", &enc.ciphertext, &enc.kdf_params)
+            .expect_err("must reject implausible iteration count");
+        match err {
+            CredentialError::KdfParams(msg) => {
+                assert!(msg.contains("iteration count"), "unexpected message: {msg}");
+            }
+            other => panic!("expected KdfParams error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decrypt_rejects_suspiciously_low_iteration_count() {
+        let mut enc = encrypt_credentials("pw", b"payload").unwrap();
+        enc.kdf_params.iterations = 1;
+        let err = decrypt_credentials("pw", &enc.ciphertext, &enc.kdf_params)
+            .expect_err("must reject a trivially weak iteration count");
+        assert!(matches!(err, CredentialError::KdfParams(_)));
+    }
+
+    #[test]
+    fn decrypt_accepts_default_iteration_count() {
+        // Sanity check: the standard round trip (PBKDF2_ITERATIONS) must
+        // not be affected by the new range guard.
+        let enc = encrypt_credentials("pw", b"payload").unwrap();
+        assert!(decrypt_credentials("pw", &enc.ciphertext, &enc.kdf_params).is_ok());
     }
 }
