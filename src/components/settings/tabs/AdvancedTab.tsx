@@ -29,6 +29,12 @@
  *   - **Wrapper Account URL** -- The endpoint URL for the wrapper service.
  *     Only shown when the wrapper toggle is enabled (conditional render).
  *     Maps to `settings.wrapper_account_url`.
+ *   - **Sign in to wrapper** (#1029, wrapper-v2 only) -- Button + status
+ *     line (`WrapperSignInSection`) that opens a modal (`WrapperSignInModal`)
+ *     for interactive Apple ID sign-in against the wrapper-v2 daemon. The
+ *     daemon runs Apple's own sign-in flow and persists its own session;
+ *     the password/2FA code exist only in the modal's local React state and
+ *     are never written to settings.
  *
  * ## Section 3: File Options
  *
@@ -78,7 +84,7 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
 // `saveSettings` and `loadSettings` actions only (used by the setup
@@ -88,11 +94,19 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
-// Input for text/number fields, Button for actions.
-import { Select, Toggle, Input, Button, HelpButton, SettingsSection } from '@/components/common';
+// Input for text/number fields, Button for actions, Modal for the wrapper-v2
+// interactive sign-in dialog (#1029).
+import { Select, Toggle, Input, Button, HelpButton, SettingsSection, Modal } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
-import type { DownloadMode, RemuxMode, WrapperTestResult, ApiAuditResult, LogLevel } from '@/types';
+import type {
+  DownloadMode,
+  RemuxMode,
+  WrapperTestResult,
+  WrapperV2LoginResult,
+  ApiAuditResult,
+  LogLevel,
+} from '@/types';
 
 // Platform detection hook for Wrapper feature gating.
 import { usePlatform } from '@/hooks/usePlatform';
@@ -100,6 +114,10 @@ import { usePlatform } from '@/hooks/usePlatform';
 // IPC commands for wrapper testing, credentials, AcoustID key check, and API audit.
 import {
   testWrapperConnection,
+  wrapperSignIn,
+  wrapperSubmit2fa,
+  wrapperSignOut,
+  wrapperAuthStatus,
   storeCredential,
   getCredential,
   validateMusicKitCredentialsWithInput,
@@ -663,6 +681,9 @@ export function AdvancedTab() {
                 {shouldShowSecurityHint(wrapperUrlClass) && (
                   <WrapperUrlSecurityHint kind={wrapperUrlClass} />
                 )}
+                {/* Interactive sign-in (#1029) -- wrapper-v2 only; wrapper-v1
+                    has no equivalent HTTP login endpoint. */}
+                <WrapperSignInSection />
               </>
             ) : (
               // GAMDL ≤ 3.5.x — wrapper-v1 three sockets.
@@ -1484,6 +1505,310 @@ function DiagnosticBundleSection() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * WrapperSignInSection -- "Sign in to wrapper" button + status line
+ * for the wrapper-v2 layout (#1029).
+ *
+ * wrapper-v2 is a self-authenticating daemon: it runs Apple's own
+ * sign-in flow and persists its own session, so MeedyaDL never
+ * stores an Apple ID or password itself. This section surfaces a
+ * lightweight "Signed in / Not signed in / Wrapper unreachable"
+ * readout (queried via `wrapper_auth_status`) and opens
+ * {@link WrapperSignInModal} for the interactive flow.
+ *
+ * The status is refreshed on mount and after every sign-in / sign-out
+ * so the readout never goes stale without a manual page reload.
+ */
+function WrapperSignInSection() {
+  const addToast = useUiStore((s) => s.addToast);
+
+  /** 'checking' while the initial/refresh probe is in flight. */
+  const [status, setStatus] = useState<
+    'checking' | 'authenticated' | 'not_signed_in' | 'unreachable'
+  >('checking');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  /**
+   * Re-queries `wrapper_auth_status`. The command REJECTS when the
+   * daemon is unreachable (rather than resolving with a status
+   * string), so that path is distinguished from every other
+   * non-`authenticated` state via the catch branch.
+   */
+  const refreshStatus = useCallback(async () => {
+    setStatus('checking');
+    try {
+      const state = await wrapperAuthStatus();
+      setStatus(state === 'authenticated' ? 'authenticated' : 'not_signed_in');
+    } catch {
+      setStatus('unreachable');
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await wrapperSignOut();
+      addToast('Signed out of wrapper.', 'success');
+    } catch (err) {
+      addToast(
+        `Sign-out failed: ${err instanceof Error ? err.message : String(err)}`,
+        'error',
+      );
+    } finally {
+      setSigningOut(false);
+      refreshStatus();
+    }
+  };
+
+  const statusLabel =
+    status === 'checking'
+      ? 'Checking…'
+      : status === 'authenticated'
+        ? 'Signed in'
+        : status === 'unreachable'
+          ? 'Wrapper unreachable'
+          : 'Not signed in';
+
+  const statusClass =
+    status === 'authenticated'
+      ? 'text-status-success'
+      : status === 'unreachable'
+        ? 'text-status-error'
+        : 'text-content-tertiary';
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Button variant="secondary" size="sm" onClick={() => setModalOpen(true)}>
+        Sign in to wrapper
+      </Button>
+      <span className={`text-xs ${statusClass}`}>{statusLabel}</span>
+      {status === 'authenticated' && (
+        <Button variant="ghost" size="sm" onClick={handleSignOut} disabled={signingOut}>
+          {signingOut ? 'Signing out…' : 'Sign out'}
+        </Button>
+      )}
+      <WrapperSignInModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSignedIn={refreshStatus}
+      />
+    </div>
+  );
+}
+
+/**
+ * WrapperSignInModal -- interactive wrapper-v2 Apple ID sign-in dialog (#1029).
+ *
+ * Two-step flow mirroring Apple's own sign-in:
+ *   1. Apple ID (email) + app-specific password -- submitted via
+ *      `wrapper_sign_in`.
+ *   2. If Apple demands two-factor authentication (`status ===
+ *      'awaiting_2fa'`), a 6-digit code -- submitted via
+ *      `wrapper_submit_2fa`.
+ *
+ * Credential hygiene: `password` and `code` live ONLY in this
+ * component's local `useState` -- never written to `AppSettings`,
+ * the Zustand store, or disk. `handleClose` clears every field
+ * (including on success) so nothing survives a re-open.
+ */
+interface WrapperSignInModalProps {
+  /** Controls visibility of the modal. */
+  open: boolean;
+  /** Invoked when the modal should close (Cancel, Escape, backdrop, X, or success). */
+  onClose: () => void;
+  /** Invoked after a successful sign-in so the parent can refresh its status line. */
+  onSignedIn: () => void;
+}
+
+function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalProps) {
+  const addToast = useUiStore((s) => s.addToast);
+
+  /** Which half of the two-step flow is showing. */
+  const [step, setStep] = useState<'credentials' | 'awaiting_2fa'>('credentials');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  /** Instructional text shown on the 2FA step (echoes the daemon's `message`). */
+  const [infoMessage, setInfoMessage] = useState<string | null>(null);
+  /** Inline failure text -- from a `failed`/`error` result OR a thrown/rejected call. */
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  /** True while a sign-in or 2FA request is in flight; disables the submit button. */
+  const [submitting, setSubmitting] = useState(false);
+
+  /** Opens a URL in the system default browser (same pattern used elsewhere in this file). */
+  const openExternal = useCallback(async (url: string) => {
+    const { open: openShell } = await import('@tauri-apps/plugin-shell');
+    await openShell(url);
+  }, []);
+
+  /**
+   * Resets ALL local state -- crucially `password` and `code` -- and
+   * notifies the parent to hide the modal. Used for every close path:
+   * the header's X, Escape, backdrop click, the Cancel button, and a
+   * successful sign-in.
+   */
+  const handleClose = useCallback(() => {
+    setStep('credentials');
+    setUsername('');
+    setPassword('');
+    setCode('');
+    setInfoMessage(null);
+    setErrorMessage(null);
+    setSubmitting(false);
+    onClose();
+  }, [onClose]);
+
+  /** Applies a `WrapperV2LoginResult` from either the sign-in or the 2FA step. */
+  const handleResult = (result: WrapperV2LoginResult) => {
+    if (result.status === 'authenticated') {
+      addToast('Signed in to wrapper.', 'success');
+      onSignedIn();
+      handleClose();
+      return;
+    }
+    if (result.status === 'awaiting_2fa') {
+      setStep('awaiting_2fa');
+      setErrorMessage(null);
+      setInfoMessage(
+        result.message ?? 'Enter the 6-digit verification code sent to your trusted device.',
+      );
+      return;
+    }
+    // 'failed' | 'error' -- stay open, surface the daemon's message inline.
+    setInfoMessage(null);
+    setErrorMessage(result.message ?? 'Sign-in failed. Please try again.');
+  };
+
+  const handleCredentialsSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || !password) return;
+    setSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const result = await wrapperSignIn(username.trim(), password);
+      handleResult(result);
+    } catch (err) {
+      // Thrown/rejected call -- e.g. rate-limit Err(String) or the
+      // daemon being unreachable. Surface verbatim inline.
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handle2faSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setSubmitting(true);
+    setErrorMessage(null);
+    try {
+      const result = await wrapperSubmit2fa(code.trim());
+      handleResult(result);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Sign in to wrapper">
+      {step === 'credentials' ? (
+        <form className="space-y-3" onSubmit={handleCredentialsSubmit}>
+          <p className="text-xs text-content-secondary">
+            wrapper-v2 runs Apple&apos;s own sign-in flow. Your password is sent only to
+            your locally-running wrapper daemon and is never saved by MeedyaDL.
+          </p>
+          <Input
+            label="Apple ID"
+            type="email"
+            autoComplete="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="you@example.com"
+            required
+          />
+          <div>
+            <Input
+              label="App-Specific Password"
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="xxxx-xxxx-xxxx-xxxx"
+              required
+            />
+            <p className="text-xs text-content-tertiary mt-1">
+              An app-specific password is strongly recommended over your main Apple ID
+              password. Create one at{' '}
+              <button
+                type="button"
+                className="text-accent hover:text-accent-hover underline transition-colors"
+                onClick={() => openExternal('https://appleid.apple.com/account/manage')}
+              >
+                appleid.apple.com
+              </button>{' '}
+              under Sign-In and Security &gt; App-Specific Passwords.
+            </p>
+          </div>
+          {errorMessage && <p className="text-xs text-status-error">{errorMessage}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="submit"
+              loading={submitting}
+              disabled={submitting || !username.trim() || !password}
+            >
+              Sign In
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <form className="space-y-3" onSubmit={handle2faSubmit}>
+          <p className="text-xs text-content-secondary">
+            {infoMessage ?? 'Enter the 6-digit verification code sent to your trusted device.'}
+          </p>
+          <Input
+            label="Verification Code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            placeholder="123456"
+            required
+          />
+          {errorMessage && <p className="text-xs text-status-error">{errorMessage}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="submit"
+              loading={submitting}
+              disabled={submitting || code.trim().length !== 6}
+            >
+              Verify
+            </Button>
+          </div>
+        </form>
+      )}
+    </Modal>
   );
 }
 

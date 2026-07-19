@@ -1437,6 +1437,87 @@ export function testWrapperConnection(url: string): Promise<import('@/types').Wr
   return invoke<import('@/types').WrapperTestResult>('test_wrapper_connection', { url });
 }
 
+// ============================================================
+// Wrapper-v2 Sign-In Commands (#1029)
+// ============================================================
+
+/**
+ * Signs the wrapper-v2 daemon in to Apple with an Apple ID + password.
+ *
+ * Rust handler: `wrapper_sign_in()` in `src-tauri/src/commands/wrapper.rs`
+ *
+ * wrapper-v2 is a self-authenticating daemon -- it runs Apple's own
+ * sign-in flow itself. The credentials are sent to the LOCAL wrapper
+ * daemon only (over the configured `wrapper_url`) and are never
+ * stored or logged by MeedyaDL. An app-specific password (created at
+ * appleid.apple.com) is strongly preferred over the main Apple ID
+ * password. If Apple demands two-factor authentication, the result
+ * comes back with `status: 'awaiting_2fa'` -- follow up with
+ * {@link wrapperSubmit2fa}. Rate-limited to 5 attempts/minute
+ * (backend), which surfaces as a rejected promise.
+ *
+ * Called by: AdvancedTab "Sign in to wrapper" modal
+ *
+ * @param username - Apple ID email address
+ * @param password - Apple ID password (app-specific password recommended)
+ * @returns Promise resolving to the sign-in result
+ */
+export function wrapperSignIn(
+  username: string,
+  password: string
+): Promise<import('@/types').WrapperV2LoginResult> {
+  return invoke<import('@/types').WrapperV2LoginResult>('wrapper_sign_in', { username, password });
+}
+
+/**
+ * Submits a 6-digit two-factor authentication code to complete a
+ * wrapper-v2 sign-in that returned `status: 'awaiting_2fa'` from
+ * {@link wrapperSignIn}.
+ *
+ * Rust handler: `wrapper_submit_2fa()` in `src-tauri/src/commands/wrapper.rs`
+ *
+ * Rate-limited to 10 attempts/minute (backend).
+ *
+ * Called by: AdvancedTab "Sign in to wrapper" modal (2FA step)
+ *
+ * @param code - The 6-digit verification code sent to the user's trusted device
+ * @returns Promise resolving to the sign-in result
+ */
+export function wrapperSubmit2fa(code: string): Promise<import('@/types').WrapperV2LoginResult> {
+  return invoke<import('@/types').WrapperV2LoginResult>('wrapper_submit_2fa', { code });
+}
+
+/**
+ * Signs out of the wrapper-v2 daemon, clearing its persisted Apple ID session.
+ *
+ * Rust handler: `wrapper_sign_out()` in `src-tauri/src/commands/wrapper.rs`
+ *
+ * Called by: AdvancedTab "Sign out" button
+ *
+ * @returns Promise resolving when sign-out completes
+ */
+export function wrapperSignOut(): Promise<void> {
+  return invoke<void>('wrapper_sign_out');
+}
+
+/**
+ * Queries the wrapper-v2 daemon's current authentication state.
+ *
+ * Rust handler: `wrapper_auth_status()` in `src-tauri/src/commands/wrapper.rs`
+ *
+ * Rejects (throws) when the wrapper daemon is unreachable -- callers
+ * should treat a thrown error as "wrapper unreachable", distinct from
+ * a resolved `'logged_out'` state.
+ *
+ * Called by: AdvancedTab wrapper-v2 status line
+ *
+ * @returns Promise resolving to one of `logged_out | in_progress |
+ *   awaiting_2fa | authenticated | failed`
+ */
+export function wrapperAuthStatus(): Promise<string> {
+  return invoke<string>('wrapper_auth_status');
+}
+
 /**
  * Exports application settings to a JSON file via a native save dialog.
  *
