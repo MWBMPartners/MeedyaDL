@@ -1484,6 +1484,32 @@ export interface WrapperTestResult {
   error: string | null;
 }
 
+/**
+ * Result of a wrapper-v2 interactive sign-in attempt (#1029).
+ *
+ * wrapper-v2 is a self-authenticating daemon -- it runs Apple's own
+ * sign-in flow itself and mints its own session. Both the
+ * `wrapper_sign_in` and `wrapper_submit_2fa` Tauri commands return
+ * this shape.
+ *
+ * @see AdvancedTab "Sign in to wrapper" modal
+ */
+export interface WrapperV2LoginResult {
+  /**
+   * - `'authenticated'` -- sign-in succeeded; the daemon now holds a
+   *   persisted Apple ID session.
+   * - `'awaiting_2fa'` -- Apple demanded a 6-digit verification code
+   *   sent to a trusted device; follow up with `wrapper_submit_2fa`.
+   * - `'failed'` -- Apple rejected the credentials (e.g. wrong
+   *   password or code).
+   * - `'error'` -- an unexpected error occurred talking to Apple or
+   *   the wrapper daemon.
+   */
+  status: 'authenticated' | 'awaiting_2fa' | 'failed' | 'error';
+  /** Human-readable detail message, or null when there's nothing to add. */
+  message: string | null;
+}
+
 // ============================================================
 // Crash Report Types
 // ============================================================
