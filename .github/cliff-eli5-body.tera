@@ -1,0 +1,39 @@
+{%- set news = [] -%}
+{%- set fixes = [] -%}
+{%- set perf = [] -%}
+{%- set other = [] -%}
+{%- for commit in commits -%}
+  {%- for footer in commit.footers -%}
+    {%- if footer.token == "Release-Note" -%}
+      {%- set line = footer.value | split(pat="\n") | first | trim -%}
+      {%- if line and line != "none" -%}
+        {%- if commit.group is containing("Features") -%}
+          {%- set_global news = news | concat(with=line) -%}
+        {%- elif commit.group is containing("Bug Fixes") or commit.group is containing("Security") -%}
+          {%- set_global fixes = fixes | concat(with=line) -%}
+        {%- elif commit.group is containing("Performance") -%}
+          {%- set_global perf = perf | concat(with=line) -%}
+        {%- else -%}
+          {%- set_global other = other | concat(with=line) -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endfor -%}
+{%- endfor -%}
+{% if news %}### What's new
+
+{% for n in news %}- {{ n }}
+{% endfor %}
+{% endif %}{% if fixes %}### What's fixed
+
+{% for n in fixes %}- {{ n }}
+{% endfor %}
+{% endif %}{% if perf %}### Performance
+
+{% for n in perf %}- {{ n }}
+{% endfor %}
+{% endif %}{% if other %}### Notes
+
+{% for n in other %}- {{ n }}
+{% endfor %}
+{% endif %}
