@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-18
+**Last updated:** 2026-07-19
 **Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27; **now bumped to 1.12.0-alpha.28**)
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
@@ -143,6 +143,68 @@ are filed/updated but not added to project 6.)
    honest preamble + cumulative). **⚠ Merge caveat:** rebase-merge (not squash)
    the prep→alpha PR so the ~30 conventional commits group individually in the
    next alpha's notes.
+
+### Session continued (2026-07-19) — ELI5 release notes (all) + wrapper sign-in
+
+10. **ELI5 release notes — durable process + full backfill — DONE (#1028 +
+    backfill).** Owner: notes were still too generic/technical; wanted plain
+    "ELI5" language on EVERY release and a mechanism so it happens on every
+    future one. Two parts:
+    - **Process (#1028, `6242eb7f`, pushed + validated).** A `Release-Note:`
+      git-trailer convention is the single source of truth. `.github/cliff-eli5-body.tera`
+      renders trailers into four sections (What's new / What's fixed / Performance
+      / Notes); `release.yml` `ensure-release` is ELI5-first (technical changelog
+      demoted into `<details>`), with a tier-1 curated-file OVERWRITE branch so
+      `.github/release-notes/<TAG>.md` self-heals a live body. Guardrails:
+      `.github/workflows/release-note-gate.yml` (PR gate — feat/fix/perf PRs need a
+      `Release-Note:` line; release-please PR needs a `v<ver>.md` notes file),
+      `STYLE_GUIDE.md` (hard bans + code→user glossary), `scripts/release-notes/
+      apply-notes.sh` (applies a curated file to a live release, PRESERVING the
+      "Choose your download" footer) + `draft-notes.sh`. Empirically validated
+      with git-cliff 2.13.1.
+    - **Backfill (`0eb6f97c`, pushed).** Rewrote **all 24 historical release
+      bodies** — 14 stables (v1.0.0–v1.10.1) + the v1.11.0-alpha.19–28 line — into
+      the four-section ELI5 format, authored by two sequential Sonnet agents
+      (Opus-gate-reviewed), applied live via `apply-notes.sh` (footers preserved),
+      and committed under `.github/release-notes/` so they self-heal. One
+      correctness catch: v1.4.1 had been mis-attributed a big feature list via a
+      phantom `v1.3.2` tag polluting the GitHub compare link — corrected to its
+      true 4-commit delta (the feature set belonged to v1.3.0). Deps-only releases
+      use the style guide's one-line housekeeping fallback.
+    - **⚠ Next time:** just add a `Release-Note: <plain-english line>` trailer to
+      each feat/fix/perf PR body (the squash-merge carries it into the commit
+      footer). The gate + template do the rest. `apply-notes.sh <TAG>` is the tool
+      to fix any already-published body.
+11. **Wrapper-v2 in-app sign-in — DONE (#1029, 3 commits).** Owner asked how
+    MeedyaDL can authenticate the wrapper (hoped: macOS-Keychain auto-detect).
+    Sequential Fable-5 investigation (source-verified vs wrapper-v2 `100e0a8` +
+    our Docker image `b3ffb1b`) **refuted the premise**: wrapper-v2 is a
+    self-authenticating daemon — it runs Apple's own sign-in and mints its own
+    tokens; its ONLY input is `POST /login` (Apple ID + app-specific password) →
+    `POST /login/2fa`. It accepts **no** cookie / Music-User-Token / Keychain
+    handoff, and Apple auth is **not** surfaced via the GAMDL CLI. Keychain
+    auto-detect is a dead end twice over (the daemon needs the *password* not a
+    token; and Apple's media-token keychain items sit behind `com.apple.private.*`
+    access-group ACLs no third-party app can read). Owner chose "build the full
+    modal." Shipped:
+    - `26258045` — doc fix: `WrapperV2AuthBlock`/`WrapperV2Me` now list the
+      source-verified five states (`logged_out | in_progress | awaiting_2fa |
+      authenticated | failed`); old comment had a fictional `"logging_in"`.
+    - `7f5262e8` — **backend** (Opus): `health_check_service::WrapperV2LoginResult` +
+      `wrapper_v2_login`/`_submit_2fa`/`_logout` (shared 60s POST driver, verified
+      HTTP-code mapping, never logs the body); `commands/wrapper.rs` (new) IPC
+      `wrapper_sign_in` (5/min) / `wrapper_submit_2fa` (10/min) / `wrapper_sign_out`
+      / `wrapper_auth_status`, registered in `mod.rs` + `lib.rs`.
+    - `144f739d` — **frontend** (Sonnet, gate-reviewed): Settings › Advanced ›
+      Wrapper (v2) "Sign in to wrapper" button + status line + Sign-out, two-step
+      modal (Apple ID + app-specific password → 6-digit 2FA). Password/code live
+      only in component state, wiped on every close path. `WrapperV2LoginResult`
+      type + 4 `tauri-commands.ts` wrappers.
+    - **Verified:** `cargo test --lib` → **1504 pass, 0 fail** (no regression),
+      `cargo check` clean, `npm run type-check` clean, **560/560** frontend tests.
+    - #1029 left OPEN with a completion comment — the `Closes #1029` trailer
+      auto-closes it when the prep branch merges. Interim fallback (the
+      `wrapper-account.sh` terminal helper) still works.
 
 ---
 
