@@ -128,6 +128,17 @@ fn save_history_to_disk(app: &AppHandle, entries: &[HistoryEntry]) {
     if let Err(e) = crate::utils::atomic_write::atomic_write_json(&path, entries, "history") {
         log::warn!("{e}");
     }
+
+    // Restrict history.json to owner-only read/write on Unix — entries
+    // include per-download file paths, so it shouldn't be world-readable
+    // (mirrors the settings.json 0600 hardening, #459).
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)) {
+            log::debug!("Failed to set history.json permissions: {e}");
+        }
+    }
 }
 
 fn dedupe_history_entries(mut entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {

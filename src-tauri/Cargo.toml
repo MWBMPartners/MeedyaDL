@@ -410,6 +410,13 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
 # rusty-chromaprint + symphonia so MeedyaDL no longer carries those
 # direct deps locally — see #353 Phase 3 commit `19d7f2e6` for the
 # swap and `52983b35`/`<this commit>` for the dep retargets.
+#
+# Security note: these two deps are pinned to a branch, not a tag or
+# `rev`, so `cargo update` can silently move them to a new commit on
+# MeedyaSuite-core's `main`. Release builds MUST run `cargo build
+# --locked` (or otherwise honour `Cargo.lock`) so the exact commit
+# these two crates resolve to is reproducible and reviewed, not
+# whatever `main` happens to contain at build time.
 meedya-fingerprint = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main", features = ["chromaprint"] }
 meedya-lyrics      = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "main" }
 

@@ -53,7 +53,11 @@ pub(crate) fn redact_urls_in_text(text: &str) -> String {
 
 /// Applies the query-string-truncation and userinfo-stripping rules
 /// described on [`redact_urls_in_text`] to a single URL string.
-fn redact_single_url(url: &str) -> String {
+///
+/// `pub(crate)` so other services (e.g. `download_queue::redact_url_query`)
+/// can reuse the same redaction logic instead of re-implementing a
+/// query-string-only variant that misses `user:pass@host` userinfo.
+pub(crate) fn redact_single_url(url: &str) -> String {
     // Truncate at the first '?' — drops the entire query string,
     // including any auth tokens it carries.
     let truncated = match url.find('?') {
@@ -316,8 +320,17 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     } else {
         "Crash Report"
     };
-    let error_summary: String = report
+    // Redact operator account names (`/Users/{name}/…`, `/home/{name}/…`,
+    // `C:\Users\{name}\…`) out of the panic message before it's embedded
+    // in a *public* GitHub issue URL. Panic messages frequently include
+    // source-adjacent data (failed path operations, file-not-found
+    // errors) that can carry the local username.
+    let redacted_panic_message = report
         .panic_message
+        .as_deref()
+        .map(crate::services::diagnostic_bundle::redact_path_usernames);
+
+    let error_summary: String = redacted_panic_message
         .as_deref()
         .unwrap_or("Unknown error")
         .chars()
@@ -337,7 +350,7 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     body.push_str(&format!("**Timestamp:** {}\n", report.timestamp));
     body.push_str(&format!("**Report ID:** `{}`\n", report.id));
 
-    if let Some(ref msg) = report.panic_message {
+    if let Some(ref msg) = redacted_panic_message {
         body.push_str(&format!("\n### Error Message\n\n```\n{msg}\n```\n"));
     }
 
@@ -365,11 +378,14 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
         }
     }
 
-    // Context key-value pairs
+    // Context key-value pairs. Values frequently include settings/paths
+    // that can carry the operator's account name — redact before this
+    // goes into a public issue body.
     if !report.context.is_empty() {
         body.push_str("\n### Context\n\n");
         for (key, value) in &report.context {
-            body.push_str(&format!("- **{key}:** {value}\n"));
+            let redacted_value = crate::services::diagnostic_bundle::redact_path_usernames(value);
+            body.push_str(&format!("- **{key}:** {redacted_value}\n"));
         }
     }
 

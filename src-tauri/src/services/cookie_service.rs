@@ -463,6 +463,19 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
     std::fs::write(&cookies_path, &netscape_content)
         .map_err(|e| format!("Failed to write cookies file: {e}"))?;
 
+    // Restrict cookies.txt to owner-only read/write on Unix (#459-style
+    // hardening) — it carries live Apple Music session cookies, so other
+    // local accounts on a shared machine must not be able to read it.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) =
+            std::fs::set_permissions(&cookies_path, std::fs::Permissions::from_mode(0o600))
+        {
+            log::debug!("Failed to set cookies.txt permissions: {e}");
+        }
+    }
+
     let cookies_path_str = cookies_path
         .to_str()
         .ok_or_else(|| "Failed to convert cookies path to string".to_string())?
