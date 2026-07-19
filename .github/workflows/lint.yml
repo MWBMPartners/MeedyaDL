@@ -1,0 +1,48 @@
+# Lint GitHub Actions workflow files with actionlint.
+#
+# Added org-wide to catch real workflow bugs early — undefined `needs:`
+# jobs, malformed `${{ }}` expressions, invalid `runs-on`, deprecated
+# syntax, and genuine shell errors inside `run:` blocks. It is tuned to be
+# non-disruptive: the embedded shellcheck runs at `--severity=error`, so
+# cosmetic style/info/warning lint (SC2129 "group your redirects", SC2086
+# quoting info, …) never fails the build — only genuine breakage does.
+#
+# Runs only when workflow files change, so it costs no CI minutes on
+# ordinary code pushes.
+name: Lint Workflows
+
+on:
+  push:
+    paths:
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+# Least-privilege: this job only reads the checked-out tree.
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-workflows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Install actionlint (pinned, checksum-verified by the official script)
+        run: |
+          bash <(curl -sSfL "https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash") 1.7.12
+
+      - name: Lint workflow files
+        env:
+          # Suppress cosmetic shellcheck style/info/warning; fail only on
+          # genuine errors (plus all of actionlint's own native checks).
+          SHELLCHECK_OPTS: --severity=error
+        run: ./actionlint -color
