@@ -168,6 +168,17 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::load_settings(&app).ok();
 
+    // Security: `dev_access_enabled` must only be toggled by the dedicated
+    // `activate_dev_access` / `deactivate_dev_access` commands, which
+    // validate a passphrase (or clear the keychain sentinel) before
+    // persisting via `config_service::save_settings` directly — a path this
+    // clamp does NOT intercept. A general settings write (this IPC) must
+    // never be able to flip the flag on, regardless of what the incoming
+    // payload contains.
+    settings.dev_access_enabled = previous
+        .as_ref()
+        .map_or(false, |p| p.dev_access_enabled);
+
     // save_settings() in config_service performs two writes:
     //   1. settings.json — full AppSettings struct as JSON
     //   2. config.ini — relevant fields translated to GAMDL's INI format
@@ -736,9 +747,18 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     sanitize_imported_settings(&mut merged);
     merged.cookies_path = current.cookies_path;
     merged.wrapper_account_url = current.wrapper_account_url;
+    // Security: `wrapper_url` / `wrapper_decrypt_ip` must never be
+    // settable via an imported settings file — otherwise a crafted
+    // import could redirect where wrapper-v2 sign-in POSTs the user's
+    // Apple ID + password (credential exfiltration).
+    merged.wrapper_url = current.wrapper_url;
+    merged.wrapper_decrypt_ip = current.wrapper_decrypt_ip;
     merged.musickit_team_id = current.musickit_team_id;
     merged.musickit_key_id = current.musickit_key_id;
     merged.acoustid_api_key = current.acoustid_api_key;
+    // Security: dev-access gating must only change via the dedicated
+    // activate/deactivate commands, never via a settings import.
+    merged.dev_access_enabled = current.dev_access_enabled;
 
     // Save the merged settings (also syncs to GAMDL config.ini)
     config_service::save_settings(&app, &merged)?;
@@ -756,10 +776,19 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
 /// Sanitize imported settings to prevent injection and resource exhaustion.
 /// Truncates excessively long string values and strips control characters.
 /// Applied after deserialization but before merging with current settings.
-fn sanitize_imported_settings(settings: &mut AppSettings) {
+///
+/// `pub(crate)` so `commands::profile_bundle::import_profile` can reuse the
+/// same sanitisation for `.meedyabundle` settings sections.
+pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     const MAX_PATH: usize = 1024;
     const MAX_URL: usize = 2048;
     const MAX_TEMPLATE: usize = 512;
+
+    // Security: never let an imported/bundled settings payload enable
+    // developer access. Callers with a "preserve current value" policy
+    // (e.g. `import_settings` above) overwrite this again afterward;
+    // callers with no such policy get the safe default.
+    settings.dev_access_enabled = false;
 
     fn truncate(s: &mut String, max: usize) {
         if s.len() > max {
