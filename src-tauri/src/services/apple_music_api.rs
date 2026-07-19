@@ -42,17 +42,6 @@ use base64::Engine;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-/// Compile-time embedded MusicKit developer token.
-///
-/// Set via the `MUSICKIT_DEVELOPER_TOKEN` environment variable at build time
-/// (for example from a GitHub Actions secret). This enables release builds to
-/// ship with API access for end users who do not have their own Apple
-/// Developer credentials.
-///
-/// Security note: this is a bearer token (not a private key), but it can still
-/// be extracted from binaries and should be scoped/rotated operationally.
-const EMBEDDED_MUSICKIT_DEVELOPER_TOKEN: Option<&str> = option_env!("MUSICKIT_DEVELOPER_TOKEN");
-
 /// The cookie name used by Apple Music's web client to store the subscriber
 /// authentication token. Shared across modules that need to detect or extract
 /// this cookie (login window webview, Netscape cookie file parsing).
@@ -84,8 +73,6 @@ pub(crate) const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel
 pub enum TokenSource {
     /// User-provided Team ID + Key ID + .p8 private key → self-generated JWT.
     UserCredentials,
-    /// Compile-time embedded developer token from CI secret.
-    EmbeddedBuildToken,
     /// Token extracted from the Apple Music web player login window.
     WebPlayerExtracted,
 }
@@ -94,7 +81,6 @@ impl std::fmt::Display for TokenSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UserCredentials => write!(f, "user credentials"),
-            Self::EmbeddedBuildToken => write!(f, "embedded token"),
             Self::WebPlayerExtracted => write!(f, "web session"),
         }
     }
@@ -699,8 +685,13 @@ pub fn generate_musickit_jwt(
 ///
 /// Priority:
 /// 1. User-provided Team ID + Key ID + private key (generate fresh JWT)
-/// 2. Compile-time embedded `MUSICKIT_DEVELOPER_TOKEN`
-/// 3. `None` (MusicKit API unavailable)
+/// 2. `None` (MusicKit API unavailable)
+///
+/// There is deliberately no compile-time embedded fallback here — a bearer
+/// token baked into the binary is trivially `strings`-extractable, so
+/// general catalog API calls require the user's own credentials. (Premium
+/// features have an additional web-player fallback tier; see
+/// `resolve_premium_feature_token()`.)
 ///
 /// Returns an error only if user credentials are present but invalid.
 pub fn resolve_musickit_developer_token(
@@ -716,18 +707,20 @@ pub fn resolve_musickit_developer_token(
         return generate_musickit_jwt(team, key, private_key).map(Some);
     }
 
-    Ok(EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(std::string::ToString::to_string))
+    Ok(None)
 }
 
 /// Returns true when a build-time MusicKit developer token is embedded.
+///
+/// The embedded-token tier was removed (security: a compile-time bearer
+/// token is `strings`-extractable from the binary) — this always returns
+/// `false` now. Kept as a stable IPC surface (`has_embedded_musickit_token`
+/// command, `hasEmbeddedMusicKitToken()` frontend wrapper) rather than
+/// threading a removal through the frontend for a status flag that is now
+/// unconditionally "absent".
 #[must_use]
 pub fn has_embedded_musickit_developer_token() -> bool {
-    EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
-        .map(str::trim)
-        .is_some_and(|s| !s.is_empty())
+    false
 }
 
 // ============================================================
@@ -928,9 +921,13 @@ pub fn has_webplayer_token() -> bool {
 ///
 /// # Priority
 /// 1. User-provided Team ID + Key ID + private key → self-generated JWT
-/// 2. Compile-time embedded `MUSICKIT_DEVELOPER_TOKEN`
-/// 3. Web player token from OS keychain (last resort)
-/// 4. `None` (premium features unavailable)
+/// 2. Web player token from OS keychain (last resort)
+/// 3. `None` (premium features unavailable)
+///
+/// There is deliberately no compile-time embedded fallback tier — a bearer
+/// token baked into the binary is trivially `strings`-extractable, so this
+/// resolver relies only on the user's own credentials plus the web-player
+/// keychain fallback.
 ///
 /// Returns an error only if user credentials are present but invalid.
 pub fn resolve_premium_feature_token(
@@ -948,15 +945,7 @@ pub fn resolve_premium_feature_token(
         return Ok(Some((jwt, TokenSource::UserCredentials)));
     }
 
-    // Priority 2: Compile-time embedded developer token
-    if let Some(token) = EMBEDDED_MUSICKIT_DEVELOPER_TOKEN
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        return Ok(Some((token.to_string(), TokenSource::EmbeddedBuildToken)));
-    }
-
-    // Priority 3: Web player token from keychain (last resort)
+    // Priority 2: Web player token from keychain (last resort)
     match get_webplayer_token_from_keychain() {
         Ok(Some(token)) => Ok(Some((token, TokenSource::WebPlayerExtracted))),
         Ok(None) => Ok(None),
