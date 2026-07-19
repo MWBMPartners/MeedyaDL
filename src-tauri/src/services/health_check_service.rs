@@ -553,7 +553,7 @@ pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<Prefligh
 /// {
 ///   "version": "0.0.2",
 ///   "runtime": { "playback_ready": true },
-///   "auth":    { "state": "authenticated" | "logged_out" | "logging_in" }
+///   "auth":    { "state": "logged_out" | "in_progress" | "awaiting_2fa" | "authenticated" | "failed" }
 /// }
 /// ```
 ///
@@ -577,7 +577,12 @@ pub struct WrapperV2Me {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct WrapperV2AuthBlock {
-    /// `"authenticated"`, `"logged_out"`, `"logging_in"`, `"awaiting_2fa"`.
+    /// One of exactly five daemon states (verified against wrapper-v2
+    /// `src/daemon/apple/auth.cpp`): `"logged_out"`, `"in_progress"`,
+    /// `"awaiting_2fa"`, `"authenticated"`, `"failed"`. MeedyaDL currently
+    /// only gates on `== "authenticated"`; any future `match` must use the
+    /// full set (the earlier comment's `"logging_in"` was never a real
+    /// daemon value).
     pub state: String,
 }
 
