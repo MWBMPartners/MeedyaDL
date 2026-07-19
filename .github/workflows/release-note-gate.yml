@@ -1,0 +1,134 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Release Note Gate (#1028)
+# ==========================
+#
+# A cheap PR gate for MeedyaDL's ELI5 release-notes pipeline. No build step
+# -- this workflow only reads PR metadata and (for the release-please job)
+# checks a file's presence/shape, so it stays fast on every PR.
+#
+# Two independent jobs:
+#
+#   1. pr-trailer
+#      Every user-facing PR (title starts with `feat`/`fix`/`perf`) must
+#      end its body with a `Release-Note: <plain English line>` trailer
+#      (or `Release-Note: none`). That trailer becomes a commit footer at
+#      squash-merge time (repo squash settings = PR_TITLE + PR_BODY) and
+#      is what `.github/cliff-eli5-body.tera` / `cliff-cumulative-body.tera`
+#      read to render ELI5 release notes. See
+#      .github/release-notes/STYLE_GUIDE.md for the writing rules.
+#
+#   2. release-pr-notes-file
+#      Gates the release-please PR itself (branch prefix
+#      `release-please--`). Stable cuts require a hand-polished tier-1
+#      file at `.github/release-notes/v<version>.md` (see
+#      .github/release-notes/README.md) to already be merged to main
+#      before the release-please PR can merge. `scripts/release-notes/
+#      draft-notes.sh` bootstraps that file from any Release-Note:
+#      trailers already on main.
+#
+# Both jobs use `env:` to pass untrusted PR title/body strings into `run:`
+# blocks -- never direct `${{ }}` interpolation in a shell command, which
+# would let a crafted PR title/body break out of the script (the same
+# injection-hardening pattern used by version-bump.yml and release.yml's
+# workflow_dispatch inputs).
+
+name: Release Note Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main, alpha, beta, release-candidate]
+
+permissions:
+  contents: read
+
+# Cancel a stale run when the PR is updated again -- these are cheap
+# metadata checks, no point letting an old run finish after a new push.
+concurrency:
+  group: release-note-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1: require a Release-Note: trailer on every user-facing PR body.
+  # ------------------------------------------------------------------
+  pr-trailer:
+    name: Release-Note trailer present
+    runs-on: ubuntu-latest
+    # Skip release-please's own PR (fixed template body, not authored by
+    # a human, nothing to gate) and dependabot PRs (never user-facing in
+    # the ELI5 sense -- dependency bumps are covered by the "deps-only"
+    # release-notes shape, not per-PR trailers).
+    if: >-
+      !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
+      github.actor != 'dependabot[bot]'
+    steps:
+      - name: Check for a Release-Note trailer on user-facing PRs
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # Only feat/fix/perf PRs are user-facing in the changelog sense.
+          # Matches the conventional-commit type followed by "(", "!", or
+          # ":" -- e.g. "feat:", "feat(wrapper):", "fix!:".
+          if ! printf '%s' "$PR_TITLE" | grep -qE '^(feat|fix|perf)(\(|!|:)'; then
+            echo "PR title '${PR_TITLE}' is not feat/fix/perf -- no Release-Note trailer required."
+            exit 0
+          fi
+
+          # Require a line starting with "Release-Note: " followed by at
+          # least one non-whitespace character (so a bare "Release-Note:"
+          # with nothing after it still fails the check).
+          if ! printf '%s' "$PR_BODY" | grep -qE '^Release-Note: \S'; then
+            echo "::error::This PR has no 'Release-Note:' line in its body. Add one plain-English line per user-visible change (see .github/release-notes/STYLE_GUIDE.md), or 'Release-Note: none' if nothing is user-visible."
+            exit 1
+          fi
+
+          echo "Release-Note trailer found."
+
+  # ------------------------------------------------------------------
+  # Job 2: the release-please PR must carry a merged tier-1 notes file.
+  # ------------------------------------------------------------------
+  release-pr-notes-file:
+    name: Tier-1 release-notes file present
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.pull_request.head.ref, 'release-please--')
+    steps:
+      # Default checkout on a pull_request event resolves to the PR's
+      # merge ref (base + head merged) -- so a tier-1 file merged to main
+      # via a separate PR shows up here even though release-please's own
+      # branch never touches .github/release-notes/.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Require a populated tier-1 notes file for this version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+
+          # Release-please PR titles look like "chore(main): release 1.11.0".
+          VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$VER" ]; then
+            echo "::error::Could not parse a version number out of the PR title '${PR_TITLE}'."
+            exit 1
+          fi
+
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+          echo "Checking for: ${NOTES_FILE}"
+
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::error::${NOTES_FILE} is missing. Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
+            exit 1
+          fi
+
+          if ! grep -qE '^### ' "$NOTES_FILE"; then
+            echo "::error::${NOTES_FILE} exists but has no populated '### ' sections (What's new / What's fixed / Performance / Notes). Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
+            exit 1
+          fi
+
+          echo "${NOTES_FILE} is present and populated."

@@ -87,6 +87,16 @@ See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture ov
   - `chore:` — build process, CI, dependencies
   - `security:` — security-related changes
 
+### Release notes
+
+Every user-facing PR (title starts with `feat`, `fix`, or `perf`) must end its body with a `Release-Note:` line — one plain-English sentence per user-visible change, or `Release-Note: none` if there isn't one:
+
+```text
+Release-Note: Fixed wrapper connections for people running the wrapper on another computer while on an older GAMDL version.
+```
+
+This trailer becomes a commit footer at squash-merge time and is what turns MeedyaDL's release notes into something an end user can actually read — no file names, function names, or CLI flags, just what changed for them. `release-note-gate.yml` enforces its presence on CI. See [`.github/release-notes/STYLE_GUIDE.md`](.github/release-notes/STYLE_GUIDE.md) for the full writing guide, including worked before/after examples.
+
 ## Branching Model
 
 MeedyaDL uses a six-tier release-channel ladder (least → most stable):
