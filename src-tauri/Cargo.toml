@@ -48,6 +48,20 @@ repository = "https://github.com/MWBMPartners/MeedyaDL"
 edition = "2021"
 
 # ============================================================
+# [features] -- Optional Cargo feature flags
+# ============================================================
+# @see https://doc.rust-lang.org/cargo/reference/features.html
+[features]
+# default -- No optional features are enabled unless explicitly requested.
+# Security: keeps the WebView devtools IPC bridge out of every build that
+# doesn't explicitly opt in (release, CI, and default local builds alike).
+default = []
+# devtools -- WebView devtools + console IPC bridge. NOT in default builds
+# (security: keeps the IPC bridge + frontend internals out of production
+# bundles). Enable for local dev / alpha debugging with `--features devtools`.
+devtools = ["tauri/devtools"]
+
+# ============================================================
 # [build-dependencies] -- Dependencies used only during compilation (build.rs)
 # ============================================================
 # @see https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#build-dependencies
@@ -104,7 +118,7 @@ meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = 
 # Feature "tray-icon": Enables system tray icon support (menu bar on macOS,
 # notification area on Windows/Linux). Configured in tauri.conf.json "trayIcon".
 # @see https://v2.tauri.app/reference/rust/tauri/
-tauri = { version = "2", features = ["tray-icon", "devtools"] }
+tauri = { version = "2", features = ["tray-icon"] }
 
 # tauri-plugin-shell -- Execute shell commands and manage child processes.
 # Used to spawn the GAMDL Python process, capture stdout/stderr for progress
