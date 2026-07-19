@@ -1,5 +1,56 @@
-{% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | striptags | trim | upper_first }}
-{% for commit in commits %}- {% set rn = "" %}{% for footer in commit.footers %}{% if footer.token == "Release-Note" and rn == "" %}{% set_global rn = footer.value | split(pat="\n") | first | trim %}{% endif %}{% endfor %}{% if rn and rn != "none" %}{{ rn }}{% else %}{% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }}{% endif %}
+{%- set news = [] -%}
+{%- set fixes = [] -%}
+{%- set perf = [] -%}
+{%- set other = [] -%}
+{%- set internal_prs = [] -%}
+{%- set internal_count = 0 -%}
+{%- for commit in commits -%}
+  {%- set pr = "" -%}
+  {%- if commit.message is containing("(#") -%}
+    {%- set prcand = commit.message | split(pat="(#") | last | split(pat=")") | first -%}
+    {%- if prcand | int(default=0) > 0 -%}{%- set pr = prcand -%}{%- endif -%}
+  {%- endif -%}
+  {%- set_global commit_has_note = false -%}
+  {%- for footer in commit.footers -%}
+    {%- if footer.token == "Release-Note" -%}
+      {%- set line = footer.value | split(pat="\n") | first | trim -%}
+      {%- if line and line != "none" -%}
+        {%- set_global commit_has_note = true -%}
+        {%- if pr -%}{%- set line = line ~ " ([#" ~ pr ~ "](https://github.com/MWBMPartners/MeedyaDL/pull/" ~ pr ~ "))" -%}{%- endif -%}
+        {%- if commit.group is containing("Features") -%}
+          {%- set_global news = news | concat(with=line) -%}
+        {%- elif commit.group is containing("Bug Fixes") or commit.group is containing("Security") -%}
+          {%- set_global fixes = fixes | concat(with=line) -%}
+        {%- elif commit.group is containing("Performance") -%}
+          {%- set_global perf = perf | concat(with=line) -%}
+        {%- else -%}
+          {%- set_global other = other | concat(with=line) -%}
+        {%- endif -%}
+      {%- endif -%}
+    {%- endif -%}
+  {%- endfor -%}
+  {%- if not commit_has_note -%}
+    {%- set_global internal_count = internal_count + 1 -%}
+    {%- if pr -%}{%- set_global internal_prs = internal_prs | concat(with="[#" ~ pr ~ "](https://github.com/MWBMPartners/MeedyaDL/pull/" ~ pr ~ ")") -%}{%- endif -%}
+  {%- endif -%}
+{%- endfor -%}
+{% if news %}### What's new
+
+{% for n in news | unique %}- {{ n }}
 {% endfor %}
+{% endif %}{% if fixes %}### What's fixed
+
+{% for n in fixes | unique %}- {{ n }}
 {% endfor %}
+{% endif %}{% if perf %}### Performance
+
+{% for n in perf | unique %}- {{ n }}
+{% endfor %}
+{% endif %}{% if other %}### Notes
+
+{% for n in other | unique %}- {{ n }}
+{% endfor %}
+{% endif %}{% if internal_count > 0 %}### Under the hood
+
+- {{ internal_count }} internal change{{ internal_count | pluralize }} to keep the app healthy — build tooling, dependencies, and housekeeping{% if internal_prs %} ({{ internal_prs | unique | join(sep=", ") }}){% endif %}.
+{% endif %}
