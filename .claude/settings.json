@@ -8,6 +8,7 @@
     ]
   },
   "enabledPlugins": {
-    "codex@openai-codex": true
+    "codex@openai-codex": true,
+    "dev-team@dev-team": true
   }
 }

@@ -69,6 +69,12 @@ auth/
 # absolute paths and per-developer settings. Shared config lives in settings.json.
 .claude/settings.local.json
 
+# Per-developer Claude Code skill/plugin install state (e.g. prompt-polish).
+# These are personal tooling, not project code — enablement lives in settings.json.
+.agents/
+.claude/skills/
+skills-lock.json
+
 # ============================================================
 # Operating System
 # ============================================================
