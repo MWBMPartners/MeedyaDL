@@ -7,6 +7,38 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
+## ★ LATEST — Session 2026-07-19 part 2: large autonomous program (IN PROGRESS)
+
+A big multi-workstream autonomous run before the prep→alpha PR. **Model tiering in force:** sequential Fable 5 for deep analysis (fallback Opus); Sonnet/Haiku for implementation (Opus for complex). After each chunk: update issue + commit + update this handoff. **PR still NOT opened** — hold until the program's final step (owner: "STAGE COMMIT PUSH" is the last step).
+
+### DONE this part (all committed + pushed)
+- **Org-wide actionlint CI rollout — DONE.** `.github/workflows/lint.yml` (actionlint, `SHELLCHECK_OPTS=--severity=error` so cosmetic style never fails) rolled out to **17 repos** across MeedyaSuite / MWBMPartners / Skriptey / Salem874 via PRs (alpha→beta→main priority); all 17 actionlint checks green, no deploys fired, tracking issue in each. **3 held repos fixed** (real bugs): Go2My.Link `if:false`→`vars.SFTP_DEPLOY_ENABLED` gate (#154→PR #155), WebMS-Intra broken `release.yml` heredoc + empty choice option + `head_commit.message` injection (#366→PR #367), iHymns empty option + injection (#1563→PR #1564). **2 main-targeted:** MeedyaSuite-core (#63→#64), NetPLAYERapp (#180→#181). Reusable tooling in scratchpad: `lint.yml` + `rollout-actionlint.sh` (idempotent, DRY_RUN=1). Not yet committed to a durable home (offer: MeedyaDL-Tools).
+- **Rebase — DONE.** Rebased `prep` onto `origin/alpha` (was 52 ahead / 5 behind → **52 ahead / 0 behind**). Kept the session's `1.12.0-alpha.28` (resolved 4 version-manifest conflicts to prep's side, preserved alpha's dep bumps). `cargo check` clean. Force-pushed; **backup at `backup/prep-pre-rebase-2026-07-19`**. NOTE: next alpha auto-computes `1.12.0-alpha.30` (base from manifest 1.12.0 + counter max-tag+1) — verified; nothing to do.
+- **Security secret-scanning — DONE (#1032, `9f6fcc61`).** 2 "Generic" alerts = false positives, neutralised at source: JWT test key assembled via `format!("-----BEGIN {pem_kind}-----…")` (no contiguous PEM literal); `DEV_ACCESS_HASH` → `Option<&str>` with runtime `SHA-256("")` fallback (no hash literal). `.github/secret_scanning.yml` (paths-ignore help/**). CodeQL: **0 open** (16 fixed, 1 dismissed test-cookie); UI warning is staleness (last scan `main` Mar 20). **CAVEAT:** the secret-scanning alerts API returns `[]` with a classic `repo` token — couldn't enumerate/dismiss the exact 2; source fixes should auto-resolve on the scanned branch, else a 1-click UI dismiss closes them.
+- **Release-notes cumulative-template leak — DONE (#1033, `72e7dbfe`).** The cumulative template had a Tera `set` (loop-local) vs `set_global` bug → it ALWAYS rendered raw commit subjects, ignoring `Release-Note:` trailers (would leak commit-speak + internal method names even after merge). Rewrote `.github/cliff-cumulative-body.tera`: untrailered commits collapse to one "Under the hood: N internal changes ([#PR]…)" line; trailers bucket into What's new/fixed/Performance/Notes; PR-number links kept. Validated over `v1.10.1..v1.11.0-alpha.29` (zero commit-speak). **Backfilled v1.11.0-alpha.29** live (was raw git-cliff — #1028 isn't on `alpha` yet, that's WHY it leaked).
+
+### Fable PLAN A — pre-merge improvement batch (analysed, ready to implement)
+Bundle into commits: **A** clippy `useless_borrows_in_formatting` at `download_queue.rs:7691` + delete dead `fetch_syllable_lyrics` IPC (#1012, `commands/gamdl.rs:2878`+`lib.rs:1221`, zero callers). **B** #995 channel builds run `cargo generate-lockfile` (re-resolves whole tree → ships untested deps; `alpha/beta/rc-release.yml`) → `cargo update -p meedyadl`; #984 pin offline-installer GAMDL (`release.yml:794`, parse `tool-versions.toml` → `gamdl>=3.0,<=3.8.4`). **C** #1011 add `extend=…,audioTraits` at `apple_music_api.rs:1042` (dead tag path). **D** docs: #949 M8/M9/M10 renumber (`engine_runner.rs:447/469`, `types/index.ts:936`, `HelpViewer.tsx:982/1001/1019`, `help/supported-services.md`, `settings.rs:589`; canonical M8=BBC=v2.0.0, M9=Spotify=v2.1.0, M10=YouTube=v2.2.0) + CLAUDE.md staleness (meedya-core dep-flip already done `Cargo.toml:414`; nightly/weekly/monthly cron removed by #879) + #998 CSP comment. **E** #982 GPAC NSIS `/D=` → `raw_arg` (`dependency_manager.rs:1657`, needs `rustup target add x86_64-pc-windows-msvc` + `cargo check --target`) + #997 sudo-no-TTY message (`dependency_manager.rs:1729`). **F** #981 Linux x64 FFmpeg tar.xz declared TarGz (`dependency_manager.rs:782`, `archive.rs:402`) → add `TarXz` + `lzma-rs`/`xz2` dep (run cargo-deny). **G** #965 codec "(Experimental)" labels → "(May require wrapper)" (`gamdl_options.rs:262`). **H** #991 honest batch/undo accounting (`downloadStore.ts:984/591/697`). **I** #964 help wrapper phrasing 3.8+. **Defer:** #1000, #987, #963/#1002, #983/#978, #1014, #934, #961 items 1&3. **Housekeeping:** close shipped-but-open #925/#962/#999.
+
+### Fable PLAN B — release-notes robustness remainder (#1033)
+Body-lint tripwire in `release.yml ensure-release` (strip `<details>`, grep banned shapes `^## \[` / `**(scope)**` / conventional prefixes / git-cliff footer → stable=`exit 1`, prerelease=degrade to safe static body + `::warning::`) at ~L424 + tier-1 path L216-227; fix missing preamble at `release.yml:361-368`; quality-lint trailers+notes-file in `release-note-gate.yml` (reject backticks/snake_case/`--flags`/paths/jargon); backfill **v1.10.0-alpha.16** (placeholder), **v1.1.0/v1.1.1/v1.2.0/v1.4.0** (commit-speak); optional `baseline-1.11.0-alpha.md`; subjects-only `<details>` via new `cliff-technical-body.tera`; ~145 v0.x archive = scripted one-liner or defer. Validated `cumulative-v3.tera` in scratchpad. Owner defaults chosen: subjects-only details, adopt baseline, defer v0.x, gate chore PRs advisory.
+
+### REMAINING ROADMAP (user-queued, priority order — resume here)
+1. **Full codebase security audit** (injection/backdoor/code-peeking/deconstruction) → fix all, any severity/age. [Fable analysis first]
+2. **Full lint/syntax sweep** (`cargo clippy`, actionlint, shellcheck, eslint, `type-check`, rustfmt touched-only) → fix all.
+3. **Accessibility** scan + fixes (WCAG / standards-compliant) across React UI.
+4. **Improvement batch** (Plan A above).
+5. **Release-notes robustness** remainder (Plan B / #1033).
+6. **All repo .md** to current state: README, SECURITY, CHANGELOG, CONTRIBUTING, ACKNOWLEDGEMENTS, DEV_NOTES, TERMS, CODE_OF_CONDUCT, THIRD_PARTY_LICENSES, LICENSE.
+7. **In-app help/*.md** → plain-speak, accurate to current app.
+8. **Issue hygiene** — close completed / reopen closed-in-error / update all to reflect state.
+9. **Claude** memory + CLAUDE.md; **GitHub Wiki + Project + Milestones** to current state.
+10. **FINAL:** handoff refresh (last step) → STAGE/COMMIT/PUSH. **Then** owner opens the prep→alpha PR (rebase-merge, per #1027).
+
+Tooling installed + persists: Rust 1.97.1, Node v26.5.0, git-cliff 2.13.1, ripgrep 15.2.0, actionlint 1.7.12, shellcheck, cargo-deny 0.20.2, jq. `gh` token lacks `project` scope (item-add fails; `gh auth refresh -s project`) and secret-scanning alert enumeration.
+
+---
+
 ## 0. Current session (2026-07-18) — IN PROGRESS
 
 Picking up after the GAMDL 3.8.2 admission (§2–§3). Agenda + status:
