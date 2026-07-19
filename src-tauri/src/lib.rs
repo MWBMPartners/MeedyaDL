@@ -1402,11 +1402,13 @@ pub fn run() {
                 std::env::consts::ARCH,
             );
 
-            // Open WebView DevTools in debug builds or when devtools feature is enabled.
-            // This allows inspecting the DOM, Console, and Network tabs to diagnose
-            // rendering issues. In release builds, devtools are available via the
-            // "devtools" Cargo feature flag but not opened automatically.
-            #[cfg(debug_assertions)]
+            // Open WebView DevTools in debug builds or when the "devtools" Cargo
+            // feature is enabled. This allows inspecting the DOM, Console, and
+            // Network tabs to diagnose rendering issues. DEFAULT release builds
+            // do NOT enable the "devtools" feature (see [features] in Cargo.toml),
+            // so this block -- and the underlying tauri "devtools" IPC bridge --
+            // is compiled out entirely unless built with `--features devtools`.
+            #[cfg(any(debug_assertions, feature = "devtools"))]
             {
                 use tauri::Manager;
                 if let Some(window) = app.get_webview_window("main") {
