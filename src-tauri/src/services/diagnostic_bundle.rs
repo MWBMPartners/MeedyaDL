@@ -237,7 +237,11 @@ pub fn build_diagnostic_bundle(
 /// field, and return the pretty-printed JSON as a String. Returns the
 /// raw bytes on parse failure (better to show *something* in the
 /// bundle than fail the capture).
-fn collect_redacted_settings(app: &AppHandle) -> Result<String, String> {
+///
+/// `pub(crate)` so `commands::profile_bundle::export_profile` can reuse
+/// the same redaction for the embedded `settings.json` entry of a
+/// `.meedyabundle` export when credentials aren't also being embedded.
+pub(crate) fn collect_redacted_settings(app: &AppHandle) -> Result<String, String> {
     use crate::utils::platform::get_app_data_dir;
     let settings_path = get_app_data_dir(app).join("settings.json");
     let raw = fs::read_to_string(&settings_path)

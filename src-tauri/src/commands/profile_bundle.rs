@@ -111,12 +111,38 @@ pub async fn export_profile(
     let mut writer = BundleWriter::new(meta);
 
     // settings.json + sha256 sidecar — REQUIRED.
-    let settings_path = app_data_dir.join("settings.json");
-    let settings_bytes = std::fs::read(&settings_path)
-        .map_err(|e| format!("Failed to read settings.json: {e}"))?;
-    let sha256_path = app_data_dir.join("settings.json.sha256");
-    let sha256_hex = std::fs::read_to_string(&sha256_path).unwrap_or_default();
-    writer.add_settings(settings_bytes, sha256_hex.trim().to_string());
+    //
+    // Security (F4): when credentials are NOT also being embedded
+    // (encrypted, under a user-set password), the plaintext settings.json
+    // entry must not carry cleartext secrets (AcoustID key, wrapper
+    // URLs, MusicKit team/key IDs) or the operator's account name baked
+    // into paths — otherwise the bundle leaks in cleartext exactly what
+    // "include credentials" is supposed to gate behind a password.
+    // Reuses the diagnostic-bundle composer's redaction (#572) as the
+    // single source of truth for "what counts as sensitive" in a
+    // settings snapshot. When credentials ARE included, the raw file is
+    // embedded as before (the user has already opted into exporting
+    // secrets and set an encryption password for the dedicated
+    // credentials section).
+    let (settings_bytes, sha256_hex) = if options.include_credentials {
+        let settings_path = app_data_dir.join("settings.json");
+        let bytes = std::fs::read(&settings_path)
+            .map_err(|e| format!("Failed to read settings.json: {e}"))?;
+        let sha256_path = app_data_dir.join("settings.json.sha256");
+        let hex = std::fs::read_to_string(&sha256_path).unwrap_or_default();
+        (bytes, hex.trim().to_string())
+    } else {
+        let redacted = crate::services::diagnostic_bundle::collect_redacted_settings(&app)
+            .map_err(|e| format!("Failed to read settings.json: {e}"))?;
+        let hex = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(redacted.as_bytes());
+            format!("{:x}", hasher.finalize())
+        };
+        (redacted.into_bytes(), hex)
+    };
+    writer.add_settings(settings_bytes, sha256_hex);
 
     // queue.json — OPTIONAL, default ON.
     if options.include_queue {
@@ -500,18 +526,25 @@ fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
 }
 
 /// Restore the credentials blob into the install: cookies file
-/// gets written to `settings.cookies_path` (or a default
+/// gets written to `anchor_settings.cookies_path` (or a default
 /// `{app_data}/cookies.txt` if unset), private key + web-player
 /// token get re-injected into the OS keychain. Called by the
 /// import path on the user's confirmation of the credentials
 /// section.
-fn restore_credentials_blob(app: &AppHandle, json_bytes: &[u8]) -> Result<(), String> {
+///
+/// `anchor_settings` MUST be the PRE-IMPORT settings snapshot (F1) —
+/// never a fresh settings load, which by the time credentials are
+/// restored may already reflect the just-imported settings.json.
+fn restore_credentials_blob(
+    app: &AppHandle,
+    json_bytes: &[u8],
+    anchor_settings: &crate::models::settings::AppSettings,
+) -> Result<(), String> {
     let blob: CredentialsBlobV1 = serde_json::from_slice(json_bytes)
         .map_err(|e| format!("Bundle credentials JSON malformed: {e}"))?;
 
     if let Some(content) = blob.cookies_file {
-        let settings = crate::services::config_service::load_settings(app)?;
-        let path: PathBuf = match settings.cookies_path.as_deref() {
+        let path: PathBuf = match anchor_settings.cookies_path.as_deref() {
             Some(p) if !p.is_empty() => PathBuf::from(p),
             _ => crate::utils::platform::get_app_data_dir(app).join("cookies.txt"),
         };
@@ -735,6 +768,20 @@ pub async fn import_profile(
     let mut reader =
         BundleReader::from_bytes(bytes).map_err(|e| format!("Failed to open bundle: {e}"))?;
 
+    // Security (F1): snapshot the CURRENT (pre-import) settings BEFORE
+    // any bundle content is written to disk. A bundle's settings.json is
+    // attacker-controllable (a crafted export, a tampered file shared
+    // out-of-band, or a legitimate export from a compromised install).
+    // Every later restore step in this function that needs a filesystem
+    // anchor (the manifests root, the credentials cookies destination)
+    // uses THIS snapshot — never a fresh settings load, which after the
+    // Settings section below runs would read back whatever was just
+    // imported. Anchoring to attacker-supplied `output_path` /
+    // `cookies_path` would turn "restore my settings" into an
+    // arbitrary-file-write primitive.
+    let pre_import_settings =
+        crate::services::config_service::load_settings(&app).unwrap_or_default();
+
     let mut result = ImportProfileResult {
         settings_restored: false,
         queue_restored: false,
@@ -746,20 +793,40 @@ pub async fn import_profile(
     };
 
     // Settings (REQUIRED entry; restore by default).
+    //
+    // Security (F1): the bundle's settings.json used to be written to
+    // disk VERBATIM. Fix: parse + run it through the same sanitiser
+    // `import_settings` (commands/settings.rs) uses for JSON settings
+    // imports, then forcibly clamp every security-sensitive field back
+    // to the PRE-IMPORT snapshot captured above — a bundle may bring
+    // preferences, but never tool paths, the dev-access flag, wrapper
+    // endpoints, or the write-anchor paths (`cookies_path`,
+    // `output_path`). Persisted via the standard `save_settings` path
+    // (regenerates the sha256 sidecar + config.ini + 0600 permissions)
+    // instead of trusting the bundle's raw bytes/sidecar.
     if matches!(options.settings, ImportConflictAction::Replace) {
         if let Some(settings_bytes) = reader
             .read_entry(entry::SETTINGS)
             .map_err(|e| format!("Failed to read settings.json from bundle: {e}"))?
         {
-            std::fs::write(app_data_dir.join("settings.json"), &settings_bytes)
+            let mut imported: crate::models::settings::AppSettings =
+                serde_json::from_slice(&settings_bytes)
+                    .map_err(|e| format!("Bundle settings.json is malformed: {e}"))?;
+            crate::commands::settings::sanitize_imported_settings(&mut imported);
+            // Security-sensitive fields are NEVER taken from the bundle —
+            // always clamped to what this install already had configured.
+            imported.dev_access_enabled = pre_import_settings.dev_access_enabled;
+            imported.ffmpeg_path = pre_import_settings.ffmpeg_path.clone();
+            imported.mp4decrypt_path = pre_import_settings.mp4decrypt_path.clone();
+            imported.mp4box_path = pre_import_settings.mp4box_path.clone();
+            imported.nm3u8dlre_path = pre_import_settings.nm3u8dlre_path.clone();
+            imported.wrapper_url = pre_import_settings.wrapper_url.clone();
+            imported.wrapper_decrypt_ip = pre_import_settings.wrapper_decrypt_ip.clone();
+            imported.cookies_path = pre_import_settings.cookies_path.clone();
+            imported.output_path = pre_import_settings.output_path.clone();
+
+            crate::services::config_service::save_settings(&app, &imported)
                 .map_err(|e| format!("Failed to write settings.json: {e}"))?;
-            if let Some(sha) = reader
-                .read_entry(entry::SETTINGS_SHA256)
-                .map_err(|e| format!("Failed to read settings.json.sha256: {e}"))?
-            {
-                std::fs::write(app_data_dir.join("settings.json.sha256"), &sha)
-                    .map_err(|e| format!("Failed to write settings sha256: {e}"))?;
-            }
             result.settings_restored = true;
         }
     }
@@ -841,8 +908,13 @@ pub async fn import_profile(
     if matches!(options.manifests, ImportConflictAction::Replace)
         && reader.meta().has(BundleSection::Manifests)
     {
-        let settings = crate::services::config_service::load_settings(&app)?;
-        let root = std::path::PathBuf::from(&settings.output_path);
+        // Security (F1): anchor to the PRE-IMPORT output path, not a
+        // fresh settings load — by this point in the function,
+        // settings.json on disk may already reflect the just-imported
+        // (sanitised, but still bundle-influenced) settings, and
+        // `output_path` must stay locked to what THIS install had
+        // configured before the import started.
+        let root = std::path::PathBuf::from(&pre_import_settings.output_path);
         if !root.exists() {
             std::fs::create_dir_all(&root).ok();
         }
@@ -900,7 +972,7 @@ pub async fn import_profile(
                 }
                 other => format!("Failed to decrypt credentials: {other}"),
             })?;
-        restore_credentials_blob(&app, &plaintext)?;
+        restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
         // P4 success path — clear the "skipped" flag (default false) so
         // the frontend doesn't show the misleading "skipped" toast.
         result.credentials_skipped_p4 = false;

@@ -470,13 +470,41 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     // re-serialisation. Future enhancement: split the helper into a two-phase
     // API that returns the serialised string for callers that need it.
     let temp_path = settings_path.with_extension("json.tmp");
-    std::fs::write(&temp_path, &json)
-        .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
+    // On Unix, create the temp file with 0600 permissions from the very
+    // first `open()` call so there is no window — however brief — where
+    // the file (and, after rename, `settings_path` itself, since rename
+    // preserves the source file's permission bits) is readable by other
+    // local accounts. The previous code wrote via `std::fs::write`
+    // (default umask permissions, typically 0644) and only restricted to
+    // 0600 *after* the rename had already made the world-readable file
+    // live at `settings_path`.
+    #[cfg(unix)]
+    {
+        use std::fs::OpenOptions;
+        use std::io::Write as _;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&temp_path)
+            .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
+        file.write_all(json.as_bytes())
+            .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(&temp_path, &json)
+            .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
+    }
     std::fs::rename(&temp_path, &settings_path)
         .map_err(|e| format!("Failed to rename temp settings file: {e}"))?;
 
-    // Set restrictive file permissions on Unix (#459).
-    // Settings contain sensitive paths (cookies, API credentials).
+    // Belt-and-braces: re-assert 0600 on the final path (#459). Redundant
+    // with the 0600-mode temp-file creation above under normal operation,
+    // but keeps the invariant correct even if a future call site changes
+    // the write strategy without noticing the mode-on-open trick.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

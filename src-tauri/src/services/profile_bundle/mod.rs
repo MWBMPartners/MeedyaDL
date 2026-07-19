@@ -391,7 +391,27 @@ impl BundleReader {
             Err(zip::result::ZipError::FileNotFound) => return Ok(None),
             Err(e) => return Err(BundleError::Zip(e)),
         };
-        let mut buf = Vec::with_capacity(entry.size() as usize);
+        // Denial-of-service guard: `entry.size()` is the archive's own
+        // (attacker-controlled) central-directory field. A crafted
+        // `.meedyabundle` — auto-discovered from Downloads/Desktop, a
+        // drag-drop, or an OS file association — could declare an
+        // enormous uncompressed size to force a huge up-front allocation
+        // before a single byte is actually read. Reject implausibly large
+        // declared sizes outright, and cap the pre-allocation hint at a
+        // smaller ceiling so a smaller-but-still-inflated declared size
+        // can't over-allocate either.
+        const MAX_ENTRY_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
+        const MAX_PREALLOC: u64 = 64 * 1024 * 1024; // 64 MB
+        if entry.size() > MAX_ENTRY_SIZE {
+            return Err(BundleError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!(
+                    "bundle entry '{name}' declares an implausible size ({} bytes, max {MAX_ENTRY_SIZE})",
+                    entry.size()
+                ),
+            )));
+        }
+        let mut buf = Vec::with_capacity(entry.size().min(MAX_PREALLOC) as usize);
         entry.read_to_end(&mut buf)?;
         Ok(Some(buf))
     }
