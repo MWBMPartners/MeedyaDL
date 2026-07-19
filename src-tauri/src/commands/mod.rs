@@ -167,3 +167,10 @@ pub mod profile_bundle;
 /// the download form consumes before showing the Spotify path.
 /// Companion to `services::spotify_anti_ban`.
 pub mod spotify_anti_ban;
+
+/// Wrapper-v2 interactive sign-in IPC surface (#1029). Drives the
+/// daemon's own `POST /login` + `POST /login/2fa` Apple sign-in from
+/// the Settings > Advanced > Wrapper "Sign in to wrapper" modal, plus
+/// sign-out and an `auth.state` status probe. Companion to the
+/// wrapper-v2 helpers in `services::health_check_service`.
+pub mod wrapper;

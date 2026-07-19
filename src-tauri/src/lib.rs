@@ -1270,6 +1270,11 @@ pub fn run() {
             commands::service_status::check_service_status,
             // Smart Download cross-platform search
             commands::smart_download::check_cross_platform,
+            // Wrapper-v2 interactive sign-in (#1029)
+            commands::wrapper::wrapper_sign_in,
+            commands::wrapper::wrapper_submit_2fa,
+            commands::wrapper::wrapper_sign_out,
+            commands::wrapper::wrapper_auth_status,
         ]);
 
     // ---------------------------------------------------------------

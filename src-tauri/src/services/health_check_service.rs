@@ -753,6 +753,188 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
 }
 
 // ============================================================
+// Wrapper-v2 Interactive Sign-In (#1029)
+// ============================================================
+//
+// wrapper-v2 is a self-authenticating daemon: it runs Apple's own
+// sign-in flow and mints its own tokens. Its only credential input is
+// `POST /login` (Apple ID + password) followed by `POST /login/2fa`
+// when Apple demands a two-factor code — it accepts no cookie jar,
+// Music-User-Token, or Keychain handoff. These helpers drive that flow
+// from the GUI so users never touch the out-of-band `wrapper-account.sh`
+// terminal helper. The Apple password is held only for the duration of a
+// single request and is never logged, persisted, or echoed back.
+
+/// Result of a wrapper-v2 `POST /login` or `POST /login/2fa` attempt (#1029).
+///
+/// `status` is one of exactly four values the frontend switches on:
+/// - `"authenticated"` — HTTP 200: the daemon now holds a valid Apple session.
+/// - `"awaiting_2fa"`   — HTTP 202: Apple demanded a 2FA code; call
+///   [`wrapper_v2_submit_2fa`] next.
+/// - `"failed"`         — HTTP 401: Apple rejected the credentials/code.
+/// - `"error"`          — any other status or a transport error; `message`
+///   carries a human-readable explanation.
+///
+/// `message` never contains the submitted credentials.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WrapperV2LoginResult {
+    pub status: String,
+    pub message: Option<String>,
+}
+
+/// Shared POST driver for the two wrapper-v2 login endpoints (#1029).
+///
+/// Sends `body` as JSON to `{wrapper_url}{path}` with a 60-second timeout
+/// (Apple's sign-in round-trip can be slow) and maps the daemon's verified
+/// status codes to a [`WrapperV2LoginResult`]. The request body — which
+/// carries the Apple password or the 2FA code — is never logged; `reqwest`'s
+/// error `Display` includes at most the URL, never the body.
+async fn post_wrapper_login_endpoint(
+    wrapper_url: &str,
+    path: &str,
+    body: serde_json::Value,
+) -> WrapperV2LoginResult {
+    let url = format!("{}{}", wrapper_url.trim_end_matches('/'), path);
+    let client = match reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+    {
+        Ok(c) => c,
+        Err(err) => {
+            return WrapperV2LoginResult {
+                status: "error".into(),
+                message: Some(format!("Failed to build HTTP client: {err}")),
+            };
+        }
+    };
+    let resp = match client.post(&url).json(&body).send().await {
+        Ok(r) => r,
+        Err(err) if err.is_timeout() => {
+            return WrapperV2LoginResult {
+                status: "error".into(),
+                message: Some(
+                    "Timed out after 60s talking to the wrapper — is the daemon running and reachable?".into(),
+                ),
+            };
+        }
+        Err(err) => {
+            return WrapperV2LoginResult {
+                status: "error".into(),
+                message: Some(format!("Could not reach the wrapper: {err}")),
+            };
+        }
+    };
+    // Map the daemon's verified status family (wrapper-v2
+    // `src/rust/main.rs` routing) to the frontend contract.
+    match resp.status().as_u16() {
+        200 => WrapperV2LoginResult {
+            status: "authenticated".into(),
+            message: None,
+        },
+        202 => WrapperV2LoginResult {
+            status: "awaiting_2fa".into(),
+            message: Some(
+                "Apple requires a two-factor code — enter the 6-digit code sent to your trusted device."
+                    .into(),
+            ),
+        },
+        401 => WrapperV2LoginResult {
+            status: "failed".into(),
+            message: Some(
+                "Apple rejected the sign-in. Check the Apple ID, and use an app-specific password \
+                 (appleid.apple.com > Sign-In and Security > App-Specific Passwords)."
+                    .into(),
+            ),
+        },
+        409 => WrapperV2LoginResult {
+            status: "error".into(),
+            message: Some(
+                "The wrapper reports a conflicting login state (409) — it may already be signing in or \
+                 signed in. Check the status, or sign out first."
+                    .into(),
+            ),
+        },
+        400 => WrapperV2LoginResult {
+            status: "error".into(),
+            message: Some("The wrapper rejected the request (400) — a required field was missing.".into()),
+        },
+        503 => WrapperV2LoginResult {
+            status: "error".into(),
+            message: Some(
+                "The wrapper's Apple worker isn't ready yet (503) — wait a few seconds after starting \
+                 the container, then retry."
+                    .into(),
+            ),
+        },
+        504 => WrapperV2LoginResult {
+            status: "error".into(),
+            message: Some("The wrapper timed out talking to Apple (504) — retry in a moment.".into()),
+        },
+        other => WrapperV2LoginResult {
+            status: "error".into(),
+            message: Some(format!("The wrapper returned an unexpected HTTP {other}.")),
+        },
+    }
+}
+
+/// Drives wrapper-v2's `POST /login` with an Apple ID + password (#1029).
+///
+/// See [`WrapperV2LoginResult`] for the status contract. The password is
+/// held only for the duration of this call — never logged or persisted.
+/// An **app-specific** password (appleid.apple.com) is strongly preferred
+/// over the primary Apple ID password.
+pub async fn wrapper_v2_login(
+    wrapper_url: &str,
+    username: &str,
+    password: &str,
+) -> WrapperV2LoginResult {
+    post_wrapper_login_endpoint(
+        wrapper_url,
+        "/login",
+        serde_json::json!({ "username": username, "password": password }),
+    )
+    .await
+}
+
+/// Drives wrapper-v2's `POST /login/2fa` with the Apple two-factor code
+/// after [`wrapper_v2_login`] returned `"awaiting_2fa"` (#1029).
+pub async fn wrapper_v2_submit_2fa(wrapper_url: &str, code: &str) -> WrapperV2LoginResult {
+    post_wrapper_login_endpoint(
+        wrapper_url,
+        "/login/2fa",
+        serde_json::json!({ "code": code }),
+    )
+    .await
+}
+
+/// Clears the wrapper-v2 session via `DELETE /login` (#1029).
+///
+/// This is an in-memory clear on the daemon side; a persisted on-disk
+/// session under `WRAPPER_BASE_DIR` may still allow a no-credential
+/// restore on the next daemon restart (that is a container-volume
+/// concern, not something MeedyaDL controls).
+pub async fn wrapper_v2_logout(wrapper_url: &str) -> Result<(), String> {
+    let url = format!("{}/login", wrapper_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
+    let resp = client
+        .delete(&url)
+        .send()
+        .await
+        .map_err(|e| format!("DELETE {url} failed: {e}"))?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Wrapper returned HTTP {} from DELETE /login",
+            resp.status()
+        ))
+    }
+}
+
+// ============================================================
 // Output Path Writability Check
 // ============================================================
 
