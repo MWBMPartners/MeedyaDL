@@ -1,4 +1,5 @@
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim | upper_first }}
-{% for commit in commits %}- {% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }}
-{% endfor %}{% endfor %}
+{% for commit in commits %}- {% set rn = "" %}{% for footer in commit.footers %}{% if footer.token == "Release-Note" and rn == "" %}{% set_global rn = footer.value | split(pat="\n") | first | trim %}{% endif %}{% endfor %}{% if rn and rn != "none" %}{{ rn }}{% else %}{% if commit.scope %}**({{ commit.scope }})** {% endif %}{{ commit.message | upper_first }}{% endif %}
+{% endfor %}
+{% endfor %}
