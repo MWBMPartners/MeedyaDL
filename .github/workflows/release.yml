@@ -204,14 +204,29 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.derive.outputs.tag }}"
           GH_FLAG="${{ steps.derive.outputs.gh_flag }}"
+          STRIPPED="${TAG#v}"
+          NOTES_FILE=".github/release-notes/${TAG}.md"
 
+          # If the release already exists (release-please-action / version-bump.yml
+          # pre-create it, #645), we can't re-create it — but a curated tier-1 ELI5
+          # notes file (#1028) should still WIN over the commit-speak body those
+          # tools set. Apply it (footer-preserving + idempotent) and exit. This is
+          # the mechanism that makes stable release notes user-friendly, and makes
+          # committed backfill notes self-heal if a build re-runs.
           if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
-            echo "::notice::Release $TAG already exists; ensure-release is a no-op"
+            if [ -f "$NOTES_FILE" ]; then
+              echo "::notice::Release $TAG exists; applying curated tier-1 notes (overwrite, footer-preserving)"
+              bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO"
+            else
+              echo "::notice::Release $TAG already exists and no tier-1 notes staged; leaving body untouched"
+              if [[ "$STRIPPED" != *-* ]]; then
+                echo "::error::Stable $TAG has no .github/release-notes/${TAG}.md — its body may be release-please commit-speak. Stage the file on main, then run: bash scripts/release-notes/apply-notes.sh $TAG"
+              fi
+            fi
             exit 0
           fi
 
-          # Tier 1: pre-staged release notes file.
-          NOTES_FILE=".github/release-notes/${TAG}.md"
+          # Tier 1: pre-staged release notes file (create path).
           if [ -f "$NOTES_FILE" ]; then
             echo "::notice::Using pre-staged release notes from $NOTES_FILE"
             NOTES_PATH="$NOTES_FILE"
@@ -235,7 +250,6 @@ jobs:
             # like `v1.11.0-alpha.18` after the `v1.10.0` → `v1.11.0`
             # bump): use the matching channel on any LOWER base version
             # whose tag sorts immediately below this one.
-            STRIPPED="${TAG#v}"
             if [[ "$STRIPPED" == *-* ]]; then
               CHANNEL_SUFFIX=$(echo "$STRIPPED" | sed -E 's/.*-([a-z]+)\..*/\1/')
               BASE_VERSION=$(echo "$STRIPPED" | sed -E 's/-.*//')
@@ -284,47 +298,86 @@ jobs:
             # "Has content" == at least one `### <group>` section heading.
             has_content() { grep -q '^### ' "$1" 2>/dev/null; }
 
+            # ELI5 render (#1028): plain-English notes from `Release-Note:` PR
+            # trailers, grouped into What's new / What's fixed / Performance /
+            # Notes by .github/cliff-eli5-body.tera. Empty until trailered commits
+            # land in the range — then it becomes the top of every release body.
+            ELI5="$RUNNER_TEMP/eli5-${TAG}.md"
+            if command -v git-cliff &>/dev/null && [ -n "$PREV_TAG" ]; then
+              git-cliff --strip all --tag "$TAG" \
+                --body "$(cat .github/cliff-eli5-body.tera)" \
+                "${PREV_TAG}..${TAG}" > "$ELI5" 2>/dev/null || true
+            fi
+
             if command -v git-cliff &>/dev/null; then
+              # Full technical render — collapsed under <details> for developers.
+              [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
+
               if [[ "$STRIPPED" != *-* ]]; then
-                # Stable tags: original single-range render (unchanged).
-                if [ -n "$PREV_TAG" ] && git-cliff --strip header --tag "$TAG" "${PREV_TAG}..${TAG}" > "$GENERATED" 2>/dev/null && [ -s "$GENERATED" ]; then
-                  echo "::notice::Generated release notes via git-cliff (${PREV_TAG}..${TAG})"
+                # --- STABLE ---
+                # tier-1 (checked above) already won when present; reaching here
+                # means no curated file. A stable must NOT ship commit-speak, so
+                # require ELI5 from trailers — else FAIL now, before any platform
+                # build starts (#1028). (First-ever stable with no predecessor
+                # falls through to tier-3 rather than failing.)
+                if has_content "$ELI5"; then
+                  {
+                    echo "# MeedyaDL ${STRIPPED}"
+                    echo
+                    cat "$ELI5"
+                    if has_content "$INC"; then
+                      echo
+                      echo "<details><summary>Full technical changelog (for developers)</summary>"
+                      echo
+                      grep -v '^## \[' "$INC"
+                      echo
+                      echo "</details>"
+                    fi
+                  } > "$GENERATED"
+                  echo "::notice::Generated ELI5 stable notes for $TAG"
                   NOTES_PATH="$GENERATED"
+                elif [ -n "$PREV_TAG" ]; then
+                  echo "::error::Stable release $TAG has no user-facing notes — no .github/release-notes/${TAG}.md and no Release-Note: trailers in ${PREV_TAG}..${TAG}. Stage a curated notes file (see .github/release-notes/STYLE_GUIDE.md) on main and re-run: gh workflow run Release -f tag=$TAG"
+                  exit 1
                 fi
               else
-                # Prerelease (#1027): a detailed "New in this build" slice (full
-                # render, incl. commit bodies) since the previous same-channel
-                # tag, PLUS a compact subjects-only "since the last stable" slice
-                # so every prerelease is self-describing even when the delta is
-                # dependency/housekeeping-only (the in-app updater serves only
-                # the newest body, and alpha users skip intermediate builds).
-                [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
+                # --- PRERELEASE ---
+                # Compact "since last stable" cumulative view so every prerelease
+                # is self-describing even when the delta is deps/housekeeping only
+                # (#1027). --ignore-tags (no leading '-', git-cliff parses that as
+                # a flag) collapses intermediate prerelease tags into ONE section.
                 if [ -n "$PREV_STABLE" ]; then
-                  # --ignore-tags collapses the intermediate prerelease tags so
-                  # the cumulative view is ONE section, not one per alpha. The
-                  # pattern has NO leading '-' (git-cliff parses that as a flag).
-                  # The compact body template lives in .github/cliff-cumulative-body.tera
-                  # (subjects only — the full cliff.toml template embeds every
-                  # commit body → ~25x larger + risks the size guard).
                   git-cliff --strip all --tag "$TAG" \
                     --ignore-tags '(alpha|beta|rc|nightly|weekly|monthly)\.[0-9]' \
                     --body "$(cat .github/cliff-cumulative-body.tera)" \
                     "${PREV_STABLE}..${TAG}" > "$CUM" 2>/dev/null || true
                 fi
                 {
-                  if [ -n "${PREV_TAG:-}" ] && has_content "$INC"; then
-                    echo "## New in this build (since ${PREV_TAG})"
+                  echo "# MeedyaDL ${STRIPPED}"
+                  echo
+                  if [ -n "${PREV_TAG:-}" ] && has_content "$ELI5"; then
+                    cat "$ELI5"
                     echo
-                    grep -v '^## \[' "$INC"
-                    echo
-                  elif [ -n "${PREV_TAG:-}" ]; then
+                  elif [ -n "${PREV_TAG:-}" ] && ! has_content "$INC"; then
+                    # Genuinely nothing user-facing (all commits skipped, e.g. deps).
+                    # NOT shown when the technical changelog has content but no
+                    # Release-Note trailers yet (migration) — the cumulative
+                    # section + <details> below carry those changes.
                     echo "_No user-facing changes since ${PREV_TAG} — dependency and internal housekeeping updates only._"
                     echo
                   fi
                   if [ -n "${PREV_STABLE:-}" ] && has_content "$CUM"; then
-                    echo "## All changes since ${PREV_STABLE} (the last stable release)"
+                    echo "## What's changed since ${PREV_STABLE} (the last stable release)"
                     echo
                     cat "$CUM"
+                    echo
+                  fi
+                  if has_content "$INC"; then
+                    echo "<details><summary>Full technical changelog (for developers)</summary>"
+                    echo
+                    grep -v '^## \[' "$INC"
+                    echo
+                    echo "</details>"
                   fi
                 } > "$GENERATED"
 
@@ -338,8 +391,9 @@ jobs:
                   mv "${GENERATED}.tmp" "$GENERATED"
                 fi
 
-                if has_content "$GENERATED"; then
-                  echo "::notice::Generated prerelease notes (incremental: ${PREV_TAG:-none}; cumulative: ${PREV_STABLE:-none})"
+                # Composed body always has the title + a fallback line → non-empty.
+                if [ -s "$GENERATED" ]; then
+                  echo "::notice::Generated prerelease notes for $TAG (ELI5: $(has_content "$ELI5" && echo yes || echo none); cumulative: ${PREV_STABLE:-none})"
                   NOTES_PATH="$GENERATED"
                 fi
               fi
