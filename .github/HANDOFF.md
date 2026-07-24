@@ -1,9 +1,44 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-19
-**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` (off `alpha` @ 1.11.0-alpha.27; **now bumped to 1.12.0-alpha.28**)
+**Last updated:** 2026-07-24
+**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` = `claude/pr-1037-alpha-setup-p3ob3y` (off `alpha`; version 1.12.0-alpha.28)
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
+
+---
+
+## ★★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, IN PROGRESS)
+
+**Goal:** clean up alpha↔main drift without losing work, then bundle-ID change, then full issue-sweep + docs refresh + vision analysis. Autonomous run; Phase 3 gated on owner go-ahead.
+
+**Model tiering (owner-mandated):** deep analysis/planning/orchestration = **sequential (not parallel) Fable 5** (fall back to Opus if Fable unavailable, but retry Fable next time); implementation = **Sonnet/Haiku** (Opus only if unavoidable). GIRFT.
+
+### The pivotal finding — "alpha 681 behind main" is a git-ancestry ILLUSION
+alpha forked from main 2026-04-20 and never merged back, but absorbed main's content via squash-imports (`674967f` #854 ≡ main v1.9.4 tree; #877 rclone; #967 API half of v1.10.1). `git cherry` = 0 patch-id matches → commit-counting lies. **Content probe: of main's 130 substantive commits, 119 present + 9 superseded + 1 N/A + 1 partial (#947). ALL critical fixes verified present in alpha.** Evidence: `.github/audits/alpha-main-drift-content-analysis-2026-07-24.md`. Runbook: `.github/audits/alpha-main-realignment-runbook-2026-07-24.md`.
+
+### THREE HARD WARNINGS (never violate)
+1. **NEVER run `realign-alpha`** — clobbers alpha's 52 unique commits (Spotify, #911 UI, Profile Bundle, Lyricsfile, SQLite index, GAMDL 3.6–3.8.4, brand).
+2. **NEVER let a naive `git merge main` land** — silently resurrects 5 deleted files (nightly/weekly/monthly-release.yml, upstream-gamdl-watch.yml, protected-cron-channels.json). Phase 3 has an explicit re-deletion guard.
+3. Missing **#944 concurrency guard** was a live release-race on alpha — fixed in Phase 1.
+
+### Phase status
+- **Phase 0 ✅** backups `backup/{alpha,prep}-pre-realign-2026-07-24` (branches — proxy blocks tag/delete pushes but ALLOWS commit pushes to any branch); port branch `port/main-v1.10.1-fragments` off alpha.
+- **Phase 1 ✅ implemented → PR #1041** (port→alpha). 9 commits, F1–F13 fragments. Local gates ALL green: `cargo test --lib` 1444/0, `clippy --all-targets` clean, `npm type-check` clean, `npm test` 556, `npm audit` 0 vulns, all 13 markers, resurrection-guard 0, version stamps untouched. Awaiting ci.yml matrix → merge on green. PR-security findings triaged = false-positive/intentional (non-blocking).
+- **Phase 2 ⏳** rebase-merge prep→alpha (runbook §3: 5-file stamp/lock conflicts, regen lockfiles, force-push-with-lease, rebase-merge). PRECONDITION: #1041 merged first.
+- **Phase 3 ⛔ GATED** ancestry closure: content-no-op `-s ours` merge of main into alpha (runbook §4). REQUIRES owner go-ahead; effectively one-way; resurrection guard mandatory.
+- **Phase 4 ⏳** promotion alpha→beta→main at next stable cut (human-led).
+
+### After realignment (tracked tasks #5–#8)
+- **Bundle ID → `com.meedyasuite.meedyadl`** (owner-confirmed) — AFTER cleanup complete, on prep/claude branch.
+- Full GitHub issue sweep (open+closed) + refresh all `.claude/` docs (Fable).
+- Full codebase+issues+vision analysis → next steps + enhancement loop (Fable sequential + dev-team plugin).
+- STANDING: monitor GitHub PR-security checks on every PR, fix real findings.
+
+### Decisions locked
+aria-label = main's #945 form; Phase-1 merge = rebase-merge; bundle-ID last; env has GTK/webkit installed (cargo builds locally); **delivery via `git push` works for any branch** (proxy only 403s tag-push + branch-delete), GitHub MCP API also works for branches/PRs.
+
+### To resume if interrupted
+Read EPIC #1040 + the two audit docs. Check PR #1041 state (merge if green). Then Phase 2 per runbook §3. Backups above. Do NOT run realign-alpha; do NOT naive-merge main.
 
 ---
 
