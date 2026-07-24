@@ -143,9 +143,26 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      - name: Regenerate Cargo.lock
+      - name: Sync Cargo.lock to bumped version (#995)
+        # `cargo generate-lockfile` fully re-resolves EVERY dependency to
+        # the newest semver-compatible version on the registry, including
+        # the unpinned `meedya-fingerprint`/`meedya-lyrics` git deps
+        # (branch = "main"). That means the tag we're about to build could
+        # ship crate versions that never ran through CI's `cargo test` /
+        # `cargo clippy` / `cargo-deny` gates on this exact combination —
+        # supply-chain drift introduced solely by the version-bump step.
+        #
+        # `cargo update --package meedyadl` re-resolves ONLY the local
+        # `meedyadl` package's own lockfile entry (its version, matching
+        # the Cargo.toml just patched above) and leaves every other
+        # dependency — including the git deps — exactly as CI validated
+        # them. No network access is required: the local package's
+        # manifest is read from disk, so this works even if a runner has
+        # no route to crates.io or the git remotes.
         working-directory: src-tauri
-        run: cargo generate-lockfile
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       - name: Commit version bump
         run: |
