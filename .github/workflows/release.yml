@@ -1707,11 +1707,24 @@ jobs:
           # the GitHub Release before tauri-action runs, so tauri-action's
           # releaseBody is ignored for existing releases.
           # Uses a double-quoted heredoc for variable expansion ($VERSION, $BASE).
+          # The table + platform-specific tips are wrapped in a <details>
+          # block (#1046 G3) so a thin release body isn't dominated by a
+          # full-height table below the fold — but the "## Choose your
+          # download" HEADING itself stays literal and directly after the
+          # "---" divider, unchanged, because three other things key on
+          # that exact shape: the idempotence grep just above (`grep -q
+          # "Choose your download"`), scripts/release-notes/splice-body.py
+          # (divider regex expects `\n---\n\n## Choose your download`
+          # with nothing in between), and the placeholder-leak verify step
+          # below. Only the collapsible wrapper is new; nothing above it moves.
           DOWNLOAD_GUIDE=$(cat <<GUIDE_EOF
 
           ---
 
           ## Choose your download
+
+          <details>
+          <summary>Download links for all platforms</summary>
 
           | If you're using... | Download this | Notes |
           |--------------------|--------------|-------|
@@ -1743,6 +1756,8 @@ jobs:
           ### First-Time Users
 
           On first launch, MeedyaDL will guide you through a setup wizard that downloads Python, GAMDL, and required tools automatically. You will also need to provide your Apple Music cookies exported from your browser — see the in-app help for instructions.
+
+          </details>
           GUIDE_EOF
           )
 
