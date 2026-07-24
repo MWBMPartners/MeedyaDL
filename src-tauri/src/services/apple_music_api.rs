@@ -52,7 +52,17 @@ pub const MEDIA_USER_TOKEN_COOKIE_NAME: &str = "media-user-token";
 const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 
 /// Keychain service name (shared with `credentials.rs`).
-const SERVICE_NAME: &str = "io.github.meedyadl";
+///
+/// **Not** derived from `tauri.conf.json`'s `identifier` field at compile
+/// time -- this has always been a manually-maintained value that
+/// historically just happened to equal the bundle identifier. Points at
+/// `crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER` (rather than
+/// duplicating the literal) so there is exactly one place to update if the
+/// bundle identifier ever changes again. Entries written under the OLD
+/// value (`crate::utils::platform::OLD_BUNDLE_IDENTIFIER`) before the
+/// 2026-07-24 rename are migrated forward by `services::bundle_migration`
+/// on first launch -- see that module for the full account list.
+const SERVICE_NAME: &str = crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER;
 
 /// Browser-grade User-Agent used for Apple Music catalog / amp-api requests
 /// that ride the web-player developer-token tier. Apple's edges
@@ -731,7 +741,7 @@ pub fn has_embedded_musickit_developer_token() -> bool {
 ///
 /// Uses the `keyring` crate with the same service name as the rest of
 /// `MeedyaDL`'s credential system. The key is stored under:
-///   Service: "io.github.meedyadl"
+///   Service: "com.meedyasuite.meedyadl"
 ///   Account: "`musickit_private_key`"
 ///
 /// # Errors

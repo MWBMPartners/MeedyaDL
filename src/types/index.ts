@@ -508,7 +508,7 @@ export interface GamdlOptions {
  * Mirrors: Rust struct `AppSettings` in `src-tauri/src/models/settings.rs`
  *
  * This interface represents the full, flattened settings object stored
- * in the app's data directory (e.g., `~/Library/Application Support/io.github.meedyadl/settings.json`).
+ * in the app's data directory (e.g., `~/Library/Application Support/com.meedyasuite.meedyadl/settings.json`).
  * Unlike `GamdlOptions` (where all fields are optional), all fields here
  * are required because the Rust backend provides defaults for every setting.
  *

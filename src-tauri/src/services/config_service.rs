@@ -284,9 +284,9 @@ fn migrate_settings(settings: &mut AppSettings) {
 /// * `Err(message)` - If the settings file exists but couldn't be parsed
 pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // Resolve the settings file path: {app_data_dir}/settings.json
-    // On macOS: ~/Library/Application Support/io.github.meedyadl/settings.json
-    // On Windows: %APPDATA%\io.github.meedyadl\settings.json
-    // On Linux: ~/.config/io.github.meedyadl/settings.json
+    // On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/settings.json
+    // On Windows: %APPDATA%\com.meedyasuite.meedyadl\settings.json
+    // On Linux: ~/.local/share/com.meedyasuite.meedyadl/settings.json
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
     let mut settings = if settings_path.exists() {
@@ -415,11 +415,15 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
 ///
 /// Falls back to `AppSettings::default()` if the file is missing or unreadable.
 /// Does NOT sync to GAMDL's config.ini (no `AppHandle` available).
+///
+/// Uses `platform::resolve_early_app_data_root()` rather than the current
+/// bundle identifier directly so that, for exactly the first launch after
+/// the `io.github.meedyadl` -> `com.meedyasuite.meedyadl` rename (before
+/// `services::bundle_migration` has run inside `.setup()`), this still
+/// finds the user's pre-existing `sentry_enabled` value instead of
+/// silently resetting it to the default for one launch.
 pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
-    let settings_dir = dirs::data_dir()
-        .map(|d| d.join("io.github.meedyadl"))
-        .ok_or_else(|| "Cannot determine app data directory".to_string())?;
-    let settings_path = settings_dir.join("settings.json");
+    let settings_path = platform::resolve_early_app_data_root().join("settings.json");
 
     if settings_path.exists() {
         let contents = std::fs::read_to_string(&settings_path)
