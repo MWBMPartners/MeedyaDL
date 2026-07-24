@@ -50,9 +50,12 @@ on:
   # Run on pushes to main and develop branches (direct commits and merged PRs)
   push:
     branches: [main, develop]
-  # Run on pull requests targeting main (validates PR code before merge)
+  # Run on pull requests targeting main and the long-lived channel branches
+  # (validates PR code before merge). alpha is where active development lands,
+  # so it needs the full Backend/Frontend + clippy matrix too — previously
+  # only main did, leaving every alpha PR ungated (#1040 roadmap finding).
   pull_request:
-    branches: [main]
+    branches: [main, alpha, beta, release-candidate]
   # Allow manual trigger from GitHub UI or CLI (gh workflow run "CI")
   # Useful for conserving Actions minutes during rapid development:
   #   1. Push commits with "[skip ci]" in the message to skip auto-triggers
