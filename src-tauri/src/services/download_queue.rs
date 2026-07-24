@@ -4230,19 +4230,35 @@ async fn spawn_music_video_companion_inner(
     ) {
         Ok(Some(pair)) => pair,
         Ok(None) => {
-            log::debug!(
-                "Music video companion skipped for {dl_id}: no MusicKit token available"
+            // No token at all — usually means the user enabled MV
+            // companion in Settings without providing MusicKit
+            // credentials. Surface the actionable next step instead
+            // of debug-logging silently (#942).
+            emit_download_log(
+                app,
+                dl_id,
+                "Music video lookup skipped — MusicKit credentials required (Settings > Quality > Video Quality)",
             );
             return;
         }
         Err(e) => {
-            log::debug!("Music video companion token resolution failed for {dl_id}: {e}");
-            emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
+            // Token resolution erred (e.g., invalid private key PEM,
+            // expired embedded token). Surface the full error so the
+            // user can route to the right setting (#942).
+            emit_download_warn(
+                app,
+                dl_id,
+                &format!("Music video lookup skipped — MusicKit token resolution failed: {e}"),
+            );
             return;
         }
     };
 
-    log::debug!("Music video companion: using MusicKit token from {token_source}");
+    crate::utils::activity_log::emit_verbose_download_log(
+        app,
+        dl_id,
+        &format!("Music video companion: using MusicKit token from {token_source}"),
+    );
 
     // Fetch music video relationships
     let relations =
@@ -4251,8 +4267,14 @@ async fn spawn_music_video_companion_inner(
         {
             Ok(r) => r,
             Err(e) => {
-                log::debug!("Music video relation lookup failed for {dl_id}: {e}");
-                emit_download_warn(app, dl_id, &format!("Music video lookup failed: {e}"));
+                // Relation lookup failed (network, API error, etc.) —
+                // surface the actual error rather than the generic
+                // "lookup failed" (#942).
+                emit_download_warn(
+                    app,
+                    dl_id,
+                    &format!("Music video relation lookup failed: {e}"),
+                );
                 return;
             }
         };
@@ -7660,7 +7682,7 @@ pub fn process_queue(
             &download_id,
             &format!(
                 "URLs: {:?} | Codec: {} | Native priority: {}",
-                &urls,
+                urls,
                 primary_codec_for_companions,
                 download_options.song_codec_priority.is_some()
             ),
@@ -9003,6 +9025,8 @@ pub fn process_queue(
                                             );
 
                                             let mut upgraded = 0u32;
+                                            let mut no_lyrics_available = 0u32;
+                                            let mut errored = 0u32;
                                             for track in &tracks_needing_upgrade {
                                                 if enrich_shutdown.is_triggered() {
                                                     break;
@@ -9063,6 +9087,13 @@ pub fn process_queue(
                                                         }
                                                     }
                                                     Ok(None) => {
+                                                        // Apple has no word-level TTML for this
+                                                        // specific track — usually a very old
+                                                        // catalog entry or a track that simply
+                                                        // never received syllable lyrics
+                                                        // upstream. Not an error; just count
+                                                        // so the post-loop summary surfaces it.
+                                                        no_lyrics_available += 1;
                                                         log::debug!(
                                                             "No syllable-lyrics available for track {} (song {})",
                                                             track.track_number,
@@ -9070,6 +9101,7 @@ pub fn process_queue(
                                                         );
                                                     }
                                                     Err(e) => {
+                                                        errored += 1;
                                                         log::debug!(
                                                             "Syllable-lyrics fetch failed for track {} (song {}): {e}",
                                                             track.track_number,
@@ -9091,14 +9123,69 @@ pub fn process_queue(
                                                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                                             }
 
-                                            if upgraded > 0 {
-                                                log::info!(
-                                                    "Word-level lyrics fetched for {upgraded} track(s) for {enrich_dl_id}"
-                                                );
+                                            // Post-loop summary — #935 quick win A.
+                                            //
+                                            // Pre-#935 / pre-A: only the upgraded > 0 path
+                                            // surfaced anything to the user. Albums where every
+                                            // track had no syllable-lyrics available (the
+                                            // `Ok(None)` path) or every fetch failed (the
+                                            // `Err(_)` path before the 401/403 break) ran in
+                                            // total silence — the user had no idea Step 1b had
+                                            // even tried, much less why their LRC was line-only.
+                                            //
+                                            // We now always emit at least one summary entry
+                                            // when ≥1 track was attempted. The three counters
+                                            // distinguish the three failure modes so the user
+                                            // can route their next action (re-import cookies
+                                            // vs. accept that this track has no word-level
+                                            // upstream vs. retry later).
+                                            let total_attempted = upgraded + no_lyrics_available + errored;
+                                            if total_attempted > 0 {
+                                                let summary = if upgraded == total_attempted {
+                                                    // Happy path — all tracks upgraded
+                                                    // cleanly. Keep the pre-A wording so
+                                                    // long-time users see the message they
+                                                    // expect.
+                                                    format!(
+                                                        "Word-level lyrics fetched from Apple Music API for {upgraded} track(s)"
+                                                    )
+                                                } else if upgraded > 0 {
+                                                    // Mixed outcome — surface all three
+                                                    // counters so the user sees the breakdown.
+                                                    format!(
+                                                        "Word-level lyrics: {upgraded} upgraded, {no_lyrics_available} unavailable on Apple Music, {errored} failed (of {total_attempted} attempted)"
+                                                    )
+                                                } else if no_lyrics_available == total_attempted {
+                                                    // Every track was an `Ok(None)` — Apple
+                                                    // genuinely has no syllable TTML for any
+                                                    // of them. Not an error; the user keeps
+                                                    // GAMDL's line-level TTML.
+                                                    format!(
+                                                        "Word-level lyrics: not available on Apple Music for any of the {total_attempted} track(s) — keeping line-level lyrics"
+                                                    )
+                                                } else if errored == total_attempted {
+                                                    // Every fetch failed (no 401/403 since
+                                                    // those would have broken the loop).
+                                                    // Almost always a network / rate-limit
+                                                    // issue.
+                                                    format!(
+                                                        "Word-level lyrics fetch failed for all {total_attempted} track(s) — check network connectivity"
+                                                    )
+                                                } else {
+                                                    // No upgrades + mix of unavailable + errored.
+                                                    format!(
+                                                        "Word-level lyrics: {no_lyrics_available} unavailable on Apple Music, {errored} failed (of {total_attempted} attempted)"
+                                                    )
+                                                };
+                                                if upgraded > 0 {
+                                                    log::info!(
+                                                        "Word-level lyrics fetched for {upgraded} track(s) for {enrich_dl_id}"
+                                                    );
+                                                }
                                                 emit_download_log(
                                                     &enrich_app,
                                                     &enrich_dl_id,
-                                                    &format!("Word-level lyrics fetched from Apple Music API for {upgraded} track(s)"),
+                                                    &summary,
                                                 );
                                             }
                                         }
@@ -9925,6 +10012,8 @@ pub fn process_queue(
                                     ),
                                 );
                                 match super::musicbrainz_service::lookup_videos_for_tracks(
+                                    &enrich_app,
+                                    &enrich_dl_id,
                                     &isrc_tracks,
                                 )
                                 .await
