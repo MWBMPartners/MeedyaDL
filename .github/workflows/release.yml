@@ -364,7 +364,17 @@ jobs:
 
             if command -v git-cliff &>/dev/null; then
               # Full technical render — collapsed under <details> for developers.
-              [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
+              # Subjects-only override (owner decision D1, audit §3.2 leak L2,
+              # .github/cliff-subjects-only-body.tera): commit BODIES are where
+              # mechanism detail lives (acquisition paths, credential/token
+              # names, protocol internals) and this render still ships inside
+              # the published, in-app-served release body. cliff.toml's shared
+              # default body template (which DOES include commit bodies) is
+              # left untouched because changelog.yml also uses it, verbatim,
+              # to regenerate the durable technical CHANGELOG.md.
+              [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" \
+                --body "$(cat .github/cliff-subjects-only-body.tera)" \
+                "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
 
               if [[ "$STRIPPED" != *-* ]]; then
                 # --- STABLE ---

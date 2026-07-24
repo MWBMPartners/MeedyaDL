@@ -1,0 +1,55 @@
+{#-
+  Copyright (c) 2026 MeedyaSuite
+  Licensed under the MIT License. See LICENSE file in the project root.
+
+  cliff-subjects-only-body.tera
+  ==============================
+
+  Renders the SAME grouped "## [version] / ### Group / - subject" shape as
+  cliff.toml's default [changelog].body template, but WITHOUT the
+  `{% if commit.body %}...{{ commit.body }}` block that template adds.
+
+  Why this file exists (owner decision D1, see
+  .github/audits/release-notes-policy-audit-2026-07-24.md §3.2 leak L2):
+  the "Full technical changelog" <details> section embedded in GitHub
+  Release bodies (.github/workflows/release.yml's `ensure-release` job)
+  is rendered by invoking git-cliff over a tag range with NO --body
+  override, so it falls back to cliff.toml's default body template --
+  the same template used to generate CHANGELOG.md. That template
+  intentionally includes full multi-line commit bodies (CHANGELOG.md is
+  the durable, technical developer record and is meant to). But
+  commit bodies are exactly where mechanism detail lives (acquisition
+  paths, credential/token names, protocol internals — see STYLE_GUIDE.md
+  "Never reveal how a feature is delivered"), and the collapsed
+  <details> block still ships inside the PUBLISHED, in-app-served
+  release body.
+
+  Editing cliff.toml's shared default body template directly was
+  considered and rejected: changelog.yml regenerates the ENTIRE
+  CHANGELOG.md from that same default template on every push to main
+  (`git-cliff --config cliff.toml --output CHANGELOG.md`, no --body
+  override), so stripping `commit.body` there would silently strip
+  commit bodies from the whole technical changelog going forward --
+  exactly the outcome D1 rules out ("The full technical record remains
+  in CHANGELOG.md (unchanged)"). This file is a SEPARATE template, used
+  ONLY for the release-body "Full technical changelog" <details> render,
+  wired via an explicit `--body "$(cat .github/cliff-subjects-only-body.tera)"`
+  override at the git-cliff invocation that produces $INC in release.yml
+  (both the stable and prerelease branches read the same $INC file, and
+  the self-heal path re-runs the same code block, so one wiring point
+  covers all three).
+
+  Template variables mirror cliff.toml's [changelog].body doc comment:
+  version, timestamp, commits[].{group, scope, message, breaking}.
+  Deliberately does NOT reference commit.body anywhere.
+-#}
+{%- if version %}## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{%- else %}## [Unreleased]
+{%- endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+
+{% for commit in commits -%}
+- {% if commit.scope %}**({{ commit.scope }})** {% endif %}{% if commit.breaking %}[**BREAKING**] {% endif %}{{ commit.message | upper_first }}
+{% endfor %}
+{% endfor -%}
