@@ -643,6 +643,18 @@ pub mod integrity_scan;
 /// anything else touches the new app-data directory.
 pub mod bundle_migration;
 
+/// macOS self-relocation: "tidy MeedyaDL into `/Applications/MeedyaSuite`"
+/// (#1057).
+///
+/// A pure, cross-platform-testable eligibility predicate
+/// (`is_eligible_for_relocation`) plus the macOS-only move + relaunch
+/// logic (`perform_relocation`). Computed once at startup via
+/// `compute_startup_state()` and stored as managed state; the actual
+/// move only ever happens when the user explicitly accepts the offer
+/// via the `relocate_app_bundle` IPC command. Never blocks or crashes
+/// the app on failure — see the module doc for the full design.
+pub mod app_relocation;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;
