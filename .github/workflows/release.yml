@@ -1298,6 +1298,7 @@ jobs:
             ```
             xattr -cr /Applications/MeedyaDL.app
             ```
+            (or `xattr -cr /Applications/MeedyaSuite/MeedyaDL.app` if you've moved MeedyaDL into the shared MeedyaSuite folder)
 
             ### First-Time Users
 
@@ -1765,6 +1766,7 @@ jobs:
           \`\`\`
           xattr -cr /Applications/MeedyaDL.app
           \`\`\`
+          (or \`xattr -cr /Applications/MeedyaSuite/MeedyaDL.app\` if you've moved MeedyaDL into the shared MeedyaSuite folder)
 
           ### First-Time Users
 
