@@ -1,0 +1,212 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Apply Release Notes (#1028 follow-up)
+# ==========================================================================
+#
+# Lightweight workflow_dispatch-only workflow that re-applies a curated
+# tier-1 notes file (.github/release-notes/<TAG>.md) onto an ALREADY
+# PUBLISHED GitHub Release body, without rebuilding any platform binaries.
+# Design: .github/audits/release-notes-policy-audit-2026-07-24.md §5.2.
+#
+# Why this exists: re-running release.yml for a single tag rebuilds all
+# 6-7 platform matrices (20+ minutes each, re-triggers code
+# signing/notarisation) just to reach the ~30-second `ensure-release`
+# body edit. Everything needed already exists as scripts:
+#   - scripts/release-notes/apply-notes.sh  -- idempotent, footer-
+#     preserving apply (diffs the spliced body against the live one; a
+#     no-op edit when already current)
+#   - scripts/release-notes/splice-body.py  -- the shared footer-
+#     preserving splice regex release.yml's own self-heal path (#1046)
+#     uses, so there is no drift between the two apply paths
+#
+# Two input modes:
+#   tag=vX.Y.Z[-channel.N]   Apply exactly that tag's notes file.
+#   tag=all                  Apply every committed .github/release-notes/
+#                            v*.md file whose tag has a published
+#                            release (tags with no matching release are
+#                            skipped, not treated as errors).
+#
+# dry_run=true reports the intended diff via the job step summary
+# without calling `gh release edit` -- safe to run first on any tag.
+#
+# Safety properties:
+#   - NEVER touches draft/prerelease flags. `gh release edit --notes-file`
+#     (used by apply-notes.sh) only replaces the body -- a stable release
+#     found as a draft stays a draft, matching repo policy (don't
+#     auto-publish stable; see CLAUDE.md "Release pipeline gotchas" and
+#     the "don't auto-flip stable-flags policy" in
+#     .claude/memory/project_release_pipeline_gotchas.md).
+#   - Content-linted (scripts/release-notes/lint-notes.py) BEFORE every
+#     apply -- closes the "backfill bypasses the PR gate" hole for this
+#     workflow's own inputs (audit §4.3 point 5). Blocking, including in
+#     dry-run mode, so a dry run also surfaces content problems.
+#   - Idempotent: re-running "all" after a successful run edits nothing
+#     (apply-notes.sh diffs first).
+#   - Builds NOTHING -- single ubuntu-latest job, no matrix, no signing.
+#
+# Operational notes:
+#   - This workflow must be dispatched from a ref that CONTAINS the
+#     curated notes files being applied -- they may live on a channel
+#     branch (e.g. `alpha`) before landing on `main`. Use:
+#       gh workflow run "Apply Release Notes" --ref alpha -f tag=all
+#   - `workflow_dispatch` only shows a "Run workflow" button in the
+#     GitHub UI for workflows whose YAML is on the DEFAULT branch --
+#     until this file is merged there, dispatch via the CLI with an
+#     explicit --ref (see CLAUDE.md "Conserving GitHub Actions Minutes").
+#   - Do NOT run this workflow as part of this change -- it is added
+#     but not dispatched.
+
+name: Apply Release Notes
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to apply (vX.Y.Z[-channel.N]) or 'all' for every committed notes file"
+        required: true
+        type: string
+      dry_run:
+        description: "Report intended edits without calling gh release edit"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Serialises applies -- a body edit takes seconds, and there is no
+# benefit to two runs racing `gh release edit` against the same tag.
+concurrency:
+  group: apply-release-notes
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Apply curated release notes
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Same shape release.yml's own tag derivation validates (release.yml
+      # ~L181) -- accepts only vX.Y.Z with an optional semver-legal
+      # pre-release suffix, or the literal 'all'. Rejecting anything else
+      # here keeps a crafted workflow_dispatch input from reaching a
+      # shell/gh invocation downstream.
+      - name: Validate tag input
+        id: validate
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "$INPUT_TAG" = "all" ]; then
+            echo "mode=all" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid tag '$INPUT_TAG' -- expected vX.Y.Z[-channel.N] or the literal 'all'."
+            exit 1
+          fi
+          echo "mode=tag" >> "$GITHUB_OUTPUT"
+
+      # Blocking, and runs even under dry_run=true -- a dry run should
+      # also catch a content problem, not just report the diff and let a
+      # bad file through on the next real apply.
+      - name: Lint notes file(s) to be applied
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          MODE: ${{ steps.validate.outputs.mode }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          if [ "$MODE" = "all" ]; then
+            FILES=(.github/release-notes/v*.md)
+          else
+            FILES=(".github/release-notes/${INPUT_TAG}.md")
+            [ -f "${FILES[0]}" ] || FILES=()
+          fi
+
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "No notes files found to lint for this input -- the apply step below will report a per-tag skip."
+            exit 0
+          fi
+
+          python3 scripts/release-notes/lint-notes.py "${FILES[@]}"
+
+      - name: Apply notes to published release(s)
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          MODE: ${{ steps.validate.outputs.mode }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          # Applies (or, under DRY_RUN, reports) one tag's notes file.
+          # Mirrors scripts/release-notes/apply-notes.sh's own fetch +
+          # splice + diff sequence for the dry-run path (that script has
+          # no --dry-run flag of its own and this workflow does not
+          # modify it), so both paths use the exact same
+          # splice-body.py regex.
+          apply_one() {
+            local TAG="$1"
+            local NOTES_FILE=".github/release-notes/${TAG}.md"
+
+            if [ ! -f "$NOTES_FILE" ]; then
+              echo "${TAG}: skip -- no notes file" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            if ! gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+              echo "${TAG}: skip -- no published release" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            if [ "$DRY_RUN" = "true" ]; then
+              local BODY_FILE NEW_FILE
+              BODY_FILE="$(mktemp)"
+              NEW_FILE="$(mktemp)"
+              gh release view "$TAG" --repo "$REPO" --json body -q .body > "$BODY_FILE"
+              python3 scripts/release-notes/splice-body.py "$NOTES_FILE" "$BODY_FILE" "$NEW_FILE"
+
+              if diff -q "$BODY_FILE" "$NEW_FILE" >/dev/null 2>&1; then
+                echo "${TAG}: already current (dry run, no edit made)" | tee -a "$GITHUB_STEP_SUMMARY"
+              else
+                echo "${TAG}: would update (dry run, no edit made)" | tee -a "$GITHUB_STEP_SUMMARY"
+                {
+                  echo '```diff'
+                  diff -u "$BODY_FILE" "$NEW_FILE" || true
+                  echo '```'
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+              rm -f "$BODY_FILE" "$NEW_FILE"
+              return 0
+            fi
+
+            # apply-notes.sh is itself idempotent (diffs before editing)
+            # and never touches draft/prerelease flags.
+            bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          }
+
+          {
+            echo "### Apply Release Notes -- results"
+            echo
+            echo "Mode: \`${MODE}\` · Dry run: \`${DRY_RUN}\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$MODE" = "all" ]; then
+            for f in .github/release-notes/v*.md; do
+              TAG="$(basename "$f" .md)"
+              apply_one "$TAG"
+            done
+          else
+            apply_one "$INPUT_TAG"
+          fi
