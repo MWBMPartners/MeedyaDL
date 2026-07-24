@@ -20,7 +20,10 @@
     "check:legal": "npm run check:acknowledgements && npm run check:upstream-licences",
     "test": "vitest run",
     "test:watch": "vitest",
-    "docs:rust": "cd src-tauri && cargo doc --no-deps --open"
+    "docs:rust": "cd src-tauri && cargo doc --no-deps --open",
+    "icons:app": "node scripts/generate-app-icons.mjs",
+    "icons:contact-sheet": "node scripts/icon-contact-sheet.mjs",
+    "icons:verify": "node scripts/icon-contact-sheet.mjs --verify"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
