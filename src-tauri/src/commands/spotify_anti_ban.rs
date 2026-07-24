@@ -305,9 +305,11 @@ mod tests {
         consent: bool,
         cap: u32,
     ) -> AppSettings {
-        let mut s = AppSettings::default();
-        s.dev_access_enabled = dev;
-        s.spotify_consent_acknowledged = consent;
+        let mut s = AppSettings {
+            dev_access_enabled: dev,
+            spotify_consent_acknowledged: consent,
+            ..Default::default()
+        };
         s.service_settings.spotify.anti_ban.daily_download_cap = cap;
         s
     }
