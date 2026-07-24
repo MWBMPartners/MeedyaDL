@@ -119,7 +119,7 @@ describe('QueueItem — "Retry without Wrapper" visibility (#890)', () => {
   it('has accessible label + tooltip distinguishing it from the standard retry', () => {
     const item = errorItem({ used_wrapper: true });
     render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
-    const pill = screen.getByLabelText('Retry without wrapper authentication');
+    const pill = screen.getByLabelText('Retry without wrapper (uses cookie-based authentication)');
     expect(pill).toBeTruthy();
     expect(pill.getAttribute('title')).toContain('cookie-based authentication');
   });

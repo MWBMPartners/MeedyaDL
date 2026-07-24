@@ -840,7 +840,9 @@ function QueueItemComponent({
             onClick={() => onRetryWithoutWrapper(item.id)}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-platform border border-accent/40 text-accent bg-accent/5 hover:bg-accent/10 hover:border-accent/60 transition-colors"
             title="Disable wrapper and retry this download with cookie-based authentication"
-            aria-label="Retry without wrapper authentication"
+            // #945: long-form aria-label carries the cookie-vs-wrapper
+            // distinction for screen reader users.
+            aria-label="Retry without wrapper (uses cookie-based authentication)"
           >
             <RotateCcw size={14} />
             Retry without Wrapper
@@ -882,6 +884,9 @@ function QueueItemComponent({
               onClick={handleOpenFile}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
               title="Open in default application"
+              // #945: screen readers announce what this icon-plus-label
+              // button actually does.
+              aria-label="Open downloaded file in default application"
             >
               <FileOutput size={12} />
               Open File
@@ -892,6 +897,9 @@ function QueueItemComponent({
             onClick={handleOpenFolder}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
             title="Reveal in file manager"
+            // #945: screen readers announce what this icon-plus-label
+            // button actually does.
+            aria-label="Reveal downloaded file's folder in file manager"
           >
             <FolderOpen size={12} />
             Open Folder
