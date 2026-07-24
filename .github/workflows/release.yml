@@ -231,6 +231,16 @@ jobs:
           STRIPPED="${TAG#v}"
           NOTES_FILE=".github/release-notes/${TAG}.md"
 
+          # SELF_HEAL=1 means: the release already exists, has no tier-1
+          # curated file, and its live body looks like commit-speak /
+          # bare version-bump noise (#1046). We fall through to the same
+          # tier-2 generation used for a brand-new release, then splice
+          # the regenerated notes onto the existing body at the very end
+          # (preserving the "Choose your download" footer if the platform
+          # builds already appended it) instead of `gh release create`.
+          SELF_HEAL=0
+          LIVE_BODY_FILE="$RUNNER_TEMP/live-body-${TAG}.md"
+
           # If the release already exists (release-please-action / version-bump.yml
           # pre-create it, #645), we can't re-create it — but a curated tier-1 ELI5
           # notes file (#1028) should still WIN over the commit-speak body those
@@ -241,13 +251,32 @@ jobs:
             if [ -f "$NOTES_FILE" ]; then
               echo "::notice::Release $TAG exists; applying curated tier-1 notes (overwrite, footer-preserving)"
               bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO"
+              exit 0
+            fi
+
+            # No tier-1 file staged. PRERELEASES self-heal (#1046): detect
+            # whether the live body is commit-speak / bare bump noise (e.g.
+            # cut from a tree that predates #1027, or created by a stale
+            # workflow re-run) and, if so, regenerate + splice instead of
+            # leaving it broken forever. STABLES are never auto-rewritten
+            # here — they always require an explicit curated file so a
+            # maintainer signs off on stable release copy (see the
+            # ::error below, unchanged from before).
+            if [[ "$STRIPPED" == *-* ]]; then
+              gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
+                > "$LIVE_BODY_FILE" 2>/dev/null || echo "" > "$LIVE_BODY_FILE"
+              if python3 scripts/release-notes/detect-commit-speak.py < "$LIVE_BODY_FILE"; then
+                echo "::notice::Release $TAG exists with a commit-speak/bare body — regenerating ELI5 notes and self-healing (#1046)"
+                SELF_HEAL=1
+              else
+                echo "::notice::Release $TAG already exists with an ELI5-formatted body; leaving untouched"
+                exit 0
+              fi
             else
               echo "::notice::Release $TAG already exists and no tier-1 notes staged; leaving body untouched"
-              if [[ "$STRIPPED" != *-* ]]; then
-                echo "::error::Stable $TAG has no .github/release-notes/${TAG}.md — its body may be release-please commit-speak. Stage the file on main, then run: bash scripts/release-notes/apply-notes.sh $TAG"
-              fi
+              echo "::error::Stable $TAG has no .github/release-notes/${TAG}.md — its body may be release-please commit-speak. Stage the file on main, then run: bash scripts/release-notes/apply-notes.sh $TAG"
+              exit 0
             fi
-            exit 0
           fi
 
           # Tier 1: pre-staged release notes file (create path).
@@ -442,15 +471,26 @@ jobs:
             fi
           fi
 
-          # Create the release with the chosen notes content. The
-          # --notes-file form keeps the body intact (no shell
-          # quoting issues with multi-line Markdown).
-          gh release create "$TAG" \
-            --repo "$REPO" \
-            --draft $GH_FLAG \
-            --title "$TAG" \
-            --notes-file "$NOTES_PATH"
-          echo "::notice::Created release $TAG with proper notes (no placeholder)"
+          if [ "$SELF_HEAL" = "1" ]; then
+            # Splice the regenerated notes onto the EXISTING body,
+            # preserving the "Choose your download" footer if the
+            # platform builds already appended one (#1046). Shared regex
+            # with apply-notes.sh via splice-body.py.
+            SPLICED="$RUNNER_TEMP/spliced-${TAG}.md"
+            python3 scripts/release-notes/splice-body.py "$NOTES_PATH" "$LIVE_BODY_FILE" "$SPLICED"
+            gh release edit "$TAG" --repo "$REPO" --notes-file "$SPLICED"
+            echo "::notice::Self-healed release $TAG with regenerated ELI5 notes (footer preserved, #1046)"
+          else
+            # Create the release with the chosen notes content. The
+            # --notes-file form keeps the body intact (no shell
+            # quoting issues with multi-line Markdown).
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --draft $GH_FLAG \
+              --title "$TAG" \
+              --notes-file "$NOTES_PATH"
+            echo "::notice::Created release $TAG with proper notes (no placeholder)"
+          fi
 
   # ============================================================
   # Build and Publish Release Installers
