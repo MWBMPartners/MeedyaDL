@@ -12,13 +12,26 @@
 //
 // All of this data lives under a single root directory that varies by
 // operating system:
-//   - macOS:   ~/Library/Application Support/io.github.meedyadl/
-//   - Windows: %APPDATA%\io.github.meedyadl\
-//   - Linux:   ~/.local/share/io.github.meedyadl/
+//   - macOS:   ~/Library/Application Support/com.meedyasuite.meedyadl/
+//   - Windows: %APPDATA%\com.meedyasuite.meedyadl\
+//   - Linux:   ~/.local/share/com.meedyasuite.meedyadl/
 //
 // The functions in this module resolve paths relative to that root. They
 // are used by the `services` layer (python_manager, dependency_manager,
 // config_service) and by the `commands::system` IPC handlers.
+//
+// Bundle identifier rename (2026-07-24): the app's Tauri `identifier` was
+// renamed from `io.github.meedyadl` to `com.meedyasuite.meedyadl`. Because
+// Tauri derives `app_data_dir()` from that identifier, this moved every
+// existing user's app-data root to a brand new OS path. `services::
+// bundle_migration` runs once at startup (before anything else touches the
+// new directory) to copy the old directory's contents across and migrate
+// OS-keychain entries. The two constants below are the single source of
+// truth for "old" vs "new" identifier strings, reused by that migration
+// module AND by the handful of call sites (`setup_tracing`,
+// `load_settings_from_default_path`) that must resolve an app-data path
+// *before* a Tauri `AppHandle` exists and so cannot call
+// `get_app_data_dir()`.
 //
 // Directory layout under the app data root:
 //   {app_data}/
@@ -44,6 +57,60 @@ use std::path::{Path, PathBuf};
 // Reference: https://docs.rs/tauri/latest/tauri/trait.Manager.html
 use tauri::{AppHandle, Manager};
 
+/// The bundle identifier `MeedyaDL` used **before** the 2026-07-24 rename.
+///
+/// Kept around permanently as the source path for the first-launch
+/// migration in `services::bundle_migration`, and for the keychain
+/// `SERVICE_NAME` constants in `apple_music_api.rs` / `commands::
+/// credentials` (which read the OLD service name once to migrate secrets,
+/// then never touch it again).
+pub const OLD_BUNDLE_IDENTIFIER: &str = "io.github.meedyadl";
+
+/// The current bundle identifier. **Must be kept in sync with the
+/// `identifier` field in `tauri.conf.json`** — Tauri's own path resolver
+/// (`app.path().app_data_dir()`) reads that file at compile time via
+/// `tauri::generate_context!()`, but this constant exists separately for
+/// the small number of call sites that need an app-data path *before* an
+/// `AppHandle` is constructed (see module doc above) and therefore can't
+/// reach the Tauri-derived value.
+pub const CURRENT_BUNDLE_IDENTIFIER: &str = "com.meedyasuite.meedyadl";
+
+/// Resolves an app-data ROOT directory for startup code that runs
+/// **before** a Tauri `AppHandle` exists (`lib.rs::run()`'s tracing setup
+/// and the early settings load used only to read `sentry_enabled`, both of
+/// which execute ahead of `Builder::default().setup()`). `get_app_data_dir`
+/// cannot be used at that point because it requires an `AppHandle`.
+///
+/// # Bundle-identifier-rename transition behaviour
+/// The one-time migration in `services::bundle_migration` runs inside
+/// `.setup()`, i.e. AFTER this function's two call sites already ran for
+/// the current launch. To avoid a jarring "logs/Sentry setting reset for
+/// exactly one launch" experience immediately after upgrading past the
+/// rename, this prefers the NEW identifier's directory when it already has
+/// a `settings.json` (steady state, including post-migration), but falls
+/// back to the OLD identifier's directory when only IT has one (the first
+/// launch after upgrading, before `.setup()`'s migration has copied
+/// anything across yet). A brand new install (neither directory has
+/// settings yet) resolves to the NEW directory.
+///
+/// This is a read-side convenience only — it never writes or copies
+/// anything. The authoritative, durable migration (which actually copies
+/// files and is safe to call repeatedly) is `bundle_migration::run()`.
+#[must_use]
+pub fn resolve_early_app_data_root() -> PathBuf {
+    let base = dirs::data_dir().unwrap_or_else(std::env::temp_dir);
+    let new_dir = base.join(CURRENT_BUNDLE_IDENTIFIER);
+    let old_dir = base.join(OLD_BUNDLE_IDENTIFIER);
+
+    if new_dir.join("settings.json").exists() {
+        new_dir
+    } else if old_dir.join("settings.json").exists() {
+        old_dir
+    } else {
+        new_dir
+    }
+}
+
 /// Returns the root application data directory for `MeedyaDL`.
 ///
 /// This is the self-contained directory where all application data lives:
@@ -54,9 +121,9 @@ use tauri::{AppHandle, Manager};
 /// - GAMDL configuration
 ///
 /// Platform-specific locations:
-/// - macOS:   `~/Library/Application Support/io.github.meedyadl/`
-/// - Windows: `%APPDATA%\io.github.meedyadl\`
-/// - Linux:   `~/.local/share/io.github.meedyadl/`
+/// - macOS:   `~/Library/Application Support/com.meedyasuite.meedyadl/`
+/// - Windows: `%APPDATA%\com.meedyasuite.meedyadl\`
+/// - Linux:   `~/.local/share/com.meedyasuite.meedyadl/`
 ///
 /// # Fallback behaviour
 /// If Tauri's path resolver fails (which should not happen in normal
@@ -77,7 +144,7 @@ use tauri::{AppHandle, Manager};
 #[must_use]
 pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
     // Tauri's `app.path().app_data_dir()` reads the `identifier` field from
-    // `tauri.conf.json` (e.g., "io.github.meedyadl") and appends it
+    // `tauri.conf.json` (e.g., "com.meedyasuite.meedyadl") and appends it
     // to the OS-standard application data directory.
     app.path().app_data_dir().unwrap_or_else(|_| {
         // Fallback: construct the path manually using the `dirs` crate,
@@ -87,7 +154,7 @@ pub fn get_app_data_dir(app: &AppHandle) -> PathBuf {
         // Reference: https://docs.rs/dirs/latest/dirs/fn.data_dir.html
         dirs::data_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("io.github.meedyadl")
+            .join(CURRENT_BUNDLE_IDENTIFIER)
     })
 }
 
