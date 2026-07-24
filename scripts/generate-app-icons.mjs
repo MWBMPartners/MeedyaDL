@@ -66,7 +66,19 @@ export const SHIP_16PX_WITH_SLOT = true;
 
 // PNG encode options held constant across every call so re-running the
 // generator is byte-for-byte deterministic (no heuristic-driven variance).
-export const PNG_OPTS = { compressionLevel: 9, effort: 10, adaptiveFiltering: false };
+// `palette: false` is REQUIRED, not an optimisation choice. sharp quantises
+// low-colour images to an indexed-palette PNG by default, and Tauri's
+// `generate_context!()` rejects any bundled icon that is not true RGBA
+// ("icon ... is not RGBA", a compile-time proc-macro panic). The icon
+// artwork is flat enough to trigger that quantisation, so it must be
+// disabled explicitly. Callers pair this with `.ensureAlpha()` so the
+// encoded colour type is RGBA (6) rather than RGB (2) on opaque tiles.
+export const PNG_OPTS = {
+  compressionLevel: 9,
+  effort: 10,
+  adaptiveFiltering: false,
+  palette: false,
+};
 
 export { BRAND_DIR, ICONS_DIR, TRAY_DIR, MASTER_PNG_PATH, SMALL_SVG_PATH, MEDIUM_SVG_PATH };
 
@@ -81,7 +93,7 @@ export { BRAND_DIR, ICONS_DIR, TRAY_DIR, MASTER_PNG_PATH, SMALL_SVG_PATH, MEDIUM
  */
 async function rasterizeSvgAtSize(svgText, size) {
   const sized = svgText.replace(/<svg /, `<svg width="${size}" height="${size}" `);
-  return sharp(Buffer.from(sized)).png(PNG_OPTS).toBuffer();
+  return sharp(Buffer.from(sized)).ensureAlpha().png(PNG_OPTS).toBuffer();
 }
 
 /**
@@ -160,6 +172,7 @@ export async function renderMasterDownscale(size) {
   return sharp(MASTER_PNG_PATH)
     .gamma()
     .resize(size, size, { kernel: sharp.kernel.mitchell })
+    .ensureAlpha()
     .png(PNG_OPTS)
     .toBuffer();
 }
