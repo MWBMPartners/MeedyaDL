@@ -801,15 +801,36 @@ jobs:
           # --- Install pip engines ---
           # Parse engines.toml for bundled+enabled pip packages.
           # Uses Python (available on all runners) to parse TOML.
+          #
+          # Bare package names (e.g. "gamdl") resolve to PyPI *latest* on
+          # `pip install`, which bypasses the runtime support-window
+          # ceiling that `install_gamdl()` / `gamdl_capabilities::
+          # pip_version_spec()` enforce at runtime (`gamdl>={minimum_version},
+          # <={maximum_tested_version}` from tool-versions.toml's [gamdl]
+          # section). Without this, the offline installer could bundle an
+          # above-ceiling, untested GAMDL release the app itself would only
+          # ever install via the explicit opt-in "Untested" upgrade flow —
+          # #984. Only `gamdl` is pinned this way; other bundled pip
+          # engines (e.g. votify) are intentionally left unpinned unless
+          # tool-versions.toml grows a matching section for them too.
           PIP_PACKAGES=$(python3 -c "
           import tomllib, sys
           with open('src-tauri/engines.toml', 'rb') as f:
               data = tomllib.load(f)
-          pkgs = [
-              e.get('pip_package', '')
-              for e in data.get('engines', {}).values()
-              if e.get('bundled') and e.get('enabled') and e.get('install_method') == 'pip' and e.get('pip_package')
-          ]
+          with open('src-tauri/tool-versions.toml', 'rb') as f:
+              tool_versions = tomllib.load(f)
+          gamdl_min = tool_versions.get('gamdl', {}).get('minimum_version')
+          gamdl_max = tool_versions.get('gamdl', {}).get('maximum_tested_version')
+          pkgs = []
+          for e in data.get('engines', {}).values():
+              if not (e.get('bundled') and e.get('enabled') and e.get('install_method') == 'pip' and e.get('pip_package')):
+                  continue
+              pkg = e['pip_package']
+              # Mirror gamdl_capabilities::pip_version_spec() — pin gamdl to
+              # the tested support window instead of shipping PyPI latest.
+              if pkg == 'gamdl' and gamdl_min and gamdl_max:
+                  pkg = f'gamdl>={gamdl_min},<={gamdl_max}'
+              pkgs.append(pkg)
           print(' '.join(pkgs))
           ")
 
@@ -861,10 +882,33 @@ jobs:
               echo "Downloading $tool from mirror: $ASSET_URL"
               TOOL_DIR="$DEPS_DIR/tools/$tool"
               mkdir -p "$TOOL_DIR"
-              curl -sL "$ASSET_URL" -o "/tmp/${tool}.${EXT}"
+              # TODO(#984): verify a published checksum (e.g. checksums.txt
+              # or a per-asset *.sha256) once the MeedyaDL-Tools mirror
+              # publishes one — this repo's release process is out of
+              # scope for this change. Until then, `-f` makes curl fail
+              # loudly on HTTP errors (was previously silent — a 404
+              # response body would get written to disk and only fail
+              # later, confusingly, at the tar/unzip step) and the
+              # explicit non-empty + archive-integrity checks below are a
+              # fail-safe against a truncated/corrupt download from the
+              # mutable `latest` tag, though neither substitutes for real
+              # integrity verification against a signed/known-good hash.
+              curl -fsSL "$ASSET_URL" -o "/tmp/${tool}.${EXT}"
+              if [ ! -s "/tmp/${tool}.${EXT}" ]; then
+                echo "::error::Downloaded archive for $tool is empty ($ASSET_URL)"
+                exit 1
+              fi
               if [ "$EXT" = "zip" ]; then
+                if ! unzip -tqq "/tmp/${tool}.${EXT}" >/dev/null; then
+                  echo "::error::Downloaded archive for $tool is not a valid zip ($ASSET_URL)"
+                  exit 1
+                fi
                 unzip -qo "/tmp/${tool}.${EXT}" -d "$TOOL_DIR"
               else
+                if ! tar -tzf "/tmp/${tool}.${EXT}" >/dev/null; then
+                  echo "::error::Downloaded archive for $tool is not a valid tar.gz ($ASSET_URL)"
+                  exit 1
+                fi
                 tar -xzf "/tmp/${tool}.${EXT}" -C "$TOOL_DIR"
               fi
               rm -f "/tmp/${tool}.${EXT}"
