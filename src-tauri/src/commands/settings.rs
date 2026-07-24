@@ -177,7 +177,7 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // payload contains.
     settings.dev_access_enabled = previous
         .as_ref()
-        .map_or(false, |p| p.dev_access_enabled);
+        .is_some_and(|p| p.dev_access_enabled);
 
     // save_settings() in config_service performs two writes:
     //   1. settings.json — full AppSettings struct as JSON
