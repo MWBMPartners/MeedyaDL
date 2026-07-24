@@ -22,10 +22,10 @@ alpha forked from main 2026-04-20 and never merged back, but absorbed main's con
 3. Missing **#944 concurrency guard** was a live release-race on alpha — fixed in Phase 1.
 
 ### Phase status
-- **Phase 0 ✅** backups `backup/{alpha,prep}-pre-realign-2026-07-24` (branches — proxy blocks tag/delete pushes but ALLOWS commit pushes to any branch); port branch `port/main-v1.10.1-fragments` off alpha.
-- **Phase 1 ✅ implemented → PR #1041** (port→alpha). 9 commits, F1–F13 fragments. Local gates ALL green: `cargo test --lib` 1444/0, `clippy --all-targets` clean, `npm type-check` clean, `npm test` 556, `npm audit` 0 vulns, all 13 markers, resurrection-guard 0, version stamps untouched. Awaiting ci.yml matrix → merge on green. PR-security findings triaged = false-positive/intentional (non-blocking).
-- **Phase 2 ⏳** rebase-merge prep→alpha (runbook §3: 5-file stamp/lock conflicts, regen lockfiles, force-push-with-lease, rebase-merge). PRECONDITION: #1041 merged first.
-- **Phase 3 ⛔ GATED** ancestry closure: content-no-op `-s ours` merge of main into alpha (runbook §4). REQUIRES owner go-ahead; effectively one-way; resurrection guard mandatory.
+- **Phase 0 ✅** backups `backup/{alpha,prep}-pre-realign-2026-07-24` + `backup/prep-pre-rebase-2026-07-24` (branches — proxy blocks tag/delete pushes but ALLOWS commit + force-with-lease pushes to any branch); port branch `port/main-v1.10.1-fragments`.
+- **Phase 1 ✅ DONE — PR #1041 MERGED** into alpha (rebase). 9 commits, F1–F13 fragments. All gates green. alpha auto-cut 1.11.0-alpha.31.
+- **Phase 2 ✅ DONE — PR #1042 MERGED** into alpha (rebase). 64 commits (60 prep + audit docs + 2 CI-rot clippy fixes). Rebased prep onto Phase-1-reconciled alpha (1 conflict stop = version stamps; download_queue.rs/docs auto-merged disjoint). `cargo test --lib` 1516/0, `clippy --all-targets` clean, `npm test` 560. **alpha now = 1.12.0-alpha.32, content-complete** (fragments + prep GAMDL 3.8.2–3.8.4 + #1034 security + docs all present & verified).
+- **Phase 3 ⛔ GATED — awaiting owner go-ahead.** Ancestry closure: content-no-op `-s ours` merge of `origin/main` into alpha (runbook §4) to restore honest merge-base + kill the "681 behind" illusion. Zero content change; effectively one-way (revert poisons future merges); resurrection guard mandatory. NOT urgent — content already reconciled; safe to defer.
 - **Phase 4 ⏳** promotion alpha→beta→main at next stable cut (human-led).
 
 ### After realignment (tracked tasks #5–#8)
@@ -38,7 +38,7 @@ alpha forked from main 2026-04-20 and never merged back, but absorbed main's con
 aria-label = main's #945 form; Phase-1 merge = rebase-merge; bundle-ID last; env has GTK/webkit installed (cargo builds locally); **delivery via `git push` works for any branch** (proxy only 403s tag-push + branch-delete), GitHub MCP API also works for branches/PRs.
 
 ### To resume if interrupted
-Read EPIC #1040 + the two audit docs. Check PR #1041 state (merge if green). Then Phase 2 per runbook §3. Backups above. Do NOT run realign-alpha; do NOT naive-merge main.
+Phases 1–2 are DONE (merged to alpha; content-complete at 1.12.0-alpha.32). Remaining: (a) **Phase 3** ancestry closure — awaiting owner go-ahead (runbook §4, Approach A `-s ours` + resurrection guard); (b) **bundle ID → com.meedyasuite.meedyadl** after cleanup; (c) **Fable issue-sweep + docs refresh** (task #6); (d) **Fable vision analysis → next steps + enhancements** (task #7); (e) STANDING pr-security monitoring. Concrete finding to action: **ci.yml does NOT run on alpha PRs** (only `main`) — alpha PRs get only actionlint/static-security/pr-security; full build/test validation must be done locally or added to alpha PR triggers. Read EPIC #1040 for live state. Do NOT run realign-alpha; do NOT naive-merge main.
 
 ---
 
