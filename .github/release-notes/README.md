@@ -7,8 +7,10 @@ This is **tier 1** of the release-notes-source fallback chain introduced by #857
 | Tier | Source | When used |
 |---|---|---|
 | 1 | `.github/release-notes/<tag>.md` | When this file exists for the tag being released. Also runs as a corrective pass (`scripts/release-notes/apply-notes.sh`) that overwrites the body of a release object that already exists — including one **pre-created** by release-please or `version-bump.yml` before the file was staged. Tier 1 always wins, however the release object came to exist. |
-| 2 | ELI5 render from `Release-Note:` git trailers (`.github/cliff-eli5-body.tera` / `cliff-cumulative-body.tera`), with the full technical `git-cliff` diff collapsed into a `<details>` block underneath | When tier 1 is absent and `git-cliff` is installable on the runner |
+| 2 | ELI5 render from `Release-Note:` git trailers (`.github/cliff-eli5-body.tera` / `cliff-cumulative-body.tera`), with a **subjects-only** technical `git-cliff` diff (`.github/cliff-subjects-only-body.tera`) collapsed into a `<details>` block underneath | When tier 1 is absent and `git-cliff` is installable on the runner |
 | 3 | Static "See CHANGELOG.md" stub | When tiers 1 and 2 both fail |
+
+The tier-2 `<details>` block deliberately renders commit **subjects only** — never commit bodies, which is where mechanism detail (acquisition paths, credential/token names, protocol internals) tends to live, and this block still ships inside the published, in-app-served release body. The full technical record, bodies included, stays in `CHANGELOG.md` (unchanged). See `.github/audits/release-notes-policy-audit-2026-07-24.md` §3.2 (leak L2) and §1.5 (decision D1).
 
 ## When to use tier 1
 
