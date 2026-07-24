@@ -23,6 +23,8 @@ Tier 2 is ELI5 whenever the PRs in range carried `Release-Note:` trailers — it
 
 Pure Markdown. The `finalize-release` job appends the platform-specific "Choose your download" table + `.sig` explanations underneath whatever you put here. So write what the **end-user** should see at the top of the GitHub Release page — typically:
 
+**Confidentiality constraint:** describe capabilities, never mechanisms. This file is our loudest advertisement surface (also served inside the app by the in-app updater), so never state, name, or paraphrase — anywhere in the file, including inside HTML comments or a collapsed `<details>` block — how a feature obtains its data, credentials, or media (tokens, endpoints, acquisition paths, protocol/crypto/storage internals). See [`STYLE_GUIDE.md`](STYLE_GUIDE.md) → "Never reveal how a feature is delivered" for the full rule and the allowed-vocabulary test.
+
 ```markdown
 # MeedyaDL <tag>
 
@@ -47,7 +49,7 @@ Pure Markdown. The `finalize-release` job appends the platform-specific "Choose 
 
 Section headings must be `###` (H3) — the `release-note-gate.yml` CI check and `scripts/release-notes/draft-notes.sh` both key on a line starting with `###` followed by a space. Write the bullets in plain English per [`STYLE_GUIDE.md`](STYLE_GUIDE.md); `scripts/release-notes/draft-notes.sh <tag>` will scaffold this shape for you, pre-seeded from any `Release-Note:` trailers already merged.
 
-See `v1.10.0-alpha.15.md` / `v1.11.0-alpha.18.md` in this directory for the canonical gold standard.
+See `v1.11.0-alpha.21.md` / `v1.9.1.md` in this directory for the canonical gold standard.
 
 ## Filename rules
 
