@@ -6,9 +6,31 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(deps)** Npm audit fix on main (js-yaml/brace-expansion/fast-uri, lockfile-only)
+
+Resolves 3 high-severity npm audit findings (js-yaml GHSA-52cp-r559-cp3m
+  quadratic CPU via YAML merge-key chains, brace-expansion GHSA-3jxr-9vmj-r5cp
+  DoS, fast-uri GHSA-v2hh-gcrm-f6hx/GHSA-4c8g-83qw-93j6 host confusion) that
+  were failing CI on main. Lockfile-only bump via `npm audit fix`; no
+  package.json changes.
+
+- **(clippy)** Resolve useless_borrows_in_formatting CI-rot on main
+
+cargo clippy -- -D warnings (as run by CI) failed on a newer clippy
+  toolchain (1.97+) that now flags the redundant `&` on `&urls` passed
+  into format!()'s {:?} argument at download_queue.rs:7228 — format!
+  already captures arguments by reference, so the explicit borrow was
+  dead weight. Dropped the `&`; behaviour is unchanged since `urls` is
+  still borrowed (not moved) by the format machinery and remains
+  available at its other use sites (lines 6929, 7278, 7375).
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.1 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [1.10.1] - 2026-06-19
