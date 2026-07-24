@@ -1429,6 +1429,28 @@ pub fn run() {
                 log::info!("App data directory: {}", app_data_dir.display());
             }
 
+            // One-time migration from the pre-2026-07-24 bundle identifier
+            // (`io.github.meedyadl` -> `com.meedyasuite.meedyadl`). MUST run
+            // here -- as early as possible in `.setup()`, immediately after
+            // the new app data directory is created above, and BEFORE
+            // anything below reads `settings.json` / `queue.json` /
+            // `history.json` from it (queue recovery, activity log dir
+            // resolution, the download index first-startup ingest, etc. all
+            // happen later in this closure). Copies legacy data + keychain
+            // entries forward; see `services::bundle_migration` for the
+            // full non-destructive, idempotent design.
+            let migration_summary = services::bundle_migration::run(&app_data_dir);
+            if !migration_summary.is_empty() {
+                utils::activity_log::emit_app_log(
+                    app.handle(),
+                    &format!(
+                        "First-launch migration from legacy app identifier '{}': {}",
+                        utils::platform::OLD_BUNDLE_IDENTIFIER,
+                        migration_summary.join("; ")
+                    ),
+                );
+            }
+
             // Set up the system tray icon with context menu and event handlers.
             // The `_tray` binding keeps the TrayIcon alive for the app's lifetime;
             // dropping it would remove the icon from the system tray.
