@@ -175,6 +175,27 @@ interface UiState {
   setPendingSpotifyConsentCallback: (cb: (() => Promise<void>) | null) => void;
 
   /**
+   * Whether the macOS self-relocation offer modal is visible (#1057).
+   * Flipped by `<App>`'s startup effect after `checkAppRelocation()`
+   * reports the current install is eligible and
+   * `settings.relocation_declined` is still false.
+   */
+  showAppRelocationPrompt: boolean;
+
+  /**
+   * The proposed destination path shown in the relocation modal (e.g.
+   * `/Applications/MeedyaSuite/MeedyaDL.app`). Cleared whenever the
+   * modal is hidden.
+   */
+  appRelocationDestination: string | null;
+
+  /**
+   * Show or hide the relocation offer modal. Pass `destination` when
+   * showing it; omitted (or the modal being hidden) clears it.
+   */
+  setShowAppRelocationPrompt: (show: boolean, destination?: string | null) => void;
+
+  /**
    * When set, the Help page should auto-navigate to this topic ID on mount.
    * Used by the `<HelpButton>` component for contextual deep-linking from
    * settings fields to their corresponding help documentation.
@@ -304,6 +325,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
   showSpotifyConsent: false, // M9-UI: Spotify first-run consent modal
   pendingSpotifyConsentCallback: null, // M9-UI: callback to invoke on consent accept
+  showAppRelocationPrompt: false, // #1057: macOS self-relocation offer modal
+  appRelocationDestination: null, // #1057: proposed /Applications/MeedyaSuite destination
   helpActiveTopic: null, // No deep-link target until a HelpButton is clicked
   shortcutsHelpOpen: false, // Shortcuts help dialog closed until Cmd/Ctrl+Shift+? opens it (#465)
 
@@ -337,6 +360,13 @@ export const useUiStore = create<UiState>((set, get) => ({
   /** Show or hide the pre-release first-load notice modal. */
   setShowPrereleaseNotice: (show) => set({ showPrereleaseNotice: show }),
   setShowCrashReportPrompt: (show: boolean) => set({ showCrashReportPrompt: show }),
+
+  /** Show or hide the macOS self-relocation offer modal (#1057). */
+  setShowAppRelocationPrompt: (show, destination = null) =>
+    set({
+      showAppRelocationPrompt: show,
+      appRelocationDestination: show ? destination : null,
+    }),
   setShowSpotifyConsent: (show: boolean) => set({ showSpotifyConsent: show }),
   setPendingSpotifyConsentCallback: (cb: (() => Promise<void>) | null) =>
     set({ pendingSpotifyConsentCallback: cb }),

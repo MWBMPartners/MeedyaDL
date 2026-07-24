@@ -812,6 +812,14 @@ export interface AppSettings {
    * the `acknowledge_spotify_consent` IPC.
    */
   spotify_consent_acknowledged: boolean;
+  /**
+   * macOS self-relocation offer declined (#1057). When `true`, the
+   * startup prompt offering to move MeedyaDL into
+   * `/Applications/MeedyaSuite` is not shown again. Set to `true` by
+   * `AppRelocationModal`'s "Not now" button. Mirrors Rust field
+   * `AppSettings::relocation_declined`.
+   */
+  relocation_declined: boolean;
   /** The last app version the user launched (empty = first run). Used to detect version changes for pre-release notices. */
   last_seen_version: string;
   /** Whether the setup wizard has been completed at least once */

@@ -199,6 +199,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   activity_log_path_override: '', // Empty = use {app_data_dir}/logs/ for on-disk activity log (#541)
   dev_access_enabled: false, // Internal developer access mode (hidden, not in normal Settings UI)
   spotify_consent_acknowledged: false, // M9-4: first-run consent acknowledgment for Spotify downloads
+  relocation_declined: false, // #1057: macOS self-relocation offer not declined by default
   last_seen_version: '', // Last app version the user launched (empty = first run)
   setup_completed: false, // Whether the setup wizard has been completed at least once
   sidebar_collapsed: false, // UI preference: sidebar expanded by default
