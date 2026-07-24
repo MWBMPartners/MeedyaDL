@@ -29,6 +29,23 @@
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
 # audit scripts live in tools/audit-checks/ and are runnable locally.
+#
+# Noise reduction (#1045): checks 2/3/5 grep raw source text, which flags
+# comments and doc examples as if they were live code. Three post-filters
+# fix this without touching the detection regexes themselves:
+#   - filter_comment_lines   (checks 2, 3, 5) drops `//`, `/*`, `*`-continuation
+#     (JSDoc/rustdoc), and `#`-led matched lines.
+#   - exclude_rust_test_regions (check 5) drops path hits whose line falls
+#     inside an inline `#[cfg(test)] mod ... { }` block (whole-file test
+#     modules were already excluded upstream; this covers the common case of
+#     a test submodule living in the same file as production code).
+#   - suppress_safety_annotated (check 3) drops an `unsafe` hit when the
+#     matched line or the line above it carries a `// SAFETY:` justification.
+# These are line-level heuristics, not a real parser — see the function
+# comments below for their known limits. Regression coverage: run the
+# `Heuristic + consistency scan` step logic against an empty diff and against
+# the whole HEAD tree (diff against the empty-tree SHA) before changing these
+# functions; both must still report zero findings for checks 2/3/5.
 
 name: PR Security Checks
 
@@ -174,17 +191,137 @@ jobs:
           echo "  Rust: $(echo "$CHANGED_RUST" | grep -c . || true) | TS: $(echo "$CHANGED_TS" | grep -c . || true) | workflows: $(echo "$CHANGED_WF" | grep -c . || true)"
           echo
 
+          # ---- Noise-reduction helpers (#1045) ----------------------------
+          # All three take/emit `grep -nH` hits in "file:line:content" form
+          # on stdin/stdout, so they compose as pipeline stages.
+
+          # filter_comment_lines: drops a hit whose matched line IS a comment
+          # (Rust/TS `//`, a `/*`-opening line, a `*`-continuation line as in
+          # JSDoc/rustdoc blocks, or a `#`-led line for non-Rust/TS scripts).
+          # Line-level heuristic only — it does not track block-comment
+          # *interiors* beyond the leading `*` convention, which is how
+          # rustdoc/JSDoc actually wrap prose in this codebase.
+          filter_comment_lines() {
+            awk -F: '
+              {
+                content = $0
+                sub(/^[^:]+:[0-9]+:/, "", content)
+                trimmed = content
+                sub(/^[ \t]+/, "", trimmed)
+                if (trimmed ~ /^\/\//) next
+                if (trimmed ~ /^\/\*/) next
+                if (trimmed ~ /^\*/) next
+                if (trimmed ~ /^#/) next
+                print $0
+              }
+            '
+          }
+
+          # rust_cfg_test_regions <file>: prints "start<TAB>end" line ranges
+          # for every `#[cfg(test)] mod ... { ... }` block via brace-depth
+          # tracking — the region opens at the `mod ... {` line that follows
+          # the attribute and closes when brace depth returns to the
+          # pre-attribute level. Nested `mod` blocks inside the region are
+          # naturally absorbed since we only compare against arm_depth.
+          #
+          # String-literal content is stripped (best-effort) before counting
+          # braces: this codebase's test modules embed JSON/traceback sample
+          # text as string literals (e.g. `r#"...{"errors":[{...":..."#`)
+          # containing unbalanced brace characters that would otherwise
+          # desync the depth counter and leave the region unclosed for the
+          # rest of the file. Known limits: doesn't handle escaped `\"`
+          # inside plain strings or a raw string spanning multiple lines —
+          # acceptable for a line-level heuristic, matching the other
+          # filters in this step.
+          rust_cfg_test_regions() {
+            awk '
+              {
+                line = $0
+                gsub(/r#".*"#/, "\"\"", line)
+                gsub(/"[^"]*"/, "\"\"", line)
+                if (armed && line ~ /mod[ \t]+[A-Za-z0-9_]+[ \t]*\{/) {
+                  region_start = NR
+                  in_region = 1
+                  armed = 0
+                } else if (!armed && line ~ /^[ \t]*#\[cfg\(test\)\]/) {
+                  armed = 1
+                  arm_depth = depth
+                }
+                n_open = gsub(/\{/, "{", line)
+                n_close = gsub(/\}/, "}", line)
+                depth += n_open - n_close
+                if (in_region && depth <= arm_depth) {
+                  print region_start "\t" NR
+                  in_region = 0
+                }
+              }
+            ' "$1"
+          }
+
+          # Build the exclusion table once (file<TAB>start<TAB>end per line)
+          # for every changed non-test Rust file, so check 5 can drop path
+          # hits that fall inside an inline #[cfg(test)] module. Whole-file
+          # test modules are already excluded upstream by CHANGED_RUST_NONTEST
+          # — this covers a test submodule living inside a production file.
+          TEST_REGIONS_FILE=$(mktemp)
+          : > "$TEST_REGIONS_FILE"
+          if [[ -n "$CHANGED_RUST_NONTEST" ]]; then
+            for f in $CHANGED_RUST_NONTEST; do
+              [[ -f "$f" ]] || continue
+              while IFS=$'\t' read -r rs re; do
+                [[ -z "$rs" ]] && continue
+                printf '%s\t%s\t%s\n' "$f" "$rs" "$re" >> "$TEST_REGIONS_FILE"
+              done < <(rust_cfg_test_regions "$f")
+            done
+          fi
+
+          # exclude_rust_test_regions: drops a hit whose file:line falls
+          # inside a range recorded in $TEST_REGIONS_FILE. TS files never
+          # have entries (only Rust files are scanned into the table), so
+          # this is a no-op pass-through for them.
+          exclude_rust_test_regions() {
+            while IFS=: read -r f l rest; do
+              [[ -z "$f" ]] && continue
+              skip=0
+              while IFS=$'\t' read -r rf rs re; do
+                [[ -z "$rf" ]] && continue
+                if [[ "$f" == "$rf" && "$l" -ge "$rs" && "$l" -le "$re" ]]; then
+                  skip=1
+                  break
+                fi
+              done < "$TEST_REGIONS_FILE"
+              [[ "$skip" == "0" ]] && echo "$f:$l:$rest"
+            done
+          }
+
+          # suppress_safety_annotated: drops an `unsafe` hit if the matched
+          # line or the line immediately above it carries a `SAFETY:`
+          # justification (case-insensitive). Re-reads the file at HEAD since
+          # the grep match text alone doesn't include the neighbouring line.
+          suppress_safety_annotated() {
+            while IFS=: read -r f l rest; do
+              [[ -z "$f" ]] && continue
+              cur_line=$(sed -n "${l}p" "$f" 2>/dev/null)
+              prev_line=""
+              [[ "$l" -gt 1 ]] && prev_line=$(sed -n "$((l-1))p" "$f" 2>/dev/null)
+              if echo "$cur_line" | grep -qiE 'SAFETY:' || echo "$prev_line" | grep -qiE 'SAFETY:'; then
+                continue
+              fi
+              echo "$f:$l:$rest"
+            done
+          }
+
           # ---- 2) Rust subprocess shell interpolation --------------------
           # CLAUDE.md invariant: "No shell interpolation — all subprocess
           # calls use parameterised Command::new().arg(); no sh -c format!()".
           if [[ -n "$CHANGED_RUST_NONTEST" ]]; then
-            SHELL_HITS=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nE 'Command::new\(\s*"(sh|bash|zsh|cmd|powershell|pwsh)"|\.arg\(\s*"-c"|\b(sh|bash) -c\b' 2>/dev/null || true)
+            SHELL_HITS=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nHE 'Command::new\(\s*"(sh|bash|zsh|cmd|powershell|pwsh)"|\.arg\(\s*"-c"|\b(sh|bash) -c\b' 2>/dev/null | filter_comment_lines || true)
             add_section "Rust subprocess shell interpolation (use parameterised Command::new().arg() — no sh -c)" "$SHELL_HITS"
           fi
 
           # ---- 3) Unsafe Rust --------------------------------------------
           if [[ -n "$CHANGED_RUST_NONTEST" ]]; then
-            UNSAFE=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nE '\bunsafe\s*(\{|fn\b)' 2>/dev/null || true)
+            UNSAFE=$(echo "$CHANGED_RUST_NONTEST" | xargs -r grep -nHE '\bunsafe\s*(\{|fn\b)' 2>/dev/null | filter_comment_lines | suppress_safety_annotated || true)
             add_section "Unsafe Rust blocks/functions (justify the safety invariant in a comment)" "$UNSAFE"
           fi
 
@@ -202,7 +339,7 @@ jobs:
           # should derive from app_data_dir / env, never be hardcoded.
           PATH_TARGETS=$(printf '%s\n%s\n' "$CHANGED_RUST_NONTEST" "$CHANGED_TS" | grep -E '.' || true)
           if [[ -n "$PATH_TARGETS" ]]; then
-            PATHS=$(echo "$PATH_TARGETS" | xargs -r grep -nE "(['\"])(/Users/|/home/[^/\"' ]+/|C:\\\\)" 2>/dev/null || true)
+            PATHS=$(echo "$PATH_TARGETS" | xargs -r grep -nHE "(['\"])(/Users/|/home/[^/\"' ]+/|C:\\\\)" 2>/dev/null | filter_comment_lines | exclude_rust_test_regions || true)
             add_section "Hardcoded absolute filesystem paths (derive from app_data_dir / std::env, not literals)" "$PATHS"
           fi
 
