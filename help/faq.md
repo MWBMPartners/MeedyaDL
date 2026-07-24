@@ -310,6 +310,8 @@ Alternatively, run this command in Terminal after installing:
 xattr -cr /Applications/MeedyaDL.app
 ```
 
+(or `xattr -cr /Applications/MeedyaSuite/MeedyaDL.app` if you've moved MeedyaDL into the shared MeedyaSuite folder)
+
 This only needs to be done once. Future launches will open normally. macOS code signing and notarization are planned for the v1 stable release.
 
 ### Windows shows "Windows protected your PC" (SmartScreen)
