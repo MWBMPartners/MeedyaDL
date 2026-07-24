@@ -1,15 +1,54 @@
 ---
 name: project-alpha-main-drift
-description: alpha↔main↔beta divergence — alpha has 40 feature commits neither beta nor main have; main/beta are 655-679 ahead of alpha. Big reconciliation still pending. Do NOT run realign-alpha before promoting alpha's commits.
+description: alpha↔main↔beta divergence — RESOLVED at the content level 2026-07-24 (EPIC #1040 Phases 1-2 merged; alpha is content-complete). Ancestry closure (Phase 3, `-s ours` merge of main) and promotion to main (Phase 4) remain gated on owner go-ahead. Do NOT run realign-alpha before Phase 4 promotion.
 metadata:
   type: project
 ---
 
-# Alpha / main drift (ongoing — updated 2026-07-03)
+# Alpha / main drift (updated 2026-07-24 — Phases 1-2 DONE, content reconciled)
 
-**Status:** OPEN. The original #873 rationalisation approach is superseded;
-the drift persists and grew. See `.github/HANDOFF.md` for the current
-session state.
+**Status (2026-07-24): CONTENT RECONCILED.** EPIC #1040 Phases 1–2 landed on
+`alpha` this session (PR #1041 — 13 missing fragments F1–F13; PR #1044 — the
+Phase-2 prep rebase, 64 commits of GAMDL 3.8.2–3.8.4 + #1034 security work +
+docs, bundled with the `ci.yml` alpha/beta/rc PR-gating fix; plus follow-on
+hardening PRs #1047/#1048/#1049). `alpha` is now content-complete at
+`1.12.0-alpha.35`, verified against the full CI matrix (`cargo test --lib`
+1516/0, `clippy --all-targets` clean, `npm test` 560).
+
+**What's still open:** Phase 3 (ancestry closure — a content-no-op `-s ours`
+merge of `origin/main` into `alpha` to restore an honest merge-base and kill
+the "N behind" illusion for good) and Phase 4 (promotion `alpha` → `beta` →
+`main` at the next stable cut) are **both gated on explicit owner go-ahead** —
+not urgent, since the content gap that made this drift dangerous is already
+closed. See `.github/HANDOFF.md` "★★ LATEST — Session 2026-07-24" for the
+live phase tracker, and the audit trail below for the analysis that
+established content parity.
+
+**Audit trail (2026-07-24):**
+`.github/audits/alpha-main-drift-content-analysis-2026-07-24.md` (the content
+probe — of main's 130 substantive commits: 119 present on alpha, 9
+superseded, 1 N/A, 1 partial; the pivotal finding that "alpha 681 behind
+main" was a **git-ancestry illusion**, not a real content gap — alpha forked
+from main 2026-04-20 and absorbed main's content via squash-imports rather
+than merges, so `git cherry`/commit-counting lied) and
+`.github/audits/alpha-main-realignment-runbook-2026-07-24.md` (the executable
+Phase 0–4 plan). Rollback anchors if anything needs undoing:
+`backup/{alpha,prep}-pre-realign-2026-07-24`, `backup/prep-pre-rebase-2026-07-24`.
+
+**Still true — do NOT violate:**
+1. **NEVER run `realign-alpha`** before Phase 4 promotion — it fast-forwards
+   `alpha` onto `main` and would clobber alpha's unique commits (Spotify,
+   #911 UI, Profile Bundle, Lyricsfile, SQLite index, GAMDL 3.6–3.8.4, brand).
+2. **NEVER let a naive `git merge main` land** on alpha outside the Phase 3
+   runbook — it silently resurrects deleted files (nightly/weekly/monthly
+   cron workflows, `upstream-gamdl-watch.yml`, `protected-cron-channels.json`).
+
+---
+
+## Historical status (superseded by the above — kept for context)
+
+The section below documents the drift as it stood 2026-07-03, before the
+2026-07-24 realignment. Kept for archaeology; do not treat as current state.
 
 ## Current topology (2026-07-03)
 

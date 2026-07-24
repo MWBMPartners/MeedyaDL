@@ -1,13 +1,13 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-07-24
-**Working branch:** `prep/alpha-gamdl-3.8.2-plus-2026-07-10` = `claude/pr-1037-alpha-setup-p3ob3y` (off `alpha`; version 1.12.0-alpha.28)
+**Working branch:** `alpha` (content-complete at 1.12.0-alpha.35; no dedicated prep branch needed — Phases 1–2 merged directly)
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, IN PROGRESS)
+## ★★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, PHASES 1–2 DONE)
 
 **Goal:** clean up alpha↔main drift without losing work, then bundle-ID change, then full issue-sweep + docs refresh + vision analysis. Autonomous run; Phase 3 gated on owner go-ahead.
 
@@ -16,29 +16,39 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 ### The pivotal finding — "alpha 681 behind main" is a git-ancestry ILLUSION
 alpha forked from main 2026-04-20 and never merged back, but absorbed main's content via squash-imports (`674967f` #854 ≡ main v1.9.4 tree; #877 rclone; #967 API half of v1.10.1). `git cherry` = 0 patch-id matches → commit-counting lies. **Content probe: of main's 130 substantive commits, 119 present + 9 superseded + 1 N/A + 1 partial (#947). ALL critical fixes verified present in alpha.** Evidence: `.github/audits/alpha-main-drift-content-analysis-2026-07-24.md`. Runbook: `.github/audits/alpha-main-realignment-runbook-2026-07-24.md`.
 
-### THREE HARD WARNINGS (never violate)
-1. **NEVER run `realign-alpha`** — clobbers alpha's 52 unique commits (Spotify, #911 UI, Profile Bundle, Lyricsfile, SQLite index, GAMDL 3.6–3.8.4, brand).
+**RESULT: Phases 1 and 2 are COMPLETE and merged.** alpha is content-complete/reconciled at **1.12.0-alpha.35**, validated by the full CI matrix.
+
+### THREE HARD WARNINGS (still apply — Phase 3/4 not yet run)
+1. **NEVER run `realign-alpha`** — clobbers alpha's unique commits (Spotify, #911 UI, Profile Bundle, Lyricsfile, SQLite index, GAMDL 3.6–3.8.4, brand).
 2. **NEVER let a naive `git merge main` land** — silently resurrects 5 deleted files (nightly/weekly/monthly-release.yml, upstream-gamdl-watch.yml, protected-cron-channels.json). Phase 3 has an explicit re-deletion guard.
 3. Missing **#944 concurrency guard** was a live release-race on alpha — fixed in Phase 1.
 
 ### Phase status
 - **Phase 0 ✅** backups `backup/{alpha,prep}-pre-realign-2026-07-24` + `backup/prep-pre-rebase-2026-07-24` (branches — proxy blocks tag/delete pushes but ALLOWS commit + force-with-lease pushes to any branch); port branch `port/main-v1.10.1-fragments`.
 - **Phase 1 ✅ DONE — PR #1041 MERGED** into alpha (rebase). 9 commits, F1–F13 fragments. All gates green. alpha auto-cut 1.11.0-alpha.31.
-- **Phase 2 ✅ DONE — PR #1042 MERGED** into alpha (rebase). 64 commits (60 prep + audit docs + 2 CI-rot clippy fixes). Rebased prep onto Phase-1-reconciled alpha (1 conflict stop = version stamps; download_queue.rs/docs auto-merged disjoint). `cargo test --lib` 1516/0, `clippy --all-targets` clean, `npm test` 560. **alpha now = 1.12.0-alpha.32, content-complete** (fragments + prep GAMDL 3.8.2–3.8.4 + #1034 security + docs all present & verified).
-- **Phase 3 ⛔ GATED — awaiting owner go-ahead.** Ancestry closure: content-no-op `-s ours` merge of `origin/main` into alpha (runbook §4) to restore honest merge-base + kill the "681 behind" illusion. Zero content change; effectively one-way (revert poisons future merges); resurrection guard mandatory. NOT urgent — content already reconciled; safe to defer.
+- **Phase 2 ✅ DONE — merged via PR #1044** into alpha (rebase; bundled with the ci.yml gate below, commit `be441fc7`). 64 commits (60 prep + audit docs + 2 CI-rot clippy fixes). Rebased prep onto Phase-1-reconciled alpha (1 conflict stop = version stamps; download_queue.rs/docs auto-merged disjoint). `cargo test --lib` 1516/0, `clippy --all-targets` clean, `npm test` 560. **alpha reached 1.12.0-alpha.32, content-complete** (fragments + prep GAMDL 3.8.2–3.8.4 + #1034 security + docs all present & verified).
+- **Post-Phase-2 hardening — DONE, also merged to alpha this session:**
+  - **#1041** (Phase 1 fragments — see above).
+  - **#1044** — the Phase-2 prep rebase merge, bundled with `ci.yml` now gating alpha/beta/rc PRs with the full build/test matrix (previously main-only; alpha PRs got only actionlint/static-security/pr-security).
+  - **#1047** — `pr-security.yml` heuristic false-positive refinement (comments, inline `cfg(test)`, `// SAFETY:` no longer flagged).
+  - **#1048** — supply-chain hardening: **#995 closed** (channel release workflows pin the lockfile to the `meedyadl` package instead of a full re-resolution) + **#984 partial** (bundled-GAMDL pin to the tested ceiling + mirror-tool integrity verification; cross-repo mirror checksum still open, see below).
+  - **#1049** — ELI5 release-notes self-heal gate (prerelease bodies that regress to commit-speak now auto-repair) + backfill of curated notes for alpha.30–32.
+  - alpha now sits at **1.12.0-alpha.35**.
+- **Phase 3 ⛔ GATED — awaiting owner go-ahead.** Ancestry closure: content-no-op `-s ours` merge of `origin/main` into alpha (runbook §4) to restore honest merge-base + kill the "681 behind" illusion. Zero content change; effectively one-way (revert poisons future merges); resurrection guard mandatory. Will also carry #1044/#1047/#1048/#1049's fixes forward to main. NOT urgent — content already reconciled; safe to defer.
 - **Phase 4 ⏳** promotion alpha→beta→main at next stable cut (human-led).
 
-### After realignment (tracked tasks #5–#8)
-- **Bundle ID → `com.meedyasuite.meedyadl`** (owner-confirmed) — AFTER cleanup complete, on prep/claude branch.
-- Full GitHub issue sweep (open+closed) + refresh all `.claude/` docs (Fable).
-- Full codebase+issues+vision analysis → next steps + enhancement loop (Fable sequential + dev-team plugin).
-- STANDING: monitor GitHub PR-security checks on every PR, fix real findings.
+### STILL OPEN
+- **#984** — cross-repo mirror checksum verification (only the tested-ceiling pin + local mirror-tool integrity landed in #1048; the cross-repo checksum half remains).
+- **#1046** — historical release-body backfill for older tags; needs a maintainer to run `scripts/release-notes/apply-notes.sh` (the mechanism is built and self-healing; only the manual backfill invocation is outstanding).
+- Bundle ID → `com.meedyasuite.meedyadl` (owner-confirmed, queued for after cleanup).
+- Full GitHub issue sweep (open+closed) + refresh of remaining `.claude/` docs.
+- Branch cleanup (backup branches, stale prep branches) once Phase 3/4 land.
 
 ### Decisions locked
 aria-label = main's #945 form; Phase-1 merge = rebase-merge; bundle-ID last; env has GTK/webkit installed (cargo builds locally); **delivery via `git push` works for any branch** (proxy only 403s tag-push + branch-delete), GitHub MCP API also works for branches/PRs.
 
-### To resume if interrupted
-Phases 1–2 are DONE (merged to alpha; content-complete at 1.12.0-alpha.32). Remaining: (a) **Phase 3** ancestry closure — awaiting owner go-ahead (runbook §4, Approach A `-s ours` + resurrection guard); (b) **bundle ID → com.meedyasuite.meedyadl** after cleanup; (c) **Fable issue-sweep + docs refresh** (task #6); (d) **Fable vision analysis → next steps + enhancements** (task #7); (e) STANDING pr-security monitoring. Concrete finding to action: **ci.yml does NOT run on alpha PRs** (only `main`) — alpha PRs get only actionlint/static-security/pr-security; full build/test validation must be done locally or added to alpha PR triggers. Read EPIC #1040 for live state. Do NOT run realign-alpha; do NOT naive-merge main.
+### To resume
+Phases 1–2 are DONE (merged to alpha; content-complete at 1.12.0-alpha.35, full CI matrix green). Remaining: (a) **Phase 3** ancestry closure — awaiting owner go-ahead (runbook §4, Approach A `-s ours` + resurrection guard); (b) **bundle ID → com.meedyasuite.meedyadl** after cleanup; (c) **#984** cross-repo mirror checksum (remaining half); (d) **#1046** historical release-body backfill (maintainer-run `apply-notes.sh`); (e) Fable issue-sweep + docs refresh; (f) Fable vision analysis → next steps + enhancements; (g) STANDING pr-security monitoring. Read EPIC #1040 for live state. Do NOT run realign-alpha; do NOT naive-merge main. Rollback anchors if anything needs undoing: `backup/{alpha,prep}-pre-realign-2026-07-24`, `backup/prep-pre-rebase-2026-07-24`.
 
 ---
 
