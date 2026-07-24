@@ -174,3 +174,9 @@ pub mod spotify_anti_ban;
 /// sign-out and an `auth.state` status probe. Companion to the
 /// wrapper-v2 helpers in `services::health_check_service`.
 pub mod wrapper;
+
+/// macOS self-relocation IPC surface (#1057). Exposes the startup
+/// eligibility check (`check_app_relocation`, a cheap read of managed
+/// state) and the user-initiated move (`relocate_app_bundle`).
+/// Companion to `services::app_relocation`.
+pub mod app_relocation;
