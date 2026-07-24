@@ -95,6 +95,19 @@ The fix has to land on the release-please PR body **before it is merged**. Recov
 
 Worked example (2026-05-17): v1.5.0 shipped with the generic `* legacy folder merge + colour-coded activity log (closes #789, #793) (#794)` line. PR #794 was auto-merged at ~12:55, release-please PR #795 opened at 12:25 and sat for **43 minutes** before the maintainer merged it at 13:08 — an entire window during which the body could have been rewritten. Recovery was via `gh release edit v1.5.0 --notes-file /tmp/v1.5.0-notes.md`. CHANGELOG.md kept the generic line because git-cliff owns it; that's fine — it's a developer artefact.
 
+## 6. ELI5 machinery can be present on one channel branch and absent on another (#1046)
+
+**Symptom:** `alpha`/`beta`/`release-candidate` prerelease bodies suddenly regress to raw commit-speak or bare `🧹 Maintenance — (alpha) X.Y.Z` bump noise, even though `main` (or another channel) clearly has the #1027/#1028 ELI5 machinery (`release.yml`'s two-section prerelease render, `.github/cliff-eli5-body.tera`, `.github/cliff-cumulative-body.tera`, the `Release-Note:` trailer pipeline).
+
+**Root cause:** a tag-push-triggered workflow runs the copy of `.github/workflows/release.yml` **at the tag's own commit**, not the copy on `main`. If the ELI5 machinery was developed on a feature/working branch and only reached `alpha` (say, via a realignment merge) without ever landing on `main` — or `beta`/`release-candidate` simply went dormant before the machinery existed — every tag cut from a pre-machinery tree renders with whatever `ensure-release` logic existed at THAT commit, regardless of what `main` looks like today. This bit `v1.11.0-alpha.30`/`.31` (cut 2026-07-19/24 from a tree where #1027/#1028 existed only on `alpha`+feature branches, not `main`) — see `.github/audits/release-notes-eli5-diagnosis-2026-07-24.md` for the full evidence chain.
+
+**Guardrails now in place (#1046):**
+- `ensure-release`'s already-exists branch self-heals: if a prerelease's live body matches the commit-speak heuristic in `scripts/release-notes/detect-commit-speak.py` (old `## [x.y.z]` git-cliff header, or a bare `### Maintenance` section, with none of the new-format markers present), it's automatically regenerated and spliced back on **the next re-run of Release for that tag** — via `scripts/release-notes/splice-body.py`, shared with `apply-notes.sh`. Re-running `gh workflow run Release -f tag=vX.Y.Z-suffix.N --ref <branch-that-has-the-fix>` now repairs a bad prerelease body without any hand-editing.
+- Stables are deliberately NOT self-healed this way — they still hard-require a curated `.github/release-notes/vX.Y.Z.md` file (see `release-note-gate.yml`'s `release-pr-notes-file` job), so a human always signs off on stable release copy.
+- `release-note-gate.yml` gained a third job, `push-trailer-advisory` — the PR-only trailer check (`pr-trailer`) never fires for this repo's "push `fix:`/`feat:` directly to main" convention; the new job scans pushed commit ranges on `main`/`alpha`/`beta`/`release-candidate` and posts an advisory `::warning` for any feat/fix/perf commit missing a `Release-Note:` trailer.
+
+**Still requires a human check:** before `gh workflow run "Release"` (or any manual re-run) for a channel tag, confirm `--ref <branch>` points at a branch that actually HAS the ELI5 machinery — `git cat-file -e <branch>:.github/cliff-eli5-body.tera` is a fast sanity check. `workflow_dispatch` with no `--ref` always runs the **default branch's** copy (`main`), which can silently be stale relative to `alpha`/`beta`/`release-candidate`. Before reactivating a dormant channel branch (`beta`/`release-candidate` as of 2026-07-24), realign it onto the promoted base first so it inherits the current machinery — don't just push directly onto the old tip.
+
 ## How to apply
 
 When walking a user through a release cut:
