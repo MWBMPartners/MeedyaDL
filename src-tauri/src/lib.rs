@@ -1124,6 +1124,9 @@ pub fn run() {
             commands::system::get_notification_diagnostics,
             // Output-directory integrity scan (#537 chunk B).
             commands::system::run_integrity_scan,
+            // macOS self-relocation into /Applications/MeedyaSuite (#1057)
+            commands::app_relocation::check_app_relocation,
+            commands::app_relocation::relocate_app_bundle,
             // Dependency management commands (Python, GAMDL, tools)
             commands::dependencies::check_python_status,
             commands::dependencies::install_python,
@@ -1449,6 +1452,33 @@ pub fn run() {
                         migration_summary.join("; ")
                     ),
                 );
+            }
+
+            // macOS self-relocation eligibility check (#1057). Deliberately
+            // placed immediately AFTER the bundle-identifier migration
+            // above (both read `current_exe()`-adjacent OS state early and
+            // cheaply) and BEFORE anything else in this closure. This is a
+            // CHEAP, PURE-PATH computation only -- no filesystem writes, no
+            // OS prompts, no UI. The result is stored as managed state for
+            // the frontend to query via the `check_app_relocation` IPC
+            // command; the actual move only happens later if the user
+            // explicitly accepts the offer. See `services::app_relocation`
+            // for the full design (why DMG-side fixes were rejected, the
+            // eligibility rules, and the failure-never-blocks guarantee).
+            let relocation_state = services::app_relocation::compute_startup_state();
+            if relocation_state.eligible {
+                log::info!(
+                    "MeedyaDL is eligible to relocate itself into /Applications/MeedyaSuite \
+                     (destination: {:?}) -- offering on first UI paint.",
+                    relocation_state.destination
+                );
+            }
+            {
+                // Local import (mirrors other `app.manage(...)` call sites
+                // in this file, e.g. `TrayState` in `setup_system_tray`) --
+                // `Manager::manage()` must be in scope to call it on `&mut App`.
+                use tauri::Manager;
+                app.manage(relocation_state);
             }
 
             // Set up the system tray icon with context menu and event handlers.
