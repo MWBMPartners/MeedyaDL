@@ -48,11 +48,21 @@ use crate::context_err;
 /// - **account** = the `key` parameter passed to each command
 ///
 /// This means credentials appear in Keychain Access (macOS) as:
-///   Service: "io.github.meedyadl"
+///   Service: "com.meedyasuite.meedyadl"
 ///   Account: "`wrapper_url`" (or whatever key was used)
 ///
+/// **Not** derived from `tauri.conf.json`'s `identifier` field at compile
+/// time -- this has always been a manually-maintained value that
+/// historically just happened to equal the bundle identifier. Points at
+/// `crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER` (shared with
+/// `services::apple_music_api::SERVICE_NAME`) rather than duplicating the
+/// literal. Entries written under the OLD value
+/// (`crate::utils::platform::OLD_BUNDLE_IDENTIFIER`) before the
+/// 2026-07-24 rename are migrated forward by `services::bundle_migration`
+/// on first launch -- see that module for the full account list.
+///
 /// See: <https://docs.rs/keyring/latest/keyring/struct.Entry.html>
-const SERVICE_NAME: &str = "io.github.meedyadl";
+const SERVICE_NAME: &str = crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER;
 
 /// Keychain accounts the universal `store_credential` / `get_credential` /
 /// `delete_credential` IPCs are allowed to touch.

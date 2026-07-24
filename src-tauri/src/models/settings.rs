@@ -9,9 +9,9 @@
 // ## Persistence
 //
 // The settings file is stored at:
-//   - macOS:   ~/Library/Application Support/io.github.meedyadl/settings.json
-//   - Windows: %APPDATA%/io.github.meedyadl/settings.json
-//   - Linux:   ~/.config/io.github.meedyadl/settings.json
+//   - macOS:   ~/Library/Application Support/com.meedyasuite.meedyadl/settings.json
+//   - Windows: %APPDATA%/com.meedyasuite.meedyadl/settings.json
+//   - Linux:   ~/.local/share/com.meedyasuite.meedyadl/settings.json
 //
 // The `commands/settings.rs` Tauri commands handle loading and saving this
 // file. On first launch (or when the file is missing/corrupt), `Default::default()`

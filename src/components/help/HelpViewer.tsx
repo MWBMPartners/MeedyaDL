@@ -787,9 +787,9 @@ MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
 
 ### Application Won't Start
 - Delete the settings file from the app data directory and restart
-- On macOS: ~/Library/Application Support/io.github.meedyadl/
-- On Windows: %APPDATA%/io.github.meedyadl/
-- On Linux: ~/.config/io.github.meedyadl/`,
+- On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/
+- On Windows: %APPDATA%/com.meedyasuite.meedyadl/
+- On Linux: ~/.local/share/com.meedyasuite.meedyadl/`,
   },
   {
     id: 'disclaimer',

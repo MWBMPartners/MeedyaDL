@@ -92,11 +92,11 @@ pub mod utils;
 fn setup_tracing(sentry_enabled: bool) -> tracing_appender::non_blocking::WorkerGuard {
     use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
-    // Determine the log directory. Use the platform app data dir if available,
-    // otherwise fall back to the OS temp dir.
-    let log_dir = dirs::data_dir()
-        .map(|d| d.join("io.github.meedyadl").join("logs"))
-        .unwrap_or_else(|| std::env::temp_dir().join("MeedyaDL").join("logs"));
+    // Determine the log directory. `resolve_early_app_data_root()` is
+    // infallible (falls back to the OS temp dir internally) and also
+    // handles the bundle-identifier-rename transition window -- see its
+    // doc comment in `utils/platform.rs`.
+    let log_dir = utils::platform::resolve_early_app_data_root().join("logs");
 
     // Ensure the log directory exists
     let _ = std::fs::create_dir_all(&log_dir);
@@ -306,10 +306,14 @@ fn setup_panic_handler() {
             "context": {}
         });
 
-        // Write the crash report to disk
-        let crash_dir = dirs::data_dir()
-            .map(|d| d.join("io.github.meedyadl").join("crashes"))
-            .unwrap_or_else(|| std::env::temp_dir().join("MeedyaDL").join("crashes"));
+        // Write the crash report to disk. `resolve_early_app_data_root()`
+        // is infallible and transition-aware -- see its doc comment in
+        // `utils/platform.rs`. The panic hook is installed before Tauri
+        // init and can also fire much later, so this stays correct across
+        // the whole app lifetime (post-migration it always resolves to the
+        // current identifier's directory, since that will have a
+        // `settings.json` by then).
+        let crash_dir = utils::platform::resolve_early_app_data_root().join("crashes");
 
         if std::fs::create_dir_all(&crash_dir).is_ok() {
             let filename = format!("crash-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));

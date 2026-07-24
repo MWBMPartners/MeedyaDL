@@ -102,7 +102,7 @@ export function getPlatformInfo(): Promise<PlatformInfo> {
  * Returns the absolute path to the application's data directory.
  *
  * Rust handler: `get_app_data_dir()` in `src-tauri/src/commands/system.rs`
- * Returns: string (e.g., "~/Library/Application Support/io.github.meedyadl")
+ * Returns: string (e.g., "~/Library/Application Support/com.meedyasuite.meedyadl")
  *
  * The data directory stores settings.json, logs, and cached dependency binaries.
  *

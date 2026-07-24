@@ -319,9 +319,9 @@ The application crashes immediately on startup, and macOS shows a dialog asking 
 
   | Platform | Path |
   | --- | --- |
-  | macOS | `~/Library/Application Support/io.github.meedyadl/queue.json` |
-  | Windows | `%APPDATA%/io.github.meedyadl/queue.json` |
-  | Linux | `~/.local/share/io.github.meedyadl/queue.json` |
+  | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/queue.json` |
+  | Windows | `%APPDATA%/com.meedyasuite.meedyadl/queue.json` |
+  | Linux | `~/.local/share/com.meedyasuite.meedyadl/queue.json` |
 
   Deleting this file clears any queued or failed downloads from the previous session but does not affect your settings, cookies, or already-downloaded files.
 
@@ -358,9 +358,9 @@ Changes to settings are not persisted between application restarts.
 
   | Platform | Settings Directory |
   | --- | --- |
-  | macOS | `~/Library/Application Support/io.github.meedyadl/` |
-  | Windows | `%APPDATA%/io.github.meedyadl/` |
-  | Linux | `~/.local/share/io.github.meedyadl/` |
+  | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/` |
+  | Windows | `%APPDATA%/com.meedyasuite.meedyadl/` |
+  | Linux | `~/.local/share/com.meedyasuite.meedyadl/` |
 
   If fixing permissions does not help, try deleting the `settings.json` file in that directory to reset all settings to their defaults. MeedyaDL will recreate the file on next launch.
 
@@ -469,9 +469,9 @@ The default `logs/` directory:
 
 | Platform | Log File Location |
 | --- | --- |
-| macOS | `~/Library/Application Support/io.github.meedyadl/logs/` |
-| Windows | `%APPDATA%/io.github.meedyadl/logs/` |
-| Linux | `~/.local/share/io.github.meedyadl/logs/` |
+| macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/logs/` |
+| Windows | `%APPDATA%/com.meedyasuite.meedyadl/logs/` |
+| Linux | `~/.local/share/com.meedyasuite.meedyadl/logs/` |
 
 You can override the location of `activity-*.log` files via **Settings > Advanced > Diagnostics > On-disk activity log location** — useful for pointing logs at an external drive. The `meedyadl.*` tracing logs and `session-*` files always live in the default directory.
 
@@ -543,9 +543,9 @@ When MeedyaDL encounters a crash (Rust panic) or an unhandled frontend error, it
 
 | Platform | Crash Report Directory |
 | --- | --- |
-| macOS | `~/Library/Application Support/io.github.meedyadl/crashes/` |
-| Windows | `%APPDATA%/io.github.meedyadl/crashes/` |
-| Linux | `~/.local/share/io.github.meedyadl/crashes/` |
+| macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/crashes/` |
+| Windows | `%APPDATA%/com.meedyasuite.meedyadl/crashes/` |
+| Linux | `~/.local/share/com.meedyasuite.meedyadl/crashes/` |
 
 Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically cleaned up after 30 days.
 

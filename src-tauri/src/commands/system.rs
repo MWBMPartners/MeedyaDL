@@ -111,9 +111,9 @@ pub fn get_platform_info() -> PlatformInfo {
 ///
 /// This is the self-contained directory where Python, GAMDL, tools,
 /// and settings are stored. The path varies by platform:
-/// - macOS: `~/Library/Application Support/io.github.meedyadl/`
-/// - Windows: `%APPDATA%/io.github.meedyadl/`
-/// - Linux: `~/.local/share/io.github.meedyadl/`
+/// - macOS: `~/Library/Application Support/com.meedyasuite.meedyadl/`
+/// - Windows: `%APPDATA%/com.meedyasuite.meedyadl/`
+/// - Linux: `~/.local/share/com.meedyasuite.meedyadl/`
 ///
 /// The frontend uses this path for:
 /// - Displaying the data directory location in the settings page
