@@ -631,6 +631,18 @@ pub mod legacy_folder_merge;
 /// Diagnostics; quarantine action lands as a follow-up.
 pub mod integrity_scan;
 
+/// First-launch migration from the pre-2026-07-24 bundle identifier
+/// (`io.github.meedyadl` -> `com.meedyasuite.meedyadl`).
+///
+/// Copies (never moves) settings/queue/history/logs/crashes/python/tools
+/// from the old OS app-data directory into the new one, and migrates the
+/// handful of OS-keychain entries (MusicKit private key, web player
+/// developer token, dev-access sentinel) forward. Idempotent via a marker
+/// file; every step is individually best-effort so a failure never blocks
+/// startup. Called once from `lib.rs::run()`'s `.setup()` hook, before
+/// anything else touches the new app-data directory.
+pub mod bundle_migration;
+
 /// Only compiled in test mode (`cargo test`).
 #[cfg(test)]
 mod integration_tests;
