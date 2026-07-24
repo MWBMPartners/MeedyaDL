@@ -113,6 +113,43 @@ export function getAppDataDir(): Promise<string> {
 }
 
 /**
+ * Result of the macOS self-relocation eligibility check (#1057).
+ * Mirrors the Rust struct `services::app_relocation::AppRelocationState`.
+ */
+export interface RelocationOffer {
+  /** Whether MeedyaDL should offer to relocate itself this launch. Always `false` on non-macOS builds. */
+  eligible: boolean;
+  /** Proposed destination path (e.g. `/Applications/MeedyaSuite/MeedyaDL.app`). Present iff `eligible`. */
+  destination: string | null;
+}
+
+/**
+ * Returns whether MeedyaDL should offer to move itself into
+ * `/Applications/MeedyaSuite`, and the proposed destination if so.
+ *
+ * Rust handler: `check_app_relocation()` in `src-tauri/src/commands/app_relocation.rs`
+ * Reads state computed once at startup — cheap, synchronous, no I/O.
+ */
+export function checkAppRelocation(): Promise<RelocationOffer> {
+  return invoke<RelocationOffer>('check_app_relocation');
+}
+
+/**
+ * Performs the actual relocation into `/Applications/MeedyaSuite`.
+ *
+ * Rust handler: `relocate_app_bundle()` in `src-tauri/src/commands/app_relocation.rs`
+ *
+ * On success, the backend relaunches MeedyaDL from its new location and
+ * exits the current process — from the frontend's perspective this call
+ * effectively never resolves in that case. On failure it rejects with a
+ * human-readable reason and MeedyaDL keeps running from its original
+ * location.
+ */
+export function relocateAppBundle(): Promise<void> {
+  return invoke<void>('relocate_app_bundle');
+}
+
+/**
  * Platform configuration entry from engines.toml.
  */
 export interface FrontendPlatformConfig {

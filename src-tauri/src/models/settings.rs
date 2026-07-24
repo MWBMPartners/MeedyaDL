@@ -1590,6 +1590,22 @@ pub struct AppSettings {
     #[serde(default)]
     pub spotify_consent_acknowledged: bool,
 
+    /// macOS self-relocation offer declined (#1057). When `true`, the
+    /// startup prompt offering to move MeedyaDL into
+    /// `/Applications/MeedyaSuite` is not shown again. Set by the
+    /// frontend's "Not now" button on `AppRelocationModal`; there is
+    /// no dedicated UI toggle to clear it, matching
+    /// `spotify_consent_acknowledged`'s one-way pattern above -- a
+    /// user who changes their mind can still trigger the move some
+    /// other way in a future release, or edit `settings.json` by hand.
+    ///
+    /// `#[serde(default)]` keeps this backwards-compatible with every
+    /// `settings.json` written before #1057 (missing field = `false`,
+    /// i.e. the offer is still shown once). No settings-schema
+    /// migration bump is needed for a serde-defaulted bool.
+    #[serde(default)]
+    pub relocation_declined: bool,
+
     // ================================================================
     // Application State
     // ================================================================
@@ -2118,6 +2134,11 @@ impl Default for AppSettings {
             // the IPC `acknowledge_spotify_consent` flips it to true after
             // the user accepts the account-ban-risk modal.
             spotify_consent_acknowledged: false,
+            // #1057: macOS self-relocation offer not declined by default —
+            // shown once on a fresh install (or every install on a
+            // pre-#1057 settings.json, which defaults this field to false
+            // via serde).
+            relocation_declined: false,
 
             // --- Application state ---
             // No previous version on first run; populated by load_settings().

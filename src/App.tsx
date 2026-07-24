@@ -87,7 +87,7 @@ import { useTheme } from './hooks/useTheme';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useKonamiCode } from './hooks/useKonamiCode';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
-import { activateDevAccess } from './lib/tauri-commands';
+import { activateDevAccess, checkAppRelocation } from './lib/tauri-commands';
 
 /* ─── Zustand Stores ─────────────────────────────────────────────────── */
 /*
@@ -169,6 +169,12 @@ import { Modal } from './components/common/Modal';
 import PrereleaseNoticeModal from './components/common/PrereleaseNoticeModal';
 import CrashReportOptInModal from './components/common/CrashReportOptInModal';
 import SpotifyConsentModal from './components/common/SpotifyConsentModal';
+/**
+ * AppRelocationModal: macOS "tidy into /Applications/MeedyaSuite" offer
+ * (#1057). Shown at most once, gated on `relocation_declined`.
+ * @see ./components/common/AppRelocationModal.tsx
+ */
+import AppRelocationModal from './components/common/AppRelocationModal';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -531,6 +537,35 @@ function App() {
         }
       } catch {
         /* Non-fatal: version check failure shouldn't block app startup */
+      }
+
+      /*
+       * Step 6: macOS self-relocation offer (#1057).
+       *
+       * Runs AFTER settings have loaded (Step 1 above), so
+       * `relocation_declined` reflects the user's persisted choice. On
+       * macOS, if MeedyaDL is running from a bare /Applications install
+       * (not yet consolidated into /Applications/MeedyaSuite) and the
+       * user hasn't already said "Not now", offer to move it in.
+       * Suppressed while the setup wizard or another first-launch modal
+       * is about to show, to avoid stacking overlays on top of each
+       * other. Failures are non-fatal — the offer is entirely optional.
+       */
+      try {
+        const offer = await checkAppRelocation();
+        const uiState = useUiStore.getState();
+        if (
+          offer.eligible &&
+          offer.destination &&
+          !settingsState.settings.relocation_declined &&
+          !uiState.showSetupWizard &&
+          !uiState.showPrereleaseNotice &&
+          !uiState.showCrashReportPrompt
+        ) {
+          uiState.setShowAppRelocationPrompt(true, offer.destination);
+        }
+      } catch {
+        /* Non-fatal: relocation offer is optional and macOS-only */
       }
 
       /*
@@ -1106,6 +1141,8 @@ function App() {
           batch containing a Spotify URL and
           spotify_consent_acknowledged is still false. */}
       <SpotifyConsentModal />
+      {/* macOS "tidy into /Applications/MeedyaSuite" offer (#1057) */}
+      <AppRelocationModal />
       {/* Developer access passphrase prompt (triggered by Konami code) */}
       <Modal
         open={showDevPrompt}
