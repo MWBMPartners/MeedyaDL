@@ -4,6 +4,164 @@ All notable changes to **MeedyaDL** are documented in this file.
 
 This changelog is automatically generated from [conventional commits](https://www.conventionalcommits.org/).
 
+## [1.10.1] - 2026-06-19
+
+### 🐛 Bug Fixes
+
+- Bundled audit hardening + #935 syllable lyrics + #937 release pipeline + repo hygiene (closes #935, #937, #938-#946) (#947)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Add PR security heuristics workflow + cross-source audit checks (#905)
+
+## Summary
+
+  Adapts the WebMS-Intra `pr-security.yml` approach to MeedyaDL's **Rust +
+  TypeScript + Tauri** stack. All checks are **non-blocking advisory** —
+  the merge gate stays with `ci.yml` (`cargo clippy -D warnings`, `cargo
+  test`, `cargo-deny`, `tsc`, `eslint`, CodeQL). This adds the *heuristic*
+  layer those gates don't cover and posts a **single upserted PR
+  comment**.
+
+  This PR is the first real-world exercise of the new workflow — it runs
+  `pr-security.yml` on itself.
+
+  ## What's added
+
+  | File | Purpose |
+  | --- | --- |
+  | `.github/workflows/pr-security.yml` | 8 advisory checks on PRs to
+  `main`/`release-candidate`/`beta`/`alpha`, one upserted comment |
+  | `tools/audit-checks/check_ipc_commands.py` | Every `#[tauri::command]`
+  is registered in `lib.rs` `generate_handler[]` **and** every frontend
+  `invoke('x')` targets a registered command |
+  | `tools/audit-checks/check_codec_registry.py` | Every `codecs.toml`
+  meta `resolves_to` target is a real codec section **and** every audio
+  `services.gamdl` flag is a `SongCodec` variant |
+  | `tools/audit-checks/README.md` | Local-run docs + how to add a check |
+  | `.github/pull_request_template.md` | Manual security-review checklist
+  |
+  | `.claude/CLAUDE.md` | One convention bullet documenting the above |
+
+  ## The 8 workflow checks
+
+  1. **gitleaks** secrets scan (redacted) · 2. **Rust `sh -c`**
+  shell-interpolation · 3. **`unsafe`** Rust · 4. **frontend sinks**
+  (`eval`/`dangerouslySetInnerHTML`/`innerHTML=`) · 5. **hardcoded paths**
+  · 6. **unpinned Actions** (non-SHA `uses:`) · 7. **sensitive/proprietary
+  path** touches (`assets/brand/` is proprietary) · 8. **cross-source
+  consistency** scripts.
+
+  Checks 2–7 scan only PR-changed files; check 8 validates whole-repo
+  state.
+
+  ## Adaptation notes
+
+  This is **not** a copy — WebMS-Intra is PHP. Dropped the inapplicable
+  PHP checks (PHP lint, mysqli SQL-injection, CSRF tokens, Psalm) and
+  re-targeted the heuristic layer onto MeedyaDL's own documented
+  invariants (the "no `sh -c`" subprocess rule, SHA-pinned Actions,
+  proprietary brand assets, the IPC contract). Added an **unpinned-Action
+  detector** WebMS lacks, and **upserts** one PR comment instead of
+  posting a fresh one per push.
+
+  ## Verification
+
+  - Both consistency scripts report **zero findings** on a clean tree;
+  negative-tested (injected a bad `invoke()`, a dangling `resolves_to`, a
+  bogus `gamdl=` flag → all caught, exit 1 under `--strict`).
+  - Every heuristic regex exercised against deliberately-bad inputs; the
+  unpinned-Action check finds **0 false positives** against the real
+  (fully SHA-pinned) repo.
+  - `actionlint` (with bundled shellcheck on the `run:` scripts) passes
+  clean.
+
+
+## [1.10.0] - 2026-05-22
+
+### ✨ Features
+
+- **(deps)** Add rclone as optional bundled tool + multi-endpoint updater fallback (prep for #858) (#863)
+
+## Summary
+
+  Two-commit infrastructure-prep PR. No user-visible UI changes; no
+  feature wiring. Pure scaffolding for two upcoming workstreams: the
+  planned MWBMPartners → MeedyaSuite org consolidation, and the
+  cloud-destinations epic (#858 → M11 #859).
+
+  ## What's in this PR
+
+  ### Commit 1 — `chore(updater)+docs`
+
+  - **`src-tauri/tauri.conf.json`**: Tauri updater now lists TWO
+  endpoints. The MWBMPartners URL stays as primary (works today, every
+  existing v1.x install keeps updating normally). The MeedyaSuite URL is
+  added as a fallback that becomes active after the eventual repo
+  transfer. Tauri tries each in order on 404 / network failure, so
+  behaviour is unchanged today and **future-proofed** for whenever the
+  migration day arrives. Zero risk of breaking existing installs.
+
+  - **`.claude/memory/project_meedyasuite_org_migration.md`** (new) +
+  **`.claude/memory/MEMORY.md`** index entry: captures the deferred
+  consolidation plan that came out of recent strategic discussion —
+  secrets inventory (10 items), recommended placement tiers on MeedyaSuite
+  (org-all / org-selected / repo-only), transfer order, the "GitHub does
+  NOT support nested orgs" clarification, and the timing rationale (defer
+  until after v1.10.0-stable). Loaded into every contributor's Claude
+  session via the shared-memory sync script.
+
+  ### Commit 2 — `feat(deps): add rclone as optional external tool`
+
+  Bundles rclone via the existing three-tier resolution chain (system PATH
+  → primary upstream → mirror fallback), same pattern as FFmpeg /
+  mp4decrypt / N_m3u8DL-RE / MP4Box / MediaInfo.
+
+  - **`src-tauri/tool-versions.toml`**: new `[rclone]` section pinning
+  minimum 1.60.0. `binary_name = "rclone"`, `version_flag = "version"`
+  (rclone predates GNU's `--version` convention).
+  - **`src-tauri/src/services/dependency_manager.rs`**: new `ToolInfo`
+  entry with `required: false`, new `get_rclone_url(os, arch)` resolver
+  using upstream's platform suffix convention (`osx-arm64`, `linux-amd64`,
+  `linux-arm` for ARMv7, etc.) via the existing
+  `resolve_github_release_asset()` helper. New dispatch arm in
+  `get_tool_download_url()`. Mirror fallback works automatically through
+  the shared `download_tool_with_fallback()` path.
+
+
+### 🐛 Bug Fixes
+
+- **(release-please)** Revert manifest 1.10.0 → 1.9.4 (corrects PR #864's 1.11.0 proposal) (#866)
+
+## Summary
+
+  One-line revert of `.release-please-manifest.json` from `1.10.0` back to
+  `1.9.4`. Fixes the misconfiguration introduced by PR #865 that's causing
+  release-please's PR #864 to propose `release 1.11.0` instead of the
+  intended `release 1.10.0`.
+
+  ## What went wrong
+
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.9.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.0 [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
 ## [1.9.4] - 2026-05-20
 
 ### 🐛 Bug Fixes
