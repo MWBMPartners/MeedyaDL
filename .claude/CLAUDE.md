@@ -222,6 +222,9 @@ Long-lived channel branches (force-push-protected): `nightly`, `weekly`, `monthl
 - `download_and_install_app_update` in `commands/updates.rs` refuses tags whose channel is `< user_channel`. Even a tampered manifest or stale deep link can't downgrade stability.
 - Channel-bump UI in `GeneralTab.tsx` gates Nightly/Weekly/Monthly/Alpha behind `dev_access_enabled` (Konami sentinel). `ChannelSwitchWarning.tsx` prompts on switch to a pre-release channel.
 - Legacy `check_pre_releases: bool` is implicitly enabled whenever `update_channel != Stable`.
+- **`ci.yml` gates alpha/beta/rc PRs, not just main** (#1043): before this, PRs targeting the long-lived channel branches — where all active development actually lands — only ran actionlint/static-security/pr-security, with zero Backend/Frontend/clippy/test gating. `pull_request.branches` now includes `alpha`, `beta`, `release-candidate` alongside `main`.
+- **ELI5 release-notes self-heal gate** (#1046): prerelease GitHub Release bodies that regress to raw commit-speak (e.g. from a squash-merge losing the `Release-Note:` trailer) are now detected and auto-repaired rather than shipping silently broken; see "MANDATORY: user-facing (ELI5) release notes" above for the full mechanism.
+- **alpha↔main realignment (EPIC #1040, 2026-07-24)**: `alpha` was reconciled with `main` at the content level — see `.claude/memory/project_alpha_main_drift.md` and `.github/HANDOFF.md` for the live phase tracker. Audit trail in `.github/audits/alpha-main-drift-content-analysis-2026-07-24.md` and `.github/audits/alpha-main-realignment-runbook-2026-07-24.md`. Ancestry closure (`-s ours` merge of main) and promotion to main are gated on maintainer go-ahead — do not run `realign-alpha` or a naive `git merge main` in the meantime.
 
 ### Conserving GitHub Actions Minutes
 
