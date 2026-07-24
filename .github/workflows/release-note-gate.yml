@@ -8,7 +8,7 @@
 # -- this workflow only reads PR metadata and (for the release-please job)
 # checks a file's presence/shape, so it stays fast on every PR.
 #
-# Two independent jobs:
+# Three independent jobs:
 #
 #   1. pr-trailer
 #      Every user-facing PR (title starts with `feat`/`fix`/`perf`) must
@@ -28,11 +28,20 @@
 #      draft-notes.sh` bootstraps that file from any Release-Note:
 #      trailers already on main.
 #
-# Both jobs use `env:` to pass untrusted PR title/body strings into `run:`
-# blocks -- never direct `${{ }}` interpolation in a shell command, which
-# would let a crafted PR title/body break out of the script (the same
-# injection-hardening pattern used by version-bump.yml and release.yml's
-# workflow_dispatch inputs).
+#   3. push-trailer-advisory (#1046)
+#      job 1 only fires on `pull_request` -- but CLAUDE.md's documented
+#      convention is "push fix:/feat: commits directly to main", which
+#      never opens a PR and so never sees job 1. This job scans commits
+#      pushed directly to main/alpha/beta/release-candidate and warns
+#      (advisory only -- a push can't be un-pushed) on any feat/fix/perf
+#      commit missing a Release-Note: trailer, while the author is still
+#      likely to be looking at the Actions tab.
+#
+# All three jobs use `env:` to pass untrusted PR/commit title and body
+# strings into `run:` blocks -- never direct `${{ }}` interpolation in a
+# shell command, which would let a crafted title/body break out of the
+# script (the same injection-hardening pattern used by version-bump.yml
+# and release.yml's workflow_dispatch inputs).
 
 name: Release Note Gate
 
@@ -40,14 +49,18 @@ on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
     branches: [main, alpha, beta, release-candidate]
+  push:
+    branches: [main, alpha, beta, release-candidate]
 
 permissions:
   contents: read
 
 # Cancel a stale run when the PR is updated again -- these are cheap
 # metadata checks, no point letting an old run finish after a new push.
+# Push events have no PR number, so fall back to the commit SHA (still
+# unique per push, just doesn't dedupe against other events).
 concurrency:
-  group: release-note-gate-${{ github.event.pull_request.number }}
+  group: release-note-gate-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -132,3 +145,69 @@ jobs:
           fi
 
           echo "${NOTES_FILE} is present and populated."
+
+  # ------------------------------------------------------------------
+  # Job 3: advisory-only trailer check for commits pushed directly to a
+  # channel branch (#1046) -- closes the gap where job 1 (pull_request-
+  # only) never sees this repo's documented "push fix:/feat: commits
+  # directly to main" workflow.
+  # ------------------------------------------------------------------
+  push-trailer-advisory:
+    name: Release-Note trailer present (direct push, advisory)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 so `git rev-list before..after` can walk the
+      # actual pushed range -- a shallow checkout would only have the
+      # tip commit and every earlier SHA would be "missing".
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan pushed commits for missing Release-Note trailers
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A branch's first-ever push sets BEFORE to the all-zeroes SHA;
+          # a force-push / history rewrite can also leave BEFORE
+          # unreachable from this checkout. Neither has a meaningful
+          # "newly pushed commits" range, so skip rather than false-
+          # positive on unrelated pre-existing history.
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+            echo "No usable commit range for this push (new branch or rewritten history) -- skipping."
+            exit 0
+          fi
+
+          MISSING=0
+          for SHA in $(git rev-list "${BEFORE_SHA}..${AFTER_SHA}"); do
+            SUBJECT=$(git log -1 --format='%s' "$SHA")
+            # Same feat/fix/perf gate as job 1 (pr-trailer).
+            if ! printf '%s' "$SUBJECT" | grep -qE '^(feat|fix|perf)(\(|!|:)'; then
+              continue
+            fi
+            BODY=$(git log -1 --format='%b' "$SHA")
+            if ! printf '%s' "$BODY" | grep -qE '^Release-Note: \S'; then
+              echo "::warning::Commit ${SHA:0:9} ('${SUBJECT}') is feat/fix/perf but has no 'Release-Note:' trailer. Direct-pushed commits should carry one too, same as PR bodies (see .claude/CLAUDE.md Conventions and .github/release-notes/STYLE_GUIDE.md). It can still be added via 'git commit --amend' before anything else builds on top of this commit."
+              MISSING=$((MISSING + 1))
+            fi
+          done
+
+          if [ "$MISSING" -gt 0 ]; then
+            {
+              echo "### Release-Note trailer check (advisory)"
+              echo
+              echo "${MISSING} direct-pushed \`feat\`/\`fix\`/\`perf\` commit(s) in this push have no \`Release-Note:\` trailer. See the warnings above for which commits."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All feat/fix/perf commits in this push carry a Release-Note trailer (or there were none)."
+          fi
+
+          # Advisory only -- a push already happened; never fail the job.
+          exit 0
