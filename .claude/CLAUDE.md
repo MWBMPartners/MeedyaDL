@@ -309,7 +309,7 @@ cargo tauri build    # Build release binary
 ## Important Notes
 
 - Rust env: `export PATH="$HOME/.cargo/bin:$PATH"` (not `source "$HOME/.cargo/env"` — fails in zsh sandbox)
-- Icons generated from `assets/icons/app-icon.svg` via `scripts/generate-icons.mjs` (requires `sharp` — install temporarily with `npm i sharp`)
+- **Two separate, non-overlapping icon generators** — don't confuse them: (1) `scripts/generate-icons.mjs` renders `assets/brand/icon.svg` (the animated multi-theme logo — light/dark/3x colour-blind variants) via puppeteer + PIL + macOS's `iconutil`; it is macOS-only and writes ONLY to `assets/brand/` (`icon[-mode].png/.ico/.icns`, liquid-glass variants) — it does NOT touch `src-tauri/icons/` and does NOT produce the bundled app icons. (2) `scripts/generate-app-icons.mjs` (`npm run icons:app`, issue #1058) assembles the actual bundled app icons in `src-tauri/icons/` (PNGs + hand-assembled `icon.icns`/`icon.ico` + tray icons) from three sources — `src-tauri/icons/icon.png` (1024px master, downscaled in linear light for sizes >=128px) plus two hand-authored small-size variants, `assets/brand/icon-tile-small.svg` (16/32px) and `assets/brand/icon-tile-medium.svg` (48/64px), needed because a naive downscale of the master turns its equaliser slots to grey mush below ~64px. Pure JS (`sharp`, already a devDependency), runs on Linux/CI, no puppeteer/iconutil. `scripts/icon-contact-sheet.mjs --verify` is the regression test.
 - All settings stored as JSON in platform app data directory
 - GAMDL config.ini is synced from GUI settings
 - CSP in `tauri.conf.json` must include `connect-src ipc: http://ipc.localhost` for IPC
