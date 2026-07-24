@@ -83,8 +83,11 @@ export function PythonStep() {
   const detectSystemPythons = useDependencyStore((s) => s.detectSystemPythons);
   /** Downloads and installs the portable Python runtime */
   const installPython = useDependencyStore((s) => s.installPython);
-  /** Provisions a venv from a chosen system interpreter */
-  const useSystemPython = useDependencyStore((s) => s.useSystemPython);
+  /** Provisions a venv from a chosen system interpreter.
+   *  Bound to a non-`use`-prefixed local name so eslint's
+   *  react-hooks/rules-of-hooks doesn't mistake the store action
+   *  (not a React hook) for one when called in a plain handler. */
+  const applySystemPython = useDependencyStore((s) => s.useSystemPython);
   /** Error message from the most recent operation */
   const error = useDependencyStore((s) => s.error);
 
@@ -125,7 +128,7 @@ export function PythonStep() {
   /** Provision a venv from a specific system interpreter. */
   const handleUseSystem = async (interpreterPath: string) => {
     try {
-      await useSystemPython(interpreterPath);
+      await applySystemPython(interpreterPath);
     } catch (e) {
       setStepError(String(e));
     }
