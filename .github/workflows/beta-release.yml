@@ -119,9 +119,17 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      - name: Regenerate Cargo.lock
+      - name: Sync Cargo.lock to bumped version (#995)
+        # See alpha-release.yml's matching step for the full rationale:
+        # `cargo generate-lockfile` re-resolves ALL dependencies (including
+        # the unpinned `meedya-fingerprint`/`meedya-lyrics` git deps) to
+        # newest-compatible, shipping untested crate versions on the tag.
+        # `cargo update --package meedyadl` touches only the local
+        # `meedyadl` package's own lockfile entry, offline-safe.
         working-directory: src-tauri
-        run: cargo generate-lockfile
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       - name: Commit version bump
         run: |
