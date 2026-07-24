@@ -1678,8 +1678,11 @@ jobs:
           # present (because the guide check comes BEFORE the cleanup
           # write in the legacy flow). Set a flag the post-cleanup
           # branch reads.
+          # Anchored for the same reason as the verify step below: prose
+          # that merely mentions the placeholder must not trigger a
+          # spurious cleanup-write.
           if gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
-            | grep -q "Release in progress"; then
+            | grep -qE "^Release in progress"; then
             NEEDS_PLACEHOLDER_CLEANUP="1"
           else
             NEEDS_PLACEHOLDER_CLEANUP="0"
@@ -1794,7 +1797,15 @@ jobs:
             echo "::warning::Could not fetch release body for $TAG — skipping placeholder check"
             exit 0
           fi
-          if echo "$BODY" | grep -q "Release in progress"; then
+          # Anchored to line-start to MATCH the strip regex above
+          # (`re.sub(r'(?m)^Release in progress…')`). An unanchored grep
+          # false-positives on legitimate notes content that merely
+          # *mentions* the placeholder — e.g. a changelog entry for the
+          # #1046 self-heal work — which failed the whole release job and
+          # left the draft unpublished (v1.12.0-alpha.36). The real
+          # placeholder is always its own line, so anchoring is both
+          # correct and sufficient.
+          if echo "$BODY" | grep -qE "^Release in progress"; then
             echo "::error::Release body for $TAG still contains the 'Release in progress' placeholder."
             echo "::error::This is the #857 / PR #741 regression — the strip-and-replace logic in finalize-release is not catching every race."
             echo "::error::Recover with: gh release edit $TAG --repo $REPO --notes-file /path/to/proper-notes.md"
