@@ -33,6 +33,7 @@ cargo clippy -- -D warnings (as run by CI) failed on a newer clippy
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🧹 Maintenance
 
