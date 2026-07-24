@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2024-2026 MeedyaSuite. All rights reserved. MeedyaDL brand assets are proprietary. -->
+<!--
+  MeedyaDL App Icon — small-size tile (16px / 32px).
+  STATIC, hand-authored for legibility at tiny raster sizes (issue #1058).
+
+  The 1024px master (src-tauri/icons/icon.png) is a naive downscale target
+  for icon.icns / icon.ico at 128px+: its three equaliser slots are ~1.5px
+  tall at 32px and ~0.8px at 16px — sub-2px alternating stripes cannot
+  survive resampling and average to grey mush. This variant is NOT a
+  downscale of the master; it is redrawn on a coarse 32-unit grid (each
+  grid unit = 1024/32 = 32 canvas px = exactly 1 output px at a 32x32
+  render, 0.5 output px at 16x16) so every edge lands on a pixel boundary
+  when rasterised directly at the target size (see
+  scripts/generate-app-icons.mjs, which renders this SVG straight to
+  16x16 / 32x32 rather than downscaling a larger raster).
+
+  Differences from the master, all deliberate (see issue #1058 for the
+  measured geometry this was derived from):
+    - Background gradient flattened to a narrow tonal range so no corner
+      reads as a flat mid-tone at tiny sizes.
+    - Triangle top-corner rounding reduced (small radii don't survive
+      downsampling either).
+    - Three equaliser slots collapsed to ONE slot, sized so it still
+      shows as legible dark rows at 32px (2px) and 16px (1px — see
+      generator comments for how to swap in the slot-free 16px variant
+      if the owner prefers it after reviewing the contact sheet).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="mdl-tile-small-title mdl-tile-small-desc">
+  <title id="mdl-tile-small-title">MeedyaDL App Icon (small)</title>
+  <desc id="mdl-tile-small-desc">Downward play triangle with a single equalizer slot on a save bar, redrawn for 16px/32px legibility.</desc>
+  <defs>
+    <linearGradient id="tileGradientSmall" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A424A" />
+      <stop offset="1" stop-color="#2A3038" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed tile background. No rounding — macOS 26 (Tahoe) masks the
+       square automatically, so a squircle/margin here would double-mask. -->
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#tileGradientSmall)" />
+
+  <!-- Triangle with a single cut-out slot (evenodd hole revealing the tile
+       gradient beneath), grid-snapped:
+         top edge   y=96  (3/32),  x=160..864 (22/32 wide, 68.75%)
+         top corner radius ~20 (≈2%)
+         apex       (512, 736)
+         slot       x=352..672, y=320..384 (320x64 = 31.25% x 6.25%),
+                    vertical centre y=352 ≈ 34.4% of the canvas height. -->
+  <path
+    fill-rule="evenodd"
+    fill="#F9F8F4"
+    d="M180,96 L844,96 A20,20 0 0 1 864,116 L512,736 L160,116 A20,20 0 0 1 180,96 Z
+       M352,320 L672,320 L672,384 L352,384 Z"
+  />
+
+  <!-- Pill (fully-rounded, solid — not a cut-out).
+       Triangle-to-pill gap = 128 (12.5%). Height = 128 (12.5%).
+       Width snapped to 17/32 = 544 (≈53.1%), centred, rounded ends. -->
+  <rect x="240" y="864" width="544" height="128" rx="64" ry="64" fill="#F9F8F4" />
+</svg>

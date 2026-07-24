@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright (c) 2024-2026 MeedyaSuite. All rights reserved. MeedyaDL brand assets are proprietary. -->
+<!--
+  MeedyaDL App Icon — medium-size tile (48px / 64px).
+  STATIC, hand-authored for legibility at small raster sizes (issue #1058).
+
+  Unlike icon-tile-small.svg this variant keeps the master's silhouette,
+  palette, and padding almost verbatim (48px/64px has enough resolution
+  to survive the master's proportions) — the only change is dropping the
+  narrowest of the master's three equaliser slots and thickening the
+  remaining two so they hold up under resampling. Rasterised directly at
+  the target size by scripts/generate-app-icons.mjs (not downscaled from
+  a larger raster), same reasoning as icon-tile-small.svg.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="mdl-tile-medium-title mdl-tile-medium-desc">
+  <title id="mdl-tile-medium-title">MeedyaDL App Icon (medium)</title>
+  <desc id="mdl-tile-medium-desc">Downward play triangle with two equalizer slots on a save bar, redrawn for 48px/64px legibility.</desc>
+  <defs>
+    <linearGradient id="tileGradientMedium" x1="0" y1="0" x2="1024" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#636C75" />
+      <stop offset="1" stop-color="#232930" />
+    </linearGradient>
+  </defs>
+
+  <!-- Full-bleed tile background, same diagonal range as the 1024px
+       master (rgb(99,108,117) -> rgb(35,41,48)). No rounding. -->
+  <rect x="0" y="0" width="1024" height="1024" fill="url(#tileGradientMedium)" />
+
+  <!-- Triangle with two cut-out slots (the master's narrowest 150px slot
+       is dropped), evenodd holes revealing the tile gradient beneath.
+       Silhouette matches the master: top edge y=76, x=170..853
+       (683 wide, ~66.8%), 38px rounded top corners, apex (512, 696). -->
+  <path
+    fill-rule="evenodd"
+    fill="#F9F8F4"
+    d="M208,76 L815,76 A38,38 0 0 1 853,114 L512,696 L171,114 A38,38 0 0 1 208,76 Z
+       M349,226 L675,226 L675,298 L349,298 Z
+       M400,370 L625,370 L625,442 L400,442 Z"
+  />
+
+  <!-- Pill (fully-rounded, solid). Triangle-to-pill gap unchanged at 135
+       (13.2%). Height increased to 136 (13.3%) for legibility; width
+       kept at the master's 552 (≈53.9%), centred, rounded ends. -->
+  <rect x="236" y="831" width="552" height="136" rx="68" ry="68" fill="#F9F8F4" />
+</svg>
