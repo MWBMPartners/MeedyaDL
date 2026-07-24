@@ -65,42 +65,11 @@ trap 'rm -f "$BODY_FILE" "$NEW_FILE"' EXIT
 echo "Fetching current release body for ${TAG} (repo: ${REPO})..."
 gh release view "$TAG" --repo "$REPO" --json body -q .body > "$BODY_FILE"
 
-python3 - "$NOTES_FILE" "$BODY_FILE" "$NEW_FILE" <<'PY'
-import re
-import sys
-
-notes_path, body_path, out_path = sys.argv[1:4]
-
-with open(notes_path, "r", encoding="utf-8") as f:
-    notes = f.read().rstrip("\n")
-
-with open(body_path, "r", encoding="utf-8") as f:
-    body = f.read()
-
-# release.yml appends a "## Choose your download" table (with a "---"
-# divider immediately above it) once each platform build finishes. We
-# keep that footer verbatim and only replace the content above it.
-#
-# Primary: the "---" divider line immediately before the heading. Match
-# starts at the newline before the dashes so we can step past it and
-# land exactly on the first "-".
-divider = re.search(r"\n-{3,}\s*\n+(?=## Choose your download)", body)
-if divider:
-    footer = body[divider.start() + 1:]
-else:
-    # Fallback: no divider found (e.g. a release object with no build
-    # table appended yet) -- footer starts at the heading itself, if any.
-    heading = re.search(r"^## Choose your download", body, re.MULTILINE)
-    footer = body[heading.start():] if heading else ""
-
-if footer:
-    new_body = notes + "\n\n" + footer
-else:
-    new_body = notes + "\n"
-
-with open(out_path, "w", encoding="utf-8") as f:
-    f.write(new_body)
-PY
+# Footer-preserving splice: replace everything above the "## Choose your
+# download" table with $NOTES_FILE, keeping the table (and the "---"
+# divider above it) verbatim. Shared with release.yml's ensure-release
+# self-heal path (#1046) -- see splice-body.py for the exact regex.
+python3 "$REPO_ROOT/scripts/release-notes/splice-body.py" "$NOTES_FILE" "$BODY_FILE" "$NEW_FILE"
 
 if diff -q "$BODY_FILE" "$NEW_FILE" >/dev/null 2>&1; then
   echo "Release ${TAG} is already current -- nothing to do."
