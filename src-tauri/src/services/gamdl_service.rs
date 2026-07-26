@@ -666,8 +666,19 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
     // API format: https://pypi.org/pypi/{package}/json
     // Response structure: { "info": { "version": "2.8.4", ... }, "releases": { ... } }
     // Ref: https://warehouse.pypa.io/api-reference/json.html
+    //
+    // Uses the house `build_simple(10)` client (matching the sibling PyPI
+    // lookup in `update_checker.rs::fetch_gamdl_release_wheel_filenames`)
+    // instead of a bare `reqwest::get()`, which has NO timeout at all. On a
+    // network that silently drops packets rather than refusing the
+    // connection, the untimed call could hang for its full OS-level TCP
+    // timeout (up to ~2 minutes) — delaying the setup wizard on a machine
+    // whose very first screen is meant to get the user unblocked quickly.
     let url = "https://pypi.org/pypi/gamdl/json";
-    let response = reqwest::get(url)
+    let client = crate::utils::http_client::build_simple(10)?;
+    let response = client
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Failed to check PyPI: {e}"))?;
 
