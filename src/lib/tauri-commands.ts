@@ -699,17 +699,31 @@ export function checkCookiesBeforeDownload(): Promise<CookieCheckResult> {
 }
 
 /**
- * Checks whether the internet is reachable before queuing a download.
+ * Checks whether the internet (and target service) is reachable before
+ * queuing a download.
  *
- * Rust handler: `check_internet_before_download()` in `src-tauri/src/commands/settings.rs`
+ * Rust handler: `check_internet_before_download(urls)` in `src-tauri/src/commands/settings.rs`
  * Returns: `CookieCheckResult` (reuses same shape) with readiness flag and optional message
  *
  * Called by the download form before the cookie check. Reuses the existing
- * health_check_service::check_internet_connectivity() (HTTP GET to apple.com).
- * If offline, blocks the download with an amber warning.
+ * `health_check_service::check_internet_connectivity()` two-tier probe.
+ * `urls` is the batch about to be queued — the backend detects the target
+ * service (Apple Music, Spotify, …) from the first recognised URL and picks
+ * the matching Tier 2 API probe (A1). Pass `undefined`/omit when no URLs
+ * are known yet; the backend falls back to the Apple Music probe.
+ *
+ * If offline (or the detected service's API is unreachable), blocks the
+ * download with an amber warning.
  */
-export function checkInternetBeforeDownload(): Promise<CookieCheckResult> {
-  return invoke<CookieCheckResult>('check_internet_before_download');
+export function checkInternetBeforeDownload(urls?: string[]): Promise<CookieCheckResult> {
+  // Explicit `null` (not `undefined`) for the omitted case — JSON.stringify
+  // drops `undefined` keys, which can interact awkwardly with how Tauri 2
+  // deserialises `Option<Vec<String>>` arguments. Explicit `null` always
+  // round-trips cleanly to `None` on the Rust side (same convention as
+  // `upgradeGamdl`'s `targetVersion` below).
+  return invoke<CookieCheckResult>('check_internet_before_download', {
+    urls: urls ?? null,
+  });
 }
 
 /**

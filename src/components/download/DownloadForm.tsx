@@ -385,12 +385,24 @@ export function DownloadForm() {
 
   /** Internal: run preflight checks then submit. Separated so setIsChecking wraps the full flow. */
   const runPreflightAndSubmit = async () => {
+    // Build the URL batch about to be queued once, up front — used both for
+    // the internet preflight's service-aware Tier 2 probe (A1) below and
+    // for the Spotify dispatch-gate preview further down.
+    const urlsToSubmit: string[] =
+      isMultiUrl && multiUrlInfo
+        ? multiUrlInfo.validUrls
+        : urlInput.trim()
+          ? [urlInput.trim()]
+          : [];
+
     // Check internet connectivity — if offline, we still queue the download
     // but skip auto-start so it waits until the user retries or connectivity
-    // returns and a future download triggers queue processing.
+    // returns and a future download triggers queue processing. The backend's
+    // Tier 2 probe targets the API of the service detected from
+    // `urlsToSubmit` (e.g. Spotify URLs probe Spotify instead of Apple Music).
     let isOffline = false;
     try {
-      const internetCheck = await checkInternetBeforeDownload();
+      const internetCheck = await checkInternetBeforeDownload(urlsToSubmit);
       if (!internetCheck.ready) {
         isOffline = true;
       }
@@ -424,12 +436,8 @@ export function DownloadForm() {
     // verdict — cookies are an Apple-Music concern and a Spotify-only
     // batch shouldn't trip the cookie check at all (though for mixed
     // batches we still want to run cookies for the Apple Music side).
-    const urlsToSubmit: string[] =
-      isMultiUrl && multiUrlInfo
-        ? multiUrlInfo.validUrls
-        : urlInput.trim()
-          ? [urlInput.trim()]
-          : [];
+    // `urlsToSubmit` was already built at the top of this function for
+    // the internet preflight (A1) — reused here rather than rebuilt.
     const hasSpotify = urlsToSubmit.some(
       (u) => u.includes('open.spotify.com') || u.startsWith('spotify:')
     );

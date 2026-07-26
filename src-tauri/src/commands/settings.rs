@@ -407,21 +407,37 @@ pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult
     }
 }
 
-/// Checks whether the internet is reachable before queuing a download.
+/// Checks whether the internet (and target service) is reachable before
+/// queuing a download.
 ///
-/// **Frontend caller:** `checkInternetBeforeDownload()` in `src/lib/tauri-commands.ts`
+/// **Frontend caller:** `checkInternetBeforeDownload(urls?)` in `src/lib/tauri-commands.ts`
 ///
 /// Called by the download form before the cookie check. Reuses the existing
-/// `check_internet_connectivity()` health check (HTTP GET to apple.com with
-/// 5s timeout). Returns the same `CookieCheckResult` shape so the frontend
+/// `check_internet_connectivity()` health check (Tier 1: provider-neutral
+/// general connectivity; Tier 2: the API of the download service detected
+/// from `urls`). Returns the same `CookieCheckResult` shape so the frontend
 /// can handle it with the same pattern.
+///
+/// `urls` is the batch of URLs about to be queued (A1) — the first URL that
+/// resolves to a known [`crate::models::media_service::MediaServiceId`]
+/// picks the Tier 2 probe (e.g. Spotify URLs probe Spotify's API instead of
+/// Apple Music's). `None`/empty/all-unrecognised falls back to the Apple
+/// Music probe, matching this command's pre-A1 behaviour exactly.
 ///
 /// If the check fails, the frontend shows an amber warning and blocks the
 /// download. This prevents queuing downloads that will immediately fail
 /// due to no internet, and avoids generating unhelpful error reports.
 #[tauri::command]
-pub async fn check_internet_before_download() -> Result<CookieCheckResult, String> {
-    match crate::services::health_check_service::check_internet_connectivity().await {
+pub async fn check_internet_before_download(
+    urls: Option<Vec<String>>,
+) -> Result<CookieCheckResult, String> {
+    let service = urls
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .find_map(|url| crate::models::media_service::MediaServiceId::from_url(url));
+
+    match crate::services::health_check_service::check_internet_connectivity(service).await {
         None => Ok(CookieCheckResult {
             ready: true,
             message: None,
