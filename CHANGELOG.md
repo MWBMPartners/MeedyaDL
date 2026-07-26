@@ -6,6 +6,46 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.2 [skip ci]
+
+### 🔄 CI/CD
+
+- **(release-notes)** Add lightweight Apply Release Notes workflow
+
+Per audit .github/audits/release-notes-policy-audit-2026-07-24.md §5.2:
+  re-running release.yml per tag rebuilds all 6-7 platform matrices
+  (20+ min each, re-triggers signing/notarisation) just to reach the
+  ~30-second ensure-release body edit. This new workflow_dispatch-only
+  workflow does just the edit, reusing the existing idempotent,
+  footer-preserving scripts/release-notes/apply-notes.sh (which itself
+  reuses splice-body.py, the same footer regex release.yml's own
+  self-heal path uses).
+
+  Two modes: tag=vX.Y.Z[-channel.N] applies one release; tag=all applies
+  every committed .github/release-notes/v*.md file, skipping tags with no
+  published release. dry_run=true reports the intended diff via the job
+  step summary without calling `gh release edit`.
+
+  Safety properties: never touches draft/prerelease flags (apply-notes.sh
+  only edits the body, so a stable found as a draft stays a draft, per the
+  don't-auto-flip-stable-flags policy in CLAUDE.md "Release pipeline
+  gotchas"); every notes file is content-linted (lint-notes.py) before
+  being applied, including in dry-run mode, closing the "backfill bypasses
+  the PR gate" hole for this workflow's own inputs; idempotent (apply-
+  notes.sh diffs before editing); builds nothing (single ubuntu-latest
+  job, no matrix).
+
+  Not dispatched as part of this change. Verified: actionlint and
+  `python3 -c "import yaml..."` both pass clean; every embedded `run:`
+  block passes `bash -n`; the sole action reference (actions/checkout) is
+  SHA-pinned, matching the pin already used in release-note-gate.yml.
+
+
+## [1.10.2] - 2026-07-24
+
 ### 🐛 Bug Fixes
 
 - **(deps)** Npm audit fix on main (js-yaml/brace-expansion/fast-uri, lockfile-only)
