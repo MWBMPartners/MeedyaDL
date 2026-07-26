@@ -92,6 +92,66 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # `workflow_dispatch` is only registered for a workflow file that
+      # lives on the default branch, but the "Checkout code" step above
+      # has no `ref:` -- it checks out whatever ref was DISPATCHED, and
+      # the GitHub UI's "Run workflow" branch dropdown defaults to the
+      # default branch. If that ref doesn't happen to carry the curated
+      # notes files and the three helper scripts this workflow shells
+      # out to (they may still live only on a channel branch -- see the
+      # "Operational notes" header comment), every step below fails in
+      # confusing ways (missing-file errors from deep inside a script,
+      # or a silent "no notes files to lint"). Catch that up front, on
+      # the actual files rather than a hardcoded branch name, so this
+      # guard keeps working once that infrastructure legitimately lands
+      # on the default branch for real.
+      - name: Verify release-notes infrastructure is present on this ref
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          MISSING=0
+
+          for script in scripts/release-notes/apply-notes.sh \
+                        scripts/release-notes/splice-body.py \
+                        scripts/release-notes/lint-notes.py; do
+            if [ ! -r "$script" ]; then
+              echo "::error::Missing or unreadable: ${script}"
+              MISSING=1
+            fi
+          done
+
+          NOTES_FILES=(.github/release-notes/v*.md)
+          NOTES_COUNT="${#NOTES_FILES[@]}"
+          if [ "$NOTES_COUNT" -eq 0 ]; then
+            echo "::error::No .github/release-notes/v*.md files found."
+            MISSING=1
+          fi
+
+          if [ "$MISSING" -ne 0 ]; then
+            {
+              echo "### Apply Release Notes -- wrong ref checked out"
+              echo
+              echo "This workflow was dispatched against \`${REF_NAME}\`, which does not"
+              echo "carry the release-notes system it depends on (the three"
+              echo "\`scripts/release-notes/*.sh\` / \`*.py\` helper scripts and/or any"
+              echo "\`.github/release-notes/v*.md\` notes files are missing from this"
+              echo "checkout)."
+              echo
+              echo "Re-run this workflow dispatched against a branch that actually"
+              echo "carries the release-notes infrastructure, for example:"
+              echo
+              echo '```'
+              echo 'gh workflow run "Apply Release Notes" --repo MWBMPartners/MeedyaDL --ref alpha -f tag=all -f dry_run=true'
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "OK -- ${REF_NAME}: found 3 release-notes scripts and ${NOTES_COUNT} notes file(s)."
+
       # Same shape release.yml's own tag derivation validates (release.yml
       # ~L181) -- accepts only vX.Y.Z with an optional semver-legal
       # pre-release suffix, or the literal 'all'. Rejecting anything else
