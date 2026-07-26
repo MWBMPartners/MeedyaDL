@@ -1,0 +1,529 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Release Body Audit (#1028 follow-up)
+# =====================================
+#
+# A full audit of 206 published releases found that NOTHING has ever
+# inspected a release body after it was published. `lint-notes.py` only
+# ever saw committed `.github/release-notes/*.md` files (job
+# `notes-file-lint` in release-note-gate.yml) and PR `Release-Note:`
+# trailers (job `pr-trailer`, same workflow) -- both PRE-publication
+# surfaces. The consequence: repaired notes files (see the three curated
+# fixes this workflow ships alongside -- v1.10.0-alpha.15.md, v1.10.1.md,
+# v1.11.0-alpha.23.md, v1.3.0.md) sat committed in the repo while the
+# LEAKING bodies stayed live on GitHub for days, because the corrective
+# workflow (`apply-release-notes.yml`) existed but nobody knew to run it.
+# This workflow closes that gap permanently by making the check and the
+# fix both automatic and recurring.
+#
+# ---------------------------------------------------------------------
+# THIS IS A DETECT-AND-REMEDIATE WORKFLOW, NOT A GATE. DO NOT MAKE IT
+# BLOCK ANYTHING.
+#
+# A published release body cannot be un-published -- by the time this
+# workflow ever sees a body, `release.yml` has already finished and the
+# body is live in the GitHub UI and served to every user's in-app
+# updater via `release_body` (see `update_checker.rs::UpdateCheckResult`).
+# There is nothing left here to block: the only useful posture is to
+# notice drift and correct it (self-heal when a fix already exists,
+# otherwise surface it to a human via the tracking issue below). If a
+# future change tries to turn any step in this file into a required
+# check or a `workflow_run` gate on `release.yml` itself, that change is
+# wrong -- put new blocking logic in `release-note-gate.yml` (PR-time,
+# pre-publication) instead, where blocking still means something.
+# ---------------------------------------------------------------------
+#
+# Per audited tag, three actions:
+#   1. Lint the LIVE body (`gh release view --json body`) with
+#      `scripts/release-notes/lint-notes.py --live --strict` -- `--live`
+#      strips the workflow-appended "## Choose your download" footer the
+#      same way the committed-file path does, so the footer's own
+#      boilerplate never trips the denylist (see that script's docstring
+#      for the full footer-stripping contract).
+#   2. Self-heal: if a committed `.github/release-notes/<TAG>.md` exists,
+#      apply it via `scripts/release-notes/apply-notes.sh` -- the exact
+#      idempotent, footer-preserving apply `apply-release-notes.yml`
+#      uses (diffs first; a no-op edit when the body already matches).
+#      THIS is the entire point of this workflow: turning "a fix is
+#      sitting in the repo" into "the fix is live" without a human
+#      remembering to run `apply-release-notes.yml` by hand. Skipped
+#      under `dry_run=true` -- reported instead.
+#   3. Otherwise (no curated file, live body still has findings): upsert
+#      ONE tracking issue (fixed title, hidden HTML marker, `release-notes`
+#      label) listing every tag with unresolved findings. Never one issue
+#      per tag, never a new issue per run -- see "Upsert tracking issue"
+#      below for the merge logic that keeps this a single, cumulative
+#      issue across runs.
+#
+# IMPORTANT -- never put matched leak text in the tracking issue. This is
+# a PUBLIC repo; quoting the actual disclosure in an issue body would
+# republish the very thing being reported. Every step that touches the
+# tracking issue works ONLY with rule names (e.g. "mechanism-jwt"),
+# extracted from lint-notes.py's `  • path:line — [tier] rule: matched
+# 'text'` output via `grep -oE '\[(error|warning)\] [A-Za-z0-9_-]+'` --
+# deliberately excluding the `matched '...'` suffix, which is (or
+# contains) the disclosure itself. The tag name and the rule name are
+# both safe to publish; the matched excerpt never is.
+#
+# Triggers:
+#   - schedule (nightly, ~06:17 UTC): sweep the ~40 most recent published
+#     releases. Bounded on purpose -- 206 releases and counting, and a
+#     detect-and-remediate job only needs to catch RECENT drift, not
+#     re-walk the entire release history every night.
+#   - workflow_run on "Release" completing: audits the tag that Release
+#     just built, closing the window between "goes live" and "someone
+#     notices" to (at most) one workflow's runtime.
+#   - workflow_dispatch: `tag` (a specific `vX.Y.Z[-channel.N]`, or the
+#     literal `all` to run the same ~40-release sweep as the nightly
+#     job) and `dry_run` (report intended actions without applying notes
+#     or touching the tracking issue).
+#
+# Operational notes:
+#   - `workflow_dispatch` only shows a "Run workflow" button in the
+#     GitHub UI for a workflow file that lives on the DEFAULT branch --
+#     until this file is merged there, dispatch via the CLI with an
+#     explicit `--ref` (see CLAUDE.md "Conserving GitHub Actions
+#     Minutes"), e.g.:
+#       gh workflow run "Release Body Audit" --ref alpha -f tag=all -f dry_run=true
+#   - Skips (not errors): draft releases, and tags with no published
+#     release at all -- both are normal states, not audit failures.
+
+name: Release Body Audit
+
+on:
+  schedule:
+    # Distinct minute/hour from the other daily/weekly/monthly cron jobs
+    # in this repo (nightly-release.yml / weekly-release.yml /
+    # monthly-release.yml all fire at 00:00 UTC; upstream-engine-watch.yml
+    # fires at 06:00 UTC) so this job's runner-queue time doesn't stack
+    # with any of them.
+    - cron: '17 6 * * *'
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to audit (vX.Y.Z[-channel.N]) or 'all' for the ~40 most recent published releases"
+        required: true
+        type: string
+        default: 'all'
+      dry_run:
+        description: "Report intended actions without applying notes or touching the tracking issue"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  # `contents: write` -- NOT just `read` -- because the self-heal step
+  # (action 2 above) calls `gh release edit` via apply-notes.sh, exactly
+  # like apply-release-notes.yml does; release bodies live under the
+  # `contents` scope. `issues: write` is for the tracking-issue upsert
+  # (action 3). Nothing else in this workflow needs any permission at
+  # all -- no PR interaction, no package/deployment scopes.
+  contents: write
+  issues: write
+
+# Serialises sweeps -- a workflow_run audit for a single freshly-published
+# tag and the nightly ~40-release sweep must not race the same `gh
+# release edit` / tracking-issue edit. cancel-in-progress: false so a
+# short single-tag run never gets cancelled mid-edit by an overlapping
+# nightly sweep (and vice versa) -- both just queue.
+concurrency:
+  group: release-body-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit published release bodies
+    runs-on: ubuntu-latest
+    env:
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Same shape as apply-release-notes.yml's own guard, adapted for
+      # this workflow's dependency set. `main` does not yet carry this
+      # infrastructure (it lands there in the same PR chain as this
+      # file), and workflow_dispatch's branch dropdown always defaults to
+      # the default branch regardless of where the workflow YAML that
+      # registered the dispatch actually lives -- so this needs to fail
+      # fast and actionably rather than dying deep inside a script with a
+      # confusing "no such file" error.
+      - name: Verify release-notes infrastructure is present on this ref
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          MISSING=0
+
+          for script in scripts/release-notes/apply-notes.sh \
+                        scripts/release-notes/splice-body.py \
+                        scripts/release-notes/lint-notes.py; do
+            if [ ! -r "$script" ]; then
+              echo "::error::Missing or unreadable: ${script}"
+              MISSING=1
+            fi
+          done
+
+          # This workflow specifically depends on lint-notes.py's `--live`
+          # mode -- confirm it's actually present on this ref (an older
+          # checkout could have the three files above but predate --live).
+          if [ -r scripts/release-notes/lint-notes.py ] && ! grep -q -- '--live' scripts/release-notes/lint-notes.py; then
+            echo "::error::scripts/release-notes/lint-notes.py on this ref has no --live mode."
+            MISSING=1
+          fi
+
+          NOTES_FILES=(.github/release-notes/v*.md)
+          NOTES_COUNT="${#NOTES_FILES[@]}"
+          if [ "$NOTES_COUNT" -eq 0 ]; then
+            echo "::error::No .github/release-notes/v*.md files found."
+            MISSING=1
+          fi
+
+          if [ "$MISSING" -ne 0 ]; then
+            {
+              echo "### Release Body Audit -- wrong ref checked out"
+              echo
+              echo "This workflow was dispatched against \`${REF_NAME}\`, which does not"
+              echo "carry the release-notes system it depends on (the three"
+              echo "\`scripts/release-notes/*.sh\` / \`*.py\` helper scripts, a --live-"
+              echo "capable \`lint-notes.py\`, and/or any \`.github/release-notes/v*.md\`"
+              echo "notes files are missing from this checkout)."
+              echo
+              echo "Re-run this workflow dispatched against a branch that actually"
+              echo "carries the release-notes infrastructure, for example:"
+              echo
+              echo '```'
+              echo 'gh workflow run "Release Body Audit" --repo MWBMPartners/MeedyaDL --ref alpha -f tag=all -f dry_run=true'
+              echo '```'
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          echo "OK -- ${REF_NAME}: found 3 release-notes scripts (--live capable) and ${NOTES_COUNT} notes file(s)."
+
+      # Resolves the trigger-specific input into a plain list of tags (one
+      # per line) and a plain true/false dry-run flag, so every later step
+      # only has to deal with one shape of input regardless of how this
+      # run was triggered.
+      - name: Determine tags to audit
+        id: tags
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+          WORKFLOW_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-body-audit
+          TAGS_FILE=/tmp/release-body-audit/tags.txt
+          : > "$TAGS_FILE"
+
+          # `inputs.*` is only populated for workflow_dispatch -- on every
+          # other trigger this workflow always runs "for real" (a
+          # schedule or a Release completion has no operator standing by
+          # to interpret a dry-run report).
+          DRY_RUN="false"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            DRY_RUN="$INPUT_DRY_RUN"
+          fi
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "mode=${EVENT_NAME}" >> "$GITHUB_OUTPUT"
+
+          # Nightly sweep + workflow_dispatch tag=all share one bound --
+          # 206 releases and counting; this job only needs to catch
+          # RECENT drift, not re-walk the whole release history.
+          MAX_RELEASES=40
+
+          case "$EVENT_NAME" in
+            schedule)
+              gh release list --repo "$REPO" --limit "$MAX_RELEASES" --json tagName -q '.[].tagName' >> "$TAGS_FILE"
+              ;;
+            workflow_dispatch)
+              if [ "$INPUT_TAG" = "all" ]; then
+                gh release list --repo "$REPO" --limit "$MAX_RELEASES" --json tagName -q '.[].tagName' >> "$TAGS_FILE"
+              elif [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+                echo "$INPUT_TAG" >> "$TAGS_FILE"
+              else
+                echo "::error::Invalid tag '$INPUT_TAG' -- expected vX.Y.Z[-channel.N] or the literal 'all'."
+                exit 1
+              fi
+              ;;
+            workflow_run)
+              # A failed/cancelled Release run published nothing (or an
+              # incomplete build) -- don't audit it.
+              if [ "$WORKFLOW_RUN_CONCLUSION" != "success" ]; then
+                echo "Release workflow run did not succeed (conclusion: ${WORKFLOW_RUN_CONCLUSION}) -- nothing to audit."
+              # For a tag-push-triggered Release run (the normal case --
+              # release.yml's own `on.push.tags`), GitHub reports the tag
+              # name itself in head_branch (a tag push has no branch). A
+              # workflow_dispatch-triggered Release run instead reports
+              # whatever branch the dispatch happened FROM, which won't
+              # match this shape -- fall back to the most recently
+              # published release in that case, since a dispatched
+              # Release run still publishes/updates a real tag.
+              elif [[ "$WORKFLOW_RUN_HEAD_BRANCH" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+                echo "$WORKFLOW_RUN_HEAD_BRANCH" >> "$TAGS_FILE"
+              else
+                echo "Release run's head_branch ('${WORKFLOW_RUN_HEAD_BRANCH}') isn't a tag shape (workflow_dispatch build) -- falling back to the most recently published release."
+                gh release list --repo "$REPO" --limit 1 --json tagName -q '.[].tagName' >> "$TAGS_FILE"
+              fi
+              ;;
+            *)
+              echo "::error::Unhandled event_name '${EVENT_NAME}'."
+              exit 1
+              ;;
+          esac
+
+          COUNT=$(grep -c . "$TAGS_FILE" || true)
+          echo "Tags to audit (${COUNT}): $(paste -sd', ' "$TAGS_FILE" 2>/dev/null || true)"
+
+      - name: Lint live bodies, self-heal where a curated fix exists
+        env:
+          DRY_RUN: ${{ steps.tags.outputs.dry_run }}
+          MODE: ${{ steps.tags.outputs.mode }}
+        run: |
+          set -uo pipefail
+          # Deliberately NOT `set -e` here: one tag's `gh`/lint hiccup
+          # must not abort the sweep for the other ~39 tags. Every
+          # command below that can fail is checked explicitly.
+
+          mkdir -p /tmp/release-body-audit
+          UNRESOLVED_TSV=/tmp/release-body-audit/unresolved.tsv
+          PROCESSED_TXT=/tmp/release-body-audit/processed-tags.txt
+          : > "$UNRESOLVED_TSV"
+          : > "$PROCESSED_TXT"
+
+          {
+            echo "### Release Body Audit -- results"
+            echo
+            echo "Mode: \`${MODE}\` · Dry run: \`${DRY_RUN}\`"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          audit_one() {
+            local TAG="$1"
+
+            # Skip (not an error): tag has no release object, or is a
+            # draft -- neither has a "live body" for anyone to see yet.
+            local REL_JSON
+            if ! REL_JSON=$(gh release view "$TAG" --repo "$REPO" --json isDraft,body 2>/dev/null); then
+              echo "${TAG}: skip -- no published release" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            local IS_DRAFT
+            IS_DRAFT=$(printf '%s' "$REL_JSON" | jq -r '.isDraft')
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "${TAG}: skip -- draft release" | tee -a "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+
+            echo "$TAG" >> "$PROCESSED_TXT"
+
+            local BODY_FILE
+            BODY_FILE="$(mktemp)"
+            printf '%s' "$REL_JSON" | jq -r '.body' > "$BODY_FILE"
+
+            local LINT_OUT
+            local LINT_STATUS=0
+            LINT_OUT="$(python3 scripts/release-notes/lint-notes.py --live --strict < "$BODY_FILE")" || LINT_STATUS=$?
+
+            if [ "$LINT_STATUS" -eq 0 ]; then
+              echo "${TAG}: OK -- no findings in live body" | tee -a "$GITHUB_STEP_SUMMARY"
+              rm -f "$BODY_FILE"
+              return 0
+            fi
+
+            # Rule identifiers ONLY -- e.g. "[error] mechanism-jwt" --
+            # never the "matched '...'" portion of lint-notes.py's output,
+            # which is (or contains) the actual disclosure. This
+            # extracted set is the only thing that ever reaches the
+            # tracking issue (see "Upsert tracking issue" below).
+            local RULES
+            RULES=$(printf '%s\n' "$LINT_OUT" | grep -oE '\[(error|warning)\] [A-Za-z0-9_-]+' | sort -u | paste -sd', ' -)
+            [ -n "$RULES" ] || RULES="(unspecified)"
+
+            local NOTES_FILE=".github/release-notes/${TAG}.md"
+
+            if [ -f "$NOTES_FILE" ]; then
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "${TAG}: would auto-apply ${NOTES_FILE} (findings: ${RULES})" | tee -a "$GITHUB_STEP_SUMMARY"
+              else
+                echo "${TAG}: curated file exists -- applying (findings: ${RULES})" | tee -a "$GITHUB_STEP_SUMMARY"
+                # apply-notes.sh is itself idempotent (diffs the spliced
+                # body against the live one before editing) and never
+                # touches draft/prerelease flags -- same guarantees
+                # apply-release-notes.yml relies on.
+                bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO" | tee -a "$GITHUB_STEP_SUMMARY"
+                # Not added to UNRESOLVED_TSV: the curated file IS the
+                # fix. If the apply somehow doesn't converge on a clean
+                # body, the next sweep's lint pass re-detects it.
+              fi
+            else
+              echo "${TAG}: NO curated file -- cannot self-heal (findings: ${RULES})" | tee -a "$GITHUB_STEP_SUMMARY"
+              printf '%s\t%s\n' "$TAG" "$RULES" >> "$UNRESOLVED_TSV"
+            fi
+
+            rm -f "$BODY_FILE"
+          }
+
+          while IFS= read -r t; do
+            [ -z "$t" ] && continue
+            audit_one "$t"
+          done < /tmp/release-body-audit/tags.txt
+
+      # Action 3: report what could not be fixed automatically. Skipped
+      # entirely under dry_run -- creating/editing an issue is itself a
+      # live side effect on the repo, and a dry run should leave
+      # everything untouched (the per-tag lines in the step summary above
+      # already say what WOULD be reported).
+      #
+      # Upsert, not append: this is ONE cumulative issue across every run
+      # of this workflow, never one issue per tag and never a new issue
+      # per run. Lookup is by `release-notes` label first (cheap, avoids
+      # listing every open issue), then confirmed via a hidden HTML
+      # marker in the body -- the same belt-and-braces idempotent-lookup
+      # shape pr-security.yml uses for its PR-comment upsert. The issue
+      # body's tag list is MERGED on every run: tags this run examined
+      # either get a fresh findings line (still broken) or are dropped
+      # entirely (now resolved); tags this run did NOT examine (outside
+      # the ~40-release sweep window, or a single-tag workflow_run) keep
+      # whatever their last known status was. All of the merge/render
+      # logic lives in the inline Python below rather than bash text
+      # surgery, because a hand-rolled tab-separated-value merge in bash
+      # is exactly the kind of code that silently mis-parses a tag name
+      # containing a hyphenated pre-release suffix.
+      - name: Upsert tracking issue for unresolved findings
+        if: ${{ always() && steps.tags.outputs.dry_run != 'true' }}
+        env:
+          MARKER: "<!-- meedyadl-release-body-audit -->"
+          LABEL: "release-notes"
+          TITLE: "Release body audit: published bodies with unresolved findings"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-body-audit
+          UNRESOLVED_TSV=/tmp/release-body-audit/unresolved.tsv
+          PROCESSED_TXT=/tmp/release-body-audit/processed-tags.txt
+          touch "$UNRESOLVED_TSV" "$PROCESSED_TXT"
+
+          # Idempotent label creation -- tolerate "already exists".
+          gh label create "$LABEL" --repo "$REPO" \
+            --description "Tracks published GitHub Release bodies flagged by release-body-audit.yml with no curated notes-file fix yet" \
+            --color "D93F0B" 2>/dev/null || true
+
+          CANDIDATES_JSON="$(gh issue list --repo "$REPO" --state open --label "$LABEL" --json number,body --limit 20)"
+          EXISTING="$(printf '%s' "$CANDIDATES_JSON" | jq -r --arg m "$MARKER" '[.[] | select(.body | contains($m))][0].number // empty')"
+
+          EXISTING_BODY_FILE="$(mktemp)"
+          : > "$EXISTING_BODY_FILE"
+          if [ -n "$EXISTING" ]; then
+            printf '%s' "$CANDIDATES_JSON" | jq -r --argjson n "$EXISTING" '[.[] | select(.number == $n)][0].body // ""' > "$EXISTING_BODY_FILE"
+          fi
+
+          ISSUE_BODY_FILE=/tmp/release-body-audit/issue-body.md
+          python3 - "$EXISTING_BODY_FILE" "$PROCESSED_TXT" "$UNRESOLVED_TSV" "$MARKER" > "$ISSUE_BODY_FILE" <<'PYEOF'
+          import re
+          import sys
+          from pathlib import Path
+
+          existing_body_path, processed_path, unresolved_path, marker = sys.argv[1:5]
+
+          existing_body = Path(existing_body_path).read_text(encoding="utf-8", errors="ignore")
+          processed = {
+              line.strip()
+              for line in Path(processed_path).read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          }
+
+          unresolved: dict[str, str] = {}
+          for line in Path(unresolved_path).read_text(encoding="utf-8").splitlines():
+              if not line.strip():
+                  continue
+              tag, _, summary = line.partition("\t")
+              unresolved[tag] = summary
+
+          # Recover the previous run's tag list from the existing issue
+          # body, if any -- "findings: " lines written by this same
+          # template on an earlier run.
+          old: dict[str, str] = {}
+          for m in re.finditer(r"^- `([^`]+)` — findings: (.+)$", existing_body, re.MULTILINE):
+              old[m.group(1)] = m.group(2)
+
+          # Merge: start from the old state, drop every tag THIS run
+          # examined (whether resolved or still broken), then re-add
+          # this run's still-broken tags. Tags outside this run's sweep
+          # window are untouched -- they keep last known status.
+          final = dict(old)
+          for tag in processed:
+              final.pop(tag, None)
+          final.update(unresolved)
+
+          lines = [
+              marker,
+              "",
+              "## Release body audit -- unresolved findings",
+              "",
+              "Published GitHub Release bodies that failed the content lint "
+              "(`scripts/release-notes/lint-notes.py --live --strict`, run by "
+              "`.github/workflows/release-body-audit.yml`) and have no "
+              "committed `.github/release-notes/<TAG>.md` fix for that "
+              "workflow to auto-apply.",
+              "",
+              "**No leaked text is included here on purpose.** Only the rule "
+              "name(s) that matched are listed below -- never the matched "
+              "excerpt itself. This is a public repository; quoting the "
+              "actual disclosure here would republish the very thing being "
+              "reported.",
+              "",
+          ]
+
+          if final:
+              for tag in sorted(final):
+                  lines.append(f"- `{tag}` — findings: {final[tag]}")
+          else:
+              lines.append("_No tags currently have unresolved findings._")
+
+          lines += [
+              "",
+              "---",
+              "",
+              "**To resolve a tag:** draft a curated notes file with "
+              "`scripts/release-notes/draft-notes.sh <TAG>`, polish it per "
+              "`.github/release-notes/STYLE_GUIDE.md`, and commit it. The "
+              "next scheduled sweep (or a manual "
+              "`gh workflow run \"Release Body Audit\" -f tag=<TAG>`) applies "
+              "it automatically -- no need to re-run this issue by hand.",
+              "",
+              "This issue is upserted, not recreated: closing it is safe once "
+              "the list above is empty. If new findings appear on a future "
+              "release, a fresh issue opens automatically (same pattern as "
+              "`upstream-engine-watch.yml`).",
+              "",
+          ]
+
+          print("\n".join(lines))
+          PYEOF
+
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --repo "$REPO" --body-file "$ISSUE_BODY_FILE"
+            echo "Updated existing tracking issue #${EXISTING}." | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ -s "$UNRESOLVED_TSV" ]; then
+            # Only open a fresh issue when there is something to report --
+            # an empty run with no prior issue has nothing to track.
+            NEW_URL="$(gh issue create --repo "$REPO" --title "$TITLE" --label "$LABEL" --body-file "$ISSUE_BODY_FILE")"
+            echo "Opened new tracking issue: ${NEW_URL}" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No unresolved findings and no existing tracking issue -- nothing to do." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Note dry-run skip of tracking-issue upsert
+        if: ${{ steps.tags.outputs.dry_run == 'true' }}
+        run: |
+          echo "dry_run=true -- skipped the tracking-issue upsert entirely (per-tag findings are already in the step summary above)." | tee -a "$GITHUB_STEP_SUMMARY"
