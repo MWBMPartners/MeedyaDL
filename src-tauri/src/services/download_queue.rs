@@ -1215,10 +1215,19 @@ fn write_manifest(
         })
         .unwrap_or_default();
 
-    let storefront = if settings.storefront.is_empty() {
-        None
-    } else {
+    // `settings.storefront` is an Apple Music-only concept (region/storefront
+    // code injected into `music.apple.com` URLs — see `normalize_apple_music_url`).
+    // Non-Apple-Music sources (Spotify, etc.) have no storefront concept of
+    // their own; writing the user's globally-configured Apple Music
+    // storefront into e.g. a Spotify `ManifestSource` would be misleading —
+    // it documents "Platform-specific storefront/region" but the value
+    // would have nothing to do with the platform it's attached to (A2 fix).
+    let storefront = if platform == crate::models::media_service::MediaServiceId::AppleMusic.to_string()
+        && !settings.storefront.is_empty()
+    {
         Some(settings.storefront.clone())
+    } else {
+        None
     };
 
     let source = ManifestSource {
@@ -11827,12 +11836,19 @@ fn write_spotify_manifest_best_effort(
     write_manifest(
         album_dir_str,
         urls,
-        None,           // album_metadata — Spotify items have none today
+        None, // album_metadata — Spotify items have none today
         settings,
         download_started_at,
-        None,           // cross_platform_urls — M9-3 best-cover-art only populates this for the album-art path
-        Some("vorbis"), // primary_codec_id — votify ships Vorbis by default
-        None,           // companion_tiers — votify has no codec companions
+        None, // cross_platform_urls — M9-3 best-cover-art only populates this for the album-art path
+        // primary_codec_id — votify ships Ogg Vorbis by default. Must be the
+        // canonical codec-registry ID ("ogg-vorbis", the `[audio.ogg-vorbis]`
+        // section key in codecs.toml — see its `services.votify = "ogg-vorbis"`
+        // mapping), not the bare format name ("vorbis"), so any future
+        // codec-registry lookup against `ManifestSource.codec` (e.g. Library
+        // Scan's codec badge, a future Spotify companion-tier diff) resolves
+        // instead of silently missing (A2 fix).
+        Some("ogg-vorbis"),
+        None, // companion_tiers — votify has no codec companions
     );
 }
 
@@ -16975,5 +16991,107 @@ mod tests {
         // dispatch is conservative, the IPC gate is permissive.
         let misspelled: Option<&str> = Some("vottify");
         assert_ne!(misspelled, Some("votify"));
+    }
+
+    // ----------------------------------------------------------
+    // A2: write_manifest — Spotify-shaped source correctness
+    // ----------------------------------------------------------
+    //
+    // `write_manifest` is shared between the Apple Music enrichment path
+    // and `write_spotify_manifest_best_effort`. Two Apple-Music-shaped
+    // assumptions used to leak into non-Apple-Music sources: (1) the
+    // globally-configured `settings.storefront` (an Apple Music-only
+    // region concept) was written into every source regardless of
+    // platform; (2) the Spotify best-effort caller passed the bare format
+    // name `"vorbis"` instead of the canonical codec-registry ID
+    // `"ogg-vorbis"`. Both are fixed; these tests pin the corrected
+    // behaviour against regression.
+
+    /// Reads back the manifest JSON written to `album_dir` and returns the
+    /// (single) `ManifestSource` entry for assertions.
+    fn read_back_manifest_source(album_dir: &std::path::Path) -> crate::models::manifest::ManifestSource {
+        let contents = std::fs::read_to_string(album_dir.join("manifest.meedyadl"))
+            .expect("manifest.meedyadl should have been written");
+        let manifest: crate::models::manifest::ManifestFile =
+            serde_json::from_str(&contents).expect("manifest.meedyadl should be valid JSON");
+        manifest
+            .sources
+            .into_iter()
+            .next()
+            .expect("manifest should have exactly one source")
+    }
+
+    #[test]
+    fn write_manifest_spotify_source_has_no_storefront_even_when_settings_storefront_is_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = test_settings();
+        // A non-empty Apple Music storefront setting — this must NOT leak
+        // into a Spotify source.
+        settings.storefront = "gb".to_string();
+
+        write_manifest(
+            dir.path().to_str().unwrap(),
+            &["https://open.spotify.com/album/abc123".to_string()],
+            None,
+            &settings,
+            "2026-01-01T00:00:00Z",
+            None,
+            Some("ogg-vorbis"),
+            None,
+        );
+
+        let source = read_back_manifest_source(dir.path());
+        assert_eq!(source.platform, "spotify");
+        assert_eq!(
+            source.storefront, None,
+            "Spotify source must not inherit the Apple Music-only storefront setting"
+        );
+        assert_eq!(source.codec.as_deref(), Some("ogg-vorbis"));
+    }
+
+    #[test]
+    fn write_manifest_apple_music_source_keeps_storefront_when_settings_storefront_is_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut settings = test_settings();
+        settings.storefront = "gb".to_string();
+
+        write_manifest(
+            dir.path().to_str().unwrap(),
+            &["https://music.apple.com/gb/album/test/123456789".to_string()],
+            None,
+            &settings,
+            "2026-01-01T00:00:00Z",
+            None,
+            None,
+            None,
+        );
+
+        let source = read_back_manifest_source(dir.path());
+        assert_eq!(source.platform, "apple-music");
+        assert_eq!(
+            source.storefront.as_deref(),
+            Some("gb"),
+            "Apple Music source should keep the storefront setting (pre-A2 behaviour preserved)"
+        );
+    }
+
+    #[test]
+    fn write_manifest_apple_music_source_has_no_storefront_when_settings_storefront_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = test_settings(); // storefront defaults to empty string
+
+        write_manifest(
+            dir.path().to_str().unwrap(),
+            &["https://music.apple.com/us/album/test/123456789".to_string()],
+            None,
+            &settings,
+            "2026-01-01T00:00:00Z",
+            None,
+            None,
+            None,
+        );
+
+        let source = read_back_manifest_source(dir.path());
+        assert_eq!(source.storefront, None);
     }
 }
