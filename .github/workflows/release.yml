@@ -932,22 +932,85 @@ jobs:
               echo "Downloading $tool from mirror: $ASSET_URL"
               TOOL_DIR="$DEPS_DIR/tools/$tool"
               mkdir -p "$TOOL_DIR"
-              # TODO(#984): verify a published checksum (e.g. checksums.txt
-              # or a per-asset *.sha256) once the MeedyaDL-Tools mirror
-              # publishes one — this repo's release process is out of
-              # scope for this change. Until then, `-f` makes curl fail
-              # loudly on HTTP errors (was previously silent — a 404
-              # response body would get written to disk and only fail
-              # later, confusingly, at the tar/unzip step) and the
+              # `-f` makes curl fail loudly on HTTP errors (was previously
+              # silent — a 404 response body would get written to disk and
+              # only fail later, confusingly, at the tar/unzip step) and the
               # explicit non-empty + archive-integrity checks below are a
               # fail-safe against a truncated/corrupt download from the
-              # mutable `latest` tag, though neither substitutes for real
-              # integrity verification against a signed/known-good hash.
+              # mutable `latest` tag.
               curl -fsSL "$ASSET_URL" -o "/tmp/${tool}.${EXT}"
               if [ ! -s "/tmp/${tool}.${EXT}" ]; then
                 echo "::error::Downloaded archive for $tool is empty ($ASSET_URL)"
                 exit 1
               fi
+
+              # --- Opportunistic checksum verification (#984 consumer side) ---
+              #
+              # The producer side — the MeedyaDL-Tools mirror repo actually
+              # publishing a checksum alongside each asset — lives in a
+              # different repo and is out of scope for this change. This
+              # step is the consumer half: IF a checksum is published, we
+              # verify it and hard-fail on mismatch (refusing to bundle a
+              # possibly-corrupted or tampered binary into a signed
+              # installer); IF one isn't published yet, we fall back to the
+              # pre-existing behaviour (a loud `::warning` plus the
+              # non-empty + archive-integrity checks below) so this is
+              # purely additive — it never blocks a release on a mirror
+              # asset that predates checksum publishing.
+              #
+              # Two conventions are tried, newest/most-specific first:
+              #   (a) a sibling "<asset-name>.sha256" asset in the same
+              #       mirror release (one line: "<hex>  <filename>" or a
+              #       bare hex digest — both are common `sha256sum`/
+              #       `shasum` output shapes, so the awk grabs field 1),
+              #   (b) a repo-wide "checksums.txt" asset listing every
+              #       asset's hash, one "<hex>  <filename>" line each.
+              ASSET_NAME=$(basename "$ASSET_URL")
+              EXPECTED_SHA256=""
+
+              SHA_ASSET_URL=$(echo "$ASSETS_JSON" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for asset in data.get('assets', []):
+              if asset['name'] == '${ASSET_NAME}.sha256':
+                  print(asset['browser_download_url'])
+                  break
+          " || true)
+
+              if [ -n "$SHA_ASSET_URL" ]; then
+                EXPECTED_SHA256=$(curl -fsSL "$SHA_ASSET_URL" | awk '{print $1}')
+              else
+                CHECKSUMS_URL=$(echo "$ASSETS_JSON" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for asset in data.get('assets', []):
+              if asset['name'] == 'checksums.txt':
+                  print(asset['browser_download_url'])
+                  break
+          " || true)
+                if [ -n "$CHECKSUMS_URL" ]; then
+                  EXPECTED_SHA256=$(curl -fsSL "$CHECKSUMS_URL" | awk -v name="$ASSET_NAME" '$2 == name {print $1}')
+                fi
+              fi
+
+              if [ -n "$EXPECTED_SHA256" ]; then
+                # sha256sum is available on Linux/Windows (Git Bash/MSYS)
+                # runners; macOS runners ship `shasum` instead. Try both
+                # rather than assuming one is on PATH.
+                if command -v sha256sum >/dev/null 2>&1; then
+                  ACTUAL_SHA256=$(sha256sum "/tmp/${tool}.${EXT}" | awk '{print $1}')
+                else
+                  ACTUAL_SHA256=$(shasum -a 256 "/tmp/${tool}.${EXT}" | awk '{print $1}')
+                fi
+                if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+                  echo "::error::Checksum mismatch for $tool ($ASSET_URL) — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to bundle a possibly-corrupted or tampered mirror asset."
+                  exit 1
+                fi
+                echo "  → checksum verified for $tool (sha256: ${ACTUAL_SHA256})"
+              else
+                echo "::warning::No published checksum found for ${ASSET_NAME} — skipping verification (mirror does not yet publish one for this asset; producer side tracked in #984)"
+              fi
+
               if [ "$EXT" = "zip" ]; then
                 if ! unzip -tqq "/tmp/${tool}.${EXT}" >/dev/null; then
                   echo "::error::Downloaded archive for $tool is not a valid zip ($ASSET_URL)"
