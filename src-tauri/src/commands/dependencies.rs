@@ -740,7 +740,12 @@ async fn probe_votify_version(app: &AppHandle) -> Option<String> {
     use crate::utils::platform;
 
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Use the venv-aware resolver (#1017 / A3 fix) — a system-Python venv
+    // on Windows puts `python.exe` under `Scripts/`, not at the portable
+    // root. The pure `get_python_binary_path` only knows the portable
+    // layout and would report "not installed" for a perfectly valid
+    // system-venv Python, silently breaking votify version detection.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
     if !python_bin.exists() {
         return None;
     }
