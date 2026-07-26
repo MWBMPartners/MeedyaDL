@@ -609,18 +609,26 @@ function App() {
        * user hasn't already said "Not now", offer to move it in.
        * Suppressed while the setup wizard or another first-launch modal
        * is about to show, to avoid stacking overlays on top of each
-       * other. Failures are non-fatal — the offer is entirely optional.
+       * other. Also suppressed while an app update is pending a restart
+       * or actively downloading -- relocation relaunches the app in
+       * place, and doing that with an update still in flight would cost
+       * the user a second restart without either updating or completing
+       * setup. Failures are non-fatal — the offer is entirely optional.
        */
       try {
         const offer = await checkAppRelocation();
         const uiState = useUiStore.getState();
+        const updateState = useUpdateStore.getState();
         if (
           offer.eligible &&
           offer.destination &&
           !settingsState.settings.relocation_declined &&
           !uiState.showSetupWizard &&
           !uiState.showPrereleaseNotice &&
-          !uiState.showCrashReportPrompt
+          !uiState.showCrashReportPrompt &&
+          !uiState.showFirstRunUpdatePrompt &&
+          !updateState.isDownloadingUpdate &&
+          !updateState.updateInstalled
         ) {
           uiState.setShowAppRelocationPrompt(true, offer.destination);
         }
