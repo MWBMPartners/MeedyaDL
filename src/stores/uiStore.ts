@@ -154,6 +154,48 @@ interface UiState {
   setShowCrashReportPrompt: (show: boolean) => void;
 
   /**
+   * Whether the first-run "an app update is available" prompt is shown.
+   *
+   * Flipped by `<App>`'s startup effect when BOTH `setup_completed` is
+   * false AND a compatible app update is available. Supersedes the old
+   * behaviour of silently skipping the setup wizard whenever an update
+   * was pending -- that left first-run users on an old version stranded
+   * with no dependencies installed and no visible path forward. The
+   * prompt always resolves to exactly one of two destinations: the
+   * in-app updater (`downloadAndInstallAppUpdate` + relaunch) or the
+   * setup wizard (`showSetupWizard`) -- see `FirstRunUpdatePrompt.tsx`.
+   */
+  showFirstRunUpdatePrompt: boolean;
+
+  /**
+   * The release the first-run update prompt would install, captured at
+   * the moment `<App>`'s startup effect detects it. `null` when the
+   * prompt is hidden.
+   */
+  firstRunUpdatePromptInfo: { tagName: string; latestVersion: string | null } | null;
+
+  /**
+   * Show or hide the first-run update prompt. Pass `info` when showing it;
+   * omitted (or the prompt being hidden) clears it.
+   */
+  setShowFirstRunUpdatePrompt: (
+    show: boolean,
+    info?: { tagName: string; latestVersion: string | null } | null
+  ) => void;
+
+  /**
+   * Session-local flag set when the user explicitly chooses "Continue
+   * setup on this version" from the first-run update prompt. Not
+   * persisted -- it exists only to record, for the remainder of this
+   * process's lifetime, that the user has already made this decision so
+   * the prompt is never re-shown on top of the wizard it just opened.
+   */
+  firstRunUpdateDeferred: boolean;
+
+  /** Set the first-run "continue on this version" deferred flag. */
+  setFirstRunUpdateDeferred: (deferred: boolean) => void;
+
+  /**
    * Whether the Spotify first-run consent modal is visible (M9-UI).
    * Flipped by `DownloadForm.runPreflightAndSubmit` when it detects
    * a Spotify URL and `spotify_consent_acknowledged` is still false.
@@ -323,6 +365,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   showSetupWizard: false, // Setup wizard hidden until <App> decides to show it
   showPrereleaseNotice: false, // Pre-release notice hidden until version change detected
   showCrashReportPrompt: false, // Crash report opt-in prompt (first launch only)
+  showFirstRunUpdatePrompt: false, // First-run "app update available" prompt hidden until <App> decides to show it
+  firstRunUpdatePromptInfo: null, // No pending release info until the prompt is shown
+  firstRunUpdateDeferred: false, // User hasn't chosen "Continue setup on this version" yet
   showSpotifyConsent: false, // M9-UI: Spotify first-run consent modal
   pendingSpotifyConsentCallback: null, // M9-UI: callback to invoke on consent accept
   showAppRelocationPrompt: false, // #1057: macOS self-relocation offer modal
@@ -360,6 +405,16 @@ export const useUiStore = create<UiState>((set, get) => ({
   /** Show or hide the pre-release first-load notice modal. */
   setShowPrereleaseNotice: (show) => set({ showPrereleaseNotice: show }),
   setShowCrashReportPrompt: (show: boolean) => set({ showCrashReportPrompt: show }),
+
+  /** Show or hide the first-run update prompt, capturing the target release when shown. */
+  setShowFirstRunUpdatePrompt: (show, info = null) =>
+    set({
+      showFirstRunUpdatePrompt: show,
+      firstRunUpdatePromptInfo: show ? info : null,
+    }),
+
+  /** Record (or clear) the user's "continue setup on this version" choice. */
+  setFirstRunUpdateDeferred: (deferred) => set({ firstRunUpdateDeferred: deferred }),
 
   /** Show or hide the macOS self-relocation offer modal (#1057). */
   setShowAppRelocationPrompt: (show, destination = null) =>

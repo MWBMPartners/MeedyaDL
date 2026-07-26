@@ -175,6 +175,14 @@ import SpotifyConsentModal from './components/common/SpotifyConsentModal';
  * @see ./components/common/AppRelocationModal.tsx
  */
 import AppRelocationModal from './components/common/AppRelocationModal';
+/**
+ * FirstRunUpdatePrompt: first-run "an app update is available" prompt.
+ * Takes precedence over the setup wizard on a fresh install/launch when a
+ * compatible app update is available, offering "Update now" or "Continue
+ * setup on this version" -- always resolving to one of the two.
+ * @see ./components/common/FirstRunUpdatePrompt.tsx
+ */
+import FirstRunUpdatePrompt from './components/common/FirstRunUpdatePrompt';
 
 /* ─── Styles ─────────────────────────────────────────────────────────── */
 
@@ -218,7 +226,7 @@ import i18next from 'i18next';
  * Mirrors the Rust struct `GamdlProgress` serialized via serde.
  * @see ./types/index.ts for the full type definition
  */
-import type { GamdlProgress, ActivityLogEntry } from './types';
+import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -305,6 +313,8 @@ function App() {
   const currentPage = useUiStore((s) => s.currentPage);
   /** Whether the setup wizard overlay is visible (first-run or missing deps) */
   const showSetupWizard = useUiStore((s) => s.showSetupWizard);
+  /** Whether the first-run "app update available" prompt is visible (takes precedence over the wizard) */
+  const showFirstRunUpdatePrompt = useUiStore((s) => s.showFirstRunUpdatePrompt);
   /** Action to show/hide the setup wizard */
   const setShowSetupWizard = useUiStore((s) => s.setShowSetupWizard);
 
@@ -457,15 +467,40 @@ function App() {
 
       /* Step 2: Check for app updates BEFORE dependency checks.
        * On first launch the installed version may already be outdated, so we
-       * check for updates early. If an app update is available we skip the
-       * setup wizard and let the user update first — the wizard will run on
-       * the new version after restart. The check is unconditional (ignores
-       * the auto_check_updates setting) because first-launch users haven't
-       * configured anything yet. Failures are non-fatal. */
-      let appUpdateAvailable = false;
+       * check for updates early. If a compatible app update is available and
+       * setup was never completed, Step 4 below shows the first-run update
+       * prompt instead of jumping straight to the wizard, letting the user
+       * choose to update first or continue setup on the current version. The
+       * check is unconditional (ignores the auto_check_updates setting)
+       * because first-launch users haven't configured anything yet.
+       *
+       * Bounded by an ~8s timeout via Promise.race: on a network that drops
+       * packets rather than refusing the connection, an unbounded await here
+       * would delay the entire startup sequence (and therefore the setup
+       * wizard) by however long the underlying HTTP client takes to give up.
+       * A late-arriving result after the timeout still reaches the user
+       * normally via the update banner in the main UI (checkForUpdates()
+       * itself isn't cancelled -- only this startup gate stops waiting on
+       * it). Failures (network unavailable, timeout) are non-fatal; the
+       * flow proceeds as if no update were available. */
+      let appComponent: ComponentUpdate | undefined;
       try {
-        const updateResult = await checkForUpdates();
-        appUpdateAvailable = !!findAppComponentUpdate(updateResult.components);
+        const STARTUP_UPDATE_CHECK_TIMEOUT_MS = 8000;
+        const updateResult = await Promise.race([
+          checkForUpdates(),
+          new Promise<null>((resolve) => {
+            setTimeout(() => resolve(null), STARTUP_UPDATE_CHECK_TIMEOUT_MS);
+          }),
+        ]);
+        if (updateResult) {
+          appComponent = findAppComponentUpdate(updateResult.components);
+        } else {
+          console.info(
+            '[startup] Update check did not complete within 8s — proceeding to dependency ' +
+              'checks/setup wizard without waiting. A late result will still surface via the ' +
+              'update banner once it arrives.'
+          );
+        }
       } catch {
         /* Non-fatal: network may be unavailable on first launch */
       }
@@ -474,20 +509,30 @@ function App() {
       await checkAll();
 
       /*
-       * Step 4: Show setup wizard if dependencies are missing AND setup
-       * has never been completed AND no app update is pending. If an app
-       * update is available, we skip the wizard so the user sees the
-       * update banner in the main UI and can update first. After updating
-       * and restarting, the wizard will run on the new version.
+       * Step 4: Decide between the setup wizard and the first-run update
+       * prompt when dependencies are missing AND setup has never been
+       * completed.
        *
        * If the user has completed setup before (`setup_completed: true`),
-       * skip the wizard even if some deps are missing — they may have been
+       * skip both overlays even if some deps are missing — they may have been
        * intentionally removed, or the app was updated and detection is
        * temporarily broken. The user can always re-run the wizard from Settings.
        *
        * We read the latest state imperatively via getState() rather than
        * using the reactive selectors, because at this point the async
        * `checkAll()` has just completed and we need the freshest snapshot.
+       *
+       * When a first-run wizard IS needed, a compatible app update changes
+       * which overlay appears first: the first-run update prompt (Step 4a)
+       * takes precedence over the wizard so the user can choose to update
+       * immediately (which relaunches into the wizard on the new version)
+       * or continue setup on the current version. Exactly one of the two
+       * is shown here — never neither, never both stacked. This deliberately
+       * does NOT consult `UpdateCheckResult.has_updates`: that aggregate
+       * flag also goes true whenever GAMDL is simply "not installed yet"
+       * (the normal state of a fresh install), which would suppress the
+       * wizard on essentially every first launch. `appComponent` from
+       * Step 2 already narrows this to the app's own update specifically.
        */
       const depState = useDependencyStore.getState();
       const settingsState = useSettingsStore.getState();
@@ -499,8 +544,17 @@ function App() {
         depState.gamdl?.installed &&
         requiredToolsReady
       );
-      if (!depsReady && !settingsState.settings.setup_completed && !appUpdateAvailable) {
-        setShowSetupWizard(true);
+      const needsFirstRunWizard = !depsReady && !settingsState.settings.setup_completed;
+      if (needsFirstRunWizard) {
+        if (appComponent?.tag_name) {
+          // Step 4a: first-run update prompt takes precedence over the wizard.
+          useUiStore.getState().setShowFirstRunUpdatePrompt(true, {
+            tagName: appComponent.tag_name,
+            latestVersion: appComponent.latest_version,
+          });
+        } else {
+          setShowSetupWizard(true);
+        }
       }
 
       /*
@@ -512,16 +566,23 @@ function App() {
        * by comparing the current app version against `last_seen_version`
        * (which the Rust backend updates in load_settings()).
        *
-       * The notice is suppressed if the setup wizard is shown (to avoid
-       * modal stacking) — it will appear on the next launch after setup.
+       * The notice is suppressed if the setup wizard or the first-run update
+       * prompt is shown (to avoid modal stacking) — it will appear on the
+       * next launch after setup.
        */
       try {
         const currentVersion = await getVersion();
         const isPrerelease = currentVersion.startsWith('0.');
         const previousVersion = settingsState.settings.last_seen_version;
         const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
+        const uiStateForNotice = useUiStore.getState();
 
-        if (isPrerelease && versionChanged && !useUiStore.getState().showSetupWizard) {
+        if (
+          isPrerelease &&
+          versionChanged &&
+          !uiStateForNotice.showSetupWizard &&
+          !uiStateForNotice.showFirstRunUpdatePrompt
+        ) {
           useUiStore.getState().setShowPrereleaseNotice(true);
         }
 
@@ -529,7 +590,8 @@ function App() {
         if (
           !settingsState.settings.crash_report_prompt_shown &&
           settingsState.settings.setup_completed &&
-          !useUiStore.getState().showSetupWizard
+          !uiStateForNotice.showSetupWizard &&
+          !uiStateForNotice.showFirstRunUpdatePrompt
         ) {
           useUiStore.getState().setShowCrashReportPrompt(true);
         }
@@ -1067,6 +1129,21 @@ function App() {
         <LoadingSpinner size="lg" label="Loading MeedyaDL..." />
       </div>
     );
+  }
+
+  /*
+   * ─── Render: First-Run Update Prompt ────────────────────────────────
+   * Takes precedence over the setup wizard when both would otherwise be
+   * eligible (see Step 4 in the initialization effect). Rendered as a
+   * full-screen early return, matching the setup wizard's own pattern,
+   * so no other overlay can stack on top of it. Resolves to either the
+   * updater (relaunches into the wizard on the new version) or the
+   * setup wizard on the current version -- it never leaves the user on
+   * this screen with no way forward.
+   * @see ./components/common/FirstRunUpdatePrompt.tsx
+   */
+  if (showFirstRunUpdatePrompt) {
+    return <FirstRunUpdatePrompt />;
   }
 
   /*
