@@ -110,7 +110,7 @@ import { useDependencyStore } from './stores/dependencyStore';
 import { useDownloadStore } from './stores/downloadStore';
 
 /** Update checker: polls for new versions of app components */
-import { useUpdateStore } from './stores/updateStore';
+import { useUpdateStore, findAppComponentUpdate } from './stores/updateStore';
 
 /** Activity log: accumulates raw subprocess output lines */
 import { useActivityStore } from './stores/activityStore';
@@ -465,9 +465,7 @@ function App() {
       let appUpdateAvailable = false;
       try {
         const updateResult = await checkForUpdates();
-        appUpdateAvailable = updateResult.components.some(
-          (c) => c.name === 'app' && c.update_available && c.is_compatible
-        );
+        appUpdateAvailable = !!findAppComponentUpdate(updateResult.components);
       } catch {
         /* Non-fatal: network may be unavailable on first launch */
       }

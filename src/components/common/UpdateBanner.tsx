@@ -53,7 +53,7 @@ import { useMemo } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 /** Zustand store for update state (available updates, dismiss, upgrade actions) */
-import { useUpdateStore } from '@/stores/updateStore';
+import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
 
 /** Zustand store for general UI state (toast notifications) */
 import { useUiStore } from '@/stores/uiStore';
@@ -74,7 +74,7 @@ import { Button } from './Button';
  * space in the layout when there is nothing to show.
  */
 // Core components shown with full detail; engine updates shown generically.
-const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
 
 export function UpdateBanner() {
   /*
@@ -343,7 +343,7 @@ export function UpdateBanner() {
                    * 2. isDownloadingUpdate: progress bar with percentage
                    * 3. Default: "Download & Install" button (requires tag_name)
                    */}
-                  {update.name === 'MeedyaDL' && (
+                  {update.name === APP_COMPONENT_NAME && (
                     <>
                       {updateInstalled ? (
                         <Button
