@@ -24,9 +24,16 @@
  * 1. Platform detection via usePlatform() hook (async, detects OS)
  * 2. Platform-specific CSS theme loaded dynamically
  * 3. Settings loaded from Rust backend via IPC
- * 4. Update check (unconditional, before setup wizard decision)
+ * 4. Update check (unconditional, before setup wizard decision; bounded by
+ *    an ~8s timeout so a slow/unreachable network can't delay first launch)
  * 5. Dependency checks run in parallel (Python, GAMDL, tools)
- * 6. Setup wizard shown if dependencies are missing AND no app update pending
+ * 6. If dependencies are missing and setup was never completed: either the
+ *    setup wizard is shown directly, OR -- if a compatible app update is
+ *    available -- the first-run update prompt is shown first, letting the
+ *    user choose "Update now" (then relaunch into the wizard on the new
+ *    version) or "Continue setup on this version" (shows the wizard
+ *    immediately). Exactly one of the two always ends up on screen; a user
+ *    is never left with neither.
  * 7. Periodic update timer and tray listener registered
  * 8. Event listeners registered for progress, download lifecycle, and tray
  *
@@ -236,7 +243,10 @@ import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
  * 2. Loads the appropriate platform theme CSS
  * 3. Loads settings from the backend
  * 4. Checks if dependencies are installed (Python, GAMDL)
- * 5. Shows the setup wizard if dependencies are missing, or the main UI if ready
+ * 5. Shows the setup wizard if dependencies are missing and setup was never
+ *    completed -- unless a compatible app update is available, in which case
+ *    the first-run update prompt is shown first so the user can choose
+ *    between updating immediately or continuing setup on the current version
  * 6. Auto-checks for updates if enabled in settings
  * 7. Listens for GAMDL progress events from the backend
  * 8. Listens for system tray events (update check trigger)
