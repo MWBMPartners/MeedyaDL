@@ -43,14 +43,40 @@ negative test / seed line when changing the denylist.
 USAGE
   lint-notes.py [--trailer] [--strict] [FILE ...]
   echo "$LINE" | lint-notes.py --trailer
+  gh release view "$TAG" --json body --jq .body | lint-notes.py --live --strict
 
   --trailer   Read newline-separated `Release-Note:` trailer text from
               stdin instead of linting FILE arguments. Each stdin line is
               treated as one independent trailer (already stripped of the
               leading "Release-Note: " prefix by the caller — see
               `.github/workflows/release-note-gate.yml` wiring).
+  --live      Read a single published release body from stdin (e.g. the
+              output of `gh release view --json body --jq .body`) and lint
+              it as one document, with the workflow-appended "Choose your
+              download" footer stripped first (same `_strip_footer` used
+              for committed files) so the footer's own boilerplate never
+              trips the denylist. Used by
+              `.github/workflows/release-body-audit.yml` to check bodies
+              after they are already public, since nothing else inspects
+              a body post-publication.
   --strict    Escalate warning-tier findings to blocking (exit 1 if any
-              warning-tier finding exists, even with zero errors).
+              warning-tier finding exists, even with zero errors). Not
+              passed by any PR-time caller today (deliberate — see
+              "Severity policy" below); `release-body-audit.yml` passes it
+              on every `--live` invocation.
+
+SEVERITY POLICY
+  Error-tier findings (mechanism disclosure, commit-speak) always block,
+  everywhere. Warning-tier findings (the noisy heuristics: bare "API",
+  "JSON", "database", CamelCase, etc.) are calibrated to have a real
+  false-positive rate and are advisory at PR-authoring time (trailer lint,
+  tier-1 file lint) so a legitimate plain-English bullet doesn't get
+  blocked over a heuristic guess — a human is looking at the same PR
+  either way. The published-body audit is a different situation: nothing
+  else reviews these bodies again, so it is the one caller that always
+  runs `--strict`, matching the design note in
+  `.github/audits/release-notes-policy-audit-2026-07-24.md` §4.2 ("Tier:
+  warning (human review, --strict in nightly/manual runs)").
 
 EXIT CODES
   0  no error-tier findings (and, under --strict, no warning-tier findings)
@@ -107,12 +133,53 @@ ERROR_MECHANISM_RULES: list[tuple[str, re.Pattern[str]]] = [
     ("mechanism-api-version-path", re.compile(r"\b/v[0-9]+/")),
     ("mechanism-amp-api", re.compile(r"amp-api")),
     ("mechanism-api-music-apple", re.compile(r"api\.music\.apple")),
-    ("mechanism-syllable-lyrics", re.compile(r"syllable-lyrics")),
+    # Broadened beyond the hyphenated "syllable-lyrics" endpoint name to
+    # also catch the underlying data-shape vocabulary that discloses the
+    # same acquisition-path detail without naming the endpoint itself —
+    # e.g. v1.10.1.md's "the difference between syllable-level and
+    # word-level timing in Apple's ... data" leaks exactly what the
+    # endpoint call is for even though it never says "syllable-lyrics".
+    ("mechanism-syllable-lyrics", re.compile(r"(?i)\b(?:syllable[- ](?:lyrics|level|timing)|word-level timing)\b")),
     ("mechanism-scraping", re.compile(r"(?i)\b(scrape[sd]?|scraping)\b")),
     ("mechanism-extraction", re.compile(r"(?i)\bextract(s|ed|ing|ion)?\b.{0,40}\b(token|cookie|credential)s?\b")),
     ("mechanism-m3u8", re.compile(r"\bm3u8\b")),
     ("mechanism-hls", re.compile(r"\bHLS\b")),
     ("mechanism-ttml", re.compile(r"\bTTML\b")),
+    # STYLE_GUIDE.md's "Never reveal how a feature is delivered" section
+    # explicitly bans "retry or fallback behaviour against a service" as
+    # an acquisition-path disclosure, but no rule enforced it. Scoped to
+    # the inflected verb forms (retries/retried/retrying) co-occurring
+    # with "without"/"fetch"/"timeout" — NOT bare "retry", which is also
+    # the literal, allowed UI button/pill label ("Retry", "Retry without
+    # Wrapper" pill) that must stay unflagged. Matches both v1.3.0.md
+    # ("MeedyaDL retries without cover art instead of ... failing") and
+    # v1.11.0-alpha.23.md ("adds a proper timeout and automatic retry
+    # when fetching artwork").
+    ("mechanism-retry-against-service", re.compile(
+        r"(?i)\b(?:retr(?:ies|ied|ying)|timeout)\b.{0,80}\b(?:fetch\w*|without)\b"
+        r"|\b(?:fetch\w*|without)\b.{0,80}\b(?:retr(?:ies|ied|ying)|timeout)\b"
+    )),
+    # "Apple-side" (e.g. v1.3.0.md's "A known Apple-side bug") names which
+    # party's system a bug/workaround targets — an acquisition-path-shaped
+    # disclosure even without naming a specific API. Hyphenated form only
+    # ("Apple Music-side" reads as a plain adjective, not this pattern).
+    ("mechanism-apple-side", re.compile(r"(?i)\bApple-side\b")),
+    # Reverse-DNS bundle/app identifiers (e.g. com.meedyasuite.meedyadl)
+    # are packaging internals, never user-facing vocabulary.
+    ("mechanism-bundle-identifier", re.compile(r"(?i)\bcom\.[a-z0-9]+(?:\.[a-z0-9]+)+\b")),
+    ("mechanism-cdn", re.compile(r"(?i)\bCDN\b")),
+    # Naming a specific third-party lookup/resolution service (e.g. "the
+    # iTunes Lookup API") discloses an acquisition path the same way
+    # amp-api / api.music.apple already do for the other Apple endpoint.
+    # Deliberately does NOT match plain "lookup"/"lookups" alone (that's
+    # allowed capability language — see v1.9.0.md "cross-platform
+    # lookups", and "MusicBrainz lookups" in v1.11.0-alpha.31.md, where
+    # MusicBrainz is itself allowlisted, literal Settings-toggle
+    # vocabulary) — only the specific named-service or api/service/
+    # endpoint-qualified shape.
+    ("mechanism-lookup-service", re.compile(
+        r"(?i)\biTunes Lookup\b|\b(?:lookup|resolution)\s+(?:api|service|endpoint)\b"
+    )),
     # Negative lookahead allows the Settings label "decryption address".
     ("mechanism-decrypt", re.compile(r"(?i)\bdecrypt(ion|ing|ed)?\b(?!.{0,20}address)")),
     ("mechanism-aes", re.compile(r"(?i)\bAES-[0-9]+")),
@@ -235,17 +302,29 @@ def lint_trailer_stream(stream: str) -> list[Finding]:
 def main(argv: list[str]) -> int:
     args = argv[1:]
     trailer_mode = "--trailer" in args
+    live_mode = "--live" in args
     strict = "--strict" in args
-    file_args = [a for a in args if a not in ("--trailer", "--strict")]
+    file_args = [a for a in args if a not in ("--trailer", "--live", "--strict")]
+
+    if trailer_mode and live_mode:
+        print("lint-notes.py: --trailer and --live are mutually exclusive", file=sys.stderr)
+        return 2
 
     all_findings: list[Finding] = []
 
     if trailer_mode:
         stdin_text = sys.stdin.read()
         all_findings.extend(lint_trailer_stream(stdin_text))
+    elif live_mode:
+        # A single published release body, read whole off stdin (see
+        # `.github/workflows/release-body-audit.yml`). Footer-stripped
+        # the same way a committed file is — the workflow-appended
+        # "Choose your download" section is not authored content.
+        stdin_text = sys.stdin.read()
+        all_findings.extend(lint_text(stdin_text, "live", strip_footer=True))
     else:
         if not file_args:
-            print("lint-notes.py: no FILE arguments given (and --trailer not set)", file=sys.stderr)
+            print("lint-notes.py: no FILE arguments given (and --trailer/--live not set)", file=sys.stderr)
             print(__doc__, file=sys.stderr)
             return 2
         for arg in file_args:
