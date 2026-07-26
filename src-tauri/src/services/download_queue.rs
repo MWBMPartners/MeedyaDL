@@ -7056,9 +7056,16 @@ pub fn process_queue(
                     "Checking internet connection, output folder, and account...",
                 );
 
-                // Run internet + wrapper checks concurrently (both are HTTP GETs)
+                // Run internet + wrapper checks concurrently (both are HTTP GETs).
+                // This is a once-per-batch, queue-wide check (not tied to a
+                // single item), and a batch can mix services — so unlike the
+                // per-download `check_internet_before_download` IPC command
+                // (A1), there's no single unambiguous URL to detect a service
+                // from here. Passing `None` preserves the pre-A1 behaviour:
+                // Tier 2 always probes the Apple Music API for this
+                // queue-wide check.
                 let internet_future =
-                    crate::services::health_check_service::check_internet_connectivity();
+                    crate::services::health_check_service::check_internet_connectivity(None);
                 // #853: pick wrapper-v1 vs wrapper-v2 preflights based on the
                 // detected GAMDL release. v1 needs the three sockets (account
                 // HTTP + m3u8 TCP + decrypt TCP); v2 (≥ 3.6) needs the single
