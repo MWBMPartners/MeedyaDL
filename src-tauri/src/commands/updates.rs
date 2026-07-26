@@ -184,13 +184,61 @@ pub async fn upgrade_gamdl(
     }
 }
 
+/// Upgrades votify (the Spotify engine) to a version inside — or an
+/// explicit above-ceiling target outside — MeedyaDL's validated support
+/// window.
+///
+/// **Frontend caller:** `upgradeVotify(targetVersion?)` in `src/lib/tauri-commands.ts`
+///
+/// Mirrors `upgrade_gamdl()`'s shape exactly (A4): `target_version = None`
+/// (routine "Upgrade" click) resolves to the bounded
+/// `votify_capabilities::pip_version_spec()`, so a plain upgrade can never
+/// silently land on an unaudited release even if it's the newest thing on
+/// PyPI. `target_version = Some(v)` is used only when the user has
+/// consciously opted into installing an above-ceiling "Untested" release
+/// surfaced by the Updates page.
+///
+/// # Errors
+/// Returns an error if the pip upgrade subprocess fails (network timeout,
+/// dependency conflict, disk full, missing Python runtime, etc.).
+#[tauri::command]
+pub async fn upgrade_votify(
+    app: AppHandle,
+    target_version: Option<String>,
+) -> Result<String, String> {
+    if let Some(target) = target_version.as_deref() {
+        log::info!("Upgrading votify to explicit target v{target}...");
+        emit_app_log(&app, &format!("Upgrading votify to v{target}..."));
+    } else {
+        log::info!("Upgrading votify...");
+        emit_app_log(&app, "Upgrading votify...");
+    }
+    match crate::services::spotify_service::install_votify(&app, target_version.as_deref()).await
+    {
+        Ok(version) => {
+            log::info!("votify upgraded to {version}");
+            emit_app_log(&app, &format!("votify upgraded to v{version}"));
+            Ok(version)
+        }
+        Err(err) => {
+            log::warn!("votify upgrade failed: {err}");
+            emit_app_log(&app, &format!("votify upgrade failed: {err}"));
+            Err(err)
+        }
+    }
+}
+
 /// Upgrades any pip-based engine to the latest version.
 ///
 /// **Frontend caller:** `upgradePipEngine(package)` in `src/lib/tauri-commands.ts`
 ///
 /// Uses `pip install --upgrade` to update the package. Works for any
-/// pip engine: votify, yt-dlp, ofscraper, etc. GAMDL has its own
-/// upgrade path via `upgrade_gamdl()` with compatibility gating.
+/// pip engine without its own validated version window: yt-dlp,
+/// ofscraper, etc. GAMDL and votify have their own dedicated upgrade
+/// paths (`upgrade_gamdl()` / `upgrade_votify()`) with compatibility
+/// gating — this command's `package` allowlist (below) does not exclude
+/// them, but the frontend should prefer the dedicated commands so the
+/// version-window bound is actually enforced.
 ///
 /// # Security (#985)
 /// `package` is attacker-influenceable IPC input. Two independent
