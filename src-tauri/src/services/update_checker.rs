@@ -29,8 +29,14 @@
 //
 // ## Version Comparison
 //
-// Versions are compared as semver tuples (major, minor, patch). The `is_newer()`
-// function parses "X.Y.Z" strings into (u32, u32, u32) and uses tuple comparison.
+// Versions are compared via `is_newer()`, which is pre-release aware. The
+// base "X.Y.Z" component is parsed into a (u32, u32, u32) tuple and compared
+// first; when two versions share the same base (e.g. two alpha builds of the
+// same upcoming release), the comparison falls through to the pre-release
+// channel (Alpha < Beta < Rc < Stable, via the existing `UpdateChannel`
+// ordering) and finally to the numeric pre-release counter (e.g. `alpha.37`
+// vs `alpha.38`). This lets in-app updates work correctly between
+// consecutive pre-releases, not just up to the next stable release.
 //
 // ## Compatibility Gating
 //
@@ -402,31 +408,98 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
     Ok(filenames)
 }
 
-/// Compares two semver version strings and returns true if `latest` is strictly newer than `current`.
+/// Parses the `(major, minor, patch)` base version out of a version string,
+/// ignoring any pre-release suffix (everything from the first `-` onward).
 ///
-/// Uses simple tuple comparison on (major, minor, patch). Unparseable parts default to 0.
-/// Equal versions return false (not newer).
+/// Missing or unparseable parts default to 0, making this forgiving of
+/// version strings like "2.0" (treated as 2.0.0) or "v2.1" (0.0.0 — the
+/// leading "v" makes the major segment unparseable, matching the pre-#C-fix
+/// behaviour so plain-semver callers see no change).
+///
+/// Splitting off the suffix BEFORE splitting on `.` is the fix for the core
+/// bug this module shipped with: `"1.12.0-alpha.38".split('.')` yields
+/// `["1", "12", "0-alpha", "38"]`, and `"0-alpha".parse::<u32>()` fails —
+/// silently coercing the patch component to 0 and making every pre-release
+/// of a given base version compare equal to every other. Stripping the
+/// suffix first means the base-tuple comparison is unaffected by whatever
+/// pre-release label follows it.
+fn parse_base_semver(v: &str) -> (u32, u32, u32) {
+    let base = v.split('-').next().unwrap_or(v);
+    let parts: Vec<&str> = base.split('.').collect();
+    let major = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
+    let minor = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+    let patch = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
+    (major, minor, patch)
+}
+
+/// Extracts the numeric counter from a pre-release suffix (e.g. the `38` in
+/// `"1.12.0-alpha.38"`). Returns 0 for a stable version (no `-` present) or
+/// a suffix with no parseable second segment (e.g. a bare `"-rc"`).
+fn extract_prerelease_counter(v: &str) -> u32 {
+    match v.split_once('-') {
+        Some((_, suffix)) => suffix
+            .split('.')
+            .nth(1)
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(0),
+        None => 0,
+    }
+}
+
+/// Compares two semver-ish version strings and returns true if `latest` is
+/// strictly newer than `current`.
+///
+/// Pre-release aware (fixes the bug where consecutive prereleases sharing a
+/// base version — e.g. `"1.12.0-alpha.37"` -> `"1.12.0-alpha.38"` — always
+/// compared equal, since the naive `.split('.')` parse coerced the "0-alpha"
+/// patch segment to 0 for both sides). Comparison proceeds in three tiers,
+/// each only consulted when the previous tier is equal:
+///
+/// 1. **Base version** `(major, minor, patch)`, via [`parse_base_semver`].
+///    A stable release always outranks any pre-release of an *older* base
+///    (e.g. `"1.13.0-alpha.1"` beats `"1.12.0"`).
+/// 2. **Channel rank**, via the existing [`UpdateChannel::from_tag`]
+///    ordering (`Alpha < Beta < Rc < Stable`) — reused rather than
+///    reimplemented so the two "which pre-release is more stable" notions
+///    in this codebase can never drift apart. A stable release of the same
+///    base outranks any pre-release of that base (e.g. `"1.12.0"` beats
+///    `"1.12.0-alpha.38"`).
+/// 3. **Pre-release counter**, via [`extract_prerelease_counter`] — the
+///    trailing `.N` on same-channel pre-releases of the same base (e.g.
+///    `alpha.38` beats `alpha.37`).
+///
+/// This function is shared by every version-comparison call site in this
+/// module (GAMDL, the app itself, Python, pip engines, and binary tools) —
+/// changing its behaviour affects all of them. Plain semver strings with no
+/// pre-release suffix behave exactly as before this fix (tier 1 alone
+/// decides, since tiers 2/3 both evaluate to "equal" for two stable
+/// strings).
 ///
 /// Examples:
-/// - `is_newer("1.0.0`", "1.0.1") => true  (patch bump)
-/// - `is_newer("1.0.0`", "1.0.0") => false (same version)
-/// - `is_newer("2.0.0`", "1.9.9") => false (downgrade)
+/// - `is_newer("1.0.0", "1.0.1")` => true (patch bump)
+/// - `is_newer("1.0.0", "1.0.0")` => false (same version)
+/// - `is_newer("2.0.0", "1.9.9")` => false (downgrade)
+/// - `is_newer("1.12.0-alpha.37", "1.12.0-alpha.38")` => true (counter bump)
+/// - `is_newer("1.12.0-alpha.38", "1.12.0")` => true (stable outranks prerelease of same base)
+/// - `is_newer("1.12.0", "1.13.0-alpha.1")` => true (newer base outranks channel/counter)
 fn is_newer(current: &str, latest: &str) -> bool {
-    // Parse version string into (major, minor, patch) tuple.
-    // Missing or unparseable parts default to 0, making this forgiving
-    // of version strings like "2.0" (treated as 2.0.0) or "v2.1" (0.0.0 — the "v" makes it unparseable).
-    let parse = |v: &str| -> (u32, u32, u32) {
-        let parts: Vec<&str> = v.split('.').collect();
-        let major = parts.first().and_then(|p| p.parse().ok()).unwrap_or(0);
-        let minor = parts.get(1).and_then(|p| p.parse().ok()).unwrap_or(0);
-        let patch = parts.get(2).and_then(|p| p.parse().ok()).unwrap_or(0);
-        (major, minor, patch)
-    };
+    let c_base = parse_base_semver(current);
+    let l_base = parse_base_semver(latest);
+    if l_base != c_base {
+        // Rust's tuple comparison is lexicographic: major, then minor, then patch.
+        return l_base > c_base;
+    }
 
-    let c = parse(current);
-    let l = parse(latest);
-    // Rust's tuple comparison is lexicographic: compares major first, then minor, then patch
-    l > c
+    // Same base version — the more stable channel wins (Stable > Rc > Beta > Alpha).
+    let c_channel = UpdateChannel::from_tag(current);
+    let l_channel = UpdateChannel::from_tag(latest);
+    if l_channel != c_channel {
+        return l_channel > c_channel;
+    }
+
+    // Same base version AND same channel — compare the trailing counter
+    // (e.g. alpha.37 vs alpha.38).
+    extract_prerelease_counter(latest) > extract_prerelease_counter(current)
 }
 
 // ============================================================
@@ -1586,8 +1659,12 @@ mod tests {
         assert!(!UpdateChannel::Stable.requires_dev_access());
     }
 
-    /// Tests that is_newer() correctly handles all semver comparison cases:
-    /// patch bumps, minor bumps, major bumps, equal versions, and downgrades.
+    /// Tests that is_newer() correctly handles all plain-semver comparison
+    /// cases: patch bumps, minor bumps, major bumps, equal versions, and
+    /// downgrades. These are the pre-existing cases from before the
+    /// pre-release-aware rework — they MUST behave identically afterward,
+    /// since this comparator is shared with GAMDL, Python, pip engines, and
+    /// binary tool version checks, none of which use pre-release suffixes.
     #[test]
     fn test_is_newer() {
         // Patch bump: 1.0.1 is newer than 1.0.0
@@ -1600,6 +1677,54 @@ mod tests {
         assert!(!is_newer("1.0.0", "1.0.0"));
         // Downgrade: 1.0.0 is not newer than 2.0.0
         assert!(!is_newer("2.0.0", "1.0.0"));
+    }
+
+    /// Regression coverage for the core bug this rework fixes: consecutive
+    /// pre-releases of the SAME base version must compare correctly.
+    ///
+    /// Before the fix, `is_newer()` split naively on '.', so
+    /// "1.12.0-alpha.38".split('.') -> ["1", "12", "0-alpha", "38"] and the
+    /// patch segment ("0-alpha") failed to parse and silently defaulted to
+    /// 0. Every alpha/beta/rc build of a given base version therefore
+    /// compared as exactly equal to every other — in-app updates between
+    /// pre-releases were completely broken for every user on a pre-release
+    /// channel, not just on first run.
+    #[test]
+    fn test_is_newer_prerelease_counter_bump() {
+        // alpha.37 -> alpha.38 (same base, same channel, higher counter)
+        assert!(is_newer("1.12.0-alpha.37", "1.12.0-alpha.38"));
+        // The reverse must NOT be newer.
+        assert!(!is_newer("1.12.0-alpha.38", "1.12.0-alpha.37"));
+        // Equal pre-releases are not newer than themselves.
+        assert!(!is_newer("1.12.0-alpha.38", "1.12.0-alpha.38"));
+        // Same shape, beta channel — not just an alpha-specific fix.
+        assert!(is_newer("1.12.0-beta.1", "1.12.0-beta.2"));
+    }
+
+    /// A stable release of the same base version IS newer than any of its
+    /// own pre-releases — the channel tier (Alpha < Beta < Rc < Stable)
+    /// outranks the pre-release counter once the base versions match.
+    #[test]
+    fn test_is_newer_stable_outranks_own_prereleases() {
+        assert!(is_newer("1.12.0-alpha.38", "1.12.0"));
+        // A higher-ranked channel of the same base is also newer, even with
+        // a "lower" counter than a lesser channel would have.
+        assert!(is_newer("1.12.0-alpha.99", "1.12.0-beta.1"));
+        assert!(is_newer("1.12.0-beta.5", "1.12.0-rc.1"));
+        assert!(is_newer("1.12.0-rc.3", "1.12.0"));
+        // And the reverse (stable is never "older" than its own prereleases).
+        assert!(!is_newer("1.12.0", "1.12.0-alpha.38"));
+    }
+
+    /// A stable (or pre-release) build of a strictly NEWER base version
+    /// outranks pre-releases of an OLDER base, regardless of channel or
+    /// counter — the base-version tuple is always compared first.
+    #[test]
+    fn test_is_newer_base_version_takes_priority_over_channel() {
+        assert!(is_newer("1.12.0", "1.13.0-alpha.1"));
+        // Even a "lowly" alpha.1 of a newer base beats a "highly" rc.9 of
+        // an older base — base version is tier 1, channel is only tier 2.
+        assert!(is_newer("1.12.0-rc.9", "1.13.0-alpha.1"));
     }
 
     /// `derive_cpython_tag` splits a dotted Python version string into
