@@ -495,12 +495,21 @@ pub async fn check_votify_status(app: AppHandle) -> Result<DependencyStatus, Str
 /// Installs votify via pip into the managed Python environment.
 ///
 /// **Frontend caller:** `installVotify()` in `src/lib/tauri-commands.ts`
+///
+/// # Version window (A4)
+/// Routes through `spotify_service::install_votify(&app, None)`, which
+/// resolves to the bounded `votify_capabilities::pip_version_spec()`
+/// (`votify>={min},<={max}`) rather than an unbounded `pip install
+/// --upgrade votify`. This is the routine setup-wizard install path — it
+/// always lands on the newest version inside MeedyaDL's validated support
+/// window, the same guarantee GAMDL's install path already had. An
+/// above-ceiling "Untested" release is only ever installed when a user
+/// explicitly opts in via `upgrade_votify(target_version)`.
 #[tauri::command]
 pub async fn install_votify(app: AppHandle) -> Result<String, String> {
     log::info!("Installing votify...");
     emit_app_log(&app, "Installing votify...");
-    let version =
-        crate::services::pip_engine_service::install_pip_engine(&app, "votify").await?;
+    let version = crate::services::spotify_service::install_votify(&app, None).await?;
     log::info!("votify v{version} installed");
     emit_app_log(&app, &format!("votify v{version} installed"));
     Ok(version)

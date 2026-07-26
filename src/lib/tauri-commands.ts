@@ -1933,10 +1933,36 @@ export function upgradeGamdl(targetVersion?: string): Promise<string> {
 }
 
 /**
+ * Upgrades votify (the Spotify engine) via pip, bounded by MeedyaDL's
+ * validated votify support window (A4).
+ *
+ * Rust handler: `upgrade_votify()` in `src-tauri/src/commands/updates.rs`
+ * Returns: the new votify version string.
+ *
+ * Mirrors `upgradeGamdl()`: a routine "Upgrade" click (`targetVersion`
+ * omitted) always resolves to the newest version inside the bounded
+ * support window; only pass `targetVersion` when the user has explicitly
+ * opted into an above-ceiling "Untested" release.
+ *
+ * @param targetVersion - When provided, pip pins to exactly this version
+ *   (`votify=={targetVersion}`).
+ * @returns Promise resolving to the installed version string
+ */
+export function upgradeVotify(targetVersion?: string): Promise<string> {
+  // Explicit `null` (not `undefined`) — see `upgradeGamdl` above.
+  return invoke<string>('upgrade_votify', {
+    targetVersion: targetVersion ?? null,
+  });
+}
+
+/**
  * Upgrades any pip-based engine to the latest version.
  *
  * Rust handler: `upgrade_pip_engine()` in `src-tauri/src/commands/updates.rs`
- * Works for votify, yt-dlp, ofscraper, etc. GAMDL has its own upgrade path.
+ * Works for yt-dlp, ofscraper, etc. — pip engines without a validated
+ * version window of their own. GAMDL (`upgradeGamdl`) and votify
+ * (`upgradeVotify`) have their own dedicated, version-bounded upgrade
+ * paths; prefer those for those two packages.
  */
 export function upgradePipEngine(packageName: string): Promise<string> {
   return invoke<string>('upgrade_pip_engine', { package: packageName });

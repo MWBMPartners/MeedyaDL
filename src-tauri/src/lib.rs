@@ -1240,6 +1240,7 @@ pub fn run() {
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
             commands::updates::upgrade_gamdl,
+            commands::updates::upgrade_votify,
             commands::updates::upgrade_pip_engine,
             commands::updates::check_component_update,
             commands::updates::download_and_install_app_update,
