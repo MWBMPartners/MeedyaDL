@@ -10,6 +10,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.10.2 [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -42,6 +43,21 @@ Per audit .github/audits/release-notes-policy-audit-2026-07-24.md §5.2:
   `python3 -c "import yaml..."` both pass clean; every embedded `run:`
   block passes `bash -n`; the sole action reference (actions/checkout) is
   SHA-pinned, matching the pin already used in release-note-gate.yml.
+
+- **(release-notes)** Fail fast when dispatched against a ref without the notes infrastructure
+
+Apply Release Notes has no `ref:` on its checkout step, so it builds
+  whatever ref was dispatched -- and the GitHub UI's "Run workflow"
+  branch dropdown defaults to main, which carries none of the curated
+  notes files or helper scripts this workflow shells out to. Add a
+  preflight step, immediately after checkout, that verifies the three
+  scripts/release-notes/*.sh|py helpers and at least one
+  .github/release-notes/v*.md file are present before anything else
+  runs, and fails with an actionable message (naming the actual
+  checked-out ref and a concrete re-run command) written to both the
+  job log and the step summary when they aren't. Checks for the files
+  themselves, not a hardcoded branch name, so the guard keeps working
+  once this infrastructure legitimately lands on main.
 
 
 ## [1.10.2] - 2026-07-24
