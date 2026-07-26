@@ -275,7 +275,7 @@ jobs:
             else
               echo "::notice::Release $TAG already exists and no tier-1 notes staged; leaving body untouched"
               echo "::error::Stable $TAG has no .github/release-notes/${TAG}.md — its body may be release-please commit-speak. Stage the file on main, then run: bash scripts/release-notes/apply-notes.sh $TAG"
-              exit 0
+              exit 1
             fi
           fi
 
