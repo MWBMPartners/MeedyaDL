@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 
-import { useUpdateStore } from '@/stores/updateStore';
+import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
@@ -45,7 +45,7 @@ function stripDownloadSection(body: string): string {
 
 // Core components shown individually with full detail in the Updates page.
 // Engine updates (everything else) are aggregated into a single generic card.
-const CORE_COMPONENTS = ['MeedyaDL', 'GAMDL', 'Python Runtime'];
+const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
 
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
@@ -82,7 +82,7 @@ export function UpdatesPage() {
   // Current app version from the last check result
   const currentVersion = useMemo(() => {
     if (!lastResult) return null;
-    const app = lastResult.components.find((c) => c.name === 'MeedyaDL');
+    const app = lastResult.components.find((c) => c.name === APP_COMPONENT_NAME);
     return app?.current_version ?? null;
   }, [lastResult]);
 
@@ -346,7 +346,7 @@ export function UpdatesPage() {
                     )}
 
                     {/* MeedyaDL app update */}
-                    {update.name === 'MeedyaDL' && (
+                    {update.name === APP_COMPONENT_NAME && (
                       <>
                         {updateInstalled ? (
                           <Button
@@ -448,7 +448,7 @@ export function UpdatesPage() {
                 )}
 
                 {/* Download error with manual fallback */}
-                {update.name === 'MeedyaDL' && downloadError && !updateInstalled && (
+                {update.name === APP_COMPONENT_NAME && downloadError && !updateInstalled && (
                   <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3 mb-3">
                     <p className="text-xs text-status-error mb-2">{downloadError}</p>
                     {update.release_url && (
@@ -464,7 +464,7 @@ export function UpdatesPage() {
                 )}
 
                 {/* Full release notes (markdown) for MeedyaDL */}
-                {update.name === 'MeedyaDL' && update.release_body && (
+                {update.name === APP_COMPONENT_NAME && update.release_body && (
                   <div className="mt-4 pt-4 border-t border-border-light">
                     <h4 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-3">
                       Release Notes
@@ -498,7 +498,7 @@ export function UpdatesPage() {
                 )}
 
                 {/* Description for non-MeedyaDL components */}
-                {update.name !== 'MeedyaDL' && update.description && (
+                {update.name !== APP_COMPONENT_NAME && update.description && (
                   <p className="text-sm text-content-secondary">{update.description}</p>
                 )}
               </div>

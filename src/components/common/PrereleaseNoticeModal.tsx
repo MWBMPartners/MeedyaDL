@@ -34,7 +34,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getVersion } from '@tauri-apps/api/app';
 import { useUiStore } from '../../stores/uiStore';
-import { useUpdateStore } from '../../stores/updateStore';
+import { useUpdateStore, APP_COMPONENT_NAME } from '../../stores/updateStore';
 import type { ComponentUpdate } from '../../types';
 import { Modal } from './Modal';
 
@@ -54,7 +54,8 @@ export default function PrereleaseNoticeModal() {
   // Check if there's a stable (non-prerelease) update available
   const latestUpdate = useUpdateStore((s): ComponentUpdate | undefined =>
     s.lastResult?.components.find(
-      (c: ComponentUpdate) => c.name === 'app' && c.update_available && c.is_compatible && !c.is_prerelease
+      (c: ComponentUpdate) =>
+        c.name === APP_COMPONENT_NAME && c.update_available && c.is_compatible && !c.is_prerelease
     )
   );
 

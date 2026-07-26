@@ -56,6 +56,49 @@ import type { ComponentUpdate, UpdateCheckResult } from '@/types';
 import * as commands from '@/lib/tauri-commands';
 
 /**
+ * The `ComponentUpdate.name` value the Rust backend uses for the MeedyaDL
+ * app itself (see `parse_release_from_response()` /
+ * `check_app_update()`'s early-return paths in
+ * `src-tauri/src/services/update_checker.rs`).
+ *
+ * Every frontend call site that needs to pick the app's own entry out of
+ * an `UpdateCheckResult.components[]` array MUST compare against this
+ * constant rather than a hardcoded string literal. A prior mismatch
+ * (comparing against the string `'app'`, which the backend never emits)
+ * silently broke the first-run "app update available" gate in `App.tsx`
+ * and the stable-release offer in `PrereleaseNoticeModal.tsx` — the
+ * comparison always evaluated to false, so those code paths simply never
+ * fired. Centralising the string here means a future rename only needs
+ * to change one place.
+ */
+export const APP_COMPONENT_NAME = 'MeedyaDL';
+
+/**
+ * Finds the app's own `ComponentUpdate` entry in a components array,
+ * gated to a genuinely actionable state: the entry must be named
+ * {@link APP_COMPONENT_NAME}, report `update_available`, and be
+ * `is_compatible`. Shared by every call site that needs to answer
+ * "is there an app update the user could install right now?" — the
+ * first-run update gate in `App.tsx` being the primary consumer.
+ *
+ * Deliberately does NOT filter on `is_prerelease` — callers that care
+ * about that additional axis (e.g. `PrereleaseNoticeModal`'s "offer a
+ * stable release instead" banner) apply their own extra filter on top
+ * of this base predicate.
+ *
+ * @param components - The `components[]` array from an `UpdateCheckResult`
+ * @returns The app's `ComponentUpdate`, or `undefined` if no actionable
+ *   app update is present
+ */
+export function findAppComponentUpdate(
+  components: ComponentUpdate[]
+): ComponentUpdate | undefined {
+  return components.find(
+    (c) => c.name === APP_COMPONENT_NAME && c.update_available && c.is_compatible
+  );
+}
+
+/**
  * Combined state + actions interface for the update store.
  *
  * State tracks:
