@@ -88,7 +88,7 @@ Two commits landed on this branch, plus a decision that changes the shape of the
 4. **Bug:** `SemVerComparator` compares the prerelease segment with `strcmp`, so `"alpha.10"` sorts below `"alpha.9"` — every MeedyaDL alpha build after `.9` hits this. Separately, `normalize()` requires 3-part version strings, but macOS reports `"26.6"`, Ubuntu `"24.04"`, Debian `"12"` — platform-version targeting rules would silently never match. Both filed as intAppsAPI **#109**.
 5. **Branch `claude/feature-gating-readiness-yQisQ` (tip `4b8f2aa`) is not just migration 015** — it also carries the `schema.sql` cumulative-snapshot fix (`13e4de0`) and a CI DB Check workflow (`7f8c81e`). No other branch has those commits. Merging it now has a **real conflict** in `web/src/Controllers/Admin/FeatureController.php` (both sides independently wire up `AuditLogger`) — an earlier "zero conflicts" note about this branch is **stale**, do not trust it without re-diffing.
 6. **Trap:** `src/components/help/HelpViewer.tsx` does **not** read `help/*.md` at runtime — help content is inline template literals in a `HELP_TOPICS` array (`src/components/help/HelpViewer.tsx:170`). Any help-doc change must land in **both** the `.md` file and the matching inline `HELP_TOPICS` entry, or the two silently diverge.
-7. **`CLAUDE.md` said "12 help topics" — stale.** There are 16 (`help/*.md`: `animated-artwork`, `cookie-management`, `downloading-music`, `downloading-videos`, `fallback-quality`, `faq`, `getting-started`, `index`, `keyboard-shortcuts`, `lyrics-and-metadata`, `metadata-mapping`, `quality-settings`, `release-channels`, `supported-services`, `troubleshooting`, `wrapper`) and 16 matching `HELP_TOPICS` entries. **Fixed in this checkpoint's CLAUDE.md edit.**
+7. **`CLAUDE.md` said "12 help topics" — stale.** There are 16 (`help/*.md`: `animated-artwork`, `cookie-management`, `downloading-music`, `downloading-videos`, `fallback-quality`, `faq`, `getting-started`, `index`, `keyboard-shortcuts`, `lyrics-and-metadata`, `metadata-mapping`, `quality-settings`, `release-channels`, `supported-services`, `troubleshooting`, `wrapper`) and 16 matching `HELP_TOPICS` entries [**correction, 2026-07-27 docs-sweep session:** this "16 matching `HELP_TOPICS` entries" claim was wrong — `HELP_TOPICS` has **15** entries, and its `id`s are not 1:1 with the 16 `.md` filenames (`help/index.md` has no inline twin, and neither does `help/faq.md`, by design). See `grep -c "label: '" src/components/help/HelpViewer.tsx` = 15]. **Fixed in this checkpoint's CLAUDE.md edit.**
 
 **Decisions taken as assumptions this leg — asked, not answered by the maintainer; all reversible; recorded here so no one mistakes them for ratified design:**
 
@@ -96,15 +96,29 @@ Two commits landed on this branch, plus a decision that changes the shape of the
 - **B. Server-side flag evaluation** — the client sends `app_version` / `platform` / `platform_version`; the server returns an already-resolved boolean, rather than the client fetching raw rule conditions and evaluating them locally. **This reverses a position ratified earlier in this same document and in `.claude/memory/project_remote_feature_control.md`** ("Conditions are evaluated client-side precisely so no install identifier is ever transmitted"). Justification: `full_user_agent()` already transmits that exact class of data to the same endpoint, so the privacy delta of server-side evaluation is zero — and client-side evaluation would freeze rule semantics into every already-shipped binary, defeating the point of a remote kill switch. **The old sentence has been excised, not merely contradicted**, from `.claude/memory/project_remote_feature_control.md`; see that file for the replacement privacy wording, which must also propagate to README/TERMS when the flags client ships.
 - **C. Integrate `claude/feature-gating-readiness-yQisQ` into intAppsAPI** rather than rebuilding its fixes (migration-runner bug, schema.sql snapshot, CI DB Check) from scratch on the new consolidated branch. Real conflict in `FeatureController.php` (finding 5) still needs resolving when this happens.
 
-**Remaining chain — not yet done, in order:**
+**Remaining chain — in order:**
 
-1. **Flags client** (MeedyaDL) — silent-failure semantics: a fetch failure keeps the last known verdicts, **no user-visible notice**, an `emit_app_log` Activity Log entry only. Notices are still shown for a feature that is genuinely resolved **disabled** by the server.
-2. **Notice UI** (MeedyaDL) — the banner/toast a user sees when a feature the server has switched off would otherwise be reachable.
+1. ✅ **DONE — Flags client** (MeedyaDL, commit `c4a2185b`) — silent-failure semantics: a fetch failure keeps the last known verdicts, **no user-visible notice**, an `emit_app_log` Activity Log entry only (`"Feature availability refresh failed — keeping last known status"`). Notices are still shown for a feature that is genuinely resolved **disabled** by the server.
+2. ✅ **DONE — Notice UI** (MeedyaDL, commit `9884e669`) — the banner a user sees when a feature the server has switched off would otherwise be reachable (`FeatureNoticeBanner.tsx` + `featureFlagStore.ts`).
 3. **IntAppsAPI #109** (SemVer comparator + `normalize()` 3-part fix) — must land before #108, since #108's version/platform targeting depends on comparisons being correct.
 4. **IntAppsAPI #108** (version/platform targeting — migration 016, informed by but not copying migration 015's shape).
 5. **IntAppsAPI #110** (admin guides + `X-App-ID` docs).
-6. **Full docs sweep** — root `.md` files, `help/` topics **and their inline `HELP_TOPICS` twins** (finding 6 — do not update one without the other), `DEV_NOTES.md` including how to set `X-App-ID` and the `option_env!()` injection pattern for any embedded credentials.
-7. **`.claude/` refresh** — once the client + notices exist, `.claude/memory/project_remote_feature_control.md` and this handoff both need a "shipped" pass.
+6. ✅ **DONE — Full docs sweep** (MeedyaDL, commits `132dbeb4` help copy + `60f36d98` root docs + this commit's `.claude/` checkpoint) — root `.md` files, `help/` topics **and their inline `HELP_TOPICS` twins** (finding 6 — do not update one without the other), `DEV_NOTES.md` including the `INTAPPS_*` env-var names and the `option_env!()` injection pattern (no other transport detail). See the dated subsection immediately below for what did and did not land.
+7. **`.claude/` refresh** — once the client + notices exist, `.claude/memory/project_remote_feature_control.md` and this handoff both need a "shipped" pass. (Partially folded into item 6's commit — see below; the open items from that pass are recorded there too.)
+
+### Session continued — 2026-07-27 (docs sweep for the shipped flags client)
+
+Three more commits landed on `feat/alpha-consolidated`, documenting the client + notice UI shipped as `c4a2185b` and `9884e669` above:
+
+- `132dbeb4` — `docs(help)`: new "temporarily unavailable" guidance in `help/troubleshooting.md`, `help/supported-services.md`, `help/faq.md`, plus the matching inline `HELP_TOPICS` twins in `HelpViewer.tsx` for `troubleshooting` and `supported-services` (no twin added for `faq`, matching the pre-existing pattern where `faq` has none).
+- `60f36d98` — `docs`: README (Quality of Life bullet, 12→15 help-topic count fix, Roadmap row flipped to shipped), TERMS.md (Data Collection paragraph + Last-updated bump), SECURITY.md (three new Security Measures bullets), DEV_NOTES.md (`INTAPPS_*` secrets table + new "Remote Feature Availability (Developer Notes)" section + corrected v2 feature-status row + corrected Help Topics file-count row), Project_Plan.md (two roadmap rows flipped from "🔮 Future" to "🚧 Partially shipped").
+- This commit — `docs(claude)`: `.claude/CLAUDE.md` new architecture bullet (full technical detail) + Key Directories insertions, this handoff's own updates, `.claude/memory/project_remote_feature_control.md` dated append, and a correction banner on `.claude/analysis/remote-feature-flags-analysis.md` flagging its evaluation-model description as superseded.
+
+**Still not done after this sweep** (do not assume otherwise from the "docs sweep" checkmark above):
+- No enforcement call sites exist anywhere — the client resolves and caches verdicts; nothing in the app gates behaviour on them yet.
+- `notice.url` still has no scheme validation and is still never rendered.
+- Decision B (server-side evaluation) is still unratified by the maintainer — the docs sweep documents it as shipped fact because that's what the code does, but nobody has gone back for explicit sign-off since the reversal recorded earlier in this file.
+- Chain items 3–5 and 7 (the IntAppsAPI-side work) remain untouched.
 
 ### To resume
 
