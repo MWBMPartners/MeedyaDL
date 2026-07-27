@@ -234,7 +234,7 @@ pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, 
 
     let response = client
         .get(&url)
-        .header("User-Agent", "MeedyaDL")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("PyPI request failed for {package}: {e}"))?;

@@ -90,7 +90,7 @@ async fn fetch_remote() -> Result<ServiceStatusConfig, String> {
 
     let response = client
         .get(SERVICE_STATUS_URL)
-        .header("User-Agent", "MeedyaDL")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("HTTP request failed: {}", e))?;

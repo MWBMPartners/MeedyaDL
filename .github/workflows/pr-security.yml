@@ -24,7 +24,7 @@
 #   5. Hardcoded absolute paths               — /Users//home/<user>/ C:\ literals
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
-#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry)
+#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -382,6 +382,10 @@ jobs:
           CODECS=$(python3 tools/audit-checks/check_codec_registry.py 2>&1 || true)
           if echo "$CODECS" | grep -q '•'; then
             add_section "Codec registry drift (codecs.toml vs SongCodec / meta resolution)" "$(echo "$CODECS" | grep -A100 '###')"
+          fi
+          UA=$(python3 tools/audit-checks/check_user_agent.py 2>&1 || true)
+          if echo "$UA" | grep -q '•'; then
+            add_section "Hardcoded User-Agent drift (use APP_USER_AGENT)" "$(echo "$UA" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"
