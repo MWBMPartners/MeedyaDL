@@ -1,9 +1,63 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-24
-**Working branch:** `alpha` (content-complete at 1.12.0-alpha.35; no dedicated prep branch needed — Phases 1–2 merged directly)
+**Last updated:** 2026-07-27
+**Working branch:** `feat/alpha-consolidated` (12 commits on top of `alpha` @ `243e8a2a` = 1.12.0-alpha.42) — ONE branch, ONE eventual PR to `alpha`
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
+
+---
+
+## ★★★ LATEST — Session 2026-07-27: branch consolidation + remote feature-control programme
+
+### Working branch — do not fragment it again
+
+All in-flight work now lives on **`feat/alpha-consolidated`**. The standing no-PR-stacking rule was tightened: commit further work to this one branch and open a **single** PR to `alpha` when ready. Three predecessor branches were consolidated into it and PR **#1067 was closed unmerged** with its commit cherry-picked in verbatim.
+
+Verified green before push (all run at the consolidated head):
+
+| Check | Result |
+|---|---|
+| `cargo check` | pass |
+| `cargo clippy --all-targets -- -D warnings` | pass |
+| `cargo test` | 1546 passed, 0 failed, 1 ignored |
+| `npm run type-check` | pass |
+| `npm run test` | 564 passed / 37 files |
+
+The 12 commits: `additionalDirectories` path fix · four Spotify/engine fixes (service-aware reachability probe, Spotify manifest, votify version window, venv-aware Python resolution for pip engines) · GAMDL 3.8.4 live smoke-test harness · four CI fixes (channel-branch gating, release-please Cargo.lock resolution, mirror-tool checksum verification, release-body-audit self-correcting checkout) · permission allowlist · the analysis document below.
+
+### Remote feature control — the programme
+
+Full analysis: **`.claude/analysis/remote-feature-flags-analysis.md`** (~50KB, every claim tied to a named file at a named revision). Issues: **MeedyaDL#1069**, **intAppsAPI#107**, **MeedyaConverter#465**, **MeedyaManager#195**.
+
+**The single most important finding:** the existing service-status mechanism has **never run end-to-end in a shipped build**. Independently verified — the IPC command has no frontend caller, the banner component is never rendered, the enforcement helpers have zero call sites, and the hard-coded URL points at `main` where the payload file does not exist (it exists only on `alpha`). Consequence: **there is no installed base on the interim transport**, so the cutover needs no bridge and no flag-day.
+
+Framing that matters: the static-file transport was a **deliberate interim solution** adopted while the API was built — not a defect. Do not write it up as one. Its payload shape informs, but does not define, the API's model.
+
+The transport seam was built for the swap (one isolated fetch function; model, cache, fallback and UI are all transport-neutral), so the swap itself is small. The bulk of the remaining work — polling lifecycle, UI wiring, enforcement call sites at finer-than-service granularity — was never finished for the interim transport either.
+
+**API-side gaps, all verified in code:** flag mutations write no audit trail (the audit helper exists with zero controller call sites — disqualifying for a legal kill switch, and the first thing being fixed); no response signing; no version/platform/channel targeting on `main` (a rollout branch carrying migration 015 is unmerged, so settle its disposition before writing migration 016 or the numbers collide); the flag-key sanitiser rejects dots, blocking a dot-namespaced scheme; responses are all `no-store` with no `ETag`.
+
+**On authentication — describe it honestly.** App identifier, User-Agent prefix and hashed key with fail-closed scopes *are* enforced on every app-facing route. But the key and User-Agent ship inside every client binary and are extractable by anyone holding the app: they are attribution and abuse filtering, **not** a security boundary. And client-side enforcement on a user's own hardware is fundamentally **advisory** — if a legal obligation needs a hard guarantee that a feature is off, this design cannot provide it. Say so rather than implying otherwise.
+
+**Suite shape:** MeedyaConverter is Swift, MeedyaManager is Rust (and already consumes MeedyaSuite-core), MeedyaDL is Rust. Recommendation is **contract-first, crate-later** — specify a language-neutral wire contract, let each app implement it, and only extract a shared Rust crate once two working Rust implementations exist to factor out. Conditions are evaluated client-side specifically so no install identifier is ever transmitted. `MeedyaSuite` and `Skriptey` orgs were **not** in session scope and were not verified.
+
+### Environment limits discovered — do not burn time rediscovering
+
+- **Remote branch deletion silently no-ops.** `git push origin --delete <branch>` reports `Everything up-to-date` and changes nothing. The GitHub MCP toolset has `create_branch` but **no delete**, and there is no `gh` CLI here. Branch deletion is a human action.
+- **Wiki pushes are refused.** `git-upload-pack` (read) is allowed on `MeedyaDL.wiki.git`; `git-receive-pack` (write) returns 403. There is no REST API for wikis. Wiki changes must be pushed from a workstation.
+- Both are policy denials, not transient failures. Do not retry or route around them.
+
+### Cron channels are still live on `main`
+
+`nightly-release.yml`, `weekly-release.yml` and `monthly-release.yml` were removed on `alpha` (#879) but **still exist on `main`**. Scheduled workflows only fire from the default branch, so they are still cutting releases — `v1.10.2-nightly.20260727` was produced during this session. Removing them means a targeted commit to `main`, which is the one change that cannot ride the alpha branch. **Awaiting owner approval.**
+
+### Decisions awaiting the owner
+
+1. Approve the one-commit `main` fix deleting the three cron workflow files.
+2. Is the API actually deployed and reachable in production? (Unverifiable from a session; a hosting error was flagged.)
+3. Ratify fail-open behaviour and the no-opt-out privacy posture.
+4. Disposition of the unmerged API rollout branch and its migration 015.
+5. Signing-key custody — on the API host, or isolated.
 
 ---
 
