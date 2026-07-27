@@ -133,7 +133,11 @@ pub fn browser_user_agent() -> &'static str {
 /// why determinism/cache-hygiene wins there). Bump this by hand
 /// periodically to track a recent stable Chrome release; it only matters
 /// for builds that never talk to the packaging-time resolver.
-const CHROME_MAJOR_FALLBACK: &str = "131";
+///
+/// A stale value here is not merely untidy: an aged Chrome major is itself
+/// an anomaly signal, which defeats the whole point of sending a genuine
+/// browser UA. Last refreshed 2026-07-27 against the stable channel.
+const CHROME_MAJOR_FALLBACK: &str = "151";
 
 /// The Chrome major version number (e.g. `"131"`) baked into
 /// [`browser_user_agent()`]'s Windows and Linux strings. This is a
