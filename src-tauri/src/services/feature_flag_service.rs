@@ -118,7 +118,16 @@ const REFRESH_FAILED_MESSAGE: &str =
 ///
 /// This is containment, not perimeter: it does not stop a bad flag being
 /// published, it stops a bad flag being unrecoverable.
-pub const UNGATEABLE_KEYS: &[&str] = &["core.remote-config", "core.updater"];
+///
+/// ## Key grammar — kebab-case, not dot-namespaced
+///
+/// Keys here (and everywhere in this module) match `^[a-z0-9-]+$`, max 100
+/// chars. The backend's `InputSanitizer::slug()` key grammar **rejects
+/// dots outright**, so a dotted key like `"core.updater"` is not merely a
+/// style choice the server happens not to use — it is a string the server
+/// can never create or serve. Namespaces are prefixes instead: `core-`,
+/// `service-`, `feature-`.
+pub const UNGATEABLE_KEYS: &[&str] = &["core-remote-config", "core-updater"];
 
 // ---------------------------------------------------------------------
 // Process-global in-memory snapshot
@@ -654,7 +663,7 @@ mod tests {
         let snap = compiled_defaults();
         assert!(snap.verdicts.is_empty());
         assert_eq!(snap.meta.source, FlagSource::Defaults);
-        for key in ["core.updater", "service.apple-music", "anything.at.all"] {
+        for key in ["core-updater", "service-apple-music", "anything-at-all"] {
             assert!(is_enabled(&snap, key), "{key} should be enabled by default");
         }
     }
@@ -663,25 +672,25 @@ mod tests {
     /// keeps a newer build working against an older flag set.
     #[test]
     fn unknown_key_is_enabled() {
-        let snap = snapshot_with("known.key", false);
-        assert!(!is_enabled(&snap, "known.key"));
-        assert!(is_enabled(&snap, "some.future.key"));
+        let snap = snapshot_with("known-key", false);
+        assert!(!is_enabled(&snap, "known-key"));
+        assert!(is_enabled(&snap, "some-future-key"));
     }
 
     /// `notice_for` returns the server-authored notice for a disabled
     /// feature, and `None` when there isn't one.
     #[test]
     fn notice_for_returns_server_authored_notice() {
-        let mut snap = snapshot_with("service.example", false);
-        snap.verdicts.get_mut("service.example").unwrap().notice = Some(FlagNotice {
+        let mut snap = snapshot_with("service-example", false);
+        snap.verdicts.get_mut("service-example").unwrap().notice = Some(FlagNotice {
             message: "Temporarily unavailable".to_string(),
             severity: NoticeSeverity::Maintenance,
             url: None,
         });
-        let notice = notice_for(&snap, "service.example").expect("notice present");
+        let notice = notice_for(&snap, "service-example").expect("notice present");
         assert_eq!(notice.message, "Temporarily unavailable");
         assert_eq!(notice.severity, NoticeSeverity::Maintenance);
-        assert!(notice_for(&snap, "missing.key").is_none());
+        assert!(notice_for(&snap, "missing-key").is_none());
     }
 
     // -----------------------------------------------------------------
@@ -705,7 +714,7 @@ mod tests {
         }
         // A normal gateable key alongside them must be left alone.
         snap.verdicts.insert(
-            "service.example".to_string(),
+            "service-example".to_string(),
             FlagVerdict {
                 enabled: false,
                 ..FlagVerdict::default()
@@ -721,7 +730,7 @@ mod tests {
             );
         }
         assert!(
-            !is_enabled(&snap, "service.example"),
+            !is_enabled(&snap, "service-example"),
             "the floor must not re-enable ordinary gateable keys"
         );
     }
@@ -749,7 +758,7 @@ mod tests {
     /// rule).
     #[test]
     fn sanity_floor_is_a_noop_when_keys_absent() {
-        let mut snap = snapshot_with("service.example", false);
+        let mut snap = snapshot_with("service-example", false);
         let before = snap.clone();
         apply_sanity_floor(&mut snap);
         assert_eq!(snap, before);
@@ -767,13 +776,13 @@ mod tests {
             "data": {
                 "generated_at": "2026-07-27T12:00:00Z",
                 "verdicts": {
-                    "service.example": { "enabled": false, "label": "Example" }
+                    "service-example": { "enabled": false, "label": "Example" }
                 }
             }
         }"#;
         let snap = parse_envelope(body).expect("success envelope should parse");
         assert_eq!(snap.generated_at.as_deref(), Some("2026-07-27T12:00:00Z"));
-        assert!(!is_enabled(&snap, "service.example"));
+        assert!(!is_enabled(&snap, "service-example"));
     }
 
     /// `success: false` is a failure, so the caller falls back to cache /
@@ -799,6 +808,46 @@ mod tests {
         assert!(parse_envelope("not json at all").is_err());
     }
 
+    /// The real `FeatureController::list()` response: `data.features` is a
+    /// JSON array keyed by `feature_key`, not a map (Defect 1). This is the
+    /// literal shape from the bug report, wrapped in the full
+    /// `{success, data}` envelope, and it must resolve through
+    /// [`is_enabled`] and [`notice_for`] exactly like a map-shaped payload
+    /// would — proving the fix reaches all the way from HTTP body to the
+    /// public resolution API, not just the intermediate deserialize step.
+    #[test]
+    fn envelope_with_array_shaped_features_resolves_via_is_enabled_and_notice_for() {
+        let body = r#"{
+            "success": true,
+            "data": {
+                "app_slug": "meedyadl",
+                "features": [
+                    {
+                        "feature_key": "service-apple-music",
+                        "label": "Apple Music",
+                        "enabled": false,
+                        "globally_enabled": true,
+                        "has_rollout": false,
+                        "notice": {
+                            "message": "Temporarily unavailable",
+                            "source": "rule",
+                            "rule_id": 3
+                        },
+                        "metadata": null
+                    }
+                ],
+                "count": 1
+            }
+        }"#;
+        let snap = parse_envelope(body).expect("array-shaped envelope should parse");
+
+        assert!(!is_enabled(&snap, "service-apple-music"));
+        let notice = notice_for(&snap, "service-apple-music").expect("notice should resolve");
+        assert_eq!(notice.message, "Temporarily unavailable");
+        // A key never mentioned in the array is still enabled by default.
+        assert!(is_enabled(&snap, "some-other-feature"));
+    }
+
     // -----------------------------------------------------------------
     // Cache
     // -----------------------------------------------------------------
@@ -810,7 +859,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        let original = snapshot_with("service.example", false);
+        let original = snapshot_with("service-example", false);
         save_cache(&path, &original).expect("cache write should succeed");
 
         assert!(path.exists(), "cache file should exist");
@@ -824,6 +873,39 @@ mod tests {
         assert_eq!(loaded.generated_at, original.generated_at);
     }
 
+    /// A snapshot obtained from an **array-shaped** payload must still
+    /// write the on-disk cache as a JSON **object**, and reload correctly —
+    /// the cache format itself never changes, only what
+    /// [`parse_envelope`]/deserialization can accept as input.
+    #[test]
+    fn cache_round_trips_as_map_even_when_sourced_from_array_shaped_payload() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join(CACHE_FILENAME);
+
+        let body = r#"{
+            "success": true,
+            "data": {
+                "features": [
+                    { "feature_key": "service-apple-music", "enabled": false }
+                ]
+            }
+        }"#;
+        let original = parse_envelope(body).expect("array-shaped envelope should parse");
+        save_cache(&path, &original).expect("cache write should succeed");
+
+        // The bytes on disk must be an object, not an array.
+        let raw = std::fs::read_to_string(&path).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(
+            value.get("verdicts").expect("verdicts field present").is_object(),
+            "on-disk cache must store verdicts as a JSON object, got: {raw}"
+        );
+
+        let loaded = load_cache(&path).expect("cache read should succeed");
+        assert_eq!(loaded.verdicts, original.verdicts);
+        assert!(!is_enabled(&loaded, "service-apple-music"));
+    }
+
     /// A tampered / corrupted cache still loads (with a warning) — see the
     /// rationale on `verify_cache_checksum`.
     #[test]
@@ -831,13 +913,13 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        save_cache(&path, &snapshot_with("service.example", false)).unwrap();
+        save_cache(&path, &snapshot_with("service-example", false)).unwrap();
         // Overwrite the companion with a digest that cannot match.
         std::fs::write(checksum_path(&path), "0".repeat(64)).unwrap();
 
         let loaded = load_cache(&path)
             .expect("a checksum mismatch must NOT prevent the cache from loading");
-        assert!(!is_enabled(&loaded, "service.example"));
+        assert!(!is_enabled(&loaded, "service-example"));
     }
 
     /// A cache written without a companion file (older build, or a failed
@@ -847,7 +929,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        save_cache(&path, &snapshot_with("service.example", false)).unwrap();
+        save_cache(&path, &snapshot_with("service-example", false)).unwrap();
         std::fs::remove_file(checksum_path(&path)).unwrap();
 
         assert!(load_cache(&path).is_ok());
@@ -902,12 +984,12 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        let base = snapshot_with("service.example", false);
+        let base = snapshot_with("service-example", false);
         let (snapshot, failure) = resolve_refresh(base.clone(), &path).await;
 
         assert!(failure.is_none());
         assert_eq!(snapshot.verdicts, base.verdicts);
-        assert!(!is_enabled(&snapshot, "service.example"));
+        assert!(!is_enabled(&snapshot, "service-example"));
     }
 
     /// `remote_config()` is `None` in any build that lacks the compile-time
