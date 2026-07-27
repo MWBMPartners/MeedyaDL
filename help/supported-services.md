@@ -99,7 +99,7 @@ If you paste a URL for a service that isn't yet available, MeedyaDL will show a 
 
 ## When a Service or Feature Is Temporarily Paused
 
-Very occasionally we may need to pause a service or feature for all users at short notice — for example, while we investigate a change on the provider's side. When that happens, MeedyaDL shows an in-app notice so the change reads as what it is: deliberate and temporary, not a fault in your installation. The feature comes back automatically once it is re-enabled — there is nothing you need to do. See the Troubleshooting topic ("A Feature Says It Is Temporarily Unavailable") for details.
+Very occasionally we may need to pause a service or feature for all users at short notice — for example, while we investigate a change on the provider's side. When that happens, MeedyaDL shows an in-app notice so the change reads as what it is: deliberate and temporary, not a fault in your installation. A paused service won't accept new downloads until it returns — anything already downloading finishes normally, and other services are unaffected. The feature comes back automatically once it is re-enabled — there is nothing you need to do. See the Troubleshooting topic ("A Feature Says It Is Temporarily Unavailable") for details.
 
 ---
 

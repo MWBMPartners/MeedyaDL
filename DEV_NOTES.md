@@ -1807,7 +1807,7 @@ The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype f
 |-----------|------------------|-------|
 | Multi-service URL parser (YouTube/Spotify/iPlayer) | Not on main | Tracked by #100–#104, #107. Key reference: commit `9bcf848` |
 | Smart Download cross-platform quality | Not on main | Tracked by #110. Reference: commit `fb887d98` |
-| Remote feature availability / service status | Shipped | Client + in-app notice UI landed via #1069/#1071 (originally tracked by #106); per-feature enforcement call sites still to come |
+| Remote feature availability / service status | Shipped | Client + in-app notice UI landed via #1069/#1071 (originally tracked by #106); per-service enforcement at enqueue time also shipped — a paused service declines new downloads with an explanation while anything already downloading finishes normally |
 | Stable rollback from pre-release | Not on main | New issue #267 created |
 | macOS codesign `--timestamp` wrapper | Reimplemented | release.yml Step 8.9 |
 | 7z GPAC extraction (CI fix) | Reimplemented | dependency_manager.rs |
