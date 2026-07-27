@@ -59,7 +59,7 @@ import { StatusBar } from './StatusBar';
 
 /** Toast notification overlay rendered outside the normal document flow. */
 /** UpdateBanner: dismissible notification shown when updates are available. */
-import { ToastContainer, UpdateBanner } from '@/components/common';
+import { ToastContainer, UpdateBanner, FeatureNoticeBanner } from '@/components/common';
 import { ShortcutsHelpDialog } from '@/components/common/ShortcutsHelpDialog';
 
 /** URL parser to validate dropped Apple Music URLs. */
@@ -356,6 +356,16 @@ export function MainLayout({ children }: MainLayoutProps) {
            * @see UpdateBanner component in @/components/common
            */}
           <UpdateBanner />
+
+          {/*
+           * Feature-availability notice banners -- rendered directly below
+           * UpdateBanner, in the same non-scrolling flex column, so a
+           * disabled/degraded feature's explanation stays visible
+           * regardless of page scroll position too. Renders nothing (zero
+           * layout space) when there is nothing to show.
+           * @see FeatureNoticeBanner component in @/components/common
+           */}
+          <FeatureNoticeBanner />
 
           {/*
            * Scrollable page content area.

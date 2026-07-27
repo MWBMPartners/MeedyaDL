@@ -159,5 +159,8 @@
     "delete": "Delete",
     "retry": "Retry",
     "clear": "Clear"
+  },
+  "featureFlags": {
+    "fallbackMessage": "{{feature}} is temporarily unavailable. We've paused it while we look into something — nothing is wrong with your installation, and there's nothing you need to do."
   }
 }

@@ -78,6 +78,14 @@ import type {
   UpdateCheckResult,
 } from '@/types';
 
+/**
+ * TypeScript mirror of the Rust remote feature-flag model
+ * (`src-tauri/src/models/feature_flags.rs`). Kept in its own module rather
+ * than `@/types` because it's a self-contained wire contract with its own
+ * file-level invariant documentation — see `src/types/feature-flags.ts`.
+ */
+import type { FeatureFlagsSnapshot } from '@/types/feature-flags';
+
 // ============================================================
 // System Commands
 // ============================================================
@@ -2575,4 +2583,46 @@ export function checkSpotifyDispatchAllowed(): Promise<
   return invoke<import('@/types').DispatchGateOutcome>(
     'check_spotify_dispatch_allowed'
   );
+}
+
+// ============================================================
+// Feature Flags Commands
+// ============================================================
+// Mirrors src-tauri/src/commands/feature_flags.rs (commit c4a2185b).
+// TypeScript types live in src/types/feature-flags.ts.
+
+/**
+ * Returns the currently-resolved feature-flag snapshot **without making a
+ * network call** — a cheap local read (process-global snapshot, falling
+ * back to the sticky disk cache, then to compiled defaults).
+ *
+ * Rust handler: `get_feature_flags()` in `src-tauri/src/commands/feature_flags.rs`
+ *
+ * @returns Promise resolving to the current `FeatureFlagsSnapshot`. Never
+ *   rejects on resolution grounds — the backend's resolution chain always
+ *   answers, worst case with all-enabled compiled defaults.
+ */
+export function getFeatureFlags(): Promise<FeatureFlagsSnapshot> {
+  return invoke<FeatureFlagsSnapshot>('get_feature_flags');
+}
+
+/**
+ * Attempts a remote refresh of the feature-flag snapshot, then returns the
+ * result. Rate-limited to 1 call/minute on the backend (same window as
+ * `check_all_updates`) — a limit breach rejects the returned promise.
+ *
+ * On any transport/HTTP/parse failure, the backend keeps the previous
+ * verdicts and logs a single activity-log line; it does NOT surface an
+ * error through this call for that case. Callers must never derive
+ * user-visible UI from a failure here beyond the previous snapshot simply
+ * staying in place — see the silent-fetch-failure invariant documented on
+ * `FeatureFlagsSnapshot.meta` in the Rust model and on
+ * `FeatureNoticeBanner`.
+ *
+ * Rust handler: `refresh_feature_flags()` in `src-tauri/src/commands/feature_flags.rs`
+ *
+ * @returns Promise resolving to the refreshed (or unchanged) `FeatureFlagsSnapshot`.
+ */
+export function refreshFeatureFlags(): Promise<FeatureFlagsSnapshot> {
+  return invoke<FeatureFlagsSnapshot>('refresh_feature_flags');
 }
