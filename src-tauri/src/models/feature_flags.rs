@@ -36,7 +36,7 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// A resolved snapshot of every feature flag this build knows about.
 ///
@@ -64,8 +64,11 @@ pub struct FeatureFlagsSnapshot {
     #[serde(default)]
     pub generated_at: Option<String>,
 
-    /// Flag key -> resolved verdict. Keys are dot-namespaced
-    /// (`"core.updater"`, `"service.apple-music"`, ...).
+    /// Flag key -> resolved verdict. Keys are kebab-case, matching
+    /// `^[a-z0-9-]+$`, max 100 chars — the backend's `InputSanitizer::slug()`
+    /// key grammar rejects dots outright, so keys are **not**
+    /// dot-namespaced. Namespaces are prefixes instead: `core-`, `service-`,
+    /// `feature-` (e.g. `"core-updater"`, `"service-apple-music"`).
     ///
     /// **A missing key means ENABLED.** The compiled default is an empty
     /// map, so a build that has never reached the server — or a fork built
@@ -74,7 +77,24 @@ pub struct FeatureFlagsSnapshot {
     ///
     /// `alias = "features"` accepts the server naming the same object
     /// `features` without a client change.
-    #[serde(default, alias = "features")]
+    ///
+    /// ## Dual wire shape
+    ///
+    /// The on-disk cache always stores (and this struct always
+    /// *serialises*) this field as a JSON **object** keyed by flag key —
+    /// that shape is unchanged and is what [`FeatureFlagsSnapshot`] emits on
+    /// every `Serialize`.
+    ///
+    /// The live server, however, answers `FeatureController::list()` with a
+    /// JSON **array** of `{ feature_key, enabled, ... }` objects (see
+    /// `openapi.json`) — an array has no natural way to express a per-key
+    /// default, so the server's payload shape is the array, not the map.
+    /// `deserialize_verdicts` accepts *either* shape on read: an object is
+    /// used as-is; an array is folded into a map keyed by each entry's
+    /// `feature_key`, and any entry whose `feature_key` is missing or empty
+    /// is silently dropped (it cannot be indexed by `feature_flag_service::is_enabled`,
+    /// so keeping it around would be dead weight, not a partial answer).
+    #[serde(default, alias = "features", deserialize_with = "deserialize_verdicts")]
     pub verdicts: HashMap<String, FlagVerdict>,
 
     /// Fetch diagnostics. **Never user-visible** — see the struct-level
@@ -132,6 +152,76 @@ impl Default for FlagVerdict {
 /// entirely resolves to enabled, matching the missing-key rule.
 fn default_true() -> bool {
     true
+}
+
+// ---------------------------------------------------------------------
+// Dual-shape `verdicts` deserialization
+// ---------------------------------------------------------------------
+//
+// The disk cache (and the historical client assumption) is a JSON object
+// keyed by flag key. The live MWBM-IntAppsAPI server instead answers with a
+// JSON array of per-flag objects, each carrying its own `feature_key` — see
+// the field doc on `FeatureFlagsSnapshot::verdicts` above. `serde` cannot
+// deserialize a JSON array into a `HashMap` on its own, so both shapes are
+// funnelled through this untagged intermediate enum and folded into the
+// same `HashMap<String, FlagVerdict>` the rest of the client already works
+// with. This is deserialize-only — `Serialize` for `verdicts` is untouched
+// by any of this and always emits the map shape.
+
+/// One entry of the server's array-shaped payload:
+/// `{ "feature_key": "...", "enabled": ..., ... }`.
+///
+/// `#[serde(flatten)]` folds every other recognised field into
+/// [`FlagVerdict`] (`enabled`, `label`, `notice`, `updated_at`); fields the
+/// server sends that `FlagVerdict` doesn't model at all — `globally_enabled`,
+/// `has_rollout`, `metadata`, and any future addition — are silently
+/// dropped, the same forward-compatible posture as everything else in this
+/// module (see the module-level "never `deny_unknown_fields`" note).
+#[derive(Clone, Debug, Deserialize)]
+struct WireFeature {
+    /// The flag key this entry describes. Defaults to an empty string
+    /// (rather than failing the whole array) when the server omits it —
+    /// [`deserialize_verdicts`] drops any entry whose key ends up empty.
+    #[serde(default)]
+    feature_key: String,
+
+    #[serde(flatten)]
+    verdict: FlagVerdict,
+}
+
+/// Intermediate shape for `#[serde(deserialize_with = "deserialize_verdicts")]`
+/// on [`FeatureFlagsSnapshot::verdicts`]. `#[serde(untagged)]` tries each
+/// variant in order and picks whichever parses — a JSON object matches
+/// `Map`, a JSON array matches `List`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum VerdictsWire {
+    /// The on-disk cache shape: `{ "key": { "enabled": ... }, ... }`.
+    Map(HashMap<String, FlagVerdict>),
+    /// The live server shape: `[{ "feature_key": "key", "enabled": ... }, ...]`.
+    List(Vec<WireFeature>),
+}
+
+/// Custom `deserialize_with` for [`FeatureFlagsSnapshot::verdicts`]. Accepts
+/// either the map shape (used as-is) or the array shape (folded into a map
+/// keyed by `feature_key`, dropping entries with a missing/empty key).
+///
+/// Does **not** affect serialization: this struct's `Serialize` impl (the
+/// derive on `FeatureFlagsSnapshot`) is independent of `deserialize_with`
+/// and always writes `verdicts` back out as a JSON object, matching the
+/// on-disk cache format the round-trip tests below assert.
+fn deserialize_verdicts<'de, D>(deserializer: D) -> Result<HashMap<String, FlagVerdict>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    match VerdictsWire::deserialize(deserializer)? {
+        VerdictsWire::Map(map) => Ok(map),
+        VerdictsWire::List(list) => Ok(list
+            .into_iter()
+            .filter(|entry| !entry.feature_key.trim().is_empty())
+            .map(|entry| (entry.feature_key, entry.verdict))
+            .collect()),
+    }
 }
 
 /// A server-authored message about a feature, shown alongside the feature
@@ -289,20 +379,114 @@ mod tests {
     fn unknown_fields_are_ignored_not_rejected() {
         let json = r#"{
             "generated_at": "2026-07-27T00:00:00Z",
-            "verdicts": { "a.b": { "enabled": false, "some_future_field": 1 } },
+            "verdicts": { "a-b": { "enabled": false, "some_future_field": 1 } },
             "some_future_top_level": { "nested": true }
         }"#;
         let snap: FeatureFlagsSnapshot = serde_json::from_str(json).unwrap();
         assert_eq!(snap.verdicts.len(), 1);
-        assert!(!snap.verdicts["a.b"].enabled);
+        assert!(!snap.verdicts["a-b"].enabled);
     }
 
     /// The server may name the verdict object `features`; the alias keeps
     /// both spellings working without a client change.
     #[test]
     fn features_alias_is_accepted_for_verdicts() {
-        let json = r#"{"features": {"core.updater": {"enabled": true}}}"#;
+        let json = r#"{"features": {"core-updater": {"enabled": true}}}"#;
         let snap: FeatureFlagsSnapshot = serde_json::from_str(json).unwrap();
-        assert!(snap.verdicts.contains_key("core.updater"));
+        assert!(snap.verdicts.contains_key("core-updater"));
+    }
+
+    // -----------------------------------------------------------------
+    // Dual-shape `verdicts` deserialization (Defect 1)
+    // -----------------------------------------------------------------
+
+    /// The real `FeatureController::list()` response shape: `data.features`
+    /// is a JSON **array**, each entry keyed by `feature_key` rather than
+    /// being a map entry. This is a realistic literal (matching the one in
+    /// the bug report) including the extra server fields
+    /// (`globally_enabled`, `has_rollout`, `count`) and a `notice` object
+    /// with `source`/`rule_id` — none of which `FlagVerdict` or
+    /// `FeatureFlagsSnapshot` model, proving unknown fields are ignored
+    /// rather than rejected.
+    #[test]
+    fn array_shaped_verdicts_parse_via_feature_key() {
+        let json = r#"{
+            "app_slug": "meedyadl",
+            "features": [
+                {
+                    "feature_key": "service-apple-music",
+                    "label": "Apple Music",
+                    "enabled": false,
+                    "globally_enabled": true,
+                    "has_rollout": false,
+                    "notice": {
+                        "message": "Temporarily unavailable",
+                        "source": "rule",
+                        "rule_id": 3
+                    },
+                    "metadata": null
+                }
+            ],
+            "count": 1
+        }"#;
+        let snap: FeatureFlagsSnapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snap.verdicts.len(), 1);
+        let verdict = &snap.verdicts["service-apple-music"];
+        assert!(!verdict.enabled);
+        assert_eq!(verdict.label.as_deref(), Some("Apple Music"));
+        let notice = verdict.notice.as_ref().expect("notice should parse");
+        assert_eq!(notice.message, "Temporarily unavailable");
+        // `source` / `rule_id` aren't modelled by `FlagNotice` at all — the
+        // fact this parses at all is the point.
+        assert_eq!(notice.severity, NoticeSeverity::Info);
+    }
+
+    /// The map shape (the on-disk cache format, and what a hand-written
+    /// test fixture naturally looks like) must keep parsing exactly as
+    /// before — this is the regression guard for the cache read path.
+    #[test]
+    fn map_shaped_verdicts_still_parse() {
+        let json = r#"{"verdicts": {"service-apple-music": {"enabled": false}}}"#;
+        let snap: FeatureFlagsSnapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snap.verdicts.len(), 1);
+        assert!(!snap.verdicts["service-apple-music"].enabled);
+    }
+
+    /// An array entry with an empty or missing `feature_key` cannot be
+    /// indexed by key, so it is dropped rather than panicking or producing
+    /// an unreachable `""` entry.
+    #[test]
+    fn array_entry_with_empty_or_missing_feature_key_is_dropped() {
+        let json = r#"{
+            "verdicts": [
+                { "feature_key": "", "enabled": false },
+                { "enabled": true },
+                { "feature_key": "core-updater", "enabled": true }
+            ]
+        }"#;
+        let snap: FeatureFlagsSnapshot = serde_json::from_str(json).unwrap();
+        assert_eq!(snap.verdicts.len(), 1);
+        assert!(snap.verdicts.contains_key("core-updater"));
+    }
+
+    /// Regardless of which shape was deserialized, `Serialize` must always
+    /// emit `verdicts` back out as a JSON **object** — the on-disk cache
+    /// format the round-trip depends on.
+    #[test]
+    fn serialize_always_emits_object_for_verdicts() {
+        let array_json = r#"{
+            "verdicts": [
+                { "feature_key": "service-apple-music", "enabled": false }
+            ]
+        }"#;
+        let snap: FeatureFlagsSnapshot = serde_json::from_str(array_json).unwrap();
+
+        let value = serde_json::to_value(&snap).unwrap();
+        let verdicts_value = value.get("verdicts").expect("verdicts field present");
+        assert!(
+            verdicts_value.is_object(),
+            "verdicts must serialize as an object, got: {verdicts_value:?}"
+        );
+        assert!(verdicts_value.get("service-apple-music").is_some());
     }
 }
