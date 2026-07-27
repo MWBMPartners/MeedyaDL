@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-07-27
-**Working branch:** `feat/alpha-consolidated` (12 commits on top of `alpha` @ `243e8a2a` = 1.12.0-alpha.42) — ONE branch, ONE eventual PR to `alpha`
+**Working branch:** `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a` = 1.12.0-alpha.42 as of HEAD `b5924ae5` — line 26's "12 commits" describes only the initial consolidation batch at the top of this session; the remote feature-control programme's commits landed afterward, see the dated subsections below) — ONE branch, ONE eventual PR to `alpha`
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
@@ -137,9 +137,42 @@ Two more commits landed on `feat/alpha-consolidated`, on top of the docs sweep a
 
 **Maintainer decisions still open:** the same list as "Decisions awaiting the owner" near the top of this file, plus Decision B (server-side evaluation architecture) above — none of these were resolved by shipping enforcement; enforcement was built on top of the existing assumptions, not a resolution of them.
 
+### Session continued — 2026-07-27 (FINAL checkpoint this leg): bare `spotify:` URI gap closed; intAppsAPI companion fixes landed on its own branch
+
+One more commit landed on `feat/alpha-consolidated`, closing the gap flagged at the end of the previous subsection, plus four commits landed on the sibling repo's own consolidated branch (one branch per repo — no PR stacking, same rule as this repo's).
+
+**Landed (MeedyaDL, `feat/alpha-consolidated`):**
+- `b5924ae5` — `fix(flags)`: the classification `if` in `start_download` had no `else`, so a bare `spotify:album:...`/`spotify:track:...` URI (no host to check) fell through with no `has_spotify` flip and no rejection — it evaded the feature-availability gate AND the entire M9 anti-ban dispatch gate (dev-access, consent, DLL/`.wvd` presence, daily cap — all skipped), then enqueued with `service: None`, which `process_queue()`'s legacy fallback treats as Apple Music, dispatching a Spotify URI to GAMDL, which rejected it with an error naming neither Spotify nor the cause. Classification is now factored into a pure, unit-tested `classify_batch_urls()` helper with an explicit `spotify:`-scheme branch, and a new `reject_bare_spotify_uris()` helper rejects the bare-URI shape by name AFTER both gates run — so a paused Spotify service still shows the pause message rather than a generic scheme error. 9 new unit tests. See `.claude/CLAUDE.md`'s "Remote feature availability" bullet for the full mechanism and `.claude/memory/project_remote_feature_control.md`'s dated append for the analysis trail.
+
+**Landed (MWBM-intAppsAPI, sibling repo, branch `feat/feature-targeting-consolidated`):**
+- `0f70813` — dual-domain deployment move: the API is now served from both `service.api.<domain>/` (app at root) and `api.<domain>/service/` (same files under a path segment), one brand per domain (`meedyasuite.com` for Meedya-branded apps incl. MeedyaDL, `mwbm.io` for the rest).
+- `b057b80` — dropped the hardcoded `RewriteBase /service/` from `web/.htaccess` because it broke the subdomain form (relative substitution expanded to a non-existent `/service/index.php`); the previous value's rationale (avoiding Apache's per-directory base-guessing misresolving through a symlink) is preserved as a documented fallback in the file itself, since neither form has been verified against the real host yet.
+- `d4945cf` — admin UI for disable rules with constraint validation and an effect preview.
+- `a2205da` — in-console guides for connecting an app and configuring feature flags.
+- `24ed917b` — **percentage-rollout fail-open fix**: `Feature::evaluateRollout()` returned `false` for any caller without `user_id`, before consulting the percentage at all. Desktop clients (MeedyaDL, MeedyaConverter, MeedyaManager) never send `user_id`, so a 50% rollout was silently removing the feature from 100% of them — no error, no failing test, the admin UI and audit log both looked correct. Percentage was the sole outlier: deny-list/allow-list/segment checks are each guarded by a presence test and already fall through to enabled on missing context. Fixed to follow the same fail-open rule; an allow-list-only strategy deliberately keeps failing open too (an allow-list says "these are in", not "everyone else is out" — that needs a deny-list or a disable rule).
+
+**Findings worth preserving from this leg (all verified in code, not inferred):**
+1. Four URL forms, one deployment — see the `0f70813`/`b057b80` bullets above. `RewriteBase` is deliberately absent from `web/.htaccess`; hardcoding `/service/` breaks the subdomain form. Unverified against the real host: Apache's per-directory base inference can mis-resolve through a symlinked directory, and the documented fallback lives in the `.htaccess` itself.
+2. The wire shape is correct against the API source and parses in tests, but **no request has ever reached a running instance of the API** — still true after this leg. Because fetch failure is silent by design (see `project_remote_feature_control.md`'s silent-failure contract), a remaining mismatch will present as nothing happening, not a visible error — diagnose via the Activity Log line `"Feature availability refresh failed — keeping last known status"`.
+
+**Open — maintainer decisions (none blocking, all recorded as assumptions):**
+- Server-side flag evaluation (Decision B, above) is still unratified and is now load-bearing for enforcement. `TERMS.md` already carries the public data commitment that follows from it (app version, OS type/version, CPU architecture; never an install identifier, account, locale or settings data).
+- Canonical URL form per brand — each app's build secret holds exactly one value; not yet chosen.
+- Whether `api.mwbmpartners.ltd` redirects to the new hosts or retires — currently treated as plain replacement.
+
+**Open — provisioning (maintainer, no code):** four DNS records and four TLS certificates; PHP 8.4 selected per hostname; each app registered with its exact `user_agent_prefix` (e.g. `"MeedyaDL/"`) — a wrong prefix 403s every request silently; keys minted; the three `INTAPPS_*` build secrets set per app repo. MeedyaDL's base URL is the `meedyasuite.com` form, not `mwbm.io`, because it is a Meedya-branded app.
+
+**Open — not built:**
+- A suite client-integration doc (`docs/CLIENT_INTEGRATION.md`) belongs in the private IntAppsAPI repo, capturing the language-neutral contract for MeedyaConverter (Swift), MeedyaManager (Rust), CueRCode and Go2My.Link. Those four repos are now attached to the session but sit on `main` with no feature-availability work started.
+- `notice.url` is parsed but deliberately never rendered — needs URL scheme validation first.
+- `Feature::applySchedules()` invalidates with `deletePattern('features:*')`, which does NOT reach `feature_rules:app:*` — harmless today (a schedule flip changes no rules) but a trap if that changes.
+- The dormant interim `service_status` transport (model, commands, store, banner) is superseded and should be removed.
+
+**Verified before this checkpoint:** `npm run type-check` clean; the doc-confidentiality grep (`api\.meedyasuite\.com|api\.mwbm\.io|api\.mwbmpartners\.ltd|service\.api\.|X-App-ID|X-API-Key|/v1/features` across README/TERMS/SECURITY/`help/`) prints nothing; `grep -c "label: '" src/components/help/HelpViewer.tsx` = 15.
+
 ### To resume
 
-Read this subsection top-to-bottom, then `.claude/memory/project_remote_feature_control.md` (privacy wording was just rewritten there — read the current text, not memory of the old client-side sentence). The flags client and its enforcement layer are now both shipped (see the two "Session continued" subsections above) — do not assume either is still pending. Do not start IntAppsAPI #108 before #109 (SemVer must be fixed first or version-targeting rules will misbehave on every alpha build). Decisions A/B/C above are assumptions, not sign-off — flag them to the maintainer, since B (server-side evaluation) is now enforcement-load-bearing rather than display-only.
+Read this subsection top-to-bottom, then `.claude/memory/project_remote_feature_control.md` (privacy wording was just rewritten there — read the current text, not memory of the old client-side sentence). The flags client, its enforcement layer, and the bare-`spotify:` classification fix are now all shipped (see the "Session continued" subsections above) — do not assume any is still pending. Do not start IntAppsAPI #108 before #109 (SemVer must be fixed first or version-targeting rules will misbehave on every alpha build) — #109 is now landed per the sibling-repo log above, so re-verify before assuming #108 is still blocked. Decisions A/B/C above are assumptions, not sign-off — flag them to the maintainer, since B (server-side evaluation) is now enforcement-load-bearing rather than display-only. Nothing in this programme has ever been run against a live server; the API's DNS/TLS/provisioning state is the long pole, not code.
 
 ---
 
