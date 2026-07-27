@@ -74,7 +74,8 @@
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
 - **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
 - **First-run setup wizard** — installs Python and GAMDL automatically; detects existing tools from system PATH
-- **Built-in help documentation** — 12 topics with search, accessible in-app
+- **Built-in help documentation** — 15 topics with search, accessible in-app
+- **Feature availability notices** — if we ever have to temporarily pause a feature (for example while an upstream service change is investigated), the app shows a clear in-app notice explaining that the pause is deliberate and temporary — a feature never just silently disappears. If MeedyaDL can't check availability (for example, offline), it simply carries on with the last known state — being offline never turns anything off, and a fresh install with no internet runs with everything enabled.
 - **System tray support** for background operation
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
@@ -486,7 +487,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ MusicBrainz video discovery with 3-tier lookup (URL → ISRC → AcoustID recording ID)
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
-- ✅ In-app help viewer with 12 topics and search
+- ✅ In-app help viewer with 15 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
 - ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
@@ -526,7 +527,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 
 ### Future
 
-- 🔮 **Remote Service Status** ([#106](https://github.com/MWBMPartners/MeedyaDL/issues/106)) — developer-controlled kill switch for individual media services
+- ✅ **Feature availability notices** ([#106](https://github.com/MWBMPartners/MeedyaDL/issues/106), [#1069](https://github.com/MWBMPartners/MeedyaDL/issues/1069)) — shipped: the app can now display a notice when a feature has been temporarily paused by the developers. Per-feature enforcement integration is ongoing ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)).
 - 🔮 **Anonymous Crash Reporting** ([#44](https://github.com/MWBMPartners/MeedyaDL/issues/44)) — PHP relay for crash submission without GitHub account
 - 🔮 **Native SwiftUI UI for macOS** ([#109](https://github.com/MWBMPartners/MeedyaDL/issues/109)) — fully native frontend on Apple Silicon
 
