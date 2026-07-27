@@ -25,30 +25,29 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-/// Single canonical User-Agent string for every outbound HTTP request sent
-/// to a **third party** that identifies itself as MeedyaDL — GitHub, PyPI,
-/// MusicBrainz, Odesli, the Apple Music JWT paths, raw.githubusercontent —
-/// (i.e. everything except the deliberate Apple-browser impersonation in
-/// `apple_music_api::APPLE_BROWSER_USER_AGENT`, which must stay untouched —
-/// Apple 403s non-browser UAs on that codepath).
+/// User-Agent string identifying MeedyaDL by name. As of #1070's follow-up
+/// correction, this is sent to exactly **one** outbound destination:
+/// MusicBrainz — because MusicBrainz is an officially licensed API whose
+/// Terms of Service require an accurate, identifying application UA. Every
+/// other third party (Apple Music, GitHub, PyPI, Odesli, and any future
+/// one) instead receives [`BROWSER_USER_AGENT`] — see that constant's doc
+/// comment for why sending our own identity to those endpoints was the
+/// wrong call.
 ///
 /// This is a compile-time `const` (not `full_user_agent()` below) precisely
-/// because third parties get NO platform detail: OS/arch/OS-version is a
-/// fingerprinting surface that buys a third-party API nothing, so it is
-/// deliberately omitted here. See `full_user_agent()` for the
-/// platform-bearing counterpart, reserved for MeedyaDL's own backend.
+/// because MusicBrainz gets NO platform detail: OS/arch/OS-version is a
+/// fingerprinting surface that buys MusicBrainz nothing beyond the identity
+/// its ToS actually asks for, so it is deliberately omitted here. See
+/// `full_user_agent()` for the platform-bearing counterpart, reserved for
+/// MeedyaDL's own backend (MWBM-IntAppsAPI).
 ///
-/// Three things this constant fixes by construction:
+/// Two things this constant fixes by construction:
 ///
-/// (a) "MeedyaDL/" MUST stay first — MWBM-IntAppsAPI's `AuthMiddleware` does
-///     a `str_starts_with()` prefix match against a registered
-///     `user_agent_prefix`, so reordering or removing this prefix silently
-///     breaks that integration's request identification.
-/// (b) The version is resolved at compile time via `env!("CARGO_PKG_VERSION")`
+/// (a) The version is resolved at compile time via `env!("CARGO_PKG_VERSION")`
 ///     so it can never drift out of sync with the shipped app version — the
 ///     bug this constant replaces was a hardcoded `MusicBrainz` UA pinned at
 ///     "0.6" while the app itself had moved on to the 1.12.x line.
-/// (c) The `(+https://...)` comment token satisfies MusicBrainz's Terms of
+/// (b) The `(+https://...)` comment token satisfies MusicBrainz's Terms of
 ///     Service requirement that outbound UAs identify the application and
 ///     provide a way to reach its maintainers — the `+URL` convention (as
 ///     used by e.g. Googlebot's UA string) marks the parenthesised segment
@@ -58,6 +57,30 @@ pub const APP_USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
     " (+https://github.com/MWBMPartners/MeedyaDL)"
 );
+
+/// Genuine-browser User-Agent string sent to **every third party except
+/// MusicBrainz** — Apple Music (all paths), GitHub (API + raw + release
+/// assets), PyPI, Odesli, and any other third-party endpoint. This is the
+/// corrected policy from #1070's follow-up: an earlier revision of this
+/// module sent `APP_USER_AGENT` (our own identity) to these destinations,
+/// which was wrong on two counts. First, an identifying "MeedyaDL/x.y.z"
+/// string is a signal an automated-traffic classifier can key on — a
+/// browser UA is far less likely to be fingerprinted or blocked as a bot.
+/// Second, and more importantly for privacy: this string is **fixed**
+/// rather than derived per-platform, so every MeedyaDL install sends
+/// byte-identical outbound requests to these third parties. That means the
+/// UA leaks neither which OS/arch the user is on nor which MeedyaDL version
+/// they're running — strictly less information than even the reduced
+/// `APP_USER_AGENT` was leaking (a version string), let alone
+/// `full_user_agent()`'s platform detail.
+///
+/// This was previously named `APPLE_BROWSER_USER_AGENT` and lived in
+/// `apple_music_api.rs` as an Apple-specific impersonation string (Apple's
+/// edges 403 non-browser UAs). It has been promoted to this shared,
+/// third-party-wide constant because the same reasoning applies uniformly
+/// to every non-MusicBrainz third party, not just Apple's endpoints. The
+/// Safari string itself is unchanged by the move.
+pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
 
 /// Lazily-built, platform-bearing User-Agent string. Built once per process
 /// (subsequent calls just dereference the cached `String`) because
@@ -265,6 +288,14 @@ mod tests {
         assert!(APP_USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
         // (c) an identifying contact URL, per MusicBrainz's ToS requirement.
         assert!(APP_USER_AGENT.contains("https://"));
+    }
+
+    #[test]
+    fn browser_user_agent_looks_like_a_genuine_browser() {
+        // Third parties other than MusicBrainz get a genuine browser UA,
+        // not our own app identity — see the constant's doc comment.
+        assert!(BROWSER_USER_AGENT.starts_with("Mozilla/"));
+        assert!(BROWSER_USER_AGENT.contains("Safari"));
     }
 
     #[test]

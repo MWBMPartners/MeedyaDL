@@ -64,16 +64,6 @@ const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 /// on first launch -- see that module for the full account list.
 const SERVICE_NAME: &str = crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER;
 
-/// Browser-grade User-Agent used for Apple Music catalog / amp-api requests
-/// that ride the web-player developer-token tier. Apple's edges
-/// (`amp-api.music.apple.com`, the motion-art CDN) increasingly reject the
-/// bare `meedyadl` UA — matching the Safari string the web player sends keeps
-/// premium fields (`editorialVideo`, syllable TTML) in the response and avoids
-/// sporadic 403s. Shared by `fetch_album_metadata`, `fetch_syllable_lyrics`,
-/// the animated-artwork HLS fetch, and the artist-promo-video lookup so the
-/// string lives in exactly one place.
-pub(crate) const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
-
 /// Identifies which mechanism provided the MusicKit developer token.
 ///
 /// Used by callers of `resolve_premium_feature_token()` for diagnostic
@@ -366,7 +356,7 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -999,7 +989,7 @@ fn apply_apple_music_headers(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Origin", "https://music.apple.com")
         .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT);
+        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT);
 
     match music_user_token {
         Some(token) => req.header("Music-User-Token", token),
@@ -1738,7 +1728,7 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -2525,7 +2515,7 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2711,7 +2701,7 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
@@ -2899,7 +2889,7 @@ pub async fn fetch_syllable_lyrics(
         // fields) without an Origin header; the browser sends it
         // automatically, so a Rust client must set it explicitly. (#936)
         .header("Origin", "https://music.apple.com")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
