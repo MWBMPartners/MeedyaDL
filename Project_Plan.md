@@ -368,7 +368,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 | v3.x | TBD | Smart Download | Cross-platform | [#110](https://github.com/MWBMPartners/MeedyaDL/issues/110) | 🔮 Future |
 | v3.x | TBD | Enhanced MusicKit | Server-side JWT | [#108](https://github.com/MWBMPartners/MeedyaDL/issues/108) | 🔮 Future |
 | — | TBD | Full i18n | — | [#111](https://github.com/MWBMPartners/MeedyaDL/issues/111) | 🔮 Ongoing |
-| — | TBD | Remote feature disable | — | [#106](https://github.com/MWBMPartners/MeedyaDL/issues/106) | 🔮 Future |
+| — | TBD | Remote feature disable | — | [#106](https://github.com/MWBMPartners/MeedyaDL/issues/106) | 🚧 Partially shipped — availability client + in-app notice banner landed (fail-open, sticky cache, self-protection floor); per-feature enforcement pending ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)) |
 | — | TBD | Native SwiftUI (macOS) | — | [#109](https://github.com/MWBMPartners/MeedyaDL/issues/109) | 🔮 Future |
 | — | TBD | Anonymous crash relay | PHP | [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44) | 🔮 Future |
 
@@ -550,7 +550,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 | Feature | Description | Status |
 | --- | --- | --- |
-| **Remote Service Status** | Developer-controlled kill switch to remotely enable/disable individual media services across all deployed app instances | 🔮 Future |
+| **Remote Service Status** | Developer-controlled ability to remotely enable/disable individual media services across all deployed app instances | 🚧 Partially shipped — availability client + in-app notice banner landed (fail-open, sticky cache, self-protection floor); per-feature enforcement pending ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)) |
 | **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔮 Future |
 | **Custom themes** | User-defined accent colours and theme presets | 🔮 Future |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback | 🔮 Future |
