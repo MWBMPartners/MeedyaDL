@@ -92,3 +92,28 @@ export function selectNoticeEntries(snapshot: FeatureFlagsSnapshot): FeatureNoti
     .filter(([, verdict]) => verdict.enabled === false || verdict.notice != null)
     .map(([key, verdict]) => ({ key, verdict }));
 }
+
+/**
+ * Pure selector: is the feature behind `flagKey` currently available?
+ *
+ * **A missing key means enabled.** That is the same fail-open rule as
+ * `feature_flag_service::is_enabled` on the Rust side, and it is what keeps
+ * a build newer than the server's flag set, a fork with no credentials, and
+ * a fresh install that has never reached the network all fully functional.
+ *
+ * Reads ONLY `snapshot.verdicts` — never `snapshot.meta`, per the invariant
+ * documented above. A background refresh that failed must be invisible here.
+ *
+ * Consumers pass a service's flag key (`service-apple-music`,
+ * `service-spotify`, …). Note that this is a **courtesy** check: the Rust
+ * command handlers re-check authoritatively at every enqueue seam, because
+ * deep links, the clipboard monitor and queue import never pass through the
+ * React form.
+ */
+export function selectServiceEnabled(
+  snapshot: FeatureFlagsSnapshot,
+  flagKey: string
+): boolean {
+  const verdict = snapshot.verdicts[flagKey];
+  return verdict === undefined || verdict.enabled !== false;
+}

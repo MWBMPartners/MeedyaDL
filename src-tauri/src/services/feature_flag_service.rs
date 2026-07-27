@@ -33,11 +33,23 @@
 //
 // ## Scope
 //
-// Backend only. This module resolves and caches verdicts; it does **not**
-// gate or enforce anything. No call site anywhere else in the codebase
-// consults it yet — enforcement lands as a separate change so the
-// transport can be shipped, observed, and corrected before any feature's
-// behaviour depends on it.
+// This module resolves and caches verdicts, and exposes exactly one
+// enforcement primitive: [`service_gate`], which answers "may this download
+// service accept new work right now?".
+//
+// **Gates belong at enqueue seams only.** The operation being guarded is a
+// download, and a download begins the moment an item enters the queue. So
+// `start_download`, `retry_download`, `retry_failed_bulk` and `import_queue`
+// consult the gate; `process_queue`, startup queue recovery, fallback
+// retries, gap-fill, companions, enrichment and
+// `retry_download_without_wrapper` deliberately do NOT. That is what makes a
+// pause safe: it stops new work starting and can never strand a download
+// that is already in flight. A new gate added mid-operation would break that
+// property.
+//
+// The backend is authoritative. The frontend has a courtesy check in
+// `DownloadForm.tsx`, but deep links, the clipboard monitor and queue import
+// all reach the queue without passing through that form.
 
 use std::path::{Path, PathBuf};
 use std::sync::RwLock;
@@ -47,6 +59,7 @@ use tauri::AppHandle;
 use crate::models::feature_flags::{
     FeatureFlagsSnapshot, FetchMeta, FlagNotice, FlagSource,
 };
+use crate::models::media_service::MediaServiceId;
 use crate::utils::activity_log::{emit_app_log, emit_verbose_app_log};
 use crate::utils::http_client::{build_client, full_user_agent, ClientConfig};
 use crate::utils::platform;
@@ -269,6 +282,117 @@ pub fn notice_for<'a>(
         .verdicts
         .get(key)
         .and_then(|verdict| verdict.notice.as_ref())
+}
+
+// ---------------------------------------------------------------------
+// Enforcement — service gate
+// ---------------------------------------------------------------------
+
+/// Maximum length of a server-authored notice once it reaches a user-facing
+/// error string. Mirrors `MAX_NOTICE_LENGTH` in
+/// `src/components/common/FeatureNoticeBanner.tsx` — the notice is untrusted
+/// remote content and must not be able to flood a toast or a log line.
+const MAX_NOTICE_LENGTH: usize = 500;
+
+/// Gate a download service at an **enqueue seam**.
+///
+/// Returns `Ok(())` when the service may accept new work, and `Err(message)`
+/// with a user-facing explanation when it has been paused.
+///
+/// ## Where this may be called — enqueue seams only
+///
+/// The "operation" this gate guards is *a download*, and a download starts
+/// the moment an item enters the queue. Every call site is therefore a seam
+/// where new work is admitted: `start_download`, `retry_download`,
+/// `retry_failed_bulk`, `import_queue`.
+///
+/// It must **never** be called from anything that continues work already
+/// admitted — startup queue recovery, `process_queue`, `try_fallback`,
+/// gap-fill retries, companion downloads, the enrichment pipeline, or
+/// `retry_download_without_wrapper` (an automatic continuation of an
+/// in-flight failure). That restriction is what guarantees a pause can
+/// never strand a half-finished download mid-pipeline: a pause stops new
+/// work, it is never retroactive.
+///
+/// ## Never blocks
+///
+/// Resolution goes through [`current`], the synchronous, never-network read.
+/// A gate that awaited a refresh would put an HTTP round trip (or a 10-second
+/// timeout) in front of the user's Download button, and an offline user would
+/// pay that cost on every click. Verdict freshness is the periodic refresh's
+/// job, not the gate's.
+///
+/// ## Reads `verdicts` only
+///
+/// The message comes from the server-authored notice attached to the verdict,
+/// or from a compiled-in fallback. `snapshot.meta` is never consulted: a
+/// failed refresh must stay invisible, so "we couldn't reach the server"
+/// can never leak into a message the user reads.
+///
+/// # Errors
+/// Returns `Err` with the notice text (or the fallback sentence) when the
+/// service's flag key resolves to a disabled verdict.
+pub fn service_gate(app: &AppHandle, service: &MediaServiceId) -> Result<(), String> {
+    evaluate_service_gate(&current(app), service)
+}
+
+/// The pure half of [`service_gate`]: verdict resolution with the snapshot
+/// already in hand.
+///
+/// Split out so the gate's behaviour (fail-open on an unknown key, notice
+/// passthrough, fallback wording) is unit-testable without a Tauri
+/// `AppHandle` — the same shape as `resolve_refresh` below.
+///
+/// # Errors
+/// See [`service_gate`].
+pub fn evaluate_service_gate(
+    snapshot: &FeatureFlagsSnapshot,
+    service: &MediaServiceId,
+) -> Result<(), String> {
+    let key = service.flag_key();
+
+    if is_enabled(snapshot, key) {
+        return Ok(());
+    }
+
+    // A server-authored notice is the whole point of the notice field: it is
+    // how a deliberately-paused feature explains itself. It is also
+    // **untrusted remote content**, so it is length-clamped and stripped of
+    // control characters before it goes anywhere near a log line or a toast.
+    let message = notice_for(snapshot, key)
+        .map(|notice| sanitise_notice(&notice.message))
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| {
+            format!(
+                "{} downloads are temporarily unavailable. \
+                 They will come back automatically — no update needed.",
+                service.display_name()
+            )
+        });
+
+    Err(message)
+}
+
+/// Makes a server-authored notice safe to put in an error string.
+///
+/// Strips control characters (a newline or an ANSI escape could forge extra
+/// activity-log lines or corrupt a terminal) and clamps the result to
+/// [`MAX_NOTICE_LENGTH`] with an ellipsis. Plain text only — the frontend
+/// renders it as a React text child, never through any HTML-interpreting
+/// sink.
+fn sanitise_notice(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .to_string();
+
+    if cleaned.chars().count() <= MAX_NOTICE_LENGTH {
+        return cleaned;
+    }
+    let truncated: String = cleaned.chars().take(MAX_NOTICE_LENGTH).collect();
+    format!("{truncated}…")
 }
 
 /// Forces every [`UNGATEABLE_KEYS`] entry to `enabled = true`.
@@ -691,6 +815,125 @@ mod tests {
         assert_eq!(notice.message, "Temporarily unavailable");
         assert_eq!(notice.severity, NoticeSeverity::Maintenance);
         assert!(notice_for(&snap, "missing-key").is_none());
+    }
+
+    // -----------------------------------------------------------------
+    // Service gate (enforcement)
+    // -----------------------------------------------------------------
+
+    /// An enabled service passes the gate.
+    #[test]
+    fn service_gate_allows_an_enabled_service() {
+        let snap = snapshot_with(MediaServiceId::AppleMusic.flag_key(), true);
+        assert!(evaluate_service_gate(&snap, &MediaServiceId::AppleMusic).is_ok());
+    }
+
+    /// A disabled service with a server-authored notice surfaces that
+    /// notice verbatim — the notice is how a deliberate pause explains
+    /// itself, so it must not be replaced by our generic wording.
+    #[test]
+    fn service_gate_blocks_with_the_server_notice_when_present() {
+        let key = MediaServiceId::Spotify.flag_key();
+        let mut snap = snapshot_with(key, false);
+        snap.verdicts.get_mut(key).unwrap().notice = Some(FlagNotice {
+            message: "Spotify is paused while we resolve an upstream change.".to_string(),
+            severity: NoticeSeverity::Maintenance,
+            url: None,
+        });
+
+        let err = evaluate_service_gate(&snap, &MediaServiceId::Spotify)
+            .expect_err("a disabled service must be blocked");
+        assert!(
+            err.contains("Spotify is paused while we resolve an upstream change."),
+            "got: {err}"
+        );
+    }
+
+    /// A disabled service with no notice falls back to the compiled
+    /// sentence, which names the service so the user knows what stopped.
+    #[test]
+    fn service_gate_blocks_with_the_fallback_when_no_notice() {
+        let snap = snapshot_with(MediaServiceId::BBCiPlayer.flag_key(), false);
+        let err = evaluate_service_gate(&snap, &MediaServiceId::BBCiPlayer)
+            .expect_err("a disabled service must be blocked");
+        assert!(err.contains("BBC iPlayer"), "got: {err}");
+        assert!(err.contains("come back automatically"), "got: {err}");
+    }
+
+    /// A snapshot that has never heard of this service's key fails **open**
+    /// — the rule that keeps a newer build (or a fork with no credentials)
+    /// fully functional against an older or absent flag set.
+    #[test]
+    fn service_gate_fails_open_for_an_unknown_key() {
+        // Verdicts for a different service entirely.
+        let snap = snapshot_with("service-something-else", false);
+        assert!(evaluate_service_gate(&snap, &MediaServiceId::AppleMusic).is_ok());
+        // And the true empty case (compiled defaults).
+        assert!(evaluate_service_gate(&compiled_defaults(), &MediaServiceId::YouTube).is_ok());
+    }
+
+    /// The notice is untrusted remote content: control characters (which
+    /// could forge extra activity-log lines) are stripped and an
+    /// overlong message is clamped.
+    #[test]
+    fn service_gate_sanitises_untrusted_notice_text() {
+        let key = MediaServiceId::YouTubeMusic.flag_key();
+        let mut snap = snapshot_with(key, false);
+        snap.verdicts.get_mut(key).unwrap().notice = Some(FlagNotice {
+            message: format!("Paused.\nForged log line\r\n{}", "x".repeat(600)),
+            severity: NoticeSeverity::Critical,
+            url: None,
+        });
+
+        let err = evaluate_service_gate(&snap, &MediaServiceId::YouTubeMusic)
+            .expect_err("a disabled service must be blocked");
+        assert!(!err.contains('\n'), "newlines must be stripped: {err:?}");
+        assert!(!err.contains('\r'), "carriage returns must be stripped");
+        assert!(
+            err.chars().count() <= MAX_NOTICE_LENGTH + 1,
+            "message must be clamped to {MAX_NOTICE_LENGTH} chars (+ ellipsis), got {}",
+            err.chars().count()
+        );
+    }
+
+    /// A notice consisting only of whitespace / control characters must not
+    /// produce an empty error message — the fallback takes over.
+    #[test]
+    fn service_gate_falls_back_when_notice_sanitises_to_empty() {
+        let key = MediaServiceId::Spotify.flag_key();
+        let mut snap = snapshot_with(key, false);
+        snap.verdicts.get_mut(key).unwrap().notice = Some(FlagNotice {
+            message: "  \n\t ".to_string(),
+            severity: NoticeSeverity::Info,
+            url: None,
+        });
+
+        let err = evaluate_service_gate(&snap, &MediaServiceId::Spotify)
+            .expect_err("a disabled service must be blocked");
+        assert!(err.contains("Spotify"), "got: {err}");
+        assert!(err.contains("come back automatically"), "got: {err}");
+    }
+
+    /// The gate reads `verdicts` only — a snapshot whose `meta` records a
+    /// pile of consecutive failures still passes an enabled service, and
+    /// none of that diagnostic detail leaks into a blocked service's
+    /// message.
+    #[test]
+    fn service_gate_ignores_meta_entirely() {
+        let key = MediaServiceId::AppleMusic.flag_key();
+        let mut snap = snapshot_with(key, true);
+        snap.meta = FetchMeta {
+            source: FlagSource::DiskCache,
+            fetched_at: Some("2026-01-01T00:00:00Z".to_string()),
+            consecutive_failures: 47,
+            last_error: Some("HTTP request failed: dns error".to_string()),
+        };
+        assert!(evaluate_service_gate(&snap, &MediaServiceId::AppleMusic).is_ok());
+
+        snap.verdicts.get_mut(key).unwrap().enabled = false;
+        let err = evaluate_service_gate(&snap, &MediaServiceId::AppleMusic).unwrap_err();
+        assert!(!err.contains("dns"), "meta.last_error must never leak: {err}");
+        assert!(!err.contains("47"), "meta counters must never leak: {err}");
     }
 
     // -----------------------------------------------------------------

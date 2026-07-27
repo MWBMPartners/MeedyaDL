@@ -80,6 +80,46 @@ pub struct QueueStatus {
     pub items: Vec<QueueItemStatus>,
 }
 
+/// Resolves which media service an **already-queued** item belongs to, for
+/// the enqueue-seam feature-availability gate on the retry paths.
+///
+/// Three-step resolution:
+///   1. the item's own `service` field (the kebab-case platform id written
+///      at enqueue time by the multi-service queue);
+///   2. failing that, URL sniffing via `MediaServiceId::from_url` — covers
+///      items persisted by a build older than multi-service support, where
+///      `service` is `None`;
+///   3. failing that, Apple Music — the only service that has ever been
+///      dispatchable, so an unlabelled legacy item is Apple Music by
+///      construction.
+///
+/// Never returns `None`: a gate that couldn't identify the service would
+/// have to choose between refusing everything (breaks retries on a
+/// malformed item) or allowing everything (a silent hole in the gate).
+/// Falling back to the only implemented service avoids both.
+fn service_for_queue_item(
+    item: &QueueItemStatus,
+) -> crate::models::media_service::MediaServiceId {
+    use crate::models::media_service::MediaServiceId;
+
+    item.service
+        .as_deref()
+        .and_then(|id| match id {
+            "apple-music" => Some(MediaServiceId::AppleMusic),
+            "youtube-music" => Some(MediaServiceId::YouTubeMusic),
+            "youtube" => Some(MediaServiceId::YouTube),
+            "spotify" => Some(MediaServiceId::Spotify),
+            "bbc-iplayer" => Some(MediaServiceId::BBCiPlayer),
+            _ => None,
+        })
+        .or_else(|| {
+            item.urls
+                .iter()
+                .find_map(|url| MediaServiceId::from_url(url))
+        })
+        .unwrap_or(MediaServiceId::AppleMusic)
+}
+
 /// Starts a new download by adding it to the queue.
 ///
 /// **Frontend caller:** `startDownload(request)` in `src/lib/tauri-commands.ts`
@@ -168,6 +208,9 @@ pub async fn start_download(
     // Whether any URL in the batch is a Spotify URL — drives the
     // dispatch-gate check after host validation passes.
     let mut has_spotify = false;
+    // Whether any URL in the batch targets Apple Music (incl. Classical and
+    // legacy iTunes hosts) — drives the feature-availability gate below.
+    let mut has_apple_music = false;
     for url in &request.urls {
         let parsed = url::Url::parse(url)
             .map_err(|e| format!("Invalid URL '{url}': {e}"))?;
@@ -188,6 +231,68 @@ pub async fn start_download(
             }
             if host.ends_with("open.spotify.com") {
                 has_spotify = true;
+            } else {
+                // Every other allowed host is an Apple Music family host
+                // (music / classical / itunes, plus subdomains such as
+                // geo.music.apple.com) — the allowlist above guarantees it.
+                has_apple_music = true;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Remote feature-availability gate (enqueue seam).
+    // ---------------------------------------------------------------
+    //
+    // Placement is load-bearing: this runs immediately after host
+    // classification and BEFORE every mutation in this function — before
+    // `history_service::remove_entries_for_urls`, before the batch / artist
+    // duplicate planners, and before any `q.enqueue(...)`. A paused service
+    // must leave the queue and the history file exactly as it found them.
+    //
+    // This is the AUTHORITATIVE check. `DownloadForm.tsx` has a courtesy
+    // check that fires first for the common path, but deep links, the
+    // clipboard monitor, drag-and-drop and manifest import all reach this
+    // command without ever passing through that form.
+    //
+    // Resolution is synchronous and never touches the network (see
+    // `feature_flag_service::service_gate`), so an offline user pays nothing
+    // for it. Unknown keys fail open.
+    //
+    // Mirrors the shape of the M9 Spotify dispatch gate immediately below:
+    // evaluate the whole batch first, then refuse to queue ANY of it if a
+    // service is paused — a partially-blocked batch fails fast with a
+    // service-specific message instead of silently dropping half the URLs.
+    {
+        use crate::models::media_service::MediaServiceId;
+        use crate::services::feature_flag_service::service_gate;
+
+        let mut batch_services: Vec<MediaServiceId> = Vec::new();
+        if has_apple_music {
+            batch_services.push(MediaServiceId::AppleMusic);
+        }
+        if has_spotify {
+            batch_services.push(MediaServiceId::Spotify);
+        }
+
+        for service in &batch_services {
+            if let Err(message) = service_gate(&app, service) {
+                // Exactly one activity-log line per refusal, naming only the
+                // service. The server-authored notice text goes back to the
+                // caller as the Err payload (which the frontend surfaces as
+                // a toast); it is deliberately NOT duplicated into the log.
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                log::info!(
+                    "start_download refused: {} is disabled by feature availability",
+                    service.display_name()
+                );
+                return Err(message);
             }
         }
     }
@@ -1192,6 +1297,37 @@ pub async fn retry_download(
 ) -> Result<(), String> {
     log::info!("Retry requested for download: {download_id}");
 
+    // Remote feature-availability gate (enqueue seam). A retry is a request
+    // to start the download over from the top, so it is new work by the
+    // enqueue-seam rule and is gated exactly like `start_download`. Runs at
+    // the very top, before the smart-retry peek and before any state
+    // mutation, so a refusal leaves the item untouched in its Error state.
+    //
+    // (Contrast `retry_download_without_wrapper`, which is deliberately NOT
+    // gated: it is the automatic continuation of a failure in an already-
+    // admitted download, not a fresh admission.)
+    {
+        let item = {
+            let q = queue.lock().await;
+            q.get_status().into_iter().find(|item| item.id == download_id)
+        };
+        if let Some(item) = item.as_ref() {
+            let service = service_for_queue_item(item);
+            if let Err(message) =
+                crate::services::feature_flag_service::service_gate(&app, &service)
+            {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                return Err(message);
+            }
+        }
+    }
+
     // Re-load settings so retries pick up any changes the user made
     // (e.g., switching from AAC to ALAC after a failed attempt).
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
@@ -1332,6 +1468,46 @@ pub async fn retry_failed_bulk(
             retried: 0,
             skipped: Vec::new(),
         });
+    }
+
+    // Remote feature-availability gate (enqueue seam), evaluated at the top
+    // before ANY state mutation. Same rule as `retry_download`: a bulk retry
+    // re-admits work into the queue, so a paused service must refuse it.
+    //
+    // Evaluated across the whole requested batch and refusing the entire
+    // call (rather than per-item skipping) matches `start_download`: a
+    // partially-refused bulk retry would be reported as "N re-queued, M
+    // skipped" in a report the user has to decode, whereas one clear
+    // service-level message says exactly what happened.
+    {
+        let services: Vec<crate::models::media_service::MediaServiceId> = {
+            let q = queue.lock().await;
+            let mut seen = Vec::new();
+            for item in q.get_status() {
+                if !download_ids.contains(&item.id) {
+                    continue;
+                }
+                let service = service_for_queue_item(&item);
+                if !seen.contains(&service) {
+                    seen.push(service);
+                }
+            }
+            seen
+        };
+        for service in &services {
+            if let Err(message) =
+                crate::services::feature_flag_service::service_gate(&app, service)
+            {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                return Err(message);
+            }
+        }
     }
 
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
@@ -2027,6 +2203,53 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
         })
         .collect();
 
+    // Remote feature-availability gate (enqueue seam), applied PER ITEM.
+    //
+    // Import differs deliberately from `start_download` / the retry paths:
+    // an import file is a user's archived queue, often spanning services and
+    // often months old. Refusing the whole file because one service is
+    // paused would mean the user loses the import entirely and has to
+    // remember to redo it later. So blocked items are skipped and counted,
+    // and everything else imports normally — the summary line tells the user
+    // exactly how many were held back.
+    //
+    // Service is sniffed from each item's URLs (an `ExportedItem` carries
+    // only URLs + option overrides); an unrecognised URL is left to the
+    // existing downstream validation rather than being gated here.
+    let total_items = items.len();
+    let items: Vec<_> = items
+        .into_iter()
+        .filter(|item| {
+            let Some(service) = item
+                .urls
+                .iter()
+                .find_map(|url| crate::models::media_service::MediaServiceId::from_url(url))
+            else {
+                return true;
+            };
+            crate::services::feature_flag_service::service_gate(&app, &service)
+                .inspect_err(|_| {
+                    log::info!(
+                        "Queue import: skipping item for paused service {}",
+                        service.display_name()
+                    );
+                })
+                .is_ok()
+        })
+        .collect();
+    let paused_skipped = total_items - items.len();
+
+    if items.is_empty() {
+        // Every item in the file belongs to a paused service. Returning an
+        // error (rather than Ok(0)) is what surfaces the reason to the user
+        // — an "imported 0 items" success would look like a corrupt file.
+        return Err(
+            "Nothing imported — every item in this file is for a download service that is \
+             temporarily paused. It will come back automatically; try the import again then."
+                .to_string(),
+        );
+    }
+
     // Import items into the queue. The lock is acquired inline and
     // released immediately after import_items() returns, avoiding
     // unnecessary resource contention (clippy::significant_drop_tightening).
@@ -2044,7 +2267,17 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
         .and_then(|n| n.to_str())
         .unwrap_or("queue file");
     log::info!("Imported {count} queue item(s) from file");
-    emit_app_log(&app, &format!("Imported {count} item(s) from {filename}"));
+    // The paused-service skip count is appended to the same summary line so
+    // the user sees "why is this fewer items than I exported?" in one place.
+    let paused_suffix = if paused_skipped > 0 {
+        format!(" — {paused_skipped} item(s) skipped — downloads for a paused service")
+    } else {
+        String::new()
+    };
+    emit_app_log(
+        &app,
+        &format!("Imported {count} item(s) from {filename}{paused_suffix}"),
+    );
 
     // Start processing the imported items if auto-start is enabled.
     if settings.auto_start_queue {

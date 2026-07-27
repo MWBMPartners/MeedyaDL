@@ -129,7 +129,7 @@ import { useActivityStore } from './stores/activityStore';
  * below) -- never a second independent timer. Failures are silently
  * absorbed by the store itself; see `src/stores/featureFlagStore.ts`.
  */
-import { useFeatureFlagStore } from './stores/featureFlagStore';
+import { useFeatureFlagStore, selectServiceEnabled } from './stores/featureFlagStore';
 
 /* ─── Layout ─────────────────────────────────────────────────────────── */
 
@@ -846,6 +846,46 @@ function App() {
     setup();
 
     return () => unlistenAbout?.();
+  }, [isReady]);
+
+  /*
+   * ─── Effect 4c: Clear paused-service toasts when a service returns ──
+   *
+   * `DownloadForm` raises a persistent, keyed error toast
+   * (`feature-paused-service-<id>`) when the user tries to queue a URL for
+   * a service the feature-availability snapshot says is paused. Persistent
+   * toasts don't auto-dismiss, so when a later refresh flips that service
+   * back on we clear the toast programmatically — the same
+   * raise-then-clear-by-key shape as the `preflight-warning` /
+   * `preflight-cleared` pair in Effect 3.
+   *
+   * Subscribes to the store rather than listening for a Tauri event: the
+   * flag snapshot arrives through the existing periodic `load()` (Effect 4),
+   * and deliberately does NOT emit an event of its own — the Err(String)
+   * channel plus the keyed toast is the entire surfacing mechanism.
+   *
+   * Reads ONLY `data.verdicts` (via `selectServiceEnabled`); `data.meta` is
+   * diagnostics and must never drive anything on screen.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    return useFeatureFlagStore.subscribe((state, prevState) => {
+      if (state.data === prevState.data) return;
+      /* Iterate the PREVIOUS snapshot's keys: those are the only ones that
+       * could have been paused, and it also covers the case where the new
+       * payload drops the key entirely (a dropped key reads as enabled by
+       * the missing-key rule, so the toast must still clear). */
+      for (const flagKey of Object.keys(prevState.data.verdicts)) {
+        if (!flagKey.startsWith('service-')) continue;
+        if (
+          selectServiceEnabled(state.data, flagKey) &&
+          !selectServiceEnabled(prevState.data, flagKey)
+        ) {
+          useUiStore.getState().removeToastsByKey(`feature-paused-${flagKey}`);
+        }
+      }
+    });
   }, [isReady]);
 
   /*
