@@ -1,5 +1,7 @@
 # Remote Feature Flags — Cross-Repo Analysis & Implementation Plan
 
+> **CORRECTION (2026-07-27, later same day):** the evaluation model described in this document was **reversed before implementation**. The shipped client uses **server-side evaluation**: it sends `app_version`, `platform`, and `platform_version`, and the server resolves the condition and returns already-resolved booleans. No rule conditions are fetched to the client or evaluated on-device. Wherever the body below describes client-side condition evaluation, treat it as superseded. See `.claude/memory/project_remote_feature_control.md` (the "Update — 2026-07-27 (same day, session continued)" section and the later dated section after it) for the full reversal rationale and what shipped. The rest of this document is a dated record and is intentionally left otherwise unedited.
+
 **Date:** 2026-07-27 · **Author:** Claude (deep-analysis session)
 **Repos analysed:** `/home/user/MeedyaDL` (at `origin/alpha` = `243e8a2a`), `/workspace/mwbm-intappsapi` (`main` = `6816ed8`, shallow clone depth 1), `/workspace/meedyaconverter` (`main` = `be62e6b`), `/workspace/meedyamanager` (`main` = `aa0ad24`).
 **Method:** every claim below was verified by reading the named file at the named revision. Where something could not be verified, that is stated explicitly.
