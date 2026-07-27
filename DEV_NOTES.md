@@ -234,6 +234,14 @@ If **any** of the three is unset at build time, the feature-availability client 
 |--------|-------------|
 | `RELEASE_PAT` | Personal Access Token with `repo` scope. Used instead of `GITHUB_TOKEN` so that tag pushes trigger the Release workflow (GitHub's `GITHUB_TOKEN` doesn't trigger other workflows). |
 
+### Build-time (non-secret) environment variables
+
+Not everything embedded via `option_env!()` at compile time is sensitive — the table below covers variables that are safe to name publicly (unlike the `INTAPPS_*` confidentiality rule above, which applies specifically to endpoint/key material).
+
+| Variable | Description |
+|----------|-------------|
+| `MEEDYADL_CHROME_MAJOR` | Chrome major version number (e.g. `"131"`) embedded into the Group C browser User-Agent strings (`browser_user_agent()` in `src-tauri/src/utils/http_client.rs`) used for generic third-party requests (Odesli, PyPI, etc.) on Windows and Linux. Set by a best-effort step in `release.yml` that queries Google's public [VersionHistory API](https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions?pageSize=1) for the current stable Windows Chrome release, extracts the major version, and exports it via `$GITHUB_ENV`. If the fetch fails, times out, or returns something that doesn't look like a clean 2-4 digit number, the step logs a warning and moves on — it can never fail the build. Local dev builds, forks, and CI/PR builds never set this variable, and fall back to the compiled-in `CHROME_MAJOR_FALLBACK` constant, so the mechanism is entirely opt-in and zero-config by default. This is safe to document here (unlike `INTAPPS_*`) because it queries a public Google API with no auth, and the resulting value ships visibly in plaintext inside every binary's User-Agent header anyway. |
+
 ---
 
 ## Remote Feature Availability (Developer Notes)

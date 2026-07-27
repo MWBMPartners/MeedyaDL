@@ -596,3 +596,84 @@ Full verify: `cargo check` / `cargo clippy --all-targets -- -D warnings` /
 `check_user_agent.py --strict` and `--self-test` both clean;
 `check_ipc_commands.py --strict` and `check_codec_registry.py` both clean;
 `npm run type-check` clean.
+
+## 11. 2026-07-27 — Build-time Chrome UA major-version resolution (#1070 follow-up)
+
+Same-day third follow-up to §9/§10. Group C's Chrome UA strings
+(`browser_user_agent()`, Windows + Linux branches) were still hand-pinned
+at a literal "131" in Rust source — this note lands the mechanism that
+keeps that number current without ever touching the code again by hand.
+
+**Design (settled, no debate left)**: only the Chrome **major version
+number** is injected at build time, never a full UA string and never a
+per-OS value. `std::env::consts::OS` is compile-time-constant per target
+and Chrome's major release train is identical across desktop platforms, so
+one OS-agnostic number correctly serves every build target — it is
+structurally impossible for a Windows build to ship a macOS (or any other
+platform's) UA token, because OS-token selection (a `match` on
+`std::env::consts::OS`) and version injection (`option_env!` → a
+`LazyLock<String>` format!) are two entirely separate mechanisms that never
+cross-contaminate. Windows presents as **Chrome, not Edge** — Chrome's
+Windows share is several times Edge's (the less remarkable, more
+genuine-looking client), and Edge's UA is Chrome's plus an extra `Edg/`
+token, i.e. strictly more identifying and a second version number to keep
+in sync for zero benefit.
+
+Landed in `src-tauri/src/utils/http_client.rs`: `CHROME_MAJOR_FALLBACK`
+("131", compiled in, hand-refresh periodically), `CHROME_MAJOR`
+(`option_env!("MEEDYADL_CHROME_MAJOR")` with fallback), and
+`sanitise_chrome_major()` (defence-in-depth — a malformed/garbage env
+value silently degrades to the fallback rather than shipping a broken UA
+or panicking; 2-4 ASCII-digit check). `WINDOWS_CHROME_UA` / `LINUX_CHROME_UA`
+are now `LazyLock<String>` built from the sanitised major, and
+`browser_user_agent()` dereferences them instead of returning a literal.
+`SAFARI_MACOS_USER_AGENT` is deliberately **left out of this mechanism** —
+it's the Group B string Apple Music's own edges must accept, so tying it to
+a network fetch is too high a blast radius (a broken/rate-limited fetch
+could ship a build Apple's servers reject outright), and Safari's major
+moves ~annually versus Chrome's ~4-week train, so the staleness pressure
+that motivates resolving Chrome barely applies. **Do not "finish the job"
+by making Safari dynamic too** — this was evaluated and rejected, not
+overlooked.
+
+`release.yml`'s `build` job gained one step ("Resolve current Chrome major
+for browser UA (best-effort)") between "Install npm dependencies" and
+"Pre-bundle engines", which queries Google's public VersionHistory API
+(`versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions`)
+and exports `MEEDYADL_CHROME_MAJOR` via `$GITHUB_ENV` (propagates to every
+later step in the job — no `env:` added to the `cargo tauri build` steps
+themselves). **Never-fail contract**: `set +e` + a trailing `exit 0` mean
+this step cannot fail the build under any response shape — a failed fetch,
+timeout, or malformed body just leaves the env var unset and the compiled
+fallback takes over identically to a local dev build. A `>=3-majors-behind`
+advisory `::notice::` nudges a manual `CHROME_MAJOR_FALLBACK` bump when the
+live value has drifted far from the compiled-in one; this is advisory only,
+never blocking. `ci.yml` deliberately does **not** get this step — CI/PR
+builds intentionally stay on the fallback for build determinism and cache
+hygiene, per explicit design instruction.
+
+Docs: `.claude/CLAUDE.md`'s "Outbound User-Agent" bullet's Group C
+paragraph rewritten for the new mechanism (also corrected two facts that
+had gone stale: the Chrome UAs are now `LazyLock`, not literals, and the
+Windows-vs-Edge rationale is now spelled out). `DEV_NOTES.md` gained a new
+"Build-time (non-secret) environment variables" section documenting
+`MEEDYADL_CHROME_MAJOR` — explicitly safe to name publicly (unlike
+`INTAPPS_*`) since it's a public, unauthenticated Google API and the
+resulting value ships in plaintext in every binary's UA header anyway.
+
+Full verify: `cargo test utils::http_client` clean with the env var unset,
+set to `140`, and set to the deliberately-invalid `garbage;rm` (all three
+pass identically — proves the sanitiser and the fallback both work);
+`cargo clippy --all-targets -- -D warnings` clean; full `cargo test` clean
+(1580 passed, +3 new `http_client` tests over §10's count);
+`check_user_agent.py --strict` and `--self-test` both clean (script
+untouched — the new code passes by construction, matching neither scanned
+pattern); `check_ipc_commands.py` clean; `npm run type-check` clean. Live
+`curl` dry-run of the VersionHistory API from this sandbox succeeded
+(returned major 151 at time of writing), confirming the response shape the
+workflow step parses.
+
+**Decisions on record for future sessions** — do not relitigate: (1) Safari
+stays pinned/manual, never dynamic; (2) Windows uses Chrome, never Edge;
+(3) only the major crosses the build boundary, never a full string or a
+per-OS value.

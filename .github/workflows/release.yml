@@ -806,6 +806,46 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      # Step 8.4: Resolve the current Chrome major version for the Group C
+      # browser User-Agent (see http_client.rs's CHROME_MAJOR doc comment
+      # for the full design rationale). Queries Google's public
+      # VersionHistory API for the current Windows stable Chrome release and
+      # exports MEEDYADL_CHROME_MAJOR via $GITHUB_ENV so it's visible to the
+      # `cargo tauri build` step later in this job (env vars exported to
+      # $GITHUB_ENV propagate to every subsequent step in the same job — no
+      # need to add `env:` to the build steps individually).
+      #
+      # NEVER-FAIL CONTRACT: this step must not be able to fail the build.
+      # It only ever *narrows a fingerprinting string*, never gates
+      # anything functional — a failed/timed-out/malformed response simply
+      # leaves MEEDYADL_CHROME_MAJOR unset, and http_client.rs's
+      # CHROME_MAJOR_FALLBACK constant covers that case identically to a
+      # local dev build. `set +e` (overriding the job's default `bash -e`)
+      # plus the trailing `exit 0` are both LOAD-BEARING for this contract —
+      # do not remove either, and do not let anything in this block return
+      # non-zero without being explicitly swallowed.
+      - name: Resolve current Chrome major for browser UA (best-effort)
+        shell: bash
+        run: |
+          set +e
+          RESP=$(curl -fsS --max-time 10 \
+            "https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions?pageSize=1")
+          MAJOR=$(printf '%s' "$RESP" | jq -r '.versions[0].version // empty' 2>/dev/null | cut -d. -f1)
+          if [[ "$MAJOR" =~ ^[0-9]{2,4}$ ]]; then
+            echo "MEEDYADL_CHROME_MAJOR=$MAJOR" >> "$GITHUB_ENV"
+            echo "::notice::Browser UA: building with Chrome major $MAJOR"
+            echo "**Browser UA:** Chrome major \`$MAJOR\` (live-resolved)" >> "$GITHUB_STEP_SUMMARY"
+            FALLBACK=$(grep -oE 'CHROME_MAJOR_FALLBACK: &str = "[0-9]+"' \
+              src-tauri/src/utils/http_client.rs | grep -oE '[0-9]+' | head -1)
+            if [[ "$FALLBACK" =~ ^[0-9]+$ ]] && [ $((MAJOR - FALLBACK)) -ge 3 ]; then
+              echo "::notice::CHROME_MAJOR_FALLBACK ($FALLBACK) is $((MAJOR - FALLBACK)) majors behind stable ($MAJOR) — consider a one-line fallback bump in http_client.rs (affects offline/fork builds only)."
+            fi
+          else
+            echo "::warning::Could not resolve current Chrome version — using compiled-in fallback UA."
+            echo "**Browser UA:** compiled-in fallback (version fetch failed)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
       # Step 8.5: Pre-bundle engines for offline installer (optional).
       # When bundle_engines is true (manual workflow_dispatch only), downloads
       # Python, pip engines (GAMDL, votify), and binary tools (FFmpeg, mp4decrypt,
