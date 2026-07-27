@@ -122,6 +122,38 @@ impl MediaServiceId {
         }
     }
 
+    /// Returns the remote feature-availability flag key for this service.
+    ///
+    /// Used by `services::feature_flag_service::service_gate` to look a
+    /// service up in the resolved verdict map. The keys are namespaced with
+    /// the `service-` prefix, matching the `core-` / `feature-` convention
+    /// documented on `FeatureFlagsSnapshot::verdicts`.
+    ///
+    /// ## Kebab-case is required, not stylistic
+    ///
+    /// The backend's `InputSanitizer::slug()` key grammar is
+    /// `^[a-z0-9-]+$` (max 100 chars) and **rejects dots outright**, so a
+    /// dotted key such as `"service.apple-music"` is a string the server
+    /// could never create or serve — it would resolve as an unknown key and
+    /// silently fail open forever. The unit test below pins the grammar.
+    ///
+    /// Deliberately distinct from `Display` (which yields the *engine
+    /// registry* platform id, e.g. `"apple-music"`) even though the two
+    /// currently differ only by the prefix: the flag key is a wire contract
+    /// with MWBM-IntAppsAPI, whereas the platform id is a local
+    /// `engines.toml` lookup key. Coupling them would make a future rename
+    /// on either side silently break the other.
+    #[must_use]
+    pub const fn flag_key(&self) -> &'static str {
+        match self {
+            Self::AppleMusic => "service-apple-music",
+            Self::YouTubeMusic => "service-youtube-music",
+            Self::YouTube => "service-youtube",
+            Self::Spotify => "service-spotify",
+            Self::BBCiPlayer => "service-bbc-iplayer",
+        }
+    }
+
     /// Returns the URL domain pattern(s) used to detect this service.
     ///
     /// Used by `from_url()` to auto-detect which service a pasted URL
@@ -486,6 +518,59 @@ mod tests {
         assert_eq!(MediaServiceId::YouTube.display_name(), "YouTube");
         assert_eq!(MediaServiceId::Spotify.display_name(), "Spotify");
         assert_eq!(MediaServiceId::BBCiPlayer.display_name(), "BBC iPlayer");
+    }
+
+    /// Verifies that every `flag_key()` value satisfies the backend's key
+    /// grammar (`^[a-z0-9-]+$`) and that no two services share a key.
+    ///
+    /// The grammar check is the important half: MWBM-IntAppsAPI's
+    /// `InputSanitizer::slug()` rejects dots, uppercase, and underscores, so
+    /// a key that fails this assertion could never be served — the gate for
+    /// that service would fail open permanently and silently. Uniqueness is
+    /// checked because two services sharing a key would make one service's
+    /// pause silently pause the other as well.
+    #[test]
+    fn test_service_flag_keys_are_kebab_case_and_unique() {
+        let all = [
+            MediaServiceId::AppleMusic,
+            MediaServiceId::YouTubeMusic,
+            MediaServiceId::YouTube,
+            MediaServiceId::Spotify,
+            MediaServiceId::BBCiPlayer,
+        ];
+
+        let mut seen = std::collections::HashSet::new();
+        for service in all {
+            let key = service.flag_key();
+
+            // `^[a-z0-9-]+$` — asserted without pulling in the regex crate
+            // for a five-element check.
+            assert!(!key.is_empty(), "{service:?} has an empty flag key");
+            assert!(
+                key.chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'),
+                "flag key '{key}' for {service:?} must match ^[a-z0-9-]+$ \
+                 (the backend key sanitiser rejects dots, underscores and uppercase)"
+            );
+            assert!(
+                key.len() <= 100,
+                "flag key '{key}' exceeds the server's 100-character key limit"
+            );
+            assert!(
+                key.starts_with("service-"),
+                "flag key '{key}' should carry the 'service-' namespace prefix"
+            );
+            assert!(
+                seen.insert(key),
+                "flag key '{key}' is used by more than one service"
+            );
+        }
+
+        // Spot-check the exact wire values so a rename is a deliberate,
+        // visible change rather than a silent contract break.
+        assert_eq!(MediaServiceId::AppleMusic.flag_key(), "service-apple-music");
+        assert_eq!(MediaServiceId::Spotify.flag_key(), "service-spotify");
+        assert_eq!(MediaServiceId::BBCiPlayer.flag_key(), "service-bbc-iplayer");
     }
 
     /// Verifies that `pip_package()` returns the correct PyPI package

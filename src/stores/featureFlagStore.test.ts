@@ -11,7 +11,7 @@
  * must never look at `snapshot.meta`.
  */
 
-import { selectNoticeEntries } from '@/stores/featureFlagStore';
+import { selectNoticeEntries, selectServiceEnabled } from '@/stores/featureFlagStore';
 import { makeFeatureFlagsSnapshot, makeFlagVerdict } from '@/testing/fixtures';
 
 describe('selectNoticeEntries', () => {
@@ -89,5 +89,56 @@ describe('selectNoticeEntries', () => {
     });
 
     expect(selectNoticeEntries(snapshot)).toHaveLength(0);
+  });
+});
+
+/**
+ * `selectServiceEnabled` is the courtesy half of the enforcement layer —
+ * the Rust `feature_flag_service::service_gate` is authoritative. These
+ * tests pin the fail-open rule (a key the snapshot has never heard of is
+ * enabled) and the same never-read-`meta` invariant as above.
+ */
+describe('selectServiceEnabled', () => {
+  it('returns true for a key the snapshot does not mention (fail-open)', () => {
+    const snapshot = makeFeatureFlagsSnapshot({ verdicts: {} });
+    expect(selectServiceEnabled(snapshot, 'service-apple-music')).toBe(true);
+  });
+
+  it('returns true for an explicitly enabled service', () => {
+    const snapshot = makeFeatureFlagsSnapshot({
+      verdicts: { 'service-apple-music': makeFlagVerdict({ enabled: true }) },
+    });
+    expect(selectServiceEnabled(snapshot, 'service-apple-music')).toBe(true);
+  });
+
+  it('returns false for an explicitly disabled service', () => {
+    const snapshot = makeFeatureFlagsSnapshot({
+      verdicts: { 'service-spotify': makeFlagVerdict({ enabled: false }) },
+    });
+    expect(selectServiceEnabled(snapshot, 'service-spotify')).toBe(false);
+  });
+
+  it('does not let one disabled service affect another', () => {
+    const snapshot = makeFeatureFlagsSnapshot({
+      verdicts: {
+        'service-spotify': makeFlagVerdict({ enabled: false }),
+        'service-apple-music': makeFlagVerdict({ enabled: true }),
+      },
+    });
+    expect(selectServiceEnabled(snapshot, 'service-spotify')).toBe(false);
+    expect(selectServiceEnabled(snapshot, 'service-apple-music')).toBe(true);
+  });
+
+  it('ignores meta entirely -- a failure-laden snapshot still reads as enabled', () => {
+    const snapshot = makeFeatureFlagsSnapshot({
+      verdicts: {},
+      meta: {
+        source: 'disk_cache',
+        fetched_at: null,
+        consecutive_failures: 12,
+        last_error: 'connection refused',
+      },
+    });
+    expect(selectServiceEnabled(snapshot, 'service-apple-music')).toBe(true);
   });
 });

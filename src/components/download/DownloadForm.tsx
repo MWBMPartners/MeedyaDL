@@ -95,6 +95,16 @@ import {
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
+/**
+ * Remote feature-availability snapshot + its pure "is this service
+ * available?" selector. Read imperatively via `getState()` inside the
+ * submit handler (not subscribed) — this is a one-shot courtesy check at
+ * click time, not something the form's rendering depends on.
+ */
+import { useFeatureFlagStore, selectServiceEnabled } from '@/stores/featureFlagStore';
+
+/** i18n — the paused-service toast copy lives in `public/locales/*`. */
+import { useTranslation } from 'react-i18next';
 
 /** Reusable UI primitives from the common component library. */
 import { Button, Select, ContextMenu } from '@/components/common';
@@ -129,7 +139,7 @@ import type { AppleMusicContentType, SongCodec, VideoResolution } from '@/types'
  * @see SONG_CODEC_LABELS in @/types/index.ts        -- e.g., { alac: 'Lossless (ALAC)' }
  * @see VIDEO_RESOLUTION_LABELS in @/types/index.ts   -- e.g., { '2160p': '4K UHD (2160p)' }
  */
-import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
+import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS } from '@/types';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -193,6 +203,9 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
  * @see https://react.dev/reference/react/useState     -- showOverrides toggle
  */
 export function DownloadForm() {
+  /** Translation function for the paused-service toast copy. */
+  const { t } = useTranslation();
+
   // ---------------------------------------------------------------
   // Store selectors (Zustand)
   // ---------------------------------------------------------------
@@ -394,6 +407,42 @@ export function DownloadForm() {
         : urlInput.trim()
           ? [urlInput.trim()]
           : [];
+
+    // Remote feature-availability check — FIRST, because it is a synchronous
+    // read of an already-resolved in-memory snapshot (no IPC, no network), so
+    // it is by far the cheapest of the preflight checks and there is no point
+    // probing the internet or the output path for a service that is paused.
+    //
+    // Courtesy only — start_download re-checks authoritatively. Deep links,
+    // the clipboard monitor and queue import all reach the backend gate
+    // without passing through this form.
+    {
+      const snapshot = useFeatureFlagStore.getState().data;
+      const blocked = new Map<string, string>();
+      for (const url of urlsToSubmit) {
+        const service = detectService(url);
+        if (!service) continue;
+        const flagKey = `service-${service}`;
+        if (!selectServiceEnabled(snapshot, flagKey)) {
+          blocked.set(flagKey, MEDIA_SERVICE_LABELS[service]);
+        }
+      }
+      if (blocked.size > 0) {
+        for (const [flagKey, serviceLabel] of blocked) {
+          // Persistent (duration 0) and keyed, so the same pause can't stack
+          // up one toast per click, and so it can be dismissed
+          // programmatically the moment the service comes back (see the
+          // subscription in App.tsx Effect 4c).
+          addToast(
+            t('featureFlags.servicePaused', { service: serviceLabel }),
+            'error',
+            0,
+            `feature-paused-${flagKey}`
+          );
+        }
+        return;
+      }
+    }
 
     // Check internet connectivity — if offline, we still queue the download
     // but skip auto-start so it waits until the user retries or connectivity
