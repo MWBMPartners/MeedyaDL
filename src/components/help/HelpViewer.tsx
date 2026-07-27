@@ -789,7 +789,13 @@ MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
 - Delete the settings file from the app data directory and restart
 - On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/
 - On Windows: %APPDATA%/com.meedyasuite.meedyadl/
-- On Linux: ~/.local/share/com.meedyasuite.meedyadl/`,
+- On Linux: ~/.local/share/com.meedyasuite.meedyadl/
+
+### A Feature Says "Temporarily Unavailable"
+- This is deliberate and temporary — occasionally we pause a feature for everyone while we investigate something
+- Nothing is wrong with your installation, and there is nothing you need to do
+- The feature returns automatically once it is switched back on; the rest of the app keeps working
+- Being offline never causes this — if the app can't check in, it keeps its last known state`,
   },
   {
     id: 'disclaimer',
@@ -1037,7 +1043,11 @@ Some services support multiple download engines. When the primary engine fails w
 
 **Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
 
-The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.`,
+The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.
+
+## When a Service or Feature Is Temporarily Paused
+
+Very occasionally we may pause a service or feature for all users while we investigate something on the provider's side. MeedyaDL shows an in-app notice when this happens — it is deliberate and temporary, not a fault in your installation, and the feature returns automatically once re-enabled. See **Troubleshooting** for details.`,
   },
   {
     id: 'release-channels',
