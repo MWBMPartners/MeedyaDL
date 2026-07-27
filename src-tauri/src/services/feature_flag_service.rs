@@ -418,10 +418,11 @@ fn platform_wire_name() -> &'static str {
 async fn fetch_remote(config: &RemoteConfig) -> Result<FeatureFlagsSnapshot, String> {
     // The client-level user-agent produces the `User-Agent` header, so it
     // is not also set per-request. `full_user_agent()` — the
-    // platform-bearing variant, not the reduced `APP_USER_AGENT` used for
-    // third parties — is correct here and *only* for call sites like this
-    // one: MWBM-IntAppsAPI is MeedyaDL's own backend, the single endpoint
-    // with a legitimate use for OS/arch/OS-version detail (#1070).
+    // platform-bearing variant, distinct from both the MusicBrainz-only
+    // app-identity constant and the browser-UA constant used for every
+    // other third party — is correct here and *only* for call sites like
+    // this one: MWBM-IntAppsAPI is MeedyaDL's own backend, the single
+    // endpoint with a legitimate use for OS/arch/OS-version detail (#1070).
     let client = build_client(
         ClientConfig::with_timeout(REQUEST_TIMEOUT_SECS).user_agent(full_user_agent()),
     )?;

@@ -508,3 +508,34 @@ python3 -m venv /tmp/v && /tmp/v/bin/pip install --only-binary=gamdl 'gamdl==3.8
 
 Fixed: #969, #970, #1008, #1009 (all the code above). Filed: #1010, #1011,
 #1012, #1013 (retargeted ARMv7), #1014. Enriched: #971–#974.
+
+---
+
+## 9. 2026-07-27 — Outbound User-Agent policy corrected (#1070)
+
+Same-day follow-up correction to #1070. The first pass of that work sent
+`APP_USER_AGENT` (MeedyaDL's own identity string) to every third party —
+GitHub, PyPI, MusicBrainz, Odesli, the Apple Music JWT paths. The maintainer
+corrected this: third parties should receive a genuine browser UA instead,
+with MusicBrainz as the sole exception (licensed API, ToS requires an
+identifying UA).
+
+Landed: `BROWSER_USER_AGENT` (the Safari 17.6 string, unchanged value, moved
+from `apple_music_api.rs`'s old `APPLE_BROWSER_USER_AGENT` into
+`utils/http_client.rs` as the canonical shared constant) now goes to every
+third party except MusicBrainz. `APP_USER_AGENT` is now MusicBrainz-only.
+`full_user_agent()` is untouched — still MWBM-IntAppsAPI-only. A single
+*fixed* browser UA (not per-platform) is deliberate: every install looks
+byte-identical to third parties, leaking neither platform nor app version —
+strictly less than the previous policy leaked. `tools/audit-checks/check_user_agent.py`
+docstring updated for the three-constant policy; its no-hardcoded-literal
+rule is unchanged. `.claude/CLAUDE.md`'s "Outbound User-Agent" bullet
+rewritten to match. Reservation on record: GitHub's own guidance frames the
+UA as its contact channel for a misbehaving integration rather than a
+silent-block trigger, and both the updater and dependency downloader hit
+GitHub — accepted, revisit if GitHub calls start failing.
+
+Full verify: `cargo check` / `cargo clippy --all-targets -- -D warnings` /
+`cargo test` all clean (1575 passed); `check_user_agent.py --strict` and
+`--self-test` both 0 findings / all cases pass; `check_ipc_commands.py
+--strict` and `check_codec_registry.py` both clean.
