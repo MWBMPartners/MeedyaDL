@@ -24,6 +24,30 @@
 
 use std::time::Duration;
 
+/// Single canonical User-Agent string for every outbound HTTP request that
+/// identifies itself as MeedyaDL (i.e. everything except the deliberate
+/// Apple-browser impersonation in `apple_music_api::APPLE_BROWSER_USER_AGENT`,
+/// which must stay untouched — Apple 403s non-browser UAs on that codepath).
+///
+/// Three things this constant fixes by construction:
+///
+/// (a) "MeedyaDL/" MUST stay first — MWBM-IntAppsAPI's `AuthMiddleware` does
+///     a `str_starts_with()` prefix match against a registered
+///     `user_agent_prefix`, so reordering or removing this prefix silently
+///     breaks that integration's request identification.
+/// (b) The version is resolved at compile time via `env!("CARGO_PKG_VERSION")`
+///     so it can never drift out of sync with the shipped app version — the
+///     bug this constant replaces was a hardcoded `MusicBrainz` UA pinned at
+///     "0.6" while the app itself had moved on to the 1.12.x line.
+/// (c) The contact URL satisfies MusicBrainz's Terms of Service requirement
+///     that outbound UAs identify the application and provide a way to
+///     reach its maintainers.
+pub const APP_USER_AGENT: &str = concat!(
+    "MeedyaDL/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/MWBMPartners/MeedyaDL)"
+);
+
 /// Construction parameters for an HTTP client. Defaults match the
 /// most-common shape (15-second request timeout, no user-agent, no
 /// connect_timeout override) — the caller only specifies fields that
@@ -136,10 +160,10 @@ mod tests {
     #[test]
     fn builder_chains_compose() {
         let cfg = ClientConfig::with_timeout(10)
-            .user_agent("MeedyaDL/1.0")
+            .user_agent(APP_USER_AGENT)
             .connect_timeout(5);
         assert_eq!(cfg.timeout, Duration::from_secs(10));
-        assert_eq!(cfg.user_agent, Some("MeedyaDL/1.0"));
+        assert_eq!(cfg.user_agent, Some(APP_USER_AGENT));
         assert_eq!(cfg.connect_timeout, Some(Duration::from_secs(5)));
     }
 
@@ -156,8 +180,18 @@ mod tests {
     #[test]
     fn build_client_with_full_config_succeeds() {
         let cfg = ClientConfig::with_timeout(30)
-            .user_agent("MeedyaDL/test")
+            .user_agent(APP_USER_AGENT)
             .connect_timeout(5);
         assert!(build_client(cfg).is_ok());
+    }
+
+    #[test]
+    fn app_user_agent_has_the_expected_shape() {
+        // (a) the prefix MWBM-IntAppsAPI's AuthMiddleware matches against.
+        assert!(APP_USER_AGENT.starts_with("MeedyaDL/"));
+        // (b) the version is compile-time-derived, never hardcoded/stale.
+        assert!(APP_USER_AGENT.contains(env!("CARGO_PKG_VERSION")));
+        // (c) an identifying contact URL, per MusicBrainz's ToS requirement.
+        assert!(APP_USER_AGENT.contains("https://"));
     }
 }

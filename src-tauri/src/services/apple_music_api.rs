@@ -366,7 +366,7 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -1561,8 +1561,8 @@ pub async fn fetch_music_video_relations(
         );
 
         // Browser-grade headers (#970) -- this call previously sent only
-        // `Authorization` + a bare `User-Agent: "meedyadl"`, missing the
-        // `Origin` header amp-api's edge expects from the web-player-token
+        // `Authorization` + a bare `User-Agent` app-identity header, missing
+        // the `Origin` header amp-api's edge expects from the web-player-token
         // tier. Routed through the shared helper so it stays in sync with
         // `fetch_album_metadata` / `fetch_artist_promo_video`.
         // #971: pass the subscriber's Music-User-Token here (instead of
@@ -1738,7 +1738,7 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -2525,7 +2525,7 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2711,7 +2711,7 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
