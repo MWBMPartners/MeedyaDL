@@ -356,7 +356,7 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -989,7 +989,7 @@ fn apply_apple_music_headers(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Origin", "https://music.apple.com")
         .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT);
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT);
 
     match music_user_token {
         Some(token) => req.header("Music-User-Token", token),
@@ -1728,7 +1728,7 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -2515,7 +2515,7 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2701,7 +2701,7 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
@@ -2889,7 +2889,7 @@ pub async fn fetch_syllable_lyrics(
         // fields) without an Origin header; the browser sends it
         // automatically, so a Rust client must set it explicitly. (#936)
         .header("Origin", "https://music.apple.com")
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;

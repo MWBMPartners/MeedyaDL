@@ -389,7 +389,7 @@ async fn resolve_github_release_asset(
     let tag_url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
     let response = client
         .get(&tag_url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {repo}: {e}"))?;
@@ -400,7 +400,7 @@ async fn resolve_github_release_asset(
         let fallback_url = format!("https://api.github.com/repos/{repo}/releases/latest");
         let fallback_resp = client
             .get(&fallback_url)
-            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("GitHub API fallback request failed for {repo}: {e}"))?;

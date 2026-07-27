@@ -25,19 +25,27 @@
 use std::sync::LazyLock;
 use std::time::Duration;
 
-/// User-Agent string identifying MeedyaDL by name. As of #1070's follow-up
-/// correction, this is sent to exactly **one** outbound destination:
-/// MusicBrainz — because MusicBrainz is an officially licensed API whose
-/// Terms of Service require an accurate, identifying application UA. Every
-/// other third party (Apple Music, GitHub, PyPI, Odesli, and any future
-/// one) instead receives [`BROWSER_USER_AGENT`] — see that constant's doc
-/// comment for why sending our own identity to those endpoints was the
-/// wrong call.
+/// User-Agent string identifying MeedyaDL by name. This is Group A of the
+/// four-way outbound UA policy (see `.claude/CLAUDE.md`'s "Outbound
+/// User-Agent" bullet for the full table): sent to (1) first-party
+/// endpoints — anything belonging to MWBM Partners / MWBM Partners Ltd /
+/// MeedyaSuite / Meedya / Scriptkey, including the `MWBMPartners`,
+/// `Skriptey`, and `MeedyaSuite` GitHub orgs (e.g. `service_status.rs`'s
+/// `raw.githubusercontent.com/MWBMPartners/...` reads) — and (2)
+/// integrations that specifically require identification: the GitHub API
+/// (GitHub's own guidance asks integrations to identify themselves, and
+/// it's the channel GitHub uses to contact maintainers of a misbehaving
+/// integration rather than silently blocking it) and MusicBrainz (a
+/// licensed API whose Terms of Service require an accurate, identifying
+/// UA). Every other third party gets a different UA — see
+/// [`SAFARI_MACOS_USER_AGENT`] for Apple Music specifically, and
+/// [`browser_user_agent()`] for everything else (Odesli, PyPI, generic
+/// asset downloads).
 ///
 /// This is a compile-time `const` (not `full_user_agent()` below) precisely
-/// because MusicBrainz gets NO platform detail: OS/arch/OS-version is a
-/// fingerprinting surface that buys MusicBrainz nothing beyond the identity
-/// its ToS actually asks for, so it is deliberately omitted here. See
+/// because these destinations get NO platform detail: OS/arch/OS-version is
+/// a fingerprinting surface that buys none of them anything beyond the
+/// identity they actually need, so it is deliberately omitted here. See
 /// `full_user_agent()` for the platform-bearing counterpart, reserved for
 /// MeedyaDL's own backend (MWBM-IntAppsAPI).
 ///
@@ -58,29 +66,69 @@ pub const APP_USER_AGENT: &str = concat!(
     " (+https://github.com/MWBMPartners/MeedyaDL)"
 );
 
-/// Genuine-browser User-Agent string sent to **every third party except
-/// MusicBrainz** — Apple Music (all paths), GitHub (API + raw + release
-/// assets), PyPI, Odesli, and any other third-party endpoint. This is the
-/// corrected policy from #1070's follow-up: an earlier revision of this
-/// module sent `APP_USER_AGENT` (our own identity) to these destinations,
-/// which was wrong on two counts. First, an identifying "MeedyaDL/x.y.z"
-/// string is a signal an automated-traffic classifier can key on — a
-/// browser UA is far less likely to be fingerprinted or blocked as a bot.
-/// Second, and more importantly for privacy: this string is **fixed**
-/// rather than derived per-platform, so every MeedyaDL install sends
-/// byte-identical outbound requests to these third parties. That means the
-/// UA leaks neither which OS/arch the user is on nor which MeedyaDL version
-/// they're running — strictly less information than even the reduced
-/// `APP_USER_AGENT` was leaking (a version string), let alone
-/// `full_user_agent()`'s platform detail.
+/// Fixed macOS Safari User-Agent string reserved for **Apple's own
+/// endpoints only** (`apple_music_api.rs`, `commands/credentials.rs`,
+/// `animated_artwork_service.rs`'s `ffmpeg -user_agent`). This is
+/// deliberately sent regardless of the host OS — Apple Music's edges expect
+/// a Safari client and this is the identity that gets a 200 rather than a
+/// 403, so a Windows or Linux install still presents as macOS Safari here.
+/// Do not reach for this constant outside the Apple Music paths; every
+/// other "needs to look like a real browser" call site wants
+/// [`browser_user_agent()`] instead, which is genuine for the host OS.
 ///
 /// This was previously named `APPLE_BROWSER_USER_AGENT` and lived in
-/// `apple_music_api.rs` as an Apple-specific impersonation string (Apple's
-/// edges 403 non-browser UAs). It has been promoted to this shared,
-/// third-party-wide constant because the same reasoning applies uniformly
-/// to every non-MusicBrainz third party, not just Apple's endpoints. The
-/// Safari string itself is unchanged by the move.
-pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+/// `apple_music_api.rs` as an Apple-specific impersonation string, then
+/// briefly promoted (as `BROWSER_USER_AGENT`) to a shared third-party-wide
+/// constant sent to every non-MusicBrainz destination. The maintainer
+/// refined that policy: GitHub went back to identifying itself via
+/// `APP_USER_AGENT` (GitHub's own guidance asks integrations to identify
+/// themselves, and it's the channel GitHub uses to contact maintainers of a
+/// misbehaving integration rather than silently blocking it), and every
+/// remaining non-Apple, non-first-party destination now gets a
+/// platform-appropriate browser UA via `browser_user_agent()` instead of
+/// this fixed Safari string — a Safari UA arriving from a Windows host is
+/// itself an implausible, anomaly-signalling combination. This constant is
+/// scoped down to what it always should have been: Apple Music's own
+/// storefront, which genuinely expects Safari regardless of host OS. The
+/// Safari string value itself is unchanged across all of these moves.
+pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+
+/// Returns a genuine, platform-appropriate browser User-Agent string for
+/// the current host OS. Used by every third party that isn't first-party,
+/// isn't an identification-required integration (GitHub, MusicBrainz), and
+/// isn't Apple Music (which always gets [`SAFARI_MACOS_USER_AGENT`]
+/// regardless of host OS) — currently Odesli and PyPI.
+///
+/// Selection is by **OS family only, never architecture**: real Chrome
+/// running on Windows-on-ARM or on ARM Linux commonly still reports the
+/// x64/x86_64 UA token anyway (Chrome's own UA-reduction policy collapses
+/// architecture detail), so branching on `std::env::consts::ARCH` here
+/// would be both less genuine (most real ARM browsers don't do it either)
+/// and needless extra fingerprint surface for no accuracy gain.
+///
+/// A macOS host gets the same fixed Safari string as
+/// [`SAFARI_MACOS_USER_AGENT`] — on macOS, "genuine browser" and "the
+/// Apple-specific string" happen to coincide. Windows and Linux hosts get a
+/// genuine desktop Chrome UA for their platform; any other/unknown OS falls
+/// back to the Linux string (closest generic "desktop browser on some
+/// Unix-like" shape).
+///
+/// **Maintenance note**: these strings pin a specific Chrome build
+/// (currently 131). Browser UA strings age — a Chrome version that falls
+/// too far behind the real release train stops looking like genuine
+/// traffic and becomes its own anomaly signal. Refresh periodically to
+/// track a recent stable Chrome release.
+pub fn browser_user_agent() -> &'static str {
+    match std::env::consts::OS {
+        "macos" => SAFARI_MACOS_USER_AGENT,
+        "windows" => {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        }
+        // "linux" and every other/unknown OS share the same generic
+        // desktop-Linux Chrome string — see the doc comment above.
+        _ => "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    }
+}
 
 /// Lazily-built, platform-bearing User-Agent string. Built once per process
 /// (subsequent calls just dereference the cached `String`) because
@@ -291,11 +339,31 @@ mod tests {
     }
 
     #[test]
-    fn browser_user_agent_looks_like_a_genuine_browser() {
-        // Third parties other than MusicBrainz get a genuine browser UA,
-        // not our own app identity — see the constant's doc comment.
-        assert!(BROWSER_USER_AGENT.starts_with("Mozilla/"));
-        assert!(BROWSER_USER_AGENT.contains("Safari"));
+    fn safari_macos_user_agent_looks_like_genuine_macos_safari() {
+        // Apple Music always gets a macOS Safari UA regardless of host OS
+        // — see the constant's doc comment.
+        assert!(SAFARI_MACOS_USER_AGENT.contains("Macintosh"));
+        assert!(SAFARI_MACOS_USER_AGENT.contains("Safari"));
+    }
+
+    #[test]
+    fn browser_user_agent_is_a_genuine_mozilla_ua() {
+        let ua = browser_user_agent();
+        assert!(ua.starts_with("Mozilla/5.0"));
+    }
+
+    #[test]
+    fn browser_user_agent_is_platform_appropriate_on_this_build_target() {
+        let ua = browser_user_agent();
+        // cfg! reads the actual compile target, so this assertion is
+        // meaningful (not vacuously true) on every platform CI builds for.
+        if cfg!(target_os = "macos") {
+            assert!(ua.contains("Macintosh"), "expected a macOS token: {ua}");
+        } else if cfg!(target_os = "windows") {
+            assert!(ua.contains("Windows"), "expected a Windows token: {ua}");
+        } else if cfg!(target_os = "linux") {
+            assert!(ua.contains("Linux"), "expected a Linux token: {ua}");
+        }
     }
 
     #[test]

@@ -532,8 +532,9 @@ async fn download_hls_to_mp4(
     //   -movflags +faststart -- move moov atom to start for faster playback
     //   -y                   -- overwrite output file if it exists
     //   -loglevel warning    -- suppress verbose output, only show warnings/errors
-    // Shared browser-grade UA (single source of truth in utils::http_client).
-    let browser_user_agent = crate::utils::http_client::BROWSER_USER_AGENT;
+    // Apple Music always gets the fixed macOS Safari UA regardless of host
+    // OS (single source of truth in utils::http_client).
+    let browser_user_agent = crate::utils::http_client::SAFARI_MACOS_USER_AGENT;
     let apple_music_headers = "Origin: https://music.apple.com\r\nReferer: https://music.apple.com/\r\n";
 
     let output = Command::new(&ffmpeg_bin)
