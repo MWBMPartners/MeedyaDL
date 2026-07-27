@@ -113,22 +113,120 @@ pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS 
 /// back to the Linux string (closest generic "desktop browser on some
 /// Unix-like" shape).
 ///
-/// **Maintenance note**: these strings pin a specific Chrome build
-/// (currently 131). Browser UA strings age — a Chrome version that falls
-/// too far behind the real release train stops looking like genuine
-/// traffic and becomes its own anomaly signal. Refresh periodically to
-/// track a recent stable Chrome release.
+/// **Maintenance note**: the Chrome build number embedded in the Windows
+/// and Linux strings below is resolved at packaging time — see
+/// [`CHROME_MAJOR`] and its surrounding constants for the mechanism.
 pub fn browser_user_agent() -> &'static str {
     match std::env::consts::OS {
         "macos" => SAFARI_MACOS_USER_AGENT,
-        "windows" => {
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        }
+        "windows" => WINDOWS_CHROME_UA.as_str(),
         // "linux" and every other/unknown OS share the same generic
         // desktop-Linux Chrome string — see the doc comment above.
-        _ => "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        _ => LINUX_CHROME_UA.as_str(),
     }
 }
+
+/// Fallback Chrome major version number, compiled in for every build that
+/// doesn't inject [`MEEDYADL_CHROME_MAJOR`](CHROME_MAJOR) at packaging time
+/// — i.e. every local dev build, every fork build, and every CI/PR build
+/// (`ci.yml` deliberately never sets the env var; see that workflow for
+/// why determinism/cache-hygiene wins there). Bump this by hand
+/// periodically to track a recent stable Chrome release; it only matters
+/// for builds that never talk to the packaging-time resolver.
+const CHROME_MAJOR_FALLBACK: &str = "131";
+
+/// The Chrome major version number (e.g. `"131"`) baked into
+/// [`browser_user_agent()`]'s Windows and Linux strings. This is a
+/// **build-time, OS-agnostic, major-only** injection point — three
+/// deliberate narrowings versus "just refresh the UA strings periodically":
+///
+/// 1. **Major only, never a full version string.** Chrome's own UA
+///    reduction policy (shipped fleet-wide since Chrome 110) freezes the
+///    minor/build/patch segments at `.0.0.0` in the UA header regardless of
+///    the browser's real build — a real-looking full version there would
+///    actually look *less* genuine than the frozen shape every real Chrome
+///    install now sends. So there is nothing to gain by resolving more than
+///    the major, and resolving more would be actively counter-signal.
+/// 2. **One number for every desktop platform, never per-OS.** The Chrome
+///    major release train is identical across Windows/macOS/Linux — Google
+///    ships one version number fleet-wide — so a single build-time constant
+///    correctly serves both [`WINDOWS_CHROME_UA`] and [`LINUX_CHROME_UA`].
+///    Nothing platform-specific is ever injected: `std::env::consts::OS` is
+///    compile-time-constant per target and the platform *tokens*
+///    ("Windows NT 10.0", "X11; Linux x86_64") stay hardcoded Rust string
+///    literals, never sourced from an env var. This makes it structurally
+///    impossible for a Windows build to ever ship a macOS (or any other
+///    platform's) UA token — there is no code path where OS selection and
+///    version injection could cross-contaminate, because they're two
+///    entirely separate mechanisms (a `match` on a compile-time constant,
+///    and a `LazyLock<String>` format!).
+/// 3. **Absent injection is a fully valid, zero-config, zero-network
+///    state**, not a degraded one. `option_env!` reads a variable that may
+///    not exist at compile time; when it doesn't (every local dev build,
+///    every fork, every CI/PR build), this resolves to
+///    [`CHROME_MAJOR_FALLBACK`] with no build-script, no network call, and
+///    no behavioural difference beyond which digits appear in the UA
+///    string. Only `release.yml`'s packaging step (see that workflow) ever
+///    sets `MEEDYADL_CHROME_MAJOR`, and it does so best-effort — a failed
+///    fetch there simply leaves the env var unset, which lands right back
+///    on this same fallback.
+///
+/// [`SAFARI_MACOS_USER_AGENT`] is deliberately **not** wired into this
+/// mechanism and stays a hand-maintained constant. That string is the
+/// Group B UA Apple Music's own edges must accept — tying it to a network
+/// fetch would mean a broken/rate-limited packaging-time request could ship
+/// a build that Apple Music's servers reject outright, which is far too
+/// high a blast radius for what this buys. Safari's major version also
+/// moves on a roughly annual cadence (vs. Chrome's ~4-week train), so the
+/// staleness pressure that motivates resolving Chrome barely applies —
+/// manual, infrequent refreshes are the right cost/benefit trade there.
+const CHROME_MAJOR: &str = match option_env!("MEEDYADL_CHROME_MAJOR") {
+    Some(v) => v,
+    None => CHROME_MAJOR_FALLBACK,
+};
+
+/// Defence-in-depth validation for [`CHROME_MAJOR`]. `option_env!` reads
+/// whatever string a CI workflow happened to put in the environment at
+/// compile time — normally a clean 2-4 digit number resolved from Google's
+/// VersionHistory API (see `release.yml`), but this function exists so that
+/// even a bad workflow edit (a typo, an unexpected API response shape, an
+/// accidental multi-line value) can never make it into a shipped UA string.
+/// A UA header containing a malformed "version" is a worse anomaly signal
+/// than simply falling back to the last-known-good compiled-in major, so on
+/// any validation failure this silently substitutes
+/// [`CHROME_MAJOR_FALLBACK`] rather than propagating the bad value or
+/// panicking.
+fn sanitise_chrome_major(raw: &'static str) -> &'static str {
+    let ok = (2..=4).contains(&raw.len()) && raw.bytes().all(|b| b.is_ascii_digit());
+    if ok { raw } else { CHROME_MAJOR_FALLBACK }
+}
+
+/// Lazily-built Windows Chrome User-Agent string. Built once per process;
+/// see [`CHROME_MAJOR`] for how the embedded major version is resolved and
+/// [`browser_user_agent()`]'s doc comment for why Windows presents as
+/// Chrome rather than Edge: Chrome's real-world share on Windows is several
+/// times Edge's, making it the less remarkable (more genuine-looking)
+/// client to present as, and Edge's UA string is Chrome's plus an
+/// additional `Edg/<version>` token — strictly more identifying, and a
+/// second version number this module would have to keep in sync for no
+/// benefit.
+static WINDOWS_CHROME_UA: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36",
+        sanitise_chrome_major(CHROME_MAJOR)
+    )
+});
+
+/// Lazily-built Linux Chrome User-Agent string — see [`WINDOWS_CHROME_UA`]
+/// for the shared major-version-resolution mechanism. Used for Linux hosts
+/// and as the generic fallback for any other/unknown host OS (see
+/// [`browser_user_agent()`]).
+static LINUX_CHROME_UA: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{}.0.0.0 Safari/537.36",
+        sanitise_chrome_major(CHROME_MAJOR)
+    )
+});
 
 /// Lazily-built, platform-bearing User-Agent string. Built once per process
 /// (subsequent calls just dereference the cached `String`) because
@@ -401,5 +499,64 @@ mod tests {
         // "Unknown" — see the doc comment on arch_name for why this
         // differs from os_name's fallback behaviour.
         assert_eq!(arch_name("riscv64"), "riscv64");
+    }
+
+    #[test]
+    fn chrome_major_fallback_is_well_formed() {
+        // The compiled-in fallback is what every local/fork/CI build
+        // actually ships, so it must independently satisfy the same shape
+        // sanitise_chrome_major() enforces on the (possibly build-injected)
+        // value.
+        assert!((2..=4).contains(&CHROME_MAJOR_FALLBACK.len()));
+        assert!(CHROME_MAJOR_FALLBACK.bytes().all(|b| b.is_ascii_digit()));
+    }
+
+    #[test]
+    fn sanitise_chrome_major_accepts_valid_and_rejects_garbage() {
+        // Valid 2-4 digit numeric strings pass through unchanged.
+        assert_eq!(sanitise_chrome_major("131"), "131");
+        assert_eq!(sanitise_chrome_major("99"), "99");
+        assert_eq!(sanitise_chrome_major("1310"), "1310");
+        // Anything else — empty, too short, non-numeric, decimal-pointed,
+        // too long — falls back to the compiled-in constant rather than
+        // propagating a malformed value into a shipped UA string.
+        assert_eq!(sanitise_chrome_major(""), CHROME_MAJOR_FALLBACK);
+        assert_eq!(sanitise_chrome_major("1"), CHROME_MAJOR_FALLBACK);
+        assert_eq!(sanitise_chrome_major("13x"), CHROME_MAJOR_FALLBACK);
+        assert_eq!(sanitise_chrome_major("131.0"), CHROME_MAJOR_FALLBACK);
+        assert_eq!(sanitise_chrome_major("13111"), CHROME_MAJOR_FALLBACK);
+    }
+
+    #[test]
+    fn chrome_uas_have_the_reduced_version_shape() {
+        // Assert SHAPE only, never a specific major number — pinning a
+        // literal major here would be a calendar bomb that breaks the day
+        // MEEDYADL_CHROME_MAJOR (or the compiled-in fallback) is bumped.
+        for ua in [WINDOWS_CHROME_UA.as_str(), LINUX_CHROME_UA.as_str()] {
+            assert!(ua.starts_with("Mozilla/5.0"), "unexpected prefix: {ua}");
+            assert!(ua.ends_with("Safari/537.36"), "unexpected suffix: {ua}");
+
+            // Chrome's UA-reduction policy freezes minor/build/patch at
+            // ".0.0.0" — extract the "Chrome/<version>" token and assert
+            // its shape is "<digits>.0.0.0".
+            let chrome_token = ua
+                .split("Chrome/")
+                .nth(1)
+                .expect("UA must contain a Chrome/ token")
+                .split(' ')
+                .next()
+                .expect("Chrome/ token must be followed by a version");
+            let mut parts = chrome_token.split('.');
+            let major = parts.next().expect("version must have a major segment");
+            assert!(
+                !major.is_empty() && major.bytes().all(|b| b.is_ascii_digit()),
+                "major segment should be all-digits: {chrome_token}"
+            );
+            assert_eq!(
+                parts.collect::<Vec<_>>(),
+                vec!["0", "0", "0"],
+                "expected the reduced .0.0.0 shape: {chrome_token}"
+            );
+        }
     }
 }
