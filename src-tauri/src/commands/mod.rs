@@ -124,6 +124,12 @@ pub mod api_audit;
 /// Service status command — checks remote service availability.
 pub mod service_status;
 
+/// Remote feature-flag commands (#1071) — read the resolved availability
+/// snapshot (`get_feature_flags`, no network) and trigger a refresh
+/// (`refresh_feature_flags`, rate-limited 1/min). Delegates to
+/// `services::feature_flag_service`, whose resolution chain is infallible.
+pub mod feature_flags;
+
 /// Smart Download command — cross-platform quality search.
 pub mod smart_download;
 

@@ -1276,6 +1276,9 @@ pub fn run() {
             commands::clipboard::read_clipboard,
             // Service status checking
             commands::service_status::check_service_status,
+            // Remote feature availability (#1071)
+            commands::feature_flags::get_feature_flags,
+            commands::feature_flags::refresh_feature_flags,
             // Smart Download cross-platform search
             commands::smart_download::check_cross_platform,
             // Wrapper-v2 interactive sign-in (#1029)
@@ -1635,6 +1638,33 @@ pub fn run() {
             // The handler also checks for any URL that was used to launch the app
             // (e.g., when the app was not running and was started via a deep link).
             setup_deep_link_handler(app);
+
+            // Fire-and-forget remote feature-availability refresh (#1071).
+            //
+            // Deliberately not awaited and deliberately not gated on
+            // anything: the resolution chain in `feature_flag_service`
+            // cannot fail (worst case it keeps the cached or compiled
+            // all-enabled defaults), and no code path blocks on the
+            // result. A build without the `INTAPPS_*` compile-time
+            // credentials skips the network entirely, so forks and local
+            // dev builds do no work here at all.
+            //
+            // Uses `tauri::async_runtime::spawn` rather than
+            // `tokio::spawn`: per the queue-recovery note in CLAUDE.md
+            // ("Queue persistence"), the Tokio runtime may not be
+            // registered as the "current" runtime during the `setup`
+            // closure on macOS, where it runs inside the
+            // `did_finish_launching` callback — `tokio::spawn` would
+            // panic there.
+            let flags_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let snapshot = services::feature_flag_service::refresh(&flags_handle).await;
+                log::debug!(
+                    "Startup feature-availability refresh complete: {} verdict(s) from {:?}",
+                    snapshot.verdicts.len(),
+                    snapshot.meta.source,
+                );
+            });
 
             // Emit a startup activity log event after a short delay so the
             // frontend event listeners are registered before we send it.
