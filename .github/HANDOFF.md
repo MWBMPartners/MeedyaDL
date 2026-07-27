@@ -58,6 +58,57 @@ The transport seam was built for the swap (one isolated fetch function; model, c
 3. Ratify fail-open behaviour and the no-opt-out privacy posture.
 4. Disposition of the unmerged API rollout branch and its migration 015.
 5. Signing-key custody — on the API host, or isolated.
+6. Ratify **server-side flag evaluation** (decision B below) — this reverses the client-side-evaluation position this same section originally recorded; the excised sentence and its replacement now live in `.claude/memory/project_remote_feature_control.md`.
+7. Ratify the intAppsAPI branch-consolidation call (decision C below) — integrate the unmerged rollout branch into `feat/feature-targeting-consolidated` rather than rebuilding its fixes from scratch.
+
+### Session continued — User-Agent standardisation shipped; remote feature control moves server-side (checkpoint, no code beyond UA)
+
+Two commits landed on this branch, plus a decision that changes the shape of the remaining programme. This is a **checkpoint** — the flags client itself is not yet written.
+
+**Landed (MeedyaDL, `feat/alpha-consolidated`):**
+- `6c90ecf5` + `b037560c` — User-Agent standardisation. **Two strings by design, not an oversight:**
+  - `APP_USER_AGENT` (compile-time const): `"MeedyaDL/{version} (+https://github.com/MWBMPartners/MeedyaDL)"` → GitHub, PyPI, MusicBrainz, Odesli, and the Apple JWT paths. 17 call sites repointed.
+  - `full_user_agent()` (runtime `static LazyLock<String>` in `utils/http_client.rs`): `"MeedyaDL/{version} ({OSName} {Arch}/{OSVersion})"`, e.g. `"MeedyaDL/1.12.0-alpha.42 (MacOS ARM64/26.6)"` → **MWBM-IntAppsAPI only**, no consumers wired yet.
+  - Why the split: OS/arch/version sent to *third parties* (GitHub, PyPI, MusicBrainz, Odesli) is a fingerprinting increment that buys those services nothing; only our own endpoint has a legitimate use for it (version/platform feature targeting + analytics).
+  - A reference into a `static LazyLock<String>` is `&'static str`, so `ClientConfig.user_agent: Option<&'static str>` needed no type change.
+  - OS/arch use **closed vocabularies** (`MacOS`/`Windows`/`Linux`, `ARM64`/`x64`/`ARMv7`) so server-side targeting rules see stable values. OS version comes from `tauri-plugin-os` (already a direct dependency — no new crate).
+  - `APPLE_BROWSER_USER_AGENT` in `apple_music_api.rs` and its 3 consumers were **deliberately left untouched** — Apple's endpoints 403 non-browser UAs.
+  - New guard `tools/audit-checks/check_user_agent.py`, wired into check 8 of `.github/workflows/pr-security.yml`. Zero findings on a clean tree.
+  - Verified before push: `cargo clippy --all-targets -- -D warnings` clean, `cargo test` 1550 passed / 0 failed, all 3 audit scripts clean.
+
+**Landed (MWBM-intAppsAPI, separate repo):** new branch `feat/feature-targeting-consolidated`, commit `c92a2d0` (doc note only, no functional code yet). This is the **consolidated branch for all IntAppsAPI work** on this programme — mirrors the "one branch per repo, no PR stacking" rule already in force for MeedyaDL. MeedyaDL work stays on `feat/alpha-consolidated`; intAppsAPI work stays on `feat/feature-targeting-consolidated`.
+
+**Issues opened this leg:** MeedyaDL **#1070** (User-Agent — still open, pending API-side prefix registration before it can close), **#1071** (flags client + notice UI, not started). IntAppsAPI **#108** (version/platform targeting), **#109** (SemVer comparator bugs), **#110** (admin guides + `X-App-ID` docs). All roll up under the existing umbrella **MeedyaDL#1069**.
+
+**Key findings this leg (all verified in code, not inferred — preserve verbatim, they are load-bearing for the next session):**
+
+1. **`api.mwbmpartners.ltd` has no DNS record.** The apex `mwbmpartners.ltd` resolves via Cloudflare; the `api.` subdomain does not. The API is **not deployed**. The client we're about to write is safe to ship regardless (silent-on-failure, cached, fail-open) but will be inert until the record exists.
+2. **IntAppsAPI has no version/platform targeting today.** Migration 015 — which adds percentage / user-allow / user-deny / segment rollout **only** (no version/platform dimension) — lives on an unmerged branch, `claude/feature-gating-readiness-yQisQ`.
+3. **Bug on intAppsAPI `main`:** `MigrationRunner`'s file-discovery regex also matches `*_rollback.sql`, and lexical sort places each rollback file immediately after its forward file — so a fresh `migrate.php` run applies a migration and then immediately rolls it back. **Fresh installs are broken on `main` today.** Already fixed on `claude/feature-gating-readiness-yQisQ` (commit `1925be0`).
+4. **Bug:** `SemVerComparator` compares the prerelease segment with `strcmp`, so `"alpha.10"` sorts below `"alpha.9"` — every MeedyaDL alpha build after `.9` hits this. Separately, `normalize()` requires 3-part version strings, but macOS reports `"26.6"`, Ubuntu `"24.04"`, Debian `"12"` — platform-version targeting rules would silently never match. Both filed as intAppsAPI **#109**.
+5. **Branch `claude/feature-gating-readiness-yQisQ` (tip `4b8f2aa`) is not just migration 015** — it also carries the `schema.sql` cumulative-snapshot fix (`13e4de0`) and a CI DB Check workflow (`7f8c81e`). No other branch has those commits. Merging it now has a **real conflict** in `web/src/Controllers/Admin/FeatureController.php` (both sides independently wire up `AuditLogger`) — an earlier "zero conflicts" note about this branch is **stale**, do not trust it without re-diffing.
+6. **Trap:** `src/components/help/HelpViewer.tsx` does **not** read `help/*.md` at runtime — help content is inline template literals in a `HELP_TOPICS` array (`src/components/help/HelpViewer.tsx:170`). Any help-doc change must land in **both** the `.md` file and the matching inline `HELP_TOPICS` entry, or the two silently diverge.
+7. **`CLAUDE.md` said "12 help topics" — stale.** There are 16 (`help/*.md`: `animated-artwork`, `cookie-management`, `downloading-music`, `downloading-videos`, `fallback-quality`, `faq`, `getting-started`, `index`, `keyboard-shortcuts`, `lyrics-and-metadata`, `metadata-mapping`, `quality-settings`, `release-channels`, `supported-services`, `troubleshooting`, `wrapper`) and 16 matching `HELP_TOPICS` entries. **Fixed in this checkpoint's CLAUDE.md edit.**
+
+**Decisions taken as assumptions this leg — asked, not answered by the maintainer; all reversible; recorded here so no one mistakes them for ratified design:**
+
+- **A. Split User-Agent** (platform detail to our own endpoint only, reduced everywhere else). Low-risk, already shipped in code (§ Landed above).
+- **B. Server-side flag evaluation** — the client sends `app_version` / `platform` / `platform_version`; the server returns an already-resolved boolean, rather than the client fetching raw rule conditions and evaluating them locally. **This reverses a position ratified earlier in this same document and in `.claude/memory/project_remote_feature_control.md`** ("Conditions are evaluated client-side precisely so no install identifier is ever transmitted"). Justification: `full_user_agent()` already transmits that exact class of data to the same endpoint, so the privacy delta of server-side evaluation is zero — and client-side evaluation would freeze rule semantics into every already-shipped binary, defeating the point of a remote kill switch. **The old sentence has been excised, not merely contradicted**, from `.claude/memory/project_remote_feature_control.md`; see that file for the replacement privacy wording, which must also propagate to README/TERMS when the flags client ships.
+- **C. Integrate `claude/feature-gating-readiness-yQisQ` into intAppsAPI** rather than rebuilding its fixes (migration-runner bug, schema.sql snapshot, CI DB Check) from scratch on the new consolidated branch. Real conflict in `FeatureController.php` (finding 5) still needs resolving when this happens.
+
+**Remaining chain — not yet done, in order:**
+
+1. **Flags client** (MeedyaDL) — silent-failure semantics: a fetch failure keeps the last known verdicts, **no user-visible notice**, an `emit_app_log` Activity Log entry only. Notices are still shown for a feature that is genuinely resolved **disabled** by the server.
+2. **Notice UI** (MeedyaDL) — the banner/toast a user sees when a feature the server has switched off would otherwise be reachable.
+3. **IntAppsAPI #109** (SemVer comparator + `normalize()` 3-part fix) — must land before #108, since #108's version/platform targeting depends on comparisons being correct.
+4. **IntAppsAPI #108** (version/platform targeting — migration 016, informed by but not copying migration 015's shape).
+5. **IntAppsAPI #110** (admin guides + `X-App-ID` docs).
+6. **Full docs sweep** — root `.md` files, `help/` topics **and their inline `HELP_TOPICS` twins** (finding 6 — do not update one without the other), `DEV_NOTES.md` including how to set `X-App-ID` and the `option_env!()` injection pattern for any embedded credentials.
+7. **`.claude/` refresh** — once the client + notices exist, `.claude/memory/project_remote_feature_control.md` and this handoff both need a "shipped" pass.
+
+### To resume
+
+Read this subsection top-to-bottom, then `.claude/memory/project_remote_feature_control.md` (privacy wording was just rewritten there — read the current text, not memory of the old client-side sentence). Nothing beyond the two UA commits above has been implemented — the flags client (chain step 1) is next. Do not start IntAppsAPI #108 before #109 (SemVer must be fixed first or version-targeting rules will misbehave on every alpha build). Decisions A/B/C above are assumptions, not sign-off — flag them to the maintainer before the flags client ships to production users, since B changes a previously-stated privacy posture.
 
 ---
 
