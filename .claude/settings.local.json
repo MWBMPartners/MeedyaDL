@@ -470,7 +470,8 @@
       "Bash(node scripts/check-acknowledgements.mjs)",
       "Bash(node scripts/check-upstream-licences.mjs)",
       "Bash(awk '/^                    enrich_app/,0 {print NR\": \"$0; if \\(NR > 8950\\) exit}' src-tauri/src/services/download_queue.rs)",
-      "mcp__Claude_Code_Remote__send_later"
+      "mcp__Claude_Code_Remote__send_later",
+      "mcp__Claude_Code_Remote__add_repo"
     ],
     "additionalDirectories": [
       "/Users/lance.manasse/Library/Application Support/com.meedyasuite.meedyadl/crashes",
