@@ -369,7 +369,7 @@ pub async fn validate_musickit_credentials(
         let mut req = client
             .get(url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT);
+            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT);
         // amp-api is Apple's web player API and expects an Origin header;
         // the official MusicKit API (api.music.apple.com) does not need it.
         if url.contains("amp-api") {

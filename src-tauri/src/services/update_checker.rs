@@ -377,7 +377,7 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("PyPI request failed for gamdl {version}: {e}"))?;
@@ -676,7 +676,7 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 
     let response = match client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
     {
@@ -856,7 +856,7 @@ async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, Strin
 
     let response = client
         .get(url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1025,7 +1025,7 @@ async fn check_app_update(
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let response = client
         .get(url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1259,7 +1259,7 @@ async fn aggregate_intermediate_release_notes(
     let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20";
     let response = client
         .get(url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1360,7 +1360,7 @@ async fn check_github_tool_update(
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {tool_id}: {e}"))?;

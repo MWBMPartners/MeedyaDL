@@ -4,24 +4,40 @@
 """
 Outbound User-Agent consistency check.
 
-MeedyaDL sends outbound HTTP requests under one of THREE constants, all
-defined in `src-tauri/src/utils/http_client.rs`:
+MeedyaDL sends outbound HTTP requests under one of FOUR constants/functions,
+all defined in `src-tauri/src/utils/http_client.rs`. The policy is a
+four-way split (Groups A-D):
 
-  1. `BROWSER_USER_AGENT` — a genuine Safari UA string. Sent to every third
-     party EXCEPT MusicBrainz: Apple Music (all paths), GitHub (API + raw +
-     release assets), PyPI, Odesli, and any other third party. Deliberately
-     a *fixed* string (not derived per-platform) — every MeedyaDL install
-     sends a byte-identical UA, so it leaks neither OS/arch nor app version
-     to these endpoints, and looks like ordinary browser traffic rather
-     than an identifiable automated client.
-  2. `APP_USER_AGENT` — MeedyaDL's own identity string
+  A. `APP_USER_AGENT` — MeedyaDL's own identity string
      (`"MeedyaDL/{CARGO_PKG_VERSION} (+https://github.com/MWBMPartners/MeedyaDL)"`).
-     Sent to exactly one destination: MusicBrainz, whose Terms of Service
-     require an accurate, identifying UA (it's a licensed API, not a
-     generic third party).
-  3. `full_user_agent()` — a platform-bearing variant (`"MeedyaDL/{version}
+     Sent to (1) first-party endpoints — anything belonging to MWBM
+     Partners / MWBM Partners Ltd / MeedyaSuite / Meedya / Scriptkey,
+     including the `MWBMPartners`, `Skriptey`, and `MeedyaSuite` GitHub
+     orgs (covers `service_status.rs`'s `raw.githubusercontent.com/
+     MWBMPartners/...` reads) — and (2) integrations that specifically
+     require identification: the GitHub API (`update_checker.rs` 6 sites,
+     `dependency_manager.rs` 2 sites — GitHub's own guidance asks
+     integrations to identify themselves, and it's the channel GitHub uses
+     to contact maintainers of a misbehaving integration) and MusicBrainz
+     (`musicbrainz_service.rs` — a licensed API whose Terms of Service
+     require an accurate, identifying UA).
+  B. `SAFARI_MACOS_USER_AGENT` — a fixed macOS Safari UA string. Sent
+     ALWAYS to Apple Music endpoints (`apple_music_api.rs`,
+     `commands/credentials.rs`, `animated_artwork_service.rs`'s
+     `ffmpeg -user_agent`), regardless of the host OS — Apple's edges
+     expect a Safari client, so even a Windows/Linux install presents as
+     macOS Safari here.
+  C. `browser_user_agent()` — a genuine, platform-appropriate browser UA
+     selected at runtime by host OS family (macOS/Windows/Linux; OS family
+     only, never architecture). Sent to everything else: Odesli
+     (`odesli_service.rs`), PyPI (`pip_engine_service.rs`), and any other
+     generic third-party asset download. A Safari UA arriving from a
+     Windows host would itself be an implausible, anomaly-signalling
+     combination — this constant exists so the UA stays plausible for
+     the host OS.
+  D. `full_user_agent()` — a platform-bearing variant (`"MeedyaDL/{version}
      ({OSName} {Arch}/{OSVersion})"`), reserved for MWBM-IntAppsAPI (our
-     own backend). Never sent to a third party.
+     own backend, `feature_flag_service.rs`). Never sent to a third party.
 
 Before `APP_USER_AGENT` existed, the identity string was hand-typed at every
 reqwest call site — some as `"MeedyaDL"`, some as `"meedyadl"`, and one
@@ -38,13 +54,13 @@ local `--strict` gate.
 
 Rule: any `.header("User-Agent", "<literal>")` or `.user_agent("<literal>")`
 call whose argument is a STRING LITERAL is a finding. An IDENTIFIER argument
-(`APP_USER_AGENT`, `BROWSER_USER_AGENT`, `browser_user_agent`, a local `ua`
-variable, ...) always PASSES — that is exactly the shape every migrated call
-site now has. Note `BROWSER_USER_AGENT`'s own definition is a
-`pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 ...";` declaration, which
-matches neither pattern (it isn't a `.header(...)` or `.user_agent(...)`
-call), so no allowlist is needed for the deliberate browser-impersonation UA
-or its definition site.
+(`APP_USER_AGENT`, `SAFARI_MACOS_USER_AGENT`, `browser_user_agent()`, a
+local `ua` variable, ...) always PASSES — that is exactly the shape every
+migrated call site now has. Note `SAFARI_MACOS_USER_AGENT`'s own definition
+is a `pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 ...";`
+declaration, which matches neither pattern (it isn't a `.header(...)` or
+`.user_agent(...)` call), so no allowlist is needed for the deliberate
+Apple-impersonation UA or its definition site.
 
 Exit code:
   0 — no findings, OR findings without --strict
@@ -129,12 +145,13 @@ def check() -> int:
     print()
 
     if findings:
-        print("### Hardcoded User-Agent string literal (use APP_USER_AGENT instead)\n")
+        print("### Hardcoded User-Agent string literal (use one of the four named "
+              "UA constants/functions instead)\n")
         for rel, ln, snippet in findings:
             print(f"  • {rel}:{ln} — `{snippet}` hardcodes a User-Agent string literal; "
-                  f"use crate::utils::http_client::BROWSER_USER_AGENT for third-party "
-                  f"call sites (crate::utils::http_client::APP_USER_AGENT for the "
-                  f"MusicBrainz-only exception)")
+                  f"use crate::utils::http_client::APP_USER_AGENT (first-party endpoints "
+                  f"+ GitHub + MusicBrainz), SAFARI_MACOS_USER_AGENT (Apple Music, always), "
+                  f"or browser_user_agent() (everything else — platform-appropriate)")
         print()
     else:
         print("OK — no hardcoded User-Agent string literals outside the constant definitions.")
@@ -167,15 +184,17 @@ _SELF_TEST_SHOULD_FLAG = [
 _SELF_TEST_SHOULD_PASS = [
     # The migrated shape: identifier argument, not a string literal.
     '.header("User-Agent", crate::utils::http_client::APP_USER_AGENT)',
-    '.header("User-Agent", crate::utils::http_client::BROWSER_USER_AGENT)',
-    '.header("User-Agent", BROWSER_USER_AGENT)',
+    '.header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)',
+    '.header("User-Agent", SAFARI_MACOS_USER_AGENT)',
+    '.header("User-Agent", crate::utils::http_client::browser_user_agent())',
     '.user_agent(APP_USER_AGENT)',
-    '.user_agent(BROWSER_USER_AGENT)',
+    '.user_agent(SAFARI_MACOS_USER_AGENT)',
+    '.user_agent(browser_user_agent())',
     '.user_agent(USER_AGENT)',
     '.user_agent(ua)',
-    # The deliberate browser-impersonation constant's OWN definition —
+    # The deliberate Apple-impersonation constant's OWN definition —
     # matches neither pattern (not a `.header(`/`.user_agent(` call site).
-    'pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";',
+    'pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";',
     # An unrelated header entirely.
     '.header("Accept", "application/vnd.github.v3+json")',
 ]

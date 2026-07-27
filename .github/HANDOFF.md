@@ -539,3 +539,46 @@ Full verify: `cargo check` / `cargo clippy --all-targets -- -D warnings` /
 `cargo test` all clean (1575 passed); `check_user_agent.py --strict` and
 `--self-test` both 0 findings / all cases pass; `check_ipc_commands.py
 --strict` and `check_codec_registry.py` both clean.
+
+## 10. 2026-07-27 — Outbound User-Agent policy revised again: four groups (#1070)
+
+Same-day second follow-up. §9's two-constant correction (browser UA to
+everyone except MusicBrainz) has itself been refined by the maintainer into
+a four-way split — GitHub goes back to identifying itself, and the "browser
+UA" third parties get an OS-plausible browser UA instead of one fixed
+Safari string.
+
+Landed in `utils/http_client.rs`: `BROWSER_USER_AGENT` renamed to
+`SAFARI_MACOS_USER_AGENT` (same Safari 17.6 value, unchanged) and scoped
+down to Apple Music endpoints only (`apple_music_api.rs`,
+`commands/credentials.rs`, `animated_artwork_service.rs`'s ffmpeg UA) —
+always macOS Safari regardless of host OS, since Apple's edges expect it.
+New `browser_user_agent() -> &'static str` matches on
+`std::env::consts::OS` (macOS → the Safari string; Windows → a Chrome 131
+Windows UA; Linux and unknown → a Chrome 131 Linux UA) — deliberately OS
+*family* only, no architecture branch, because real Chrome on ARM
+Windows/Linux still reports x64/x86_64 anyway. `odesli_service.rs` and
+`pip_engine_service.rs` now call this instead of the old fixed string.
+GitHub call sites (`update_checker.rs` x6, `dependency_manager.rs` x2) and
+`service_status.rs` (first-party `raw.githubusercontent.com/MWBMPartners`)
+moved back to `APP_USER_AGENT` — GitHub's guidance wants integrations to
+identify themselves, and it's the channel GitHub uses to reach out to a
+misbehaving integration rather than silently block it; first-party traffic
+has no reason to look like a browser at all. `APP_USER_AGENT`'s doc comment
+rewritten for the Group A definition (first-party + GitHub + MusicBrainz).
+MusicBrainz (`musicbrainz_service.rs`) and MWBM-IntAppsAPI's
+`full_user_agent()` (`feature_flag_service.rs`) are unchanged — already
+correct.
+
+`tools/audit-checks/check_user_agent.py` docstring, finding message, and
+self-test fixtures updated for the four-constant policy and the
+`SAFARI_MACOS_USER_AGENT` rename; scan rule itself (identifier-vs-literal
+regex) untouched and still 0 findings. `.claude/CLAUDE.md`'s "Outbound
+User-Agent" bullet rewritten for the four-group table. This note
+supersedes §9 above — §9's two-constant description is now historical.
+
+Full verify: `cargo check` / `cargo clippy --all-targets -- -D warnings` /
+`cargo test` all clean (1577 passed, +2 new `http_client` tests);
+`check_user_agent.py --strict` and `--self-test` both clean;
+`check_ipc_commands.py --strict` and `check_codec_registry.py` both clean;
+`npm run type-check` clean.
