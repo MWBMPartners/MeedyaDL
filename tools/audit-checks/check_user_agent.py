@@ -6,8 +6,11 @@ Outbound User-Agent consistency check.
 
 MeedyaDL centralises its MeedyaDL-identity outbound User-Agent behind a
 single constant, `APP_USER_AGENT` in `src-tauri/src/utils/http_client.rs`
-(`"MeedyaDL/{CARGO_PKG_VERSION} (https://github.com/MWBMPartners/MeedyaDL)"`).
-Before that constant existed, the same identity string was hand-typed at
+(`"MeedyaDL/{CARGO_PKG_VERSION} (+https://github.com/MWBMPartners/MeedyaDL)"`).
+A second, platform-bearing string, `full_user_agent()`, exists alongside it
+for requests to MeedyaDL's own backend only — see that function's doc
+comment in `http_client.rs` for why the two are deliberately not merged.
+Before `APP_USER_AGENT` existed, the same identity string was hand-typed at
 every reqwest call site — some as `"MeedyaDL"`, some as `"meedyadl"`, and one
 (`musicbrainz_service.rs`) as a hardcoded `"MeedyaDL/0.6"` that silently went
 stale as the app version moved through the 1.x line while the literal never
