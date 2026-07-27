@@ -557,6 +557,21 @@ pub mod metadata_provider;
 /// available. Used to disable UI elements for temporarily unavailable services.
 pub mod service_status;
 
+/// Remote feature-availability client (#1071).
+///
+/// Resolves per-feature availability verdicts from MWBM-IntAppsAPI via a
+/// three-tier chain — in-memory snapshot -> sticky disk cache -> compiled
+/// all-enabled defaults — mirroring `service_status`'s shape. Neither
+/// `current()` nor `refresh()` can fail: an unreachable server keeps the
+/// last known verdicts and emits a single activity-log line, never a toast
+/// or a frontend error. A client-side sanity floor refuses any instruction
+/// to disable the flag fetcher or the updater. Inert (zero network calls)
+/// in builds without the `INTAPPS_*` compile-time credentials.
+///
+/// **Backend only** — nothing gates on it yet; enforcement call sites land
+/// separately.
+pub mod feature_flag_service;
+
 /// Smart Download — cross-platform quality optimisation service.
 ///
 /// Analyses content availability across services to recommend the best

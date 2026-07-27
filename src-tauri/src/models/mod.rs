@@ -107,6 +107,15 @@ pub mod content_match;
 /// Service status configuration models.
 pub mod service_status;
 
+/// Remote feature-flag models (#1071).
+///
+/// `FeatureFlagsSnapshot` and friends carry the server-resolved
+/// availability verdict for each feature key, plus fetch diagnostics.
+/// Deliberately permissive on the wire (never `deny_unknown_fields`) so a
+/// shipped client keeps working against a newer server payload. Consumed
+/// by `services::feature_flag_service`.
+pub mod feature_flags;
+
 /// Votify CLI options for Spotify downloads.
 pub mod votify_options;
 
