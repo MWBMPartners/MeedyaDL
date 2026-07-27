@@ -41,6 +41,8 @@ Yes. MeedyaDL is free and open-source software licensed under the MIT License. I
 
 Occasionally we pause a feature for everyone at short notice — usually while we investigate a change on the service that feature depends on. When we do, the app shows a notice so the feature doesn't just silently disappear. Nothing is wrong with your installation and there is nothing you need to do: the feature returns automatically once it is switched back on, and the rest of the app keeps working normally. Being offline never triggers this — without a connection the app simply keeps its last known state.
 
+If the paused item is a whole download service, MeedyaDL won't start new downloads for it while it's paused — it explains why instead of failing silently. Anything already downloading finishes normally, and downloads for other services are unaffected.
+
 ---
 
 ## Account and Authentication

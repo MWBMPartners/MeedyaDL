@@ -795,7 +795,8 @@ MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
 - This is deliberate and temporary — occasionally we pause a feature for everyone while we investigate something
 - Nothing is wrong with your installation, and there is nothing you need to do
 - The feature returns automatically once it is switched back on; the rest of the app keeps working
-- Being offline never causes this — if the app can't check in, it keeps its last known state`,
+- Being offline never causes this — if the app can't check in, it keeps its last known state
+- If a whole download service is paused, MeedyaDL won't start new downloads for it and will explain why — anything already downloading finishes normally, and other services keep working`,
   },
   {
     id: 'disclaimer',
@@ -1047,7 +1048,7 @@ The engine priority for each service is defined in \`engines.toml\` and can be c
 
 ## When a Service or Feature Is Temporarily Paused
 
-Very occasionally we may pause a service or feature for all users while we investigate something on the provider's side. MeedyaDL shows an in-app notice when this happens — it is deliberate and temporary, not a fault in your installation, and the feature returns automatically once re-enabled. See **Troubleshooting** for details.`,
+Very occasionally we may pause a service or feature for all users while we investigate something on the provider's side. MeedyaDL shows an in-app notice when this happens — it is deliberate and temporary, not a fault in your installation, and the feature returns automatically once re-enabled. A paused service won't accept new downloads until it returns; anything already downloading finishes normally. See **Troubleshooting** for details.`,
   },
   {
     id: 'release-channels',
