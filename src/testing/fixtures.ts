@@ -41,6 +41,7 @@ import type {
   QueueItemStatus,
 } from '@/types';
 import type { ScannedManifest } from '@/lib/tauri-commands';
+import type { FeatureFlagsSnapshot, FlagVerdict } from '@/types/feature-flags';
 
 /**
  * Generic fixture builder factory. Captures `defaults` once; returns
@@ -139,4 +140,42 @@ export const makeScannedManifest = makeFixture<ScannedManifest>({
   current_codec: 'alac',
   audio_file_count: 9,
   last_modified_date: null,
+});
+
+/**
+ * Build a `FlagVerdict` fixture (remote feature-flag model, mirrors
+ * `src-tauri/src/models/feature_flags.rs::FlagVerdict`).
+ *
+ * Default is the fail-open shape: enabled, no label, no notice -- the
+ * same default the Rust side uses for a missing/absent verdict. Tests
+ * exercising the disabled/notice paths (see `FeatureNoticeBanner.test.tsx`)
+ * typically override `enabled` and/or `notice`.
+ */
+export const makeFlagVerdict = makeFixture<FlagVerdict>({
+  enabled: true,
+  label: null,
+  notice: null,
+  updated_at: null,
+});
+
+/**
+ * Build a `FeatureFlagsSnapshot` fixture (mirrors
+ * `src-tauri/src/models/feature_flags.rs::FeatureFlagsSnapshot`).
+ *
+ * Default has no verdicts (everything enabled) and `meta` reporting a
+ * clean, never-failed `defaults`-sourced fetch -- mirroring
+ * `FeatureFlagsSnapshot::default()` on the Rust side. Tests typically
+ * override `verdicts` (built with `makeFlagVerdict`) and/or `meta` to
+ * exercise the silent-fetch-failure invariant (`meta` must never affect
+ * what renders).
+ */
+export const makeFeatureFlagsSnapshot = makeFixture<FeatureFlagsSnapshot>({
+  generated_at: null,
+  verdicts: {},
+  meta: {
+    source: 'defaults',
+    fetched_at: null,
+    consecutive_failures: 0,
+    last_error: null,
+  },
 });

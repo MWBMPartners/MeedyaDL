@@ -122,6 +122,15 @@ import { useUpdateStore, findAppComponentUpdate } from './stores/updateStore';
 /** Activity log: accumulates raw subprocess output lines */
 import { useActivityStore } from './stores/activityStore';
 
+/**
+ * Remote feature-flag snapshot: powers `<FeatureNoticeBanner>` (rendered
+ * in MainLayout below the update banner). Refreshed at startup and on the
+ * same periodic timer as the update check (see Effect 2 and Effect 4
+ * below) -- never a second independent timer. Failures are silently
+ * absorbed by the store itself; see `src/stores/featureFlagStore.ts`.
+ */
+import { useFeatureFlagStore } from './stores/featureFlagStore';
+
 /* ─── Layout ─────────────────────────────────────────────────────────── */
 
 /**
@@ -515,6 +524,23 @@ function App() {
         /* Non-fatal: network may be unavailable on first launch */
       }
 
+      /* Step 2b: Feature-flag snapshot refresh (non-blocking).
+       *
+       * Fires a network refresh of the remote feature-flag snapshot at
+       * startup, mirroring the update check immediately above --
+       * imperative getState() read, in-flight guard -- but deliberately
+       * NOT awaited or timeout-raced: unlike the update check, nothing
+       * downstream (the setup-wizard decision, dependency checks) depends
+       * on this resolving first, so there's no reason to hold up startup
+       * for it. `useFeatureFlagStore`'s `load()` never rejects -- IPC /
+       * network / rate-limit failures are absorbed internally and simply
+       * leave the last-known-good snapshot in place (see the
+       * silent-fetch-failure invariant documented on that store and on
+       * `FeatureNoticeBanner`) -- so there is nothing to catch here. */
+      if (!useFeatureFlagStore.getState().isLoading) {
+        useFeatureFlagStore.getState().load();
+      }
+
       /* Step 3: Check all dependency statuses in parallel via IPC */
       await checkAll();
 
@@ -759,6 +785,15 @@ function App() {
         const { isChecking } = useUpdateStore.getState();
         if (!isChecking) {
           checkForUpdates().catch(() => {});
+        }
+
+        /* Piggyback the feature-flag snapshot refresh onto this SAME
+         * timer tick -- deliberately not a second setInterval. Same
+         * imperative getState() + in-flight guard shape as the update
+         * check immediately above. `load()` never rejects (see
+         * featureFlagStore.ts), so there's nothing to catch. */
+        if (!useFeatureFlagStore.getState().isLoading) {
+          useFeatureFlagStore.getState().load();
         }
       }, intervalMs);
     }
