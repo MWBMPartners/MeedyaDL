@@ -167,3 +167,26 @@ Unchanged from every prior update in this file: the wire shape is correct agains
 - `notice.url` is still parsed but never rendered — still needs scheme validation before it can be.
 - `Feature::applySchedules()`'s cache invalidation (`deletePattern('features:*')`) does not reach `feature_rules:app:*` — harmless while a schedule flip changes no rules, filed as a trap for whenever that stops being true.
 - The dormant interim `service_status` transport (model, IPC command, store, banner) is superseded by everything documented in this file and should be removed rather than left as a second, dead code path.
+
+## Update — 2026-07-28: canonical URL form per brand — DECIDED
+
+**The decision.** Every first-party app connects to the MWBM-IntAppsAPI service API using the **subdomain** convention:
+
+```
+https://service.api.<domain>/
+```
+
+**not** the path convention (`https://api.<domain>/service/`), which remains available and serves the identical files but is no longer what apps are built against. This resolves the "canonical URL form per brand" item that the previous update ("Findings worth preserving from this leg", finding 3) left open ("each app's build secret must hold exactly one of the two working forms; not yet chosen").
+
+**Brand mapping (concrete hostnames — permitted in this file):**
+
+- Meedya-branded apps (MeedyaDL, MeedyaConverter, MeedyaManager, MeedyaPlayer, MeedyaSubtitler) → `https://service.api.meedyasuite.com/`
+- All other apps (CueRCode, Go2My.Link, etc.) → `https://service.api.mwbm.io/`
+
+MeedyaDL takes `https://service.api.meedyasuite.com/` as its `INTAPPS_BASE_URL` build secret because it is a Meedya-branded app.
+
+**Why this matters technically, not just which string to paste in.** Under the subdomain form the app is served at the **domain root**; under the path form the identical files sit under a `/service/` segment. `web/.htaccess` deliberately has **no `RewriteBase`** so Apache infers the base from the directory holding the file — that inference is correct at either mount depth, which is exactly why the file can serve both forms from one checkout without a config branch. The practical consequence of this decision is that the root-mounted (subdomain) form is now the **primary** case client applications actually run under, and the documented symlink caveat already on that `.htaccess` (Apache's per-directory base-guessing potentially mis-resolving through a symlinked directory) only ever affected the path-mounted form — which this decision demotes from "the form apps use" to "a secondary, still-served, still-provisioned form for browser/admin access." Nothing about the `.htaccess`'s own mechanism changes; what changes is which of the two forms is now load-bearing for the fleet of client apps versus which is incidental.
+
+**No application code changes.** Each client's base URL is injected at build time — `option_env!("INTAPPS_BASE_URL")` in MeedyaDL, the same pattern for the other Rust/Swift clients per the contract-first suite rollout above — so this decision is a **build-secret VALUE**, not a code edit. Nothing in `feature_flag_service.rs` or its call sites needs to change; only the string set in the `INTAPPS_BASE_URL` GitHub Actions secret (per app repo) needs to reflect the chosen hostname.
+
+**Status of the four hostnames.** All four (`service.api.meedyasuite.com`, `api.meedyasuite.com`, `service.api.mwbm.io`, `api.mwbm.io`) still need DNS records and TLS certificates — the path form is not being retired, only de-primaried. See `.github/HANDOFF.md`'s provisioning notes for the full outstanding-work list (DNS, TLS, PHP version selection, `user_agent_prefix` registration, key minting, per-repo `INTAPPS_*` secrets).
