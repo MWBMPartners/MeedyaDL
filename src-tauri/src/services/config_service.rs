@@ -257,6 +257,13 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 7;
     }
 
+    // v7 -> v8: introduces `animated_artwork_resolution` (#972); serde
+    // default Fhd for upgrading users. Deliberate behaviour change (was
+    // always highest rendition). Only stamps the version.
+    if settings.settings_version == 7 {
+        settings.settings_version = 8;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -1891,6 +1898,28 @@ mod tests {
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert_eq!(s.wrapper_decrypt_ip, "192.168.1.50:10020");
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v7 → v8 animated_artwork_resolution rollout (#972)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migration_v7_to_v8_stamps_version_and_defaults_animated_artwork_resolution() {
+        // v7→v8 only bumps the schema version. The new
+        // `animated_artwork_resolution` field gets its serde default
+        // (Fhd) on deserialise; this test exercises the in-memory case
+        // where the field is already at the default.
+        let mut s = AppSettings {
+            settings_version: 7,
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(
+            s.animated_artwork_resolution,
+            crate::models::settings::AnimatedArtworkResolution::Fhd
+        );
     }
 
     #[test]

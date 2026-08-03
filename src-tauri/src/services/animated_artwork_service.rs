@@ -485,6 +485,247 @@ fn get_ffmpeg_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(ffmpeg_bin)
 }
 
+// ============================================================
+// HLS Variant Selection (#972)
+// ============================================================
+//
+// Apple's animated-artwork CDN serves motion art as an HLS master
+// playlist with several ABR (adaptive bitrate) renditions — e.g. a
+// 640x640, a 1080x1080, and a 2160x2160 rendition of the same square
+// artwork, each on its own variant playlist. Without this module,
+// FFmpeg's default HLS variant selection picks a rendition on its own
+// (in practice, usually the highest available), which is needlessly
+// large for how small this artwork is typically displayed. This module
+// parses the master playlist ourselves and picks the rendition closest
+// to the user's configured `animated_artwork_resolution` ceiling.
+
+/// A single ABR rendition parsed from an HLS master playlist's
+/// `#EXT-X-STREAM-INF` tags.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HlsVariant {
+    /// Rendition width in pixels, from `RESOLUTION=WxH`. `0` when the
+    /// attribute is missing or unparsable.
+    width: u32,
+    /// Rendition height in pixels, from `RESOLUTION=WxH`. `0` when the
+    /// attribute is missing or unparsable.
+    height: u32,
+    /// Bitrate in bits/sec, from `BANDWIDTH=`. `0` when missing.
+    bandwidth: u64,
+    /// The variant playlist URI for this rendition — may be relative to
+    /// the master playlist's own URL.
+    uri: String,
+}
+
+/// Splits an `#EXT-X-STREAM-INF:` attribute list on commas that are
+/// OUTSIDE double-quoted values.
+///
+/// HLS attribute lists routinely contain commas inside quoted values
+/// (e.g. `CODECS="hvc1.2.4.L123,ec-3"`), so a naive `.split(',')` would
+/// incorrectly split that single attribute into two fragments.
+fn split_m3u8_attributes(attrs: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for c in attrs.chars() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(c);
+            }
+            ',' if !in_quotes => {
+                let trimmed = current.trim();
+                if !trimmed.is_empty() {
+                    result.push(trimmed.to_string());
+                }
+                current = String::new();
+            }
+            _ => current.push(c),
+        }
+    }
+
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        result.push(trimmed.to_string());
+    }
+
+    result
+}
+
+/// Parses an HLS master playlist body into its list of ABR variants.
+///
+/// Each `#EXT-X-STREAM-INF:` tag is paired with the URI line
+/// immediately following it (per HLS spec RFC 8216 §4.3.4.2 — the tag
+/// applies to the next non-comment, non-blank line). Lines that aren't
+/// part of a stream-inf/URI pair are ignored.
+fn parse_master_playlist(body: &str) -> Vec<HlsVariant> {
+    let mut variants = Vec::new();
+    let mut lines = body.lines();
+
+    while let Some(line) = lines.next() {
+        let line = line.trim();
+        let Some(attrs_str) = line.strip_prefix("#EXT-X-STREAM-INF:") else {
+            continue;
+        };
+
+        let attrs = split_m3u8_attributes(attrs_str);
+        let mut width = 0u32;
+        let mut height = 0u32;
+        let mut bandwidth = 0u64;
+
+        for attr in &attrs {
+            if let Some(value) = attr.strip_prefix("RESOLUTION=") {
+                if let Some((w, h)) = value.split_once('x') {
+                    width = w.trim().parse().unwrap_or(0);
+                    height = h.trim().parse().unwrap_or(0);
+                }
+            } else if let Some(value) = attr.strip_prefix("BANDWIDTH=") {
+                bandwidth = value.trim().parse().unwrap_or(0);
+            }
+        }
+
+        // The variant URI is the next non-blank, non-comment line.
+        for uri_line in lines.by_ref() {
+            let uri_line = uri_line.trim();
+            if uri_line.is_empty() || uri_line.starts_with('#') {
+                continue;
+            }
+            variants.push(HlsVariant {
+                width,
+                height,
+                bandwidth,
+                uri: uri_line.to_string(),
+            });
+            break;
+        }
+    }
+
+    variants
+}
+
+/// Picks the variant whose height is closest to `target_height`.
+///
+/// Ties are broken by (1) higher width, then (2) higher bandwidth —
+/// preferring more detail per pixel when two renditions are equally
+/// close in height. Variants with `height == 0` (unparsable
+/// `RESOLUTION`) are excluded entirely — an unknown height can't be
+/// judged "close" to anything.
+fn pick_variant(variants: &[HlsVariant], target_height: u32) -> Option<&HlsVariant> {
+    variants
+        .iter()
+        .filter(|v| v.height != 0)
+        .min_by(|a, b| {
+            let diff_a = a.height.abs_diff(target_height);
+            let diff_b = b.height.abs_diff(target_height);
+            diff_a
+                .cmp(&diff_b)
+                .then_with(|| b.width.cmp(&a.width))
+                .then_with(|| b.bandwidth.cmp(&a.bandwidth))
+        })
+}
+
+/// Resolves an HLS master playlist URL to a specific rendition's
+/// variant playlist URL, honouring the user's configured
+/// `animated_artwork_resolution` ceiling (#972).
+///
+/// `target_height` is `None` for `AnimatedArtworkResolution::Max` — no
+/// selection is performed and the master URL is returned unchanged
+/// (matches pre-#972 behaviour, where FFmpeg picks its own default
+/// rendition from the master playlist). When `Some`, the master
+/// playlist is fetched and parsed, and the variant closest to the
+/// target height is selected.
+///
+/// Every failure path (client build error, fetch error, non-2xx
+/// response, unreadable body, no parseable variants, relative-URI
+/// resolution failure) falls back to returning the master URL
+/// unchanged and logs a warning — animated artwork should never
+/// hard-fail just because the resolution-selection step couldn't run.
+async fn resolve_hls_variant_url(master_url: &str, target_height: Option<u32>) -> String {
+    let Some(target_height) = target_height else {
+        return master_url.to_string();
+    };
+
+    let client = match crate::utils::http_client::build_simple(15) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!(
+                "Failed to build HTTP client for animated-artwork HLS variant selection: {e} — using master playlist URL"
+            );
+            return master_url.to_string();
+        }
+    };
+
+    // Same browser-grade headers as the eventual segment/playlist fetch
+    // in `download_hls_to_mp4` — Apple's motion-art CDN rejects requests
+    // without them.
+    let response = match client
+        .get(master_url)
+        .header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT,
+        )
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!(
+                "Failed to fetch HLS master playlist for variant selection: {e} — using master playlist URL"
+            );
+            return master_url.to_string();
+        }
+    };
+
+    if !response.status().is_success() {
+        log::warn!(
+            "HLS master playlist fetch returned HTTP {} — using master playlist URL",
+            response.status()
+        );
+        return master_url.to_string();
+    }
+
+    let body = match response.text().await {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!(
+                "Failed to read HLS master playlist body: {e} — using master playlist URL"
+            );
+            return master_url.to_string();
+        }
+    };
+
+    let variants = parse_master_playlist(&body);
+    let Some(variant) = pick_variant(&variants, target_height) else {
+        log::warn!(
+            "No parseable ABR variants in HLS master playlist — using master playlist URL"
+        );
+        return master_url.to_string();
+    };
+
+    let master = match url::Url::parse(master_url) {
+        Ok(u) => u,
+        Err(e) => {
+            log::warn!(
+                "Failed to parse HLS master playlist URL {master_url}: {e} — using master playlist URL"
+            );
+            return master_url.to_string();
+        }
+    };
+
+    match master.join(&variant.uri) {
+        Ok(resolved) => resolved.to_string(),
+        Err(e) => {
+            log::warn!(
+                "Failed to resolve HLS variant URI {} against master playlist URL: {e} — using master playlist URL",
+                variant.uri
+            );
+            master_url.to_string()
+        }
+    }
+}
+
 /// Download an HLS stream to an MP4 file using `FFmpeg`.
 ///
 /// Uses `FFmpeg`'s native HLS protocol support to download the M3U8 playlist
@@ -497,10 +738,22 @@ async fn download_hls_to_mp4(
 ) -> Result<(), String> {
     let ffmpeg_bin = get_ffmpeg_path(app)?;
 
+    // #972: resolve the user's configured resolution ceiling to a
+    // specific HLS variant playlist URL before handing off to FFmpeg.
+    // Falls back to the master playlist URL on any failure (see
+    // `resolve_hls_variant_url` doc comment) — a resolution-selection
+    // failure should never block the download outright.
+    let settings = config_service::load_settings(app).unwrap_or_default();
+    let input_url = resolve_hls_variant_url(
+        m3u8_url,
+        settings.animated_artwork_resolution.target_height(),
+    )
+    .await;
+
     log::debug!(
         "Downloading HLS stream to {}: {}",
         output_path.display(),
-        m3u8_url
+        input_url
     );
 
     // Run FFmpeg to download the HLS stream and remux to MP4.
@@ -544,7 +797,7 @@ async fn download_hls_to_mp4(
             "-headers",
             apple_music_headers,
             "-i",
-            m3u8_url,
+            input_url.as_str(),
             "-c",
             "copy",
             "-movflags",
@@ -747,6 +1000,7 @@ pub async fn download_artist_promo_video(
         &jwt,
         storefront,
         artist_id,
+        Some(&settings.language),
     )
     .await?
     {
@@ -895,5 +1149,124 @@ mod tests {
             reason: "r".to_string(),
         }
         .is_downloaded());
+    }
+
+    // ----------------------------------------------------------
+    // HLS variant selection tests (#972)
+    // ----------------------------------------------------------
+
+    /// A representative master playlist with three ABR renditions
+    /// (640x640, 1080x1080, 2160x2160) and a quoted `CODECS` attribute
+    /// containing a comma — the case `split_m3u8_attributes` exists to
+    /// handle correctly.
+    const MASTER_PLAYLIST: &str = "#EXTM3U\n\
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x640,CODECS=\"hvc1.2.4.L123,ec-3\"\n\
+640x640/playlist.m3u8\n\
+#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1080x1080,CODECS=\"hvc1.2.4.L123,ec-3\"\n\
+1080x1080/playlist.m3u8\n\
+#EXT-X-STREAM-INF:BANDWIDTH=8000000,RESOLUTION=2160x2160,CODECS=\"hvc1.2.4.L123,ec-3\"\n\
+2160x2160/playlist.m3u8\n";
+
+    #[test]
+    fn parses_all_stream_inf_renditions() {
+        let variants = parse_master_playlist(MASTER_PLAYLIST);
+        assert_eq!(variants.len(), 3);
+        assert_eq!(variants[0].width, 640);
+        assert_eq!(variants[0].height, 640);
+        assert_eq!(variants[0].bandwidth, 800_000);
+        assert_eq!(variants[0].uri, "640x640/playlist.m3u8");
+        assert_eq!(variants[1].height, 1080);
+        assert_eq!(variants[2].height, 2160);
+        assert_eq!(variants[2].bandwidth, 8_000_000);
+    }
+
+    #[test]
+    fn quoted_codecs_commas_do_not_split_attributes() {
+        // Every rendition in MASTER_PLAYLIST carries a quoted CODECS
+        // attribute with an internal comma. If `split_m3u8_attributes`
+        // naively split on every comma, RESOLUTION/BANDWIDTH parsing
+        // would still happen to work (they come before CODECS), but the
+        // attribute count would be wrong. Assert on the concrete
+        // symptom instead: RESOLUTION and BANDWIDTH must both parse
+        // correctly despite the quoted comma sitting between them and
+        // the end of the line.
+        let variants = parse_master_playlist(MASTER_PLAYLIST);
+        assert_eq!(variants.len(), 3);
+        for variant in &variants {
+            assert_ne!(variant.width, 0);
+            assert_ne!(variant.height, 0);
+            assert_ne!(variant.bandwidth, 0);
+        }
+
+        // Direct unit check on the splitter itself.
+        let attrs = split_m3u8_attributes(
+            "BANDWIDTH=800000,RESOLUTION=640x640,CODECS=\"hvc1.2.4.L123,ec-3\"",
+        );
+        assert_eq!(attrs.len(), 3);
+        assert_eq!(attrs[0], "BANDWIDTH=800000");
+        assert_eq!(attrs[1], "RESOLUTION=640x640");
+        assert_eq!(attrs[2], "CODECS=\"hvc1.2.4.L123,ec-3\"");
+    }
+
+    #[test]
+    fn pick_variant_nearest_height() {
+        let variants = parse_master_playlist(MASTER_PLAYLIST);
+
+        // Exact match.
+        let picked = pick_variant(&variants, 1080).unwrap();
+        assert_eq!(picked.height, 1080);
+
+        // Closer to 640 than to 1080.
+        let picked = pick_variant(&variants, 700).unwrap();
+        assert_eq!(picked.height, 640);
+
+        // Closer to 2160 than to 1080.
+        let picked = pick_variant(&variants, 1800).unwrap();
+        assert_eq!(picked.height, 2160);
+
+        // Above every rendition — nearest (highest) wins.
+        let picked = pick_variant(&variants, 4000).unwrap();
+        assert_eq!(picked.height, 2160);
+    }
+
+    #[test]
+    fn pick_variant_tie_breaks_on_width() {
+        // Two renditions equally close to the target height (900 is
+        // 260 away from 640 and 180 away from 1080 — NOT actually a
+        // tie; construct an explicit tie instead so the test doesn't
+        // depend on arithmetic coincidence).
+        let variants = vec![
+            HlsVariant {
+                width: 640,
+                height: 640,
+                bandwidth: 800_000,
+                uri: "a.m3u8".to_string(),
+            },
+            HlsVariant {
+                width: 1080,
+                height: 1080,
+                bandwidth: 2_500_000,
+                uri: "b.m3u8".to_string(),
+            },
+        ];
+        // 860 is equidistant from 640 (diff 220) and 1080 (diff 220).
+        let picked = pick_variant(&variants, 860).unwrap();
+        // Tie-break prefers the higher width/bandwidth rendition.
+        assert_eq!(picked.uri, "b.m3u8");
+    }
+
+    #[test]
+    fn pick_variant_empty_or_untagged_returns_none() {
+        assert!(pick_variant(&[], 1080).is_none());
+
+        // A variant with height == 0 (unparsable RESOLUTION) must be
+        // excluded rather than ever being picked as "closest".
+        let variants = vec![HlsVariant {
+            width: 0,
+            height: 0,
+            bandwidth: 0,
+            uri: "unknown.m3u8".to_string(),
+        }];
+        assert!(pick_variant(&variants, 1080).is_none());
     }
 }

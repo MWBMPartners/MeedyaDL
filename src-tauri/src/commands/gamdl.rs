@@ -3235,7 +3235,14 @@ pub async fn fetch_syllable_lyrics(
         )?;
 
     // Fetch syllable lyrics from the Apple Music API
-    apple_music_api::fetch_syllable_lyrics(&jwt, &storefront, &song_id, &music_user_token).await
+    apple_music_api::fetch_syllable_lyrics(
+        &jwt,
+        &storefront,
+        &song_id,
+        &music_user_token,
+        Some(&settings.language),
+    )
+    .await
 }
 
 /// Information about a previous download of the same URL.

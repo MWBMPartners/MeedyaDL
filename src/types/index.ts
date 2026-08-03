@@ -132,6 +132,17 @@ export type CoverFormat = 'jpg' | 'png' | 'raw';
 export type CoverArtName = 'cover' | 'front_cover' | 'folder';
 
 /**
+ * Resolution ceiling for animated (motion) artwork HLS downloads (#972).
+ *
+ * Mirrors: Rust enum `AnimatedArtworkResolution` in `src-tauri/src/models/settings.rs`
+ *
+ * - `fhd`: Cap at ~1080p (Full HD). Smallest files; recommended default.
+ * - `uhd`: Cap at ~2160p (4K / Ultra HD).
+ * - `max`: No cap — always pick the highest-resolution HLS rendition available.
+ */
+export type AnimatedArtworkResolution = 'fhd' | 'uhd' | 'max';
+
+/**
  * Zero-padding strategy for the `{track}` placeholder in filename templates (#587).
  *
  * Mirrors: Rust enum `TrackNumberPadding` in `src-tauri/src/models/settings.rs`
@@ -662,6 +673,8 @@ export interface AppSettings {
   hide_animated_artwork: boolean;
   /** Download artist promotional video (editorial motion art) to the artist folder */
   artist_promo_video_enabled: boolean;
+  /** Resolution ceiling for animated artwork HLS downloads (#972). Default: 'fhd' (~1080p) */
+  animated_artwork_resolution: AnimatedArtworkResolution;
   /**
    * Cross-platform best-cover-art picker (M9-3). When enabled,
    * MeedyaDL queries every supported platform's artwork endpoint

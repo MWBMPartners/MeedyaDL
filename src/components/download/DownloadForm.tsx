@@ -120,8 +120,8 @@ import {
   importManifest,
 } from '@/lib/tauri-commands';
 
-/** Apple Music URL parser for multi-URL validation. */
-import { detectService, parseAppleMusicUrl } from '@/lib/url-parser';
+/** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
+import { detectService, parseSubmittableUrl } from '@/lib/url-parser';
 import { ServiceDownloadPreview } from './ServiceDownloadPreview';
 
 /** Single-operation async lifecycle hook (audit v2 #2). */
@@ -351,7 +351,7 @@ export function DownloadForm() {
     let invalidCount = 0;
 
     for (const line of parsedLines) {
-      const parsed = parseAppleMusicUrl(line);
+      const parsed = parseSubmittableUrl(line);
       if (parsed.isValid) {
         validUrls.push(parsed.url);
       } else {
@@ -542,8 +542,12 @@ export function DownloadForm() {
 
     // Check cookie readiness before queuing (catches mid-session expiry).
     // Skipped when offline — cookies are moot without internet, and the
-    // download won't start until connectivity returns anyway.
-    if (!isOffline) {
+    // download won't start until connectivity returns anyway. Also
+    // skipped when the batch has no Apple Music URL — cookies are an
+    // Apple-Music-only concern (#983); a Spotify-only batch has no
+    // reason to trip Apple Music cookie validation.
+    const hasAppleMusic = urlsToSubmit.some((u) => detectService(u) === 'apple-music');
+    if (!isOffline && hasAppleMusic) {
       try {
         const cookieCheck = await checkCookiesBeforeDownload();
         if (!cookieCheck.ready) {
@@ -560,7 +564,12 @@ export function DownloadForm() {
 
     // Smart re-download detection (#263): check if this URL was previously
     // downloaded and inform the user. Non-blocking — download proceeds regardless.
-    if (smartRedownloadDetection && !isMultiUrl && urlInput.trim()) {
+    if (
+      smartRedownloadDetection &&
+      !isMultiUrl &&
+      urlInput.trim() &&
+      detectService(urlInput.trim()) === 'apple-music'
+    ) {
       try {
         const redownloadInfo = await checkRedownloadStatus(urlInput.trim());
         if (redownloadInfo) {
@@ -833,7 +842,7 @@ export function DownloadForm() {
        */}
       <PageHeader
         title="Download"
-        subtitle="Enter an Apple Music URL to download music or videos"
+        subtitle="Enter an Apple Music or Spotify URL to download music or videos"
       />
 
       {/*
@@ -851,7 +860,7 @@ export function DownloadForm() {
         <div className="space-y-2">
           {/* Accessible <label> linked to the input via `htmlFor` */}
           <label htmlFor="url-input" className="block text-sm font-medium text-content-primary">
-            Apple Music URL
+            Media URL
           </label>
 
           {/* Input row: textarea + submit button side-by-side.
@@ -896,7 +905,7 @@ export function DownloadForm() {
                   requestAnimationFrame(autoResizeTextarea);
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Paste one or more Apple Music URLs (one per line)"
+                placeholder="Paste one or more Apple Music or Spotify URLs (one per line)"
                 rows={1}
                 className={`
                   w-full px-3 py-2 text-sm rounded-platform border
@@ -934,12 +943,23 @@ export function DownloadForm() {
                   )}
                 </div>
               )}
-              {!isMultiUrl && urlIsValid && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
-                  <ContentIcon size={12} />
-                  {CONTENT_TYPE_LABELS[contentType]}
-                </div>
-              )}
+              {!isMultiUrl && urlIsValid && (() => {
+                // #983: non-Apple services (currently just Spotify) have no
+                // Apple Music content type — fall back to the service name
+                // with a generic Music icon instead of "Unknown".
+                const singleService = detectService(urlInput.trim());
+                const isNonApple = singleService !== null && singleService !== 'apple-music';
+                const BadgeIcon = isNonApple ? Music : ContentIcon;
+                const badgeLabel = isNonApple
+                  ? MEDIA_SERVICE_LABELS[singleService]
+                  : CONTENT_TYPE_LABELS[contentType];
+                return (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
+                    <BadgeIcon size={12} />
+                    {badgeLabel}
+                  </div>
+                );
+              })()}
             </div>
 
             {/*
@@ -992,14 +1012,14 @@ export function DownloadForm() {
            *  - Grey helper text when the input is empty (shows supported types).
            */}
           {urlInput && !canSubmit && !isMultiUrl && (
-            <p className="text-xs text-status-error">Please enter a valid Apple Music URL</p>
+            <p className="text-xs text-status-error">Please enter a valid Apple Music or Spotify URL</p>
           )}
           {urlInput && !canSubmit && isMultiUrl && (
-            <p className="text-xs text-status-error">No valid Apple Music URLs found</p>
+            <p className="text-xs text-status-error">No valid Apple Music or Spotify URLs found</p>
           )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
-              Supports songs, albums, playlists, music videos, and artist pages. Paste multiple URLs (one per line) to queue them all.
+              Supports songs, albums, playlists, music videos, and artist pages. Spotify links (open.spotify.com) are also accepted. Paste multiple URLs (one per line) to queue them all.
             </p>
           )}
 
