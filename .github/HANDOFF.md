@@ -13,7 +13,11 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 **GitHub-issues sweep — DONE.** All 97 open issues reconciled against the actual codebase (evidence-backed, spot-checked); full record in [`.github/audits/issue-reconciliation-2026-08-03.md`](audits/issue-reconciliation-2026-08-03.md). Result: **40 close-as-done · 1 obsolete (#386) · 4 relabel/narrow (#1034→F10, #1069, #1033, #1012) · 4 duplicate pairs · 42 genuinely-open · 10 confirmed-live bugs** (kept open: #981 #978 #983 #991 #949 #987 #982 #997 #1011 #998). Closes executed via a Sonnet agent (comment + state) referencing the reconciliation doc.
 
-**Still in progress this session:** ranked new-work proposals for alpha (Fable analysis, presented to the maintainer for go/no-go) + a thorough documentation pass — all on this same branch.
+**Ranked new-work proposals — DONE (presented + recorded).** 18 ranked items in [`.github/audits/alpha-work-proposals-2026-08-03.md`](audits/alpha-work-proposals-2026-08-03.md), awaiting maintainer go/no-go. Top 5: #991, #983+#978, #949 (done), #981, #1011. Decisions needed before starting: #987 (checksum strategy), #8/#963 (label wording), #7 (HelpViewer codegen). **#981 confirmed genuinely broken** (Linux-x64 FFmpeg `.tar.xz` declared `TarGz`; no xz decoder → primary always fails, mirror is silent SPOF).
+
+**Documentation pass — DONE.** Fixed #949 (scrambled service-milestone numbers) in BOTH `help/supported-services.md` and the `HelpViewer.tsx` inline twin (M8=BBC/v2.0.0, M9=Spotify/v2.1.0, M10=YouTube/v2.2.0). Recorded the **OpenAPI determination** — MeedyaDL is a Tauri desktop app with no HTTP API (only in-process IPC); no OpenAPI/Swagger applies here; the native-app-facing API is a separate MeedyaSuite backend repo (`DEV_NOTES.md` → "Programmatic Interface / API Surface" + `.claude/memory/project_api_surface_determination.md`).
+
+**Session complete.** All work on `claude/gamdl-v3-8-5-review-gs36zl` (the single eventual `alpha` PR is cut from this branch). Open next: the maintainer picks alpha work items from the proposals doc.
 
 ---
 
