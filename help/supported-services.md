@@ -37,7 +37,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 
 ## Coming Soon
 
-### Spotify (Milestone M8 — v2.0.0)
+### Spotify (Milestone M9 — v2.1.0)
 
 | Feature | Planned |
 |---------|---------|
@@ -52,7 +52,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Authentication:** OAuth (cookie-based auth as fallback)
 **Note:** Spotify does not offer lossless audio — maximum quality is Ogg Vorbis 320kbps.
 
-### YouTube (Milestone M9 — v2.1.0)
+### YouTube (Milestone M10 — v2.2.0)
 
 | Feature | Planned |
 |---------|---------|
@@ -66,7 +66,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Authentication:** Optional (cookies for age-restricted/member content)
 **Note:** Also covers YouTube Music. Audio extraction available.
 
-### BBC iPlayer (Milestone M10 — v2.2.0)
+### BBC iPlayer (Milestone M8 — v2.0.0)
 
 | Feature | Planned |
 |---------|---------|

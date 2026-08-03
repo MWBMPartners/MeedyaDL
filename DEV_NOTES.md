@@ -4,6 +4,33 @@ Important notes for development, releasing, and CI/CD workflows.
 
 ---
 
+## Programmatic Interface / API Surface (why there is no OpenAPI spec)
+
+**MeedyaDL exposes no HTTP/REST API, so it has no OpenAPI/Swagger specification —
+this is by design, not an omission.**
+
+- The app is a **Tauri 2.0 desktop application**. Its only programmatic surface is
+  the in-process **Tauri IPC command set** (`#[tauri::command]` functions invoked
+  from the bundled React WebView via `invoke()`), enumerated in
+  `src-tauri/src/lib.rs`'s `generate_handler![]`. IPC is transport-internal (no URLs,
+  HTTP verbs, or status codes) and is only reachable from the app's own WebView — it
+  is not a network endpoint, so OpenAPI cannot meaningfully describe it and there is
+  no server on which to host Swagger UI. (There is no `express`/`fastify`/`axum`/
+  `actix`/`utoipa` dependency anywhere — confirmed.)
+- The IPC contract is instead enforced by `tools/audit-checks/check_ipc_commands.py`
+  (every `#[tauri::command]` is registered and every frontend `invoke('x')` targets a
+  registered command) and mirrored in the TypeScript wrappers in `src/lib/tauri-commands.ts`.
+- **The API that the native apps (Apple/iOS, Android, …) will consume is a separate
+  first-party backend — the MeedyaSuite / MWBM-IntAppsAPI service** (the same backend
+  family behind the remote feature-availability flags and the future server-issued
+  MusicKit token architecture; see "Remote Feature Availability" and "Recommended
+  Production Architecture" below). That backend lives in its **own repository**, and
+  any OpenAPI/Swagger spec + hostable (shared-hosting, no-Docker) Swagger UI belongs
+  **there**, not in this desktop-app repo. Do not generate an OpenAPI document for the
+  Tauri IPC surface — it would misrepresent an in-process interface as a web API.
+
+---
+
 ## Package Manifests
 
 MeedyaDL has two package manifests that define dependencies for different layers:

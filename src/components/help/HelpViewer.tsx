@@ -986,7 +986,7 @@ Apple Music is the primary and most feature-rich service in MeedyaDL. It support
 
 ---
 
-## Spotify (Planned - v2.0.0)
+## Spotify (Planned - v2.1.0)
 
 **Engine:** [Votify](https://github.com/glomatico/votify) (installed via pip)
 
@@ -1005,7 +1005,7 @@ Spotify support will include:
 
 ---
 
-## YouTube / YouTube Music (Planned - v2.1.0)
+## YouTube / YouTube Music (Planned - v2.2.0)
 
 **Engine:** [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed via pip)
 
@@ -1023,7 +1023,7 @@ YouTube support will include:
 
 ---
 
-## BBC iPlayer (Planned - v2.2.0)
+## BBC iPlayer (Planned - v2.0.0)
 
 **Engines:** [get_iplayer](https://github.com/get-iplayer/get_iplayer) (primary) / [yt-dlp](https://github.com/yt-dlp/yt-dlp) (fallback)
 
