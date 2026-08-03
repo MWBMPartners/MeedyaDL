@@ -14,8 +14,9 @@
  * @see src/stores/downloadStore.ts - The store under test
  */
 
-import { useDownloadStore } from '@/stores/downloadStore';
+import { useDownloadStore, __resetUndoBufferTimerForTests } from '@/stores/downloadStore';
 import * as commands from '@/lib/tauri-commands';
+import { useUiStore } from '@/stores/uiStore';
 
 import type { QueueItemStatus, GamdlProgress } from '@/types';
 
@@ -27,6 +28,8 @@ vi.mock('@/lib/tauri-commands', () => ({
   cancelDownload: vi.fn(),
   retryDownload: vi.fn(),
   clearQueue: vi.fn(),
+  clearAllQueue: vi.fn(),
+  abortAllDownloads: vi.fn(),
   deleteQueueItem: vi.fn(),
   getQueueStatus: vi.fn(),
 }));
@@ -75,7 +78,10 @@ beforeEach(() => {
     queueItems: [],
     isSubmitting: false,
     error: null,
+    _undoBuffer: null,
   });
+  useUiStore.setState({ toasts: [] });
+  __resetUndoBufferTimerForTests();
 });
 
 describe('downloadStore', () => {
@@ -130,8 +136,15 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
     });
 
-    it('rejects a non-Apple Music URL', () => {
+    it('accepts a Spotify URL (#983)', () => {
       useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
+
+      expect(useDownloadStore.getState().urlIsValid).toBe(true);
+      expect(useDownloadStore.getState().urlContentType).toBe('unknown');
+    });
+
+    it('rejects a not-yet-submittable service URL (YouTube)', () => {
+      useDownloadStore.getState().setUrlInput('https://www.youtube.com/watch?v=abc123');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(false);
     });
@@ -180,10 +193,10 @@ describe('downloadStore', () => {
       useDownloadStore.getState().setUrlInput('invalid-url');
 
       await expect(useDownloadStore.getState().submitDownload()).rejects.toThrow(
-        'Invalid Apple Music URL'
+        'Invalid or unsupported media URL'
       );
 
-      expect(useDownloadStore.getState().error).toBe('Invalid Apple Music URL');
+      expect(useDownloadStore.getState().error).toBe('Invalid or unsupported media URL');
     });
 
     it('passes override options when set', async () => {
@@ -595,6 +608,143 @@ describe('downloadStore', () => {
       expect(state.queueItems).toHaveLength(1);
       expect(state.queueItems[0].state).toBe('downloading');
       expect(state.queueItems[0].progress).toBe(50);
+    });
+  });
+
+  // ============================================================
+  // Undo re-queue batching (#991)
+  // ============================================================
+  //
+  // Clear-All and Abort-All's "Undo" toast action used to re-enqueue
+  // cleared/aborted URLs via a per-URL `startDownload({ urls: [url] })`
+  // loop. Each call consumed one slot against the backend's 10/min
+  // `start_download` rate limit, so any undo batch past 10 URLs
+  // silently dropped the overflow while the toast still claimed full
+  // success. The fix batches the whole undo buffer into a single
+  // `startDownload({ urls })` call.
+  describe('undo re-queue batching (#991)', () => {
+    /** 12 distinct URLs — exceeds the backend's 10/min start_download limit. */
+    const twelveUrls = Array.from(
+      { length: 12 },
+      (_, i) => `https://music.apple.com/us/album/test-${i}/${1000 + i}`
+    );
+
+    it('clearAll undo submits ALL urls in ONE startDownload call', async () => {
+      const items = twelveUrls.map((url, i) =>
+        createMockQueueItem({ id: `dl-${i}`, state: 'queued', urls: [url] })
+      );
+      useDownloadStore.setState({ queueItems: items });
+
+      vi.mocked(commands.clearAllQueue).mockResolvedValueOnce(12);
+      vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
+        total: 0,
+        active: 0,
+        queued: 0,
+        completed: 0,
+        failed: 0,
+        items: [],
+      });
+
+      await useDownloadStore.getState().clearAll();
+
+      const toast = useUiStore.getState().toasts.find((t) => t.key === 'undo-clear');
+      expect(toast).toBeDefined();
+      expect(toast?.action).toBeDefined();
+
+      vi.mocked(commands.startDownload).mockResolvedValueOnce({
+        download_id: 'undo-dl-id',
+        duplicate_warning: null,
+      });
+
+      toast?.action?.onClick();
+
+      await vi.waitFor(() => {
+        expect(commands.startDownload).toHaveBeenCalledTimes(1);
+      });
+
+      expect(commands.startDownload).toHaveBeenCalledWith({ urls: twelveUrls });
+      expect(useDownloadStore.getState()._undoBuffer).toBeNull();
+    });
+
+    it('clearAll undo surfaces the backend error and keeps _undoBuffer on reject', async () => {
+      const items = twelveUrls.map((url, i) =>
+        createMockQueueItem({ id: `dl-${i}`, state: 'queued', urls: [url] })
+      );
+      useDownloadStore.setState({ queueItems: items });
+
+      vi.mocked(commands.clearAllQueue).mockResolvedValueOnce(12);
+      vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
+        total: 0,
+        active: 0,
+        queued: 0,
+        completed: 0,
+        failed: 0,
+        items: [],
+      });
+
+      await useDownloadStore.getState().clearAll();
+
+      const toast = useUiStore.getState().toasts.find((t) => t.key === 'undo-clear');
+      expect(toast).toBeDefined();
+
+      vi.mocked(commands.startDownload).mockRejectedValueOnce('Rate limited');
+
+      toast?.action?.onClick();
+
+      await vi.waitFor(() => {
+        expect(commands.startDownload).toHaveBeenCalledTimes(1);
+      });
+
+      // The undo buffer is only cleared on success -- a rejected
+      // re-queue leaves it intact so a retry (or a second Undo click)
+      // still has the full URL list to work with.
+      expect(useDownloadStore.getState()._undoBuffer).toEqual(twelveUrls);
+
+      await vi.waitFor(() => {
+        expect(
+          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('Failed to re-queue'))
+        ).toBe(true);
+      });
+    });
+
+    it('abortAll undo submits ALL urls in one call', async () => {
+      const items = twelveUrls.map((url, i) =>
+        createMockQueueItem({ id: `dl-${i}`, state: 'queued', urls: [url] })
+      );
+      useDownloadStore.setState({ queueItems: items });
+
+      vi.mocked(commands.abortAllDownloads).mockResolvedValueOnce({
+        queuedCancelled: 12,
+        downloadingStopped: 0,
+        processingStopped: 0,
+      });
+      vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
+        total: 12,
+        active: 0,
+        queued: 0,
+        completed: 0,
+        failed: 0,
+        items: items.map((i) => ({ ...i, state: 'cancelled' as const })),
+      });
+
+      await useDownloadStore.getState().abortAll();
+
+      const toast = useUiStore.getState().toasts.find((t) => t.key === 'undo-abort');
+      expect(toast).toBeDefined();
+      expect(toast?.action).toBeDefined();
+
+      vi.mocked(commands.startDownload).mockResolvedValueOnce({
+        download_id: 'undo-abort-dl-id',
+        duplicate_warning: null,
+      });
+
+      toast?.action?.onClick();
+
+      await vi.waitFor(() => {
+        expect(commands.startDownload).toHaveBeenCalledTimes(1);
+      });
+
+      expect(commands.startDownload).toHaveBeenCalledWith({ urls: twelveUrls });
     });
   });
 });

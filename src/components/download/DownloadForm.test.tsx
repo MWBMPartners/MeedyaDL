@@ -80,7 +80,7 @@ describe('DownloadForm', () => {
     const textarea = screen.getByLabelText('Media URL input');
     expect(textarea).toHaveAttribute('id', 'url-input');
     // The visible <label htmlFor="url-input"> wraps the same id
-    const label = screen.getByText('Apple Music URL');
+    const label = screen.getByText('Media URL');
     expect(label.tagName).toBe('LABEL');
     expect(label).toHaveAttribute('for', 'url-input');
   });
@@ -123,8 +123,24 @@ describe('DownloadForm', () => {
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, { target: { value: 'not-a-real-url' } });
     expect(
-      screen.getByText('Please enter a valid Apple Music URL')
+      screen.getByText('Please enter a valid Apple Music or Spotify URL')
     ).toBeInTheDocument();
+  });
+
+  // ===========================================================================
+  // Spotify URL acceptance (#983)
+  // ===========================================================================
+
+  it('accepts a Spotify URL and shows the Spotify badge', () => {
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, {
+      target: { value: 'https://open.spotify.com/album/abc123' },
+    });
+    expect(useDownloadStore.getState().urlIsValid).toBe(true);
+    expect(screen.getByRole('button', { name: /add to queue/i })).toBeEnabled();
+    // Non-Apple services render the service label instead of a content type.
+    expect(screen.getByText('Spotify')).toBeInTheDocument();
   });
 
   // ===========================================================================
@@ -168,7 +184,7 @@ describe('DownloadForm', () => {
     fireEvent.change(textarea, {
       target: { value: ['nope', 'still-nope', 'https://example.com'].join('\n') },
     });
-    expect(screen.getByText('No valid Apple Music URLs found')).toBeInTheDocument();
+    expect(screen.getByText('No valid Apple Music or Spotify URLs found')).toBeInTheDocument();
   });
 
   // ===========================================================================

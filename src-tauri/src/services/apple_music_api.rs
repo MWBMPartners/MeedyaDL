@@ -1026,9 +1026,14 @@ pub async fn fetch_album_metadata(
     storefront: &str,
     album_id: &str,
 ) -> Result<Option<AlbumMetadata>, String> {
-    // Enriched API call: include tracks and artists, extend with editorialVideo
+    // Enriched API call: include tracks and artists, extend with
+    // editorialVideo (animated artwork) + audioTraits (#1011). amp-api
+    // omits per-track `audioTraits` unless the request asks for it via
+    // `extend=audioTraits`; `extend` is comma-separated and applies to
+    // every resource in the response, covering the album object and the
+    // include=tracks relationship.
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo"
+        "https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo,audioTraits"
     );
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
@@ -1370,7 +1375,8 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 .unwrap_or(1);
 
             // Extract audioTraits array (e.g., ["lossy-stereo", "lossless", "dolby-atmos"])
-            // This is returned by default in the catalog API response — no extend needed.
+            // Present only because the album fetch requests `extend=audioTraits`
+            // (#1011) — amp-api omits the field without that extend parameter.
             let audio_traits = attrs
                 .get("audioTraits")
                 .and_then(|v| v.as_array())
@@ -2842,6 +2848,28 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
     Ok(None)
 }
 
+/// Builds the optional `&l={locale}` query suffix for Apple Music API
+/// calls (#973). BCP-47 tag from settings.language (same value handed to
+/// GAMDL --language). Returns "" when None/empty/all-rejected-chars.
+/// Input restricted to ASCII alphanumerics and '-' (max 35 chars) so a
+/// corrupt settings file can't inject extra query params.
+fn locale_query_suffix(locale: Option<&str>) -> String {
+    let Some(raw) = locale else {
+        return String::new();
+    };
+    let tag: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(35)
+        .collect();
+    if tag.is_empty() {
+        String::new()
+    } else {
+        format!("&l={tag}")
+    }
+}
+
 /// Fetch word-level (syllable) TTML lyrics for a song from Apple Music.
 ///
 /// Calls the `/syllable-lyrics` endpoint which returns TTML with
@@ -2856,6 +2884,8 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
 /// * `storefront` - Two-letter country code (e.g., "us", "gb")
 /// * `song_id` - Apple Music numeric song ID
 /// * `music_user_token` - Subscriber token from `media-user-token` cookie
+/// * `locale` - Optional BCP-47 UI locale (e.g. "en-US") for the `&l=`
+///   query parameter (#973); `None` omits it
 ///
 /// # Returns
 /// * `Ok(Some(String))` - Raw TTML XML with word-level timing
@@ -2866,6 +2896,7 @@ pub async fn fetch_syllable_lyrics(
     storefront: &str,
     song_id: &str,
     music_user_token: &str,
+    locale: Option<&str>,
 ) -> Result<Option<String>, String> {
     // amp-api is the canonical syllable-lyrics endpoint (matches the ITAM
     // Enhancer userscript base URL). `?extend=ttmlLocalizations` is REQUIRED:
@@ -2873,8 +2904,11 @@ pub async fn fetch_syllable_lyrics(
     // `attributes.ttmlLocalizations` rather than `attributes.ttml`, and
     // without the extend flag those tracks return an empty `ttml` field —
     // silently degrading the user to line-level LRC with no error. (#936)
+    // `&l={locale}` (#973) requests the response in the user's configured
+    // storefront language rather than whatever amp-api defaults to.
     let url = format!(
-        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations"
+        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations{}",
+        locale_query_suffix(locale)
     );
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
@@ -2988,6 +3022,8 @@ pub struct ArtistPromoVideo {
 /// * `jwt` - MusicKit Developer Token (signed JWT)
 /// * `storefront` - Two-letter country code (e.g., "us", "gb")
 /// * `artist_id` - Numeric artist identifier (e.g., "368433979")
+/// * `locale` - Optional BCP-47 UI locale (e.g. "en-US") for the `&l=`
+///   query parameter (#973); `None` omits it
 ///
 /// # Returns
 /// * `Ok(Some(ArtistPromoVideo))` - Artist has a promo video
@@ -2997,9 +3033,13 @@ pub async fn fetch_artist_promo_video(
     jwt: &str,
     storefront: &str,
     artist_id: &str,
+    locale: Option<&str>,
 ) -> Result<Option<ArtistPromoVideo>, String> {
+    // `&l={locale}` (#973) requests the response in the user's configured
+    // storefront language rather than whatever amp-api defaults to.
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/artists/{artist_id}?extend=editorialVideo"
+        "https://api.music.apple.com/v1/catalog/{storefront}/artists/{artist_id}?extend=editorialVideo{}",
+        locale_query_suffix(locale)
     );
 
     log::debug!("Querying Apple Music API for artist promo video: {url}");
@@ -4761,6 +4801,32 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         let result = extract_media_user_token(path.to_str().unwrap());
         assert_eq!(result.unwrap(), Some("TOKEN_AFTER_COMMENTS".to_string()));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ----------------------------------------------------------
+    // locale_query_suffix tests (#973)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn locale_suffix_none_and_empty_are_omitted() {
+        assert_eq!(locale_query_suffix(None), "");
+        assert_eq!(locale_query_suffix(Some("")), "");
+        assert_eq!(locale_query_suffix(Some("   ")), "");
+    }
+
+    #[test]
+    fn locale_suffix_appends_bcp47_tag() {
+        assert_eq!(locale_query_suffix(Some("en-US")), "&l=en-US");
+        assert_eq!(locale_query_suffix(Some("ja-JP")), "&l=ja-JP");
+    }
+
+    #[test]
+    fn locale_suffix_strips_injection_characters() {
+        assert_eq!(
+            locale_query_suffix(Some("en-US&extend=evil")),
+            "&l=en-USextendevil"
+        );
+        assert_eq!(locale_query_suffix(Some("?&=#/")), "");
     }
 
     // ----------------------------------------------------------

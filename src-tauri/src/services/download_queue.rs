@@ -9096,6 +9096,7 @@ pub fn process_queue(
                                                     &enrich_settings.storefront,
                                                     &track.song_id,
                                                     &token,
+                                                    Some(&enrich_settings.language),
                                                 )
                                                 .await
                                                 {

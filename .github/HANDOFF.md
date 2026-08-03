@@ -17,7 +17,17 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 **Documentation pass — DONE.** Fixed #949 (scrambled service-milestone numbers) in BOTH `help/supported-services.md` and the `HelpViewer.tsx` inline twin (M8=BBC/v2.0.0, M9=Spotify/v2.1.0, M10=YouTube/v2.2.0). Recorded the **OpenAPI determination** — MeedyaDL is a Tauri desktop app with no HTTP API (only in-process IPC); no OpenAPI/Swagger applies here; the native-app-facing API is a separate MeedyaSuite backend repo (`DEV_NOTES.md` → "Programmatic Interface / API Surface" + `.claude/memory/project_api_surface_determination.md`).
 
-**Session complete.** All work on `claude/gamdl-v3-8-5-review-gs36zl` (the single eventual `alpha` PR is cut from this branch). Open next: the maintainer picks alpha work items from the proposals doc.
+**Alpha-cycle implementation IN PROGRESS (2026-08-03, second session).** The maintainer selected a large batch of proposals to implement (see `.github/audits/alpha-work-proposals-2026-08-03.md`). `feat/alpha-consolidated` is now **DELETED** (content fully in this branch); `claude/gamdl-v3-8-5-review-gs36zl` is the sole work branch and the single eventual `alpha` PR is cut from it. New tracking issue **#1075** filed (build-time HELP_TOPICS codegen). **#1013** confirmed still-valid (GAMDL maturin matrix = x86_64+aarch64 only, no ARMv7 wheel) and kept open. **Local Rust builds now work here** (GTK dev libs installed) — every backend batch is `cargo test`-validated locally.
+
+Method (per maintainer instruction): sequential Fable 5 for deep analysis+planning (one at a time), Sonnet for implementation, independent `cargo test --lib` + `npm run test` re-validation before each commit. Batches pipelined: Fable analysis of batch N+1 runs while batch N is implemented/committed (analysis is read-only, no build-lock contention).
+
+Progress:
+- **Batch A — DONE & committed** (#991 undo re-queue batching; #983 Spotify URL input reaches the dispatch gate; #1011 `extend=audioTraits`; #973 `&l=` locale on syllable/promo calls; #972 `animated_artwork_resolution` setting + HLS rendition selection, settings schema **v7→v8**). Validated: `cargo test --lib` 1612 passed / 0 failed; npm 597 passed; clippy + type-check clean.
+- **Batch B — plan ready, implementing next** (#981 xz decoder via already-present `lzma-rs` + honest `detect_archive_format_from_url`; #982 NSIS `raw_arg`; #997 sudo no-TTY → `sudo -n`/`pkexec`/actionable error; #987 exclude GPAC nightly, add `[gpac.windows_installer]` + `[mirror.asset_hashes]` pin mechanism, wire `download_and_extract_verified`). Ships safe defaults (no pin → mirror-first; nightly no longer executed unverified).
+- **Batch C — analysis in progress** (#963/#1002/#965 version-gate wrapper-dependency for GAMDL ≥3.8, KEEP "(Experimental)" always, keep "needs Wrapper" on <3.8; #1000 extra-tags investigation+answer; #1014 per-platform support window; #1001 v2→v3 migration helper).
+- **Pending:** Batch D (#961 artwork fallback — MUST preserve web-dev-token contingency; #934 lyrics test-connection — MUST preserve syllable web-dev-token fallback; #974 fMP4 concat; #1021 integrity guard), split `download_queue.rs`, minor version bump, final open+closed issue sweep + docs.
+
+Maintainer decisions still surfaced (non-blocking, code ships safe defaults): **#987** GPAC pin URL+SHA-256 values and mirror per-release SHA256SUMS strategy (mirror republishes daily); the git proxy blocks remote branch deletion so any future branch cleanup needs the maintainer.
 
 ---
 
