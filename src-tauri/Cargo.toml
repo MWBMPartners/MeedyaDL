@@ -246,6 +246,13 @@ flate2 = "1"
 # @see https://docs.rs/tar/ -- tar crate documentation
 tar = "0.4"
 
+# lzma-rs -- Pure-Rust XZ/LZMA decompression for .tar.xz tool archives
+# (#981), notably BtbN's Linux x86_64 FFmpeg builds. Pure Rust (MIT), no
+# system liblzma dependency, cross-compiles to every target. Already in the
+# tree transitively via the zip crate, so promoting it to a direct dep adds
+# no new code to the binary. Decode-only (lzma_rs::xz_decompress).
+lzma-rs = "0.3"
+
 # ---- Cryptographic Hashing ----
 
 # sha2 -- SHA-256 hash computation for download integrity verification.
