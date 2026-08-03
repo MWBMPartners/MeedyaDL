@@ -186,3 +186,9 @@ pub mod wrapper;
 /// state) and the user-initiated move (`relocate_app_bundle`).
 /// Companion to `services::app_relocation`.
 pub mod app_relocation;
+
+/// Word-level lyrics connectivity test IPC command (#934). Provides
+/// `test_lyrics_connection`, a side-effect-free diagnostic the Settings >
+/// Lyrics tab calls to verify syllable-lyrics fetch credentials without
+/// running a full download. Delegates to `services::apple_music_api`.
+pub mod lyrics;

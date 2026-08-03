@@ -995,6 +995,30 @@ fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     .len()
 }
 
+/// Decides whether a post-download output integrity report (#1021) should
+/// fail the item outright, given the number of files probed and how many
+/// of those came back suspect.
+///
+/// Pure and side-effect-free so it's directly unit-testable.
+///
+/// Returns `Some(message)` — an actionable error naming the upstream
+/// truncated-write bug (gamdl#328) — only when EVERY probed file is
+/// suspect (`checked > 0 && suspect_files.len() == checked`). A partial
+/// hit (some files fine, some suspect) is not a hard failure here — the
+/// caller surfaces those as a prominent warning instead, since most of the
+/// album downloaded correctly. `checked == 0` (nothing was probed — e.g.
+/// ffprobe unavailable, no M4A files found) is never a failure.
+fn integrity_failure_message(checked: usize, suspect_files: &[String]) -> Option<String> {
+    if checked > 0 && suspect_files.len() == checked {
+        Some(format!(
+            "Output integrity check failed: all {checked} probed file(s) appear corrupted or truncated ({}) — this matches a known upstream GAMDL bug (gamdl#328). Try re-downloading.",
+            suspect_files.join(", "),
+        ))
+    } else {
+        None
+    }
+}
+
 /// Unified completion-task timeout (#776).
 ///
 /// Single source of truth for "how long is this download legitimately
@@ -5873,12 +5897,40 @@ fn emit_artwork_variant_log(
             // coded amber in the Activity Log (#793), matching the
             // existing convention for "the work was attempted but
             // didn't land on disk" outcomes.
+            //
+            // #961: append a geo-lock hint when the failure reason names
+            // an HTTP 403 -- the classic symptom of an HLS URL minted for
+            // a fallback storefront's region being fetched from outside
+            // it. Empty string for any other reason (timeout, DNS, etc.)
+            // so the line reads exactly as it did before this addition.
             emit_download_warn(
                 app,
                 dl_id,
-                &format!("Animated artwork: {variant_label} download failed — {reason}"),
+                &format!(
+                    "Animated artwork: {variant_label} download failed — {reason}{}",
+                    artwork_geo_lock_hint(reason),
+                ),
             );
         }
+    }
+}
+
+/// Returns an actionable geo-lock hint when an animated-artwork download
+/// failure `reason` names an HTTP 403 status, else an empty string (#961).
+///
+/// A 403 on an animated-artwork HLS fetch is the classic symptom of a
+/// storefront-region mismatch: the m3u8/segment URLs Apple returns are
+/// minted for the storefront that served the album metadata, and a
+/// fallback-storefront lookup (see `AlbumMetadata::fallback_storefront`)
+/// can hand back URLs scoped to a region the account/network isn't
+/// authorised to fetch from.
+///
+/// Pure and side-effect-free so it's directly unit-testable.
+fn artwork_geo_lock_hint(reason: &str) -> &'static str {
+    if reason.contains("403") {
+        " (this often means the artwork URL is geo-locked to a different storefront region — see the metadata warning above if one was logged)"
+    } else {
+        ""
     }
 }
 
@@ -10530,6 +10582,11 @@ pub fn process_queue(
                         // (panic / abort / runtime shutdown). This makes the
                         // queue *actually* serial as documented in #455.
                         let active_guard = ActiveSlotGuard::new(completion_queue.clone());
+                        // Copy (bool is `Copy`) so the integrity guard below
+                        // can use it after the enrichment closure captured
+                        // its own copy (`enrich_is_apple_music`, see #452 /
+                        // Step 1 above) by move (#1021).
+                        let completion_is_apple_music = is_apple_music;
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
@@ -10837,35 +10894,126 @@ pub fn process_queue(
                                 }
                             }
 
-                            // Mark as complete and release the queue slot in
-                            // the same lock acquisition (#706). Releasing the
-                            // slot here — *not* at the early line 6246 — is
-                            // what makes the queue actually serial; the next
-                            // item cannot start until set_complete + the
+                            // Post-download output integrity guard (#1021).
+                            // Probes a bounded sample of the item's output
+                            // files for suspiciously short/empty audio
+                            // streams -- the signature of a truncated write
+                            // that still exits GAMDL with status 0
+                            // (gamdl#328). Apple-Music-only: it's the only
+                            // source whose output-path shape
+                            // `verify_output_integrity` understands.
+                            const INTEGRITY_PROBE_CAP: usize = 12;
+                            let integrity_report = if completion_is_apple_music {
+                                let output_path_for_integrity = {
+                                    let q = completion_queue.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == completion_dl_id)
+                                        .and_then(|i| i.status.output_path.clone())
+                                };
+                                match output_path_for_integrity {
+                                    Some(path) => {
+                                        super::metadata_tag_service::verify_output_integrity(
+                                            &completion_app,
+                                            &path,
+                                            INTEGRITY_PROBE_CAP,
+                                        )
+                                        .await
+                                    }
+                                    None => None,
+                                }
+                            } else {
+                                None
+                            };
+
+                            let integrity_failure = integrity_report
+                                .as_ref()
+                                .and_then(|r| integrity_failure_message(r.checked, &r.suspect_files));
+
+                            // Partial-failure case: SOME (but not every)
+                            // probed file is suspect. The item still
+                            // completes -- most of the album is fine -- but
+                            // a prominent warning + notification surfaces
+                            // the gap instead of a silent "Complete".
+                            if integrity_failure.is_none() {
+                                if let Some(report) = &integrity_report {
+                                    if !report.suspect_files.is_empty() {
+                                        emit_download_warn(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            &format!(
+                                                "⚠ {} file(s) may be corrupted or truncated: {} — re-download with overwrite OFF to retry just those tracks (see gamdl#328).",
+                                                report.suspect_files.len(),
+                                                report.suspect_files.join(", "),
+                                            ),
+                                        );
+                                        send_desktop_notification(
+                                            &completion_app,
+                                            "Completed With Warnings",
+                                            &format!(
+                                                "{} file(s) may need re-downloading",
+                                                report.suspect_files.len(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+
+                            // Mark as complete (or errored, when every
+                            // probed file came back suspect) and release
+                            // the queue slot in the same lock acquisition
+                            // (#706). Releasing the slot here — *not* at the
+                            // early line 6246 — is what makes the queue
+                            // actually serial; the next item cannot start
+                            // until set_complete/set_error + the
                             // accompanying decrement land atomically. The
                             // ActiveSlotGuard is then disarmed so its Drop is
                             // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
-                                q.set_complete(&completion_dl_id);
+                                if let Some(ref msg) = integrity_failure {
+                                    q.set_error(&completion_dl_id, msg);
+                                } else {
+                                    q.set_complete(&completion_dl_id);
+                                }
                                 q.on_task_finished();
                                 drop(q);
                             }
                             active_guard.disarm();
                             save_queue_to_disk(&completion_app, &completion_queue).await;
-                            emit_download_log(
-                                &completion_app,
-                                &completion_dl_id,
-                                "All downloads and processing complete",
-                            );
-                            let _ = completion_app.emit("download-complete", &completion_dl_id);
 
-                            // Desktop notification fires AFTER all work finishes
-                            send_desktop_notification(
-                                &completion_app,
-                                "Download Complete",
-                                "All downloads and processing complete",
-                            );
+                            if let Some(msg) = integrity_failure {
+                                emit_download_warn(&completion_app, &completion_dl_id, &msg);
+                                let guidance = process::error_guidance("io");
+                                let _ = completion_app.emit(
+                                    "download-error",
+                                    serde_json::json!({
+                                        "download_id": completion_dl_id,
+                                        "error": msg,
+                                        "category": "io",
+                                        "guidance": guidance,
+                                    }),
+                                );
+                                send_desktop_notification(
+                                    &completion_app,
+                                    "Download Failed",
+                                    &msg,
+                                );
+                            } else {
+                                emit_download_log(
+                                    &completion_app,
+                                    &completion_dl_id,
+                                    "All downloads and processing complete",
+                                );
+                                let _ = completion_app.emit("download-complete", &completion_dl_id);
+
+                                // Desktop notification fires AFTER all work finishes
+                                send_desktop_notification(
+                                    &completion_app,
+                                    "Download Complete",
+                                    "All downloads and processing complete",
+                                );
+                            }
 
                             // Cascade: process the next item in the queue (#455).
                             // The slot was already released a few lines above,
@@ -13809,6 +13957,21 @@ mod tests {
         assert_eq!(super::format_artwork_size(2_200_000), "2.1 MB");
     }
 
+    /// Verifies `artwork_geo_lock_hint` fires only for reasons that name
+    /// an HTTP 403, in whatever phrasing the failing tool used (#961).
+    #[test]
+    fn artwork_geo_lock_hint_fires_on_403() {
+        assert!(!super::artwork_geo_lock_hint("HTTP 403").is_empty());
+        assert!(!super::artwork_geo_lock_hint("403 Forbidden").is_empty());
+    }
+
+    /// Non-403 failure reasons must not get the geo-lock hint appended.
+    #[test]
+    fn artwork_geo_lock_hint_silent_for_other_reasons() {
+        assert_eq!(super::artwork_geo_lock_hint("exit code 1"), "");
+        assert_eq!(super::artwork_geo_lock_hint("connection timed out"), "");
+    }
+
     /// Verifies that `format_heartbeat_elapsed` produces the compact
     /// human-readable shape we want in the activity log heartbeat
     /// lines (#805). Sub-minute and sub-hour shapes are both exercised
@@ -15020,6 +15183,46 @@ mod tests {
             DownloadState::Complete,
             "set_error must not transition Complete -> Error (#661)"
         );
+    }
+
+    // ==========================================================
+    // 11a-2. integrity_failure_message() tests (#1021)
+    // ==========================================================
+
+    /// Nothing was probed (e.g. ffprobe unavailable, no M4A files) — never
+    /// a failure, regardless of the (empty) suspect list.
+    #[test]
+    fn integrity_failure_message_none_when_nothing_checked() {
+        assert_eq!(integrity_failure_message(0, &[]), None);
+    }
+
+    /// Partial hit: some files fine, some suspect. Not a hard failure —
+    /// the caller surfaces this as a warning instead, since most of the
+    /// album downloaded correctly.
+    #[test]
+    fn integrity_failure_message_none_when_partial() {
+        assert_eq!(
+            integrity_failure_message(3, &["01 Track.m4a".to_string()]),
+            None
+        );
+    }
+
+    /// Every probed file is suspect — a hard failure.
+    #[test]
+    fn integrity_failure_message_some_when_all_suspect() {
+        let suspects = vec!["01 Track.m4a".to_string(), "02 Track.m4a".to_string(), "03 Track.m4a".to_string()];
+        let msg = integrity_failure_message(3, &suspects);
+        assert!(msg.is_some());
+        let msg = msg.unwrap();
+        assert!(msg.contains("gamdl#328"));
+        assert!(msg.contains("01 Track.m4a"));
+    }
+
+    /// Single-file download where the one probed file is suspect.
+    #[test]
+    fn integrity_failure_message_some_for_single_suspect_file() {
+        let suspects = vec!["01 Track.m4a".to_string()];
+        assert!(integrity_failure_message(1, &suspects).is_some());
     }
 
     // ==========================================================

@@ -288,6 +288,20 @@ pub async fn process_album_artwork(
         return Ok(empty_result());
     };
 
+    // Geo-lock warning (#961): a fallback storefront served this metadata,
+    // so its animated-artwork HLS URLs were minted for that region and may
+    // 403 when fetched from elsewhere. No per-download activity-log/dl_id
+    // context is available at this call site (unlike
+    // `metadata_tag_service::try_fetch_metadata`'s `event_context`), so
+    // this is tracing-only.
+    if let Some(ref sf) = metadata.fallback_storefront {
+        log::warn!(
+            "Animated artwork: album {} metadata served by fallback storefront '{sf}' (requested '{}') — HLS URLs may be geo-locked",
+            parsed.album_id,
+            parsed.storefront,
+        );
+    }
+
     // --- Step 5: Download artwork using the fetched metadata ---
     download_artwork_from_metadata(app, &metadata, output_dir).await
 }
@@ -359,20 +373,76 @@ async fn download_artwork_from_metadata(
 
     let output_path = Path::new(output_dir);
 
-    let square_status = match metadata.artwork_square_url.as_deref() {
-        Some(square_url) => {
-            let dest = output_path.join("FrontCover.mp4");
-            attempt_artwork_variant(app, square_url, &dest, "square").await
-        }
-        None => VariantStatus::NotOffered,
-    };
-
+    // #961: PORTRAIT is downloaded first (reordered from the original
+    // square-then-portrait sequence) so the square-URL-absent fallback
+    // below can reuse the already-downloaded portrait file via a plain
+    // filesystem copy instead of a second HLS fetch when possible.
     let portrait_status = match metadata.artwork_tall_url.as_deref() {
         Some(tall_url) => {
             let dest = output_path.join("FrontCoverPortrait.mp4");
             attempt_artwork_variant(app, tall_url, &dest, "portrait").await
         }
         None => VariantStatus::NotOffered,
+    };
+
+    let square_status = match metadata.artwork_square_url.as_deref() {
+        Some(square_url) => {
+            let dest = output_path.join("FrontCover.mp4");
+            attempt_artwork_variant(app, square_url, &dest, "square").await
+        }
+        None => {
+            // Cross-variant fallback (#961): Apple didn't offer a
+            // dedicated square (1:1) motion asset for this album, but a
+            // portrait (3:4) one exists. Rather than leave FrontCover.mp4
+            // entirely absent, reuse the portrait source -- most players
+            // handle a non-square animated cover fine (cropped/letterboxed),
+            // and it beats no animated cover at all.
+            match (&portrait_status, metadata.artwork_tall_url.as_deref()) {
+                // Portrait already landed on disk -- a plain file copy is
+                // cheaper and more reliable than a second HLS fetch.
+                (VariantStatus::Downloaded { path, .. }, Some(_)) => {
+                    let portrait_path = PathBuf::from(path);
+                    let square_dest = output_path.join("FrontCover.mp4");
+                    match std::fs::copy(&portrait_path, &square_dest) {
+                        Ok(size_bytes) => {
+                            log::info!(
+                                "Animated artwork: album {} has no square variant — copied portrait as square fallback ({size_bytes} bytes)",
+                                metadata.album_id,
+                            );
+                            VariantStatus::Downloaded {
+                                path: square_dest.to_string_lossy().to_string(),
+                                size_bytes,
+                            }
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "Animated artwork: failed to copy portrait as square fallback for album {}: {e}",
+                                metadata.album_id,
+                            );
+                            VariantStatus::DownloadFailed {
+                                url: portrait_path.to_string_lossy().to_string(),
+                                reason: format!("portrait-source fallback copy failed: {e}"),
+                            }
+                        }
+                    }
+                }
+                // Portrait itself failed (or is still NotOffered despite a
+                // URL being present, which shouldn't happen but is handled
+                // defensively) -- re-fetch the SAME tall_url directly into
+                // FrontCover.mp4 rather than copy a file that doesn't exist.
+                (_, Some(tall_url)) => {
+                    let dest = output_path.join("FrontCover.mp4");
+                    attempt_artwork_variant(
+                        app,
+                        tall_url,
+                        &dest,
+                        "square (portrait-source fallback)",
+                    )
+                    .await
+                }
+                (_, None) => VariantStatus::NotOffered,
+            }
+        }
     };
 
     // #538: Album-level 16:9 spotlight video. Saved to the album
@@ -418,9 +488,10 @@ async fn attempt_artwork_variant(
     dest: &Path,
     variant_label: &'static str,
 ) -> VariantStatus {
-    match download_hls_to_mp4(app, m3u8_url, dest).await {
+    match download_hls_with_native_fallback(app, m3u8_url, dest).await {
         Ok(()) => {
-            // FFmpeg returned 0 — verify the file is real (#529).
+            // FFmpeg (or the #974 native concat fallback) returned Ok —
+            // verify the file is real (#529).
             match std::fs::metadata(dest) {
                 Ok(meta) if meta.len() > 0 => {
                     log::info!(
@@ -726,6 +797,339 @@ async fn resolve_hls_variant_url(master_url: &str, target_height: Option<u32>) -
     }
 }
 
+// ============================================================
+// Native fMP4 Init+Segment Concat Fallback (#974)
+// ============================================================
+//
+// FFmpeg remains the PRIMARY download mechanism for animated-artwork
+// HLS streams — nothing here changes behaviour when FFmpeg is
+// installed and working. This section adds a pure-Rust fallback that
+// only runs when FFmpeg errors, is missing, or produces a
+// missing/empty output file, so animated artwork can still be
+// downloaded (and PLAY correctly in players that understand a
+// concatenated fMP4) on a machine without a working FFmpeg install.
+//
+// Apple's animated-artwork CDN serves fragmented MP4 (fMP4) media
+// segments: one init segment (the `ftyp`+`moov` boxes, referenced by
+// `#EXT-X-MAP:URI="..."`) followed by a sequence of `moof`+`mdat`
+// media segments. Because every segment in this delivery shares a
+// single init segment and container timeline, a byte-for-byte
+// concatenation of init + segments (in playlist order) produces a
+// single valid, playable MP4 — no transcoding or container
+// remuxing required. This is NOT true of every HLS stream (MPEG-TS
+// segments, or fMP4 with per-segment `moov` boxes, would need real
+// remuxing), which is why this fallback is scoped narrowly to the
+// animated-artwork HLS path and not applied to the GAMDL music-video
+// pipeline.
+
+/// One HLS fMP4 MEDIA playlist's init-segment URI (from
+/// `#EXT-X-MAP:URI="..."`) plus its ordered list of media segment URIs.
+/// Both fields hold URIs exactly as they appear in the playlist —
+/// possibly relative to the playlist's own URL — resolution happens at
+/// fetch time via `url::Url::join`.
+struct Fmp4MediaPlaylist {
+    /// The init segment URI, when the playlist declares one via
+    /// `#EXT-X-MAP:`. `None` is technically permitted by the fMP4 HLS
+    /// spec (a playlist can omit it if segments are self-initializing),
+    /// though Apple's animated-artwork CDN always includes one in
+    /// practice.
+    init_uri: Option<String>,
+    /// Ordered media segment URIs, in playlist order (concatenation
+    /// order matters for a valid fMP4 timeline).
+    segment_uris: Vec<String>,
+}
+
+/// Safety cap on the number of media segments the native concat
+/// fallback (#974) will fetch. Animated artwork is typically 5-15
+/// seconds of video (a handful of segments); this cap is a generous
+/// ceiling that still bounds worst-case request count against a
+/// pathological or hostile playlist.
+const MAX_CONCAT_SEGMENTS: usize = 512;
+
+/// Safety cap on the total bytes the native concat fallback (#974)
+/// will write to disk. Animated artwork files are a few MB at most;
+/// this is a generous ceiling that still bounds worst-case disk usage.
+const MAX_CONCAT_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Returns `true` when `body` is an HLS MASTER playlist (lists
+/// `#EXT-X-STREAM-INF:` variant renditions to choose between) rather
+/// than a MEDIA playlist (lists segments directly).
+fn is_master_playlist(body: &str) -> bool {
+    body.lines()
+        .any(|line| line.trim().starts_with("#EXT-X-STREAM-INF:"))
+}
+
+/// Parses an HLS fMP4 MEDIA playlist (NOT a master playlist — see
+/// [`is_master_playlist`]) into its init-segment URI and ordered list
+/// of media segment URIs.
+///
+/// The `#EXT-X-MAP:` tag's `URI="..."` attribute is parsed via the
+/// same [`split_m3u8_attributes`] comma-splitter used for
+/// `#EXT-X-STREAM-INF:`, so a URI containing a comma inside other
+/// attributes (e.g. a trailing `BYTERANGE="720@0"`) doesn't confuse
+/// parsing. Only the first `#EXT-X-MAP:` tag's URI is kept, matching
+/// the single-init-segment shape the animated-artwork CDN uses.
+///
+/// Returns `None` when the playlist has zero segments, or when the
+/// segment count exceeds [`MAX_CONCAT_SEGMENTS`] (defence against a
+/// pathological/hostile playlist driving unbounded HTTP requests).
+fn parse_fmp4_media_playlist(body: &str) -> Option<Fmp4MediaPlaylist> {
+    let mut init_uri: Option<String> = None;
+    let mut segment_uris: Vec<String> = Vec::new();
+
+    for line in body.lines() {
+        let line = line.trim();
+
+        if let Some(attrs_str) = line.strip_prefix("#EXT-X-MAP:") {
+            if init_uri.is_none() {
+                for attr in split_m3u8_attributes(attrs_str) {
+                    if let Some(raw) = attr.strip_prefix("URI=") {
+                        init_uri = Some(raw.trim_matches('"').to_string());
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        segment_uris.push(line.to_string());
+        if segment_uris.len() > MAX_CONCAT_SEGMENTS {
+            return None;
+        }
+    }
+
+    if segment_uris.is_empty() {
+        None
+    } else {
+        Some(Fmp4MediaPlaylist {
+            init_uri,
+            segment_uris,
+        })
+    }
+}
+
+/// Applies the same Apple CDN header set the master-playlist and
+/// FFmpeg fetch paths use (Origin/Referer + the fixed macOS Safari
+/// User-Agent) — Apple's motion-art CDN edges reject requests without
+/// them regardless of which HTTP client makes the request.
+fn apple_cdn_headers(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+    req.header("Origin", "https://music.apple.com")
+        .header("Referer", "https://music.apple.com/")
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT,
+        )
+}
+
+/// Fetches `url`'s response body as raw bytes, applying the shared
+/// Apple CDN headers. A non-2xx status (notably 403, the geo-lock
+/// symptom -- see #961) is surfaced as an `Err` naming the status
+/// rather than silently returning an empty body.
+async fn fetch_cdn_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    let response = apple_cdn_headers(client.get(url))
+        .send()
+        .await
+        .map_err(|e| format!("Request failed for {url}: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!("HTTP {} for {url}", response.status()));
+    }
+
+    response
+        .bytes()
+        .await
+        .map(|b| b.to_vec())
+        .map_err(|e| format!("Failed to read response body for {url}: {e}"))
+}
+
+/// Downloads an HLS animated-artwork stream to `dest` via a pure-Rust
+/// fMP4 init+segment concatenation — no FFmpeg required (#974).
+///
+/// Handles both master and media playlists at `m3u8_url`: if it's a
+/// master playlist, selects the variant closest to `target_height`
+/// (mirroring [`resolve_hls_variant_url`]'s own selection, #972) and
+/// re-fetches that variant's media playlist before concatenating.
+///
+/// Writes to a `.part` sibling of `dest` first and renames into place
+/// only after every segment has landed successfully, so a
+/// mid-download failure never leaves a corrupt/partial file at the
+/// final destination.
+async fn download_hls_native_concat(
+    m3u8_url: &str,
+    dest: &Path,
+    target_height: Option<u32>,
+) -> Result<(), String> {
+    let client = crate::utils::http_client::build_simple(30)?;
+
+    let root_body = fetch_cdn_bytes(&client, m3u8_url).await?;
+    let root_text = String::from_utf8(root_body)
+        .map_err(|e| format!("HLS playlist at {m3u8_url} is not valid UTF-8: {e}"))?;
+
+    // Resolve a master playlist down to a media playlist, mirroring
+    // `resolve_hls_variant_url`'s own selection logic (#972).
+    let (media_url, media_body) = if is_master_playlist(&root_text) {
+        let variants = parse_master_playlist(&root_text);
+        let variant = pick_variant(&variants, target_height.unwrap_or(u32::MAX)).ok_or_else(|| {
+            "No parseable ABR variants in HLS master playlist (native concat)".to_string()
+        })?;
+
+        let master = url::Url::parse(m3u8_url)
+            .map_err(|e| format!("Failed to parse HLS master playlist URL {m3u8_url}: {e}"))?;
+        let variant_url = master.join(&variant.uri).map_err(|e| {
+            format!("Failed to resolve HLS variant URI {}: {e}", variant.uri)
+        })?;
+
+        let body = fetch_cdn_bytes(&client, variant_url.as_str()).await?;
+        let text = String::from_utf8(body).map_err(|e| {
+            format!("HLS media playlist at {variant_url} is not valid UTF-8: {e}")
+        })?;
+        (variant_url.to_string(), text)
+    } else {
+        (m3u8_url.to_string(), root_text)
+    };
+
+    let playlist = parse_fmp4_media_playlist(&media_body).ok_or_else(|| {
+        "HLS media playlist has no parseable segments (native concat)".to_string()
+    })?;
+
+    let media_base = url::Url::parse(&media_url)
+        .map_err(|e| format!("Failed to parse HLS media playlist URL {media_url}: {e}"))?;
+
+    let part_path = dest.with_extension("mp4.part");
+    let mut file = tokio::fs::File::create(&part_path)
+        .await
+        .map_err(|e| format!("Failed to create {}: {e}", part_path.display()))?;
+
+    let mut total_bytes: u64 = 0;
+    let mut segment_count: usize = 0;
+
+    // Fetch + write one URI (init or media segment), enforcing the
+    // total-bytes safety cap and cleaning up the partial file on any
+    // failure so a half-written `.part` file is never left behind.
+    async fn fetch_and_append(
+        client: &reqwest::Client,
+        base: &url::Url,
+        uri: &str,
+        file: &mut tokio::fs::File,
+        part_path: &Path,
+        total_bytes: &mut u64,
+    ) -> Result<(), String> {
+        let resolved = base
+            .join(uri)
+            .map_err(|e| format!("Failed to resolve segment URI {uri}: {e}"))?;
+        let bytes = match fetch_cdn_bytes(client, resolved.as_str()).await {
+            Ok(b) => b,
+            Err(e) => {
+                let _ = tokio::fs::remove_file(part_path).await;
+                return Err(e);
+            }
+        };
+        *total_bytes += bytes.len() as u64;
+        if *total_bytes > MAX_CONCAT_TOTAL_BYTES {
+            let _ = tokio::fs::remove_file(part_path).await;
+            return Err("HLS native concat exceeded the total byte safety cap".to_string());
+        }
+        if let Err(e) = tokio::io::AsyncWriteExt::write_all(file, &bytes).await {
+            let _ = tokio::fs::remove_file(part_path).await;
+            return Err(format!("Failed to write {resolved}: {e}"));
+        }
+        Ok(())
+    }
+
+    if let Some(init_uri) = &playlist.init_uri {
+        fetch_and_append(
+            &client,
+            &media_base,
+            init_uri,
+            &mut file,
+            &part_path,
+            &mut total_bytes,
+        )
+        .await?;
+    }
+
+    for segment_uri in &playlist.segment_uris {
+        fetch_and_append(
+            &client,
+            &media_base,
+            segment_uri,
+            &mut file,
+            &part_path,
+            &mut total_bytes,
+        )
+        .await?;
+        segment_count += 1;
+    }
+
+    drop(file);
+
+    if total_bytes == 0 {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err("HLS native concat produced 0 bytes".to_string());
+    }
+
+    tokio::fs::rename(&part_path, dest).await.map_err(|e| {
+        format!(
+            "Failed to rename {} to {}: {e}",
+            part_path.display(),
+            dest.display()
+        )
+    })?;
+
+    log::info!(
+        "HLS native concat: wrote {segment_count} segment(s), {total_bytes} bytes, to {}",
+        dest.display(),
+    );
+
+    Ok(())
+}
+
+/// Downloads an HLS stream to `dest`, preferring FFmpeg (the
+/// long-established primary path, unchanged) and falling back to the
+/// pure-Rust native fMP4 concat above (#974) only when FFmpeg errors,
+/// is missing, or reports success but produces a missing/empty file.
+///
+/// On a fallback, both failure messages are combined so a genuine
+/// underlying problem (e.g. a network outage that breaks both paths,
+/// or a geo-locked #961 storefront mismatch surfacing as HTTP 403 on
+/// both) is fully diagnosable from a single error string.
+async fn download_hls_with_native_fallback(
+    app: &AppHandle,
+    m3u8_url: &str,
+    dest: &Path,
+) -> Result<(), String> {
+    let ffmpeg_failure = match download_hls_to_mp4(app, m3u8_url, dest).await {
+        Ok(()) => match std::fs::metadata(dest) {
+            Ok(meta) if meta.len() > 0 => return Ok(()),
+            Ok(_) => "FFmpeg reported success but produced a 0-byte file".to_string(),
+            Err(e) => format!("FFmpeg reported success but the output file is missing: {e}"),
+        },
+        Err(e) => e,
+    };
+
+    log::warn!(
+        "FFmpeg HLS download for {} failed ({ffmpeg_failure}) — trying native fMP4 concat fallback (#974)",
+        dest.display()
+    );
+
+    let settings = config_service::load_settings(app).unwrap_or_default();
+    download_hls_native_concat(
+        m3u8_url,
+        dest,
+        settings.animated_artwork_resolution.target_height(),
+    )
+    .await
+    .map_err(|native_err| {
+        format!(
+            "FFmpeg failed ({ffmpeg_failure}); native concat fallback also failed ({native_err})"
+        )
+    })
+}
+
 /// Download an HLS stream to an MP4 file using `FFmpeg`.
 ///
 /// Uses `FFmpeg`'s native HLS protocol support to download the M3U8 playlist
@@ -1014,7 +1418,7 @@ pub async fn download_artist_promo_video(
         promo.artist_name,
         dest.display()
     );
-    download_hls_to_mp4(app, &promo.video_url, &dest).await?;
+    download_hls_with_native_fallback(app, &promo.video_url, &dest).await?;
 
     log::info!(
         "Artist promo video downloaded: {} → {}",
@@ -1268,5 +1672,97 @@ mod tests {
             uri: "unknown.m3u8".to_string(),
         }];
         assert!(pick_variant(&variants, 1080).is_none());
+    }
+
+    // ----------------------------------------------------------
+    // Native fMP4 concat fallback tests (#974)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_master_playlist_detects_stream_inf() {
+        assert!(is_master_playlist(MASTER_PLAYLIST));
+    }
+
+    #[test]
+    fn is_master_playlist_false_for_media_playlist() {
+        let media = "#EXTM3U\n\
+#EXT-X-VERSION:7\n\
+#EXT-X-MAP:URI=\"init.mp4\"\n\
+#EXTINF:2.0,\n\
+seg0.m4s\n\
+#EXTINF:2.0,\n\
+seg1.m4s\n\
+#EXT-X-ENDLIST\n";
+        assert!(!is_master_playlist(media));
+    }
+
+    /// A representative fMP4 media playlist: one `#EXT-X-MAP:` init
+    /// segment declaration followed by three ordered media segments.
+    const MEDIA_PLAYLIST: &str = "#EXTM3U\n\
+#EXT-X-VERSION:7\n\
+#EXT-X-MAP:URI=\"init.mp4\"\n\
+#EXTINF:2.0,\n\
+seg0.m4s\n\
+#EXTINF:2.0,\n\
+seg1.m4s\n\
+#EXTINF:2.0,\n\
+seg2.m4s\n\
+#EXT-X-ENDLIST\n";
+
+    #[test]
+    fn parse_fmp4_media_playlist_extracts_init_and_ordered_segments() {
+        let playlist = parse_fmp4_media_playlist(MEDIA_PLAYLIST).unwrap();
+        assert_eq!(playlist.init_uri.as_deref(), Some("init.mp4"));
+        assert_eq!(playlist.segment_uris, vec!["seg0.m4s", "seg1.m4s", "seg2.m4s"]);
+    }
+
+    #[test]
+    fn parse_fmp4_media_playlist_ignores_comments_and_blank_lines() {
+        let playlist = parse_fmp4_media_playlist(MEDIA_PLAYLIST).unwrap();
+        // Every non-segment, non-EXT-X-MAP line (#EXTM3U, #EXT-X-VERSION,
+        // #EXTINF, #EXT-X-ENDLIST) must be excluded from segment_uris.
+        assert!(!playlist.segment_uris.iter().any(|s| s.starts_with('#')));
+        assert_eq!(playlist.segment_uris.len(), 3);
+    }
+
+    #[test]
+    fn parse_fmp4_media_playlist_none_on_zero_segments() {
+        let empty = "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXT-X-ENDLIST\n";
+        assert!(parse_fmp4_media_playlist(empty).is_none());
+    }
+
+    #[test]
+    fn parse_fmp4_media_playlist_caps_segment_count() {
+        let mut body = String::from("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n");
+        for i in 0..=MAX_CONCAT_SEGMENTS {
+            body.push_str(&format!("#EXTINF:2.0,\nseg{i}.m4s\n"));
+        }
+        body.push_str("#EXT-X-ENDLIST\n");
+        assert!(
+            parse_fmp4_media_playlist(&body).is_none(),
+            "a playlist with MAX_CONCAT_SEGMENTS + 1 segments must be rejected"
+        );
+    }
+
+    #[test]
+    fn parse_fmp4_media_playlist_handles_extra_map_attributes() {
+        // `#EXT-X-MAP:` can carry additional attributes (e.g. BYTERANGE)
+        // after URI; the comma-aware splitter must still extract just
+        // the URI value.
+        let body = "#EXTM3U\n\
+#EXT-X-MAP:URI=\"init.mp4\",BYTERANGE=\"720@0\"\n\
+#EXTINF:2.0,\n\
+seg0.m4s\n\
+#EXT-X-ENDLIST\n";
+        let playlist = parse_fmp4_media_playlist(body).unwrap();
+        assert_eq!(playlist.init_uri.as_deref(), Some("init.mp4"));
+    }
+
+    #[test]
+    fn parse_fmp4_media_playlist_none_init_uri_when_map_absent() {
+        let body = "#EXTM3U\n#EXTINF:2.0,\nseg0.m4s\n#EXT-X-ENDLIST\n";
+        let playlist = parse_fmp4_media_playlist(body).unwrap();
+        assert!(playlist.init_uri.is_none());
+        assert_eq!(playlist.segment_uris, vec!["seg0.m4s"]);
     }
 }

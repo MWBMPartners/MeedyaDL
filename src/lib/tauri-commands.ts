@@ -1504,6 +1504,25 @@ export function testWrapperConnection(url: string): Promise<import('@/types').Wr
   return invoke<import('@/types').WrapperTestResult>('test_wrapper_connection', { url });
 }
 
+/**
+ * Tests whether word-level (syllable) lyrics can currently be fetched from
+ * the Apple Music API, without running a full download (#934).
+ *
+ * Rust handler: `test_lyrics_connection()` in `src-tauri/src/commands/lyrics.rs`
+ *
+ * Resolves credentials the same way the enrichment pipeline does (falls
+ * back to the web-player-extracted developer token when no user-provided
+ * MusicKit credentials are configured), so the result is representative
+ * of what a real download would experience.
+ *
+ * Called by: LyricsTab "Test word-level lyrics connection" button
+ *
+ * @returns Promise resolving to the connectivity test result
+ */
+export function testLyricsConnection(): Promise<import('@/types').TestLyricsConnectionResult> {
+  return invoke<import('@/types').TestLyricsConnectionResult>('test_lyrics_connection');
+}
+
 // ============================================================
 // Wrapper-v2 Sign-In Commands (#1029)
 // ============================================================

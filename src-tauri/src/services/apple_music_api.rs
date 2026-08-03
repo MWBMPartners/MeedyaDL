@@ -174,6 +174,18 @@ pub struct AlbumMetadata {
     /// `/artists/{id}` endpoint and is shared across the artist's
     /// whole catalogue; this one is specific to the album.
     pub album_spotlight_url: Option<String>,
+    /// The storefront code that actually served this metadata, when it
+    /// differs from the primary/requested storefront (#961). Set by
+    /// [`fetch_album_metadata_with_fallback`] when a fallback storefront
+    /// (OS-locale or `"us"`) resolves the album after the primary
+    /// storefront 404s -- e.g. from a shared link whose region doesn't
+    /// match the user's account. `None` when the primary storefront served
+    /// the metadata directly, or when metadata was fetched via
+    /// [`fetch_album_metadata`] without the fallback wrapper. Downstream
+    /// consumers use this to warn that animated-artwork HLS URLs sourced
+    /// from a mismatched storefront's response may be geo-locked.
+    #[serde(default)]
+    pub fallback_storefront: Option<String>,
     /// Static cover-art URL template from `attributes.artwork.url`. Apple
     /// returns a templated URL with `{w}`, `{h}`, and `{f}` placeholders
     /// (e.g., `https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}`).
@@ -1214,6 +1226,27 @@ pub async fn fetch_album_metadata(
         extract_motion_url_chain(ev, &["motionArtistFullscreen16x9", "motionArtistWide16x9"])
     });
 
+    // Not-silently-failing logging (#961): `editorialVideo` was present on
+    // the response but NONE of our three known motion-key chains matched
+    // anything -- i.e. Apple returned a shape we don't recognise, rather
+    // than simply not offering animated artwork for this album. Naming
+    // the keys actually present turns "animated artwork silently missing"
+    // into an actionable signal that our key list needs updating, instead
+    // of looking identical to "not offered".
+    if editorial_video.is_some()
+        && artwork_square_url.is_none()
+        && artwork_tall_url.is_none()
+        && album_spotlight_url.is_none()
+    {
+        let present_keys: Vec<&str> = editorial_video
+            .and_then(serde_json::Value::as_object)
+            .map(|obj| obj.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        log::warn!(
+            "Album {album_id}: editorialVideo present but no known motion key matched -- keys present: {present_keys:?}"
+        );
+    }
+
     // Static cover artwork (#756). The `artwork.url` is a template
     // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
     // falling back from a failed RAW write to PNG/JPEG.
@@ -1265,6 +1298,7 @@ pub async fn fetch_album_metadata(
         artwork_square_url,
         artwork_tall_url,
         album_spotlight_url,
+        fallback_storefront: None,
         artwork_url_template,
         artwork_width,
         artwork_height,
@@ -2427,10 +2461,15 @@ pub async fn fetch_album_metadata_with_fallback(
     for sf in &fallbacks {
         log::debug!("Trying fallback storefront '{sf}' for album {album_id}");
         match fetch_album_metadata(jwt, sf, album_id).await {
-            Ok(Some(metadata)) => {
+            Ok(Some(mut metadata)) => {
                 log::info!(
                     "Album {album_id} found via fallback storefront '{sf}' (primary was '{primary_storefront}')"
                 );
+                // Record which storefront actually served this response
+                // (#961) -- downstream consumers (animated artwork,
+                // enrichment) use this to warn that HLS/asset URLs sourced
+                // from a mismatched-region response may be geo-locked.
+                metadata.fallback_storefront = Some(sf.clone());
                 return Ok(Some(metadata));
             }
             Ok(None) | Err(_) => continue,
@@ -2822,7 +2861,20 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
     // Netscape cookie format: domain \t flag \t path \t secure \t expires \t name \t value
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() {
+            continue;
+        }
+        // Browser exporters (e.g. yt-dlp / browser_cookie3) write HttpOnly
+        // cookies with a `#HttpOnly_` prefix on the domain field per the
+        // Netscape cookie file convention -- this is NOT a comment line, it
+        // is a data line whose domain happens to start with `#`. The naive
+        // `line.starts_with('#')` comment check dropped every HttpOnly
+        // cookie, including `media-user-token` itself, which is what
+        // Apple's subscriber session cookie is (#971). Strip the marker
+        // before the comment check so genuine `#`-prefixed comment lines
+        // (which never contain a `#HttpOnly_` prefix) are still skipped.
+        let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        if line.starts_with('#') {
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
@@ -3142,8 +3194,21 @@ pub async fn fetch_artist_promo_video(
             }))
         }
         None => {
-            log::debug!(
-                "editorialVideo present but no video URL found for artist {artist_name} ({artist_id})"
+            // Not-silently-failing logging (#961): name the keys Apple
+            // actually returned so a support conversation ("no artist
+            // spotlight video downloaded") can distinguish "Apple sent no
+            // editorialVideo motion keys at all for this artist" from "our
+            // key list is stale". Deliberately does NOT fall through to
+            // `motionDetailSquare` / `motionDetailTall` when only those are
+            // present -- they're framed/cropped for album cover art, not
+            // an artist-page hero, and using them here would look visually
+            // wrong (#537 exclusion, unchanged).
+            let present_keys: Vec<&str> = editorial_video
+                .as_object()
+                .map(|obj| obj.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            log::info!(
+                "editorialVideo present but no motionArtist* video URL found for artist {artist_name} ({artist_id}) -- keys present: {present_keys:?} (motionDetailSquare/motionDetailTall intentionally excluded as an artist-hero fallback, #537)"
             );
             Ok(None)
         }
@@ -3982,6 +4047,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
             album_spotlight_url: None,
+            fallback_storefront: None,
             artwork_url_template: Some(
                 "https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}".to_string(),
             ),
@@ -3994,6 +4060,44 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         assert!(json.contains("\"upc\":\"00602445790258\""));
         assert!(json.contains("\"isrc\":\"USUG12345678\""));
         assert!(json.contains("\"track_number\":3"));
+    }
+
+    /// Backward-compat (#961): a `manifest.meedyadl` or cached JSON blob
+    /// written by a pre-#961 MeedyaDL build has no `fallback_storefront`
+    /// key at all. `#[serde(default)]` must let it deserialize to `None`
+    /// instead of failing the whole load.
+    #[test]
+    fn album_metadata_deserializes_without_fallback_storefront_field() {
+        let json = serde_json::json!({
+            "album_id": "12345",
+            "album_name": "Midnights",
+            "upc": null,
+            "content_rating": null,
+            "genre_names": [],
+            "artist_id": null,
+            "artist_name": null,
+            "record_label": null,
+            "copyright": null,
+            "release_date": null,
+            "is_compilation": null,
+            "is_single": null,
+            "is_complete": null,
+            "is_mastered_for_itunes": null,
+            "track_count": null,
+            "editorial_notes": null,
+            "last_modified_date": null,
+            "tracks": [],
+            "artwork_square_url": null,
+            "artwork_tall_url": null,
+            "album_spotlight_url": null,
+            "artwork_url_template": null,
+            "artwork_width": null,
+            "artwork_height": null
+            // Deliberately no "fallback_storefront" key.
+        });
+
+        let metadata: AlbumMetadata = serde_json::from_value(json).unwrap();
+        assert_eq!(metadata.fallback_storefront, None);
     }
 
     // ----------------------------------------------------------
@@ -4800,6 +4904,26 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         .unwrap();
         let result = extract_media_user_token(path.to_str().unwrap());
         assert_eq!(result.unwrap(), Some("TOKEN_AFTER_COMMENTS".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_from_httponly_prefixed_line() {
+        // Browser cookie exporters mark HttpOnly cookies with a
+        // `#HttpOnly_` domain prefix per the Netscape cookie file
+        // convention. This is a DATA line, not a comment, and
+        // `media-user-token` is itself typically HttpOnly (#971).
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_httponly");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             #HttpOnly_.music.apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\tTOKENVALUE\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), Some("TOKENVALUE".to_string()));
         std::fs::remove_dir_all(&dir).ok();
     }
 

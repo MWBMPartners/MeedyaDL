@@ -1226,6 +1226,8 @@ pub fn run() {
             commands::gamdl::check_redownload_status,
             // Syllable-level lyrics fetch (#306)
             commands::gamdl::fetch_syllable_lyrics,
+            // Word-level lyrics connectivity test (#934)
+            commands::lyrics::test_lyrics_connection,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
