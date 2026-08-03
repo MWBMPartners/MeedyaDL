@@ -520,6 +520,14 @@ export interface GamdlCapabilities {
    * input in Settings → Tools when GAMDL 3.6.x is detected. (#867)
    */
   ffmpeg_path: boolean;
+  /**
+   * ≥3.8 — GAMDL's `/v1/play/assets` endpoint unlocks every non-web song
+   * codec except ALAC for wrapper-less downloads (#963, #1002). Drives
+   * version-aware prose (e.g. the Fallback tab's wrapper-dependency note)
+   * via the `useGamdlCapabilities` hook. Does NOT change the codec
+   * dropdown's `(Experimental)` labels, which stay unconditional (#965).
+   */
+  assets_api_unlocks_lossy_codecs: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');

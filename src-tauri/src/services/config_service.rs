@@ -813,7 +813,7 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     }
 }
 
-/// Appends metadata INI key-value pairs (language, storefront, `fetch_extra_tags`, `artist_auto_select`).
+/// Appends metadata INI key-value pairs (language, storefront, `artist_auto_select`).
 fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
@@ -860,22 +860,6 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
                 .unwrap_or_else(|| "us".to_string())
         };
         lines.push(format!("storefront = {storefront}"));
-    }
-    // Boolean flag: when true, GAMDL fetches extra metadata tags
-    // (normalization info, smooth playback data, etc.) from Apple Music.
-    //
-    // Version-gated: `fetch_extra_tags` was removed in GAMDL v3.0
-    // alongside the preview-parsing code path. v3.0's INI loader
-    // silently drops unknown keys (see upstream `config_file.py`
-    // `cleanup_unknown_params`), so leaving stale v2.x keys behind is
-    // harmless, but we still skip writing fresh ones on v3+ to keep the
-    // emitted file self-consistent with the detected CLI.
-    if settings.fetch_extra_tags
-        && super::gamdl_capabilities::supports(
-            super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
-        )
-    {
-        lines.push("fetch_extra_tags = true".to_string());
     }
     // Artist auto-selection mode (GAMDL >= 2.9.1). Controls which content
     // type is automatically downloaded when the user provides an artist URL.
@@ -1600,14 +1584,9 @@ mod tests {
 
     #[test]
     fn ini_uses_underscores_not_hyphens() {
-        // `fetch_extra_tags` only gets written on v2.x releases, so pin
-        // the capability cache to one while this test asserts its
-        // presence.
-        let _guard = VersionGuard::new(Some("2.9.3"));
         let mut settings = default_settings();
         settings.save_cover = true;
         settings.overwrite = true;
-        settings.fetch_extra_tags = true;
         settings.output_path = "/tmp/music".to_string();
         let ini = settings_to_ini(&settings);
         // No hyphens in key names
@@ -1615,7 +1594,6 @@ mod tests {
         assert!(!ini.contains("song-codec"));
         assert!(!ini.contains("output-path"));
         assert!(!ini.contains("cover-size"));
-        assert!(!ini.contains("fetch-extra-tags"));
         // All use underscores
         assert!(ini.contains("save_cover = true"));
         // Note: `song_codec` is deliberately no longer emitted — #617. The CLI
@@ -1625,17 +1603,14 @@ mod tests {
         assert!(ini.contains("cover_format"));
         assert!(ini.contains("output_path"));
         assert!(ini.contains("cover_size"));
-        assert!(ini.contains("fetch_extra_tags = true"));
     }
 
     #[test]
     fn ini_booleans_use_equals_true_not_bare_keys() {
-        let _guard = VersionGuard::new(Some("2.9.3"));
         let mut settings = default_settings();
         settings.save_cover = true;
         settings.overwrite = true;
         settings.no_synced_lyrics = true;
-        settings.fetch_extra_tags = true;
         settings.use_wrapper = true;
         settings.wrapper_account_url = "http://test".to_string();
         let ini = settings_to_ini(&settings);
@@ -1643,7 +1618,6 @@ mod tests {
         assert!(ini.contains("save_cover = true"));
         assert!(ini.contains("overwrite = true"));
         assert!(ini.contains("no_synced_lyrics = true"));
-        assert!(ini.contains("fetch_extra_tags = true"));
         assert!(ini.contains("use_wrapper = true"));
         // No bare keys (lines that are just the key with no " = ")
         for line in ini.lines() {
@@ -1657,47 +1631,6 @@ mod tests {
                 trimmed
             );
         }
-    }
-
-    #[test]
-    fn ini_omits_fetch_extra_tags_on_gamdl_v3() {
-        // GAMDL v3.0 removed `--fetch-extra-tags`. Even when the user
-        // has the toggle flipped on in settings, we must not write the
-        // key — a stale `config.ini` entry is harmless (v3 silently
-        // drops unknown keys) but the goal here is to confirm the
-        // writer side of the capability gate.
-        let _guard = VersionGuard::new(Some("3.0"));
-        let mut settings = default_settings();
-        settings.fetch_extra_tags = true;
-        let ini = settings_to_ini(&settings);
-        assert!(
-            !ini.contains("fetch_extra_tags"),
-            "v3.0 INI must not contain fetch_extra_tags, got:\n{ini}"
-        );
-    }
-
-    #[test]
-    fn ini_omits_fetch_extra_tags_when_version_unknown() {
-        // Before the dependency probe runs we don't know what GAMDL
-        // release is installed. The safe default is to not emit the
-        // key so a freshly installed v3.0 never sees it.
-        let _guard = VersionGuard::new(None);
-        let mut settings = default_settings();
-        settings.fetch_extra_tags = true;
-        let ini = settings_to_ini(&settings);
-        assert!(
-            !ini.contains("fetch_extra_tags"),
-            "INI must omit fetch_extra_tags when GAMDL version is unknown"
-        );
-    }
-
-    #[test]
-    fn ini_emits_fetch_extra_tags_on_gamdl_v2() {
-        let _guard = VersionGuard::new(Some("2.9.1"));
-        let mut settings = default_settings();
-        settings.fetch_extra_tags = true;
-        let ini = settings_to_ini(&settings);
-        assert!(ini.contains("fetch_extra_tags = true"));
     }
 
     // settings_to_ini: song_codec_priority — the pre-#617 tests for this

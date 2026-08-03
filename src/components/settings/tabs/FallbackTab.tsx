@@ -55,6 +55,11 @@ import { useState } from 'react';
 // Audit v2 #6 — per-field Zustand binding.
 import { useSettingsField } from '@/hooks/useSettingsField';
 
+// Version-aware GAMDL capability flags (#963, #1002) — drives the
+// wrapper-dependency prose below without touching the codec labels
+// themselves (#965).
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
+
 // Label maps that convert codec/resolution identifiers to human-readable names.
 import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS } from '@/types';
 import type { SongCodec, VideoResolution } from '@/types';
@@ -94,6 +99,11 @@ export function FallbackTab() {
   // Per-field Zustand bindings (audit v2 #6).
   const musicChain = useSettingsField('music_fallback_chain');
   const videoChain = useSettingsField('video_fallback_chain');
+
+  // Version-aware GAMDL capabilities (#963, #1002) — used below to swap
+  // in accurate wrapper-dependency prose for the installed GAMDL release
+  // instead of the blanket "(Experimental)" note, which is stale on 3.8+.
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
 
   /**
    * Tracks which chain section is currently visible: 'music' (audio codecs)
@@ -138,6 +148,22 @@ export function FallbackTab() {
               <strong>AAC</strong> = standard quality &middot; <strong>AAC Legacy</strong> = older
               device compatibility
             </p>
+            {/* Version-aware wrapper-dependency note (#963, #1002). The
+                codec dropdown's (Experimental) labels stay unconditional
+                (#965) -- this paragraph is the accurate, version-specific
+                explanation instead. */}
+            {gamdlCaps.assets_api_unlocks_lossy_codecs ? (
+              <p className="text-xs text-content-tertiary mb-3">
+                Your installed GAMDL release can download Atmos, AC3, and every AAC variant
+                without the Wrapper service — only <strong>ALAC</strong> still requires it.
+              </p>
+            ) : (
+              <p className="text-xs text-content-tertiary mb-3">
+                Codecs marked (Experimental) may fail intermittently without the Wrapper service
+                on your installed GAMDL release — only AAC Legacy and AAC-HE Legacy are reliably
+                downloadable with cookies alone.
+              </p>
+            )}
             <FallbackChainList<SongCodec>
               items={musicChain.value}
               labels={SONG_CODEC_LABELS}

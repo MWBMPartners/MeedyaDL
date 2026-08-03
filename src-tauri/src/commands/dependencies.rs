@@ -443,6 +443,13 @@ pub struct GamdlCapabilities {
     /// future Settings → Tools tab to grey out the FFmpeg-path
     /// input on v3.6.x where it would crash GAMDL. (#867)
     pub ffmpeg_path: bool,
+    /// Whether the detected GAMDL release's `/v1/play/assets` endpoint
+    /// unlocks every non-web song codec except ALAC for wrapper-less
+    /// downloads (#963, #1002). `true` for ≥ 3.8. Drives version-aware
+    /// prose in the frontend (e.g. `FallbackTab.tsx`'s wrapper-dependency
+    /// note) via the `useGamdlCapabilities` hook — the codec dropdown's
+    /// `(Experimental)` labels themselves stay unconditional (#965).
+    pub assets_api_unlocks_lossy_codecs: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -468,6 +475,7 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         playlist_folder_template: supports(GamdlFeature::PlaylistFolderTemplate),
         native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
         ffmpeg_path: supports(GamdlFeature::FFmpegPath),
+        assets_api_unlocks_lossy_codecs: supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
     }
 }
 
@@ -917,23 +925,35 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
 /// `log::warn!` so the entry is also captured by the tracing sink
 /// and shows up in the rotated log file even without activity-log
 /// subscribers.
+///
+/// Uses the platform-aware [`classify_for_platform`] / effective ceiling
+/// (#1014) rather than the plain global [`classify`] — on every platform
+/// without a `[gamdl.platform_ceilings]` override (everything except
+/// Linux ARMv7 today) this produces byte-identical output to before;
+/// on Linux ARMv7 it reports the real, ARMv7-reachable ceiling instead
+/// of a global one that platform can't actually install.
 fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
-    use crate::services::gamdl_capabilities::{classify, support_window, VersionSupport};
+    use crate::services::gamdl_capabilities::{
+        classify_for_platform, current_platform_id, effective_maximum_tested, support_window,
+        VersionSupport,
+    };
 
     let window = support_window();
-    let status = classify(gamdl_version);
+    let platform_id = current_platform_id();
+    let maximum_tested = effective_maximum_tested(platform_id);
+    let status = classify_for_platform(gamdl_version, platform_id);
 
     let line = match &status {
         VersionSupport::NotInstalled => format!(
             "GAMDL support: not installed (supported range {min}–{max})",
             min = window.minimum,
-            max = window.maximum_tested,
+            max = maximum_tested,
         ),
         VersionSupport::Supported { installed } => format!(
             "GAMDL support: {installed} is inside the validated range \
              {min}–{max}",
             min = window.minimum,
-            max = window.maximum_tested,
+            max = maximum_tested,
         ),
         VersionSupport::Unsupported { installed, minimum } => format!(
             "GAMDL support: {installed} is below the supported floor \

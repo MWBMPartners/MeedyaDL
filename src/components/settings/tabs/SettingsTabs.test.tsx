@@ -122,6 +122,7 @@ vi.mock('@/lib/tauri-commands', () => ({
     playlist_folder_template: false,
     native_codec_priority: false,
     ffmpeg_path: false,
+    assets_api_unlocks_lossy_codecs: false,
   }),
 }));
 
