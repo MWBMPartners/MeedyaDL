@@ -1,13 +1,21 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-07-27
-**Working branch:** `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a` = 1.12.0-alpha.42 as of HEAD `b5924ae5` — line 26's "12 commits" describes only the initial consolidation batch at the top of this session; the remote feature-control programme's commits landed afterward, see the dated subsections below) — ONE branch, ONE eventual PR to `alpha`
+**Last updated:** 2026-08-03
+**Working branch:** `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★★ LATEST — Session 2026-07-27: branch consolidation + remote feature-control programme
+## ★★★ LATEST — Session 2026-08-03: GAMDL 3.8.5 admitted (zero-code-change ceiling bump)
+
+**GAMDL v3.8.5 admission — DONE (#1074).** ADMITTED, ceiling 3.8.4 → 3.8.5, committed on `claude/gamdl-v3-8-5-review-gs36zl` (this session's branch; forked at `feat/alpha-consolidated` HEAD `dc47a43`, per the one-branch rule — the eventual single `alpha` PR is cut from here). Same zero-code-change shape as 3.8.3/3.8.4 (#1018): the 2-commit / 4-file `3.8.4..3.8.5` delta's only functional change (`20e1b76d`) is private DRM key-extraction methods inside `gamdl/interface/song.py` (drops the base64 session-key fast-path; keys now always come from the media m3u8's `#EXT-X-KEY` tags via the pre-existing `_get_drm_uri_from_m3u8_keys`). No CLI/INI/exception/output/wrapper/ammuxer change; `wrapper.py` untouched → wrapper-v2 lockstep stays 0.0.2. Wheels identical (5× cp310-abi3, no ARMv7 → ARMv7 stays on 3.8.1). Edits: `tool-versions.toml` ceiling+recommended → 3.8.5; docs (README / help/wrapper.md / smoke-test README+script / CLAUDE.md / cadence memory); `"3.8.5"` added to the `WrapperDecryptHostPort` gate-test true-list; NEW audit `.github/audits/gamdl-v3.8.5-audit.md`. **The pre-stable live smoke-test gate (`scripts/smoke-tests/gamdl_live_smoke.py`) is RETARGETED at 3.8.5 and still not yet run** — song-ending integrity check kept; the wrapper-less `aac` leg now also exercises the rewritten m3u8 key path.
+
+**In progress this session (after the 3.8.5 admission):** full GitHub-issues sweep + project-state reconciliation, ranked new-work proposals for alpha, and a thorough documentation pass — all committed to this same branch.
+
+---
+
+## Session 2026-07-27: branch consolidation + remote feature-control programme
 
 ### Working branch — do not fragment it again
 
