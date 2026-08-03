@@ -3422,6 +3422,7 @@ dependencies = [
  "keyring",
  "lofty",
  "log",
+ "lzma-rs",
  "meedya-core",
  "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main)",
  "meedya-lyrics",

@@ -42,6 +42,33 @@
 github_repo = "MeedyaSuite/MeedyaDL-Tools"
 release_tag = "latest"
 
+# Optional per-asset SHA-256 pins (#987). Wires `expected_sha256` through
+# `archive::download_and_extract_verified()` for mirror-sourced downloads
+# so a corrupted or tampered mirror asset is rejected BEFORE extraction
+# instead of being silently unpacked and executed.
+#
+# Uncomment and populate to pin specific mirror assets:
+#
+# [mirror.asset_hashes]
+# "ffmpeg-linux-x86_64.tar.gz" = "0000000000000000000000000000000000000000000000000000000000000000"
+# "mp4box-windows-x86_64.zip"  = "0000000000000000000000000000000000000000000000000000000000000000"
+#
+# Keys are the FULL mirror asset filename (matched case-insensitively by
+# `load_mirror_asset_hash()`), not a tool ID or prefix — the mirror can
+# publish multiple assets per tool (per-platform, per-arch), each needing
+# its own pin. An asset with no entry here downloads unverified (back-
+# compat default; matches pre-#987 behaviour for every asset that isn't
+# explicitly pinned).
+#
+# IMPORTANT: the mirror repository (MeedyaSuite/MeedyaDL-Tools) republishes
+# its `latest` release tag's assets periodically (tracking upstream tool
+# updates), so a static hash pinned against a moving `release_tag` will
+# eventually go stale and start rejecting legitimate downloads. Pins here
+# only make sense paired with pinning `release_tag` above to a specific,
+# immutable release rather than "latest" — otherwise prefer leaving this
+# table absent/empty and relying on the primary upstream source's own
+# integrity guarantees (HTTPS + GitHub Releases immutability).
+
 [ffmpeg]
 minimum_version = "5.0"
 binary_name = "ffmpeg"
@@ -83,6 +110,33 @@ version_flag = "--version"
 minimum_version = "1.60.0"
 binary_name = "rclone"
 version_flag = "version"
+
+# Optional pinned Windows GPAC NSIS installer (#987).
+#
+# `install_mp4box_windows()` previously downloaded and SILENTLY EXECUTED
+# GPAC's Windows nightly build (`gpac_latest_head_win64.exe`) with no
+# checksum verification at all — nightlies have no published, stable
+# checksum to verify against (the binary changes on every CI run), so
+# there was never a way to confirm the downloaded installer was the one
+# GPAC actually built. MeedyaDL no longer runs an unverifiable installer;
+# with this section absent (the default), Windows GPAC installation skips
+# straight to the MeedyaSuite/MeedyaDL-Tools mirror fallback instead.
+#
+# Uncomment and populate to opt back into the native NSIS installer path,
+# pointed at a SPECIFIC, STABLE GPAC release (not the nightly "latest"
+# permalink) with its real published SHA-256:
+#
+# [gpac.windows_installer]
+# url = "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
+# sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+#
+# `sha256` must be exactly 64 lowercase hex characters — anything else is
+# treated as "not configured" (logged via `log::warn!`) and the installer
+# falls back to the mirror, same as the section being absent entirely.
+# `"gpac"` is intentionally not one of the `tool_id`s in `TOOLS` above
+# (MP4Box is installed via platform-specific installer functions, not the
+# generic `get_tool_download_url()` dispatch), so this section is scoped
+# under its own `[gpac.*]` table rather than `[mp4box.windows_installer]`.
 
 # GAMDL is installed via pip (not as a standalone binary) so the
 # `binary_name` / `version_flag` fields above don't apply. Instead we

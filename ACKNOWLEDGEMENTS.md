@@ -44,6 +44,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
+| lzma-rs | 0.3 | MIT | Pure-Rust XZ decompression (.tar.xz tool archives) |
 | meedya-fingerprint | (git, branch=main) | MIT | Shared audio-fingerprint primitives (Chromaprint + ebur128) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | meedya-lyrics | (git, branch=main) | MIT | Shared lyrics primitives (TTML parser + classifier + Lyricsfile YAML + LRC offset round-trip) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
