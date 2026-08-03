@@ -7,7 +7,7 @@ was fixed in 3.8.4: queued decrypted samples weren't flushed before
 immediate writes on the wrapper-decrypt path, so payload order didn't
 always match the container's sample-size table — the audible symptom is a
 **truncated or corrupt song ending**. MeedyaDL's tooling now recommends
-GAMDL 3.8.4, but until this script exists nobody had actually run the
+GAMDL 3.8.5, but until this script exists nobody had actually run the
 live verification gate that closes the loop between "the upstream fix
 landed" and "we confirmed it works on our supported platforms."
 
@@ -53,7 +53,7 @@ GAMDL version-audit entries for the cadence this has followed historically).
    and aborts at startup on any mismatch).
 3. **Download matrix** — real downloads into a fresh temp directory:
    - non-wrapper leg: `aac` (works without wrapper auth on GAMDL 3.8+),
-   - wrapper leg: `alac` (still wrapper-dependent on 3.8.4) **and**
+   - wrapper leg: `alac` (still wrapper-dependent on 3.8.5) **and**
      `atmos` (a second, independent wrapper-decrypt code path).
 4. **Song-ending integrity** — the core check, run per downloaded file:
    - a full `ffmpeg -f null -` decode produces zero stderr output,
@@ -107,8 +107,8 @@ system-Python-venv layout from issue #1017 (`Scripts\python.exe` on
 Windows). Pass `--python-bin` instead to point at any other interpreter
 with `gamdl` installed.
 
-Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.8.4'` first if
-you need to get onto 3.8.4 before running the checks.
+Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.8.5'` first if
+you need to get onto 3.8.5 before running the checks.
 
 ## Platform matrix
 

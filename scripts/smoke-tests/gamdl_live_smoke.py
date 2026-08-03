@@ -17,7 +17,7 @@ flush them before an immediate write, so payload order didn't match the
 container's sample-size table. The user-visible symptom is a TRUNCATED OR
 CORRUPT SONG ENDING on wrapper-decrypted downloads. GAMDL 3.8.4 fixed this
 (`flush_then_write_immediate()` in `ammuxer/src/media.rs`). MeedyaDL's
-CLAUDE.md and its GAMDL-version audits recommend 3.8.4, but the actual
+CLAUDE.md and its GAMDL-version audits recommend 3.8.5, but the actual
 verification gate — a real download, decoded and inspected end-to-end —
 has never been run. This script is that gate. Song-ending integrity
 (Phase 4) is the core thing it exists to catch; everything else is
@@ -154,7 +154,7 @@ TOOL_CLI_FLAGS = {
     "mp4box": "--mp4box-path",
 }
 
-DEFAULT_GAMDL_SPEC_CEILING = "3.8.4"
+DEFAULT_GAMDL_SPEC_CEILING = "3.8.5"
 
 
 # ---------------------------------------------------------------------------
