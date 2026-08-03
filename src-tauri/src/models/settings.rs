@@ -1468,12 +1468,6 @@ pub struct AppSettings {
     /// limits. Maps to `GamdlOptions::truncate`.
     pub truncate: Option<u32>,
 
-    /// Whether to fetch extra metadata tags (normalization, smooth playback
-    /// info, etc.) from Apple Music. When `true`, GAMDL makes additional API
-    /// calls to retrieve richer metadata. Maps to `GamdlOptions::fetch_extra_tags`
-    /// / GAMDL `--fetch-extra-tags`.
-    pub fetch_extra_tags: bool,
-
     /// Tags to exclude from metadata embedding. Each entry is a tag name
     /// (e.g., `"lyrics"`, `"comment"`). Stored as a `Vec` in settings
     /// but joined with commas when passed to GAMDL's `--exclude-tags`.
@@ -2150,9 +2144,6 @@ impl Default for AppSettings {
             wrapper_url: default_wrapper_url(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
-            // Fetch extra metadata (normalization, smooth playback info, etc.)
-            // by default. Richer metadata is worth the small extra API overhead.
-            fetch_extra_tags: true,
             // No tags excluded by default -- embed all available metadata.
             exclude_tags: Vec::new(),
 
@@ -2469,7 +2460,6 @@ mod tests {
             deserialized.wrapper_account_url,
             settings.wrapper_account_url
         );
-        assert_eq!(deserialized.fetch_extra_tags, settings.fetch_extra_tags);
 
         // UI state
         assert_eq!(deserialized.sidebar_collapsed, settings.sidebar_collapsed);

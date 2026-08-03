@@ -191,7 +191,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
   wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
   truncate: null, // Max filename length in characters; null = no truncation
-  fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)

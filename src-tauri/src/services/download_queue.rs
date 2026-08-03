@@ -899,8 +899,14 @@ fn annotate_unavailable_format_line(line: &str, requested_formats: &[String]) ->
 }
 
 /// Build a gap-fill priority chain by removing wrapper-dependent codecs
-/// (Atmos, AC3) from the original chain. These codecs don't reliably
-/// work without wrapper authentication for per-track availability.
+/// from the original chain. These codecs don't reliably work without
+/// wrapper authentication for per-track availability.
+///
+/// Version-aware (#963, #1002): below GAMDL 3.8 this strips Atmos and
+/// AC3, same as always. On a detected `>= 3.8` install (where GAMDL's
+/// `/v1/play/assets` endpoint unlocks every non-web codec except ALAC
+/// for wrapper-less downloads) only ALAC is stripped — see
+/// `SongCodec::is_wrapper_dependent_runtime()`.
 ///
 /// Returns `None` if no non-experimental codecs remain after filtering.
 fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
@@ -909,7 +915,7 @@ fn build_gapfill_priority_chain(original_chain: &str) -> Option<String> {
         .filter(|codec_str| {
             // Parse each codec string and check if it's wrapper-dependent
             if let Some(codec) = SongCodec::from_cli_string(codec_str.trim()) {
-                !codec.is_wrapper_dependent()
+                !codec.is_wrapper_dependent_runtime()
             } else {
                 // Unknown codec strings are kept (conservative)
                 true
@@ -3526,20 +3532,6 @@ fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> Ga
     // Set download and remux modes
     options.download_mode = Some(settings.download_mode.clone());
     options.remux_mode = Some(settings.remux_mode.clone());
-
-    // Apply metadata options.
-    //
-    // `fetch_extra_tags` is version-gated: the CLI flag exists in every
-    // v2.x release but was removed in GAMDL v3.0 ("Remove extra tags
-    // fetching and preview parsing"). Emitting `--fetch-extra-tags` on
-    // v3+ crashes the subprocess with a Click "no such option" error, so
-    // we leave the field as `None` there — `GamdlOptions::to_cli_args()`
-    // only emits the flag when the value is `Some(true)`.
-    if super::gamdl_capabilities::supports(
-        super::gamdl_capabilities::GamdlFeature::FetchExtraTags,
-    ) {
-        options.fetch_extra_tags = Some(settings.fetch_extra_tags);
-    }
 
     // Default to `--no-exceptions` so GAMDL prints a single user-facing
     // line per failure instead of a full Python traceback. Three-era
@@ -15941,32 +15933,80 @@ mod tests {
     // Gap-fill helper tests
     // ----------------------------------------------------------
 
+    // These tests pin the pre-3.8 (and unprobed-version) gap-fill
+    // behaviour, so they explicitly hold the capability cache at a
+    // version below the 3.8 `AssetsApiUnlocksLossyCodecs` gate (#963,
+    // #1002) using the shared cross-module test lock — same pattern as
+    // `gamdl_capabilities`'s and `gamdl_options`'s own tests.
+
     #[test]
     fn build_gapfill_filters_experimental_codecs() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
         let chain = "atmos,ac3,alac,aac-binaural,aac,aac-legacy";
         let result = build_gapfill_priority_chain(chain);
         assert_eq!(result, Some("alac,aac-binaural,aac,aac-legacy".to_string()));
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]
     fn build_gapfill_preserves_non_experimental() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
         let chain = "alac,aac,aac-legacy";
         let result = build_gapfill_priority_chain(chain);
         assert_eq!(result, Some("alac,aac,aac-legacy".to_string()));
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]
     fn build_gapfill_returns_none_when_all_experimental() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
         let chain = "atmos,ac3";
         let result = build_gapfill_priority_chain(chain);
         assert_eq!(result, None);
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]
     fn build_gapfill_single_non_experimental() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
         let chain = "atmos,alac";
         let result = build_gapfill_priority_chain(chain);
         assert_eq!(result, Some("alac".to_string()));
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    /// On a detected GAMDL >= 3.8 install, only ALAC is still
+    /// wrapper-dependent (#963, #1002) — Atmos/AC3/AAC-family all stay
+    /// in the gap-fill retry chain since the `/v1/play/assets` endpoint
+    /// unlocks them for wrapper-less downloads.
+    #[test]
+    fn build_gapfill_on_v38_only_strips_alac() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.8".to_string()));
+        let chain = "atmos,ac3,alac,aac-binaural,aac,aac-legacy";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(
+            result,
+            Some("atmos,ac3,aac-binaural,aac,aac-legacy".to_string())
+        );
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    /// On 3.8+, a chain consisting of only ALAC gap-fills to nothing —
+    /// mirrors `build_gapfill_returns_none_when_all_experimental` but
+    /// for the new post-3.8 wrapper-dependency shape.
+    #[test]
+    fn build_gapfill_on_v38_returns_none_when_only_alac() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.8.5".to_string()));
+        let chain = "alac";
+        let result = build_gapfill_priority_chain(chain);
+        assert_eq!(result, None);
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]
@@ -16085,6 +16125,9 @@ mod tests {
     /// pipeline.
     #[test]
     fn v3_codec_skips_drive_gapfill_chain_construction() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
+
         let warnings = vec![
             "[WARNING  12:10:05] Skipping \"T1\": Requested format is not available".to_string(),
             "[WARNING  12:10:09] Skipping \"T2\": Requested format is not available".to_string(),
@@ -16092,12 +16135,14 @@ mod tests {
         let skip_count = count_codec_skip_warnings(&warnings);
         assert!(skip_count > 0);
 
-        // Original chain favours Atmos (wrapper-dependent), then ALAC.
-        // Gap-fill should drop Atmos and keep ALAC/AAC so the retry
-        // pass can fill the missing tracks with lossless/lossy
+        // Original chain favours Atmos (wrapper-dependent below 3.8),
+        // then ALAC. Gap-fill should drop Atmos and keep ALAC/AAC so the
+        // retry pass can fill the missing tracks with lossless/lossy
         // fallbacks.
         let gap = build_gapfill_priority_chain("atmos,alac,aac").unwrap();
         assert_eq!(gap, "alac,aac");
+
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     /// `extract_python_exception` scans stderr for traceback lines.

@@ -647,6 +647,39 @@ maximum_tested_version = "3.8.5"
 # to 3.8.1 via `--only-binary` since 3.8.2–3.8.5 have no ARMv7 wheel.
 recommended_version = "3.8.5"
 
+# Per-platform ceiling overrides (#1014). `maximum_tested_version` above
+# is the GLOBAL ceiling — the version every platform is validated up to.
+# `pip_version_spec()` / `install_gamdl`'s bounded `--only-binary=gamdl`
+# resolve (see the 3.8.2 audit above) already make the ACTUAL installed
+# version correct per-platform today: on Linux ARMv7, pip naturally
+# resolves down to 3.8.1 because that's the newest version with an
+# ARMv7-compatible wheel, even though the requested range reaches 3.8.5.
+#
+# This table exists so `gamdl_capabilities::classify_for_platform()` can
+# reflect that same per-platform reality WITHOUT a network call (unlike
+# `update_checker::no_compatible_wheel`, which queries PyPI). A platform
+# listed here has its effective `maximum_tested_version` overridden to
+# the given value for classification purposes (startup activity-log
+# line, component dashboard) — it does NOT change `minimum_version`,
+# `recommended_version`, or `pip_version_spec()`'s bounds, all of which
+# stay global; only `services::gamdl_capabilities::classify_for_platform()`
+# / `effective_maximum_tested()` consult this table. A platform absent
+# from this table simply tracks the global ceiling — this is the common
+# case and requires no entry.
+#
+# linux-armv7 = "3.8.1" — GAMDL 3.8.2 replaced Python `amdecrypt.py`
+# with a compiled Rust `ammuxer` extension shipped as `cp310-abi3`
+# wheels for macOS universal2, Windows x64/ARM64, and Linux
+# x86_64/aarch64 — but NOT Linux ARMv7 (32-bit ARM has no published
+# wheel through at least 3.8.5; see the 3.8.2 / 3.8.3+3.8.4 / 3.8.5
+# audits above, all independently re-verified live against PyPI).
+# ARMv7's sdist-only path would need a Rust toolchain MeedyaDL's managed
+# Python environment doesn't ship, so 3.8.1 (the last pure-Python
+# release) remains ARMv7's real ceiling until upstream publishes an
+# ARMv7 wheel or MeedyaDL bundles a Rust toolchain for that target.
+[gamdl.platform_ceilings]
+linux-armv7 = "3.8.1"
+
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases
 # within `[minimum_version, maximum_tested_version]`. Consumed by

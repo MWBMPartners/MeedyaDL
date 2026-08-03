@@ -459,8 +459,6 @@ export interface GamdlOptions {
   exclude_tags?: string;
   /** When true, uses album release date instead of track date */
   use_album_date?: boolean;
-  /** When true, fetches additional metadata tags from the API */
-  fetch_extra_tags?: boolean;
   /** Template string for the date tag format */
   date_tag_template?: string;
   /** Template for album folder names (supports {artist}, {album}, etc.) */
@@ -784,8 +782,6 @@ export interface AppSettings {
   wrapper_url: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
-  /** Whether to fetch extra metadata tags (normalization, smooth playback) */
-  fetch_extra_tags: boolean;
   /** List of metadata tags to exclude from output files */
   exclude_tags: string[];
   /** Whether to send anonymous crash reports to Sentry (opt-in, default: false) */
