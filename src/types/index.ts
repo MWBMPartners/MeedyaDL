@@ -1502,6 +1502,25 @@ export interface WrapperTestResult {
 }
 
 /**
+ * Result of a word-level (syllable) lyrics connectivity probe (#934).
+ * Returned by the `test_lyrics_connection` Tauri command.
+ *
+ * @see LyricsTab "Test word-level lyrics connection" button
+ */
+export interface TestLyricsConnectionResult {
+  /** Which mechanism supplied the MusicKit developer token, or `null` if none resolved. */
+  token_source: 'user_credentials' | 'web_player' | null;
+  /** Whether a (non-expired) Media-User-Token cookie was found. */
+  music_user_token_present: boolean;
+  /** Coarse outcome classification of the probe. */
+  granularity: 'word' | 'line' | 'none' | 'skipped';
+  /** Human-readable guidance when the result isn't a clean "word" success. */
+  error_hint: string | null;
+  /** Overall pass/fail. `true` only for a "word" or "line" outcome. */
+  success: boolean;
+}
+
+/**
  * Result of a wrapper-v2 interactive sign-in attempt (#1029).
  *
  * wrapper-v2 is a self-authenticating daemon -- it runs Apple's own

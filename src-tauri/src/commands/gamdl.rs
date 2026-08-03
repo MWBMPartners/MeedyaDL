@@ -3210,18 +3210,25 @@ pub async fn fetch_syllable_lyrics(
 ) -> Result<Option<String>, String> {
     use crate::services::{apple_music_api, config_service};
 
-    // Resolve MusicKit credentials and generate JWT
+    // Resolve MusicKit credentials and generate JWT. Uses the PREMIUM
+    // resolver (with web-player-token fallback) rather than
+    // `resolve_musickit_developer_token()` so users authenticated only via
+    // the Apple Music login window's extracted developer token (no
+    // user-provided Team ID / Key ID / private key configured) can still
+    // fetch syllable lyrics -- matching the enrichment pipeline's own Step
+    // 1b resolution in `download_queue.rs`.
     let settings = config_service::load_settings(&app).unwrap_or_default();
     let private_key = apple_music_api::get_private_key_from_keychain()
         .map_err(|e| format!("Keychain error: {e}"))?;
-    let jwt = apple_music_api::resolve_musickit_developer_token(
+    let jwt = apple_music_api::resolve_premium_feature_token(
         settings.musickit_team_id.as_deref(),
         settings.musickit_key_id.as_deref(),
         private_key.as_deref(),
     )
     .map_err(|e| format!("JWT error: {e}"))?
+    .map(|(jwt, _src)| jwt)
     .ok_or(
-        "MusicKit credentials not configured. Set up Team ID, Key ID, and private key in Settings > Advanced > API Credentials."
+        "No MusicKit credentials or web-player token available. Sign in to Apple Music or set up Team ID, Key ID, and private key in Settings > Advanced > API Credentials."
     )?;
 
     // Extract media-user-token from cookies file

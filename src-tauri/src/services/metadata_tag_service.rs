@@ -69,7 +69,7 @@ use crate::models::codec_registry::codec_suffix_from_registry;
 use crate::models::gamdl_options::SongCodec;
 use crate::models::tag_registry::{self, TagRegistry, TAG_REGISTRY};
 use crate::services::apple_music_api::AlbumMetadata;
-use crate::services::{apple_music_api, config_service, dependency_manager};
+use crate::services::{apple_music_api, config_service, dependency_manager, mediainfo_service};
 
 /// Apple iTunes freeform atom namespace. This is the standard "mean" value
 /// used by iTunes, Apple Music, and third-party tagging tools for custom
@@ -2049,6 +2049,11 @@ pub struct FfprobeAudioInfo {
     /// FFmpeg profile string (e.g., "LC", "HE-AAC", "HE-AACv2").
     /// Not all codecs report a profile — ALAC and AC3 typically don't.
     profile: Option<String>,
+    /// Duration of the audio stream in seconds, when ffprobe reports one
+    /// (#1021). `None` when the field is absent or unparsable. Used by
+    /// `verify_output_integrity()` to flag suspiciously short/empty output
+    /// files (gamdl#328 -- a truncated write that still exits 0).
+    duration_secs: Option<f64>,
 }
 
 /// Detect audio stream information from an M4A file using ffprobe.
@@ -2088,11 +2093,145 @@ pub async fn detect_audio_info(ffprobe_path: &Path, file_path: &Path) -> Option<
         .get("profile")
         .and_then(|v| v.as_str())
         .map(std::string::ToString::to_string);
+    // ffprobe serialises the stream `duration` field as a JSON STRING (not
+    // a number), e.g. `"duration": "212.345667"` -- parse accordingly.
+    let duration_secs = stream
+        .get("duration")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<f64>().ok());
 
     Some(FfprobeAudioInfo {
         channel_config: channels_to_config(channels),
         codec_name,
         profile,
+        duration_secs,
+    })
+}
+
+// ============================================================
+// Post-download output integrity guard (#1021)
+// ============================================================
+
+/// Result of a post-download output integrity scan.
+///
+/// `checked` is the number of files actually probed (bounded by the `cap`
+/// passed to [`verify_output_integrity`]); `suspect_files` names every
+/// probed file whose duration ffprobe (or, as a rescue, MediaInfo) could
+/// not confirm as non-trivial.
+#[derive(Debug, Clone, Default)]
+pub struct OutputIntegrityReport {
+    /// Number of files actually probed (bounded by the `cap` argument).
+    pub checked: usize,
+    /// File names (not full paths) of every probed file flagged suspect.
+    pub suspect_files: Vec<String>,
+}
+
+/// Selects up to `cap` evenly-spaced indices (always including the first
+/// and last) out of a collection of length `len`, for sampling a bounded
+/// number of files out of a potentially large album.
+///
+/// Pure and side-effect-free so it's directly unit-testable.
+///
+/// - `len == 0 || cap == 0` → empty
+/// - `len <= cap` → every index, `0..len`
+/// - otherwise → `cap` indices evenly spaced across `0..len` (inclusive of
+///   both endpoints), deduplicated (integer rounding can otherwise produce
+///   adjacent duplicates for small `len`/`cap` ratios)
+fn sample_indices(len: usize, cap: usize) -> Vec<usize> {
+    if len == 0 || cap == 0 {
+        return Vec::new();
+    }
+    if len <= cap {
+        return (0..len).collect();
+    }
+    if cap == 1 {
+        return vec![0];
+    }
+
+    let mut indices: Vec<usize> = (0..cap)
+        .map(|i| i * (len - 1) / (cap - 1))
+        .collect();
+    indices.dedup();
+    indices
+}
+
+/// Probes a sample of the M4A files under `output_path` for suspiciously
+/// short/empty audio streams -- the signature of a truncated write that
+/// still exits GAMDL with status 0 (gamdl#328).
+///
+/// Cost-bounded: probes at most `cap` files (evenly spaced, including the
+/// first and last file on disk) rather than every track in a large album.
+///
+/// A file is "suspect" when ffprobe reports a duration of 0.1 seconds or
+/// less. When ffprobe itself fails to analyse a file (corrupt/truncated
+/// enough that ffprobe can't even open it), MediaInfo is tried as a rescue
+/// -- a file ffprobe rejects outright is only counted suspect if MediaInfo
+/// is unavailable or also fails to detect it, since MediaInfo can
+/// sometimes read files ffprobe's stricter demuxer rejects.
+///
+/// Returns `None` (cannot verify -- not a finding) when:
+/// - ffprobe is not installed,
+/// - `output_path` contains no M4A files, or
+/// - `output_path` is empty.
+///
+/// Deliberately keyed only on structured probe results (durations, and
+/// MediaInfo's own structured codec detection) -- never on ffprobe's
+/// stderr text (#847), which is not a stable, parseable success/failure
+/// signal.
+pub async fn verify_output_integrity(
+    app: &AppHandle,
+    output_path: &str,
+    cap: usize,
+) -> Option<OutputIntegrityReport> {
+    if output_path.is_empty() {
+        return None;
+    }
+
+    let ffprobe_path = get_ffprobe_path(app).ok()?;
+    // MediaInfo is an optional rescue tier -- its absence doesn't prevent
+    // the ffprobe-based check from running.
+    let mediainfo_path = mediainfo_service::get_mediainfo_path(app);
+
+    let mut files = collect_m4a_files(output_path);
+    if files.is_empty() {
+        return None;
+    }
+    files.sort();
+
+    let indices = sample_indices(files.len(), cap);
+    let mut suspect_files = Vec::new();
+
+    for &idx in &indices {
+        let file = &files[idx];
+        let file_name = file
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| file.display().to_string());
+
+        match detect_audio_info(&ffprobe_path, file).await {
+            Some(info) => {
+                if matches!(info.duration_secs, Some(d) if d <= 0.1) {
+                    suspect_files.push(file_name);
+                }
+            }
+            None => {
+                // ffprobe couldn't analyse the file at all. Give MediaInfo
+                // a chance to rescue it before flagging as suspect.
+                let rescued = if let Some(ref mi_path) = mediainfo_path {
+                    mediainfo_service::detect_codec(mi_path, file).await.is_some()
+                } else {
+                    false
+                };
+                if !rescued {
+                    suspect_files.push(file_name);
+                }
+            }
+        }
+    }
+
+    Some(OutputIntegrityReport {
+        checked: indices.len(),
+        suspect_files,
     })
 }
 
@@ -2291,6 +2430,23 @@ pub async fn try_fetch_metadata(
                 metadata.artist_name.as_deref().unwrap_or("unknown"),
                 metadata.upc.as_deref().unwrap_or("N/A"),
             ));
+            // Geo-lock warning (#961): when a fallback storefront (not the
+            // requested one) served this metadata, any animated-artwork
+            // HLS URLs it carries were minted for that region and may 403
+            // when fetched from a different one. Warn once, here, rather
+            // than let a later artwork download fail with an opaque
+            // network error that doesn't explain the storefront mismatch.
+            if let Some(ref sf) = metadata.fallback_storefront {
+                if let Some((app_handle, dl_id)) = event_context {
+                    crate::utils::activity_log::emit_download_warn(
+                        app_handle,
+                        dl_id,
+                        &format!(
+                            "⚠ Metadata was served by fallback storefront '{sf}' — animated artwork HLS URLs may be geo-locked to that region and fail to download."
+                        ),
+                    );
+                }
+            }
             Some(metadata)
         }
         Ok(None) => {
@@ -2495,6 +2651,42 @@ mod tests {
     }
 
     // ----------------------------------------------------------
+    // sample_indices tests (#1021)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn sample_indices_empty_len_is_empty() {
+        assert_eq!(sample_indices(0, 12), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn sample_indices_zero_cap_is_empty() {
+        assert_eq!(sample_indices(5, 0), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn sample_indices_len_under_cap_returns_all() {
+        assert_eq!(sample_indices(5, 12), vec![0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn sample_indices_large_len_returns_cap_unique_indices_spanning_range() {
+        let indices = sample_indices(100, 12);
+        assert_eq!(indices.len(), 12);
+        // Every element unique (dedup'd)
+        let mut sorted = indices.clone();
+        sorted.dedup();
+        assert_eq!(sorted.len(), indices.len());
+        assert_eq!(*indices.first().unwrap(), 0);
+        assert_eq!(*indices.last().unwrap(), 99);
+    }
+
+    #[test]
+    fn sample_indices_cap_one_returns_first_index_only() {
+        assert_eq!(sample_indices(50, 1), vec![0]);
+    }
+
+    // ----------------------------------------------------------
     // Codec detection from ffprobe tests
     // ----------------------------------------------------------
 
@@ -2503,6 +2695,7 @@ mod tests {
             channel_config: "2.0".to_string(),
             codec_name: codec_name.to_string(),
             profile: profile.map(std::string::ToString::to_string),
+            duration_secs: None,
         }
     }
 
