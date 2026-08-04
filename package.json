@@ -87,6 +87,6 @@
   "overrides": {
     "basic-ftp": "^5.3.1",
     "fast-uri": "^3.1.1",
-    "undici": "^7.28.0"
+    "undici": "^7.29.0"
   }
 }
