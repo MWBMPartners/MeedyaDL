@@ -58,7 +58,7 @@ MeedyaDL also accepts personal library URLs from Apple Music. These are URLs tha
 
 ### Entering URLs
 
-Paste an Apple Music URL into the download form's URL input field. The app automatically detects the content type (song, album, playlist, or artist) from the URL path -- there is no need to manually specify what you are downloading. Only URLs from `music.apple.com` are accepted; other domains will be rejected with a validation error.
+Paste an Apple Music or Spotify URL into the download form's URL input field. The app automatically detects the content type (song, album, playlist, or artist) from the URL path for Apple Music links -- there is no need to manually specify what you are downloading. URLs from `music.apple.com` (plus its `classical.apple.com` / `itunes.apple.com` variants) and `open.spotify.com` are accepted; other domains are rejected with a validation error. Spotify links are accepted as input but are dispatched through their own eligibility checks -- see [Supported Services](supported-services.md) for details.
 
 To download multiple items, submit each URL individually. Each submission adds the content to the download queue, so you can paste and submit several URLs in succession without waiting for earlier downloads to complete.
 

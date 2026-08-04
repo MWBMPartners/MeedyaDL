@@ -221,6 +221,8 @@ GAMDL supports the following Apple Music URL formats:
 - \`https://music.apple.com/{country}/music-video/{name}/{id}\`
 - \`https://music.apple.com/{country}/artist/{name}/{id}\`
 
+The \`classical.apple.com\` and \`itunes.apple.com\` variants are accepted too. **Spotify links** (\`open.spotify.com\`) are also accepted as input — pasting one queues it and routes it through Spotify's own eligibility checks rather than rejecting it. Other domains are rejected with a validation error.
+
 ### Quality Overrides
 
 By default, downloads use the settings from the Quality settings tab. You can override the codec and resolution for individual downloads using the "Quality Overrides" panel on the Download page.
@@ -246,6 +248,10 @@ When the preferred codec or resolution is unavailable, GAMDL automatically tries
 - **Audio Codec** - Default: ALAC (lossless). Options range from lossless to compressed AAC variants
 - **Video Resolution** - Default: 2160p (4K). Falls back to lower resolutions if unavailable
 - **Fallback** - Enable/disable automatic fallback when preferred quality isn't available
+
+### Lyrics
+
+Settings > Lyrics includes a **Test word-level lyrics connection** button next to the Enhanced Lyrics toggle. It checks whether MeedyaDL can currently fetch word-level (syllable) lyrics from Apple Music -- without waiting for a full download. The test resolves your MusicKit developer token the same way a real download does (your own MusicKit credentials, falling back to the developer token captured from your Apple Music web-player session if you haven't configured your own), reads the Media-User-Token from your imported cookies, and probes Apple's syllable-lyrics endpoint against a known song. A green result means word-level timing came back and Enhanced LRC will work (noting when it succeeded via your web-player session rather than configured credentials); an amber result means the endpoint responded but only with line-level timing; anything else comes with guidance on what to fix -- signing in to Apple Music, configuring MusicKit credentials in Settings > Advanced, or re-importing cookies.
 
 ### Paths
 Override paths to external tools. Leave empty to use the managed (auto-installed) versions.
@@ -334,6 +340,19 @@ Most users should use **cookie-based authentication** (the default). The wrapper
 - Need more reliable access to **Dolby Atmos** or other DRM-protected formats
 - Experience frequent cookie expiration issues
 - Are familiar with running local server software
+
+## When you actually need a wrapper
+
+Most users don't. The catalog API, song metadata, lyrics, artwork, and the entire \`aac-web\` / \`aac-he-web\` codec family all work with cookie-only authentication. **What still needs a wrapper depends on your GAMDL version:**
+
+**GAMDL 3.8 and newer — wrapper needed for ALAC only.** GAMDL 3.8 introduced a new HLS asset endpoint that unlocks every non-web codec — \`aac\`, \`aac-he\`, \`aac-binaural\`, \`aac-downmix\`, and even **Atmos** and **AC3** — *without* a wrapper. On 3.8+ the only codec that still requires wrapper auth is **ALAC** (lossless). (3.8.1 further fixed some songs that previously failed on non-web codecs.) If you don't need ALAC lossless, you can skip wrapper setup entirely on 3.8+.
+
+**GAMDL 3.0 – 3.7.x — wrapper needed for the full non-web set.** On these releases wrapper auth is required for:
+
+- **ALAC** (lossless), **Atmos** (Dolby Atmos), **AC3** (Dolby Digital).
+- **Music videos** (on certain regional content).
+- The \`aac\` / \`aac-he\` / \`aac-binaural\` / \`aac-downmix\` codec variants (the ones that don't end in \`-web\`).
+- The full set of audio traits / spatial audio flags on certain albums.
 
 ## How It Works
 
@@ -533,16 +552,20 @@ Understanding the differences between audio codecs helps you choose the right ba
 
 ## Reliability Notice
 
-Most audio codecs are marked **(Experimental)** in the codec selector. This means they may fail intermittently when using cookie-based authentication. Only two codecs are reliably downloadable without the Wrapper service:
+Most audio codecs are marked **(Experimental)** in the codec selector. This means they may fail intermittently when using cookie-based authentication. **On GAMDL versions before 3.8**, only two codecs are reliably downloadable without the Wrapper service:
 
 - **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies
 - **AAC-HE Legacy** (64kbps) — reliable with cookies
+
+### On GAMDL 3.8 and newer, most of that changes
+
+GAMDL 3.8 added a new HLS asset endpoint that lets every codec except **ALAC (Lossless)** download with cookie-based authentication alone — including **Dolby Atmos** and **AC3**, which previously needed the Wrapper on every earlier release. Codecs are still labelled **(Experimental)** regardless of GAMDL version — they can still fail intermittently — but on GAMDL 3.8+ only ALAC actually depends on the Wrapper for reliable downloads. See [Wrapper Authentication](wrapper.md) for the full version-by-version breakdown.
 
 All other codecs — including ALAC (Lossless), Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures with experimental codecs, consider:
 
 1. **Retrying** — failures are intermittent, a retry may succeed
 2. **Enabling the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Using the Wrapper service** — provides more reliable access (Linux x86_64 only, see Help > Wrapper)
+3. **Using the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — provides more reliable access (Linux x86_64 only, see Help > Wrapper)
 
 ---
 
@@ -751,6 +774,18 @@ MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
 4. Paste the private key content into the **"MusicKit Private Key"** textarea
 5. Click **"Save to Keychain"** -- the key is stored securely in your OS keychain
 6. Click **Save**
+
+## Choosing a Resolution
+
+Apple's animated artwork is delivered as an HLS stream with several resolution renditions, similar to how a video streaming service offers multiple quality tiers of the same clip. The **Animated Artwork Resolution** setting in **Settings > Cover Art** (shown once "Download Animated Cover Art" is enabled) controls which rendition MeedyaDL requests:
+
+| Option | Target | Notes |
+|--------|--------|-------|
+| **Standard (~1080p, recommended)** | Caps at ~1080p | Default. Smallest files -- indistinguishable from higher renditions at the sizes artwork is normally displayed |
+| **High (~2160p / 4K)** | Caps at ~2160p | Noticeably larger files for a quality difference most people won't notice |
+| **Maximum (highest available, largest files)** | No cap | Always downloads the highest-resolution rendition Apple offers, regardless of size -- MeedyaDL's behaviour before this setting existed |
+
+Higher resolution means a larger file -- a few MB difference per video adds up quickly across a large library, so **Standard** is the recommended default unless you have a specific reason to want the largest available rendition.
 
 ## Troubleshooting
 
@@ -997,6 +1032,8 @@ Spotify support will include:
 - Lyrics download
 
 **Authentication:** Will require Spotify Premium cookies.
+
+**URL acceptance:** MeedyaDL's download form already accepts \`open.spotify.com\` links today — pasting one queues it and routes it through Spotify's own eligibility checks (developer access, consent, and a daily cap) rather than rejecting it as unsupported. Full Spotify feature parity with Apple Music remains Milestone M9.
 
 **Accepted URLs:**
 - \`https://open.spotify.com/track/...\`
