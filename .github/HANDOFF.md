@@ -31,11 +31,16 @@ Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 **Docs/context — DONE.** #964's close confirms all `help/*.md` + `HelpViewer.tsx` twins are current for GAMDL 3.8+. **Fixed a CLAUDE.md self-contradiction** (doc-only, code verified correct): the batch-C bullet said "Atmos + AC3 stay wrapper-dependent on every version" — but `is_wrapper_dependent_runtime()` (`gamdl_options.rs:242`, test `only_alac_on_v38_plus`) returns **ALAC-only** on GAMDL ≥3.8; corrected the clause to match. New memory note `project_dependency_security_posture.md` (indexed in MEMORY.md). OpenAPI/Swagger stays **N/A** (Tauri IPC only — no HTTP server to host Swagger UI; `project_api_surface_determination.md`). The dependency bumps are dev-only → no user-facing README/help change warranted.
 
-**Branch state — clean, nothing to delete.** Only 7 remote branches: `main` (default), `alpha`/`beta`/`release-candidate` (protected channels), `claude/gamdl-v3-8-5-review-gs36zl` (this working branch — single PR to `alpha` cut later), and the 2 kept dependabot branches (#1078 ip-address / #1079 undici → `main`). None safe to delete now; the 2 dependabot branches + this working branch auto-delete on merge via `auto-delete-merged-branches.yml` (channels exempt).
+**★ MERGES COMPLETE (2026-08-05, maintainer-directed).**
+- **#1078 → `main`** (squash `12ff459`): expanded from ip-address-only to carry **all four** concurrent High dev-advisory fixes (undici / ip-address / fast-uri / brace-expansion) because CI's `npm audit --audit-level=high` gate (ci.yml) is all-or-nothing — a single-advisory PR can never go green while siblings remain. Full 12-check CI matrix green pre-merge. `main` overrides now `fast-uri ^3.1.5 / ip-address ^10.4.0 / undici ^7.29.0`; **`main` npm audit → 0** → the 8 Dependabot alerts auto-resolve.
+- **#1079 (undici) → CLOSED as superseded** — its bump is included in #1078; a rebase would be an empty diff.
+- **#1080 (`claude/gamdl-v3-8-5-review-gs36zl` → `alpha`) MERGED** (merge commit `d16fcfc`, history-preserving so release-notes see the individual subjects). Pre-merge: merged `alpha` into the branch (version-only conflicts → kept 1.13.0-alpha.0; lockfile regenerated so alpha's #1073 deps coexist with the 4 overrides). Full CI matrix green (all 12 incl. 3 Backend). `alpha-release.yml` then auto-bumped to **1.13.0-alpha.43** (`4bd9cc1`) and cut the release. `alpha` npm audit → 0. This was the single consolidated alpha PR the whole session built toward (GAMDL 3.8.5 + batches A–D + download_queue split + dependency security).
 
-**MAINTAINER ACTIONS NEEDED (blocking nothing on-branch):**
-1. Dismiss the 2 secret-scanning alerts (#1, #2) as false-positive (updater public key) in Security → Secret scanning.
-2. The 8 Dependabot alerts clear on `main` when #1078/#1079 merge; on the channels they clear via `forward-port-security.yml` (future merges) or when this branch reaches `alpha`.
+**Branch state (post-merge).** Live branches: `main`, `alpha`/`beta`/`release-candidate`. `dependabot/npm_and_yarn/ip-address-10.4.0` (#1078) auto-deletes on its merge; `dependabot/npm_and_yarn/undici-7.29.0` (#1079) lingers (closed-not-merged) → **safe to delete manually**. The working branch `claude/gamdl-v3-8-5-review-gs36zl` is now fully merged into `alpha` → **safe to delete** (or leave for auto-cleanup).
+
+**MAINTAINER ACTIONS NEEDED (non-blocking):**
+1. Dismiss the 2 secret-scanning alerts (#1, #2) as false-positive (updater public key) in Security → Secret scanning — the only item that needs the UI.
+2. (Auto) The 8 Dependabot alerts clear on `main` now that #1078 is merged; `alpha` is clear via #1080. `beta`/`release-candidate` are stale — `forward-port-security.yml` (fired by #1078's merge to `main`) opens channel PRs/issues for them; review those if present.
 
 ---
 
