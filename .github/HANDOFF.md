@@ -1,13 +1,37 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-08-04
+**Last updated:** 2026-08-05
 **Working branch:** `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★★ LATEST — Session 2026-08-03: GAMDL 3.8.5 admitted (zero-code-change ceiling bump)
+## ★★★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
+
+**Focus:** Forward-port the two outstanding Dependabot **security** fixes onto this alpha-bound branch, resolve GitHub's 8 dependency + 2 secret-scanning alerts, then a full GitHub-issues sweep + documentation/memory refresh. **No new PR** (no-stacking rule — the single PR to `alpha` is cut later from this branch). Model routing per maintainer: sequential **Fable 5** for deep analysis/planning, Sonnet/Haiku for implementation.
+
+**Concurrency note:** a sibling session (same session id) pushed `47633ee` (`forward-port-security.yml` + docs) and the ip-address cherry-pick `07d909f` to this same branch while this session was working. Reconciled by **rebasing** this session's undici commit onto `47633ee` (disjoint files — no conflict). Remote HEAD `19bc476` == local. The corrected push-retry loop checks git's own exit code (the earlier version read `tail`'s exit through a pipe and falsely reported success).
+
+**Dependency consolidation — DONE & pushed (`19bc476`).**
+- **undici** override `^7.28.0` → `^7.29.0` (lock 7.28.0 → **7.29.0**) — cherry-picked from Dependabot PR **#1079** (`acb420e`), rebased onto the branch tip. Resolves all **5** undici advisories (High CVE-2026-13697 degenerate private-cache directives + 4 Moderate: Cache-Control whitespace, cookie-attr injection, retry-interceptor response desync, blob-`type` CRLF). undici is **dev-only** (`"dev": true`, via `jsdom`).
+- **ip-address** lock 10.2.0 → **10.4.0** — already on-branch as `07d909f` (Dependabot **#1078**, sibling session). Resolves all **3** ip-address advisories (High leading-zero-octet SSRF + 2 Moderate: IPv4-mapped/NAT64, CIDR-suffix). Dev-only (via `socks`).
+- Both are **dev/CI supply-chain hygiene** — the shipped app's HTTP is Rust `reqwest`, so end-user runtime exposure is nil (being independently verified by the Fable 5 pass). The upstream Dependabot branches/PRs (#1078/#1079, targeting `main`) are **kept intact** per instruction.
+
+**Security-alert investigation — IN PROGRESS.**
+- **8 Dependabot alerts** → resolved on this branch by the two bumps above (fixed-version confirmation in the Fable 5 report).
+- **2 secret-scanning "Password" alerts** (both `src-tauri/tauri.conf.json`) → **FALSE POSITIVE**: the flagged value base64-decodes to `untrusted comment: minisign public key: FE03A1F781F9D761…` — the Tauri updater `plugins.updater.pubkey`, a **public** key designed to ship in the binary. **Disposition: dismiss-as-false-positive in the GitHub UI — MAINTAINER ACTION (no MCP/API tool available to dismiss secret-scanning alerts).** Do NOT path-exclude the whole file (would mask a future real secret). Firm recommendation pending in the Fable 5 report.
+- Fable 5 deep security analysis running (advisory fixed-versions, reachability, override/pin integrity, private-key grep, audit scripts).
+
+**Remaining this session (tasks #19–#24):** apply any Fable-surfaced fixes → full GitHub-issues sweep (open+closed) vs actual codebase → thorough docs/in-app-help/OpenAPI-determination refresh → Claude memory/context update → keep this handoff current.
+
+**MAINTAINER ACTIONS NEEDED (blocking nothing on-branch):**
+1. Dismiss the 2 secret-scanning alerts (#1, #2) as false-positive (updater public key) in Security → Secret scanning.
+2. The 8 Dependabot alerts clear on `main` when #1078/#1079 merge; on the channels they clear via `forward-port-security.yml` (future merges) or when this branch reaches `alpha`.
+
+---
+
+## Session 2026-08-03: GAMDL 3.8.5 admitted (zero-code-change ceiling bump)
 
 **GAMDL v3.8.5 admission — DONE (#1074).** ADMITTED, ceiling 3.8.4 → 3.8.5, committed on `claude/gamdl-v3-8-5-review-gs36zl` (this session's branch; forked at `feat/alpha-consolidated` HEAD `dc47a43`, per the one-branch rule — the eventual single `alpha` PR is cut from here). Same zero-code-change shape as 3.8.3/3.8.4 (#1018): the 2-commit / 4-file `3.8.4..3.8.5` delta's only functional change (`20e1b76d`) is private DRM key-extraction methods inside `gamdl/interface/song.py` (drops the base64 session-key fast-path; keys now always come from the media m3u8's `#EXT-X-KEY` tags via the pre-existing `_get_drm_uri_from_m3u8_keys`). No CLI/INI/exception/output/wrapper/ammuxer change; `wrapper.py` untouched → wrapper-v2 lockstep stays 0.0.2. Wheels identical (5× cp310-abi3, no ARMv7 → ARMv7 stays on 3.8.1). Edits: `tool-versions.toml` ceiling+recommended → 3.8.5; docs (README / help/wrapper.md / smoke-test README+script / CLAUDE.md / cadence memory); `"3.8.5"` added to the `WrapperDecryptHostPort` gate-test true-list; NEW audit `.github/audits/gamdl-v3.8.5-audit.md`. **The pre-stable live smoke-test gate (`scripts/smoke-tests/gamdl_live_smoke.py`) is RETARGETED at 3.8.5 and still not yet run** — song-ending integrity check kept; the wrapper-less `aac` leg now also exercises the rewritten m3u8 key path.
 
