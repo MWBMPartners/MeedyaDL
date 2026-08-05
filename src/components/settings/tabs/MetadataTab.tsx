@@ -8,9 +8,7 @@
  * This tab configures post-download metadata enrichment features:
  *
  *   - **Automatic Tags** -- Always-on metadata enrichment (codec tags,
- *     source tags, channel configuration), plus a toggle to control
- *     whether extra API metadata (normalization, spatial properties) is
- *     fetched. Maps to `settings.fetch_extra_tags`.
+ *     source tags, channel configuration, content advisory suffixes).
  *
  *   - **AcoustID Fingerprinting** (opt-in) -- When enabled, generates
  *     Chromaprint audio fingerprints using the embedded fingerprinting
@@ -36,7 +34,6 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 export function MetadataTab() {
   // One hook call per field; `value` + `set` replace the
   // `settings.X` / `updateSettings({ X: v })` boilerplate.
-  const fetchExtraTags = useSettingsField('fetch_extra_tags');
   const contentAdvisoryInFilenames = useSettingsField('content_advisory_in_filenames');
   const acoustidEnabled = useSettingsField('acoustid_enabled');
   const replaygainEnabled = useSettingsField('replaygain_enabled');
@@ -57,13 +54,6 @@ export function MetadataTab() {
           API-derived tags (ISRC, UPC, genre, advisory ratings, artist IDs) require MusicKit
           credentials. Configure them in Settings &gt; Advanced &gt; API Credentials.
         </p>
-
-        <Toggle
-          label="Fetch Extra Tags"
-          description="Fetch additional metadata from Apple Music (normalization, spatial/lossless properties, smooth playback info). Adds a small delay per track. Disable if you only want basic codec/source tags. Only applies to GAMDL 2.x — GAMDL 3.0 removed this option, and MeedyaDL automatically skips emitting it when v3.0+ is installed."
-          checked={fetchExtraTags.value}
-          onChange={fetchExtraTags.set}
-        />
 
         <Toggle
           label="Content Advisory in Filenames"

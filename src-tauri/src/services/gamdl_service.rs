@@ -241,8 +241,8 @@ pub async fn install_gamdl(
 ///
 /// After install we re-probe via `get_gamdl_version` which also
 /// refreshes the capability cache, so every consumer sees the new
-/// version immediately (critical when downgrading from v3.x → v2.x
-/// flips feature gates like `FetchExtraTags`).
+/// version immediately (critical when crossing a feature-gate
+/// boundary, e.g. downgrading below v3.1 flips `WrapperM3u8Ip`).
 ///
 /// # Errors
 ///

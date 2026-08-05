@@ -78,6 +78,14 @@ import type {
   UpdateCheckResult,
 } from '@/types';
 
+/**
+ * TypeScript mirror of the Rust remote feature-flag model
+ * (`src-tauri/src/models/feature_flags.rs`). Kept in its own module rather
+ * than `@/types` because it's a self-contained wire contract with its own
+ * file-level invariant documentation — see `src/types/feature-flags.ts`.
+ */
+import type { FeatureFlagsSnapshot } from '@/types/feature-flags';
+
 // ============================================================
 // System Commands
 // ============================================================
@@ -512,6 +520,14 @@ export interface GamdlCapabilities {
    * input in Settings → Tools when GAMDL 3.6.x is detected. (#867)
    */
   ffmpeg_path: boolean;
+  /**
+   * ≥3.8 — GAMDL's `/v1/play/assets` endpoint unlocks every non-web song
+   * codec except ALAC for wrapper-less downloads (#963, #1002). Drives
+   * version-aware prose (e.g. the Fallback tab's wrapper-dependency note)
+   * via the `useGamdlCapabilities` hook. Does NOT change the codec
+   * dropdown's `(Experimental)` labels, which stay unconditional (#965).
+   */
+  assets_api_unlocks_lossy_codecs: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');
@@ -699,17 +715,31 @@ export function checkCookiesBeforeDownload(): Promise<CookieCheckResult> {
 }
 
 /**
- * Checks whether the internet is reachable before queuing a download.
+ * Checks whether the internet (and target service) is reachable before
+ * queuing a download.
  *
- * Rust handler: `check_internet_before_download()` in `src-tauri/src/commands/settings.rs`
+ * Rust handler: `check_internet_before_download(urls)` in `src-tauri/src/commands/settings.rs`
  * Returns: `CookieCheckResult` (reuses same shape) with readiness flag and optional message
  *
  * Called by the download form before the cookie check. Reuses the existing
- * health_check_service::check_internet_connectivity() (HTTP GET to apple.com).
- * If offline, blocks the download with an amber warning.
+ * `health_check_service::check_internet_connectivity()` two-tier probe.
+ * `urls` is the batch about to be queued — the backend detects the target
+ * service (Apple Music, Spotify, …) from the first recognised URL and picks
+ * the matching Tier 2 API probe (A1). Pass `undefined`/omit when no URLs
+ * are known yet; the backend falls back to the Apple Music probe.
+ *
+ * If offline (or the detected service's API is unreachable), blocks the
+ * download with an amber warning.
  */
-export function checkInternetBeforeDownload(): Promise<CookieCheckResult> {
-  return invoke<CookieCheckResult>('check_internet_before_download');
+export function checkInternetBeforeDownload(urls?: string[]): Promise<CookieCheckResult> {
+  // Explicit `null` (not `undefined`) for the omitted case — JSON.stringify
+  // drops `undefined` keys, which can interact awkwardly with how Tauri 2
+  // deserialises `Option<Vec<String>>` arguments. Explicit `null` always
+  // round-trips cleanly to `None` on the Rust side (same convention as
+  // `upgradeGamdl`'s `targetVersion` below).
+  return invoke<CookieCheckResult>('check_internet_before_download', {
+    urls: urls ?? null,
+  });
 }
 
 /**
@@ -1474,6 +1504,25 @@ export function testWrapperConnection(url: string): Promise<import('@/types').Wr
   return invoke<import('@/types').WrapperTestResult>('test_wrapper_connection', { url });
 }
 
+/**
+ * Tests whether word-level (syllable) lyrics can currently be fetched from
+ * the Apple Music API, without running a full download (#934).
+ *
+ * Rust handler: `test_lyrics_connection()` in `src-tauri/src/commands/lyrics.rs`
+ *
+ * Resolves credentials the same way the enrichment pipeline does (falls
+ * back to the web-player-extracted developer token when no user-provided
+ * MusicKit credentials are configured), so the result is representative
+ * of what a real download would experience.
+ *
+ * Called by: LyricsTab "Test word-level lyrics connection" button
+ *
+ * @returns Promise resolving to the connectivity test result
+ */
+export function testLyricsConnection(): Promise<import('@/types').TestLyricsConnectionResult> {
+  return invoke<import('@/types').TestLyricsConnectionResult>('test_lyrics_connection');
+}
+
 // ============================================================
 // Wrapper-v2 Sign-In Commands (#1029)
 // ============================================================
@@ -1933,10 +1982,36 @@ export function upgradeGamdl(targetVersion?: string): Promise<string> {
 }
 
 /**
+ * Upgrades votify (the Spotify engine) via pip, bounded by MeedyaDL's
+ * validated votify support window (A4).
+ *
+ * Rust handler: `upgrade_votify()` in `src-tauri/src/commands/updates.rs`
+ * Returns: the new votify version string.
+ *
+ * Mirrors `upgradeGamdl()`: a routine "Upgrade" click (`targetVersion`
+ * omitted) always resolves to the newest version inside the bounded
+ * support window; only pass `targetVersion` when the user has explicitly
+ * opted into an above-ceiling "Untested" release.
+ *
+ * @param targetVersion - When provided, pip pins to exactly this version
+ *   (`votify=={targetVersion}`).
+ * @returns Promise resolving to the installed version string
+ */
+export function upgradeVotify(targetVersion?: string): Promise<string> {
+  // Explicit `null` (not `undefined`) — see `upgradeGamdl` above.
+  return invoke<string>('upgrade_votify', {
+    targetVersion: targetVersion ?? null,
+  });
+}
+
+/**
  * Upgrades any pip-based engine to the latest version.
  *
  * Rust handler: `upgrade_pip_engine()` in `src-tauri/src/commands/updates.rs`
- * Works for votify, yt-dlp, ofscraper, etc. GAMDL has its own upgrade path.
+ * Works for yt-dlp, ofscraper, etc. — pip engines without a validated
+ * version window of their own. GAMDL (`upgradeGamdl`) and votify
+ * (`upgradeVotify`) have their own dedicated, version-bounded upgrade
+ * paths; prefer those for those two packages.
  */
 export function upgradePipEngine(packageName: string): Promise<string> {
   return invoke<string>('upgrade_pip_engine', { package: packageName });
@@ -2535,4 +2610,46 @@ export function checkSpotifyDispatchAllowed(): Promise<
   return invoke<import('@/types').DispatchGateOutcome>(
     'check_spotify_dispatch_allowed'
   );
+}
+
+// ============================================================
+// Feature Flags Commands
+// ============================================================
+// Mirrors src-tauri/src/commands/feature_flags.rs (commit c4a2185b).
+// TypeScript types live in src/types/feature-flags.ts.
+
+/**
+ * Returns the currently-resolved feature-flag snapshot **without making a
+ * network call** — a cheap local read (process-global snapshot, falling
+ * back to the sticky disk cache, then to compiled defaults).
+ *
+ * Rust handler: `get_feature_flags()` in `src-tauri/src/commands/feature_flags.rs`
+ *
+ * @returns Promise resolving to the current `FeatureFlagsSnapshot`. Never
+ *   rejects on resolution grounds — the backend's resolution chain always
+ *   answers, worst case with all-enabled compiled defaults.
+ */
+export function getFeatureFlags(): Promise<FeatureFlagsSnapshot> {
+  return invoke<FeatureFlagsSnapshot>('get_feature_flags');
+}
+
+/**
+ * Attempts a remote refresh of the feature-flag snapshot, then returns the
+ * result. Rate-limited to 1 call/minute on the backend (same window as
+ * `check_all_updates`) — a limit breach rejects the returned promise.
+ *
+ * On any transport/HTTP/parse failure, the backend keeps the previous
+ * verdicts and logs a single activity-log line; it does NOT surface an
+ * error through this call for that case. Callers must never derive
+ * user-visible UI from a failure here beyond the previous snapshot simply
+ * staying in place — see the silent-fetch-failure invariant documented on
+ * `FeatureFlagsSnapshot.meta` in the Rust model and on
+ * `FeatureNoticeBanner`.
+ *
+ * Rust handler: `refresh_feature_flags()` in `src-tauri/src/commands/feature_flags.rs`
+ *
+ * @returns Promise resolving to the refreshed (or unchanged) `FeatureFlagsSnapshot`.
+ */
+export function refreshFeatureFlags(): Promise<FeatureFlagsSnapshot> {
+  return invoke<FeatureFlagsSnapshot>('refresh_feature_flags');
 }

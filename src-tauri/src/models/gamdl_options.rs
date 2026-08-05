@@ -218,6 +218,36 @@ impl SongCodec {
         matches!(self, Self::Atmos | Self::Ac3)
     }
 
+    /// Runtime (GAMDL-version-aware) counterpart to [`Self::is_wrapper_dependent`]
+    /// (#963, #1002).
+    ///
+    /// GAMDL v3.8's new `/v1/play/assets` endpoint (upstream `a7d141b7`)
+    /// made every non-web codec **except ALAC** downloadable without
+    /// wrapper authentication. On a detected `>= 3.8` install
+    /// (`GamdlFeature::AssetsApiUnlocksLossyCodecs`) only [`Self::Alac`]
+    /// is still wrapper-dependent; on every other detected version
+    /// (including an unprobed / unknown one) this falls back to the
+    /// conservative, version-agnostic [`Self::is_wrapper_dependent`]
+    /// predicate — `Atmos` and `Ac3`.
+    ///
+    /// Used by `download_queue::build_gapfill_priority_chain()` so a
+    /// wrapper-less gap-fill retry doesn't pre-emptively strip Atmos/AC3
+    /// out of the chain on 3.8+, where they now succeed.
+    ///
+    /// Deliberately does **not** change [`Self::display_name`] — the
+    /// `(Experimental)` labels stay unconditional across every GAMDL
+    /// version (maintainer decision, #965). Version-aware prose belongs
+    /// in the frontend via the `useGamdlCapabilities` hook, not here.
+    #[must_use]
+    pub fn is_wrapper_dependent_runtime(&self) -> bool {
+        use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+        if supports(GamdlFeature::AssetsApiUnlocksLossyCodecs) {
+            matches!(self, Self::Alac)
+        } else {
+            self.is_wrapper_dependent()
+        }
+    }
+
     /// Returns the Apple Music `audioTraits` value that must be present
     /// on a track for this codec to be downloadable. Used by the
     /// companion planner (#504) to skip tiers whose codec the API has
@@ -730,8 +760,6 @@ pub struct GamdlOptions {
     pub exclude_tags: Option<String>,
     /// Use album release date for all tracks
     pub use_album_date: Option<bool>,
-    /// Fetch extra metadata (normalization, smooth playback)
-    pub fetch_extra_tags: Option<bool>,
     /// Date format for metadata tags
     pub date_tag_template: Option<String>,
 
@@ -1137,7 +1165,7 @@ impl GamdlOptions {
     /// Builds CLI arguments for boolean flags, mode enums, and log level.
     ///
     /// Covers: `--overwrite`, `--use-wrapper`, `--use-album-date`,
-    /// `--fetch-extra-tags`, `--download-mode`, `--remux-mode`, `--log-level`,
+    /// `--download-mode`, `--remux-mode`, `--log-level`,
     /// `--no-exceptions`, `--save-playlist`, `--no-config-file`.
     fn flag_cli_args(&self) -> Vec<String> {
         use crate::services::gamdl_capabilities::{supports, GamdlFeature};
@@ -1152,9 +1180,6 @@ impl GamdlOptions {
         }
         if self.use_album_date == Some(true) {
             args.push("--use-album-date".to_string());
-        }
-        if self.fetch_extra_tags == Some(true) {
-            args.push("--fetch-extra-tags".to_string());
         }
 
         // --- Modes ---
@@ -1863,6 +1888,52 @@ mod tests {
         assert!(!SongCodec::AacHeLegacy.is_wrapper_dependent());
         assert!(!SongCodec::AacHeBinaural.is_wrapper_dependent());
         assert!(!SongCodec::AacHeDownmix.is_wrapper_dependent());
+    }
+
+    // ----------------------------------------------------------
+    // SongCodec::is_wrapper_dependent_runtime (#963, #1002)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn is_wrapper_dependent_runtime_matches_legacy_below_v38() {
+        // Below 3.8 the runtime predicate must match the conservative
+        // `is_wrapper_dependent()` exactly.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.7.4".to_string()));
+        assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Aac.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::AacLegacy.is_wrapper_dependent_runtime());
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn is_wrapper_dependent_runtime_only_alac_on_v38_plus() {
+        // On 3.8+, /v1/play/assets unlocks every non-web codec except
+        // ALAC for wrapper-less downloads.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.8".to_string()));
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Atmos.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Ac3.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Aac.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::AacHeDownmix.is_wrapper_dependent_runtime());
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.8.5".to_string()));
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Ac3.is_wrapper_dependent_runtime());
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn is_wrapper_dependent_runtime_unknown_version_falls_back_to_legacy() {
+        // Unprobed / unknown version — safest default is the
+        // conservative pre-3.8 predicate, same as `is_wrapper_dependent()`.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(None);
+        assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
+        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
     }
 
     #[test]

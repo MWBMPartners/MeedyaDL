@@ -8,14 +8,21 @@
 //! are only available on a subset of supported releases. Two concrete cases
 //! motivate this module:
 //!
-//! * `--fetch-extra-tags` / `fetch_extra_tags` was present in every v2.x
-//!   release but **removed in v3.0** (upstream commit
-//!   [`61ea24b`](https://github.com/glomatico/gamdl/commit/61ea24b), "Remove
-//!   extra tags fetching and preview parsing"). Passing the flag to v3.0
+//! * `--wrapper-m3u8-ip` / `wrapper_m3u8_ip` was **added in v3.1** and
+//!   **removed again in v3.6** (superseded by the single-URL wrapper-v2
+//!   `--wrapper-url`). Passing it to a release outside `[3.1, 3.5.x]`
 //!   causes Click to reject the CLI invocation with `no such option`.
 //! * `--database-path` / `database_path` and `--playlist-folder-template` /
 //!   `playlist_folder_template` were **added in v3.0**. Passing either to
-//!   a v2.x release causes the same kind of Click error.
+//!   a pre-3.0 release causes the same kind of Click error.
+//!
+//! (Historical note: a third motivating case, `--fetch-extra-tags` /
+//! `fetch_extra_tags`, was present in every v2.x release and removed in
+//! v3.0. It was the original reason this module exists, but the plumbing
+//! for it was removed in #1000 once GAMDL v2 support itself was dropped
+//! — the gate had gone permanently inert inside the v3-only support
+//! window. See git history for the pre-#1000 shape if resurrecting a
+//! similar version-scoped flag gate.)
 //!
 //! Rather than pinning `MeedyaDL` to a single GAMDL line, we detect the
 //! installed version at runtime and only emit flags / INI keys the
@@ -48,9 +55,10 @@
 //! or the dependency check hasn't run), every capability query returns
 //! `false`. This is deliberately the safest default: we never emit
 //! options that a future reader of the INI / CLI might reject. The only
-//! downside is that users on v2.x who haven't completed setup won't get
-//! `fetch_extra_tags` until the version is probed — which happens on the
-//! very next dependency check or download attempt.
+//! downside is that users who haven't completed setup won't get a
+//! version-gated flag like `wrapper_m3u8_ip` until the version is
+//! probed — which happens on the very next dependency check or
+//! download attempt.
 
 use std::sync::{LazyLock, RwLock};
 
@@ -97,6 +105,17 @@ struct GamdlSupportToml {
     minimum_version: String,
     maximum_tested_version: String,
     recommended_version: String,
+    /// Optional `[gamdl.platform_ceilings]` sub-table (#1014): per-platform
+    /// overrides of `maximum_tested_version`, keyed by the same canonical
+    /// platform IDs [`current_platform_id`] returns (e.g. `"linux-armv7"`).
+    /// Absent for every platform that tracks the global ceiling — only
+    /// listed when a platform genuinely can't install what the rest of
+    /// the fleet can (e.g. GAMDL 3.8.2+ ships no Linux ARMv7 wheel, so
+    /// that platform's *effective* ceiling trails the global one).
+    /// `#[serde(default)]` keeps the table fully optional so an older or
+    /// hand-edited `tool-versions.toml` without it still parses.
+    #[serde(default)]
+    platform_ceilings: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -115,11 +134,14 @@ struct ToolVersionsToml {
 ///   blocked.
 /// * `recommended` — what the installer resolves to by default.
 ///   Always within `[minimum, maximum_tested]`.
+/// * `platform_ceilings` — per-platform overrides of `maximum_tested`
+///   (#1014). See [`effective_maximum_tested`] / [`classify_for_platform`].
 #[derive(Debug, Clone)]
 pub struct GamdlSupportWindow {
     pub minimum: String,
     pub maximum_tested: String,
     pub recommended: String,
+    pub platform_ceilings: std::collections::HashMap<String, String>,
 }
 
 /// Parses the embedded `tool-versions.toml` once and caches the
@@ -134,6 +156,7 @@ static SUPPORT_WINDOW: LazyLock<GamdlSupportWindow> = LazyLock::new(|| {
         minimum: parsed.gamdl.minimum_version,
         maximum_tested: parsed.gamdl.maximum_tested_version,
         recommended: parsed.gamdl.recommended_version,
+        platform_ceilings: parsed.gamdl.platform_ceilings,
     }
 });
 
@@ -210,6 +233,114 @@ pub fn classify(installed: Option<&str>) -> VersionSupport {
         return VersionSupport::Untested {
             installed: installed.to_string(),
             maximum_tested: window.maximum_tested.clone(),
+            recommended: window.recommended.clone(),
+        };
+    }
+
+    VersionSupport::Supported {
+        installed: installed.to_string(),
+    }
+}
+
+// ============================================================
+// Per-platform ceiling overrides (#1014)
+// ============================================================
+//
+// `support_window()` above is intentionally global — one ceiling for
+// every platform this build ships. That is the right default: bumping
+// `maximum_tested_version` is meant to lift the ceiling for everyone at
+// once. It breaks down only when a GAMDL release ships a compiled
+// extension that a platform genuinely has no wheel for (Linux ARMv7 as
+// of GAMDL 3.8.2+, per `update_checker::wheel_platform_tags()`'s own
+// per-platform PyPI wheel probe) — on that one platform, reporting the
+// global ceiling as "Supported" is misleading: the version is only
+// reachable there by building the compiled extension from source,
+// which MeedyaDL's managed Python environment can't do.
+//
+// The functions below layer a narrow, additive per-platform override on
+// top of the existing global window WITHOUT changing `classify()` or
+// `support_window()` themselves, so every existing caller and test
+// keeps its current behaviour untouched. A platform with no entry in
+// `[gamdl.platform_ceilings]` — which is every platform except Linux
+// ARMv7 today — sees byte-identical results from the platform-aware
+// functions as from the plain ones.
+
+/// Returns a canonical platform identifier used to key
+/// `[gamdl.platform_ceilings]` overrides in `tool-versions.toml`.
+///
+/// Mirrors the OS/arch dispatch in
+/// `update_checker::wheel_platform_tags()` (same `cfg!()` conditions),
+/// but produces stable dash-joined IDs instead of PyPI wheel-tag
+/// substrings — these are our own config keys, not filename fragments.
+#[must_use]
+pub fn current_platform_id() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        if cfg!(target_arch = "aarch64") {
+            "windows-aarch64"
+        } else {
+            "windows-x86_64"
+        }
+    } else if cfg!(target_os = "linux") {
+        if cfg!(target_arch = "aarch64") {
+            "linux-aarch64"
+        } else if cfg!(target_arch = "arm") {
+            "linux-armv7"
+        } else {
+            "linux-x86_64"
+        }
+    } else {
+        "unknown"
+    }
+}
+
+/// Returns the effective `maximum_tested_version` for `platform_id`
+/// (#1014): the platform-specific override from
+/// `[gamdl.platform_ceilings]` when one exists, otherwise this build's
+/// global `maximum_tested_version`.
+///
+/// For every platform without an override (all of them today except
+/// Linux ARMv7) this returns exactly `support_window().maximum_tested`.
+#[must_use]
+pub fn effective_maximum_tested(platform_id: &str) -> String {
+    support_window()
+        .platform_ceilings
+        .get(platform_id)
+        .cloned()
+        .unwrap_or_else(|| support_window().maximum_tested.clone())
+}
+
+/// Platform-aware counterpart to [`classify`] (#1014): classifies
+/// `installed` using the effective ceiling for `platform_id` — i.e.
+/// [`effective_maximum_tested`] — instead of the global one.
+///
+/// Identical to `classify(installed)` for any `platform_id` without a
+/// `[gamdl.platform_ceilings]` entry (every platform except Linux
+/// ARMv7 today). On Linux ARMv7, a version above the ARMv7-specific
+/// ceiling (but still within the global window) correctly classifies
+/// as [`VersionSupport::Untested`] instead of `Supported` — the global
+/// ceiling reflects what most platforms can install, not what ARMv7
+/// can.
+#[must_use]
+pub fn classify_for_platform(installed: Option<&str>, platform_id: &str) -> VersionSupport {
+    let Some(installed) = installed else {
+        return VersionSupport::NotInstalled;
+    };
+    let window = support_window();
+    let maximum_tested = effective_maximum_tested(platform_id);
+
+    if !is_version_at_least(installed, &window.minimum) {
+        return VersionSupport::Unsupported {
+            installed: installed.to_string(),
+            minimum: window.minimum.clone(),
+        };
+    }
+
+    if !is_version_at_least(&maximum_tested, installed) {
+        return VersionSupport::Untested {
+            installed: installed.to_string(),
+            maximum_tested,
             recommended: window.recommended.clone(),
         };
     }
@@ -310,6 +441,63 @@ pub fn pip_target_spec(target: &str) -> String {
     format!("gamdl=={target}")
 }
 
+// ============================================================
+// Wrapper-aware v2 → v3 upgrade target (#1001)
+// ============================================================
+//
+// A user still running GAMDL v2.x on a v2-support-dropped MeedyaDL
+// build (`classify(installed) == Unsupported`) needs a guided upgrade.
+// The right target depends on whether they run the wrapper: GAMDL v3.6
+// switched the wrapper protocol from v1 (three local sockets) to v2 (a
+// single HTTP daemon requiring a manual Docker + Apple `.so`-extraction
+// setup). Auto-jumping a wrapper-v1 user straight to this build's fully
+// tested `recommended` version (currently on the wrapper-v2 line) would
+// silently break their working wrapper. `recommended_upgrade_target`
+// encodes the safe target for each case; see #1001 for the full
+// migration-flow design (the surrounding modal/notice UI is a separate,
+// not-yet-decided follow-up — this function is the backend primitive).
+
+/// Last GAMDL release still on the wrapper-v1 protocol (three local
+/// sockets: `--wrapper-account-url` HTTP, `--wrapper-m3u8-ip` TCP,
+/// `--wrapper-decrypt-ip` TCP). GAMDL v3.6 replaced wrapper-v1 with
+/// wrapper-v2 (`GamdlFeature::WrapperUrl`), a single HTTP daemon that
+/// requires a manual Docker + Apple `.so`-extraction setup — not a
+/// drop-in replacement for a user who already has wrapper-v1 running.
+pub const LAST_WRAPPER_V1_VERSION: &str = "3.5.2";
+
+/// Returns the recommended upgrade target for a user currently on
+/// `installed`, taking their wrapper usage into account (#1001).
+///
+/// | `installed` state         | `use_wrapper` | Target                              |
+/// |----------------------------|---------------|--------------------------------------|
+/// | below this build's floor (v2.x) | `true`  | [`LAST_WRAPPER_V1_VERSION`] ("3.5.2") — the newest release that doesn't require migrating to wrapper-v2 |
+/// | below this build's floor (v2.x) | `false` | `support_window().recommended` — no wrapper to protect, so the best-tested release |
+/// | already `>=` this build's floor (v3.x+), or `None` (nothing installed yet) | either | `support_window().recommended` — the v2→v3 wrapper-protocol concern doesn't apply once already on v3, or when there's no prior install to protect |
+///
+/// This function only *encodes* the target table above — it does not
+/// itself decide whether an upgrade is warranted. Callers should gate
+/// on `classify(installed) == VersionSupport::Unsupported` (i.e.
+/// `installed` is still on the pre-floor v2.x line) before consulting
+/// it for the v2→v3 migration flow; called with an already-v3+
+/// `installed`, it safely degrades to the ordinary `recommended`
+/// target rather than ever recommending a downgrade.
+#[must_use]
+pub fn recommended_upgrade_target(installed: Option<&str>, use_wrapper: bool) -> &'static str {
+    // `None` (nothing installed yet, e.g. a fresh setup) is NOT the
+    // "still on v2.x" case — there's no existing wrapper-v1 setup to
+    // protect, so it falls straight through to `recommended` just like
+    // an already-v3+ install. Only an explicitly known pre-floor (v2.x)
+    // version triggers the wrapper-v1-preserving branch.
+    let is_pre_floor_v2 =
+        installed.is_some_and(|v| !is_version_at_least(v, &support_window().minimum));
+
+    if use_wrapper && is_pre_floor_v2 {
+        LAST_WRAPPER_V1_VERSION
+    } else {
+        support_window().recommended.as_str()
+    }
+}
+
 /// Process-global cache of the last detected GAMDL version string.
 ///
 /// Populated by [`set_detected_version`] from:
@@ -358,12 +546,6 @@ pub fn detected_version() -> Option<String> {
 /// support.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GamdlFeature {
-    /// `--fetch-extra-tags` CLI flag and `fetch_extra_tags` INI key.
-    ///
-    /// Present in every v2.x release; removed in v3.0 alongside the
-    /// preview-parsing code path.
-    FetchExtraTags,
-
     /// Native album-level `--song-codec-priority` (pass the full fallback
     /// chain in a single GAMDL invocation).
     ///
@@ -580,6 +762,34 @@ pub enum GamdlFeature {
     /// wrapper-v2 release older than 3.8.2 (3.6 .. 3.8.1) would crash
     /// Click with "no such option" — the flags didn't exist yet.
     WrapperDecryptHostPort,
+
+    // ---------------------------------------------------------------------
+    // GAMDL v3.8 capability gates (#962, #963, #1002)
+    // ---------------------------------------------------------------------
+    /// Upstream commit [`a7d141b7`](https://github.com/glomatico/gamdl/commit/a7d141b7)
+    /// (GAMDL v3.8) added a new `POST /v1/play/assets` HLS endpoint that
+    /// unlocked every non-web `SongCodec` **except ALAC** for wrapper-less
+    /// downloads (aac, aac-he, aac-binaural, aac-downmix, aac-he-binaural,
+    /// aac-he-downmix, atmos, ac3). Companion commit
+    /// [`4d2988b3`](https://github.com/glomatico/gamdl/commit/4d2988b3)
+    /// narrowed GAMDL's own CLI startup warning + README wording to say
+    /// only ALAC still needs wrapper — confirming the API behaviour.
+    ///
+    /// Consumed by [`crate::models::gamdl_options::SongCodec::is_wrapper_dependent_runtime`]
+    /// so `download_queue::build_gapfill_priority_chain()` no longer
+    /// pre-emptively strips Atmos/AC3 out of a wrapper-less gap-fill retry
+    /// chain on 3.8+, where they now succeed. Below 3.8 (and on an
+    /// unprobed / unknown version) the conservative, version-agnostic
+    /// `SongCodec::is_wrapper_dependent()` predicate still applies —
+    /// `Atmos` and `Ac3` are treated as wrapper-dependent.
+    ///
+    /// Deliberately does **not** change `SongCodec::display_name()` — the
+    /// `(Experimental)` labels stay unconditional across every GAMDL
+    /// version per the maintainer decision on #965. Version-aware prose
+    /// belongs in the frontend, driven by the `assets_api_unlocks_lossy_codecs`
+    /// field on the `GamdlCapabilities` DTO (`commands::dependencies`) via
+    /// the `useGamdlCapabilities` hook — not in the codec label itself.
+    AssetsApiUnlocksLossyCodecs,
 }
 
 impl GamdlFeature {
@@ -589,8 +799,6 @@ impl GamdlFeature {
     /// two-part ("2.9") and unparseable version strings gracefully.
     fn is_available_on(self, version: &str) -> bool {
         match self {
-            // Removed in v3.0, so it's available on everything below.
-            Self::FetchExtraTags => !is_version_at_least(version, "3.0"),
             // Added in v2.9.1.
             Self::NativeCodecPriority => is_version_at_least(version, "2.9.1"),
             // Added in v3.1, REMOVED in v3.6 (replaced by wrapper-v2 single URL).
@@ -640,6 +848,10 @@ impl GamdlFeature {
             // Added in v3.8.2 — wrapper-v2 decrypt moved from HTTP
             // (riding `--wrapper-url`) to a separate TCP host/port.
             Self::WrapperDecryptHostPort => is_version_at_least(version, "3.8.2"),
+            // GAMDL v3.8 family (#962, #963, #1002):
+            // `/v1/play/assets` unlocked every non-web codec except ALAC
+            // for wrapper-less downloads.
+            Self::AssetsApiUnlocksLossyCodecs => is_version_at_least(version, "3.8"),
         }
     }
 }
@@ -673,7 +885,6 @@ pub fn active_capabilities_summary() -> String {
 
     let all = [
         (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
-        (GamdlFeature::FetchExtraTags, "fetch_extra_tags"),
         (GamdlFeature::PlaylistFolderTemplate, "playlist_folder_template"),
         (GamdlFeature::WrapperM3u8Ip, "wrapper_m3u8_ip"),
         (GamdlFeature::NoExceptionsFlag, "no_exceptions_flag"),
@@ -685,6 +896,10 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
         (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
         (GamdlFeature::WrapperDecryptHostPort, "wrapper_decrypt_host_port"),
+        (
+            GamdlFeature::AssetsApiUnlocksLossyCodecs,
+            "assets_api_unlocks_lossy_codecs",
+        ),
     ];
 
     let active: Vec<&str> = all
@@ -729,26 +944,6 @@ mod tests {
     /// this module need no renaming.
     fn test_lock() -> std::sync::MutexGuard<'static, ()> {
         capability_cache_test_lock()
-    }
-
-    #[test]
-    fn fetch_extra_tags_is_available_on_v2x() {
-        let _lock = test_lock();
-        set_detected_version(Some("2.9.3".to_string()));
-        assert!(supports(GamdlFeature::FetchExtraTags));
-        set_detected_version(None);
-    }
-
-    #[test]
-    fn fetch_extra_tags_is_not_available_on_v3() {
-        let _lock = test_lock();
-        set_detected_version(Some("3.0".to_string()));
-        assert!(!supports(GamdlFeature::FetchExtraTags));
-        set_detected_version(Some("3.0.0".to_string()));
-        assert!(!supports(GamdlFeature::FetchExtraTags));
-        set_detected_version(Some("3.1.2".to_string()));
-        assert!(!supports(GamdlFeature::FetchExtraTags));
-        set_detected_version(None);
     }
 
     #[test]
@@ -823,7 +1018,6 @@ mod tests {
     fn unknown_version_reports_no_capabilities() {
         let _lock = test_lock();
         set_detected_version(None);
-        assert!(!supports(GamdlFeature::FetchExtraTags));
         assert!(!supports(GamdlFeature::NativeCodecPriority));
         assert!(!supports(GamdlFeature::WrapperM3u8Ip));
         assert!(!supports(GamdlFeature::PlaylistFolderTemplate));
@@ -852,12 +1046,11 @@ mod tests {
         set_detected_version(Some("3.5.0".to_string()));
         let summary = active_capabilities_summary();
         // v3.5 supports: NativeCodecPriority, PlaylistFolderTemplate,
-        // WrapperM3u8Ip. Does NOT support FetchExtraTags (removed in 3.0)
-        // or NoExceptionsFlag (no-op on the 3.1..3.7.4 window).
+        // WrapperM3u8Ip. Does NOT support NoExceptionsFlag (no-op on
+        // the 3.1..3.7.4 window).
         assert!(summary.contains("native_codec_priority"));
         assert!(summary.contains("playlist_folder_template"));
         assert!(summary.contains("wrapper_m3u8_ip"));
-        assert!(!summary.contains("fetch_extra_tags"));
         assert!(!summary.contains("no_exceptions_flag"));
         set_detected_version(None);
     }
@@ -873,8 +1066,9 @@ mod tests {
         assert!(summary.contains("native_codec_priority"));
         assert!(summary.contains("playlist_folder_template"));
         assert!(summary.contains("no_exceptions_flag"));
-        // FetchExtraTags stays removed (upstream never brought it back).
-        assert!(!summary.contains("fetch_extra_tags"));
+        // v3.8's new /v1/play/assets endpoint unlocked every non-web
+        // codec except ALAC for wrapper-less downloads (#963).
+        assert!(summary.contains("assets_api_unlocks_lossy_codecs"));
         set_detected_version(None);
     }
 
@@ -890,11 +1084,14 @@ mod tests {
         let _lock = test_lock();
         set_detected_version(Some("2.9.3".to_string()));
         let summary = active_capabilities_summary();
-        // v2.9.3 supports: NativeCodecPriority, FetchExtraTags,
-        // NoExceptionsFlag. Does NOT support PlaylistFolderTemplate
-        // (added in 3.0) or WrapperM3u8Ip (added in 3.1).
+        // v2.9.3 supports: NativeCodecPriority, NoExceptionsFlag. Does
+        // NOT support PlaylistFolderTemplate (added in 3.0) or
+        // WrapperM3u8Ip (added in 3.1). (FetchExtraTags plumbing was
+        // removed in #1000 once GAMDL v2 support itself was dropped —
+        // this test still exercises a hypothetical pre-3.0 version
+        // string since `is_version_at_least`/the version-math gates
+        // remain unconditionally correct outside the support window.)
         assert!(summary.contains("native_codec_priority"));
-        assert!(summary.contains("fetch_extra_tags"));
         assert!(summary.contains("no_exceptions_flag"));
         assert!(!summary.contains("playlist_folder_template"));
         assert!(!summary.contains("wrapper_m3u8_ip"));
@@ -1053,6 +1250,179 @@ mod tests {
         // else under the user's `gamdl>=…,<=…` cap.
         assert_eq!(pip_target_spec("3.3"), "gamdl==3.3");
         assert_eq!(pip_target_spec("4.0.1"), "gamdl==4.0.1");
+    }
+
+    // ----------------------------------------------------------------
+    // Wrapper-aware v2 → v3 upgrade target (#1001)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn last_wrapper_v1_version_predates_wrapper_v2_threshold() {
+        // wrapper-v2 landed in GAMDL 3.6 (`GamdlFeature::WrapperUrl`).
+        // The recommended v2.x-with-wrapper migration target must stay
+        // strictly below that threshold, or the whole point of the
+        // table (don't break a working wrapper-v1 setup) is defeated.
+        assert!(!is_version_at_least(LAST_WRAPPER_V1_VERSION, "3.6"));
+    }
+
+    #[test]
+    fn recommended_upgrade_target_v2_with_wrapper_stays_on_wrapper_v1() {
+        // A v2.x user running the wrapper must be offered the last
+        // wrapper-v1 release, not this build's fully-tested
+        // (wrapper-v2) `recommended` version.
+        let target = recommended_upgrade_target(Some("2.9.3"), true);
+        assert_eq!(target, LAST_WRAPPER_V1_VERSION);
+    }
+
+    #[test]
+    fn recommended_upgrade_target_v2_without_wrapper_gets_recommended() {
+        // No wrapper to protect — offer the best-tested release.
+        let target = recommended_upgrade_target(Some("2.9.3"), false);
+        assert_eq!(target, support_window().recommended);
+    }
+
+    #[test]
+    fn recommended_upgrade_target_already_v3_ignores_wrapper_flag() {
+        // Once already on v3.x (>= this build's floor), the v2->v3
+        // wrapper-protocol migration concern doesn't apply — both
+        // branches degrade to `recommended` regardless of `use_wrapper`.
+        let installed = support_window().minimum.clone();
+        assert_eq!(
+            recommended_upgrade_target(Some(&installed), true),
+            support_window().recommended
+        );
+        assert_eq!(
+            recommended_upgrade_target(Some(&installed), false),
+            support_window().recommended
+        );
+    }
+
+    #[test]
+    fn recommended_upgrade_target_none_installed_gets_recommended() {
+        // No installed version at all (fresh setup) — nothing to
+        // protect, offer the best-tested release regardless of the
+        // wrapper toggle's current setting.
+        assert_eq!(
+            recommended_upgrade_target(None, true),
+            support_window().recommended
+        );
+        assert_eq!(
+            recommended_upgrade_target(None, false),
+            support_window().recommended
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Per-platform ceiling overrides (#1014)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn current_platform_id_is_a_known_value() {
+        // Pure smoke test: whatever this build target is, the ID must
+        // be one of the canonical set (or "unknown" for an
+        // unrecognised OS) — never empty.
+        let id = current_platform_id();
+        assert!(!id.is_empty());
+        assert!([
+            "macos",
+            "windows-x86_64",
+            "windows-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-armv7",
+            "unknown",
+        ]
+        .contains(&id));
+    }
+
+    #[test]
+    fn effective_maximum_tested_falls_back_without_override() {
+        // No platform in the *shipped* tool-versions.toml is expected to
+        // have an override except "linux-armv7" (as of #1014's initial
+        // ARMv7 entry) — every other platform ID must see the global
+        // ceiling unchanged.
+        for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-x86_64", "linux-aarch64"] {
+            assert_eq!(
+                effective_maximum_tested(platform_id),
+                support_window().maximum_tested,
+                "{platform_id}: expected no override, got a different effective ceiling"
+            );
+        }
+    }
+
+    #[test]
+    fn effective_maximum_tested_uses_armv7_override_when_present() {
+        // This test is intentionally tolerant of the override being
+        // absent (e.g. a future edit removes it once upstream ships an
+        // ARMv7 wheel) — it only asserts the override, when present, is
+        // actually honoured rather than silently ignored.
+        let window = support_window();
+        if let Some(armv7_ceiling) = window.platform_ceilings.get("linux-armv7") {
+            assert_eq!(&effective_maximum_tested("linux-armv7"), armv7_ceiling);
+            // And it must differ from (be below) the global ceiling —
+            // otherwise the override is a no-op and shouldn't exist.
+            assert_ne!(armv7_ceiling, &window.maximum_tested);
+        }
+    }
+
+    #[test]
+    fn classify_for_platform_matches_classify_without_override() {
+        // For a platform with no override, classify_for_platform must
+        // be byte-identical to the plain classify() — this is the
+        // "zero risk for every other platform" invariant #1014 relies
+        // on.
+        for v in [
+            "2.8.0",
+            &support_window().minimum,
+            &support_window().maximum_tested,
+            "99.0.0",
+        ] {
+            assert_eq!(
+                classify_for_platform(Some(v), "linux-x86_64"),
+                classify(Some(v)),
+                "linux-x86_64 (no override) must match classify() for {v}"
+            );
+        }
+        assert_eq!(
+            classify_for_platform(None, "linux-x86_64"),
+            classify(None)
+        );
+    }
+
+    #[test]
+    fn classify_for_platform_armv7_respects_override_when_present() {
+        let window = support_window();
+        let Some(armv7_ceiling) = window.platform_ceilings.get("linux-armv7").cloned() else {
+            // No override configured — nothing to assert (see the
+            // tolerant comment on `effective_maximum_tested_uses_armv7_override_when_present`).
+            return;
+        };
+
+        // Exactly at the ARMv7 ceiling: Supported.
+        let at_ceiling = classify_for_platform(Some(&armv7_ceiling), "linux-armv7");
+        assert!(
+            at_ceiling.is_supported(),
+            "ARMv7 at its own ceiling ({armv7_ceiling}) must be Supported, got {at_ceiling:?}"
+        );
+
+        // Above the ARMv7 ceiling but still within (or at) the global
+        // ceiling: Untested on ARMv7 specifically, even though the same
+        // version is Supported globally.
+        let global_ceiling = window.maximum_tested.clone();
+        if is_version_at_least(&global_ceiling, &armv7_ceiling)
+            && global_ceiling != armv7_ceiling
+        {
+            let armv7_result = classify_for_platform(Some(&global_ceiling), "linux-armv7");
+            assert!(
+                matches!(armv7_result, VersionSupport::Untested { .. }),
+                "global ceiling ({global_ceiling}) exceeds the ARMv7 ceiling \
+                 ({armv7_ceiling}) so ARMv7 must classify it Untested, got {armv7_result:?}"
+            );
+            assert!(
+                classify(Some(&global_ceiling)).is_supported(),
+                "the same version must still be Supported on the global (non-ARMv7) window"
+            );
+        }
     }
 
     // -- GAMDL v3.6 capability gates (#853) -------------------------------
@@ -1272,7 +1642,7 @@ mod tests {
             );
         }
 
-        for v in ["3.8.2", "3.8.3", "3.8.4", "3.9", "4.0"] {
+        for v in ["3.8.2", "3.8.3", "3.8.4", "3.8.5", "3.9", "4.0"] {
             set_detected_version(Some(v.to_string()));
             assert!(
                 supports(GamdlFeature::WrapperDecryptHostPort),
@@ -1284,6 +1654,40 @@ mod tests {
         assert!(
             !supports(GamdlFeature::WrapperDecryptHostPort),
             "None: unknown version, split decrypt flags must NOT be emitted"
+        );
+
+        set_detected_version(None);
+    }
+
+    /// `AssetsApiUnlocksLossyCodecs` requires GAMDL v3.8 — the release
+    /// that added `/v1/play/assets`, unlocking every non-web codec
+    /// except ALAC for wrapper-less downloads (#963, #1002). Must be
+    /// `false` below 3.8 and on the unknown/None version, per the
+    /// safe-default policy.
+    #[test]
+    fn assets_api_unlocks_lossy_codecs_requires_v38() {
+        let _lock = test_lock();
+
+        for v in ["3.0", "3.6", "3.7.4"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                !supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
+                "{v}: assets API unlock must NOT be active (added in 3.8)"
+            );
+        }
+
+        for v in ["3.8", "3.8.1", "3.8.5", "3.9", "4.0"] {
+            set_detected_version(Some(v.to_string()));
+            assert!(
+                supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
+                "{v}: assets API unlock must be active"
+            );
+        }
+
+        set_detected_version(None);
+        assert!(
+            !supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
+            "None: unknown version, assets API unlock must NOT be active"
         );
 
         set_detected_version(None);

@@ -281,6 +281,9 @@ export function AdvancedTab() {
     // branch — safer than incorrectly enabling it on a 3.6.x install
     // where the flag has been removed (#867).
     ffmpeg_path: false,
+    // Defaults `false` until the dependency probe runs, matching every
+    // other capability's cache-empty default (#963, #1002).
+    assets_api_unlocks_lossy_codecs: false,
   });
 
   // ── API Field Audit state ──

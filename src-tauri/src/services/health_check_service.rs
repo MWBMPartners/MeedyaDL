@@ -17,7 +17,10 @@
 //
 // ## Checks
 //
-// 1. **Internet connectivity** — HTTP GET to `https://www.apple.com/` (5s timeout)
+// 1. **Internet connectivity** — two-tier probe: provider-neutral Tier 1
+//    (Cloudflare / Google), then a Tier 2 probe against the API of the
+//    detected download service (Apple Music by default, Spotify when the
+//    queued URL(s) resolve to `MediaServiceId::Spotify` — see A1)
 // 2. **Cookie validation** — Netscape format parsing, expiry check, Apple domain check
 // 3. **Wrapper health** — HTTP GET to the wrapper service URL (5s timeout)
 //
@@ -114,17 +117,18 @@ pub struct PreflightWarning {
 /// is working. This avoids false "no internet" warnings when Apple alone
 /// is experiencing an outage (which has happened with global CDN failures).
 ///
-/// **Tier 2 — Apple Music API reachability** (service-specific):
-/// Only runs if Tier 1 passes. Tests `amp-api.music.apple.com`, the actual
-/// API endpoint GAMDL connects to. Even a 401 Unauthorized response counts
-/// as "reachable" (proves TCP/TLS works to Apple's servers).
+/// **Tier 2 — Service API reachability** (service-specific):
+/// Only runs if Tier 1 passes. Tests the actual API endpoint the detected
+/// download service connects to (see [`tier2_probe_endpoint`]). Even a 401
+/// Unauthorized response counts as "reachable" (proves TCP/TLS works to
+/// that service's servers).
 ///
 /// ## Outcomes
 ///
 /// | Tier 1 | Tier 2 | Result |
 /// |--------|--------|--------|
 /// | Pass   | Pass   | No warning |
-/// | Pass   | Fail   | "Apple Music API unreachable (internet is working)" |
+/// | Pass   | Fail   | "<Service> is unreachable (internet is working)" |
 /// | Fail   | —      | "No internet connectivity" (Tier 2 skipped) |
 ///
 /// ## Performance
@@ -134,20 +138,25 @@ pub struct PreflightWarning {
 /// Each request has a 5-second timeout. Worst case (all fail): ~15 seconds
 /// (3 endpoints × 5s timeout), but this only happens when offline.
 ///
-/// ## Future-proofing
+/// ## Service-aware Tier 2 (A1)
 ///
-/// Tier 1 uses provider-neutral endpoints so it works for any service
-/// (Apple Music, Spotify, YouTube, BBC iPlayer — see planned milestones).
-/// Tier 2 can be extended per-service when additional services are added.
+/// `service` identifies which download service the queued URL(s) target —
+/// resolved by the caller (typically via
+/// [`crate::models::media_service::MediaServiceId::from_url`] against the
+/// first URL about to be queued). `None` — no URLs yet, an unrecognised
+/// URL, or a service without a dedicated probe (`YouTube`, `YouTube Music`,
+/// `BBC iPlayer` — planned milestones, no endpoint wired yet) — falls back
+/// to the original Apple Music probe, preserving this function's
+/// pre-existing behaviour byte-for-byte for every caller that doesn't pass
+/// a service (or passes `Some(MediaServiceId::AppleMusic)`).
 ///
 /// # Returns
-/// - `None` if the Apple Music API is reachable
+/// - `None` if the service's API is reachable
 /// - `Some(PreflightWarning)` with a message differentiating the failure mode
-pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .ok()?;
+pub async fn check_internet_connectivity(
+    service: Option<crate::models::media_service::MediaServiceId>,
+) -> Option<PreflightWarning> {
+    let client = crate::utils::http_client::build_simple(5).ok()?;
 
     // === Tier 1: General internet connectivity ===
     // Test provider-neutral endpoints. If any responds, internet is working.
@@ -165,9 +174,13 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
         try_reach(&client, "Google", "https://www.google.com/").await
     };
 
+    let (tier2_name, tier2_url) = tier2_probe_endpoint(service);
+
     if !has_internet {
         log::warn!("Pre-flight internet check: Tier 1 FAILED — no general internet connectivity");
-        log::info!("Pre-flight internet check: Tier 2 (Apple Music API) → skipped (no internet)");
+        log::info!(
+            "Pre-flight internet check: Tier 2 ({tier2_name}) → skipped (no internet)"
+        );
         return Some(PreflightWarning {
             check: PreflightCheck::Internet,
             message: "No internet connectivity — could not reach Cloudflare or Google. \
@@ -178,29 +191,62 @@ pub async fn check_internet_connectivity() -> Option<PreflightWarning> {
 
     log::info!("Pre-flight internet check: Tier 1 PASSED — general internet is working");
 
-    // === Tier 2: Apple Music API reachability ===
-    // Internet works, but can we reach the specific API endpoint GAMDL uses?
-    // Any HTTP response (including 401, 403) = reachable.
-    log::info!("Pre-flight internet check: starting Tier 2 (Apple Music API)");
-    if try_reach(
-        &client,
-        "Apple Music API",
-        "https://amp-api.music.apple.com/",
-    )
-    .await
-    {
+    // === Tier 2: service API reachability ===
+    // Internet works, but can we reach the specific API endpoint the
+    // detected service connects to? Any HTTP response (including 401, 403)
+    // counts as reachable.
+    log::info!("Pre-flight internet check: starting Tier 2 ({tier2_name})");
+    if try_reach(&client, tier2_name, tier2_url).await {
         log::info!("Pre-flight internet check: all tiers PASSED");
         return None; // Everything is reachable
     }
 
-    // Internet works but Apple Music API doesn't — service-specific issue
-    log::warn!("Pre-flight internet check: Tier 2 FAILED — Apple Music API unreachable (internet is working)");
+    // Internet works but the service's API doesn't — service-specific issue.
+    // Each branch's message string is the pre-existing, hand-authored
+    // wording — kept as literal `match` arms (not a `format!` template)
+    // so the Apple Music case stays byte-identical to the pre-A1 message
+    // and Spotify gets its own naturally-worded message rather than a
+    // generic "<Service> is unreachable" mad-lib.
+    log::warn!(
+        "Pre-flight internet check: Tier 2 FAILED — {tier2_name} unreachable (internet is working)"
+    );
+    let message = match service {
+        Some(crate::models::media_service::MediaServiceId::Spotify) => {
+            "Spotify API is unreachable (internet is working) — \
+             Spotify's servers may be temporarily unavailable or blocked by your network"
+                .to_string()
+        }
+        _ => "Apple Music API is unreachable (internet is working) — \
+              Apple's servers may be temporarily unavailable or blocked by your network"
+            .to_string(),
+    };
     Some(PreflightWarning {
         check: PreflightCheck::Internet,
-        message: "Apple Music API is unreachable (internet is working) — \
-                  Apple's servers may be temporarily unavailable or blocked by your network"
-            .to_string(),
+        message,
     })
+}
+
+/// Resolves the Tier 2 probe (display name, URL) for a detected download
+/// service.
+///
+/// `Some(MediaServiceId::AppleMusic)` and `None` intentionally produce the
+/// exact same `("Apple Music API", "https://amp-api.music.apple.com/")`
+/// pair this module used before A1 — combined with the literal message
+/// arms in [`check_internet_connectivity`], this keeps that case
+/// byte-identical to the pre-A1 hardcoded behaviour.
+///
+/// Services without a dedicated probe yet (`YouTubeMusic`, `YouTube`,
+/// `BBCiPlayer` — all planned milestones with no shipped engine to probe)
+/// fall back to the Apple Music endpoint too, matching the pre-A1 default
+/// rather than guessing at an endpoint that doesn't exist yet.
+fn tier2_probe_endpoint(
+    service: Option<crate::models::media_service::MediaServiceId>,
+) -> (&'static str, &'static str) {
+    use crate::models::media_service::MediaServiceId;
+    match service {
+        Some(MediaServiceId::Spotify) => ("Spotify API", "https://api.spotify.com/"),
+        _ => ("Apple Music API", "https://amp-api.music.apple.com/"),
+    }
 }
 
 /// Attempts a single HTTP GET and returns `true` if any response was received.
@@ -1150,5 +1196,58 @@ mod tests {
         std::fs::remove_file(&file).unwrap();
         assert!(result.is_some());
         assert!(result.unwrap().message.contains("not a directory"));
+    }
+
+    // ----------------------------------------------------------
+    // A1: service-aware Tier 2 probe selection
+    // ----------------------------------------------------------
+    //
+    // `tier2_probe_endpoint` is pure (no network I/O) so it's fully unit
+    // testable, unlike `check_internet_connectivity` itself which needs a
+    // live network. These tests pin (a) the byte-identical default/Apple
+    // Music behaviour required by A1, and (b) the new Spotify branch.
+
+    use crate::models::media_service::MediaServiceId;
+
+    #[test]
+    fn tier2_probe_defaults_to_apple_music_for_none() {
+        assert_eq!(
+            tier2_probe_endpoint(None),
+            ("Apple Music API", "https://amp-api.music.apple.com/")
+        );
+    }
+
+    #[test]
+    fn tier2_probe_apple_music_matches_pre_a1_hardcoded_endpoint() {
+        assert_eq!(
+            tier2_probe_endpoint(Some(MediaServiceId::AppleMusic)),
+            ("Apple Music API", "https://amp-api.music.apple.com/")
+        );
+    }
+
+    #[test]
+    fn tier2_probe_spotify_uses_spotify_api() {
+        assert_eq!(
+            tier2_probe_endpoint(Some(MediaServiceId::Spotify)),
+            ("Spotify API", "https://api.spotify.com/")
+        );
+    }
+
+    #[test]
+    fn tier2_probe_falls_back_to_apple_music_for_services_without_a_dedicated_probe() {
+        // YouTube Music / YouTube / BBC iPlayer are planned milestones with
+        // no shipped engine to probe yet — fall back to the pre-A1 default
+        // rather than guessing at a non-existent endpoint.
+        for service in [
+            MediaServiceId::YouTubeMusic,
+            MediaServiceId::YouTube,
+            MediaServiceId::BBCiPlayer,
+        ] {
+            assert_eq!(
+                tier2_probe_endpoint(Some(service)),
+                ("Apple Music API", "https://amp-api.music.apple.com/"),
+                "{service:?} should fall back to the Apple Music probe"
+            );
+        }
     }
 }

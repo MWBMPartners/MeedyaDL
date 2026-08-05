@@ -13,9 +13,11 @@
 // ## Subprocess shape
 //
 // Every votify invocation is launched as `python -m votify <urls> <flags>`,
-// using the portable Python from `platform::get_python_binary_path`.
-// This guarantees we use the managed Python (not a system one) and
-// avoids PATH lookups for the `votify` console-script entry point.
+// using the managed Python resolved via `platform::resolve_managed_python_binary`
+// (venv-aware — see #1017: a reused system Python is provisioned as a venv,
+// which on Windows puts `python.exe` under `Scripts/` rather than at the
+// portable root). This guarantees we use the managed Python (not a system
+// one) and avoids PATH lookups for the `votify` console-script entry point.
 //
 // ## Anti-ban posture in this file
 //
@@ -72,7 +74,12 @@ pub async fn install_votify(
     log::info!("Installing votify via pip...");
 
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix) — a reused system Python is
+    // provisioned as a venv, which on Windows puts `python.exe` under
+    // `Scripts/` rather than at the portable root. Using the pure
+    // `get_python_binary_path` here made votify installs silently fail
+    // with "Python is not installed" on Windows + system-venv setups.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err(
@@ -133,7 +140,8 @@ pub async fn install_votify(
 /// * `pip show` failed to spawn / timed out → `Err(_)`.
 pub async fn get_votify_version(app: &AppHandle) -> Result<Option<String>, String> {
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix) — see `install_votify` above.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Ok(None);
@@ -238,7 +246,12 @@ fn build_votify_command(
     options: &VotifyOptions,
 ) -> Result<Command, String> {
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix) — see `install_votify` above.
+    // This call site matters most in practice: it's the one that builds
+    // the actual `python -m votify` subprocess for every real Spotify
+    // download, so a Windows + system-venv user would have every download
+    // fail at this exact check without the fix.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err("Python is not installed. Run the setup wizard first.".to_string());

@@ -240,7 +240,21 @@ pub fn get_python_binary_path(python_dir: &Path) -> PathBuf {
 /// you specifically mean "where the portable install writes its binary".
 #[must_use]
 pub fn resolve_managed_python_binary(python_dir: &Path) -> PathBuf {
-    if cfg!(target_os = "windows") {
+    resolve_managed_python_binary_for(python_dir, cfg!(target_os = "windows"))
+}
+
+/// OS-parameterised core of [`resolve_managed_python_binary`].
+///
+/// Split out so the Windows venv-vs-portable priority logic can be unit
+/// tested on any host OS — `cfg!(target_os = "windows")` is a compile-time
+/// constant, so a test suite built on Linux/macOS can never exercise the
+/// `true` branch of the public function directly. Taking `is_windows` as a
+/// plain `bool` parameter makes the branch reachable in tests regardless of
+/// which platform actually compiled the test binary.
+///
+/// See [`resolve_managed_python_binary`] for the full behavioural contract.
+fn resolve_managed_python_binary_for(python_dir: &Path, is_windows: bool) -> PathBuf {
+    if is_windows {
         // Portable (install_only) → root python.exe. venv → Scripts/python.exe.
         let root = python_dir.join("python.exe");
         if root.exists() {
@@ -506,5 +520,99 @@ mod tests {
                 "On Unix, python3 and pip3 should share the same parent directory (bin/)"
             );
         }
+    }
+
+    // ----------------------------------------------------------
+    // resolve_managed_python_binary (#1017 Windows system-venv fix)
+    // ----------------------------------------------------------
+    //
+    // These tests drive `resolve_managed_python_binary_for` directly with an
+    // explicit `is_windows` bool rather than relying on the host OS running
+    // the test suite — `cfg!(target_os = "windows")` is resolved at compile
+    // time, so a Linux/macOS CI runner can never reach the Windows branch of
+    // the public `resolve_managed_python_binary` wrapper. Parameterising the
+    // core logic makes the venv-vs-portable priority order testable
+    // everywhere, matching the bug this covers (A3): the venv layout
+    // (`Scripts/python.exe`) was being silently ignored by call sites that
+    // used the pure `get_python_binary_path` instead of this resolver.
+
+    /// On Windows, when only the portable root `python.exe` exists, the
+    /// resolver must return the root path (the common, non-venv case).
+    #[test]
+    fn resolve_managed_python_windows_prefers_portable_root_when_present() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let root_bin = tmp.path().join("python.exe");
+        std::fs::write(&root_bin, b"").expect("failed to create fake root python.exe");
+
+        let result = resolve_managed_python_binary_for(tmp.path(), true);
+        assert_eq!(result, root_bin);
+    }
+
+    /// On Windows, when ONLY the `venv` layout exists (`Scripts/python.exe`)
+    /// — the shape produced by `provision_venv_from_system_python` (#1017)
+    /// — the resolver must find it instead of defaulting to the
+    /// (non-existent) portable root. This is the exact regression this
+    /// test guards: before the fix, callers using `get_python_binary_path`
+    /// would compute the portable-root path unconditionally and then fail
+    /// an `.exists()` check, reporting "Python is not installed" even
+    /// though a perfectly good system-venv Python was sitting in
+    /// `Scripts/`.
+    #[test]
+    fn resolve_managed_python_windows_finds_venv_scripts_when_root_absent() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let scripts_dir = tmp.path().join("Scripts");
+        std::fs::create_dir_all(&scripts_dir).expect("failed to create Scripts dir");
+        let venv_bin = scripts_dir.join("python.exe");
+        std::fs::write(&venv_bin, b"").expect("failed to create fake venv python.exe");
+
+        let result = resolve_managed_python_binary_for(tmp.path(), true);
+        assert_eq!(result, venv_bin);
+    }
+
+    /// On Windows, when neither layout exists yet (fresh machine, or a
+    /// pre-install existence probe), the resolver falls back to the
+    /// portable-root path so "not installed" detection keeps working.
+    #[test]
+    fn resolve_managed_python_windows_defaults_to_root_when_neither_exists() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+
+        let result = resolve_managed_python_binary_for(tmp.path(), true);
+        assert_eq!(result, tmp.path().join("python.exe"));
+    }
+
+    /// Portable root takes priority over the venv layout when (in an
+    /// unexpected state) both happen to exist on disk.
+    #[test]
+    fn resolve_managed_python_windows_root_wins_when_both_exist() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let root_bin = tmp.path().join("python.exe");
+        std::fs::write(&root_bin, b"").expect("failed to create fake root python.exe");
+        let scripts_dir = tmp.path().join("Scripts");
+        std::fs::create_dir_all(&scripts_dir).expect("failed to create Scripts dir");
+        std::fs::write(scripts_dir.join("python.exe"), b"")
+            .expect("failed to create fake venv python.exe");
+
+        let result = resolve_managed_python_binary_for(tmp.path(), true);
+        assert_eq!(result, root_bin);
+    }
+
+    /// On Unix, the resolver always returns `bin/python3` regardless of
+    /// what exists on disk — portable and venv layouts are identical there.
+    #[test]
+    fn resolve_managed_python_unix_always_bin_python3() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+
+        let result = resolve_managed_python_binary_for(tmp.path(), false);
+        assert_eq!(result, tmp.path().join("bin").join("python3"));
+    }
+
+    /// The public wrapper delegates to the OS-parameterised core using the
+    /// real compile-time OS — a smoke test that the two stay in sync.
+    #[test]
+    fn resolve_managed_python_binary_matches_parameterised_core_for_host_os() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        let expected =
+            resolve_managed_python_binary_for(tmp.path(), cfg!(target_os = "windows"));
+        assert_eq!(resolve_managed_python_binary(tmp.path()), expected);
     }
 }

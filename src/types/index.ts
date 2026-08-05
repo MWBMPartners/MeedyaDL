@@ -132,6 +132,17 @@ export type CoverFormat = 'jpg' | 'png' | 'raw';
 export type CoverArtName = 'cover' | 'front_cover' | 'folder';
 
 /**
+ * Resolution ceiling for animated (motion) artwork HLS downloads (#972).
+ *
+ * Mirrors: Rust enum `AnimatedArtworkResolution` in `src-tauri/src/models/settings.rs`
+ *
+ * - `fhd`: Cap at ~1080p (Full HD). Smallest files; recommended default.
+ * - `uhd`: Cap at ~2160p (4K / Ultra HD).
+ * - `max`: No cap — always pick the highest-resolution HLS rendition available.
+ */
+export type AnimatedArtworkResolution = 'fhd' | 'uhd' | 'max';
+
+/**
  * Zero-padding strategy for the `{track}` placeholder in filename templates (#587).
  *
  * Mirrors: Rust enum `TrackNumberPadding` in `src-tauri/src/models/settings.rs`
@@ -448,8 +459,6 @@ export interface GamdlOptions {
   exclude_tags?: string;
   /** When true, uses album release date instead of track date */
   use_album_date?: boolean;
-  /** When true, fetches additional metadata tags from the API */
-  fetch_extra_tags?: boolean;
   /** Template string for the date tag format */
   date_tag_template?: string;
   /** Template for album folder names (supports {artist}, {album}, etc.) */
@@ -662,6 +671,8 @@ export interface AppSettings {
   hide_animated_artwork: boolean;
   /** Download artist promotional video (editorial motion art) to the artist folder */
   artist_promo_video_enabled: boolean;
+  /** Resolution ceiling for animated artwork HLS downloads (#972). Default: 'fhd' (~1080p) */
+  animated_artwork_resolution: AnimatedArtworkResolution;
   /**
    * Cross-platform best-cover-art picker (M9-3). When enabled,
    * MeedyaDL queries every supported platform's artwork endpoint
@@ -771,8 +782,6 @@ export interface AppSettings {
   wrapper_url: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
-  /** Whether to fetch extra metadata tags (normalization, smooth playback) */
-  fetch_extra_tags: boolean;
   /** List of metadata tags to exclude from output files */
   exclude_tags: string[];
   /** Whether to send anonymous crash reports to Sentry (opt-in, default: false) */
@@ -1490,6 +1499,25 @@ export interface WrapperTestResult {
   response_time_ms: number | null;
   /** Human-readable error message if connection failed */
   error: string | null;
+}
+
+/**
+ * Result of a word-level (syllable) lyrics connectivity probe (#934).
+ * Returned by the `test_lyrics_connection` Tauri command.
+ *
+ * @see LyricsTab "Test word-level lyrics connection" button
+ */
+export interface TestLyricsConnectionResult {
+  /** Which mechanism supplied the MusicKit developer token, or `null` if none resolved. */
+  token_source: 'user_credentials' | 'web_player' | null;
+  /** Whether a (non-expired) Media-User-Token cookie was found. */
+  music_user_token_present: boolean;
+  /** Coarse outcome classification of the probe. */
+  granularity: 'word' | 'line' | 'none' | 'skipped';
+  /** Human-readable guidance when the result isn't a clean "word" success. */
+  error_hint: string | null;
+  /** Overall pass/fail. `true` only for a "word" or "line" outcome. */
+  success: boolean;
 }
 
 /**

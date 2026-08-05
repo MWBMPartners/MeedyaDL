@@ -15,6 +15,15 @@
 # Minor/patch updates are grouped into a single PR per ecosystem to reduce
 # noise. Security updates are always created immediately (not batched).
 #
+# IMPORTANT — security updates ignore `target-branch`. The `target-branch: alpha`
+# set below routes only Dependabot *version* updates. Dependabot *security*
+# updates always open against the repository's DEFAULT branch (`main`) and cannot
+# be redirected — GitHub provides no config for it. So a security fix would land
+# on `main` only and leave the `alpha`/`beta`/`release-candidate` channels
+# exposed. `.github/workflows/forward-port-security.yml` closes that gap: when a
+# Dependabot PR merges to `main`, it cherry-picks the fix onto each channel
+# branch and opens a PR there (or files a tracking issue if it conflicts).
+#
 # @see https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 
 version: 2

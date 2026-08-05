@@ -42,6 +42,33 @@
 github_repo = "MeedyaSuite/MeedyaDL-Tools"
 release_tag = "latest"
 
+# Optional per-asset SHA-256 pins (#987). Wires `expected_sha256` through
+# `archive::download_and_extract_verified()` for mirror-sourced downloads
+# so a corrupted or tampered mirror asset is rejected BEFORE extraction
+# instead of being silently unpacked and executed.
+#
+# Uncomment and populate to pin specific mirror assets:
+#
+# [mirror.asset_hashes]
+# "ffmpeg-linux-x86_64.tar.gz" = "0000000000000000000000000000000000000000000000000000000000000000"
+# "mp4box-windows-x86_64.zip"  = "0000000000000000000000000000000000000000000000000000000000000000"
+#
+# Keys are the FULL mirror asset filename (matched case-insensitively by
+# `load_mirror_asset_hash()`), not a tool ID or prefix — the mirror can
+# publish multiple assets per tool (per-platform, per-arch), each needing
+# its own pin. An asset with no entry here downloads unverified (back-
+# compat default; matches pre-#987 behaviour for every asset that isn't
+# explicitly pinned).
+#
+# IMPORTANT: the mirror repository (MeedyaSuite/MeedyaDL-Tools) republishes
+# its `latest` release tag's assets periodically (tracking upstream tool
+# updates), so a static hash pinned against a moving `release_tag` will
+# eventually go stale and start rejecting legitimate downloads. Pins here
+# only make sense paired with pinning `release_tag` above to a specific,
+# immutable release rather than "latest" — otherwise prefer leaving this
+# table absent/empty and relying on the primary upstream source's own
+# integrity guarantees (HTTPS + GitHub Releases immutability).
+
 [ffmpeg]
 minimum_version = "5.0"
 binary_name = "ffmpeg"
@@ -83,6 +110,33 @@ version_flag = "--version"
 minimum_version = "1.60.0"
 binary_name = "rclone"
 version_flag = "version"
+
+# Optional pinned Windows GPAC NSIS installer (#987).
+#
+# `install_mp4box_windows()` previously downloaded and SILENTLY EXECUTED
+# GPAC's Windows nightly build (`gpac_latest_head_win64.exe`) with no
+# checksum verification at all — nightlies have no published, stable
+# checksum to verify against (the binary changes on every CI run), so
+# there was never a way to confirm the downloaded installer was the one
+# GPAC actually built. MeedyaDL no longer runs an unverifiable installer;
+# with this section absent (the default), Windows GPAC installation skips
+# straight to the MeedyaSuite/MeedyaDL-Tools mirror fallback instead.
+#
+# Uncomment and populate to opt back into the native NSIS installer path,
+# pointed at a SPECIFIC, STABLE GPAC release (not the nightly "latest"
+# permalink) with its real published SHA-256:
+#
+# [gpac.windows_installer]
+# url = "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
+# sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+#
+# `sha256` must be exactly 64 lowercase hex characters — anything else is
+# treated as "not configured" (logged via `log::warn!`) and the installer
+# falls back to the mirror, same as the section being absent entirely.
+# `"gpac"` is intentionally not one of the `tool_id`s in `TOOLS` above
+# (MP4Box is installed via platform-specific installer functions, not the
+# generic `get_tool_download_url()` dispatch), so this section is scoped
+# under its own `[gpac.*]` table rather than `[mp4box.windows_installer]`.
 
 # GAMDL is installed via pip (not as a standalone binary) so the
 # `binary_name` / `version_flag` fields above don't apply. Instead we
@@ -557,11 +611,74 @@ minimum_version = "3.0"
 #   PRE-RELEASE GATE: carry the 3.8.2 live smoke-test forward, RETARGETED at
 #   3.8.4 — add a song-ending integrity check on a wrapper-decrypted ALAC song
 #   (3.8.2 is now known-bad there per `e4887d34`).
-maximum_tested_version = "3.8.4"
+#
+# 3.8.5 audit (#1074, 2026-08-03, audit doc at
+# `.github/audits/gamdl-v3.8.5-audit.md`) — DECISION: **ADMITTED**
+# (ceiling 3.8.4 → 3.8.5). ZERO-CODE-CHANGE ceiling bump (same shape as
+# 3.3 / 3.5 / 3.5.1 / 3.5.2 / 3.7.4 / 3.8.1 / 3.8.3+3.8.4). The whole
+# 3.8.4→3.8.5 delta is 2 commits / 4 files:
+#   * The ONLY functional change (`20e1b76d`) is private `_`-prefixed DRM
+#     key-extraction methods inside `gamdl/interface/song.py` — drops the
+#     base64 audio-session-key-metadata fast-path; DRM keys are now ALWAYS
+#     read from the media m3u8's `#EXT-X-KEY` tags via the pre-existing
+#     `_get_drm_uri_from_m3u8_keys` (deletes `_get_m3u8_metadata` /
+#     `_get_audio_session_key_metadata` / `_get_asset_metadata` /
+#     `_get_drm_uri_from_session_key` + the now-unused `base64`/`json`
+#     imports). Internal to GAMDL's HLS key selection — MeedyaDL never
+#     parses m3u8s or session-key metadata. No CLI / INI / exception /
+#     log / output / wrapper / ammuxer change.
+#   Wheel gate re-verified LIVE (PyPI JSON, 2026-08-03): 3.8.5 ships the
+#   IDENTICAL 5-platform `cp310-abi3` set (macOS universal2, Win x64/ARM64,
+#   Linux x64/aarch64) + sdist, `requires-python >=3.10` — still no ARMv7
+#   wheel, so `gamdl>=3.0,<=3.8.5` + `--only-binary=gamdl` resolves 3.8.5
+#   on 5/6 and ARMv7 keeps falling back to 3.8.1 — unchanged behaviour.
+#   `gamdl/api/wrapper.py` untouched ⇒ `TARGET_WRAPPER_API_VERSION` stays
+#   0.0.2, so the `/me` preflight + every 3.8.2-keyed gate (via
+#   `GamdlFeature::WrapperDecryptHostPort` >= 3.8.2) inherit 3.8.5 by
+#   version math. No `GamdlFeature`, regex, classifier, or settings-schema
+#   change.
+#   PRE-RELEASE GATE: carry the 3.8.4 live smoke-test forward, RETARGETED
+#   at 3.8.5 — keep the song-ending integrity check, and treat the
+#   wrapper-less non-web-codec `aac` leg as the validation of the rewritten
+#   m3u8 `#EXT-X-KEY` key-extraction path.
+maximum_tested_version = "3.8.5"
 # What the installer will resolve to when run with no override. Always
 # within `[minimum_version, maximum_tested_version]`. ARMv7 auto-falls-back
-# to 3.8.1 via `--only-binary` since 3.8.2–3.8.4 have no ARMv7 wheel.
-recommended_version = "3.8.4"
+# to 3.8.1 via `--only-binary` since 3.8.2–3.8.5 have no ARMv7 wheel.
+recommended_version = "3.8.5"
+
+# Per-platform ceiling overrides (#1014). `maximum_tested_version` above
+# is the GLOBAL ceiling — the version every platform is validated up to.
+# `pip_version_spec()` / `install_gamdl`'s bounded `--only-binary=gamdl`
+# resolve (see the 3.8.2 audit above) already make the ACTUAL installed
+# version correct per-platform today: on Linux ARMv7, pip naturally
+# resolves down to 3.8.1 because that's the newest version with an
+# ARMv7-compatible wheel, even though the requested range reaches 3.8.5.
+#
+# This table exists so `gamdl_capabilities::classify_for_platform()` can
+# reflect that same per-platform reality WITHOUT a network call (unlike
+# `update_checker::no_compatible_wheel`, which queries PyPI). A platform
+# listed here has its effective `maximum_tested_version` overridden to
+# the given value for classification purposes (startup activity-log
+# line, component dashboard) — it does NOT change `minimum_version`,
+# `recommended_version`, or `pip_version_spec()`'s bounds, all of which
+# stay global; only `services::gamdl_capabilities::classify_for_platform()`
+# / `effective_maximum_tested()` consult this table. A platform absent
+# from this table simply tracks the global ceiling — this is the common
+# case and requires no entry.
+#
+# linux-armv7 = "3.8.1" — GAMDL 3.8.2 replaced Python `amdecrypt.py`
+# with a compiled Rust `ammuxer` extension shipped as `cp310-abi3`
+# wheels for macOS universal2, Windows x64/ARM64, and Linux
+# x86_64/aarch64 — but NOT Linux ARMv7 (32-bit ARM has no published
+# wheel through at least 3.8.5; see the 3.8.2 / 3.8.3+3.8.4 / 3.8.5
+# audits above, all independently re-verified live against PyPI).
+# ARMv7's sdist-only path would need a Rust toolchain MeedyaDL's managed
+# Python environment doesn't ship, so 3.8.1 (the last pure-Python
+# release) remains ARMv7's real ceiling until upstream publishes an
+# ARMv7 wheel or MeedyaDL bundles a Rust toolchain for that target.
+[gamdl.platform_ceilings]
+linux-armv7 = "3.8.1"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases

@@ -20,10 +20,14 @@ The quality settings in MeedyaDL map directly to the codec and resolution option
 
 ## Codec Reliability Notice
 
-Most audio codecs are marked **(Experimental)** in MeedyaDL's codec selector. This means they may fail intermittently when using cookie-based authentication. Only two codecs are reliably downloadable without the Wrapper service:
+Most audio codecs are marked **(Experimental)** in MeedyaDL's codec selector. This means they may fail intermittently when using cookie-based authentication. **On GAMDL versions before 3.8**, only two codecs are reliably downloadable without the Wrapper service:
 
 - **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies. **Renamed to `aac-web` on GAMDL 3.6+** but represents the same on-disk M4A file.
 - **AAC-HE Legacy** (64kbps) — reliable with cookies. **Renamed to `aac-he-web` on GAMDL 3.6+**.
+
+### On GAMDL 3.8 and newer, most of that changes
+
+GAMDL 3.8 added a new HLS asset endpoint that lets every codec except **ALAC (Lossless)** download with cookie-based authentication alone — including **Dolby Atmos** and **AC3**, which previously needed the Wrapper on every earlier release. Codecs are still labelled **(Experimental)** regardless of GAMDL version — they can still fail intermittently — but on GAMDL 3.8+ only ALAC actually depends on the Wrapper for reliable downloads. See [Wrapper Authentication](wrapper.md) for the full version-by-version breakdown.
 
 ### Why "Legacy" is misleading and why it became "Web" in GAMDL 3.6
 
@@ -40,7 +44,7 @@ On GAMDL 3.6+, the codec.is_web property in upstream's source makes this routing
 
 1. **Retry** — failures via cookie-only auth are intermittent for non-web codecs
 2. **Enable the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Use the Wrapper service** — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 has native Windows / macOS / Linux ports; wrapper-v2 (GAMDL 3.6+) requires Docker on macOS/Windows.
+3. **Use the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 has native Windows / macOS / Linux ports; wrapper-v2 (GAMDL 3.6+) requires Docker on macOS/Windows.
 
 ---
 

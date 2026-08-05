@@ -57,7 +57,12 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// User-Agent header required by MusicBrainz Terms of Service.
 /// Must identify the application and provide a contact URL.
-const USER_AGENT: &str = "MeedyaDL/0.6 (https://github.com/MWBMPartners/MeedyaDL)";
+///
+/// Aliased to the shared `APP_USER_AGENT` constant (was previously a
+/// hardcoded `"MeedyaDL/0.6"` literal that silently drifted out of sync
+/// with the app's actual version as it moved through the 1.x line —
+/// exactly the stale-version ToS defect this alias fixes).
+const USER_AGENT: &str = crate::utils::http_client::APP_USER_AGENT;
 
 // ============================================================
 // Public Types

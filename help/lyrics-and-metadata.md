@@ -68,6 +68,10 @@ Enhanced LRC extends the standard LRC format with inline word-level timestamps, 
 
 Enhanced LRC is enabled by default. The toggle is in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**. When enabled, TTML is automatically set as the primary lyrics download format (since the raw TTML is needed for conversion). You can still select LRC and SRT as **companion formats** — they will be downloaded alongside the primary TTML. This gives you Enhanced LRC (from TTML conversion) plus standard lyrics files in other formats for maximum compatibility.
 
+**Testing your connection:**
+
+Settings > Lyrics includes a **Test word-level lyrics connection** button next to the Enhanced Lyrics toggle. It checks whether MeedyaDL can currently fetch word-level (syllable) lyrics from Apple Music -- without waiting for a full download. The test resolves your MusicKit developer token the same way a real download does (your own MusicKit credentials, falling back to the developer token captured from your Apple Music web-player session if you haven't configured your own), reads the Media-User-Token from your imported cookies, and probes Apple's syllable-lyrics endpoint against a known song. A green result means word-level timing came back and Enhanced LRC will work (noting when it succeeded via your web-player session rather than configured credentials); an amber result means the endpoint responded but only with line-level timing; anything else comes with guidance on what to fix -- signing in to Apple Music, configuring MusicKit credentials in Settings > Advanced, or re-importing cookies.
+
 ### SRT (SubRip Subtitle)
 
 SRT is a numbered subtitle format with start and end timestamps for each entry. It is the standard subtitle format for video content:

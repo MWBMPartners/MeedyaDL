@@ -287,6 +287,55 @@ fn default_cover_art_name() -> CoverArtName {
     CoverArtName::FrontCover
 }
 
+/// User-configurable resolution ceiling for animated (motion) artwork
+/// downloads (#972).
+///
+/// Apple's animated-artwork CDN serves the motion art as an HLS master
+/// playlist with several ABR renditions (e.g. 640x640, 1080x1080,
+/// 2160x2160 for the square variant — dimensions vary by title). Before
+/// this setting, MeedyaDL always let FFmpeg's default HLS variant
+/// selection pick a rendition, which in practice tends to land on the
+/// highest available — needlessly large downloads (tens of MB per
+/// video) for users who just want the animated cover to look fine at
+/// normal player sizes.
+///
+/// Named after the informal ITAM ("It's All Mine" / iTunes-Apple-Music
+/// tooling community) preset vocabulary — L (~1080p), XL (~2160p/4K),
+/// Max (uncapped) — which this enum mirrors as `Fhd` / `Uhd` / `Max`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AnimatedArtworkResolution {
+    /// Cap at ~1080p (Full HD). Smallest files; recommended default —
+    /// indistinguishable from higher renditions on most displays given
+    /// how small the artwork is typically shown.
+    Fhd,
+    /// Cap at ~2160p (4K / Ultra HD). Noticeably larger files than Fhd
+    /// for a quality difference most users won't perceive at normal
+    /// artwork display sizes.
+    Uhd,
+    /// No cap — always pick the highest-resolution rendition the HLS
+    /// master playlist offers, regardless of size. Pre-#972 behaviour.
+    Max,
+}
+
+impl AnimatedArtworkResolution {
+    /// Returns the target pixel height to request from the HLS variant
+    /// selector, or `None` for `Max` (no cap — let the selector pick the
+    /// highest available rendition).
+    #[must_use]
+    pub fn target_height(&self) -> Option<u32> {
+        match self {
+            Self::Fhd => Some(1080),
+            Self::Uhd => Some(2160),
+            Self::Max => None,
+        }
+    }
+}
+
+fn default_animated_artwork_resolution() -> AnimatedArtworkResolution {
+    AnimatedArtworkResolution::Fhd
+}
+
 /// User-configurable zero-padding for the `{track}` placeholder in
 /// filename templates (#587).
 ///
@@ -1132,6 +1181,14 @@ pub struct AppSettings {
     #[serde(default)]
     pub artist_promo_video_enabled: bool,
 
+    /// Resolution ceiling for animated (motion) artwork HLS downloads
+    /// (#972) — applies to `FrontCover.mp4` / `FrontCoverPortrait.mp4`
+    /// and `ArtistSpotlightCover.mp4`. Default: `Fhd` (~1080p), a
+    /// deliberate behaviour change from the pre-#972 always-highest
+    /// selection to keep animated artwork file sizes reasonable.
+    #[serde(default = "default_animated_artwork_resolution")]
+    pub animated_artwork_resolution: AnimatedArtworkResolution,
+
     /// When enabled, MeedyaDL fetches the static cover art for an
     /// album from every supported platform in parallel (Apple Music,
     /// Spotify, future MusicBrainz / Tidal / Bandcamp) and embeds the
@@ -1410,12 +1467,6 @@ pub struct AppSettings {
     /// for tracks with very long titles that would exceed filesystem
     /// limits. Maps to `GamdlOptions::truncate`.
     pub truncate: Option<u32>,
-
-    /// Whether to fetch extra metadata tags (normalization, smooth playback
-    /// info, etc.) from Apple Music. When `true`, GAMDL makes additional API
-    /// calls to retrieve richer metadata. Maps to `GamdlOptions::fetch_extra_tags`
-    /// / GAMDL `--fetch-extra-tags`.
-    pub fetch_extra_tags: bool,
 
     /// Tags to exclude from metadata embedding. Each entry is a tag name
     /// (e.g., `"lyrics"`, `"comment"`). Stored as a `Vec` in settings
@@ -1801,7 +1852,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 7;
+pub const CURRENT_SETTINGS_VERSION: u32 = 8;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -2001,6 +2052,11 @@ impl Default for AppSettings {
             // folder when available. Gracefully skips when no credentials or
             // no promo video exists. Skipped for compilation albums.
             artist_promo_video_enabled: true,
+            // #972: cap animated artwork HLS renditions at ~1080p by
+            // default — the pre-#972 behaviour always picked the highest
+            // available rendition, which is needlessly large for how
+            // small this artwork is typically displayed.
+            animated_artwork_resolution: default_animated_artwork_resolution(),
             // Off by default (M9-3): opt-in cross-platform cover-art
             // resolution race. The feature issues one extra HTTP call
             // per non-Apple platform per album, so we don't enable it
@@ -2088,9 +2144,6 @@ impl Default for AppSettings {
             wrapper_url: default_wrapper_url(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
-            // Fetch extra metadata (normalization, smooth playback info, etc.)
-            // by default. Richer metadata is worth the small extra API overhead.
-            fetch_extra_tags: true,
             // No tags excluded by default -- embed all available metadata.
             exclude_tags: Vec::new(),
 
@@ -2407,7 +2460,6 @@ mod tests {
             deserialized.wrapper_account_url,
             settings.wrapper_account_url
         );
-        assert_eq!(deserialized.fetch_extra_tags, settings.fetch_extra_tags);
 
         // UI state
         assert_eq!(deserialized.sidebar_collapsed, settings.sidebar_collapsed);

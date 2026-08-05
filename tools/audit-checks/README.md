@@ -16,6 +16,7 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | --- | --- | --- |
 | `check_ipc_commands.py` | Tauri IPC contract: every `#[tauri::command]` is registered in `lib.rs`'s `generate_handler![]`, and every frontend `invoke('x')` targets a registered command. | A button that calls a command the backend never registered → runtime "command not found". |
 | `check_codec_registry.py` | `codecs.toml` integrity: every meta-codec `resolves_to` target is a real codec section, and every audio `services.gamdl` flag is a real `SongCodec` variant. | A renamed/removed codec leaving the registry pointing at nothing → download fails. |
+| `check_user_agent.py` | Outbound User-Agent consistency: every `.header("User-Agent", ...)` / `.user_agent(...)` call site uses the shared `APP_USER_AGENT` constant (or the deliberate `APPLE_BROWSER_USER_AGENT`), never a hand-typed string literal. | A new call site hardcoding its own UA string, silently drifting out of sync with the app version (the MusicBrainz `"MeedyaDL/0.6"` defect this check exists to prevent recurring). |
 
 ## Running locally
 
@@ -23,10 +24,12 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 # Advisory (always exits 0; prints any findings) — what a quick check looks like
 python3 tools/audit-checks/check_ipc_commands.py
 python3 tools/audit-checks/check_codec_registry.py
+python3 tools/audit-checks/check_user_agent.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
 python3 tools/audit-checks/check_ipc_commands.py --strict
 python3 tools/audit-checks/check_codec_registry.py --strict
+python3 tools/audit-checks/check_user_agent.py --strict
 ```
 
 ## Conventions

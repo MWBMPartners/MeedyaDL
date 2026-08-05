@@ -107,6 +107,89 @@ fn load_mirror_config() -> Option<MirrorConfig> {
     toml::from_str(&toml::to_string(mirror_table).ok()?).ok()
 }
 
+/// Loads a pinned SHA-256 hash for a specific mirror asset filename, from
+/// the compiled `tool-versions.toml`'s optional `[mirror.asset_hashes]`
+/// table (#987).
+///
+/// Returns `None` when the table is absent, malformed, or simply doesn't
+/// list this asset — every one of those cases means "unverified",
+/// preserving pre-#987 behaviour (mirror downloads proceed without
+/// checksum verification unless explicitly pinned).
+fn load_mirror_asset_hash(asset_filename: &str) -> Option<String> {
+    let hash = parse_mirror_asset_hash(TOOL_VERSIONS_TOML, asset_filename);
+    if let Some(ref h) = hash {
+        log::info!("Found pinned SHA-256 for mirror asset '{asset_filename}': {h}");
+    }
+    hash
+}
+
+/// Pure parsing core for [`load_mirror_asset_hash()`], factored out so it
+/// can be unit tested against inline TOML fixtures without depending on
+/// the compiled `tool-versions.toml` file.
+///
+/// Filename matching is case-insensitive (mirror asset names are produced
+/// by CI tooling and casing can vary by platform/runner).
+fn parse_mirror_asset_hash(toml_src: &str, asset_filename: &str) -> Option<String> {
+    let config: toml::Value = toml::from_str(toml_src).ok()?;
+    let hashes_table = config.get("mirror")?.get("asset_hashes")?.as_table()?;
+    let target_lower = asset_filename.to_lowercase();
+    hashes_table.iter().find_map(|(key, value)| {
+        if key.to_lowercase() == target_lower {
+            value.as_str().map(str::to_string)
+        } else {
+            None
+        }
+    })
+}
+
+/// A pinned Windows GPAC NSIS installer URL + expected SHA-256, parsed
+/// from the compiled `tool-versions.toml`'s optional
+/// `[gpac.windows_installer]` table (#987).
+struct GpacWindowsInstallerPin {
+    url: String,
+    sha256: String,
+}
+
+/// Loads the pinned Windows GPAC NSIS installer configuration, if present.
+///
+/// Returns `None` when the `[gpac.windows_installer]` section is absent
+/// (the default) or malformed — in both cases `install_mp4box_windows()`
+/// skips straight to the mirror fallback rather than executing an
+/// unverifiable download.
+fn load_gpac_windows_installer_pin() -> Option<GpacWindowsInstallerPin> {
+    parse_gpac_windows_installer_pin(TOOL_VERSIONS_TOML)
+}
+
+/// Pure parsing core for [`load_gpac_windows_installer_pin()`], factored
+/// out for unit testing against inline TOML fixtures.
+///
+/// Requires both `url` to be non-empty AND `sha256` to look like a
+/// well-formed SHA-256 hex digest (exactly 64 hex characters) — anything
+/// short of that is treated as "not configured" (with a `log::warn!` so a
+/// typo'd pin doesn't fail silently) rather than passed through to the
+/// downloader, since a malformed hash could never successfully verify
+/// anyway.
+fn parse_gpac_windows_installer_pin(toml_src: &str) -> Option<GpacWindowsInstallerPin> {
+    let config: toml::Value = toml::from_str(toml_src).ok()?;
+    let table = config.get("gpac")?.get("windows_installer")?;
+
+    let url = table.get("url")?.as_str()?.to_string();
+    let sha256 = table.get("sha256")?.as_str()?.to_lowercase();
+
+    if url.is_empty() {
+        log::warn!("[gpac.windows_installer] is present but 'url' is empty — ignoring pin");
+        return None;
+    }
+    if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
+        log::warn!(
+            "[gpac.windows_installer] 'sha256' is not a well-formed 64-character hex digest — ignoring pin"
+        );
+        return None;
+    }
+
+    Some(GpacWindowsInstallerPin { url, sha256 })
+}
+
 // Regex caches.
 //
 // Compiling a regex involves parsing the pattern + building an NFA, costing
@@ -389,7 +472,7 @@ async fn resolve_github_release_asset(
     let tag_url = format!("https://api.github.com/repos/{repo}/releases/tags/{tag}");
     let response = client
         .get(&tag_url)
-        .header("User-Agent", "MeedyaDL")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {repo}: {e}"))?;
@@ -400,7 +483,7 @@ async fn resolve_github_release_asset(
         let fallback_url = format!("https://api.github.com/repos/{repo}/releases/latest");
         let fallback_resp = client
             .get(&fallback_url)
-            .header("User-Agent", "MeedyaDL")
+            .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("GitHub API fallback request failed for {repo}: {e}"))?;
@@ -485,7 +568,7 @@ fn get_mirror_asset_prefix(tool_id: &str) -> Result<String, String> {
 /// changes in upstream projects).
 async fn get_mirror_download_url(
     tool_id: &str,
-) -> Result<(String, archive::ArchiveFormat), String> {
+) -> Result<(String, archive::ArchiveFormat, Option<String>), String> {
     let mirror = load_mirror_config().ok_or(
         "Mirror not configured in tool-versions.toml. \
          Cannot fall back to mirror downloads.",
@@ -506,18 +589,23 @@ async fn get_mirror_download_url(
             .await?;
 
     // Determine archive format from the matched filename extension.
-    // Uses Path-based extension check for case-insensitive comparison.
-    let format = if std::path::Path::new(&filename)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-    {
-        archive::ArchiveFormat::Zip
-    } else {
-        archive::ArchiveFormat::TarGz // Covers .tar.gz, .tar.xz, etc.
-    };
+    // Uses the honest `detect_archive_format_from_url()` (#981) instead of
+    // the old "anything non-.zip is .tar.gz" guess, which silently
+    // mislabeled `.tar.xz` assets (e.g. BtbN's Linux FFmpeg build) and fed
+    // XZ bytes into the gzip decoder.
+    let format = archive::detect_archive_format_from_url(&filename).unwrap_or_else(|| {
+        log::warn!(
+            "Unrecognised archive extension on mirror asset '{filename}' — assuming tar.gz"
+        );
+        archive::ArchiveFormat::TarGz
+    });
+
+    // Optional per-asset SHA-256 pin (#987). `None` when unconfigured —
+    // the download proceeds unverified, matching pre-#987 behaviour.
+    let expected_sha256 = load_mirror_asset_hash(&filename);
 
     log::info!("Mirror resolved: {asset_prefix} → {url}");
-    Ok((url, format))
+    Ok((url, format, expected_sha256))
 }
 
 /// Downloads a tool's archive and extracts it to the tool directory,
@@ -589,9 +677,16 @@ async fn download_tool_with_fallback(
 
     log::info!("Trying mirror fallback for {tool_id}...");
     match get_mirror_download_url(tool_id).await {
-        Ok((mirror_url, mirror_format)) => {
+        Ok((mirror_url, mirror_format, mirror_sha256)) => {
             log::info!("Downloading {tool_id} from mirror: {mirror_url}");
-            match archive::download_and_extract(&mirror_url, &staging, mirror_format).await {
+            match archive::download_and_extract_verified(
+                &mirror_url,
+                &staging,
+                mirror_format,
+                mirror_sha256.as_deref(),
+            )
+            .await
+            {
                 Ok(()) => promote_staged_install(&staging, tool_dir),
                 Err(e) => {
                     let _ = std::fs::remove_dir_all(&staging);
@@ -781,7 +876,14 @@ fn get_ffmpeg_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveForma
         ("linux", "x86_64") => Ok((
             "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
                 .to_string(),
-            archive::ArchiveFormat::TarGz, // NOTE: actually tar.xz, handled by the extraction utility
+            // BtbN only publishes this asset as `.tar.xz` -- no `.tar.gz`
+            // variant exists. The pre-#981 mislabel (`ArchiveFormat::TarGz`
+            // here) fed a real XZ stream into `flate2::GzDecoder`, which
+            // cannot parse it, causing 100% primary-extract failure on
+            // Linux x86_64 (silently falling through to the mirror on
+            // every install). `ArchiveFormat::TarXz` routes this through
+            // `extract_tar_xz()` (lzma-rs), matching the actual bytes.
+            archive::ArchiveFormat::TarXz,
         )),
         // Windows x86_64 and aarch64: BtbN builds (x64 binary, runs on ARM64 via emulation).
         // The ZIP archive contains ffmpeg.exe, ffprobe.exe, and ffplay.exe.
@@ -871,15 +973,15 @@ async fn get_nm3u8dlre_url(
         resolve_github_release_asset("nilaoda/N_m3u8DL-RE", "latest", rid).await?;
 
     // Determine archive format from the matched filename extension.
-    // Uses Path-based extension check for case-insensitive comparison.
-    let format = if std::path::Path::new(&filename)
-        .extension()
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
-    {
-        archive::ArchiveFormat::Zip
-    } else {
+    // Uses the honest `detect_archive_format_from_url()` (#981) instead of
+    // the old "anything non-.zip is .tar.gz" guess, which silently
+    // mislabeled `.tar.xz` assets and fed XZ bytes into the gzip decoder.
+    let format = archive::detect_archive_format_from_url(&filename).unwrap_or_else(|| {
+        log::warn!(
+            "Unrecognised archive extension on N_m3u8DL-RE asset '{filename}' — assuming tar.gz"
+        );
         archive::ArchiveFormat::TarGz
-    };
+    });
 
     log::info!("Resolved N_m3u8DL-RE asset: {filename}");
     Ok((url, format))
@@ -1596,7 +1698,8 @@ async fn copy_and_verify_mp4box(
     Ok(version)
 }
 
-/// Installs `MP4Box` on Windows by downloading and silently running GPAC's NSIS installer.
+/// Installs `MP4Box` on Windows by downloading and silently running a
+/// **pinned** GPAC NSIS installer.
 ///
 /// GPAC discontinued ZIP archives for Windows — only NSIS `.exe` installers remain.
 /// This function downloads the installer, runs it with `/S` (silent) and `/D=` (custom
@@ -1605,6 +1708,22 @@ async fn copy_and_verify_mp4box(
 ///
 /// The NSIS `/D=` flag installs to a user-specified directory without requiring admin
 /// privileges (as long as the directory is user-writable).
+///
+/// ## Pinned installer + SHA-256 verification (#987)
+///
+/// Earlier versions of this function downloaded and executed GPAC's
+/// **nightly** Windows build (`gpac_latest_head_win64.exe`) with no
+/// checksum check — nightlies have no stable published hash to verify
+/// against, since the artifact changes on every upstream CI run, so an
+/// executed installer could never actually be confirmed to be the binary
+/// GPAC built. The download URL + expected SHA-256 now come from the
+/// optional `[gpac.windows_installer]` table in `tool-versions.toml`
+/// (see [`load_gpac_windows_installer_pin()`]), which is expected to
+/// point at a specific, stable GPAC release rather than the nightly
+/// permalink. When that section is absent (the shipped default), this
+/// function returns an error immediately and [`install_mp4box_with_fallback`]
+/// falls through to the MeedyaSuite/MeedyaDL-Tools mirror instead — the
+/// unverifiable nightly is never executed.
 ///
 /// Source: <https://download.tsi.telecom-paristech.fr/gpac/new_builds>/
 async fn install_mp4box_windows(app: &AppHandle) -> Result<String, String> {
@@ -1633,13 +1752,39 @@ async fn install_mp4box_windows_inner(
     app: &AppHandle,
     temp_dir: &std::path::Path,
 ) -> Result<String, String> {
-    // Download the GPAC NSIS installer from the nightly builds permalink
-    let installer_url =
-        "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe";
+    // Load the pinned, checksum-verifiable installer (#987). This function
+    // used to download and SILENTLY EXECUTE GPAC's Windows *nightly* build
+    // (`gpac_latest_head_win64.exe`) with no checksum verification at
+    // all — nightlies have no published, stable checksum to verify
+    // against (the binary changes on every upstream CI run), so there was
+    // never a way to confirm the downloaded installer was the one GPAC
+    // actually built before running it with elevated file-write access.
+    // MeedyaDL no longer executes an unverifiable installer: absent a pin,
+    // bail out immediately so the caller (`install_mp4box_with_fallback`)
+    // falls through to the MeedyaSuite/MeedyaDL-Tools mirror instead,
+    // which hosts a vetted, checksummed binary archive.
+    let Some(pin) = load_gpac_windows_installer_pin() else {
+        return Err(
+            "GPAC NSIS installer skipped: no pinned installer configured \
+             ([gpac.windows_installer]) and MeedyaDL no longer executes the \
+             unverifiable nightly (#987). Falling back to the mirror."
+                .to_string(),
+        );
+    };
+
     let installer_path = temp_dir.join("gpac_installer.exe");
 
-    log::info!("Downloading GPAC installer from {installer_url}");
-    archive::download_file(installer_url, &installer_path).await?;
+    log::info!("Downloading pinned GPAC installer from {}", pin.url);
+    let (_bytes, actual_sha256) = archive::download_file(&pin.url, &installer_path).await?;
+
+    if actual_sha256 != pin.sha256 {
+        let _ = std::fs::remove_file(&installer_path);
+        return Err(format!(
+            "SHA-256 checksum mismatch for pinned GPAC installer {}\n  Expected: {}\n  Actual:   {}",
+            pin.url, pin.sha256, actual_sha256
+        ));
+    }
+    log::info!("SHA-256 checksum verified for pinned GPAC installer");
 
     // Run the NSIS installer silently with /S (silent) and /D= (install directory).
     // NSIS installers support these flags natively. The /D= flag must be the last
@@ -1652,9 +1797,25 @@ async fn install_mp4box_windows_inner(
         "Running GPAC installer silently to {}",
         install_dir.display()
     );
-    let install_status = tokio::process::Command::new(&installer_path)
-        .arg("/S")
-        .arg(format!("/D={}", install_dir.display()))
+    // NSIS requires the `/D=` install-directory flag to be the LAST
+    // argument on the command line, and it must be UNQUOTED (NSIS parses
+    // it with its own rules, not standard argv quoting). `std::process`
+    // (and therefore `tokio::process`) automatically wraps any argument
+    // containing whitespace in double quotes, which breaks installs to a
+    // path with spaces -- e.g. `C:\Users\John Smith\AppData\...` (#982).
+    // `raw_arg()` (Windows-only) appends the text to the command line
+    // completely verbatim, bypassing that quoting. On non-Windows targets
+    // this function is unreachable at runtime (`install_mp4box_windows`
+    // is only called when `std::env::consts::OS == "windows"`), so the
+    // `.arg()` fallback below exists purely to keep the file
+    // cross-compiling everywhere MeedyaDL builds.
+    let mut installer_cmd = tokio::process::Command::new(&installer_path);
+    installer_cmd.arg("/S");
+    #[cfg(windows)]
+    installer_cmd.raw_arg(format!("/D={}", install_dir.display()));
+    #[cfg(not(windows))]
+    installer_cmd.arg(format!("/D={}", install_dir.display()));
+    let install_status = installer_cmd
         .output()
         .await
         .map_err(|e| format!("Failed to run GPAC installer: {e}"))?;
@@ -1722,15 +1883,102 @@ async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
     result
 }
 
+/// Probes whether `sudo` can run non-interactively (cached credentials /
+/// passwordless NOPASSWD rule) without ever prompting.
+///
+/// `sudo -n` ("non-interactive") fails immediately instead of blocking on
+/// a password prompt if one would be required. This is the load-bearing
+/// check for #997: MeedyaDL's dependency installer can run with no
+/// controlling TTY (e.g. launched from a desktop icon, or headlessly over
+/// SSH without a pty), where a bare `sudo apt-get install` would hang
+/// forever (or fail with "a terminal is required to read the password")
+/// instead of surfacing an actionable error.
+///
+/// # Returns
+/// `true` if `sudo -n true` exits successfully (no password needed right
+/// now); `false` otherwise, including if `sudo` itself is missing.
+async fn can_sudo_without_password() -> bool {
+    tokio::process::Command::new("sudo")
+        .args(["-n", "true"])
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Locates a `pkexec` binary on `PATH`, but only when a graphical session
+/// is actually present.
+///
+/// `pkexec` (PolicyKit) pops a native GUI authentication dialog, which
+/// requires a display server to render into. Without `DISPLAY` (X11) or
+/// `WAYLAND_DISPLAY` (Wayland) set, invoking `pkexec` would either fail
+/// outright or (worse) hang waiting for a dialog nobody can see — the
+/// same class of silent-hang failure this whole elevation strategy exists
+/// to avoid. Checking for a display server first means we only attempt
+/// `pkexec` when it has a real chance of showing its prompt.
+///
+/// # Returns
+/// `Some(path)` if a graphical session is present AND `which pkexec`
+/// resolves to a non-empty path; `None` otherwise (headless session, or
+/// `pkexec` not installed).
+async fn find_pkexec() -> Option<String> {
+    let has_display =
+        std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
+    if !has_display {
+        return None;
+    }
+
+    let which_pkexec = tokio::process::Command::new("which")
+        .arg("pkexec")
+        .output()
+        .await
+        .ok()?;
+
+    if !which_pkexec.status.success() {
+        return None;
+    }
+
+    let path = String::from_utf8_lossy(&which_pkexec.stdout)
+        .trim()
+        .to_string();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path)
+    }
+}
+
 /// Installs `MP4Box` on ARM Linux via `apt` (the system package manager).
 ///
 /// GPAC doesn't publish ARM `.deb` packages on their nightly build server,
 /// but `gpac` is available in the Debian/Ubuntu/Raspberry Pi OS ARM
-/// repositories. This function runs `sudo apt-get install -y gpac`, then
-/// copies the installed `MP4Box` binary to `MeedyaDL`'s managed tool directory.
+/// repositories. This function elevates and runs `apt-get install -y
+/// gpac`, then copies the installed `MP4Box` binary to `MeedyaDL`'s
+/// managed tool directory.
 ///
-/// Requires `sudo` privileges. If `apt-get` is not available or the install
-/// fails, returns an error so the caller can fall back to the mirror.
+/// ## 3-tier elevation strategy (#997)
+///
+/// A plain `sudo apt-get install -y gpac` blocks forever — or fails with
+/// an unhelpful "a terminal is required to read the password" — when
+/// MeedyaDL is launched without a controlling TTY (desktop icon, systemd
+/// unit, or headless SSH session without a pty), which is common on
+/// Raspberry Pi / ARM Linux setups that this codepath specifically
+/// targets. To surface an actionable outcome instead of a silent hang:
+///
+///   1. **Passwordless `sudo`** — [`can_sudo_without_password()`] probes
+///      via `sudo -n true`; if it succeeds (cached credentials, or a
+///      NOPASSWD rule), run `sudo -n apt-get install -y gpac`. Still
+///      non-interactive, so it can never block on a password prompt.
+///   2. **`pkexec` (PolicyKit GUI prompt)** — only attempted when a
+///      display server is present ([`find_pkexec()`]); shows a native
+///      graphical authentication dialog instead of a terminal prompt,
+///      appropriate for a desktop-launched GUI app.
+///   3. **Neither available** — returns an actionable error telling the
+///      user to run `sudo apt-get install gpac` in a terminal themselves
+///      (or use the "Browse" button to point at an existing MP4Box).
+///
+/// If `apt-get` is not available or the install fails, returns an error
+/// so the caller can fall back to the mirror.
 async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
     // Verify apt-get is available
     let which_apt = tokio::process::Command::new("which")
@@ -1745,20 +1993,56 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
             .to_string());
     }
 
-    // Run sudo apt-get install -y gpac
-    log::info!("Running: sudo apt-get install -y gpac");
-    let apt_output = tokio::process::Command::new("sudo")
-        .args(["apt-get", "install", "-y", "gpac"])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run 'sudo apt-get install -y gpac': {e}"))?;
+    // Actionable message shared by every elevation failure path below —
+    // whether we never had a way to elevate, or an elevation attempt
+    // failed because no TTY/password/authorization was available.
+    let actionable_elevation_error = || {
+        "Could not install GPAC automatically: no non-interactive privilege \
+         elevation is available on this system (no cached sudo credentials \
+         and no graphical PolicyKit prompt). Please open a terminal and run \
+         'sudo apt-get install gpac' manually, or use the \"Browse\" button \
+         to point MeedyaDL at an existing MP4Box installation."
+            .to_string()
+    };
+
+    // Tier 1: passwordless sudo (cached credentials or a NOPASSWD rule).
+    // Tier 2: pkexec, only when a graphical session is present.
+    // Tier 3: neither — bail out with actionable guidance rather than
+    // attempting `sudo apt-get install` and risking an indefinite hang
+    // on a password prompt nobody can answer.
+    let apt_output = if can_sudo_without_password().await {
+        log::info!("Running: sudo -n apt-get install -y gpac");
+        tokio::process::Command::new("sudo")
+            .args(["-n", "apt-get", "install", "-y", "gpac"])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run 'sudo -n apt-get install -y gpac': {e}"))?
+    } else if let Some(pkexec_path) = find_pkexec().await {
+        log::info!("Running: pkexec apt-get install -y gpac (via {pkexec_path})");
+        tokio::process::Command::new("pkexec")
+            .args(["apt-get", "install", "-y", "gpac"])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run 'pkexec apt-get install -y gpac': {e}"))?
+    } else {
+        return Err(actionable_elevation_error());
+    };
 
     if !apt_output.status.success() {
         let stderr = String::from_utf8_lossy(&apt_output.stderr);
-        return Err(format!(
-            "'sudo apt-get install -y gpac' failed: {}",
-            stderr.trim()
-        ));
+        // These substrings indicate the elevation itself was refused
+        // (no TTY to prompt in, no cached password, PolicyKit denied the
+        // request) rather than a genuine apt/package failure — surface
+        // the actionable guidance instead of the raw (often cryptic)
+        // sudo/pkexec error text in that case.
+        let stderr_lower = stderr.to_lowercase();
+        if stderr_lower.contains("a terminal is required")
+            || stderr_lower.contains("a password is required")
+            || stderr_lower.contains("not authorized")
+        {
+            return Err(actionable_elevation_error());
+        }
+        return Err(format!("'apt-get install -y gpac' failed: {}", stderr.trim()));
     }
 
     log::info!("'apt-get install gpac' completed successfully");
@@ -1918,7 +2202,7 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             std::fs::create_dir_all(&tool_dir)
                 .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
-            let (mirror_url, mirror_format) =
+            let (mirror_url, mirror_format, mirror_sha256) =
                 get_mirror_download_url("mp4box").await.map_err(|e| {
                     format!(
                         "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: {e}"
@@ -1926,13 +2210,18 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
                 })?;
 
             log::info!("Downloading MP4Box from mirror: {mirror_url}");
-            archive::download_and_extract(&mirror_url, &tool_dir, mirror_format)
-                .await
-                .map_err(|e| {
-                    format!(
-                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror download: {e}"
-                    )
-                })?;
+            archive::download_and_extract_verified(
+                &mirror_url,
+                &tool_dir,
+                mirror_format,
+                mirror_sha256.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                format!(
+                    "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror download: {e}"
+                )
+            })?;
 
             // Find binary in extracted mirror archive
             let expected_binary = get_tool_binary_path(app, "mp4box");
@@ -2333,5 +2622,124 @@ mod tests {
             std::fs::read(tool_dir.join("existing.txt")).unwrap(),
             b"v2"
         );
+    }
+
+    /// The compiled `tool-versions.toml` (the exact bytes shipped in the
+    /// binary via `include_str!`) must always parse as valid TOML — a
+    /// regression here would mean every downstream `load_*` helper that
+    /// reads `TOOL_VERSIONS_TOML` silently degrades to `None` at runtime.
+    /// This guards the file itself, independent of any specific table.
+    #[test]
+    fn shipped_tool_versions_toml_parses() {
+        let parsed: Result<toml::Value, _> = toml::from_str(TOOL_VERSIONS_TOML);
+        assert!(
+            parsed.is_ok(),
+            "tool-versions.toml failed to parse: {:?}",
+            parsed.err()
+        );
+    }
+
+    /// `parse_mirror_asset_hash()` finds a pinned hash by exact (and
+    /// case-insensitive) filename match, and returns `None` for any
+    /// asset not listed in the table — the "unverified by default" #987
+    /// contract.
+    #[test]
+    fn parse_mirror_asset_hash_reads_pinned_entry() {
+        let toml_src = r#"
+[mirror]
+github_repo = "MeedyaSuite/MeedyaDL-Tools"
+release_tag = "latest"
+
+[mirror.asset_hashes]
+"ffmpeg-linux-x86_64.tar.gz" = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+"#;
+        // Exact match.
+        assert_eq!(
+            parse_mirror_asset_hash(toml_src, "ffmpeg-linux-x86_64.tar.gz"),
+            Some("abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234".to_string())
+        );
+        // Case-insensitive match.
+        assert_eq!(
+            parse_mirror_asset_hash(toml_src, "FFMPEG-LINUX-X86_64.TAR.GZ"),
+            Some("abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234".to_string())
+        );
+        // Unlisted asset -> None (unverified, not an error).
+        assert_eq!(
+            parse_mirror_asset_hash(toml_src, "mp4box-windows-x86_64.zip"),
+            None
+        );
+    }
+
+    /// When `[mirror.asset_hashes]` is entirely absent — the shipped
+    /// default — every lookup must return `None` rather than erroring,
+    /// both for an inline fixture and for the real compiled TOML.
+    #[test]
+    fn parse_mirror_asset_hash_absent_table_returns_none() {
+        let toml_src = r#"
+[mirror]
+github_repo = "MeedyaSuite/MeedyaDL-Tools"
+release_tag = "latest"
+"#;
+        assert_eq!(
+            parse_mirror_asset_hash(toml_src, "ffmpeg-linux-x86_64.tar.gz"),
+            None
+        );
+
+        // The shipped tool-versions.toml has no [mirror.asset_hashes]
+        // table populated (only the commented-out documentation block),
+        // so every real asset lookup against it must also be None.
+        assert_eq!(
+            parse_mirror_asset_hash(TOOL_VERSIONS_TOML, "ffmpeg-linux-x86_64.tar.gz"),
+            None
+        );
+    }
+
+    /// `parse_gpac_windows_installer_pin()` only returns `Some` for a
+    /// well-formed pin (non-empty URL + exactly-64-hex-char SHA-256);
+    /// a missing section, a missing/short/non-hex hash all degrade to
+    /// `None` rather than passing a broken pin through to the downloader.
+    #[test]
+    fn parse_gpac_pin_requires_wellformed_url_and_hash() {
+        let good = r#"
+[gpac.windows_installer]
+url = "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
+sha256 = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+"#;
+        let pin = parse_gpac_windows_installer_pin(good);
+        assert!(pin.is_some());
+        let pin = pin.unwrap();
+        assert_eq!(
+            pin.url,
+            "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
+        );
+        assert_eq!(
+            pin.sha256,
+            "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+        );
+
+        // Missing section entirely (the shipped default) -> None.
+        let missing = r#"
+[ffmpeg]
+minimum_version = "5.0"
+binary_name = "ffmpeg"
+version_flag = "-version"
+"#;
+        assert!(parse_gpac_windows_installer_pin(missing).is_none());
+
+        // Hash too short -> None.
+        let short_hash = r#"
+[gpac.windows_installer]
+url = "https://example.com/gpac.exe"
+sha256 = "abcd1234"
+"#;
+        assert!(parse_gpac_windows_installer_pin(short_hash).is_none());
+
+        // Hash contains non-hex characters -> None.
+        let non_hex = r#"
+[gpac.windows_installer]
+url = "https://example.com/gpac.exe"
+sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
+"#;
+        assert!(parse_gpac_windows_installer_pin(non_hex).is_none());
     }
 }

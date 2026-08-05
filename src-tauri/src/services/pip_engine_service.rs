@@ -78,7 +78,14 @@ pub async fn install_pip_engine(app: &AppHandle, package: &str) -> Result<String
     log::info!("Installing {package} via pip...");
 
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix): a reused system Python is
+    // provisioned as a venv, which on Windows puts `python.exe` under
+    // `Scripts/` rather than at the portable root. The pure
+    // `get_python_binary_path` only understands the portable layout, so
+    // using it here made every pip-engine install (votify, yt-dlp,
+    // ofscraper) silently fail with "Python is not installed" on Windows
+    // whenever the user was running a system-venv Python.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err(format!(
@@ -138,7 +145,8 @@ pub async fn get_pip_engine_version(
     package: &str,
 ) -> Result<Option<String>, String> {
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix) — see `install_pip_engine` above.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Ok(None);
@@ -189,7 +197,8 @@ pub async fn uninstall_pip_engine(app: &AppHandle, package: &str) -> Result<(), 
     log::info!("Uninstalling {package} via pip...");
 
     let python_dir = platform::get_python_dir(app);
-    let python_bin = platform::get_python_binary_path(&python_dir);
+    // Venv-aware resolver (#1017 / A3 fix) — see `install_pip_engine` above.
+    let python_bin = platform::resolve_managed_python_binary(&python_dir);
 
     if !python_bin.exists() {
         return Err("Python is not installed".to_string());
@@ -225,7 +234,7 @@ pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, 
 
     let response = client
         .get(&url)
-        .header("User-Agent", "MeedyaDL")
+        .header("User-Agent", crate::utils::http_client::browser_user_agent())
         .send()
         .await
         .map_err(|e| format!("PyPI request failed for {package}: {e}"))?;

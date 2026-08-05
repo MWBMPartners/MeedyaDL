@@ -3407,7 +3407,7 @@ dependencies = [
 
 [[package]]
 name = "meedyadl"
-version = "1.12.0-alpha.43"
+version = "1.13.0-alpha.0"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -3422,6 +3422,7 @@ dependencies = [
  "keyring",
  "lofty",
  "log",
+ "lzma-rs",
  "meedya-core",
  "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main)",
  "meedya-lyrics",

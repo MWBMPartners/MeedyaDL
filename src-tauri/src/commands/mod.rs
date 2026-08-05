@@ -124,6 +124,12 @@ pub mod api_audit;
 /// Service status command — checks remote service availability.
 pub mod service_status;
 
+/// Remote feature-flag commands (#1071) — read the resolved availability
+/// snapshot (`get_feature_flags`, no network) and trigger a refresh
+/// (`refresh_feature_flags`, rate-limited 1/min). Delegates to
+/// `services::feature_flag_service`, whose resolution chain is infallible.
+pub mod feature_flags;
+
 /// Smart Download command — cross-platform quality search.
 pub mod smart_download;
 
@@ -180,3 +186,9 @@ pub mod wrapper;
 /// state) and the user-initiated move (`relocate_app_bundle`).
 /// Companion to `services::app_relocation`.
 pub mod app_relocation;
+
+/// Word-level lyrics connectivity test IPC command (#934). Provides
+/// `test_lyrics_connection`, a side-effect-free diagnostic the Settings >
+/// Lyrics tab calls to verify syllable-lyrics fetch credentials without
+/// running a full download. Delegates to `services::apple_music_api`.
+pub mod lyrics;

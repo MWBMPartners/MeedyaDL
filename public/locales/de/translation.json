@@ -159,5 +159,9 @@
     "delete": "Löschen",
     "retry": "Wiederholen",
     "clear": "Leeren"
+  },
+  "featureFlags": {
+    "fallbackMessage": "{{feature}} ist vorübergehend nicht verfügbar. Wir haben die Funktion pausiert, während wir uns etwas genauer ansehen — mit Ihrer Installation ist alles in Ordnung, und Sie müssen nichts unternehmen.",
+    "servicePaused": "{{service}}-Downloads sind vorübergehend pausiert. Wir haben sie pausiert, während wir uns etwas genauer ansehen — mit Ihrer Installation ist alles in Ordnung, und sie kommen automatisch zurück."
   }
 }

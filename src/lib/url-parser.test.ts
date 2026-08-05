@@ -38,7 +38,7 @@ import { describe, it, expect } from 'vitest';
  * Import the functions under test from the url-parser module.
  * These are the public API of the parser that components consume.
  */
-import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl } from './url-parser';
+import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl, parseSubmittableUrl } from './url-parser';
 
 /**
  * Test suite for `isAppleMusicUrl()` - domain validation.
@@ -462,5 +462,41 @@ describe('parseMediaUrl', () => {
     const result = parseMediaUrl('  https://music.apple.com/us/album/test/123  ');
     expect(result.service).toBe('apple-music');
     expect(result.isValid).toBe(true);
+  });
+});
+
+// ============================================================
+// parseSubmittableUrl (#983) — restricted to services the download
+// pipeline can actually accept end-to-end today (Apple Music + Spotify).
+// ============================================================
+
+describe('parseSubmittableUrl (#983)', () => {
+  it('accepts an Apple Music album URL', () => {
+    const result = parseSubmittableUrl('https://music.apple.com/us/album/test/123');
+    expect(result.isValid).toBe(true);
+    expect(result.service).toBe('apple-music');
+  });
+
+  it('accepts a Spotify URL', () => {
+    const result = parseSubmittableUrl('https://open.spotify.com/album/abc123');
+    expect(result.isValid).toBe(true);
+    expect(result.service).toBe('spotify');
+    expect(result.contentType).toBeNull();
+  });
+
+  it('rejects a recognised-but-not-yet-submittable service (YouTube)', () => {
+    const result = parseSubmittableUrl('https://www.youtube.com/watch?v=abc123');
+    expect(result.isValid).toBe(false);
+    expect(result.service).toBe('youtube');
+  });
+
+  it('rejects a bare spotify: URI', () => {
+    const result = parseSubmittableUrl('spotify:album:1234');
+    expect(result.isValid).toBe(false);
+  });
+
+  it('rejects garbage input', () => {
+    const result = parseSubmittableUrl('not-a-url-at-all');
+    expect(result.isValid).toBe(false);
   });
 });

@@ -110,7 +110,7 @@ pub async fn fetch_links(
     let client = crate::utils::http_client::build_simple(15)?;
     let response = client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::browser_user_agent())
         .send()
         .await
         .map_err(|e| format!("Odesli request failed: {e}"))?;

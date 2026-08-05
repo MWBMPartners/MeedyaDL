@@ -469,9 +469,12 @@
       "Bash(awk '/^pub fn normalize_apple_music_url/{found=1; brace=0} found && /\\\\{/{brace++} found && /\\\\}/{brace--; if\\(brace==0\\){print NR; exit}}' src-tauri/src/services/apple_music_api.rs)",
       "Bash(node scripts/check-acknowledgements.mjs)",
       "Bash(node scripts/check-upstream-licences.mjs)",
-      "Bash(awk '/^                    enrich_app/,0 {print NR\": \"$0; if \\(NR > 8950\\) exit}' src-tauri/src/services/download_queue.rs)"
+      "Bash(awk '/^                    enrich_app/,0 {print NR\": \"$0; if \\(NR > 8950\\) exit}' src-tauri/src/services/download_queue.rs)",
+      "mcp__Claude_Code_Remote__send_later",
+      "mcp__Claude_Code_Remote__add_repo"
     ],
     "additionalDirectories": [
+      "/Users/salem874/Library/Application Support/com.meedyasuite.meedyadl/crashes",
       "/Users/salem874/Library/Application Support/io.github.meedyadl/crashes",
       "/Users/salem874/.claude/projects/-Users-salem874-Projects-Coding-and-Development-MWBM-Partners-Ltd-GitHub/MeedyaDL/memory",
       "/Users/salem874/.claude/projects/-Users-salem874-Projects-Coding-and-Development-MWBM-Partners-Ltd-GitHub/MeedyaDL",

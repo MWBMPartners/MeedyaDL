@@ -48,9 +48,9 @@ import { create } from 'zustand';
 // QueueItemStatus -- detailed status of a single download queue item
 import type { GamdlOptions, GamdlProgress, QueueItemStatus, StartDownloadResult } from '@/types';
 
-// Pure function that validates and classifies an Apple Music URL (song, album, etc.).
-// Returns { url, isValid, contentType }.
-import { parseAppleMusicUrl } from '@/lib/url-parser';
+// Pure function that validates and classifies a submittable media URL
+// (Apple Music song/album/etc., or Spotify). Returns { url, isValid, contentType }.
+import { parseSubmittableUrl } from '@/lib/url-parser';
 
 // Type-safe wrappers for Tauri IPC commands. Each function maps to a
 // `#[tauri::command]` handler in the Rust backend.
@@ -405,11 +405,11 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * All three fields are updated atomically in a single `set()` call.
    */
   setUrlInput: (url) => {
-    const parsed = parseAppleMusicUrl(url);
+    const parsed = parseSubmittableUrl(url);
     set({
       urlInput: url,
-      urlIsValid: parsed.isValid, // true if URL matches Apple Music patterns
-      urlContentType: parsed.contentType, // 'song', 'album', 'playlist', etc.
+      urlIsValid: parsed.isValid, // true if URL matches a submittable service
+      urlContentType: parsed.contentType ?? 'unknown', // 'song', 'album', 'playlist', etc. (null for non-Apple services)
     });
   },
 
@@ -439,8 +439,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
     // Guard: do not proceed if the URL has not passed validation.
     if (!urlIsValid) {
-      set({ error: 'Invalid Apple Music URL' });
-      throw new Error('Invalid Apple Music URL');
+      set({ error: 'Invalid or unsupported media URL' });
+      throw new Error('Invalid or unsupported media URL');
     }
 
     // Signal submission in progress and clear any stale errors.
@@ -584,14 +584,40 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           {
             label: 'Undo',
             onClick: () => {
-              // Re-enqueue the cleared URLs
+              // Re-enqueue the cleared URLs.
+              //
+              // #991: ONE start_download IPC for the whole batch — the
+              // backend accepts `urls: string[]` and enqueues them as a
+              // single queue item (same pattern HistoryPage's Retry-All
+              // already uses). The previous per-URL loop consumed one
+              // rate-limit slot per URL against the backend's 10/min
+              // `start_download` limit, silently dropping every URL past
+              // the tenth while the toast still claimed full success.
               const urls = get()._undoBuffer;
               if (urls && urls.length > 0) {
-                for (const url of urls) {
-                  commands.startDownload({ urls: [url] }).catch(() => {});
-                }
-                set({ _undoBuffer: null });
-                addToast(`Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`, 'success');
+                commands
+                  .startDownload({ urls })
+                  .then((result) => {
+                    set({ _undoBuffer: null });
+                    if (result.download_id) {
+                      addToast(
+                        `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
+                        'success'
+                      );
+                    } else {
+                      addToast(
+                        result.duplicate_warning ??
+                          'Nothing re-queued — items are already in the queue',
+                        'info'
+                      );
+                    }
+                  })
+                  .catch((e) => {
+                    addToast(
+                      `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
+                      'error'
+                    );
+                  });
               }
             },
           }
@@ -688,19 +714,36 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                 onClick: () => {
                   const urls = get()._undoBuffer;
                   if (urls && urls.length > 0) {
-                    // Re-enqueue each URL through the standard
-                    // start_download IPC. The backend's existing
-                    // duplicate-URL detection still fires (#510), so
-                    // an undo that races a manual re-enqueue stays
-                    // safe.
-                    for (const url of urls) {
-                      commands.startDownload({ urls: [url] }).catch(() => {});
-                    }
-                    set({ _undoBuffer: null });
-                    addToast(
-                      `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
-                      'success'
-                    );
+                    // #991: re-enqueue via ONE start_download IPC — the
+                    // backend accepts `urls: string[]`. The previous
+                    // per-URL loop burned one 10/min rate-limit slot per
+                    // URL and silently dropped the overflow while the
+                    // toast claimed full success. The backend's existing
+                    // duplicate-URL detection still fires (#510), so an
+                    // undo that races a manual re-enqueue stays safe.
+                    commands
+                      .startDownload({ urls })
+                      .then((result) => {
+                        set({ _undoBuffer: null });
+                        if (result.download_id) {
+                          addToast(
+                            `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
+                            'success'
+                          );
+                        } else {
+                          addToast(
+                            result.duplicate_warning ??
+                              'Nothing re-queued — items are already in the queue',
+                            'info'
+                          );
+                        }
+                      })
+                      .catch((e) => {
+                        addToast(
+                          `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
+                          'error'
+                        );
+                      });
                   }
                 },
               }

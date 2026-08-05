@@ -34,6 +34,8 @@
  * @see {@link @/types/index.ts}           -- LyricsFormat type definition
  */
 
+import { useState } from 'react';
+
 // Zustand store hooks. `useSettingsStore` is retained alongside
 // `useSettingsField` because the format-toggle handler updates two
 // keys at once (`synced_lyrics_format` + `companion_lyrics_formats`)
@@ -42,12 +44,18 @@
 import { useSettingsStore } from '@/stores/settingsStore';
 // Audit v2 #6 — per-field Zustand binding for single-key controls.
 import { useSettingsField } from '@/hooks/useSettingsField';
+// Audit v2 #2 — component-local async lifecycle (isRunning/error) for the
+// "Test word-level lyrics connection" button.
+import { useAsyncTask } from '@/hooks/useAsyncTask';
 
 // Shared form component: Toggle for boolean switches.
-import { Toggle, SettingsSection } from '@/components/common';
+import { Button, Toggle, SettingsSection } from '@/components/common';
+
+// IPC wrapper for the word-level lyrics connectivity probe (#934).
+import { testLyricsConnection } from '@/lib/tauri-commands';
 
 // TypeScript union type for the lyrics format values.
-import type { LyricsFormat } from '@/types';
+import type { LyricsFormat, TestLyricsConnectionResult } from '@/types';
 
 /**
  * Canonical order of lyrics formats for checkbox display and primary
@@ -84,6 +92,16 @@ export function LyricsTab() {
   const keepSidecar = useSettingsField('keep_lyrics_sidecar');
   const noSynced = useSettingsField('no_synced_lyrics');
   const syncedOnly = useSettingsField('synced_lyrics_only');
+
+  // Word-level lyrics connectivity test (#934) — lets the user verify
+  // syllable-lyrics credentials without waiting for a full download.
+  const [lyricsTestResult, setLyricsTestResult] = useState<TestLyricsConnectionResult | null>(null);
+  const lyricsTest = useAsyncTask(async () => {
+    setLyricsTestResult(null);
+    const result = await testLyricsConnection();
+    setLyricsTestResult(result);
+    return result;
+  });
 
   /**
    * Set of all currently selected lyrics formats (primary + companions).
@@ -146,6 +164,36 @@ export function LyricsTab() {
             checked={enhancedLrc.value}
             onChange={enhancedLrc.set}
           />
+
+          {/* Word-level lyrics connectivity test (#934) */}
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => lyricsTest.run()}
+              disabled={lyricsTest.isRunning}
+            >
+              {lyricsTest.isRunning ? 'Testing...' : 'Test word-level lyrics connection'}
+            </Button>
+            {lyricsTestResult && (
+              <span
+                className={
+                  lyricsTestResult.granularity === 'word'
+                    ? 'text-xs text-status-success'
+                    : lyricsTestResult.success
+                      ? 'text-xs text-status-warning'
+                      : 'text-xs text-status-error'
+                }
+              >
+                {lyricsTestResult.granularity === 'word'
+                  ? `Connected${lyricsTestResult.token_source === 'web_player' ? ' via web session' : ''} — word-level lyrics are working.`
+                  : lyricsTestResult.error_hint}
+              </span>
+            )}
+            {lyricsTest.error && (
+              <span className="text-xs text-status-error">{lyricsTest.error}</span>
+            )}
+          </div>
 
           {/* Lyrics format fallback */}
           <Toggle

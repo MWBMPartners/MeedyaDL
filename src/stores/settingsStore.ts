@@ -147,6 +147,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   animated_artwork_enabled: true, // Enabled by default (#449); gracefully skips when no credentials
   hide_animated_artwork: false, // Show artwork files in file browsers by default (#449)
   artist_promo_video_enabled: true, // Download artist promo video to artist folder (#453)
+  animated_artwork_resolution: 'fhd' as const, // Cap animated artwork HLS renditions at ~1080p by default (#972)
   best_cover_art_enabled: false, // Cross-platform highest-resolution cover-art picker (M9-3) — opt-in
   musickit_team_id: null, // Apple Developer Team ID (10-char)
   musickit_key_id: null, // MusicKit private key identifier (10-char)
@@ -190,7 +191,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
   wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
   truncate: null, // Max filename length in characters; null = no truncation
-  fetch_extra_tags: true, // Fetch extra metadata (normalization, smooth playback info)
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
   verbose_activity_log: false, // Detailed [VERBOSE] activity log (may expose sensitive data)

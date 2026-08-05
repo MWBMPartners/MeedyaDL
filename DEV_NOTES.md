@@ -4,6 +4,33 @@ Important notes for development, releasing, and CI/CD workflows.
 
 ---
 
+## Programmatic Interface / API Surface (why there is no OpenAPI spec)
+
+**MeedyaDL exposes no HTTP/REST API, so it has no OpenAPI/Swagger specification —
+this is by design, not an omission.**
+
+- The app is a **Tauri 2.0 desktop application**. Its only programmatic surface is
+  the in-process **Tauri IPC command set** (`#[tauri::command]` functions invoked
+  from the bundled React WebView via `invoke()`), enumerated in
+  `src-tauri/src/lib.rs`'s `generate_handler![]`. IPC is transport-internal (no URLs,
+  HTTP verbs, or status codes) and is only reachable from the app's own WebView — it
+  is not a network endpoint, so OpenAPI cannot meaningfully describe it and there is
+  no server on which to host Swagger UI. (There is no `express`/`fastify`/`axum`/
+  `actix`/`utoipa` dependency anywhere — confirmed.)
+- The IPC contract is instead enforced by `tools/audit-checks/check_ipc_commands.py`
+  (every `#[tauri::command]` is registered and every frontend `invoke('x')` targets a
+  registered command) and mirrored in the TypeScript wrappers in `src/lib/tauri-commands.ts`.
+- **The API that the native apps (Apple/iOS, Android, …) will consume is a separate
+  first-party backend — the MeedyaSuite / MWBM-IntAppsAPI service** (the same backend
+  family behind the remote feature-availability flags and the future server-issued
+  MusicKit token architecture; see "Remote Feature Availability" and "Recommended
+  Production Architecture" below). That backend lives in its **own repository**, and
+  any OpenAPI/Swagger spec + hostable (shared-hosting, no-Docker) Swagger UI belongs
+  **there**, not in this desktop-app repo. Do not generate an OpenAPI document for the
+  Tauri IPC surface — it would misrepresent an in-process interface as a web API.
+
+---
+
 ## Package Manifests
 
 MeedyaDL has two package manifests that define dependencies for different layers:
@@ -212,6 +239,16 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 |--------|-------------|
 | `ACOUSTID_API_KEY` | Application API key from [acoustid.org/new-application](https://acoustid.org/new-application). Embedded at compile time via `option_env!("ACOUSTID_API_KEY")` so release builds ship with a pre-configured key for audio fingerprinting. If not set, users must provide their own key in Settings > Metadata. |
 
+### Feature Availability (Optional)
+
+| Secret | Description |
+|--------|-------------|
+| `INTAPPS_BASE_URL` | Base URL of the feature-availability backend, embedded at compile time via `option_env!(...)` (same pattern as `ACOUSTID_API_KEY`). |
+| `INTAPPS_APP_ID` | Application identifier for the feature-availability backend, embedded at compile time via `option_env!(...)` (same pattern as `ACOUSTID_API_KEY`). |
+| `INTAPPS_API_KEY` | API key for the feature-availability backend, embedded at compile time via `option_env!(...)` (same pattern as `ACOUSTID_API_KEY`). The key is extractable from shipped binaries by anyone holding the app, so it functions as attribution / abuse-filtering, not as a security boundary. |
+
+If **any** of the three is unset at build time, the feature-availability client is completely inert: no network call is attempted, no error is logged, and every feature resolves as enabled. Forks and local builds therefore work fully with zero configuration. **Never put real values, hostnames, or wire header names in this file — env-var names and the `option_env!()` mechanism only.**
+
 ### MusicKit (Optional, End-User Enablement)
 
 | Secret | Description |
@@ -223,6 +260,41 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 | Secret | Description |
 |--------|-------------|
 | `RELEASE_PAT` | Personal Access Token with `repo` scope. Used instead of `GITHUB_TOKEN` so that tag pushes trigger the Release workflow (GitHub's `GITHUB_TOKEN` doesn't trigger other workflows). |
+
+### Build-time (non-secret) environment variables
+
+Not everything embedded via `option_env!()` at compile time is sensitive — the table below covers variables that are safe to name publicly (unlike the `INTAPPS_*` confidentiality rule above, which applies specifically to endpoint/key material).
+
+| Variable | Description |
+|----------|-------------|
+| `MEEDYADL_CHROME_MAJOR` | Chrome major version number (e.g. `"131"`) embedded into the Group C browser User-Agent strings (`browser_user_agent()` in `src-tauri/src/utils/http_client.rs`) used for generic third-party requests (Odesli, PyPI, etc.) on Windows and Linux. Set by a best-effort step in `release.yml` that queries Google's public [VersionHistory API](https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions?pageSize=1) for the current stable Windows Chrome release, extracts the major version, and exports it via `$GITHUB_ENV`. If the fetch fails, times out, or returns something that doesn't look like a clean 2-4 digit number, the step logs a warning and moves on — it can never fail the build. Local dev builds, forks, and CI/PR builds never set this variable, and fall back to the compiled-in `CHROME_MAJOR_FALLBACK` constant, so the mechanism is entirely opt-in and zero-config by default. This is safe to document here (unlike `INTAPPS_*`) because it queries a public Google API with no auth, and the resulting value ships visibly in plaintext inside every binary's User-Agent header anyway. |
+
+---
+
+## Remote Feature Availability (Developer Notes)
+
+MeedyaDL can resolve, per-feature, whether a first-party backend has temporarily marked a feature unavailable. See `INTAPPS_*` in [Required GitHub Secrets](#required-github-secrets) above for the build-time credentials; without them the client is entirely inert.
+
+### Consuming a flag
+
+- **Backend**: `services::feature_flag_service::current(&app)` returns the resolved `FeatureFlagsSnapshot` synchronously without touching the network. `is_enabled(&snapshot, key)` and `notice_for(&snapshot, key)` are the two accessors call sites should use.
+- **Frontend**: `useFeatureFlagStore` (`src/stores/featureFlagStore.ts`) holds the snapshot; `selectNoticeEntries(snapshot)` is the pure selector that turns it into user-facing notice entries, consumed today by `FeatureNoticeBanner` (`src/components/common/FeatureNoticeBanner.tsx`, mounted in `MainLayout.tsx`).
+
+### Invariants — do not regress these
+
+1. **Derive UI only from `snapshot.verdicts`, never `snapshot.meta`.** `meta` is diagnostics (source / failure count / last error) and must never drive a toast, banner, or any other on-screen artefact.
+2. **Render server notice text as plain text only** — never `dangerouslySetInnerHTML`, never a markdown renderer, never assigned to `.innerHTML`. Untrusted remote content.
+3. **Enforce at operation start, never mid-operation.** A feature check belongs at the point an operation begins, not partway through it.
+4. **The disk cache deliberately never expires — do not add a TTL.** Compiled defaults are all-enabled, so an expiring cache would silently re-enable a feature that was deliberately switched off the moment a user went offline long enough. Staleness is the correct trade-off here, not a bug.
+5. **Two capabilities are structurally ungateable**: the availability check itself, and the updater. Neither can be switched off by a server payload, by design — otherwise a compromised publishing account could permanently blind installed copies with no way to recover.
+
+### Flags never gate licensing or entitlement
+
+This mechanism exists for operational and legal pauses (e.g. investigating an upstream change), never for licensing or entitlement decisions. Nothing in MeedyaDL is designed to be "unlocked" or "locked" by a remote flag. Client-side enforcement on a user's own machine is advisory by nature — it should never be documented or designed as though it were a guarantee against a determined user.
+
+### Confidentiality rule for docs
+
+User-facing documentation (README, TERMS, SECURITY, `help/*`) must never contain a hostname, endpoint path, wire header name, key material, cache filename, refresh interval, or the phrase "kill switch" — the vocabulary is "we pause a feature" / "the app shows a notice" / "it comes back automatically". This file (`DEV_NOTES.md`) is public and may name the `INTAPPS_*` env vars and the `option_env!()` mechanism, and nothing else about the transport.
 
 ---
 
@@ -489,8 +561,8 @@ Help content is embedded as JSX in the HelpViewer component, **not** loaded from
 
 | File | Description |
 | --- | --- |
-| `src/components/help/HelpViewer.tsx` | All help topics defined in the `HELP_TOPICS` array |
-| `help/*.md` | 11 external markdown files — kept for reference but **not** rendered by the app |
+| `src/components/help/HelpViewer.tsx` | All help topics defined in the `HELP_TOPICS` array (15 entries; ids are not 1:1 with filenames) |
+| `help/*.md` | 16 files (15 topics + `index.md`) — kept for reference but **not** rendered by the app. Any content change must ALSO be made in the matching inline `HELP_TOPICS` entry. |
 
 ### Other UI Text
 
@@ -1762,7 +1834,7 @@ The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype f
 |-----------|------------------|-------|
 | Multi-service URL parser (YouTube/Spotify/iPlayer) | Not on main | Tracked by #100–#104, #107. Key reference: commit `9bcf848` |
 | Smart Download cross-platform quality | Not on main | Tracked by #110. Reference: commit `fb887d98` |
-| Remote feature kill-switch / service status | Not on main | Tracked by #106 |
+| Remote feature availability / service status | Shipped | Client + in-app notice UI landed via #1069/#1071 (originally tracked by #106); per-service enforcement at enqueue time also shipped — a paused service declines new downloads with an explanation while anything already downloading finishes normally |
 | Stable rollback from pre-release | Not on main | New issue #267 created |
 | macOS codesign `--timestamp` wrapper | Reimplemented | release.yml Step 8.9 |
 | 7z GPAC extraction (CI fix) | Reimplemented | dependency_manager.rs |

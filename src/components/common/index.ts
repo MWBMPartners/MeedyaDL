@@ -175,6 +175,15 @@ export type { StatusPillProps } from './StatusPill';
 export { UpdateBanner } from './UpdateBanner';
 
 /**
+ * Renders one banner per feature that the remote feature-flag service has
+ * disabled or attached a notice to, so a switched-off feature never reads
+ * as unexplained breakage. Rendered in MainLayout.tsx below UpdateBanner.
+ * See the file's own header comment for the untrusted-text-rendering and
+ * silent-fetch-failure invariants.
+ */
+export { FeatureNoticeBanner } from './FeatureNoticeBanner';
+
+/**
  * Collapsible, visually distinct settings section container.
  * Used across all settings tabs for consistent section grouping.
  */
