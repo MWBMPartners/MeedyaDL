@@ -143,6 +143,20 @@ The artwork download runs in the background and does **not** block your download
 
 ---
 
+## Choosing a Resolution
+
+Apple's animated artwork is delivered as an HLS stream with several resolution renditions, similar to how a video streaming service offers multiple quality tiers of the same clip. The **Animated Artwork Resolution** setting in **Settings > Cover Art** (shown once "Download Animated Cover Art" is enabled) controls which rendition MeedyaDL requests:
+
+| Option | Target | Notes |
+|--------|--------|-------|
+| **Standard (~1080p, recommended)** | Caps at ~1080p | Default. Smallest files -- indistinguishable from higher renditions at the sizes artwork is normally displayed |
+| **High (~2160p / 4K)** | Caps at ~2160p | Noticeably larger files for a quality difference most people won't notice |
+| **Maximum (highest available, largest files)** | No cap | Always downloads the highest-resolution rendition Apple offers, regardless of size -- MeedyaDL's behaviour before this setting existed |
+
+Higher resolution means a larger file -- a few MB difference per video adds up quickly across a large library, so **Standard** is the recommended default unless you have a specific reason to want the largest available rendition.
+
+---
+
 ## Artist Promo Video
 
 Some artists on Apple Music have an animated background video on their artist page (sometimes called "editorial video" or "artist highlight"). When **"Download Artist Promo Video"** is enabled in Settings > Cover Art, MeedyaDL will:

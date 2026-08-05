@@ -385,3 +385,24 @@ export function parseMediaUrl(url: string): ParsedMediaUrl {
   // For other services, URL is valid if the domain matches
   return { url: trimmed, service, contentType: null, isValid: true };
 }
+
+/**
+ * Services the download form can actually submit today (#983).
+ * Must stay in lockstep with the backend SUPPORTED_HOSTS allowlist
+ * (src-tauri/src/commands/gamdl.rs): Apple Music family + open.spotify.com only.
+ */
+export const SUBMITTABLE_SERVICES: readonly MediaServiceId[] = ['apple-music', 'spotify'];
+
+/**
+ * Service-aware URL parser restricted to services the pipeline accepts
+ * end-to-end (#983). Same shape as parseMediaUrl, but URLs from
+ * recognised-but-not-yet-submittable services (YouTube, BBC iPlayer) are
+ * returned with isValid:false.
+ */
+export function parseSubmittableUrl(url: string): ParsedMediaUrl {
+  const parsed = parseMediaUrl(url);
+  if (parsed.isValid && parsed.service && !SUBMITTABLE_SERVICES.includes(parsed.service)) {
+    return { ...parsed, isValid: false };
+  }
+  return parsed;
+}

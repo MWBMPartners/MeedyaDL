@@ -229,7 +229,21 @@ export function UpdatesPage() {
 
                       const results = await Promise.allSettled(
                         components.map(async (c) => {
-                          if (c.pip_package) {
+                          // votify (A4) has its own validated version window —
+                          // route through the bounded `upgradeVotify` so a bulk
+                          // "Update All" click can never silently jump to an
+                          // unaudited above-ceiling release the way the
+                          // unbounded generic `upgradePipEngine` path would.
+                          // Only pass an explicit target when this specific
+                          // update was flagged "Untested" (above-ceiling) —
+                          // otherwise the backend resolves the newest version
+                          // inside the tested window on its own.
+                          if (c.pip_package === 'votify') {
+                            const { upgradeVotify } = await import('@/lib/tauri-commands');
+                            return upgradeVotify(
+                              c.is_untested ? (c.latest_version ?? undefined) : undefined
+                            );
+                          } else if (c.pip_package) {
                             const { upgradePipEngine } = await import('@/lib/tauri-commands');
                             return upgradePipEngine(c.pip_package);
                           } else if (c.tool_id) {

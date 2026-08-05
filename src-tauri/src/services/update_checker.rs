@@ -75,7 +75,7 @@ static SEMVER_EXTRACT_RE: LazyLock<regex::Regex> =
 // gamdl_service: provides get_gamdl_version() and check_latest_gamdl_version() for GAMDL update checks.
 // python_manager: provides get_installed_python_version() and get_target_python_version() for Python update checks.
 use crate::models::settings::UpdateChannel;
-use crate::services::{gamdl_capabilities, gamdl_service, python_manager};
+use crate::services::{gamdl_capabilities, gamdl_service, python_manager, votify_capabilities};
 // platform: provides get_python_dir() for resolving the Python installation directory.
 use crate::utils::platform;
 
@@ -377,7 +377,7 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
 
     let response = client
         .get(&url)
-        .header("User-Agent", "MeedyaDL")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("PyPI request failed for gamdl {version}: {e}"))?;
@@ -676,7 +676,7 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 
     let response = match client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
     {
@@ -782,7 +782,17 @@ pub async fn check_all_updates(
             continue;
         }
 
-        match check_pip_engine_update(app, &name, &package).await {
+        // votify (A4) also gets its own dedicated check — it has a real
+        // `tool-versions.toml` support window (like GAMDL), unlike the
+        // other pip engines this loop still routes through the generic
+        // `check_pip_engine_update` (yt-dlp, ofscraper, …).
+        let result = if package == "votify" {
+            check_votify_update(app).await
+        } else {
+            check_pip_engine_update(app, &name, &package).await
+        };
+
+        match result {
             Ok(update) => components.push(update),
             Err(e) => errors.push(format!("{name} check failed: {e}")),
         }
@@ -846,7 +856,7 @@ async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, Strin
 
     let response = client
         .get(url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1015,7 +1025,7 @@ async fn check_app_update(
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let response = client
         .get(url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1249,7 +1259,7 @@ async fn aggregate_intermediate_release_notes(
     let url = "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20";
     let response = client
         .get(url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .header("Accept", "application/vnd.github.v3+json")
         .send()
         .await
@@ -1350,7 +1360,7 @@ async fn check_github_tool_update(
 
     let response = client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("GitHub API request failed for {tool_id}: {e}"))?;
@@ -1516,6 +1526,74 @@ fn get_enabled_pip_engines() -> Vec<(String, String)> {
         .collect()
 }
 
+/// Checks for votify (Spotify engine) updates by comparing the installed
+/// version against the latest version on PyPI, gated by the validated
+/// support window in `votify_capabilities` (A4).
+///
+/// Mirrors `check_gamdl_update()`'s shape: unlike the generic
+/// `check_pip_engine_update()` (which hardcodes `is_compatible: true` /
+/// `is_untested: false` because most pip engines have no version window),
+/// votify has a real `tool-versions.toml` → `[votify]` window, so this
+/// dedicated check surfaces the same "Untested" signal GAMDL gets for
+/// above-ceiling releases instead of silently treating every PyPI release
+/// as equally safe to install.
+async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+    // Installed version via `pip show votify` (also refreshes the shared
+    // `votify_capabilities` detected-version cache as a side effect).
+    let current = super::spotify_service::get_votify_version(app)
+        .await
+        .unwrap_or(None);
+
+    // Latest version from PyPI.
+    let latest = super::pip_engine_service::check_latest_pypi_version("votify")
+        .await
+        .ok()
+        .flatten();
+
+    let update_available = match (&current, &latest) {
+        (Some(c), Some(l)) => is_newer(c, l),
+        (None, Some(_)) => true, // Not installed = "update" available (install prompted)
+        _ => false,
+    };
+
+    // Compatibility permits any parseable semver (same posture as GAMDL) —
+    // the strict "is it inside the validated window?" check lives in
+    // `is_untested` so above-ceiling releases are still visible to users
+    // rather than silently hidden.
+    let is_compatible = latest.as_ref().is_some_and(|v| votify_capabilities::should_offer_upgrade(v));
+    let is_untested = latest
+        .as_ref()
+        .is_some_and(|v| votify_capabilities::is_above_tested_ceiling(v));
+
+    let description = if update_available {
+        Some(if is_untested {
+            "New votify version available on PyPI (untested with this MeedyaDL build)".to_string()
+        } else {
+            "New votify version available on PyPI".to_string()
+        })
+    } else {
+        None
+    };
+
+    Ok(ComponentUpdate {
+        name: "votify".to_string(),
+        current_version: current,
+        latest_version: latest.clone(),
+        update_available,
+        is_compatible,
+        is_untested,
+        no_compatible_wheel: false, // Wheel-availability gating is GAMDL-specific (#gamdl-3.8.2-hardening)
+        description,
+        release_url: latest.map(|v| format!("https://pypi.org/project/votify/{v}/")),
+        release_body: None,
+        // votify updates are from PyPI, not GitHub Releases — no pre-release concept
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: Some("votify".to_string()),
+        tool_id: None,
+    })
+}
+
 /// Checks for updates to a pip-based engine by comparing the installed
 /// version against the latest version on PyPI.
 ///
@@ -1523,6 +1601,11 @@ fn get_enabled_pip_engines() -> Vec<(String, String)> {
 /// pip package. The `required` flag from engines.toml determines whether
 /// a missing engine counts as "update available" (required=true) or is
 /// simply reported as "not installed" (required=false).
+///
+/// **Not used for votify** (A4) — votify has its own `check_votify_update()`
+/// which applies the `votify_capabilities` support window instead of the
+/// unconditional `is_compatible: true` / `is_untested: false` this generic
+/// path uses for engines without a version window (yt-dlp, ofscraper, …).
 async fn check_pip_engine_update(
     app: &AppHandle,
     display_name: &str,

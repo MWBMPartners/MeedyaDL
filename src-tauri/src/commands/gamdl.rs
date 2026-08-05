@@ -80,6 +80,180 @@ pub struct QueueStatus {
     pub items: Vec<QueueItemStatus>,
 }
 
+/// Resolves which media service an **already-queued** item belongs to, for
+/// the enqueue-seam feature-availability gate on the retry paths.
+///
+/// Three-step resolution:
+///   1. the item's own `service` field (the kebab-case platform id written
+///      at enqueue time by the multi-service queue);
+///   2. failing that, URL sniffing via `MediaServiceId::from_url` — covers
+///      items persisted by a build older than multi-service support, where
+///      `service` is `None`;
+///   3. failing that, Apple Music — the only service that has ever been
+///      dispatchable, so an unlabelled legacy item is Apple Music by
+///      construction.
+///
+/// Never returns `None`: a gate that couldn't identify the service would
+/// have to choose between refusing everything (breaks retries on a
+/// malformed item) or allowing everything (a silent hole in the gate).
+/// Falling back to the only implemented service avoids both.
+fn service_for_queue_item(
+    item: &QueueItemStatus,
+) -> crate::models::media_service::MediaServiceId {
+    use crate::models::media_service::MediaServiceId;
+
+    item.service
+        .as_deref()
+        .and_then(|id| match id {
+            "apple-music" => Some(MediaServiceId::AppleMusic),
+            "youtube-music" => Some(MediaServiceId::YouTubeMusic),
+            "youtube" => Some(MediaServiceId::YouTube),
+            "spotify" => Some(MediaServiceId::Spotify),
+            "bbc-iplayer" => Some(MediaServiceId::BBCiPlayer),
+            _ => None,
+        })
+        .or_else(|| {
+            item.urls
+                .iter()
+                .find_map(|url| MediaServiceId::from_url(url))
+        })
+        .unwrap_or(MediaServiceId::AppleMusic)
+}
+
+/// Domains allowlisted for `http`/`https` URLs submitted to `start_download`.
+///
+/// Reject any URL whose host does not exactly match an Apple Music, Apple
+/// Music Classical, legacy iTunes, or Spotify domain (#459 / M9-5). Matching
+/// is done via `url::Url::host_str()` (not substring search), so tricks like
+/// `evil.com/?next=music.apple.com/...` cannot bypass the check.
+const SUPPORTED_HOSTS: &[&str] = &[
+    "music.apple.com",
+    "classical.apple.com",
+    "itunes.apple.com",
+    // Spotify (M9-5): host allowlist accepts Spotify URLs, but the M9
+    // anti-ban dispatch gate (evaluated in `start_download` immediately
+    // after this classification) enforces dev-access + consent +
+    // daily-cap before the URL is allowed to reach the queue.
+    "open.spotify.com",
+];
+
+/// Validates and classifies a batch of submitted URLs by media service.
+///
+/// This is the **sole classification seam** for `start_download`'s two
+/// enqueue-time gates: the remote feature-availability gate
+/// (`feature_flag_service::service_gate`) and the M9 Spotify anti-ban
+/// dispatch gate (`spotify_anti_ban::evaluate_dispatch_gate`). Both gates
+/// key off the `has_spotify` / `has_apple_music` flags returned here, so
+/// any URL shape that should be treated as belonging to a gated service
+/// MUST be recognised in this function — a shape that slips through
+/// unclassified silently bypasses both gates for that URL.
+///
+/// ## Recognised shapes
+///
+/// * `http(s)://<allowlisted host>` — the standard case. Rejected with
+///   `Err` if the scheme is http(s) but the host isn't on
+///   [`SUPPORTED_HOSTS`].
+/// * `spotify:...` — bare Spotify URIs (e.g. `spotify:album:1234`), which
+///   the frontend already treats as equivalent to an `open.spotify.com`
+///   link (see `DownloadForm.tsx`'s `hasSpotify` check). These carry no
+///   `host_str()` (non-hierarchical/opaque URI per RFC 3986), so they can
+///   never match [`SUPPORTED_HOSTS`] and are classified via
+///   `Url::scheme()` instead. Prior to this function's introduction, this
+///   shape fell through the classification `if` with **no branch at
+///   all**: no host check (there is none to fail), no `has_spotify` flip,
+///   and silent pass-through — the URI reached the queue having evaded
+///   both gates entirely.
+/// * Anything else that fails to parse as a URL at all (`url::Url::parse`
+///   error) is rejected with `Err`, unchanged from prior behaviour.
+/// * Any other scheme that parses successfully (e.g. `ftp://host`,
+///   `mailto:x@y`) is intentionally left unclassified and unrejected —
+///   this is pre-existing behaviour this function preserves rather than
+///   widens. Such URLs still fail later, at the per-engine subprocess
+///   command builder's `http(s)://`-prefix check (see
+///   `reject_bare_spotify_uris` doc comment for why `spotify:` gets an
+///   explicit, earlier, clearer rejection instead of relying on that
+///   generic downstream failure).
+///
+/// # Returns
+/// `Ok((has_spotify, has_apple_music))` on success, or `Err` with a
+/// user-facing message for an unparseable URL or a disallowed http(s)
+/// host.
+fn classify_batch_urls(urls: &[String]) -> Result<(bool, bool), String> {
+    // Whether any URL in the batch is a Spotify URL — drives the
+    // feature-availability gate and the M9 anti-ban dispatch gate.
+    let mut has_spotify = false;
+    // Whether any URL in the batch targets Apple Music (incl. Classical and
+    // legacy iTunes hosts) — drives the feature-availability gate.
+    let mut has_apple_music = false;
+
+    for url in urls {
+        let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL '{url}': {e}"))?;
+        if parsed.scheme() == "http" || parsed.scheme() == "https" {
+            let host = parsed.host_str().unwrap_or("").to_lowercase();
+            // Check for an exact host match or a subdomain (e.g., "geo.music.apple.com").
+            // Use strip_suffix to avoid per-iteration string allocations.
+            let is_supported = SUPPORTED_HOSTS.iter().any(|&allowed| {
+                host == allowed
+                    || host
+                        .strip_suffix(allowed)
+                        .is_some_and(|prefix| prefix.ends_with('.'))
+            });
+            if !is_supported {
+                return Err(format!(
+                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, iTunes, and Spotify URLs are supported."
+                ));
+            }
+            if host.ends_with("open.spotify.com") {
+                has_spotify = true;
+            } else {
+                // Every other allowed host is an Apple Music family host
+                // (music / classical / itunes, plus subdomains such as
+                // geo.music.apple.com) — the allowlist above guarantees it.
+                has_apple_music = true;
+            }
+        } else if parsed.scheme() == "spotify" {
+            has_spotify = true;
+        }
+    }
+
+    Ok((has_spotify, has_apple_music))
+}
+
+/// Rejects bare `spotify:` URIs with a clear, actionable error.
+///
+/// `classify_batch_urls` recognises `spotify:...` URIs so they are
+/// correctly subject to the feature-availability gate and the M9 anti-ban
+/// dispatch gate in `start_download` — that's the security-relevant fix
+/// for the classification gap. But passing those gates doesn't mean the
+/// URI is actually downloadable today: `MediaServiceId::from_url()` (used
+/// by `DownloadQueue::enqueue()` to pick an engine) only recognises
+/// `open.spotify.com` links, and both
+/// `gamdl_service::build_gamdl_command_public()` and
+/// `spotify_service::build_votify_command()` reject any URL that doesn't
+/// start with `http://`/`https://` right before the subprocess is
+/// spawned. Left unguarded, a `spotify:` URI that cleared the gates above
+/// would be enqueued with `service: None`, treated as a legacy Apple
+/// Music item by `process_queue()`'s `item_service.is_none()` fallback,
+/// dispatched to GAMDL, and fail with GAMDL's generic "Invalid URL (must
+/// start with http:// or https://)" — a message that never mentions
+/// Spotify and would send the user down the wrong debugging path.
+///
+/// Called in `start_download` **after** both gates, so a paused/blocked
+/// Spotify batch still surfaces the gate's message (dev-access, consent,
+/// daily cap, or the feature-availability notice) rather than this one —
+/// this is a routability check for the shape of the URL, not a second
+/// classification/gating pass.
+fn reject_bare_spotify_uris(urls: &[String]) -> Result<(), String> {
+    for url in urls {
+        if url.starts_with("spotify:") {
+            return Err(format!(
+                "Spotify URIs in the 'spotify:...' form aren't downloadable directly yet — copy the open.spotify.com link instead: {url}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Starts a new download by adding it to the queue.
 ///
 /// **Frontend caller:** `startDownload(request)` in `src/lib/tauri-commands.ts`
@@ -151,43 +325,64 @@ pub async fn start_download(
     // but structurally required for GAMDL's URL regex to match.
     let mut request = request;
 
-    // Validate all URLs belong to supported domains (#459).
-    // Reject any URL whose host does not exactly match an Apple Music,
-    // Apple Music Classical, or legacy iTunes domain. Uses url::Url to
-    // parse and extract host_str() so that substring tricks like
-    // "evil.com/?next=music.apple.com/..." cannot bypass the check.
-    const SUPPORTED_HOSTS: &[&str] = &[
-        "music.apple.com",
-        "classical.apple.com",
-        "itunes.apple.com",
-        // Spotify (M9-5): host allowlist accepts Spotify URLs, but the
-        // dispatch gate immediately below enforces dev-access + consent
-        // + daily-cap before the URL is allowed to reach the queue.
-        "open.spotify.com",
-    ];
-    // Whether any URL in the batch is a Spotify URL — drives the
-    // dispatch-gate check after host validation passes.
-    let mut has_spotify = false;
-    for url in &request.urls {
-        let parsed = url::Url::parse(url)
-            .map_err(|e| format!("Invalid URL '{url}': {e}"))?;
-        if parsed.scheme() == "http" || parsed.scheme() == "https" {
-            let host = parsed.host_str().unwrap_or("").to_lowercase();
-            // Check for an exact host match or a subdomain (e.g., "geo.music.apple.com").
-            // Use strip_suffix to avoid per-iteration string allocations.
-            let is_supported = SUPPORTED_HOSTS.iter().any(|&allowed| {
-                host == allowed
-                    || host
-                        .strip_suffix(allowed)
-                        .is_some_and(|prefix| prefix.ends_with('.'))
-            });
-            if !is_supported {
-                return Err(format!(
-                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, iTunes, and Spotify URLs are supported."
-                ));
-            }
-            if host.ends_with("open.spotify.com") {
-                has_spotify = true;
+    // Validate all URLs belong to supported domains (#459) and classify
+    // the batch by service. See `classify_batch_urls` doc comment for the
+    // full rationale (host allowlist + bare `spotify:` URI handling).
+    let (has_spotify, has_apple_music) = classify_batch_urls(&request.urls)?;
+
+    // ---------------------------------------------------------------
+    // Remote feature-availability gate (enqueue seam).
+    // ---------------------------------------------------------------
+    //
+    // Placement is load-bearing: this runs immediately after host
+    // classification and BEFORE every mutation in this function — before
+    // `history_service::remove_entries_for_urls`, before the batch / artist
+    // duplicate planners, and before any `q.enqueue(...)`. A paused service
+    // must leave the queue and the history file exactly as it found them.
+    //
+    // This is the AUTHORITATIVE check. `DownloadForm.tsx` has a courtesy
+    // check that fires first for the common path, but deep links, the
+    // clipboard monitor, drag-and-drop and manifest import all reach this
+    // command without ever passing through that form.
+    //
+    // Resolution is synchronous and never touches the network (see
+    // `feature_flag_service::service_gate`), so an offline user pays nothing
+    // for it. Unknown keys fail open.
+    //
+    // Mirrors the shape of the M9 Spotify dispatch gate immediately below:
+    // evaluate the whole batch first, then refuse to queue ANY of it if a
+    // service is paused — a partially-blocked batch fails fast with a
+    // service-specific message instead of silently dropping half the URLs.
+    {
+        use crate::models::media_service::MediaServiceId;
+        use crate::services::feature_flag_service::service_gate;
+
+        let mut batch_services: Vec<MediaServiceId> = Vec::new();
+        if has_apple_music {
+            batch_services.push(MediaServiceId::AppleMusic);
+        }
+        if has_spotify {
+            batch_services.push(MediaServiceId::Spotify);
+        }
+
+        for service in &batch_services {
+            if let Err(message) = service_gate(&app, service) {
+                // Exactly one activity-log line per refusal, naming only the
+                // service. The server-authored notice text goes back to the
+                // caller as the Err payload (which the frontend surfaces as
+                // a toast); it is deliberately NOT duplicated into the log.
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                log::info!(
+                    "start_download refused: {} is disabled by feature availability",
+                    service.display_name()
+                );
+                return Err(message);
             }
         }
     }
@@ -258,6 +453,11 @@ pub async fn start_download(
             }
         }
     }
+
+    // Bare `spotify:` URI routability guard — see `reject_bare_spotify_uris`
+    // doc comment. Runs after both gates above so a paused/blocked batch
+    // still gets the gate's message, not this one.
+    reject_bare_spotify_uris(&request.urls)?;
 
     let original_urls = request.urls.clone();
     request.urls = request
@@ -1192,6 +1392,37 @@ pub async fn retry_download(
 ) -> Result<(), String> {
     log::info!("Retry requested for download: {download_id}");
 
+    // Remote feature-availability gate (enqueue seam). A retry is a request
+    // to start the download over from the top, so it is new work by the
+    // enqueue-seam rule and is gated exactly like `start_download`. Runs at
+    // the very top, before the smart-retry peek and before any state
+    // mutation, so a refusal leaves the item untouched in its Error state.
+    //
+    // (Contrast `retry_download_without_wrapper`, which is deliberately NOT
+    // gated: it is the automatic continuation of a failure in an already-
+    // admitted download, not a fresh admission.)
+    {
+        let item = {
+            let q = queue.lock().await;
+            q.get_status().into_iter().find(|item| item.id == download_id)
+        };
+        if let Some(item) = item.as_ref() {
+            let service = service_for_queue_item(item);
+            if let Err(message) =
+                crate::services::feature_flag_service::service_gate(&app, &service)
+            {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                return Err(message);
+            }
+        }
+    }
+
     // Re-load settings so retries pick up any changes the user made
     // (e.g., switching from AAC to ALAC after a failed attempt).
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
@@ -1332,6 +1563,46 @@ pub async fn retry_failed_bulk(
             retried: 0,
             skipped: Vec::new(),
         });
+    }
+
+    // Remote feature-availability gate (enqueue seam), evaluated at the top
+    // before ANY state mutation. Same rule as `retry_download`: a bulk retry
+    // re-admits work into the queue, so a paused service must refuse it.
+    //
+    // Evaluated across the whole requested batch and refusing the entire
+    // call (rather than per-item skipping) matches `start_download`: a
+    // partially-refused bulk retry would be reported as "N re-queued, M
+    // skipped" in a report the user has to decode, whereas one clear
+    // service-level message says exactly what happened.
+    {
+        let services: Vec<crate::models::media_service::MediaServiceId> = {
+            let q = queue.lock().await;
+            let mut seen = Vec::new();
+            for item in q.get_status() {
+                if !download_ids.contains(&item.id) {
+                    continue;
+                }
+                let service = service_for_queue_item(&item);
+                if !seen.contains(&service) {
+                    seen.push(service);
+                }
+            }
+            seen
+        };
+        for service in &services {
+            if let Err(message) =
+                crate::services::feature_flag_service::service_gate(&app, service)
+            {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "Download refused — {} downloads are paused by a service notice",
+                        service.display_name()
+                    ),
+                );
+                return Err(message);
+            }
+        }
     }
 
     let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
@@ -2027,6 +2298,53 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
         })
         .collect();
 
+    // Remote feature-availability gate (enqueue seam), applied PER ITEM.
+    //
+    // Import differs deliberately from `start_download` / the retry paths:
+    // an import file is a user's archived queue, often spanning services and
+    // often months old. Refusing the whole file because one service is
+    // paused would mean the user loses the import entirely and has to
+    // remember to redo it later. So blocked items are skipped and counted,
+    // and everything else imports normally — the summary line tells the user
+    // exactly how many were held back.
+    //
+    // Service is sniffed from each item's URLs (an `ExportedItem` carries
+    // only URLs + option overrides); an unrecognised URL is left to the
+    // existing downstream validation rather than being gated here.
+    let total_items = items.len();
+    let items: Vec<_> = items
+        .into_iter()
+        .filter(|item| {
+            let Some(service) = item
+                .urls
+                .iter()
+                .find_map(|url| crate::models::media_service::MediaServiceId::from_url(url))
+            else {
+                return true;
+            };
+            crate::services::feature_flag_service::service_gate(&app, &service)
+                .inspect_err(|_| {
+                    log::info!(
+                        "Queue import: skipping item for paused service {}",
+                        service.display_name()
+                    );
+                })
+                .is_ok()
+        })
+        .collect();
+    let paused_skipped = total_items - items.len();
+
+    if items.is_empty() {
+        // Every item in the file belongs to a paused service. Returning an
+        // error (rather than Ok(0)) is what surfaces the reason to the user
+        // — an "imported 0 items" success would look like a corrupt file.
+        return Err(
+            "Nothing imported — every item in this file is for a download service that is \
+             temporarily paused. It will come back automatically; try the import again then."
+                .to_string(),
+        );
+    }
+
     // Import items into the queue. The lock is acquired inline and
     // released immediately after import_items() returns, avoiding
     // unnecessary resource contention (clippy::significant_drop_tightening).
@@ -2044,7 +2362,17 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
         .and_then(|n| n.to_str())
         .unwrap_or("queue file");
     log::info!("Imported {count} queue item(s) from file");
-    emit_app_log(&app, &format!("Imported {count} item(s) from {filename}"));
+    // The paused-service skip count is appended to the same summary line so
+    // the user sees "why is this fewer items than I exported?" in one place.
+    let paused_suffix = if paused_skipped > 0 {
+        format!(" — {paused_skipped} item(s) skipped — downloads for a paused service")
+    } else {
+        String::new()
+    };
+    emit_app_log(
+        &app,
+        &format!("Imported {count} item(s) from {filename}{paused_suffix}"),
+    );
 
     // Start processing the imported items if auto-start is enabled.
     if settings.auto_start_queue {
@@ -2882,18 +3210,25 @@ pub async fn fetch_syllable_lyrics(
 ) -> Result<Option<String>, String> {
     use crate::services::{apple_music_api, config_service};
 
-    // Resolve MusicKit credentials and generate JWT
+    // Resolve MusicKit credentials and generate JWT. Uses the PREMIUM
+    // resolver (with web-player-token fallback) rather than
+    // `resolve_musickit_developer_token()` so users authenticated only via
+    // the Apple Music login window's extracted developer token (no
+    // user-provided Team ID / Key ID / private key configured) can still
+    // fetch syllable lyrics -- matching the enrichment pipeline's own Step
+    // 1b resolution in `download_queue.rs`.
     let settings = config_service::load_settings(&app).unwrap_or_default();
     let private_key = apple_music_api::get_private_key_from_keychain()
         .map_err(|e| format!("Keychain error: {e}"))?;
-    let jwt = apple_music_api::resolve_musickit_developer_token(
+    let jwt = apple_music_api::resolve_premium_feature_token(
         settings.musickit_team_id.as_deref(),
         settings.musickit_key_id.as_deref(),
         private_key.as_deref(),
     )
     .map_err(|e| format!("JWT error: {e}"))?
+    .map(|(jwt, _src)| jwt)
     .ok_or(
-        "MusicKit credentials not configured. Set up Team ID, Key ID, and private key in Settings > Advanced > API Credentials."
+        "No MusicKit credentials or web-player token available. Sign in to Apple Music or set up Team ID, Key ID, and private key in Settings > Advanced > API Credentials."
     )?;
 
     // Extract media-user-token from cookies file
@@ -2907,7 +3242,14 @@ pub async fn fetch_syllable_lyrics(
         )?;
 
     // Fetch syllable lyrics from the Apple Music API
-    apple_music_api::fetch_syllable_lyrics(&jwt, &storefront, &song_id, &music_user_token).await
+    apple_music_api::fetch_syllable_lyrics(
+        &jwt,
+        &storefront,
+        &song_id,
+        &music_user_token,
+        Some(&settings.language),
+    )
+    .await
 }
 
 /// Information about a previous download of the same URL.
@@ -2945,4 +3287,164 @@ pub fn scan_enrichment_gaps(
         .ok()
         .and_then(|s| serde_json::from_str::<crate::models::manifest::ManifestFile>(&s).ok());
     crate::services::enrichment_gaps::scan_album_dir(&dir, manifest.as_ref())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A bare `spotify:` URI must classify as Spotify — this is the
+    /// gate-bypass fix. Before it, this shape fell through the
+    /// classification `if` with no branch at all: no host check (there
+    /// is none to fail on an opaque URI), no `has_spotify` flip, and
+    /// silent pass-through past both the feature-availability gate and
+    /// the M9 anti-ban dispatch gate.
+    #[test]
+    fn bare_spotify_uri_classified_as_spotify() {
+        let urls = vec!["spotify:album:1234".to_string()];
+        let (has_spotify, has_apple_music) =
+            classify_batch_urls(&urls).expect("spotify: URI should classify, not error");
+        assert!(has_spotify, "spotify: URI must set has_spotify");
+        assert!(
+            !has_apple_music,
+            "spotify: URI must not be misclassified as Apple Music"
+        );
+    }
+
+    /// Regression: the pre-existing `open.spotify.com` shape still
+    /// classifies as Spotify after the refactor into `classify_batch_urls`.
+    #[test]
+    fn open_spotify_com_url_classified_as_spotify() {
+        let urls = vec!["https://open.spotify.com/album/abc123".to_string()];
+        let (has_spotify, has_apple_music) =
+            classify_batch_urls(&urls).expect("open.spotify.com URL should classify");
+        assert!(has_spotify);
+        assert!(!has_apple_music);
+    }
+
+    /// A batch mixing an Apple Music host URL and a bare `spotify:` URI
+    /// sets both flags — this is what drives the enqueue-seam gates to
+    /// evaluate BOTH services for the same batch (see `start_download`'s
+    /// `batch_services` construction).
+    #[test]
+    fn mixed_batch_sets_both_service_flags() {
+        let urls = vec![
+            "https://music.apple.com/us/album/test/123".to_string(),
+            "spotify:track:xyz".to_string(),
+        ];
+        let (has_spotify, has_apple_music) =
+            classify_batch_urls(&urls).expect("mixed batch should classify cleanly");
+        assert!(has_spotify);
+        assert!(has_apple_music);
+    }
+
+    /// A `spotify:` URI that clears the enqueue-seam gates (classification
+    /// wired it into `service_gate` / the anti-ban dispatch gate — that's
+    /// exercised in `feature_flag_service::tests` and
+    /// `commands::spotify_anti_ban::tests`, both of which operate on
+    /// `MediaServiceId::Spotify` regardless of URL shape) must still be
+    /// refused with a clear, Spotify-specific message rather than being
+    /// silently misrouted to GAMDL's generic "must start with http://"
+    /// error. This is the fix's second half: gate-bypass closed AND the
+    /// resulting failure mode is not confusing.
+    #[test]
+    fn bare_spotify_uri_refused_with_clear_message_after_gates() {
+        let urls = vec!["spotify:album:1234".to_string()];
+        let err = reject_bare_spotify_uris(&urls)
+            .expect_err("bare spotify: URIs are not yet routable to a real engine");
+        assert!(err.contains("spotify:"), "got: {err}");
+        assert!(
+            err.contains("open.spotify.com"),
+            "message must point the user at the actually-supported link shape: {err}"
+        );
+    }
+
+    /// `open.spotify.com` URLs are unaffected by the routability guard —
+    /// only the bare-URI shape is rejected there.
+    #[test]
+    fn open_spotify_com_url_not_rejected_by_routability_guard() {
+        let urls = vec!["https://open.spotify.com/album/abc123".to_string()];
+        assert!(reject_bare_spotify_uris(&urls).is_ok());
+    }
+
+    /// Combined proof that a disabled Spotify feature flag refuses a
+    /// batch containing a bare `spotify:` URI — i.e. that the
+    /// classification fix actually feeds the gate rather than merely
+    /// setting a flag nothing reads. Uses the same pure
+    /// `evaluate_service_gate` the production `service_gate` wraps
+    /// (see `feature_flag_service::tests::service_gate_blocks_*` for the
+    /// gate's own coverage); this test's job is only to prove
+    /// `classify_batch_urls`'s output is what would be handed to it.
+    #[test]
+    fn bare_spotify_uri_classification_feeds_a_disabled_service_gate() {
+        use crate::models::feature_flags::{FeatureFlagsSnapshot, FlagVerdict};
+        use crate::models::media_service::MediaServiceId;
+        use crate::services::feature_flag_service::evaluate_service_gate;
+        use std::collections::HashMap;
+
+        let urls = vec!["spotify:album:1234".to_string()];
+        let (has_spotify, _has_apple_music) =
+            classify_batch_urls(&urls).expect("spotify: URI should classify");
+        assert!(has_spotify, "precondition: URI must classify as Spotify");
+
+        // A snapshot where the Spotify feature flag is disabled.
+        let mut verdicts = HashMap::new();
+        verdicts.insert(
+            MediaServiceId::Spotify.flag_key().to_string(),
+            FlagVerdict {
+                enabled: false,
+                ..FlagVerdict::default()
+            },
+        );
+        let snapshot = FeatureFlagsSnapshot {
+            verdicts,
+            ..FeatureFlagsSnapshot::default()
+        };
+
+        // This is exactly what `start_download`'s feature-availability
+        // gate block does once `has_spotify` is true: evaluate the gate
+        // for `MediaServiceId::Spotify`.
+        let result = evaluate_service_gate(&snapshot, &MediaServiceId::Spotify);
+        assert!(
+            result.is_err(),
+            "a spotify: URI must be refused when the Spotify service flag is disabled"
+        );
+    }
+
+    /// A URL that fails to parse at all is still rejected exactly as
+    /// before this change — the top-of-loop `url::Url::parse` error path
+    /// is untouched by the `spotify:` classification addition.
+    #[test]
+    fn unparseable_url_still_rejected() {
+        let urls = vec!["not a url at all".to_string()];
+        let err = classify_batch_urls(&urls).expect_err("garbage input must still error");
+        assert!(err.contains("Invalid URL"), "got: {err}");
+    }
+
+    /// An http(s) URL on a host that isn't on the allowlist is still
+    /// rejected exactly as before — a non-Spotify, non-Apple-Music,
+    /// unrecognised target must not be let through by the `spotify:`
+    /// scheme addition.
+    #[test]
+    fn unsupported_http_host_still_rejected() {
+        let urls = vec!["https://evil.example.com/steal".to_string()];
+        let err = classify_batch_urls(&urls).expect_err("unsupported host must still error");
+        assert!(err.contains("Unsupported URL domain"), "got: {err}");
+    }
+
+    /// A non-Spotify, non-http(s) scheme that parses successfully (e.g.
+    /// `ftp://`) is intentionally left unclassified and un-rejected by
+    /// `classify_batch_urls` — this preserves exactly today's behaviour
+    /// rather than widening the allowlist. It still fails later, at the
+    /// per-engine subprocess builder's `http(s)://`-prefix check
+    /// (`gamdl_service::build_gamdl_command_public` /
+    /// `spotify_service::build_votify_command`), same as before this fix.
+    #[test]
+    fn unrelated_scheme_passes_through_unclassified_like_before() {
+        let urls = vec!["ftp://example.com/file".to_string()];
+        let (has_spotify, has_apple_music) = classify_batch_urls(&urls)
+            .expect("a non-spotify, non-http(s) scheme is not rejected at this seam");
+        assert!(!has_spotify);
+        assert!(!has_apple_music);
+    }
 }

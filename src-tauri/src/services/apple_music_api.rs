@@ -64,16 +64,6 @@ const WEBPLAYER_TOKEN_KEYCHAIN_KEY: &str = "webplayer_developer_token";
 /// on first launch -- see that module for the full account list.
 const SERVICE_NAME: &str = crate::utils::platform::CURRENT_BUNDLE_IDENTIFIER;
 
-/// Browser-grade User-Agent used for Apple Music catalog / amp-api requests
-/// that ride the web-player developer-token tier. Apple's edges
-/// (`amp-api.music.apple.com`, the motion-art CDN) increasingly reject the
-/// bare `meedyadl` UA — matching the Safari string the web player sends keeps
-/// premium fields (`editorialVideo`, syllable TTML) in the response and avoids
-/// sporadic 403s. Shared by `fetch_album_metadata`, `fetch_syllable_lyrics`,
-/// the animated-artwork HLS fetch, and the artist-promo-video lookup so the
-/// string lives in exactly one place.
-pub(crate) const APPLE_BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
-
 /// Identifies which mechanism provided the MusicKit developer token.
 ///
 /// Used by callers of `resolve_premium_feature_token()` for diagnostic
@@ -184,6 +174,18 @@ pub struct AlbumMetadata {
     /// `/artists/{id}` endpoint and is shared across the artist's
     /// whole catalogue; this one is specific to the album.
     pub album_spotlight_url: Option<String>,
+    /// The storefront code that actually served this metadata, when it
+    /// differs from the primary/requested storefront (#961). Set by
+    /// [`fetch_album_metadata_with_fallback`] when a fallback storefront
+    /// (OS-locale or `"us"`) resolves the album after the primary
+    /// storefront 404s -- e.g. from a shared link whose region doesn't
+    /// match the user's account. `None` when the primary storefront served
+    /// the metadata directly, or when metadata was fetched via
+    /// [`fetch_album_metadata`] without the fallback wrapper. Downstream
+    /// consumers use this to warn that animated-artwork HLS URLs sourced
+    /// from a mismatched storefront's response may be geo-locked.
+    #[serde(default)]
+    pub fallback_storefront: Option<String>,
     /// Static cover-art URL template from `attributes.artwork.url`. Apple
     /// returns a templated URL with `{w}`, `{h}`, and `{f}` placeholders
     /// (e.g., `https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}`).
@@ -366,7 +368,7 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -999,7 +1001,7 @@ fn apply_apple_music_headers(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Origin", "https://music.apple.com")
         .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT);
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT);
 
     match music_user_token {
         Some(token) => req.header("Music-User-Token", token),
@@ -1036,9 +1038,14 @@ pub async fn fetch_album_metadata(
     storefront: &str,
     album_id: &str,
 ) -> Result<Option<AlbumMetadata>, String> {
-    // Enriched API call: include tracks and artists, extend with editorialVideo
+    // Enriched API call: include tracks and artists, extend with
+    // editorialVideo (animated artwork) + audioTraits (#1011). amp-api
+    // omits per-track `audioTraits` unless the request asks for it via
+    // `extend=audioTraits`; `extend` is comma-separated and applies to
+    // every resource in the response, covering the album object and the
+    // include=tracks relationship.
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo"
+        "https://api.music.apple.com/v1/catalog/{storefront}/albums/{album_id}?include=tracks,artists&extend=editorialVideo,audioTraits"
     );
 
     log::debug!("Querying Apple Music API for album metadata: {url}");
@@ -1219,6 +1226,27 @@ pub async fn fetch_album_metadata(
         extract_motion_url_chain(ev, &["motionArtistFullscreen16x9", "motionArtistWide16x9"])
     });
 
+    // Not-silently-failing logging (#961): `editorialVideo` was present on
+    // the response but NONE of our three known motion-key chains matched
+    // anything -- i.e. Apple returned a shape we don't recognise, rather
+    // than simply not offering animated artwork for this album. Naming
+    // the keys actually present turns "animated artwork silently missing"
+    // into an actionable signal that our key list needs updating, instead
+    // of looking identical to "not offered".
+    if editorial_video.is_some()
+        && artwork_square_url.is_none()
+        && artwork_tall_url.is_none()
+        && album_spotlight_url.is_none()
+    {
+        let present_keys: Vec<&str> = editorial_video
+            .and_then(serde_json::Value::as_object)
+            .map(|obj| obj.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        log::warn!(
+            "Album {album_id}: editorialVideo present but no known motion key matched -- keys present: {present_keys:?}"
+        );
+    }
+
     // Static cover artwork (#756). The `artwork.url` is a template
     // with `{w}`, `{h}`, `{f}` placeholders we can substitute when
     // falling back from a failed RAW write to PNG/JPEG.
@@ -1270,6 +1298,7 @@ pub async fn fetch_album_metadata(
         artwork_square_url,
         artwork_tall_url,
         album_spotlight_url,
+        fallback_storefront: None,
         artwork_url_template,
         artwork_width,
         artwork_height,
@@ -1380,7 +1409,8 @@ fn parse_tracks_from_response(album_data: &serde_json::Value) -> Vec<TrackMetada
                 .unwrap_or(1);
 
             // Extract audioTraits array (e.g., ["lossy-stereo", "lossless", "dolby-atmos"])
-            // This is returned by default in the catalog API response — no extend needed.
+            // Present only because the album fetch requests `extend=audioTraits`
+            // (#1011) — amp-api omits the field without that extend parameter.
             let audio_traits = attrs
                 .get("audioTraits")
                 .and_then(|v| v.as_array())
@@ -1561,8 +1591,8 @@ pub async fn fetch_music_video_relations(
         );
 
         // Browser-grade headers (#970) -- this call previously sent only
-        // `Authorization` + a bare `User-Agent: "meedyadl"`, missing the
-        // `Origin` header amp-api's edge expects from the web-player-token
+        // `Authorization` + a bare `User-Agent` app-identity header, missing
+        // the `Origin` header amp-api's edge expects from the web-player-token
         // tier. Routed through the shared helper so it stays in sync with
         // `fetch_album_metadata` / `fetch_artist_promo_video`.
         // #971: pass the subscriber's Music-User-Token here (instead of
@@ -1738,7 +1768,7 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", "meedyadl")
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -2431,10 +2461,15 @@ pub async fn fetch_album_metadata_with_fallback(
     for sf in &fallbacks {
         log::debug!("Trying fallback storefront '{sf}' for album {album_id}");
         match fetch_album_metadata(jwt, sf, album_id).await {
-            Ok(Some(metadata)) => {
+            Ok(Some(mut metadata)) => {
                 log::info!(
                     "Album {album_id} found via fallback storefront '{sf}' (primary was '{primary_storefront}')"
                 );
+                // Record which storefront actually served this response
+                // (#961) -- downstream consumers (animated artwork,
+                // enrichment) use this to warn that HLS/asset URLs sourced
+                // from a mismatched-region response may be geo-locked.
+                metadata.fallback_storefront = Some(sf.clone());
                 return Ok(Some(metadata));
             }
             Ok(None) | Err(_) => continue,
@@ -2525,7 +2560,7 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2711,7 +2746,7 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", "meedyadl")
+            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
@@ -2826,7 +2861,20 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
     // Netscape cookie format: domain \t flag \t path \t secure \t expires \t name \t value
     for line in content.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        if line.is_empty() {
+            continue;
+        }
+        // Browser exporters (e.g. yt-dlp / browser_cookie3) write HttpOnly
+        // cookies with a `#HttpOnly_` prefix on the domain field per the
+        // Netscape cookie file convention -- this is NOT a comment line, it
+        // is a data line whose domain happens to start with `#`. The naive
+        // `line.starts_with('#')` comment check dropped every HttpOnly
+        // cookie, including `media-user-token` itself, which is what
+        // Apple's subscriber session cookie is (#971). Strip the marker
+        // before the comment check so genuine `#`-prefixed comment lines
+        // (which never contain a `#HttpOnly_` prefix) are still skipped.
+        let line = line.strip_prefix("#HttpOnly_").unwrap_or(line);
+        if line.starts_with('#') {
             continue;
         }
         let fields: Vec<&str> = line.split('\t').collect();
@@ -2852,6 +2900,28 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
     Ok(None)
 }
 
+/// Builds the optional `&l={locale}` query suffix for Apple Music API
+/// calls (#973). BCP-47 tag from settings.language (same value handed to
+/// GAMDL --language). Returns "" when None/empty/all-rejected-chars.
+/// Input restricted to ASCII alphanumerics and '-' (max 35 chars) so a
+/// corrupt settings file can't inject extra query params.
+fn locale_query_suffix(locale: Option<&str>) -> String {
+    let Some(raw) = locale else {
+        return String::new();
+    };
+    let tag: String = raw
+        .trim()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .take(35)
+        .collect();
+    if tag.is_empty() {
+        String::new()
+    } else {
+        format!("&l={tag}")
+    }
+}
+
 /// Fetch word-level (syllable) TTML lyrics for a song from Apple Music.
 ///
 /// Calls the `/syllable-lyrics` endpoint which returns TTML with
@@ -2866,6 +2936,8 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
 /// * `storefront` - Two-letter country code (e.g., "us", "gb")
 /// * `song_id` - Apple Music numeric song ID
 /// * `music_user_token` - Subscriber token from `media-user-token` cookie
+/// * `locale` - Optional BCP-47 UI locale (e.g. "en-US") for the `&l=`
+///   query parameter (#973); `None` omits it
 ///
 /// # Returns
 /// * `Ok(Some(String))` - Raw TTML XML with word-level timing
@@ -2876,6 +2948,7 @@ pub async fn fetch_syllable_lyrics(
     storefront: &str,
     song_id: &str,
     music_user_token: &str,
+    locale: Option<&str>,
 ) -> Result<Option<String>, String> {
     // amp-api is the canonical syllable-lyrics endpoint (matches the ITAM
     // Enhancer userscript base URL). `?extend=ttmlLocalizations` is REQUIRED:
@@ -2883,8 +2956,11 @@ pub async fn fetch_syllable_lyrics(
     // `attributes.ttmlLocalizations` rather than `attributes.ttml`, and
     // without the extend flag those tracks return an empty `ttml` field —
     // silently degrading the user to line-level LRC with no error. (#936)
+    // `&l={locale}` (#973) requests the response in the user's configured
+    // storefront language rather than whatever amp-api defaults to.
     let url = format!(
-        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations"
+        "https://amp-api.music.apple.com/v1/catalog/{storefront}/songs/{song_id}/syllable-lyrics?extend=ttmlLocalizations{}",
+        locale_query_suffix(locale)
     );
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
@@ -2899,7 +2975,7 @@ pub async fn fetch_syllable_lyrics(
         // fields) without an Origin header; the browser sends it
         // automatically, so a Rust client must set it explicitly. (#936)
         .header("Origin", "https://music.apple.com")
-        .header("User-Agent", APPLE_BROWSER_USER_AGENT)
+        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT)
         .send()
         .await
         .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
@@ -2998,6 +3074,8 @@ pub struct ArtistPromoVideo {
 /// * `jwt` - MusicKit Developer Token (signed JWT)
 /// * `storefront` - Two-letter country code (e.g., "us", "gb")
 /// * `artist_id` - Numeric artist identifier (e.g., "368433979")
+/// * `locale` - Optional BCP-47 UI locale (e.g. "en-US") for the `&l=`
+///   query parameter (#973); `None` omits it
 ///
 /// # Returns
 /// * `Ok(Some(ArtistPromoVideo))` - Artist has a promo video
@@ -3007,9 +3085,13 @@ pub async fn fetch_artist_promo_video(
     jwt: &str,
     storefront: &str,
     artist_id: &str,
+    locale: Option<&str>,
 ) -> Result<Option<ArtistPromoVideo>, String> {
+    // `&l={locale}` (#973) requests the response in the user's configured
+    // storefront language rather than whatever amp-api defaults to.
     let url = format!(
-        "https://api.music.apple.com/v1/catalog/{storefront}/artists/{artist_id}?extend=editorialVideo"
+        "https://api.music.apple.com/v1/catalog/{storefront}/artists/{artist_id}?extend=editorialVideo{}",
+        locale_query_suffix(locale)
     );
 
     log::debug!("Querying Apple Music API for artist promo video: {url}");
@@ -3112,8 +3194,21 @@ pub async fn fetch_artist_promo_video(
             }))
         }
         None => {
-            log::debug!(
-                "editorialVideo present but no video URL found for artist {artist_name} ({artist_id})"
+            // Not-silently-failing logging (#961): name the keys Apple
+            // actually returned so a support conversation ("no artist
+            // spotlight video downloaded") can distinguish "Apple sent no
+            // editorialVideo motion keys at all for this artist" from "our
+            // key list is stale". Deliberately does NOT fall through to
+            // `motionDetailSquare` / `motionDetailTall` when only those are
+            // present -- they're framed/cropped for album cover art, not
+            // an artist-page hero, and using them here would look visually
+            // wrong (#537 exclusion, unchanged).
+            let present_keys: Vec<&str> = editorial_video
+                .as_object()
+                .map(|obj| obj.keys().map(String::as_str).collect())
+                .unwrap_or_default();
+            log::info!(
+                "editorialVideo present but no motionArtist* video URL found for artist {artist_name} ({artist_id}) -- keys present: {present_keys:?} (motionDetailSquare/motionDetailTall intentionally excluded as an artist-hero fallback, #537)"
             );
             Ok(None)
         }
@@ -3952,6 +4047,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
             artwork_square_url: Some("https://example.com/square.m3u8".to_string()),
             artwork_tall_url: None,
             album_spotlight_url: None,
+            fallback_storefront: None,
             artwork_url_template: Some(
                 "https://is1-ssl.mzstatic.com/.../source/{w}x{h}{c}.{f}".to_string(),
             ),
@@ -3964,6 +4060,44 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         assert!(json.contains("\"upc\":\"00602445790258\""));
         assert!(json.contains("\"isrc\":\"USUG12345678\""));
         assert!(json.contains("\"track_number\":3"));
+    }
+
+    /// Backward-compat (#961): a `manifest.meedyadl` or cached JSON blob
+    /// written by a pre-#961 MeedyaDL build has no `fallback_storefront`
+    /// key at all. `#[serde(default)]` must let it deserialize to `None`
+    /// instead of failing the whole load.
+    #[test]
+    fn album_metadata_deserializes_without_fallback_storefront_field() {
+        let json = serde_json::json!({
+            "album_id": "12345",
+            "album_name": "Midnights",
+            "upc": null,
+            "content_rating": null,
+            "genre_names": [],
+            "artist_id": null,
+            "artist_name": null,
+            "record_label": null,
+            "copyright": null,
+            "release_date": null,
+            "is_compilation": null,
+            "is_single": null,
+            "is_complete": null,
+            "is_mastered_for_itunes": null,
+            "track_count": null,
+            "editorial_notes": null,
+            "last_modified_date": null,
+            "tracks": [],
+            "artwork_square_url": null,
+            "artwork_tall_url": null,
+            "album_spotlight_url": null,
+            "artwork_url_template": null,
+            "artwork_width": null,
+            "artwork_height": null
+            // Deliberately no "fallback_storefront" key.
+        });
+
+        let metadata: AlbumMetadata = serde_json::from_value(json).unwrap();
+        assert_eq!(metadata.fallback_storefront, None);
     }
 
     // ----------------------------------------------------------
@@ -4771,6 +4905,52 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         let result = extract_media_user_token(path.to_str().unwrap());
         assert_eq!(result.unwrap(), Some("TOKEN_AFTER_COMMENTS".to_string()));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn extract_token_from_httponly_prefixed_line() {
+        // Browser cookie exporters mark HttpOnly cookies with a
+        // `#HttpOnly_` domain prefix per the Netscape cookie file
+        // convention. This is a DATA line, not a comment, and
+        // `media-user-token` is itself typically HttpOnly (#971).
+        let dir = std::env::temp_dir().join("meedyadl_test_cookies_httponly");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cookies.txt");
+        std::fs::write(
+            &path,
+            "# Netscape HTTP Cookie File\n\
+             #HttpOnly_.music.apple.com\tTRUE\t/\tTRUE\t0\tmedia-user-token\tTOKENVALUE\n",
+        )
+        .unwrap();
+        let result = extract_media_user_token(path.to_str().unwrap());
+        assert_eq!(result.unwrap(), Some("TOKENVALUE".to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // ----------------------------------------------------------
+    // locale_query_suffix tests (#973)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn locale_suffix_none_and_empty_are_omitted() {
+        assert_eq!(locale_query_suffix(None), "");
+        assert_eq!(locale_query_suffix(Some("")), "");
+        assert_eq!(locale_query_suffix(Some("   ")), "");
+    }
+
+    #[test]
+    fn locale_suffix_appends_bcp47_tag() {
+        assert_eq!(locale_query_suffix(Some("en-US")), "&l=en-US");
+        assert_eq!(locale_query_suffix(Some("ja-JP")), "&l=ja-JP");
+    }
+
+    #[test]
+    fn locale_suffix_strips_injection_characters() {
+        assert_eq!(
+            locale_query_suffix(Some("en-US&extend=evil")),
+            "&l=en-USextendevil"
+        );
+        assert_eq!(locale_query_suffix(Some("?&=#/")), "");
     }
 
     // ----------------------------------------------------------

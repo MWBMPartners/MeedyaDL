@@ -366,6 +366,28 @@ Changes to settings are not persisted between application restarts.
 
 ---
 
+### A Feature Says It Is "Temporarily Unavailable"
+
+Occasionally you may see a notice at the top of the app saying that a feature is temporarily unavailable, or a feature you have used before may be paused.
+
+**This is deliberate, and it is not a problem with your computer or your installation.** Very occasionally we need to pause a feature for everyone at short notice — for example, while we investigate a change on the service the feature talks to. When that happens, the app shows a notice so the feature doesn't just silently vanish.
+
+What to know:
+
+- **You don't need to do anything.** No reinstall, no settings change, no cookie refresh will bring the feature back sooner — it returns automatically once we switch it back on.
+- **The rest of the app keeps working normally.** Only the named feature is paused.
+- **If the notice includes extra text, that message comes from us** and will usually say why the feature is paused or when to expect it back.
+- **Being offline never causes this.** If MeedyaDL can't check in, it simply keeps its last known state — a lost connection cannot switch anything off, and a brand-new install with no internet runs with everything enabled.
+
+**If the paused item is a whole download service** (rather than a smaller feature), MeedyaDL will not start any new downloads for it while it is paused — you'll see the reason instead of a confusing failure. Two things worth knowing:
+
+- **Anything already downloading finishes normally.** A pause only ever stops new work from starting; it never interrupts a download that's already in progress.
+- **Queued items for other services are unaffected.** If one service is paused, downloads for every other service keep starting as usual.
+
+If a notice has been showing for a long time, check [GitHub Releases](https://github.com/MWBMPartners/MeedyaDL/releases) for an app update — a newer version may restore or replace the paused feature.
+
+---
+
 ### Quality and Format Errors
 
 #### Output File Won't Play

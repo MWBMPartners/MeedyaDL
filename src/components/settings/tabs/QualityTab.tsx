@@ -54,6 +54,10 @@
 // Audit v2 #6 — per-field Zustand binding.
 import { useSettingsField } from '@/hooks/useSettingsField';
 
+// Version-aware GAMDL capability flags (#963, #1002) — drives the
+// wrapper-dependency prose below without touching the codec labels (#965).
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
+
 // Shared form components.
 import { Select, Toggle, FallbackChainList, CheckboxGroup, SettingsSection } from '@/components/common';
 
@@ -133,6 +137,9 @@ export function QualityTab() {
   const videoRemuxFormat = useSettingsField('default_video_remux_format');
   const musicVideoCompanion = useSettingsField('music_video_companion');
   const musicbrainzLookup = useSettingsField('musicbrainz_lookup');
+  // #963/#1002: on GAMDL 3.8+ only ALAC needs the Wrapper; swap the codec
+  // description prose accordingly. The (Experimental) labels stay (#965).
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
 
   /**
    * Transform the SONG_CODEC_LABELS record into the array format expected
@@ -184,10 +191,22 @@ export function QualityTab() {
           label="Default Audio Codec"
           description={
             <>
-              The preferred codec for song downloads. Only <strong>AAC Legacy</strong> and{' '}
-              <strong>AAC-HE Legacy</strong> are reliably downloadable with cookie-based
-              authentication. All other codecs are marked <em>(Experimental)</em> and may fail
-              intermittently without the Wrapper service. See Help &gt; Audio Codecs for details.
+              {gamdlCaps.assets_api_unlocks_lossy_codecs ? (
+                <>
+                  The preferred codec for song downloads. On your installed GAMDL (3.8+), every
+                  codec except <strong>Lossless (ALAC)</strong> downloads with cookie-based
+                  authentication alone — ALAC still requires the Wrapper service. Codecs marked{' '}
+                  <em>(Experimental)</em> may still fail intermittently. See Help &gt; Audio Codecs
+                  for details.
+                </>
+              ) : (
+                <>
+                  The preferred codec for song downloads. Only <strong>AAC Legacy</strong> and{' '}
+                  <strong>AAC-HE Legacy</strong> are reliably downloadable with cookie-based
+                  authentication. All other codecs are marked <em>(Experimental)</em> and may fail
+                  intermittently without the Wrapper service. See Help &gt; Audio Codecs for details.
+                </>
+              )}
               <br />
               <br />
               <strong>ALAC</strong> = lossless (perfect quality, larger files);{' '}

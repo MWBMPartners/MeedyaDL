@@ -469,13 +469,16 @@
       "Bash(awk '/^pub fn normalize_apple_music_url/{found=1; brace=0} found && /\\\\{/{brace++} found && /\\\\}/{brace--; if\\(brace==0\\){print NR; exit}}' src-tauri/src/services/apple_music_api.rs)",
       "Bash(node scripts/check-acknowledgements.mjs)",
       "Bash(node scripts/check-upstream-licences.mjs)",
-      "Bash(awk '/^                    enrich_app/,0 {print NR\": \"$0; if \\(NR > 8950\\) exit}' src-tauri/src/services/download_queue.rs)"
+      "Bash(awk '/^                    enrich_app/,0 {print NR\": \"$0; if \\(NR > 8950\\) exit}' src-tauri/src/services/download_queue.rs)",
+      "mcp__Claude_Code_Remote__send_later",
+      "mcp__Claude_Code_Remote__add_repo"
     ],
     "additionalDirectories": [
+      "/Users/lance.manasse/Library/Application Support/com.meedyasuite.meedyadl/crashes",
       "/Users/lance.manasse/Library/Application Support/io.github.meedyadl/crashes",
       "/Users/lance.manasse/.claude/projects/-Users-lance-manasse-Projects-Coding-and-Development-MWBM-Partners-Ltd-GitHub/MeedyaDL/memory",
       "/Users/lance.manasse/.claude/projects/-Users-lance-manasse-Projects-Coding-and-Development-MWBM-Partners-Ltd-GitHub/MeedyaDL",
-      "/Users/lance.anasse/Projects/Coding and Development/MWBM Partners Ltd/GitHub/MeedyaDL/assets/brand/new",
+      "/Users/lance.manasse/Projects/Coding and Development/MWBM Partners Ltd/GitHub/MeedyaDL/assets/brand/new",
       "/private/tmp/meedya-fonts",
       "/private/tmp/font-venv",
       "/private/tmp/mediainfo-mirror",

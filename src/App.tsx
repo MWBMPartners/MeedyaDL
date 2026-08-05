@@ -122,6 +122,15 @@ import { useUpdateStore, findAppComponentUpdate } from './stores/updateStore';
 /** Activity log: accumulates raw subprocess output lines */
 import { useActivityStore } from './stores/activityStore';
 
+/**
+ * Remote feature-flag snapshot: powers `<FeatureNoticeBanner>` (rendered
+ * in MainLayout below the update banner). Refreshed at startup and on the
+ * same periodic timer as the update check (see Effect 2 and Effect 4
+ * below) -- never a second independent timer. Failures are silently
+ * absorbed by the store itself; see `src/stores/featureFlagStore.ts`.
+ */
+import { useFeatureFlagStore, selectServiceEnabled } from './stores/featureFlagStore';
+
 /* ─── Layout ─────────────────────────────────────────────────────────── */
 
 /**
@@ -515,6 +524,23 @@ function App() {
         /* Non-fatal: network may be unavailable on first launch */
       }
 
+      /* Step 2b: Feature-flag snapshot refresh (non-blocking).
+       *
+       * Fires a network refresh of the remote feature-flag snapshot at
+       * startup, mirroring the update check immediately above --
+       * imperative getState() read, in-flight guard -- but deliberately
+       * NOT awaited or timeout-raced: unlike the update check, nothing
+       * downstream (the setup-wizard decision, dependency checks) depends
+       * on this resolving first, so there's no reason to hold up startup
+       * for it. `useFeatureFlagStore`'s `load()` never rejects -- IPC /
+       * network / rate-limit failures are absorbed internally and simply
+       * leave the last-known-good snapshot in place (see the
+       * silent-fetch-failure invariant documented on that store and on
+       * `FeatureNoticeBanner`) -- so there is nothing to catch here. */
+      if (!useFeatureFlagStore.getState().isLoading) {
+        useFeatureFlagStore.getState().load();
+      }
+
       /* Step 3: Check all dependency statuses in parallel via IPC */
       await checkAll();
 
@@ -760,6 +786,15 @@ function App() {
         if (!isChecking) {
           checkForUpdates().catch(() => {});
         }
+
+        /* Piggyback the feature-flag snapshot refresh onto this SAME
+         * timer tick -- deliberately not a second setInterval. Same
+         * imperative getState() + in-flight guard shape as the update
+         * check immediately above. `load()` never rejects (see
+         * featureFlagStore.ts), so there's nothing to catch. */
+        if (!useFeatureFlagStore.getState().isLoading) {
+          useFeatureFlagStore.getState().load();
+        }
       }, intervalMs);
     }
 
@@ -811,6 +846,46 @@ function App() {
     setup();
 
     return () => unlistenAbout?.();
+  }, [isReady]);
+
+  /*
+   * ─── Effect 4c: Clear paused-service toasts when a service returns ──
+   *
+   * `DownloadForm` raises a persistent, keyed error toast
+   * (`feature-paused-service-<id>`) when the user tries to queue a URL for
+   * a service the feature-availability snapshot says is paused. Persistent
+   * toasts don't auto-dismiss, so when a later refresh flips that service
+   * back on we clear the toast programmatically — the same
+   * raise-then-clear-by-key shape as the `preflight-warning` /
+   * `preflight-cleared` pair in Effect 3.
+   *
+   * Subscribes to the store rather than listening for a Tauri event: the
+   * flag snapshot arrives through the existing periodic `load()` (Effect 4),
+   * and deliberately does NOT emit an event of its own — the Err(String)
+   * channel plus the keyed toast is the entire surfacing mechanism.
+   *
+   * Reads ONLY `data.verdicts` (via `selectServiceEnabled`); `data.meta` is
+   * diagnostics and must never drive anything on screen.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    return useFeatureFlagStore.subscribe((state, prevState) => {
+      if (state.data === prevState.data) return;
+      /* Iterate the PREVIOUS snapshot's keys: those are the only ones that
+       * could have been paused, and it also covers the case where the new
+       * payload drops the key entirely (a dropped key reads as enabled by
+       * the missing-key rule, so the toast must still clear). */
+      for (const flagKey of Object.keys(prevState.data.verdicts)) {
+        if (!flagKey.startsWith('service-')) continue;
+        if (
+          selectServiceEnabled(state.data, flagKey) &&
+          !selectServiceEnabled(prevState.data, flagKey)
+        ) {
+          useUiStore.getState().removeToastsByKey(`feature-paused-${flagKey}`);
+        }
+      }
+    });
   }, [isReady]);
 
   /*

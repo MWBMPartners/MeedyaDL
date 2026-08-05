@@ -76,8 +76,12 @@
 #     notices" to (at most) one workflow's runtime.
 #   - workflow_dispatch: `tag` (a specific `vX.Y.Z[-channel.N]`, or the
 #     literal `all` to run the same ~40-release sweep as the nightly
-#     job) and `dry_run` (report intended actions without applying notes
-#     or touching the tracking issue).
+#     job), `notes_ref` (fallback ref carrying the release-notes
+#     infrastructure -- see the "Verify release-notes infrastructure is
+#     present (self-correcting)" step; only matters if the ref this run
+#     checked out doesn't already have it), and `dry_run` (report
+#     intended actions without applying notes or touching the tracking
+#     issue).
 #
 # Operational notes:
 #   - `workflow_dispatch` only shows a "Run workflow" button in the
@@ -86,6 +90,15 @@
 #     explicit `--ref` (see CLAUDE.md "Conserving GitHub Actions
 #     Minutes"), e.g.:
 #       gh workflow run "Release Body Audit" --ref alpha -f tag=all -f dry_run=true
+#   - Being merged to the default branch is necessary but NOT sufficient
+#     for this workflow to actually work: every trigger here (schedule,
+#     workflow_run, and workflow_dispatch's default branch picker) checks
+#     out the DEFAULT branch, which doesn't carry scripts/release-notes/*
+#     or .github/release-notes/*.md until a future alpha->main promotion.
+#     The "self-correcting" checkout step handles this: it uses the
+#     checked-out ref as-is if that ref already has everything, and only
+#     falls back to `notes_ref` (default `alpha`) when it doesn't -- so
+#     this file needs NO further edits on the day that promotion lands.
 #   - Skips (not errors): draft releases, and tags with no published
 #     release at all -- both are normal states, not audit failures.
 
@@ -109,6 +122,22 @@ on:
         required: true
         type: string
         default: 'all'
+      notes_ref:
+        description: >-
+          Fallback ref that carries the release-notes infrastructure
+          (scripts/release-notes/*.sh, *.py, .github/release-notes/v*.md)
+          when the ref this run actually checked out doesn't have it yet
+          (true today for every trigger, since that infrastructure lives
+          on `alpha` and this workflow's triggers all resolve to the
+          default branch). Only consulted as a FALLBACK -- see the
+          "Verify release-notes infrastructure is present" step below,
+          which tries the triggering ref first and self-corrects to use
+          it directly once the alpha->main promotion lands. Do not
+          hardcode this elsewhere; it becomes a no-op automatically once
+          promotion happens and normally never needs to be touched.
+        required: false
+        type: string
+        default: 'alpha'
       dry_run:
         description: "Report intended actions without applying notes or touching the tracking issue"
         required: false
@@ -145,68 +174,134 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      # Same shape as apply-release-notes.yml's own guard, adapted for
-      # this workflow's dependency set. `main` does not yet carry this
-      # infrastructure (it lands there in the same PR chain as this
-      # file), and workflow_dispatch's branch dropdown always defaults to
-      # the default branch regardless of where the workflow YAML that
-      # registered the dispatch actually lives -- so this needs to fail
-      # fast and actionably rather than dying deep inside a script with a
-      # confusing "no such file" error.
-      - name: Verify release-notes infrastructure is present on this ref
+      # ---------------------------------------------------------------
+      # Self-correcting infrastructure checkout. READ THIS BEFORE
+      # "simplifying" it -- see the inline reasoning below for exactly
+      # why a single hardcoded `ref: alpha` checkout is the wrong fix.
+      #
+      # This workflow's triggers (schedule / workflow_run / dispatch)
+      # only register with GitHub at all when the YAML lives on the
+      # repo's DEFAULT branch -- so cherry-picking this file to `main`
+      # is mandatory. But that alone is NOT sufficient: the "Checkout
+      # code" step above, with no explicit `ref:`, checks out whatever
+      # ref actually fired the trigger -- which for a schedule or a
+      # "Release" workflow_run completing is always the default branch,
+      # and for a manual dispatch defaults to the default branch in the
+      # UI's branch picker too. As of this workflow's introduction,
+      # `main` carries NONE of scripts/release-notes/*.{sh,py} or
+      # .github/release-notes/*.md -- that infrastructure lives on
+      # `alpha` until a future promotion PR merges it upward (see
+      # CLAUDE.md's "alpha<->main realignment" entry).
+      #
+      # DO NOT collapse this into one checkout with a hardcoded
+      # `ref: alpha` -- that would silently keep auditing (and self-
+      # healing) against stale alpha-branch scripts FOREVER, even AFTER
+      # the infrastructure lands on main, at which point auditing
+      # against main is strictly more correct (it matches what
+      # release.yml actually built the live release bodies from).
+      # Instead: try the ref this run already checked out FIRST; if it
+      # already has everything this workflow needs, use it as-is --
+      # this is what makes the workflow self-correct the moment the
+      # promotion PR merges, with ZERO further edits to this file.
+      # Only fall back to `notes_ref` (workflow_dispatch input, default
+      # `alpha`) when the checked-out ref is missing the infrastructure.
+      # A final hard failure (safety net, not the primary path) fires
+      # only if EVEN THE FALLBACK ref doesn't have it.
+      - name: Verify release-notes infrastructure is present (self-correcting)
+        id: infra
         env:
           REF_NAME: ${{ github.ref_name }}
+          NOTES_REF: ${{ inputs.notes_ref || 'alpha' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
 
-          MISSING=0
+          # Checks the CURRENTLY CHECKED OUT working tree for everything
+          # this workflow depends on. Returns 0 (present) or 1 (missing
+          # something). Every "missing: ..." line is written to STDERR
+          # (`>&2`) on purpose -- callers below capture just that stream
+          # via `2>somefile.txt` so the function's return code (its
+          # stdout is otherwise unused) cleanly drives the if/then here
+          # without also swallowing normal step output.
+          check_infra() {
+            local missing=0
+            local script
+            for script in scripts/release-notes/apply-notes.sh \
+                          scripts/release-notes/splice-body.py \
+                          scripts/release-notes/lint-notes.py; do
+              if [ ! -r "$script" ]; then
+                echo "missing: ${script}" >&2
+                missing=1
+              fi
+            done
 
-          for script in scripts/release-notes/apply-notes.sh \
-                        scripts/release-notes/splice-body.py \
-                        scripts/release-notes/lint-notes.py; do
-            if [ ! -r "$script" ]; then
-              echo "::error::Missing or unreadable: ${script}"
-              MISSING=1
+            # This workflow specifically depends on lint-notes.py's
+            # `--live` mode -- confirm it's actually present (an older
+            # checkout could have the three scripts above but predate
+            # --live).
+            if [ -r scripts/release-notes/lint-notes.py ] && ! grep -q -- '--live' scripts/release-notes/lint-notes.py; then
+              echo "missing: scripts/release-notes/lint-notes.py --live mode" >&2
+              missing=1
             fi
-          done
 
-          # This workflow specifically depends on lint-notes.py's `--live`
-          # mode -- confirm it's actually present on this ref (an older
-          # checkout could have the three files above but predate --live).
-          if [ -r scripts/release-notes/lint-notes.py ] && ! grep -q -- '--live' scripts/release-notes/lint-notes.py; then
-            echo "::error::scripts/release-notes/lint-notes.py on this ref has no --live mode."
-            MISSING=1
+            local notes_files=(.github/release-notes/v*.md)
+            if [ "${#notes_files[@]}" -eq 0 ]; then
+              echo "missing: any .github/release-notes/v*.md file" >&2
+              missing=1
+            fi
+
+            return "$missing"
+          }
+
+          echo "Checking triggering ref '${REF_NAME}' for release-notes infrastructure..."
+          if check_infra 2>/tmp/infra-missing-primary.txt; then
+            echo "OK -- '${REF_NAME}' already carries the release-notes infrastructure. Using it as-is (no fallback needed)."
+            echo "ref_used=${REF_NAME}" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          NOTES_FILES=(.github/release-notes/v*.md)
-          NOTES_COUNT="${#NOTES_FILES[@]}"
-          if [ "$NOTES_COUNT" -eq 0 ]; then
-            echo "::error::No .github/release-notes/v*.md files found."
-            MISSING=1
-          fi
+          echo "'${REF_NAME}' is missing:"
+          cat /tmp/infra-missing-primary.txt
 
-          if [ "$MISSING" -ne 0 ]; then
-            {
-              echo "### Release Body Audit -- wrong ref checked out"
-              echo
-              echo "This workflow was dispatched against \`${REF_NAME}\`, which does not"
-              echo "carry the release-notes system it depends on (the three"
-              echo "\`scripts/release-notes/*.sh\` / \`*.py\` helper scripts, a --live-"
-              echo "capable \`lint-notes.py\`, and/or any \`.github/release-notes/v*.md\`"
-              echo "notes files are missing from this checkout)."
-              echo
-              echo "Re-run this workflow dispatched against a branch that actually"
-              echo "carries the release-notes infrastructure, for example:"
-              echo
-              echo '```'
-              echo 'gh workflow run "Release Body Audit" --repo MWBMPartners/MeedyaDL --ref alpha -f tag=all -f dry_run=true'
-              echo '```'
-            } | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$REF_NAME" = "$NOTES_REF" ]; then
+            echo "::error::Fallback notes_ref '${NOTES_REF}' is the same as the triggering ref, and it is already missing the infrastructure listed above -- there is nowhere else to fall back to."
             exit 1
           fi
 
-          echo "OK -- ${REF_NAME}: found 3 release-notes scripts (--live capable) and ${NOTES_COUNT} notes file(s)."
+          echo "Falling back to notes_ref '${NOTES_REF}'..."
+          git fetch --depth=1 origin "refs/heads/${NOTES_REF}"
+          # Overwrites the working tree with notes_ref's content (does not
+          # move HEAD or touch git history) -- fine here because every
+          # later step in this job only reads files relative to the repo
+          # root and calls `gh release edit` / `gh issue` APIs; none of
+          # them depend on a clean branch/HEAD state.
+          git checkout --force FETCH_HEAD -- .
+
+          if check_infra 2>/tmp/infra-missing-fallback.txt; then
+            echo "OK -- fallback ref '${NOTES_REF}' carries the release-notes infrastructure."
+            echo "ref_used=${NOTES_REF}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          {
+            echo "### Release Body Audit -- no ref with release-notes infrastructure"
+            echo
+            echo "Neither the triggering ref \`${REF_NAME}\` nor the fallback"
+            echo "\`notes_ref\` (\`${NOTES_REF}\`) carry the release-notes system"
+            echo "this workflow depends on:"
+            echo
+            echo '```'
+            cat /tmp/infra-missing-fallback.txt
+            echo '```'
+            echo
+            echo "Re-run with an explicit \`notes_ref\` pointing at a branch that"
+            echo "has it, for example:"
+            echo
+            echo '```'
+            echo 'gh workflow run "Release Body Audit" --repo MWBMPartners/MeedyaDL --ref main -f tag=all -f dry_run=true -f notes_ref=alpha'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       # Resolves the trigger-specific input into a plain list of tags (one
       # per line) and a plain true/false dry-run flag, so every later step

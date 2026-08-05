@@ -159,5 +159,9 @@
     "delete": "Supprimer",
     "retry": "Réessayer",
     "clear": "Effacer"
+  },
+  "featureFlags": {
+    "fallbackMessage": "{{feature}} est temporairement indisponible. Nous l'avons mise en pause le temps d'examiner un point précis — rien ne cloche avec votre installation, vous n'avez rien à faire.",
+    "servicePaused": "Les téléchargements {{service}} sont temporairement en pause. Nous les avons mis en pause le temps d'examiner un point précis — rien ne cloche avec votre installation, et ils reviendront automatiquement."
   }
 }

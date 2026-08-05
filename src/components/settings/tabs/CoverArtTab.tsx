@@ -59,7 +59,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { Select, Toggle, Input, SettingsSection } from '@/components/common';
 
 // TypeScript union types for cover settings.
-import type { CoverFormat, CoverArtName } from '@/types';
+import type { CoverFormat, CoverArtName, AnimatedArtworkResolution } from '@/types';
 
 /**
  * Dropdown options for the cover art format selector.
@@ -82,6 +82,16 @@ const COVER_ART_NAME_OPTIONS = [
 ];
 
 /**
+ * Dropdown options for the animated artwork resolution ceiling (#972).
+ * Controls which HLS rendition of the motion artwork is downloaded.
+ */
+const ANIMATED_ARTWORK_RESOLUTION_OPTIONS = [
+  { value: 'fhd', label: 'Standard (~1080p, recommended)' },
+  { value: 'uhd', label: 'High (~2160p / 4K)' },
+  { value: 'max', label: 'Maximum (highest available, largest files)' },
+];
+
+/**
  * CoverArtTab -- Renders the Cover Art settings tab.
  *
  * Contains two visual sections:
@@ -97,6 +107,7 @@ export function CoverArtTab() {
   const animatedEnabled = useSettingsField('animated_artwork_enabled');
   const hideAnimated = useSettingsField('hide_animated_artwork');
   const artistPromo = useSettingsField('artist_promo_video_enabled');
+  const animatedResolution = useSettingsField('animated_artwork_resolution');
   // #533 / #569: embed MV cover sidecar into MP4 + delete sidecar.
   const mvEmbedCoverSidecar = useSettingsField('music_video_embed_cover_sidecar');
   /** Navigate to a help topic (for the "Animated Artwork help page" link) */
@@ -183,6 +194,17 @@ export function CoverArtTab() {
             onChange={animatedEnabled.set}
             helpTopic="settings-help"
           />
+
+          {/* Animated artwork resolution ceiling (#972, only shown when enabled) */}
+          {animatedEnabled.value && (
+            <Select
+              label="Animated Artwork Resolution"
+              description="Resolution ceiling for animated (motion) artwork downloads. Lower resolutions produce much smaller files with little visible difference at typical artwork display sizes."
+              options={ANIMATED_ARTWORK_RESOLUTION_OPTIONS}
+              value={animatedResolution.value}
+              onChange={(e) => animatedResolution.set(e.target.value as AnimatedArtworkResolution)}
+            />
+          )}
 
           {/* Hide animated artwork files toggle (only shown when enabled) */}
           {animatedEnabled.value && (

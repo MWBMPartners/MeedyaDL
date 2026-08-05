@@ -1,7 +1,7 @@
 {
   "name": "meedyadl",
   "private": true,
-  "version": "1.12.0-alpha.43",
+  "version": "1.13.0-alpha.0",
   "description": "A multiplatform media downloader",
   "author": "MeedyaSuite",
   "license": "MIT",
@@ -86,7 +86,8 @@
   },
   "overrides": {
     "basic-ftp": "^5.3.1",
-    "fast-uri": "^3.1.1",
-    "undici": "^7.28.0"
+    "fast-uri": "^3.1.5",
+    "ip-address": "^10.4.0",
+    "undici": "^7.29.0"
   }
 }

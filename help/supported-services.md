@@ -37,7 +37,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 
 ## Coming Soon
 
-### Spotify (Milestone M8 — v2.0.0)
+### Spotify (Milestone M9 — v2.1.0)
 
 | Feature | Planned |
 |---------|---------|
@@ -51,8 +51,9 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Engine:** [votify](https://github.com/glomatico/votify)
 **Authentication:** OAuth (cookie-based auth as fallback)
 **Note:** Spotify does not offer lossless audio — maximum quality is Ogg Vorbis 320kbps.
+**URL acceptance:** MeedyaDL's download form already accepts `open.spotify.com` links today — pasting one queues it and routes it through Spotify's own eligibility checks (developer access, consent, and a daily cap) rather than rejecting it as unsupported. Full Spotify feature parity with Apple Music remains Milestone M9.
 
-### YouTube (Milestone M9 — v2.1.0)
+### YouTube (Milestone M10 — v2.2.0)
 
 | Feature | Planned |
 |---------|---------|
@@ -66,7 +67,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Authentication:** Optional (cookies for age-restricted/member content)
 **Note:** Also covers YouTube Music. Audio extraction available.
 
-### BBC iPlayer (Milestone M10 — v2.2.0)
+### BBC iPlayer (Milestone M8 — v2.0.0)
 
 | Feature | Planned |
 |---------|---------|
@@ -94,6 +95,12 @@ MeedyaDL automatically detects which service a URL belongs to when you paste it 
 | BBC iPlayer | `bbc.co.uk/iplayer` |
 
 If you paste a URL for a service that isn't yet available, MeedyaDL will show a "support coming soon" message.
+
+---
+
+## When a Service or Feature Is Temporarily Paused
+
+Very occasionally we may need to pause a service or feature for all users at short notice — for example, while we investigate a change on the provider's side. When that happens, MeedyaDL shows an in-app notice so the change reads as what it is: deliberate and temporary, not a fault in your installation. A paused service won't accept new downloads until it returns — anything already downloading finishes normally, and other services are unaffected. The feature comes back automatically once it is re-enabled — there is nothing you need to do. See the Troubleshooting topic ("A Feature Says It Is Temporarily Unavailable") for details.
 
 ---
 
