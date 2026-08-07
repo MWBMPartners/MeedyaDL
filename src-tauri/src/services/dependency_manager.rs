@@ -49,7 +49,7 @@
 // - GPAC (MP4Box): https://gpac.io/
 // - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tauri::AppHandle;
 
@@ -428,6 +428,83 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
     );
 
     Some((path, version))
+}
+
+/// Locate Homebrew even when a desktop launch does not inherit the user's
+/// shell PATH. Linuxbrew is supported as well as both macOS prefixes.
+fn find_homebrew() -> Option<PathBuf> {
+    let from_path = std::env::var_os("PATH").and_then(|path| {
+        std::env::split_paths(&path)
+            .map(|dir| dir.join("brew"))
+            .find(|candidate| candidate.is_file())
+    });
+    from_path.or_else(|| {
+        [
+            "/opt/homebrew/bin/brew",
+            "/usr/local/bin/brew",
+            "/home/linuxbrew/.linuxbrew/bin/brew",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|candidate| candidate.is_file())
+    })
+}
+
+fn homebrew_formulae(output: &str) -> impl Iterator<Item = &str> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+}
+
+/// Determine which installed formula owns a binary by comparing canonical
+/// Cellar prefixes. This also detects alternatives such as `ffmpeg-full` and
+/// automatically applies to tools added to the dependency catalogue later.
+async fn find_homebrew_owner(binary: &Path) -> Option<(PathBuf, String)> {
+    let brew = find_homebrew()?;
+    let list = tokio::process::Command::new(&brew)
+        .args(["list", "--formula", "-1"])
+        .output()
+        .await
+        .ok()?;
+    if !list.status.success() {
+        return None;
+    }
+
+    let binary = std::fs::canonicalize(binary).unwrap_or_else(|_| binary.to_path_buf());
+    let formulae = String::from_utf8_lossy(&list.stdout);
+    for formula in homebrew_formulae(&formulae) {
+        let output = tokio::process::Command::new(&brew)
+            .args(["--prefix", formula])
+            .output()
+            .await
+            .ok()?;
+        if !output.status.success() {
+            continue;
+        }
+        let prefix = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+        let prefix = std::fs::canonicalize(&prefix).unwrap_or(prefix);
+        if binary.starts_with(prefix) {
+            return Some((brew, formula.to_string()));
+        }
+    }
+    None
+}
+
+async fn upgrade_homebrew_formula(brew: &Path, formula: &str) -> Result<(), String> {
+    let output = tokio::process::Command::new(brew)
+        .args(["upgrade", formula])
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run Homebrew: {e}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "Homebrew could not update {formula}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
+    }
 }
 
 // ============================================================
@@ -1083,6 +1160,12 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
 
+fn read_external_tool_path(tool_dir: &Path) -> Option<PathBuf> {
+    let path = std::fs::read_to_string(tool_dir.join(".external-path")).ok()?;
+    let path = PathBuf::from(path.trim());
+    (path.is_absolute() && path.exists()).then_some(path)
+}
+
 /// Returns the expected path to a tool's binary executable.
 ///
 /// The binary name varies by tool and platform (Windows adds .exe).
@@ -1093,6 +1176,12 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
 #[must_use]
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     let tool_dir = get_tool_dir(app, tool_id);
+    // System tools are referenced directly rather than copied. This small
+    // pointer file keeps the existing managed-tool API intact without creating
+    // a duplicate binary or relying on platform-specific link privileges.
+    if let Some(path) = read_external_tool_path(&tool_dir) {
+        return path;
+    }
     // On Windows, executables require the .exe extension
     let exe_ext = if cfg!(target_os = "windows") {
         ".exe"
@@ -1166,10 +1255,29 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     let tool_id = resolve_tool_id(name_or_id)?;
     log::info!("Starting installation of tool: {tool_id}");
 
-    // Step 0: Check if a compatible version exists in the system PATH.
-    // If found, copy it to our managed tools directory instead of downloading.
-    // This saves bandwidth and respects existing installations.
-    if let Some((system_path, system_version)) = find_system_tool(tool_id).await {
+    // Step 0: Check if a compatible version already exists on the system. A
+    // package manager is never required: when no suitable binary is present we
+    // continue into the original managed download/install pipeline below.
+    if let Some((mut system_path, mut system_version)) = find_system_tool(tool_id).await {
+        let tool_dir = get_tool_dir(app, tool_id);
+        let previous_source = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+
+        // Only delegate an update when MeedyaDL was already referencing this
+        // Homebrew formula. Initial setup adopts the compatible version exactly
+        // as found and does not unexpectedly mutate the user's system.
+        let mut homebrew_owner = find_homebrew_owner(&system_path).await;
+        if let Some(formula) = previous_source.trim().strip_prefix("homebrew:") {
+            if let Some((ref brew, ref owner)) = homebrew_owner {
+                if owner == formula {
+                    upgrade_homebrew_formula(brew, owner).await?;
+                    if let Some((path, version)) = find_system_tool(tool_id).await {
+                        system_path = path;
+                        system_version = version;
+                        homebrew_owner = find_homebrew_owner(&system_path).await;
+                    }
+                }
+            }
+        }
         let config = load_tool_version_config(tool_id);
         let is_compatible = config
             .as_ref()
@@ -1183,44 +1291,33 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
                 system_path.display()
             );
 
-            // Prepare the tool directory and copy the system binary
-            let tool_dir = get_tool_dir(app, tool_id);
+            // Store a reference, not a copy: every runtime call resolves the
+            // original system binary through get_tool_binary_path().
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
             }
             std::fs::create_dir_all(&tool_dir)
                 .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
-            let expected_binary = get_tool_binary_path(app, tool_id);
-            std::fs::copy(&system_path, &expected_binary).map_err(|e| {
-                format!(
-                    "Failed to copy system {} to {}: {}",
-                    tool_id,
-                    expected_binary.display(),
-                    e
-                )
-            })?;
-
-            archive::set_executable(&expected_binary)?;
-
-            // For ffmpeg, also copy ffprobe from the same system directory.
-            // ffprobe is a companion binary used for codec detection and BPM analysis.
-            if tool_id == "ffmpeg" {
-                copy_companion_ffprobe_from_dir(
-                    system_path.parent().unwrap_or(std::path::Path::new("")),
-                    &tool_dir,
-                );
-            }
+            std::fs::write(
+                tool_dir.join(".external-path"),
+                system_path.to_string_lossy().as_bytes(),
+            )
+            .map_err(|e| format!("Failed to save system tool path: {e}"))?;
 
             // Write a .source marker file so check_all_dependencies knows this
             // tool came from the system PATH rather than being downloaded.
             let source_marker = tool_dir.join(".source");
-            std::fs::write(&source_marker, "system").ok();
+            let source = homebrew_owner
+                .as_ref()
+                .map(|(_, formula)| format!("homebrew:{formula}"))
+                .unwrap_or_else(|| "system".to_string());
+            std::fs::write(&source_marker, source).ok();
 
             log::info!(
-                "Copied system {} to managed directory: {}",
+                "Using system {} directly from {}",
                 tool_id,
-                expected_binary.display()
+                system_path.display()
             );
             return Ok(format!("{system_version} (system)"));
         }
@@ -2546,6 +2643,33 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn homebrew_formula_list_parser_supports_alternatives_and_taps() {
+        assert_eq!(
+            homebrew_formulae("ffmpeg-full\nowner/tap/gamdl\n\n").collect::<Vec<_>>(),
+            vec!["ffmpeg-full", "owner/tap/gamdl"]
+        );
+    }
+
+    #[test]
+    fn external_tool_pointer_requires_an_existing_absolute_path() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        let binary = base.path().join("system-ffmpeg");
+        std::fs::write(&binary, b"fixture").unwrap();
+
+        std::fs::write(
+            tool_dir.join(".external-path"),
+            binary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(read_external_tool_path(&tool_dir), Some(binary));
+
+        std::fs::write(tool_dir.join(".external-path"), "relative/ffmpeg").unwrap();
+        assert_eq!(read_external_tool_path(&tool_dir), None);
+    }
 
     /// Promoting over an EXISTING install replaces its contents entirely —
     /// this is the #996 regression scenario (reinstall must not leave the
