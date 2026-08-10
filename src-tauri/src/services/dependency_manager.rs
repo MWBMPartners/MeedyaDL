@@ -339,14 +339,76 @@ fn is_rosetta2_available() -> bool {
     std::path::Path::new("/Library/Apple/usr/share/rosetta/rosetta").exists()
 }
 
+/// The ordered absolute directories to probe for a system package-manager
+/// (Homebrew, MacPorts, apt/dnf, snap, Linuxbrew) install, on top of the
+/// inherited PATH. Needed because a Finder-launched macOS `.app` inherits
+/// launchd's minimal `/usr/bin:/bin:/usr/sbin:/sbin` (no `/opt/homebrew/bin`),
+/// so a bare `which` misses Homebrew tools. Windows returns empty — Choco/Scoop
+/// shims live on PATH and are covered by `where`.
+fn system_tool_search_dirs() -> Vec<PathBuf> {
+    let base: &[&str] = if cfg!(target_os = "macos") {
+        &[
+            "/opt/homebrew/bin", // Homebrew (Apple Silicon)
+            "/usr/local/bin",    // Homebrew (Intel) / manual
+            "/opt/local/bin",    // MacPorts
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+        ]
+    } else if cfg!(target_os = "linux") {
+        &[
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/snap/bin",
+            "/home/linuxbrew/.linuxbrew/bin", // Linuxbrew (multi-user)
+        ]
+    } else {
+        &[]
+    };
+    let mut dirs: Vec<PathBuf> = base.iter().map(PathBuf::from).collect();
+    // Per-user Linuxbrew (~/.linuxbrew/bin), Linux only. Reading our own HOME
+    // (not a subprocess env) preserves the zero-`Command::env` invariant.
+    #[cfg(target_os = "linux")]
+    if let Ok(home) = std::env::var("HOME") {
+        let per_user = PathBuf::from(home).join(".linuxbrew/bin");
+        if per_user.is_absolute() {
+            dirs.push(per_user);
+        }
+    }
+    dirs
+}
+
+/// Defence-in-depth: on Unix, rejects a candidate whose resolved target (or its
+/// containing directory) is world-writable — so detection never adopts a binary
+/// an unprivileged process could have planted. Homebrew/system dirs are not
+/// world-writable, so legitimate installs pass. Always `true` on Windows.
+#[cfg(unix)]
+fn is_trusted_binary(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let world_writable =
+        |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o002 != 0);
+    !world_writable(&real) && real.parent().is_none_or(|parent| !world_writable(parent))
+}
+
+#[cfg(not(unix))]
+fn is_trusted_binary(_path: &Path) -> bool {
+    true
+}
+
 /// Searches for a tool in the system PATH and returns its path and version
 /// if found and compatible with the minimum version requirement.
 ///
-/// Uses `which` (Unix) or `where` (Windows) to locate the binary in PATH.
+/// Uses `which` (Unix) or `where` (Windows) to locate the binary in PATH, then
+/// falls back to probing [`system_tool_search_dirs`] directly (Homebrew,
+/// MacPorts, Linuxbrew, snap, base dirs) so a Finder-launched macOS app with a
+/// minimal PATH still finds `brew install`ed tools. All candidates are absolute,
+/// existing, and [`is_trusted_binary`].
 ///
 /// # Returns
-/// * `Some((path, version))` if the tool is found in PATH and version could be detected
-/// * `None` if the tool is not in PATH or version detection fails
+/// * `Some((path, version))` if the tool is found and version could be detected
+/// * `None` if the tool is not found or version detection fails
 pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
     let config = load_tool_version_config(tool_id)?;
 
@@ -364,7 +426,7 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
         .ok()?;
 
     let path = if output.status.success() {
-        // Parse the first line of output as the binary path
+        // Parse the first line of output as the binary path.
         let path_str = String::from_utf8_lossy(&output.stdout)
             .trim()
             .lines()
@@ -372,31 +434,25 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
             .unwrap_or("")
             .to_string();
         let p = PathBuf::from(&path_str);
-        if p.exists() { Some(p) } else { None }
+        // Require an absolute, existing, trusted path (reject a relative or
+        // world-writable `which`/`where` result).
+        if p.is_absolute() && p.exists() && is_trusted_binary(&p) {
+            Some(p)
+        } else {
+            None
+        }
     } else {
         None
     };
 
-    // If not on PATH, check common platform-specific installation locations.
-    // macOS: Homebrew paths, /usr/local/bin, and common app bundle locations.
+    // If not on the inherited PATH — minimal for a Finder-launched macOS app,
+    // so `which` misses Homebrew — probe the known package-manager install dirs
+    // directly (Homebrew, MacPorts, Linuxbrew, snap, base dirs).
     let path = path.or_else(|| {
-        let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
-            vec![
-                PathBuf::from("/usr/local/bin").join(&config.binary_name),
-                PathBuf::from("/opt/homebrew/bin").join(&config.binary_name),
-                // MediaInfo-specific: Homebrew installs as lowercase
-                PathBuf::from("/opt/homebrew/bin/mediainfo"),
-                PathBuf::from("/usr/local/bin/mediainfo"),
-            ]
-        } else if cfg!(target_os = "linux") {
-            vec![
-                PathBuf::from("/usr/bin").join(&config.binary_name),
-                PathBuf::from("/usr/local/bin").join(&config.binary_name),
-            ]
-        } else {
-            vec![]
-        };
-        extra_paths.into_iter().find(|p| p.exists())
+        system_tool_search_dirs().into_iter().find_map(|dir| {
+            let candidate = dir.join(&config.binary_name);
+            (candidate.exists() && is_trusted_binary(&candidate)).then_some(candidate)
+        })
     });
 
     let path = path?;
@@ -505,6 +561,64 @@ async fn upgrade_homebrew_formula(brew: &Path, formula: &str) -> Result<(), Stri
             String::from_utf8_lossy(&output.stderr).trim()
         ))
     }
+}
+
+/// Detects an existing compatible system/package-manager install of `tool_id`
+/// and adopts it IN PLACE — writing the `.external-path` reference pointer + the
+/// `.source` marker (no copy), exactly like `install_tool`'s system tier — so
+/// both the wizard status and every runtime consumer (which resolve via
+/// `get_tool_binary_path`) see it WITHOUT the user having to click Install.
+///
+/// This closes the #1081 gap where detection only ran on an explicit install.
+/// It adopts the version as found and deliberately does NOT trigger a
+/// `brew upgrade` (that stays an explicit, install-time action). Returns
+/// `(path, source_label)` on success; `None` if no compatible, trusted system
+/// binary exists (in which case the caller falls back to the download pipeline).
+pub async fn adopt_system_tool_if_available(
+    app: &AppHandle,
+    tool_id: &str,
+) -> Option<(PathBuf, String)> {
+    let (system_path, system_version) = find_system_tool(tool_id).await?;
+
+    // Defence-in-depth: never adopt a world-writable binary.
+    if !is_trusted_binary(&system_path) {
+        log::warn!(
+            "Skipping world-writable system {tool_id} at {}",
+            system_path.display()
+        );
+        return None;
+    }
+
+    // Minimum-version gate (mirrors install_tool's system tier).
+    let config = load_tool_version_config(tool_id);
+    let is_compatible = config
+        .as_ref()
+        .is_none_or(|c| meets_minimum_version(&system_version, &c.minimum_version));
+    if !is_compatible {
+        return None;
+    }
+
+    // Provenance: identify the Homebrew formula owner when possible.
+    let source = match find_homebrew_owner(&system_path).await {
+        Some((_, formula)) => format!("homebrew:{formula}"),
+        None => "system".to_string(),
+    };
+
+    // Adopt in place: reference pointer + source marker, no copy.
+    let tool_dir = get_tool_dir(app, tool_id);
+    std::fs::create_dir_all(&tool_dir).ok()?;
+    std::fs::write(
+        tool_dir.join(".external-path"),
+        system_path.to_string_lossy().as_bytes(),
+    )
+    .ok()?;
+    std::fs::write(tool_dir.join(".source"), &source).ok();
+
+    log::info!(
+        "Adopted system {tool_id} in place from {} ({source})",
+        system_path.display()
+    );
+    Some((system_path, source))
 }
 
 // ============================================================
@@ -2473,35 +2587,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
     }
 }
 
-/// Copies all companion FFmpeg binaries from a directory (used when copying system ffmpeg).
-///
-/// When the user has ffmpeg on their system PATH, ffprobe and ffplay typically
-/// live in the same directory. This copies them to the managed tool directory.
-fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std::path::Path) {
-    let companions: &[&str] = &["ffprobe", "ffplay"];
-
-    for &base_name in companions {
-        let binary_name = if cfg!(target_os = "windows") {
-            format!("{base_name}.exe")
-        } else {
-            base_name.to_string()
-        };
-        let src = source_dir.join(&binary_name);
-        let dest = tool_dir.join(&binary_name);
-
-        if src.exists() {
-            match std::fs::copy(&src, &dest) {
-                Ok(_) => {
-                    archive::set_executable(&dest).ok();
-                    log::info!("Copied system {base_name} from {}", src.display());
-                }
-                Err(e) => log::warn!("Failed to copy system {base_name}: {e}"),
-            }
-        } else {
-            log::debug!("System {base_name} not found at {}", src.display());
-        }
-    }
-}
+// NOTE: the former `copy_companion_ffprobe_from_dir` was removed with #1081's
+// switch from copying system ffmpeg to referencing it in place. For an in-place
+// system ffmpeg, `metadata_tag_service::get_ffprobe_path` derives the `ffprobe`
+// sibling in the same dir (e.g. /opt/homebrew/bin/ffprobe) for free; downloaded
+// (managed) ffmpeg still fetches ffprobe via `install_companion_ffprobe`.
 
 /// Searches a directory tree for a file by exact name (case-sensitive).
 ///
@@ -2643,6 +2733,45 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    /// Every probed system dir must be absolute (a relative CWD can never inject
+    /// a candidate), Homebrew's dir present on macOS, and Windows probes nothing
+    /// (it relies on PATH shims via `where`).
+    #[test]
+    fn system_tool_search_dirs_are_absolute_and_platform_correct() {
+        let dirs = system_tool_search_dirs();
+        assert!(dirs.iter().all(|d| d.is_absolute()));
+        #[cfg(target_os = "macos")]
+        {
+            assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+            assert!(dirs.contains(&PathBuf::from("/opt/local/bin")));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(dirs.contains(&PathBuf::from("/usr/local/bin")));
+            assert!(dirs.contains(&PathBuf::from("/snap/bin")));
+            assert!(dirs.contains(&PathBuf::from("/home/linuxbrew/.linuxbrew/bin")));
+        }
+        #[cfg(target_os = "windows")]
+        assert!(dirs.is_empty());
+    }
+
+    /// Defence-in-depth: a world-writable candidate (something an unprivileged
+    /// process could have planted) is untrusted; a normal 0755 binary is trusted.
+    #[cfg(unix)]
+    #[test]
+    fn world_writable_binary_is_untrusted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let safe = dir.path().join("safe");
+        let evil = dir.path().join("evil");
+        std::fs::write(&safe, b"x").unwrap();
+        std::fs::write(&evil, b"x").unwrap();
+        std::fs::set_permissions(&safe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&evil, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(is_trusted_binary(&safe));
+        assert!(!is_trusted_binary(&evil));
+    }
 
     #[test]
     fn homebrew_formula_list_parser_supports_alternatives_and_taps() {

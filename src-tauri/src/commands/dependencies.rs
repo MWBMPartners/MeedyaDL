@@ -594,8 +594,22 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
 
     // Check each tool's installation status by probing for its binary
     for tool in tools {
-        // Resolve the expected binary path: {app_data}/tools/{tool_id}/{binary_name}
-        let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
+        // Resolve the binary path. get_tool_binary_path honours an already-
+        // adopted system tool (its `.external-path` pointer) or a managed
+        // install. If NEITHER exists, try to DETECT + adopt a system/Homebrew
+        // install in place — #1081 status gap: previously detection only ran on
+        // an explicit Install click, so `brew install`ed FFmpeg/MP4Box/… showed
+        // as missing on a Finder-launched macOS app (minimal launchd PATH).
+        let mut binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
+        let mut adopted_source: Option<String> = None;
+        if !binary_path.exists() {
+            if let Some((sys_path, source)) =
+                dependency_manager::adopt_system_tool_if_available(&app, tool.id).await
+            {
+                binary_path = sys_path;
+                adopted_source = Some(source);
+            }
+        }
         // Functional check (#391): verify the binary exists AND can execute.
         // Reuses dependency_manager::get_tool_version() so each tool uses its
         // configured version flag and parser (e.g., FFmpeg uses -version, mp4decrypt
@@ -651,14 +665,17 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
             false
         };
 
-        // Read the .source marker file to determine where the tool was installed from.
-        // Written by install_tool() as "system" or "managed" during installation.
+        // Provenance for the wizard badge: prefer the source we just detected
+        // (adopted this call), else the persisted `.source` marker written by
+        // install_tool / a prior adoption ("managed" / "system" / "homebrew:<formula>").
         let source = if installed {
-            let tool_dir = dependency_manager::get_tool_dir(&app, tool.id);
-            let source_file = tool_dir.join(".source");
-            std::fs::read_to_string(source_file)
-                .ok()
-                .map(|s| s.trim().to_string())
+            adopted_source.or_else(|| {
+                let tool_dir = dependency_manager::get_tool_dir(&app, tool.id);
+                std::fs::read_to_string(tool_dir.join(".source"))
+                    .ok()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+            })
         } else {
             None
         };
