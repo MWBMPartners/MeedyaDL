@@ -1142,6 +1142,7 @@ pub fn run() {
             commands::dependencies::check_ofscraper_status,
             commands::dependencies::install_ofscraper,
             commands::dependencies::check_all_dependencies,
+            commands::dependencies::detect_external_gamdl,
             commands::dependencies::install_dependency,
             commands::dependencies::get_component_versions,
             // Settings management commands

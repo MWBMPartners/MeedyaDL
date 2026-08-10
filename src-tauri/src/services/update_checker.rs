@@ -164,6 +164,21 @@ pub struct ComponentUpdate {
     /// Used by the frontend to call `install_dependency` to re-download and
     /// upgrade the tool. Only set for external binary tools, not pip engines.
     pub tool_id: Option<String>,
+    /// When the component is owned by a system package manager (Homebrew,
+    /// apt, pipx, …), the human label of that manager (e.g. "Homebrew",
+    /// "APT", "pipx"). The Updates page relabels the Upgrade button to
+    /// "Update via `<label>`"; the existing Upgrade routing then delegates
+    /// to the package manager automatically (`install_tool` Step 0). `None`
+    /// for MeedyaDL-managed/downloaded tools and non-tool components.
+    #[serde(default)]
+    pub managed_by: Option<String>,
+    /// The exact command a user could run themselves to update a
+    /// package-manager-owned component (e.g. `brew upgrade ffmpeg`,
+    /// `sudo apt install --only-upgrade ffmpeg`). Shown as transparency and
+    /// used as the fallback when an elevated update cannot obtain privileges.
+    /// `None` when the component is not package-manager-owned.
+    #[serde(default)]
+    pub manual_update_command: Option<String>,
 }
 
 /// Combined update status for all components.
@@ -972,6 +987,9 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         tag_name: None,
         pip_package: Some("gamdl".to_string()),
         tool_id: None,
+        // GAMDL is a managed-venv pip package, never system-PM-owned.
+        managed_by: None,
+        manual_update_command: None,
     })
 }
 
@@ -1050,6 +1068,8 @@ async fn check_app_update(
                 tag_name: None,
                 pip_package: None,
                 tool_id: None,
+                managed_by: None,
+                manual_update_command: None,
             });
         }
         return Err(format!("GitHub API returned HTTP {}", response.status()));
@@ -1094,6 +1114,8 @@ async fn check_app_update(
                 tag_name: None,
                 pip_package: None,
                 tool_id: None,
+                managed_by: None,
+                manual_update_command: None,
             });
         };
         release
@@ -1229,6 +1251,9 @@ fn parse_release_from_response(
         },
         pip_package: None,
         tool_id: None,
+        // The MeedyaDL app itself is never system-package-manager-owned.
+        managed_by: None,
+        manual_update_command: None,
     }
 }
 
@@ -1408,6 +1433,23 @@ async fn check_github_tool_update(
         _ => false,
     };
 
+    // If this tool was adopted from a system package manager (Homebrew, apt,
+    // pipx, …), surface how to update it through that manager: the frontend
+    // relabels the Upgrade button "Update via <label>" (routing unchanged —
+    // `install_tool` Step 0 delegates to the manager), and shows the manual
+    // command as transparency / elevation fallback.
+    let (managed_by, manual_update_command) = {
+        let tool_dir = crate::services::dependency_manager::get_tool_dir(app, tool_id);
+        let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+        match crate::services::package_manager::PackageRef::parse_marker(&marker) {
+            Some(r) => (
+                Some(r.pm.display_label().to_string()),
+                Some(r.manual_update_command()),
+            ),
+            None => (None, None),
+        }
+    };
+
     Ok(ComponentUpdate {
         name: display_name.to_string(),
         current_version,
@@ -1427,6 +1469,8 @@ async fn check_github_tool_update(
         tag_name: None,
         pip_package: None,
         tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
     })
 }
 
@@ -1488,6 +1532,10 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         tag_name: None,
         pip_package: None,
         tool_id: None,
+        // The Python runtime is managed by MeedyaDL (or reused via venv from a
+        // system interpreter #1017); its update path is not a PM upgrade.
+        managed_by: None,
+        manual_update_command: None,
     })
 }
 
@@ -1591,6 +1639,9 @@ async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         tag_name: None,
         pip_package: Some("votify".to_string()),
         tool_id: None,
+        // votify is a managed-venv pip engine, never system-PM-owned.
+        managed_by: None,
+        manual_update_command: None,
     })
 }
 
@@ -1648,6 +1699,9 @@ async fn check_pip_engine_update(
         tag_name: None,
         pip_package: Some(pip_package.to_string()),
         tool_id: None,
+        // pip engines live in the managed venv, never system-PM-owned.
+        managed_by: None,
+        manual_update_command: None,
     })
 }
 

@@ -71,6 +71,7 @@ import type {
   DependencyStatus,
   DetectedBrowser,
   DownloadRequest,
+  ExternalGamdlInfo,
   PlatformInfo,
   QueueStatus,
   StartDownloadResult,
@@ -586,6 +587,24 @@ export function installOfscraper(): Promise<string> {
  */
 export function checkAllDependencies(): Promise<DependencyStatus[]> {
   return invoke<DependencyStatus[]>('check_all_dependencies');
+}
+
+/**
+ * Detects a `gamdl` command-line entry point installed OUTSIDE MeedyaDL's
+ * managed venv (typically `pipx install gamdl`), purely to inform the user.
+ *
+ * Rust handler: `detect_external_gamdl()` in `src-tauri/src/commands/dependencies.rs`
+ * Returns: `ExternalGamdlInfo | null` — `null` when none is found.
+ *
+ * MeedyaDL always keeps and uses its own tested, version-controlled GAMDL; it
+ * never consumes or updates an external copy. Read-only.
+ *
+ * Called by: SetupWizard GAMDL step.
+ *
+ * @returns Promise resolving to external-GAMDL info, or null.
+ */
+export function detectExternalGamdl(): Promise<ExternalGamdlInfo | null> {
+  return invoke<ExternalGamdlInfo | null>('detect_external_gamdl');
 }
 
 /**

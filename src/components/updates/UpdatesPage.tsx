@@ -13,7 +13,7 @@
  * automatically.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
   RefreshCw,
@@ -29,6 +29,8 @@ import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
+import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
+import type { ComponentUpdate } from '@/types';
 
 /**
  * Strips the "Choose your download" section and everything after it from
@@ -62,6 +64,11 @@ export function UpdatesPage() {
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
   const addToast = useUiStore((s) => s.addToast);
 
+  // Tracks which single engine/tool row (by component name) is currently
+  // mid-upgrade, so that row's button can show a spinner without
+  // affecting the others or the bulk "Update All" button.
+  const [upgradingComponent, setUpgradingComponent] = useState<string | null>(null);
+
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
@@ -69,15 +76,21 @@ export function UpdatesPage() {
     );
   }, [lastResult, dismissed]);
 
-  // Split into core updates (shown individually) and engine updates (aggregated)
+  // Split into core updates (shown individually) and engine/tool updates
+  // (shown as a compact per-row list under one aggregated card, plus a
+  // bulk "Update All" action).
   const coreUpdates = useMemo(
     () => activeUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
     [activeUpdates]
   );
-  const engineUpdateCount = useMemo(
-    () => activeUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name)).length,
+  const engineUpdates = useMemo(
+    () =>
+      activeUpdates.filter(
+        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
+      ),
     [activeUpdates]
   );
+  const engineUpdateCount = engineUpdates.length;
 
   // Current app version from the last check result
   const currentVersion = useMemo(() => {
@@ -101,6 +114,25 @@ export function UpdatesPage() {
       // Rust handler.
       const message = e instanceof Error ? e.message : String(e);
       addToast(message || 'Failed to upgrade GAMDL', 'error');
+    }
+  };
+
+  /**
+   * Upgrades a single generic (non-core) component, e.g. a tool row in
+   * the "Component Updates" card. Shares the same routing rules as the
+   * bulk "Update All" button via `upgradeGenericComponent()`.
+   */
+  const handleUpgradeGenericComponent = async (c: ComponentUpdate) => {
+    setUpgradingComponent(c.name);
+    try {
+      await upgradeGenericComponent(c);
+      addToast(`${c.name} updated successfully`, 'success');
+      checkForUpdates().catch(() => {});
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || `Failed to update ${c.name}`, 'error');
+    } finally {
+      setUpgradingComponent(null);
     }
   };
 
@@ -201,7 +233,10 @@ export function UpdatesPage() {
                 : 'Updates Available'}
             </div>
 
-            {/* Engine updates: show as a single aggregated card */}
+            {/* Engine/tool updates: aggregated card with a bulk action plus
+                a compact per-tool row list (package-manager abstraction,
+                Phase 2a -- each row's own button reflects its provenance
+                via `managed_by` / `manual_update_command`). */}
             {engineUpdateCount > 0 && (
               <div className="rounded-platform border border-border-light bg-surface-secondary p-5">
                 <div className="flex items-center justify-between gap-4">
@@ -216,10 +251,7 @@ export function UpdatesPage() {
                     size="sm"
                     icon={<RefreshCw size={12} />}
                     onClick={async () => {
-                      const components = activeUpdates.filter(
-                        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
-                      );
-                      if (components.length === 0) {
+                      if (engineUpdates.length === 0) {
                         addToast('No updatable components found', 'info');
                         return;
                       }
@@ -228,30 +260,7 @@ export function UpdatesPage() {
                       let failCount = 0;
 
                       const results = await Promise.allSettled(
-                        components.map(async (c) => {
-                          // votify (A4) has its own validated version window —
-                          // route through the bounded `upgradeVotify` so a bulk
-                          // "Update All" click can never silently jump to an
-                          // unaudited above-ceiling release the way the
-                          // unbounded generic `upgradePipEngine` path would.
-                          // Only pass an explicit target when this specific
-                          // update was flagged "Untested" (above-ceiling) —
-                          // otherwise the backend resolves the newest version
-                          // inside the tested window on its own.
-                          if (c.pip_package === 'votify') {
-                            const { upgradeVotify } = await import('@/lib/tauri-commands');
-                            return upgradeVotify(
-                              c.is_untested ? (c.latest_version ?? undefined) : undefined
-                            );
-                          } else if (c.pip_package) {
-                            const { upgradePipEngine } = await import('@/lib/tauri-commands');
-                            return upgradePipEngine(c.pip_package);
-                          } else if (c.tool_id) {
-                            const { installDependency } = await import('@/lib/tauri-commands');
-                            return installDependency(c.tool_id);
-                          }
-                          throw new Error(`No upgrade method for ${c.name}`);
-                        })
+                        engineUpdates.map((c) => upgradeGenericComponent(c))
                       );
 
                       for (const r of results) {
@@ -276,6 +285,51 @@ export function UpdatesPage() {
                 <p className="text-sm text-content-secondary mt-2">
                   Newer versions of internal components are available. Updating ensures the best compatibility and performance.
                 </p>
+
+                {/* Per-tool row list. Each row's button label reflects the
+                    tool's package-manager provenance when known
+                    (`managed_by`, e.g. "Update via Homebrew"), falling back
+                    to the generic "Upgrade" label otherwise. The click
+                    handler is unchanged either way -- routing to the
+                    correct package manager happens entirely on the backend
+                    (`install_tool` Step 0 delegation). */}
+                <div className="mt-3 pt-3 border-t border-border-light space-y-2">
+                  {engineUpdates.map((update) => (
+                    <div key={update.name} className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <span className="text-xs text-content-secondary">
+                          <span className="font-medium text-content-primary">{update.name}</span>
+                          {update.current_version && <span> v{update.current_version}</span>}
+                          {update.latest_version && (
+                            <span className="text-accent"> &rarr; v{update.latest_version}</span>
+                          )}
+                        </span>
+                        {/*
+                         * Manual-command helper text -- backend-provided
+                         * plain text only, rendered as a text child (never
+                         * HTML). Shown regardless of whether the button
+                         * above is auto-capable, since the user may prefer
+                         * to run it themselves.
+                         */}
+                        {update.manual_update_command && (
+                          <p className="text-[11px] text-content-secondary mt-0.5 truncate">
+                            Runs: {update.manual_update_command}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={<RefreshCw size={12} />}
+                        loading={upgradingComponent === update.name}
+                        disabled={upgradingComponent !== null && upgradingComponent !== update.name}
+                        onClick={() => handleUpgradeGenericComponent(update)}
+                      >
+                        {update.managed_by ? `Update via ${update.managed_by}` : 'Upgrade'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
