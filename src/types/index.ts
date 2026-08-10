@@ -1241,6 +1241,29 @@ export interface DependencyStatus {
 }
 
 /**
+ * Read-only info about a `gamdl` entry point installed OUTSIDE MeedyaDL's
+ * managed venv (typically `pipx install gamdl`).
+ *
+ * Mirrors: Rust struct `ExternalGamdlInfo` in
+ * `src-tauri/src/commands/dependencies.rs`.
+ *
+ * Purely informational — MeedyaDL keeps and uses its own tested, version-
+ * controlled GAMDL and never consumes or updates an external copy.
+ */
+export interface ExternalGamdlInfo {
+  /** Absolute path to the external `gamdl` entry-point binary. */
+  path: string;
+  /** Detected version, e.g. "3.9.0". */
+  version: string;
+  /** Provenance marker, e.g. "pipx:gamdl" or "system". */
+  source: string;
+  /** Whether that version is inside MeedyaDL's tested support window. */
+  in_support_window: boolean;
+  /** Classification: "supported" | "untested" | "unsupported". */
+  classification: string;
+}
+
+/**
  * A compatible Python interpreter discovered on the user's system (#1017).
  *
  * Mirrors: Rust struct `SystemPython` in
@@ -1993,6 +2016,26 @@ export interface ComponentUpdate {
   pip_package: string | null;
   /** Canonical tool ID for binary tools (e.g., "ffmpeg", "nm3u8dlre"), or null for non-tool components */
   tool_id: string | null;
+  /**
+   * Human-readable label for the package manager that owns this tool's
+   * install (e.g. "Homebrew", "APT", "pipx"), read from the tool's
+   * `.source` provenance marker. `undefined`/absent when the tool is
+   * not package-manager-owned (MeedyaDL-managed download, plain
+   * `$PATH` detection with no identifiable owner, or a component with
+   * no package-manager concept at all, e.g. GAMDL or the app itself).
+   *
+   * Package-manager abstraction, Phase 2a -- see
+   * `.github/audits/package-manager-abstraction-design-2026-08-10.md` §3.D/§4.2.
+   */
+  managed_by?: string;
+  /**
+   * The exact command a user could run themselves to update this tool
+   * via its owning package manager (e.g. `"brew upgrade ffmpeg"` or
+   * `"sudo apt install --only-upgrade ffmpeg"`). `undefined`/absent
+   * when no such guidance applies. Backend-provided text -- render as
+   * a plain text child only, never as HTML.
+   */
+  manual_update_command?: string;
 }
 
 /**

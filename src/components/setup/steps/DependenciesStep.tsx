@@ -69,6 +69,10 @@ import { useSetupStore } from '@/stores/setupStore';
 // Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
 
+// Package-manager provenance badge label helper (Phase 2a -- see
+// .github/audits/package-manager-abstraction-design-2026-08-10.md §3.D).
+import { sourceLabel } from '@/lib/pm-source';
+
 /**
  * DependenciesStep -- Renders the external tools installation step.
  *
@@ -204,7 +208,7 @@ export function DependenciesStep() {
                         className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary"
                         title="Using your existing install — no duplicate download"
                       >
-                        {tool.source.startsWith('homebrew') ? 'Homebrew' : 'System'}
+                        {sourceLabel(tool.source)}
                       </span>
                     )}
                   </div>

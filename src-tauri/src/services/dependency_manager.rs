@@ -345,7 +345,7 @@ fn is_rosetta2_available() -> bool {
 /// launchd's minimal `/usr/bin:/bin:/usr/sbin:/sbin` (no `/opt/homebrew/bin`),
 /// so a bare `which` misses Homebrew tools. Windows returns empty — Choco/Scoop
 /// shims live on PATH and are covered by `where`.
-fn system_tool_search_dirs() -> Vec<PathBuf> {
+pub(crate) fn system_tool_search_dirs() -> Vec<PathBuf> {
     let base: &[&str] = if cfg!(target_os = "macos") {
         &[
             "/opt/homebrew/bin", // Homebrew (Apple Silicon)
@@ -384,7 +384,7 @@ fn system_tool_search_dirs() -> Vec<PathBuf> {
 /// an unprivileged process could have planted. Homebrew/system dirs are not
 /// world-writable, so legitimate installs pass. Always `true` on Windows.
 #[cfg(unix)]
-fn is_trusted_binary(path: &Path) -> bool {
+pub(crate) fn is_trusted_binary(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let world_writable =
@@ -393,7 +393,7 @@ fn is_trusted_binary(path: &Path) -> bool {
 }
 
 #[cfg(not(unix))]
-fn is_trusted_binary(_path: &Path) -> bool {
+pub(crate) fn is_trusted_binary(_path: &Path) -> bool {
     true
 }
 
@@ -486,83 +486,6 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
     Some((path, version))
 }
 
-/// Locate Homebrew even when a desktop launch does not inherit the user's
-/// shell PATH. Linuxbrew is supported as well as both macOS prefixes.
-fn find_homebrew() -> Option<PathBuf> {
-    let from_path = std::env::var_os("PATH").and_then(|path| {
-        std::env::split_paths(&path)
-            .map(|dir| dir.join("brew"))
-            .find(|candidate| candidate.is_file())
-    });
-    from_path.or_else(|| {
-        [
-            "/opt/homebrew/bin/brew",
-            "/usr/local/bin/brew",
-            "/home/linuxbrew/.linuxbrew/bin/brew",
-        ]
-        .into_iter()
-        .map(PathBuf::from)
-        .find(|candidate| candidate.is_file())
-    })
-}
-
-fn homebrew_formulae(output: &str) -> impl Iterator<Item = &str> {
-    output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-}
-
-/// Determine which installed formula owns a binary by comparing canonical
-/// Cellar prefixes. This also detects alternatives such as `ffmpeg-full` and
-/// automatically applies to tools added to the dependency catalogue later.
-async fn find_homebrew_owner(binary: &Path) -> Option<(PathBuf, String)> {
-    let brew = find_homebrew()?;
-    let list = tokio::process::Command::new(&brew)
-        .args(["list", "--formula", "-1"])
-        .output()
-        .await
-        .ok()?;
-    if !list.status.success() {
-        return None;
-    }
-
-    let binary = std::fs::canonicalize(binary).unwrap_or_else(|_| binary.to_path_buf());
-    let formulae = String::from_utf8_lossy(&list.stdout);
-    for formula in homebrew_formulae(&formulae) {
-        let output = tokio::process::Command::new(&brew)
-            .args(["--prefix", formula])
-            .output()
-            .await
-            .ok()?;
-        if !output.status.success() {
-            continue;
-        }
-        let prefix = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
-        let prefix = std::fs::canonicalize(&prefix).unwrap_or(prefix);
-        if binary.starts_with(prefix) {
-            return Some((brew, formula.to_string()));
-        }
-    }
-    None
-}
-
-async fn upgrade_homebrew_formula(brew: &Path, formula: &str) -> Result<(), String> {
-    let output = tokio::process::Command::new(brew)
-        .args(["upgrade", formula])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run Homebrew: {e}"))?;
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Homebrew could not update {formula}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
-    }
-}
-
 /// Detects an existing compatible system/package-manager install of `tool_id`
 /// and adopts it IN PLACE — writing the `.external-path` reference pointer + the
 /// `.source` marker (no copy), exactly like `install_tool`'s system tier — so
@@ -598,11 +521,14 @@ pub async fn adopt_system_tool_if_available(
         return None;
     }
 
-    // Provenance: identify the Homebrew formula owner when possible.
-    let source = match find_homebrew_owner(&system_path).await {
-        Some((_, formula)) => format!("homebrew:{formula}"),
-        None => "system".to_string(),
-    };
+    // Provenance: attribute to the owning package manager when possible
+    // (Homebrew formula, pipx venv, dpkg/rpm package, …), else a generic
+    // "system" marker. Status-time adoption is detection only and never
+    // triggers a package-manager upgrade.
+    let source = crate::services::package_manager::detect_owner(&system_path)
+        .await
+        .map(|r| r.to_marker())
+        .unwrap_or_else(|| "system".to_string());
 
     // Adopt in place: reference pointer + source marker, no copy.
     let tool_dir = get_tool_dir(app, tool_id);
@@ -1376,18 +1302,38 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
         let tool_dir = get_tool_dir(app, tool_id);
         let previous_source = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
 
+        // Attribute the system binary to its owning package manager (Homebrew
+        // formula, pipx venv, dpkg/rpm package, snap, …).
+        let previous_ref =
+            crate::services::package_manager::PackageRef::parse_marker(&previous_source);
+        let mut owner = crate::services::package_manager::detect_owner(&system_path).await;
+
         // Only delegate an update when MeedyaDL was already referencing this
-        // Homebrew formula. Initial setup adopts the compatible version exactly
-        // as found and does not unexpectedly mutate the user's system.
-        let mut homebrew_owner = find_homebrew_owner(&system_path).await;
-        if let Some(formula) = previous_source.trim().strip_prefix("homebrew:") {
-            if let Some((ref brew, ref owner)) = homebrew_owner {
-                if owner == formula {
-                    upgrade_homebrew_formula(brew, owner).await?;
-                    if let Some((path, version)) = find_system_tool(tool_id).await {
-                        system_path = path;
-                        system_version = version;
-                        homebrew_owner = find_homebrew_owner(&system_path).await;
+        // exact package via this exact manager. Initial setup adopts the
+        // compatible version exactly as found and does not unexpectedly mutate
+        // the user's system. No-elevation managers (Homebrew/pipx/Scoop) run
+        // directly; root-requiring ones (apt/dnf/snap/MacPorts) run through the
+        // #997 non-interactive elevation tiers. A failed or un-elevatable
+        // update is non-fatal: we adopt the already-compatible version as-found
+        // and surface the actionable command in the Activity Log, rather than
+        // blocking the install.
+        if let (Some(prev), Some(cur)) = (previous_ref.as_ref(), owner.as_ref()) {
+            if prev == cur {
+                match cur.pm.upgrade(cur).await {
+                    Ok(()) => {
+                        if let Some((path, version)) = find_system_tool(tool_id).await {
+                            system_path = path;
+                            system_version = version;
+                            owner =
+                                crate::services::package_manager::detect_owner(&system_path).await;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Package-manager update of {tool_id} did not run: {e}");
+                        crate::utils::activity_log::emit_app_log(
+                            app,
+                            &format!("Could not auto-update {tool_id}: {e}"),
+                        );
                     }
                 }
             }
@@ -1420,11 +1366,12 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
             .map_err(|e| format!("Failed to save system tool path: {e}"))?;
 
             // Write a .source marker file so check_all_dependencies knows this
-            // tool came from the system PATH rather than being downloaded.
+            // tool came from a package manager / system PATH rather than being
+            // downloaded (`<pm>:<pkg>` when attributed, else generic "system").
             let source_marker = tool_dir.join(".source");
-            let source = homebrew_owner
+            let source = owner
                 .as_ref()
-                .map(|(_, formula)| format!("homebrew:{formula}"))
+                .map(crate::services::package_manager::PackageRef::to_marker)
                 .unwrap_or_else(|| "system".to_string());
             std::fs::write(&source_marker, source).ok();
 
@@ -2108,7 +2055,10 @@ async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
 /// # Returns
 /// `true` if `sudo -n true` exits successfully (no password needed right
 /// now); `false` otherwise, including if `sudo` itself is missing.
-async fn can_sudo_without_password() -> bool {
+///
+/// `pub(crate)` so `services::package_manager` reuses the same
+/// non-interactive elevation probe for its elevated package upgrades.
+pub(crate) async fn can_sudo_without_password() -> bool {
     tokio::process::Command::new("sudo")
         .args(["-n", "true"])
         .output()
@@ -2132,7 +2082,10 @@ async fn can_sudo_without_password() -> bool {
 /// `Some(path)` if a graphical session is present AND `which pkexec`
 /// resolves to a non-empty path; `None` otherwise (headless session, or
 /// `pkexec` not installed).
-async fn find_pkexec() -> Option<String> {
+///
+/// `pub(crate)` so `services::package_manager` reuses the same graphical
+/// elevation tier for its elevated package upgrades.
+pub(crate) async fn find_pkexec() -> Option<String> {
     let has_display =
         std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
     if !has_display {
@@ -2773,13 +2726,9 @@ mod tests {
         assert!(!is_trusted_binary(&evil));
     }
 
-    #[test]
-    fn homebrew_formula_list_parser_supports_alternatives_and_taps() {
-        assert_eq!(
-            homebrew_formulae("ffmpeg-full\nowner/tap/gamdl\n\n").collect::<Vec<_>>(),
-            vec!["ffmpeg-full", "owner/tap/gamdl"]
-        );
-    }
+    // NOTE: the Homebrew formula-list parser (`homebrew_formulae`) moved to
+    // `services::package_manager` (the Homebrew arm of the package-manager
+    // abstraction); its parsing test now lives in `package_manager::tests`.
 
     #[test]
     fn external_tool_pointer_requires_an_existing_absolute_path() {

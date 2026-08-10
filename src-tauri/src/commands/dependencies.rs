@@ -48,8 +48,15 @@ use tauri::AppHandle;
 //   (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) from platform-specific URLs.
 // gamdl_service: manages the GAMDL Python package (install, version check, update).
 // python_manager: manages the portable Python runtime (download, install, verify).
-use crate::services::{dependency_manager, gamdl_service, python_manager};
+use crate::services::{dependency_manager, gamdl_service, package_manager, python_manager};
 use crate::utils::activity_log::emit_app_log;
+use std::path::PathBuf;
+use std::sync::LazyLock;
+
+/// Matches the first `MAJOR.MINOR.PATCH` triple in a version-command's output
+/// (e.g. `gamdl, version 3.9.0` → `3.9.0`).
+static GAMDL_VERSION_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"\d+\.\d+\.\d+").expect("valid semver regex"));
 
 /// Status information for a single dependency (Python, GAMDL, or tool).
 ///
@@ -696,6 +703,142 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
     }
 
     Ok(results)
+}
+
+/// Read-only information about a `gamdl` command-line entry point installed
+/// OUTSIDE MeedyaDL's managed venv (typically `pipx install gamdl`).
+///
+/// The frontend uses this purely to INFORM the user ("GAMDL X is also
+/// installed via pipx — MeedyaDL keeps its own tested copy"). MeedyaDL never
+/// consumes or updates the external copy.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExternalGamdlInfo {
+    /// Absolute path to the external `gamdl` entry-point binary.
+    pub path: String,
+    /// Detected version (e.g. "3.9.0").
+    pub version: String,
+    /// The `.source`-style provenance marker (e.g. `pipx:gamdl`, `system`).
+    pub source: String,
+    /// Whether that version is inside MeedyaDL's tested support window
+    /// (per the current platform's ceiling).
+    pub in_support_window: bool,
+    /// Human classification: `supported` | `untested` | `unsupported`.
+    pub classification: String,
+}
+
+/// Detects a `gamdl` command-line entry point installed on the system OUTSIDE
+/// MeedyaDL's managed venv, purely to INFORM the user.
+///
+/// **Frontend caller:** `detectExternalGamdl()` in `src/lib/tauri-commands.ts`
+///
+/// MeedyaDL always keeps and uses its own tested, version-controlled GAMDL
+/// (bounded pip spec in its managed venv); it never consumes or mutates an
+/// external one. Reusing a pipx/user-pip GAMDL would forfeit the
+/// support-window / wrapper-era / wheel-ABI guarantees the download pipeline
+/// depends on, and would mutate a tool the user owns for their own CLI use
+/// (see the 2026-08-10 package-manager design doc, decision A). This command
+/// is strictly read-only: no install, no upgrade, no filesystem mutation.
+///
+/// # Returns
+/// * `Ok(Some(info))` when an external `gamdl` entry point is found.
+/// * `Ok(None)` when none is found (or only MeedyaDL's own managed copy).
+#[tauri::command]
+pub async fn detect_external_gamdl(app: AppHandle) -> Result<Option<ExternalGamdlInfo>, String> {
+    Ok(find_external_gamdl(&app).await)
+}
+
+/// Implementation behind [`detect_external_gamdl`]. Searches PATH, the pipx
+/// user shim dir, and the system package-manager dirs for a `gamdl` entry
+/// point, excluding MeedyaDL's own managed venv, and reports the first
+/// trusted, version-probeable one.
+async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
+    use crate::services::gamdl_capabilities::{
+        classify_for_platform, current_platform_id, VersionSupport,
+    };
+
+    // MeedyaDL's own managed venv gamdl lives under the app python dir; never
+    // report it as an "external" install.
+    let managed_python_dir = crate::utils::platform::get_python_dir(app);
+    let bin_name = if cfg!(windows) { "gamdl.exe" } else { "gamdl" };
+
+    // Candidate entry points: PATH (`which`/`where`), the pipx user shim dir
+    // (~/.local/bin), and the system package-manager search dirs.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let which_cmd = if cfg!(windows) { "where" } else { "which" };
+    if let Ok(out) = tokio::process::Command::new(which_cmd)
+        .arg("gamdl")
+        .output()
+        .await
+    {
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let p = PathBuf::from(line.trim());
+                if p.is_absolute() {
+                    candidates.push(p);
+                }
+            }
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        candidates.push(PathBuf::from(&home).join(".local/bin").join(bin_name));
+    }
+    for dir in dependency_manager::system_tool_search_dirs() {
+        candidates.push(dir.join(bin_name));
+    }
+
+    for cand in candidates {
+        if !cand.is_file() || cand.starts_with(&managed_python_dir) {
+            continue;
+        }
+        if !dependency_manager::is_trusted_binary(&cand) {
+            continue;
+        }
+        // Probe the version with a short timeout (a broken binary must not stall
+        // the wizard).
+        let version = match tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            tokio::process::Command::new(&cand).arg("--version").output(),
+        )
+        .await
+        {
+            Ok(Ok(o)) => {
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&o.stdout),
+                    String::from_utf8_lossy(&o.stderr)
+                );
+                GAMDL_VERSION_RE.find(&text).map(|m| m.as_str().to_string())
+            }
+            _ => None,
+        };
+        let Some(version) = version else {
+            continue;
+        };
+
+        let (in_support_window, classification) =
+            match classify_for_platform(Some(&version), current_platform_id()) {
+                VersionSupport::Supported { .. } => (true, "supported"),
+                VersionSupport::Untested { .. } => (false, "untested"),
+                VersionSupport::Unsupported { .. } | VersionSupport::NotInstalled => {
+                    (false, "unsupported")
+                }
+            };
+
+        let source = package_manager::detect_owner(&cand)
+            .await
+            .map(|r| r.to_marker())
+            .unwrap_or_else(|| "system".to_string());
+
+        return Some(ExternalGamdlInfo {
+            path: cand.to_string_lossy().to_string(),
+            version,
+            source,
+            in_support_window,
+            classification: classification.to_string(),
+        });
+    }
+
+    None
 }
 
 /// Downloads and installs a specific tool dependency.
