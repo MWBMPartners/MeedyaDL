@@ -199,9 +199,12 @@ export function DependenciesStep() {
                         Optional
                       </span>
                     )}
-                    {tool.source === 'system' && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary">
-                        System
+                    {tool.installed && tool.source && tool.source !== 'managed' && (
+                      <span
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary"
+                        title="Using your existing install — no duplicate download"
+                      >
+                        {tool.source.startsWith('homebrew') ? 'Homebrew' : 'System'}
                       </span>
                     )}
                   </div>
