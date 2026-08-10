@@ -1,13 +1,40 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-08-05
+**Last updated:** 2026-08-10
 **Working branch:** `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
+## ★★★ LATEST — Session 2026-08-09/10: Homebrew / system-package-manager tool detection (integrated on top of #1081)
+
+**Focus:** the setup wizard showed external tools (FFmpeg, MP4Box, MediaInfo, …) as **missing** even when they were installed via Homebrew — the maintainer's own screenshot with `ffmpeg-full` present but shown red. Investigate the root cause and make detection work for Homebrew-installed (and, generally, system-package-manager-installed) components, minimising duplicate installs. Standing one-branch / no-PR-stacking rule applies — all commits land on `claude/gamdl-v3-8-5-review-gs36zl`; the single PR to `alpha` is cut later.
+
+**Root cause (verified in code, two independent gaps):**
+1. **Status check only read the managed dir.** `check_all_dependencies` (`commands/dependencies.rs`) resolved each tool via `get_tool_binary_path(app, id)` — which only points at the app-managed tools directory — and never probed the system for a compatible install. A Homebrew FFmpeg at `/opt/homebrew/bin/ffmpeg` was invisible to the *status* pass; detection only ran (via #1081) on an explicit **Install** click, not at wizard load.
+2. **Finder-launched macOS `.app` inherits launchd's minimal PATH** (`/usr/bin:/bin:/usr/sbin:/sbin`, **no `/opt/homebrew/bin`**), so even a PATH-based `which ffmpeg` fails when the app is opened from Finder rather than a shell. This is the classic "works in `cargo tauri dev`, missing in the built `.app`" trap.
+
+**Collision + reconciliation.** While this was being implemented, the **maintainer landed #1081 (`7395672`) on this same branch** — an in-place system/Homebrew tool-reference mechanism (`.external-path` pointer file, NO copy/duplicate; `find_homebrew()` / `find_homebrew_owner()` / `homebrew_formulae()`; `upgrade_homebrew_formula()` for `brew upgrade`; `install_tool` Step 0 that references-in-place instead of downloading). Rather than clobber it, this session **integrated on top of #1081** (maintainer-chosen via AskUserQuestion) — keep #1081 as the base, add only the missing **status-time** detection piece + a security guard. My original standalone approach (a parallel `34db589`) was discarded.
+
+**Landed — DONE & pushed (`ca6566b`, fast-forward on top of #1081 `7395672`).**
+- **`adopt_system_tool_if_available(app, tool_id) -> Option<(PathBuf, String)>`** (`dependency_manager.rs`): detects a compatible system/Homebrew tool (reuses #1081's `find_system_tool` + `find_homebrew_owner`), checks `is_trusted_binary` + `meets_minimum_version`, then **adopts it in place** — writes the same `.external-path` pointer + `.source` marker #1081 uses (source label `homebrew:<formula>` or `system`). **Adopt-as-found — no `brew upgrade` at status time** (upgrades stay on the explicit path). `check_all_dependencies` now calls it when a tool isn't already managed/adopted, so Homebrew/system tools show **installed without an Install click**.
+- **`find_system_tool` widened**: probes `system_tool_search_dirs()` (macOS `/opt/homebrew/bin`, `/usr/local/bin`, MacPorts `/opt/local/bin`, base dirs; Linux `/usr/local/bin`, `/usr/bin`, `/bin`, `/snap/bin`, Linuxbrew `/home/linuxbrew/.linuxbrew/bin` + `$HOME/.linuxbrew/bin`; Windows empty — `where`/PATH shims cover Choco/Scoop) **regardless of the inherited PATH**, so the Finder-minimal-PATH case is covered. `which` results now require `p.is_absolute() && p.exists() && is_trusted_binary(&p)` (relative `which` output rejected).
+- **`is_trusted_binary(path)` security guard**: `#[cfg(unix)]` canonicalizes + rejects a world-writable file or parent dir (`mode() & 0o002 != 0`); non-unix returns true. Absolute trusted dirs only, no `Command::env`/shell — same posture as the rest of the dependency manager.
+- **Removed dead `copy_companion_ffprobe_from_dir`** — dead since #1081 switched copy→reference; a latent `cargo clippy -D warnings` failure the eventual alpha PR's CI would have hit. In-place ffmpeg gets `ffprobe` as a sibling of the referenced binary; managed ffmpeg still downloads it via `install_companion_ffprobe`.
+- **Frontend badge** (`DependenciesStep.tsx`): shows a **Homebrew** / **System** pill (title "Using your existing install — no duplicate download") when `tool.source` is not `managed`.
+- **Docs:** `.claude/CLAUDE.md` dependency-manager bullet appended with the status-time-detection description (already reflecting #1081's in-place-reuse philosophy).
+- **2 new tests** (`dependency_manager::tests`): `system_tool_search_dirs_are_absolute_and_platform_correct`, `world_writable_binary_is_untrusted`.
+- **Validated:** `cargo clippy --lib --tests -- -D warnings` clean; `cargo test dependency_manager` **11/11**; `npm run type-check` + `npm run lint` clean.
+- Posted a follow-up comment on #1081 (id 5246748317) documenting the integration, the fixed latent dead-code bug, and the remaining Phase 2 scope.
+
+**DEFERRED — Phase 2 (explicitly requested by the maintainer in Message 7; kept out of `ca6566b` to stay reviewable, awaiting go-ahead):** extend the same *detect + update-via-source-manager* to **GAMDL and Python** (Homebrew formula / `pipx`), and generalise beyond Homebrew to a **package-manager abstraction** (apt / dnf / pipx / scoop / winget). The maintainer's instruction: "if GAMDL is installed via Homebrew, if an updated version … is required/available, MeedyaDL should update it … using Homebrew." #1081 already carries the Homebrew-*upgrade* primitive (`upgrade_homebrew_formula`) for tools; Phase 2 is (a) wiring the version-check/update flow to route through the owning package manager instead of a managed re-download when a tool/GAMDL/Python is PM-owned, and (b) the non-Homebrew PMs. Tracking: new work items #33 (GAMDL detection via brew/pipx) and #34 (multi-PM abstraction design) — **not yet filed as GitHub issues** (Phase 2 scope/approach to be confirmed with the maintainer first, given the architectural size).
+
+**Branch state.** `claude/gamdl-v3-8-5-review-gs36zl` HEAD = `ca6566b`, pushed, == remote. Sits **2 commits ahead of `alpha`** (#1081 + this follow-up), continuing the one-branch model — folds into the next single PR to `alpha`. `beta`/`release-candidate` still behind on the 2026-08-05 dependency-security fixes (see below) — `forward-port-security.yml` handles those independently.
+
+---
+
+## ★★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
 
 **Focus:** Forward-port the two outstanding Dependabot **security** fixes onto this alpha-bound branch, resolve GitHub's 8 dependency + 2 secret-scanning alerts, then a full GitHub-issues sweep + documentation/memory refresh. **No new PR** (no-stacking rule — the single PR to `alpha` is cut later from this branch). Model routing per maintainer: sequential **Fable 5** for deep analysis/planning, Sonnet/Haiku for implementation.
 
@@ -244,7 +271,7 @@ Read this subsection top-to-bottom, then `.claude/memory/project_remote_feature_
 
 ---
 
-## ★★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, PHASES 1–2 DONE)
+## ★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, PHASES 1–2 DONE)
 
 **Goal:** clean up alpha↔main drift without losing work, then bundle-ID change, then full issue-sweep + docs refresh + vision analysis. Autonomous run; Phase 3 gated on owner go-ahead.
 
@@ -289,7 +316,7 @@ Phases 1–2 are DONE (merged to alpha; content-complete at 1.12.0-alpha.35, ful
 
 ---
 
-## ★ LATEST — Session 2026-07-19 part 2: large autonomous program (IN PROGRESS)
+## Session 2026-07-19 part 2: large autonomous program (IN PROGRESS)
 
 A big multi-workstream autonomous run before the prep→alpha PR. **Model tiering in force:** sequential Fable 5 for deep analysis (fallback Opus); Sonnet/Haiku for implementation (Opus for complex). After each chunk: update issue + commit + update this handoff. **PR still NOT opened** — hold until the program's final step (owner: "STAGE COMMIT PUSH" is the last step).
 
