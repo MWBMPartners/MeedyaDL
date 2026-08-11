@@ -1067,13 +1067,19 @@ mod tests {
     async fn diagnose_reports_broken_system_venv_with_recorded_interpreter_gone() {
         let tmp = tempfile::tempdir().expect("failed to create tempdir");
         write_broken_binary(tmp.path());
+        // A path under the unique tempdir that we deliberately never create —
+        // guaranteed absent on EVERY platform, simulating the post-`brew
+        // upgrade python` Cellar relocation. (A hardcoded real Homebrew Cellar
+        // path would spuriously exist on a macOS CI runner that has that Python
+        // installed, so key the "gone" case off the tempdir instead.)
+        let gone = tmp.path().join("gone/python@3.14/3.14.6/bin/python3.14");
+        let gone_str = gone.to_string_lossy().to_string();
+        assert!(!gone.exists(), "test precondition: recorded interpreter must be absent");
         write_source_marker(
             tmp.path(),
             &PythonSourceRecord {
                 source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
-                // A plausible-looking but nonexistent path — simulates the
-                // post-`brew upgrade python` Cellar relocation.
-                interpreter: Some("/opt/homebrew/Cellar/python@3.14/3.14.6/bin/python3.14".to_string()),
+                interpreter: Some(gone_str.clone()),
                 version: "3.14.6".to_string(),
             },
         );
@@ -1082,9 +1088,7 @@ mod tests {
         assert_eq!(
             health,
             PythonVenvHealth::BrokenSystemVenv {
-                recorded_interpreter: Some(
-                    "/opt/homebrew/Cellar/python@3.14/3.14.6/bin/python3.14".to_string()
-                ),
+                recorded_interpreter: Some(gone_str),
                 recorded_version: Some("3.14.6".to_string()),
                 recorded_interpreter_exists: false,
             }
