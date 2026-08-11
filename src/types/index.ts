@@ -1284,6 +1284,45 @@ export interface SystemPython {
 }
 
 /**
+ * Discriminant for {@link PythonVenvHealthDto.status}.
+ *
+ * Mirrors: Rust enum `PythonVenvHealthStatus` in
+ * `src-tauri/src/services/python_manager.rs` (serialized `snake_case`).
+ */
+export type PythonVenvHealthStatus = 'ok' | 'broken_system_venv' | 'not_installed';
+
+/**
+ * Diagnosis of the managed Python's health, returned by `diagnosePythonVenv()`.
+ *
+ * Mirrors: Rust struct `PythonVenvHealthDto` in
+ * `src-tauri/src/services/python_manager.rs` (serialized `camelCase`).
+ *
+ * A flat, all-fields-present shape — only the fields relevant to `status`
+ * are non-null:
+ *   - `ok`: `version` is set, the rest are `null`.
+ *   - `broken_system_venv`: `recordedInterpreter` / `recordedVersion` /
+ *     `recordedInterpreterExists` are set (the first two may still be `null`
+ *     if the marker itself lacked them), `version` is `null`.
+ *   - `not_installed`: everything besides `status` is `null`.
+ */
+export interface PythonVenvHealthDto {
+  status: PythonVenvHealthStatus;
+  /** Set only when `status === 'ok'`. */
+  version: string | null;
+  /** Set only when `status === 'broken_system_venv'`. */
+  recordedInterpreter: string | null;
+  /** Set only when `status === 'broken_system_venv'`. */
+  recordedVersion: string | null;
+  /**
+   * Whether `recordedInterpreter` still exists as a file on disk. Set only
+   * when `status === 'broken_system_venv'` — determines whether a one-click
+   * rebuild from the SAME interpreter can be offered, or whether the user
+   * must pick a different one.
+   */
+  recordedInterpreterExists: boolean | null;
+}
+
+/**
  * Version information for a single MeedyaDL component.
  *
  * Mirrors: Rust struct `ComponentVersion` in `src-tauri/src/commands/dependencies.rs`
