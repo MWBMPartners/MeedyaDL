@@ -71,7 +71,9 @@ import type {
   DependencyStatus,
   DetectedBrowser,
   DownloadRequest,
+  ExternalGamdlInfo,
   PlatformInfo,
+  PythonVenvHealthDto,
   QueueStatus,
   StartDownloadResult,
   SystemPython,
@@ -300,6 +302,28 @@ export function detectSystemPythons(): Promise<SystemPython[]> {
  */
 export function useSystemPython(interpreter: string): Promise<DependencyStatus> {
   return invoke<DependencyStatus>('use_system_python', { interpreter });
+}
+
+/**
+ * Diagnoses the health of the managed Python, distinguishing a broken
+ * system-Python venv (e.g. after `brew upgrade python` relocates the
+ * interpreter the venv was built from) from a plain "not installed" state.
+ *
+ * Rust handler: `diagnose_python_venv()` in
+ * `src-tauri/src/commands/dependencies.rs`
+ * Returns: `PythonVenvHealthDto { status, version, recordedInterpreter,
+ * recordedVersion, recordedInterpreterExists }`.
+ *
+ * Purely additive alongside `checkPythonStatus()` — never changes what that
+ * command reports. Used by the setup wizard's Python step to offer a
+ * one-click rebuild instead of a mystifying "Python Not Found".
+ *
+ * Called by: SetupWizard Python step
+ *
+ * @returns Promise resolving to the Python venv health diagnosis
+ */
+export function diagnosePythonVenv(): Promise<PythonVenvHealthDto> {
+  return invoke<PythonVenvHealthDto>('diagnose_python_venv');
 }
 
 /**
@@ -586,6 +610,24 @@ export function installOfscraper(): Promise<string> {
  */
 export function checkAllDependencies(): Promise<DependencyStatus[]> {
   return invoke<DependencyStatus[]>('check_all_dependencies');
+}
+
+/**
+ * Detects a `gamdl` command-line entry point installed OUTSIDE MeedyaDL's
+ * managed venv (typically `pipx install gamdl`), purely to inform the user.
+ *
+ * Rust handler: `detect_external_gamdl()` in `src-tauri/src/commands/dependencies.rs`
+ * Returns: `ExternalGamdlInfo | null` — `null` when none is found.
+ *
+ * MeedyaDL always keeps and uses its own tested, version-controlled GAMDL; it
+ * never consumes or updates an external copy. Read-only.
+ *
+ * Called by: SetupWizard GAMDL step.
+ *
+ * @returns Promise resolving to external-GAMDL info, or null.
+ */
+export function detectExternalGamdl(): Promise<ExternalGamdlInfo | null> {
+  return invoke<ExternalGamdlInfo | null>('detect_external_gamdl');
 }
 
 /**

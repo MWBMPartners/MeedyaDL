@@ -36,8 +36,10 @@ import { create } from 'zustand';
 
 // DependencyStatus -- { name, required, installed, version, path } shape from the backend.
 // SystemPython -- a detected system interpreter offered for reuse (#1017).
+// PythonVenvHealthDto -- diagnosis distinguishing a broken system-Python venv
+//   from a plain "not installed" state (Homebrew-upgrade relocation follow-up).
 // Mirrors the Rust structs serialized over the IPC boundary.
-import type { DependencyStatus, SystemPython } from '@/types';
+import type { DependencyStatus, PythonVenvHealthDto, SystemPython } from '@/types';
 
 // Type-safe wrappers for Tauri IPC commands related to dependency management.
 // Each function maps to a `#[tauri::command]` handler in the Rust backend.
@@ -95,6 +97,16 @@ interface DependencyState {
    * `true` while `detectSystemPythons()` is probing the system for interpreters.
    */
   isDetectingPythons: boolean;
+
+  /**
+   * Diagnosis of the managed Python's health (broken system-venv vs. plain
+   * not-installed vs. ok). `null` until the first `diagnosePythonVenv()`
+   * call completes. Populated alongside `checkPython()` on the setup
+   * wizard's Python step so a moved/upgraded system interpreter (e.g. via
+   * `brew upgrade python`) can be explained instead of showing an
+   * undifferentiated "Python Not Found".
+   */
+  pythonVenvHealth: PythonVenvHealthDto | null;
 
   // ---------------------------------------------------------------------------
   // Operation tracking flags
@@ -175,6 +187,14 @@ interface DependencyState {
   detectSystemPythons: () => Promise<void>;
 
   /**
+   * Diagnose the managed Python's health and store it in `pythonVenvHealth`.
+   * Non-fatal — a failure simply leaves the diagnosis at `null`, so the
+   * wizard falls back to the plain "not installed" flow it already renders.
+   * IPC call: `commands.diagnosePythonVenv()` -> Rust `diagnose_python_venv`
+   */
+  diagnosePythonVenv: () => Promise<void>;
+
+  /**
    * Provision the managed Python by building a venv from a chosen system
    * interpreter (#1017) instead of downloading the portable runtime.
    * IPC call: `commands.useSystemPython(interpreter)` -> Rust `use_system_python`
@@ -247,6 +267,7 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
   gamdl: null, // GAMDL status unknown until first check
   tools: [], // No tool statuses until first check
   systemPythons: [], // No system interpreters detected until first detect (#1017)
+  pythonVenvHealth: null, // No venv-health diagnosis until first diagnosePythonVenv()
   isChecking: false, // No check in progress
   isDetectingPythons: false, // No system-Python detection in progress (#1017)
   isInstalling: false, // No installation in progress
@@ -369,6 +390,25 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
     } catch (e) {
       console.warn('[dependency] system Python detection failed:', e);
       set({ systemPythons: [], isDetectingPythons: false });
+    }
+  },
+
+  /**
+   * Diagnose the managed Python's health (#1017 follow-up).
+   *
+   * Non-fatal, mirrors `detectSystemPythons()`: a failure is logged and
+   * leaves `pythonVenvHealth` at `null` rather than surfacing as a store
+   * `error` — nothing has gone wrong from the user's perspective, the
+   * diagnosis is simply unavailable and the wizard falls back to its
+   * existing "not installed" rendering.
+   */
+  diagnosePythonVenv: async () => {
+    try {
+      const pythonVenvHealth = await commands.diagnosePythonVenv();
+      set({ pythonVenvHealth });
+    } catch (e) {
+      console.warn('[dependency] Python venv health diagnosis failed:', e);
+      set({ pythonVenvHealth: null });
     }
   },
 

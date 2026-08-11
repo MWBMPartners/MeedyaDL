@@ -78,6 +78,14 @@ pub mod gamdl_capabilities;
 /// `utils::archive::set_executable()`.
 pub mod dependency_manager;
 
+/// Package-manager abstraction: attribute a tool binary to its owning system
+/// package manager (Homebrew, MacPorts, pipx, Scoop, apt, dnf, snap) and route
+/// updates through it — directly for no-elevation managers, via the #997
+/// `sudo -n`/`pkexec` tiers for root-requiring ones. Generalises the
+/// previously Homebrew-only detect/attribute/update machinery in
+/// `dependency_manager`.
+pub mod package_manager;
+
 /// Settings and configuration service: load/save the application's
 /// JSON settings (via tauri-plugin-store), and synchronise them to
 /// GAMDL's `config.ini` format for CLI compatibility.

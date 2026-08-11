@@ -36,11 +36,12 @@
  * @see {@link @/stores/setupStore.ts}         -- Manages wizard step state
  */
 
-// React useEffect for checking status on mount and auto-completing.
-import { useEffect } from 'react';
+// React hooks for checking status on mount, auto-completing, and holding
+// the read-only external-GAMDL detection result.
+import { useEffect, useState } from 'react';
 
 // Lucide icons for status display and the install button.
-import { CheckCircle, Download } from 'lucide-react';
+import { CheckCircle, Download, Info } from 'lucide-react';
 
 // Zustand stores for dependency tracking and wizard step management.
 import { useDependencyStore } from '@/stores/dependencyStore';
@@ -48,6 +49,10 @@ import { useSetupStore } from '@/stores/setupStore';
 
 // Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
+
+// Read-only detection of a `gamdl` installed outside MeedyaDL's managed venv.
+import { detectExternalGamdl } from '@/lib/tauri-commands';
+import type { ExternalGamdlInfo } from '@/types';
 
 /**
  * GamdlStep -- Renders the GAMDL installation step.
@@ -77,10 +82,36 @@ export function GamdlStep() {
   /** Records an error for the current step */
   const setStepError = useSetupStore((s) => s.setStepError);
 
+  /**
+   * A `gamdl` installed outside MeedyaDL's managed venv (e.g. via `pipx`),
+   * if any. Purely informational — MeedyaDL keeps and uses its own tested
+   * copy and never touches this one.
+   */
+  const [externalGamdl, setExternalGamdl] = useState<ExternalGamdlInfo | null>(null);
+
   /** Check GAMDL status on mount */
   useEffect(() => {
     checkGamdl();
   }, [checkGamdl]);
+
+  /**
+   * Detect (read-only) any system/pipx GAMDL so we can explain why MeedyaDL
+   * still keeps its own copy, rather than looking oblivious to a duplicate.
+   * Never blocks the step; failures are silently ignored.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    detectExternalGamdl()
+      .then((info) => {
+        if (!cancelled) setExternalGamdl(info);
+      })
+      .catch(() => {
+        /* Detection is best-effort; ignore failures. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   /** Auto-complete when GAMDL is detected as installed */
   useEffect(() => {
@@ -147,6 +178,21 @@ export function GamdlStep() {
           </div>
         )}
       </div>
+
+      {/* Informational note when a GAMDL is also installed outside our venv
+          (e.g. via pipx). We deliberately keep our own tested copy and never
+          touch the external one, so explain why the "duplicate" exists. */}
+      {externalGamdl && (
+        <div className="flex items-start gap-2 p-3 rounded-platform border border-border-light bg-surface-secondary text-xs text-content-secondary">
+          <Info size={16} className="text-accent flex-shrink-0 mt-0.5" />
+          <p>
+            GAMDL v{externalGamdl.version} is also installed on your system
+            {externalGamdl.source.startsWith('pipx') ? ' via pipx' : ''}. MeedyaDL keeps its own
+            tested copy so downloads stay on a supported version — your other installation isn&apos;t
+            changed.
+          </p>
+        </div>
+      )}
 
       {/* Error display */}
       {error && (

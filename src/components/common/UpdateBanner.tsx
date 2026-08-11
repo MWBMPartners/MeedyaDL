@@ -44,7 +44,7 @@ import { ArrowUpCircle, X, ExternalLink, RefreshCw, Download, RotateCcw } from '
  * happen when the underlying data actually changes.
  * @see https://react.dev/reference/react/useMemo
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 
 /**
  * Tauri process plugin for relaunching the app after an update is installed.
@@ -57,6 +57,16 @@ import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
 
 /** Zustand store for general UI state (toast notifications) */
 import { useUiStore } from '@/stores/uiStore';
+
+/**
+ * Shared per-component upgrade routing for non-core (engine/tool)
+ * components -- see `UpdatesPage.tsx` for the fuller per-row treatment
+ * this banner mirrors in a bounded, compact form.
+ */
+import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
+
+/** `ComponentUpdate` type -- see `@/types` for the full field list. */
+import type { ComponentUpdate } from '@/types';
 
 /** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
@@ -75,6 +85,14 @@ import { Button } from './Button';
  */
 // Core components shown with full detail; engine updates shown generically.
 const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
+
+// The banner is a compact, always-visible notification, not a full
+// listing surface (see the "no individual names shown" design note
+// below) -- a handful of one-click engine/tool rows is a real
+// convenience, but a long list would make the banner grow unbounded
+// alongside a large pending-update batch. Above this count, fall back
+// to the collapsed generic message pointing at the full Updates page.
+const MAX_BANNER_ENGINE_ROWS = 3;
 
 export function UpdateBanner() {
   /*
@@ -105,8 +123,13 @@ export function UpdateBanner() {
   const updateInstalled = useUpdateStore((s) => s.updateInstalled);
   const downloadError = useUpdateStore((s) => s.downloadError);
   const downloadAndInstallAppUpdate = useUpdateStore((s) => s.downloadAndInstallAppUpdate);
+  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
   const addToast = useUiStore((s) => s.addToast);
   const setPage = useUiStore((s) => s.setPage);
+
+  // Tracks which single engine/tool row (by component name) is currently
+  // mid-upgrade, mirroring the same-named state in `UpdatesPage.tsx`.
+  const [upgradingComponent, setUpgradingComponent] = useState<string | null>(null);
 
   /**
    * Derive the filtered active-updates list from raw store data.
@@ -130,10 +153,18 @@ export function UpdateBanner() {
     () => allUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
     [allUpdates]
   );
-  const hasEngineUpdates = useMemo(
-    () => allUpdates.some((c) => !CORE_COMPONENTS.includes(c.name)),
+  // Engine/tool (non-core) updates. Rendered as compact individual rows
+  // when there are few enough to fit (see `MAX_BANNER_ENGINE_ROWS`);
+  // otherwise the banner falls back to a single collapsed message.
+  const engineUpdates = useMemo(
+    () =>
+      allUpdates.filter(
+        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
+      ),
     [allUpdates]
   );
+  const hasEngineUpdates = engineUpdates.length > 0;
+  const showEngineRows = engineUpdates.length > 0 && engineUpdates.length <= MAX_BANNER_ENGINE_ROWS;
 
   /* Early return -- render nothing when there are no active updates */
   if (allUpdates.length === 0) return null;
@@ -158,6 +189,26 @@ export function UpdateBanner() {
       // (resolver, network, dep conflict, …).
       const message = e instanceof Error ? e.message : String(e);
       addToast(message || 'Failed to upgrade GAMDL', 'error');
+    }
+  };
+
+  /**
+   * Handles a single engine/tool row's upgrade click (bounded compact
+   * list -- see `MAX_BANNER_ENGINE_ROWS`). Shares the same routing
+   * rules as `UpdatesPage.tsx`'s equivalent handler via
+   * `upgradeGenericComponent()`.
+   */
+  const handleUpgradeGenericComponent = async (c: ComponentUpdate) => {
+    setUpgradingComponent(c.name);
+    try {
+      await upgradeGenericComponent(c);
+      addToast(`${c.name} updated successfully`, 'success');
+      checkForUpdates().catch(() => {});
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      addToast(message || `Failed to update ${c.name}`, 'error');
+    } finally {
+      setUpgradingComponent(null);
     }
   };
 
@@ -478,18 +529,61 @@ export function UpdateBanner() {
             </div>
           ))}
 
-          {/* Generic message for engine/component updates (no individual names shown) */}
-          {hasEngineUpdates && (
-            <div className="text-xs text-content-secondary mt-1">
-              Component updates are also available.{' '}
-              <button
-                type="button"
-                onClick={() => setPage('updates')}
-                className="text-accent hover:underline"
-              >
-                View Details
-              </button>
+          {/*
+           * Engine/tool updates: a bounded number of compact one-click
+           * rows (see `MAX_BANNER_ENGINE_ROWS`), or the original
+           * collapsed message when there are too many to list without
+           * the banner growing unbounded. Each row's button label
+           * reflects the tool's package-manager provenance when known
+           * (`managed_by`, e.g. "Update via Homebrew"); the click
+           * handler routes through the same `upgradeGenericComponent`
+           * logic as the "Update All" bulk action on the Updates page.
+           */}
+          {showEngineRows ? (
+            <div className="space-y-1 mt-1">
+              {engineUpdates.map((update) => (
+                <div key={update.name} className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <span className="text-xs text-content-secondary">
+                      <span className="font-medium">{update.name}</span>
+                      {update.current_version && <span> v{update.current_version}</span>}
+                      {update.latest_version && (
+                        <span className="text-accent"> &rarr; v{update.latest_version}</span>
+                      )}
+                    </span>
+                    {/* Backend-provided plain text only -- never HTML. */}
+                    {update.manual_update_command && (
+                      <p className="text-[11px] text-content-tertiary truncate">
+                        Runs: {update.manual_update_command}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<RefreshCw size={12} />}
+                    loading={upgradingComponent === update.name}
+                    disabled={upgradingComponent !== null && upgradingComponent !== update.name}
+                    onClick={() => handleUpgradeGenericComponent(update)}
+                  >
+                    {update.managed_by ? `Update via ${update.managed_by}` : 'Upgrade'}
+                  </Button>
+                </div>
+              ))}
             </div>
+          ) : (
+            hasEngineUpdates && (
+              <div className="text-xs text-content-secondary mt-1">
+                Component updates are also available.{' '}
+                <button
+                  type="button"
+                  onClick={() => setPage('updates')}
+                  className="text-accent hover:underline"
+                >
+                  View Details
+                </button>
+              </div>
+            )
           )}
         </div>
       </div>
