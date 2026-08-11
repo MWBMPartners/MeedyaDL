@@ -239,6 +239,30 @@ pub async fn use_system_python(
     })
 }
 
+/// Diagnoses the health of the managed Python, distinguishing a broken
+/// system-Python venv (#1017 follow-up) from a plain "not installed" state.
+///
+/// **Frontend caller:** `diagnosePythonVenv()` in `src/lib/tauri-commands.ts`
+///
+/// `check_python_status` above answers "is Python usable right now?" with a
+/// binary yes/no — sufficient for the common paths, but a system-Python venv
+/// whose recorded interpreter has moved (e.g. after `brew upgrade python`
+/// relocates the Homebrew Cellar path the venv's interpreter linked against)
+/// collapses to the same "not installed" answer as a fresh machine, and the
+/// setup wizard has no way to explain *why* or offer a targeted fix. This
+/// command is purely additive — it does not change `check_python_status`'s
+/// existing contract, which other callers depend on.
+///
+/// # Errors
+/// Infallible in practice; the `Result` wrapper keeps the IPC signature
+/// uniform with the other dependency commands.
+#[tauri::command]
+pub async fn diagnose_python_venv(
+    app: AppHandle,
+) -> Result<python_manager::PythonVenvHealthDto, String> {
+    Ok(python_manager::diagnose_python_venv(&app).await.to_dto())
+}
+
 /// Checks whether GAMDL is installed in the portable Python environment.
 ///
 /// **Frontend caller:** `checkGamdlStatus()` in `src/lib/tauri-commands.ts`

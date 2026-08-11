@@ -646,6 +646,21 @@ fn write_source_marker(python_dir: &Path, record: &PythonSourceRecord) {
     }
 }
 
+/// Reads the provenance marker for a managed Python directory, if present.
+///
+/// Path-based core of [`get_python_source`], split out so it can be driven
+/// directly against a `tempfile` directory in unit tests without needing a
+/// live `AppHandle` — mirrors the `_for`/`_at` splitting pattern already used
+/// by [`platform::resolve_managed_python_binary_for`] for the same reason.
+///
+/// Returns `None` when Python isn't provisioned yet, the marker is missing (a
+/// portable install from before #1017), or the file is unreadable/corrupt — all
+/// of which the caller should treat as the portable default.
+fn read_source_marker(python_dir: &Path) -> Option<PythonSourceRecord> {
+    let data = std::fs::read_to_string(source_marker_path(python_dir)).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
 /// Reads the provenance marker for the managed Python, if present.
 ///
 /// Returns `None` when Python isn't provisioned yet, the marker is missing (a
@@ -653,9 +668,7 @@ fn write_source_marker(python_dir: &Path, record: &PythonSourceRecord) {
 /// of which the caller should treat as the portable default.
 #[must_use]
 pub fn get_python_source(app: &AppHandle) -> Option<PythonSourceRecord> {
-    let path = source_marker_path(&platform::get_python_dir(app));
-    let data = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&data).ok()
+    read_source_marker(&platform::get_python_dir(app))
 }
 
 /// Provisions the managed Python by building a `venv` from a user-chosen system
@@ -760,6 +773,181 @@ pub async fn provision_venv_from_system_python(
     Ok(version)
 }
 
+// ============================================================
+// Broken system-venv diagnosis (#1017 follow-up)
+//
+// A venv provisioned from a system Python (see above) embeds a symlink /
+// reference back to that system interpreter's Cellar/framework/pyenv path.
+// When the user later runs `brew upgrade python` (or similarly relocates /
+// removes the interpreter the venv was built from), Homebrew deletes the old
+// versioned Cellar directory — the venv's own interpreter link dangles, and
+// running it fails outright. `check_python_status` (above) can only see
+// "binary exists but won't run" and reports `Ok(None)`, which the setup
+// wizard renders as an undifferentiated "Python Not Found" — mystifying for
+// a user who previously had everything working.
+//
+// `diagnose_python_venv` distinguishes that specific, recoverable case (a
+// system-venv whose recorded interpreter has moved) from a genuinely fresh
+// "nothing installed yet" state, so the wizard can offer a one-click rebuild
+// instead of just the portable-download flow.
+// ============================================================
+
+/// Result of diagnosing the managed Python's health.
+///
+/// Distinct from [`check_python_status`]'s `Result<Option<String>, String>`
+/// contract, which existing callers depend on unchanged — this is an
+/// additive, richer diagnosis consumed only by the new
+/// `diagnose_python_venv` IPC command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PythonVenvHealth {
+    /// The managed Python binary exists and runs.
+    Ok { version: String },
+    /// The managed Python binary exists but fails to run, AND the
+    /// provenance marker says it was built from a system Python — almost
+    /// always a moved/removed system interpreter (e.g. a Homebrew upgrade
+    /// that relocated the Cellar path the venv's interpreter symlink points
+    /// at).
+    BrokenSystemVenv {
+        /// The interpreter path recorded at provision time, if the marker
+        /// has one.
+        recorded_interpreter: Option<String>,
+        /// The Python version recorded at provision time.
+        recorded_version: Option<String>,
+        /// Whether `recorded_interpreter` still exists as a file on disk —
+        /// determines whether a one-click rebuild from the SAME interpreter
+        /// is offered, or whether the user must pick a different one.
+        recorded_interpreter_exists: bool,
+    },
+    /// The binary is missing outright, or exists but fails to run with no
+    /// system-venv provenance to explain it (a broken portable install, or a
+    /// pre-#1017 install with no marker at all) — handled by a plain
+    /// reinstall, same as today.
+    NotInstalled,
+}
+
+impl PythonVenvHealth {
+    /// Projects this internal diagnosis onto the wire-serializable
+    /// [`PythonVenvHealthDto`] returned by the `diagnose_python_venv` IPC
+    /// command.
+    #[must_use]
+    pub fn to_dto(&self) -> PythonVenvHealthDto {
+        match self {
+            Self::Ok { version } => PythonVenvHealthDto {
+                status: PythonVenvHealthStatus::Ok,
+                version: Some(version.clone()),
+                recorded_interpreter: None,
+                recorded_version: None,
+                recorded_interpreter_exists: None,
+            },
+            Self::BrokenSystemVenv {
+                recorded_interpreter,
+                recorded_version,
+                recorded_interpreter_exists,
+            } => PythonVenvHealthDto {
+                status: PythonVenvHealthStatus::BrokenSystemVenv,
+                version: None,
+                recorded_interpreter: recorded_interpreter.clone(),
+                recorded_version: recorded_version.clone(),
+                recorded_interpreter_exists: Some(*recorded_interpreter_exists),
+            },
+            Self::NotInstalled => PythonVenvHealthDto {
+                status: PythonVenvHealthStatus::NotInstalled,
+                version: None,
+                recorded_interpreter: None,
+                recorded_version: None,
+                recorded_interpreter_exists: None,
+            },
+        }
+    }
+}
+
+/// Discriminant for [`PythonVenvHealthDto::status`], serialized as a
+/// lowercase-snake-case string so the frontend can switch on a plain string
+/// literal union (`"ok" | "broken_system_venv" | "not_installed"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PythonVenvHealthStatus {
+    Ok,
+    BrokenSystemVenv,
+    NotInstalled,
+}
+
+/// Wire DTO for the `diagnose_python_venv` IPC command.
+///
+/// A flat, all-fields-present struct (rather than an internally-tagged Rust
+/// enum) so every variant serializes to a uniform, predictable JSON shape —
+/// straightforward for the frontend to switch on `status` and read whichever
+/// of the optional fields apply. Mirrors `PythonVenvHealthDto` in
+/// `src/types/index.ts`.
+///
+/// # Example JSON
+/// ```json
+/// { "status": "ok", "version": "3.12.8", "recordedInterpreter": null, "recordedVersion": null, "recordedInterpreterExists": null }
+/// { "status": "broken_system_venv", "version": null, "recordedInterpreter": "/opt/homebrew/bin/python3.14", "recordedVersion": "3.14.6", "recordedInterpreterExists": false }
+/// { "status": "not_installed", "version": null, "recordedInterpreter": null, "recordedVersion": null, "recordedInterpreterExists": null }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PythonVenvHealthDto {
+    pub status: PythonVenvHealthStatus,
+    pub version: Option<String>,
+    pub recorded_interpreter: Option<String>,
+    pub recorded_version: Option<String>,
+    pub recorded_interpreter_exists: Option<bool>,
+}
+
+/// Diagnoses the health of the managed Python at `{app_data}/python/`.
+///
+/// # Arguments
+/// * `app` - The Tauri app handle, used to resolve the Python directory.
+///
+/// # Returns
+/// See [`PythonVenvHealth`] for the three possible outcomes.
+pub async fn diagnose_python_venv(app: &AppHandle) -> PythonVenvHealth {
+    diagnose_python_venv_at(&platform::get_python_dir(app)).await
+}
+
+/// Path-based core of [`diagnose_python_venv`], split out for direct
+/// testability against a `tempfile` directory (mirrors the `_for`/`_at`
+/// pattern used elsewhere in this module and in `utils/platform.rs`).
+async fn diagnose_python_venv_at(python_dir: &Path) -> PythonVenvHealth {
+    let python_bin = platform::resolve_managed_python_binary(python_dir);
+
+    // Binary missing outright: nothing to diagnose beyond "not installed".
+    if !python_bin.exists() {
+        return PythonVenvHealth::NotInstalled;
+    }
+
+    // Binary exists — try to actually run it, exactly like check_python_status.
+    match get_python_version_from_binary(&python_bin).await {
+        Ok(version) => PythonVenvHealth::Ok { version },
+        Err(e) => {
+            log::warn!(
+                "Python binary exists but failed to run while diagnosing venv health: {e}"
+            );
+            // The binary exists but won't run. Only a system-venv provenance
+            // marker turns this into an explainable, recoverable state —
+            // anything else (portable, or no marker) falls back to the
+            // existing "not installed" treatment.
+            match read_source_marker(python_dir) {
+                Some(record) if record.is_system_venv() => {
+                    let recorded_interpreter_exists = record
+                        .interpreter
+                        .as_deref()
+                        .map(|p| Path::new(p).is_file())
+                        .unwrap_or(false);
+                    PythonVenvHealth::BrokenSystemVenv {
+                        recorded_interpreter: record.interpreter,
+                        recorded_version: Some(record.version),
+                        recorded_interpreter_exists,
+                    }
+                }
+                _ => PythonVenvHealth::NotInstalled,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -834,5 +1022,186 @@ mod tests {
             version: "3.12.8".to_string(),
         };
         assert!(!portable.is_system_venv());
+    }
+
+    // ============================================================
+    // diagnose_python_venv_at (#1017 follow-up: broken system-venv detection)
+    // ============================================================
+
+    /// Writes a file at the platform-resolved managed-Python binary path that
+    /// EXISTS but cannot successfully execute `--version` — simulating a
+    /// dangling venv interpreter (e.g. after `brew upgrade python` relocates
+    /// the Cellar path the venv's interpreter linked against). Garbage bytes
+    /// with default (non-executable) permissions fail to spawn on Unix
+    /// (no +x bit) and fail to launch on Windows (not a valid PE image) —
+    /// both surface as an `Err` from `Command::output()`, exactly like a real
+    /// dangling symlink would.
+    fn write_broken_binary(python_dir: &Path) -> PathBuf {
+        let bin = platform::resolve_managed_python_binary(python_dir);
+        if let Some(parent) = bin.parent() {
+            std::fs::create_dir_all(parent).expect("failed to create fake binary's parent dir");
+        }
+        std::fs::write(&bin, b"not a real interpreter").expect("failed to write fake binary");
+        bin
+    }
+
+    #[tokio::test]
+    async fn diagnose_reports_not_installed_when_binary_missing() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        // Even with a system-venv marker present, a missing binary short-
+        // circuits to NotInstalled — existence is checked before the marker.
+        write_source_marker(
+            tmp.path(),
+            &PythonSourceRecord {
+                source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
+                interpreter: Some("/opt/homebrew/bin/python3.14".to_string()),
+                version: "3.14.6".to_string(),
+            },
+        );
+
+        let health = diagnose_python_venv_at(tmp.path()).await;
+        assert_eq!(health, PythonVenvHealth::NotInstalled);
+    }
+
+    #[tokio::test]
+    async fn diagnose_reports_broken_system_venv_with_recorded_interpreter_gone() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        write_broken_binary(tmp.path());
+        write_source_marker(
+            tmp.path(),
+            &PythonSourceRecord {
+                source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
+                // A plausible-looking but nonexistent path — simulates the
+                // post-`brew upgrade python` Cellar relocation.
+                interpreter: Some("/opt/homebrew/Cellar/python@3.14/3.14.6/bin/python3.14".to_string()),
+                version: "3.14.6".to_string(),
+            },
+        );
+
+        let health = diagnose_python_venv_at(tmp.path()).await;
+        assert_eq!(
+            health,
+            PythonVenvHealth::BrokenSystemVenv {
+                recorded_interpreter: Some(
+                    "/opt/homebrew/Cellar/python@3.14/3.14.6/bin/python3.14".to_string()
+                ),
+                recorded_version: Some("3.14.6".to_string()),
+                recorded_interpreter_exists: false,
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn diagnose_reports_recorded_interpreter_exists_true_when_still_present() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        write_broken_binary(tmp.path());
+
+        // A separate file standing in for the still-present system interpreter
+        // (only its existence as a file matters to the diagnosis).
+        let still_here = tmp.path().join("still-here-python3");
+        std::fs::write(&still_here, b"").expect("failed to write stand-in interpreter");
+
+        write_source_marker(
+            tmp.path(),
+            &PythonSourceRecord {
+                source: PYTHON_SOURCE_SYSTEM_VENV.to_string(),
+                interpreter: Some(still_here.to_string_lossy().to_string()),
+                version: "3.12.0".to_string(),
+            },
+        );
+
+        let health = diagnose_python_venv_at(tmp.path()).await;
+        match health {
+            PythonVenvHealth::BrokenSystemVenv {
+                recorded_interpreter_exists,
+                ..
+            } => assert!(recorded_interpreter_exists),
+            other => panic!("expected BrokenSystemVenv, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn diagnose_reports_not_installed_for_broken_portable_marker() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        write_broken_binary(tmp.path());
+        // A broken PORTABLE install (not a system-venv) has no reusable
+        // interpreter to rebuild from — falls back to plain "not installed".
+        write_source_marker(
+            tmp.path(),
+            &PythonSourceRecord {
+                source: PYTHON_SOURCE_PORTABLE.to_string(),
+                interpreter: None,
+                version: "3.12.8".to_string(),
+            },
+        );
+
+        let health = diagnose_python_venv_at(tmp.path()).await;
+        assert_eq!(health, PythonVenvHealth::NotInstalled);
+    }
+
+    #[tokio::test]
+    async fn diagnose_reports_not_installed_when_binary_broken_and_no_marker() {
+        let tmp = tempfile::tempdir().expect("failed to create tempdir");
+        // A pre-#1017 portable install has no marker file at all.
+        write_broken_binary(tmp.path());
+
+        let health = diagnose_python_venv_at(tmp.path()).await;
+        assert_eq!(health, PythonVenvHealth::NotInstalled);
+    }
+
+    #[test]
+    fn dto_serialises_ok_variant() {
+        let dto = PythonVenvHealth::Ok {
+            version: "3.12.8".to_string(),
+        }
+        .to_dto();
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "status": "ok",
+                "version": "3.12.8",
+                "recordedInterpreter": null,
+                "recordedVersion": null,
+                "recordedInterpreterExists": null,
+            })
+        );
+    }
+
+    #[test]
+    fn dto_serialises_broken_system_venv_variant() {
+        let dto = PythonVenvHealth::BrokenSystemVenv {
+            recorded_interpreter: Some("/opt/homebrew/bin/python3.14".to_string()),
+            recorded_version: Some("3.14.6".to_string()),
+            recorded_interpreter_exists: false,
+        }
+        .to_dto();
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "status": "broken_system_venv",
+                "version": null,
+                "recordedInterpreter": "/opt/homebrew/bin/python3.14",
+                "recordedVersion": "3.14.6",
+                "recordedInterpreterExists": false,
+            })
+        );
+    }
+
+    #[test]
+    fn dto_serialises_not_installed_variant() {
+        let dto = PythonVenvHealth::NotInstalled.to_dto();
+        let json = serde_json::to_value(&dto).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "status": "not_installed",
+                "version": null,
+                "recordedInterpreter": null,
+                "recordedVersion": null,
+                "recordedInterpreterExists": null,
+            })
+        );
     }
 }
