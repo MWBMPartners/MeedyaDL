@@ -819,6 +819,11 @@ Higher resolution means a larger file -- a few MB difference per video adds up q
 ### "Tool Not Found" Errors
 - Re-run the setup wizard from **Settings > General**
 - Or manually set tool paths in **Settings > Tools**
+- Already installed a tool via Homebrew, apt, dnf, pipx, Scoop or another package manager? MeedyaDL reuses it in place (shown with a **Homebrew** / **System** badge) instead of downloading a duplicate, and can update it through that package manager from the Updates page
+
+### Python Stopped Working After a System Update
+- If you set MeedyaDL up to reuse a Python already on your system and later upgrade or move it (for example \`brew upgrade python\`), the shared environment can break
+- Re-open the setup wizard's **Python** step: MeedyaDL detects this and offers a one-click **Rebuild** from your current Python, instead of just saying "Python not found"
 
 ### Application Won't Start
 - Delete the settings file from the app data directory and restart

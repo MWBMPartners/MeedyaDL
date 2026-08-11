@@ -125,6 +125,15 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
 - **Solution:** Go to **Settings > Advanced > Re-run Setup** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
 
+> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool, and the Updates page offers to **Update via _your package manager_** when a newer version is available. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
+
+#### Python stopped working after upgrading or changing your system Python
+
+If you set MeedyaDL up to reuse a Python already on your system (rather than downloading its own copy), and you later upgrade or move that Python — for example running `brew upgrade python` — the shared environment MeedyaDL built can break, because it points back at the exact interpreter that just moved.
+
+- **Cause:** The system Python that MeedyaDL's environment was built from was relocated or removed by a later upgrade, leaving MeedyaDL's Python environment pointing at a file that no longer exists.
+- **Solution:** Re-open the setup wizard's **Python** step. MeedyaDL now detects this specific situation and, instead of just reporting "Python not found", shows a notice explaining what happened with a one-click **Rebuild** button that recreates the environment from your current Python. If the original interpreter is gone entirely, pick another Python from the list (or download MeedyaDL's own copy) — all of which the same step offers.
+
 ---
 
 ### Wrapper Errors
