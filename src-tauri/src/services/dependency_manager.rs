@@ -366,6 +366,10 @@ pub(crate) fn system_tool_search_dirs() -> Vec<PathBuf> {
     } else {
         &[]
     };
+    // `mut` is only exercised by the Linux-only per-user Linuxbrew push below;
+    // on macOS/Windows that cfg block is compiled out, so allow unused_mut there
+    // (keep the lint active on Linux, where the mutation is real).
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
     let mut dirs: Vec<PathBuf> = base.iter().map(PathBuf::from).collect();
     // Per-user Linuxbrew (~/.linuxbrew/bin), Linux only. Reading our own HOME
     // (not a subprocess env) preserves the zero-`Command::env` invariant.
