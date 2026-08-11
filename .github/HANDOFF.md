@@ -1,13 +1,13 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-08-10
-**Working branch:** `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
+**Last updated:** 2026-08-11
+**Working branch:** _(none active)_ — `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted. `alpha` is at **1.13.0-alpha.45** post-merge (this handoff push cuts alpha.46). Historical working branch:  `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
 
 Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★★ LATEST — Session 2026-08-09/10: Homebrew/system tool detection (on #1081) + Phase 2a multi-PM abstraction
+## ★★★ LATEST — Session 2026-08-09/11: multi-PM tool detection + Phase 2a/2b → MERGED to alpha (#1082, v1.13.0-alpha.45)
 
 **Focus:** the setup wizard showed external tools (FFmpeg, MP4Box, MediaInfo, …) as **missing** even when they were installed via Homebrew — the maintainer's own screenshot with `ffmpeg-full` present but shown red. Investigate the root cause and make detection work for Homebrew-installed (and, generally, system-package-manager-installed) components, minimising duplicate installs. Standing one-branch / no-PR-stacking rule applies — all commits land on `claude/gamdl-v3-8-5-review-gs36zl`; the single PR to `alpha` is cut later.
 
@@ -40,7 +40,13 @@ Landed (backend, main-loop Opus given the security-sensitive subprocess/elevatio
 
 **DEFERRED — remaining Phase 2b+ (design §5), all validation-gated on platforms/PMs NOT available in this Linux sandbox — do NOT ship blind:** PM-native staleness queries (`brew outdated --json` / `pipx list --json` / `scoop status` — core is subprocess-output parsing that can't be exercised here without those PMs installed; replaces the GitHub-tag compare for PM-owned tools, closing the Phase-2a "distro-version vs upstream-tag" category error — write with defensive parsing + real-platform validation); Scoop end-to-end (D5, code-complete, needs real Windows); winget/choco attribution spike; opt-in external-GAMDL consumption (recommended: never); yt-dlp detect-inform (fold into M8/M10 engine-setup UI).
 
-**Branch state / the live alpha PR.** The single alpha PR is **already open: #1082** (`claude/gamdl-v3-8-5-review-gs36zl` → `alpha`), opened by the maintainer for #1081; it now carries the whole branch (#1081 + status-time follow-up + Phase 2a + CI fixes + Phase 2b venv-liveness). Every push here updates #1082 and runs its CI (ci.yml gates alpha PRs, #1043) — so the one-branch model's "PR cut later" already happened; **monitor #1082 to green on every push** (a `pr-security.yml` advisory comment on it was reviewed and dispositioned as false positives: a Python `-c` probe misread as `sh -c`, and the canonical Linuxbrew prefix). `beta`/`release-candidate` still behind on the 2026-08-05 dependency-security fixes (see below) — `forward-port-security.yml` handles those independently.
+**★ MERGED TO ALPHA (2026-08-11) — the single consolidated PR #1082 is done.** Sequence of events:
+- **#1083 consolidation.** Dependabot PR **#1083** (`chore(deps): bump the npm-minor-patch group with 6 updates`, base `alpha`) was folded into #1082 (`a8a9bea`): lucide-react 1.28→1.29, @typescript-eslint 8.65→8.66, postcss 8.5.25→8.5.26, terser 5.49.0→5.49.2, vite 8.2.0→8.2.1. Its own CI was "unstable" because it bumped nanoid but not js-yaml; #1082 already overrode both, so with the bumps folded in `npm audit`→0. **#1083 was closed as superseded** (not merged) → its branch `dependabot/npm_and_yarn/alpha/npm-minor-patch-60bdb4d29a` auto-deleted.
+- **Merge.** #1082 (head `a8a9bea`, base `alpha`) went **fully green** (6 build jobs + static-security + release-note) and was **merged to `alpha` as merge commit `38e34979`** (merge method `merge`, history-preserving so each commit's `Release-Note:` trailer survives for git-cliff). The head branch `claude/gamdl-v3-8-5-review-gs36zl` **auto-deleted** on merge (`auto-delete-merged-branches.yml`).
+- **Alpha deploy.** The merge push triggered `alpha-release.yml` → bumped `alpha` to **1.13.0-alpha.45** (`8a32864`) + tag **`v1.13.0-alpha.45`** → triggered `release.yml` (Release run #280): all 7 jobs green (macOS Apple-Silicon incl. notarization, Windows x64+ARM64, Linux x64+ARM64+ARMv7, Ensure-Release-Exists).
+- **This handoff push** lands directly on `alpha` and (by the channel's push-trigger design, same as the 2026-08-05 `docs(handoff)` precedent) cuts **alpha.46**.
+
+**What's now on `alpha` (v1.13.0-alpha.45+):** #1081 + status-time tool detection + Phase 2a multi-PM abstraction (`services/package_manager.rs`, elevated PM updates, "Update via <PM>", detect-external-GAMDL) + Phase 2b venv-liveness repair + docs + the #1083 dep refresh. `beta`/`release-candidate` still behind on the 2026-08-05 dependency-security fixes (see below) — `forward-port-security.yml` handles those independently. **Remaining Phase 2b (PM-native staleness, Scoop E2E, winget) is tracked in #1084**, validation-gated on package managers unavailable in the Linux sandbox.
 
 ---
 
