@@ -1132,6 +1132,7 @@ pub fn run() {
             commands::dependencies::install_python,
             commands::dependencies::detect_system_pythons,
             commands::dependencies::use_system_python,
+            commands::dependencies::diagnose_python_venv,
             commands::dependencies::check_gamdl_status,
             commands::dependencies::install_gamdl,
             commands::dependencies::install_gamdl_version,
@@ -1142,6 +1143,7 @@ pub fn run() {
             commands::dependencies::check_ofscraper_status,
             commands::dependencies::install_ofscraper,
             commands::dependencies::check_all_dependencies,
+            commands::dependencies::detect_external_gamdl,
             commands::dependencies::install_dependency,
             commands::dependencies::get_component_versions,
             // Settings management commands

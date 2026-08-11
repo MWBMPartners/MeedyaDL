@@ -49,7 +49,7 @@
 // - GPAC (MP4Box): https://gpac.io/
 // - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tauri::AppHandle;
 
@@ -339,14 +339,80 @@ fn is_rosetta2_available() -> bool {
     std::path::Path::new("/Library/Apple/usr/share/rosetta/rosetta").exists()
 }
 
+/// The ordered absolute directories to probe for a system package-manager
+/// (Homebrew, MacPorts, apt/dnf, snap, Linuxbrew) install, on top of the
+/// inherited PATH. Needed because a Finder-launched macOS `.app` inherits
+/// launchd's minimal `/usr/bin:/bin:/usr/sbin:/sbin` (no `/opt/homebrew/bin`),
+/// so a bare `which` misses Homebrew tools. Windows returns empty — Choco/Scoop
+/// shims live on PATH and are covered by `where`.
+pub(crate) fn system_tool_search_dirs() -> Vec<PathBuf> {
+    let base: &[&str] = if cfg!(target_os = "macos") {
+        &[
+            "/opt/homebrew/bin", // Homebrew (Apple Silicon)
+            "/usr/local/bin",    // Homebrew (Intel) / manual
+            "/opt/local/bin",    // MacPorts
+            "/usr/bin",
+            "/bin",
+            "/usr/sbin",
+        ]
+    } else if cfg!(target_os = "linux") {
+        &[
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "/snap/bin",
+            "/home/linuxbrew/.linuxbrew/bin", // Linuxbrew (multi-user)
+        ]
+    } else {
+        &[]
+    };
+    // `mut` is only exercised by the Linux-only per-user Linuxbrew push below;
+    // on macOS/Windows that cfg block is compiled out, so allow unused_mut there
+    // (keep the lint active on Linux, where the mutation is real).
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut dirs: Vec<PathBuf> = base.iter().map(PathBuf::from).collect();
+    // Per-user Linuxbrew (~/.linuxbrew/bin), Linux only. Reading our own HOME
+    // (not a subprocess env) preserves the zero-`Command::env` invariant.
+    #[cfg(target_os = "linux")]
+    if let Ok(home) = std::env::var("HOME") {
+        let per_user = PathBuf::from(home).join(".linuxbrew/bin");
+        if per_user.is_absolute() {
+            dirs.push(per_user);
+        }
+    }
+    dirs
+}
+
+/// Defence-in-depth: on Unix, rejects a candidate whose resolved target (or its
+/// containing directory) is world-writable — so detection never adopts a binary
+/// an unprivileged process could have planted. Homebrew/system dirs are not
+/// world-writable, so legitimate installs pass. Always `true` on Windows.
+#[cfg(unix)]
+pub(crate) fn is_trusted_binary(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let world_writable =
+        |p: &Path| std::fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o002 != 0);
+    !world_writable(&real) && real.parent().is_none_or(|parent| !world_writable(parent))
+}
+
+#[cfg(not(unix))]
+pub(crate) fn is_trusted_binary(_path: &Path) -> bool {
+    true
+}
+
 /// Searches for a tool in the system PATH and returns its path and version
 /// if found and compatible with the minimum version requirement.
 ///
-/// Uses `which` (Unix) or `where` (Windows) to locate the binary in PATH.
+/// Uses `which` (Unix) or `where` (Windows) to locate the binary in PATH, then
+/// falls back to probing [`system_tool_search_dirs`] directly (Homebrew,
+/// MacPorts, Linuxbrew, snap, base dirs) so a Finder-launched macOS app with a
+/// minimal PATH still finds `brew install`ed tools. All candidates are absolute,
+/// existing, and [`is_trusted_binary`].
 ///
 /// # Returns
-/// * `Some((path, version))` if the tool is found in PATH and version could be detected
-/// * `None` if the tool is not in PATH or version detection fails
+/// * `Some((path, version))` if the tool is found and version could be detected
+/// * `None` if the tool is not found or version detection fails
 pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
     let config = load_tool_version_config(tool_id)?;
 
@@ -364,7 +430,7 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
         .ok()?;
 
     let path = if output.status.success() {
-        // Parse the first line of output as the binary path
+        // Parse the first line of output as the binary path.
         let path_str = String::from_utf8_lossy(&output.stdout)
             .trim()
             .lines()
@@ -372,31 +438,25 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
             .unwrap_or("")
             .to_string();
         let p = PathBuf::from(&path_str);
-        if p.exists() { Some(p) } else { None }
+        // Require an absolute, existing, trusted path (reject a relative or
+        // world-writable `which`/`where` result).
+        if p.is_absolute() && p.exists() && is_trusted_binary(&p) {
+            Some(p)
+        } else {
+            None
+        }
     } else {
         None
     };
 
-    // If not on PATH, check common platform-specific installation locations.
-    // macOS: Homebrew paths, /usr/local/bin, and common app bundle locations.
+    // If not on the inherited PATH — minimal for a Finder-launched macOS app,
+    // so `which` misses Homebrew — probe the known package-manager install dirs
+    // directly (Homebrew, MacPorts, Linuxbrew, snap, base dirs).
     let path = path.or_else(|| {
-        let extra_paths: Vec<PathBuf> = if cfg!(target_os = "macos") {
-            vec![
-                PathBuf::from("/usr/local/bin").join(&config.binary_name),
-                PathBuf::from("/opt/homebrew/bin").join(&config.binary_name),
-                // MediaInfo-specific: Homebrew installs as lowercase
-                PathBuf::from("/opt/homebrew/bin/mediainfo"),
-                PathBuf::from("/usr/local/bin/mediainfo"),
-            ]
-        } else if cfg!(target_os = "linux") {
-            vec![
-                PathBuf::from("/usr/bin").join(&config.binary_name),
-                PathBuf::from("/usr/local/bin").join(&config.binary_name),
-            ]
-        } else {
-            vec![]
-        };
-        extra_paths.into_iter().find(|p| p.exists())
+        system_tool_search_dirs().into_iter().find_map(|dir| {
+            let candidate = dir.join(&config.binary_name);
+            (candidate.exists() && is_trusted_binary(&candidate)).then_some(candidate)
+        })
     });
 
     let path = path?;
@@ -428,6 +488,67 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
     );
 
     Some((path, version))
+}
+
+/// Detects an existing compatible system/package-manager install of `tool_id`
+/// and adopts it IN PLACE — writing the `.external-path` reference pointer + the
+/// `.source` marker (no copy), exactly like `install_tool`'s system tier — so
+/// both the wizard status and every runtime consumer (which resolve via
+/// `get_tool_binary_path`) see it WITHOUT the user having to click Install.
+///
+/// This closes the #1081 gap where detection only ran on an explicit install.
+/// It adopts the version as found and deliberately does NOT trigger a
+/// `brew upgrade` (that stays an explicit, install-time action). Returns
+/// `(path, source_label)` on success; `None` if no compatible, trusted system
+/// binary exists (in which case the caller falls back to the download pipeline).
+pub async fn adopt_system_tool_if_available(
+    app: &AppHandle,
+    tool_id: &str,
+) -> Option<(PathBuf, String)> {
+    let (system_path, system_version) = find_system_tool(tool_id).await?;
+
+    // Defence-in-depth: never adopt a world-writable binary.
+    if !is_trusted_binary(&system_path) {
+        log::warn!(
+            "Skipping world-writable system {tool_id} at {}",
+            system_path.display()
+        );
+        return None;
+    }
+
+    // Minimum-version gate (mirrors install_tool's system tier).
+    let config = load_tool_version_config(tool_id);
+    let is_compatible = config
+        .as_ref()
+        .is_none_or(|c| meets_minimum_version(&system_version, &c.minimum_version));
+    if !is_compatible {
+        return None;
+    }
+
+    // Provenance: attribute to the owning package manager when possible
+    // (Homebrew formula, pipx venv, dpkg/rpm package, …), else a generic
+    // "system" marker. Status-time adoption is detection only and never
+    // triggers a package-manager upgrade.
+    let source = crate::services::package_manager::detect_owner(&system_path)
+        .await
+        .map(|r| r.to_marker())
+        .unwrap_or_else(|| "system".to_string());
+
+    // Adopt in place: reference pointer + source marker, no copy.
+    let tool_dir = get_tool_dir(app, tool_id);
+    std::fs::create_dir_all(&tool_dir).ok()?;
+    std::fs::write(
+        tool_dir.join(".external-path"),
+        system_path.to_string_lossy().as_bytes(),
+    )
+    .ok()?;
+    std::fs::write(tool_dir.join(".source"), &source).ok();
+
+    log::info!(
+        "Adopted system {tool_id} in place from {} ({source})",
+        system_path.display()
+    );
+    Some((system_path, source))
 }
 
 // ============================================================
@@ -1083,6 +1204,12 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
 
+fn read_external_tool_path(tool_dir: &Path) -> Option<PathBuf> {
+    let path = std::fs::read_to_string(tool_dir.join(".external-path")).ok()?;
+    let path = PathBuf::from(path.trim());
+    (path.is_absolute() && path.exists()).then_some(path)
+}
+
 /// Returns the expected path to a tool's binary executable.
 ///
 /// The binary name varies by tool and platform (Windows adds .exe).
@@ -1093,6 +1220,12 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
 #[must_use]
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
     let tool_dir = get_tool_dir(app, tool_id);
+    // System tools are referenced directly rather than copied. This small
+    // pointer file keeps the existing managed-tool API intact without creating
+    // a duplicate binary or relying on platform-specific link privileges.
+    if let Some(path) = read_external_tool_path(&tool_dir) {
+        return path;
+    }
     // On Windows, executables require the .exe extension
     let exe_ext = if cfg!(target_os = "windows") {
         ".exe"
@@ -1166,10 +1299,49 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     let tool_id = resolve_tool_id(name_or_id)?;
     log::info!("Starting installation of tool: {tool_id}");
 
-    // Step 0: Check if a compatible version exists in the system PATH.
-    // If found, copy it to our managed tools directory instead of downloading.
-    // This saves bandwidth and respects existing installations.
-    if let Some((system_path, system_version)) = find_system_tool(tool_id).await {
+    // Step 0: Check if a compatible version already exists on the system. A
+    // package manager is never required: when no suitable binary is present we
+    // continue into the original managed download/install pipeline below.
+    if let Some((mut system_path, mut system_version)) = find_system_tool(tool_id).await {
+        let tool_dir = get_tool_dir(app, tool_id);
+        let previous_source = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+
+        // Attribute the system binary to its owning package manager (Homebrew
+        // formula, pipx venv, dpkg/rpm package, snap, …).
+        let previous_ref =
+            crate::services::package_manager::PackageRef::parse_marker(&previous_source);
+        let mut owner = crate::services::package_manager::detect_owner(&system_path).await;
+
+        // Only delegate an update when MeedyaDL was already referencing this
+        // exact package via this exact manager. Initial setup adopts the
+        // compatible version exactly as found and does not unexpectedly mutate
+        // the user's system. No-elevation managers (Homebrew/pipx/Scoop) run
+        // directly; root-requiring ones (apt/dnf/snap/MacPorts) run through the
+        // #997 non-interactive elevation tiers. A failed or un-elevatable
+        // update is non-fatal: we adopt the already-compatible version as-found
+        // and surface the actionable command in the Activity Log, rather than
+        // blocking the install.
+        if let (Some(prev), Some(cur)) = (previous_ref.as_ref(), owner.as_ref()) {
+            if prev == cur {
+                match cur.pm.upgrade(cur).await {
+                    Ok(()) => {
+                        if let Some((path, version)) = find_system_tool(tool_id).await {
+                            system_path = path;
+                            system_version = version;
+                            owner =
+                                crate::services::package_manager::detect_owner(&system_path).await;
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Package-manager update of {tool_id} did not run: {e}");
+                        crate::utils::activity_log::emit_app_log(
+                            app,
+                            &format!("Could not auto-update {tool_id}: {e}"),
+                        );
+                    }
+                }
+            }
+        }
         let config = load_tool_version_config(tool_id);
         let is_compatible = config
             .as_ref()
@@ -1183,44 +1355,34 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
                 system_path.display()
             );
 
-            // Prepare the tool directory and copy the system binary
-            let tool_dir = get_tool_dir(app, tool_id);
+            // Store a reference, not a copy: every runtime call resolves the
+            // original system binary through get_tool_binary_path().
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
             }
             std::fs::create_dir_all(&tool_dir)
                 .map_err(|e| format!("Failed to create tool directory: {e}"))?;
 
-            let expected_binary = get_tool_binary_path(app, tool_id);
-            std::fs::copy(&system_path, &expected_binary).map_err(|e| {
-                format!(
-                    "Failed to copy system {} to {}: {}",
-                    tool_id,
-                    expected_binary.display(),
-                    e
-                )
-            })?;
-
-            archive::set_executable(&expected_binary)?;
-
-            // For ffmpeg, also copy ffprobe from the same system directory.
-            // ffprobe is a companion binary used for codec detection and BPM analysis.
-            if tool_id == "ffmpeg" {
-                copy_companion_ffprobe_from_dir(
-                    system_path.parent().unwrap_or(std::path::Path::new("")),
-                    &tool_dir,
-                );
-            }
+            std::fs::write(
+                tool_dir.join(".external-path"),
+                system_path.to_string_lossy().as_bytes(),
+            )
+            .map_err(|e| format!("Failed to save system tool path: {e}"))?;
 
             // Write a .source marker file so check_all_dependencies knows this
-            // tool came from the system PATH rather than being downloaded.
+            // tool came from a package manager / system PATH rather than being
+            // downloaded (`<pm>:<pkg>` when attributed, else generic "system").
             let source_marker = tool_dir.join(".source");
-            std::fs::write(&source_marker, "system").ok();
+            let source = owner
+                .as_ref()
+                .map(crate::services::package_manager::PackageRef::to_marker)
+                .unwrap_or_else(|| "system".to_string());
+            std::fs::write(&source_marker, source).ok();
 
             log::info!(
-                "Copied system {} to managed directory: {}",
+                "Using system {} directly from {}",
                 tool_id,
-                expected_binary.display()
+                system_path.display()
             );
             return Ok(format!("{system_version} (system)"));
         }
@@ -1897,7 +2059,10 @@ async fn install_mp4box_linux(app: &AppHandle) -> Result<String, String> {
 /// # Returns
 /// `true` if `sudo -n true` exits successfully (no password needed right
 /// now); `false` otherwise, including if `sudo` itself is missing.
-async fn can_sudo_without_password() -> bool {
+///
+/// `pub(crate)` so `services::package_manager` reuses the same
+/// non-interactive elevation probe for its elevated package upgrades.
+pub(crate) async fn can_sudo_without_password() -> bool {
     tokio::process::Command::new("sudo")
         .args(["-n", "true"])
         .output()
@@ -1921,7 +2086,10 @@ async fn can_sudo_without_password() -> bool {
 /// `Some(path)` if a graphical session is present AND `which pkexec`
 /// resolves to a non-empty path; `None` otherwise (headless session, or
 /// `pkexec` not installed).
-async fn find_pkexec() -> Option<String> {
+///
+/// `pub(crate)` so `services::package_manager` reuses the same graphical
+/// elevation tier for its elevated package upgrades.
+pub(crate) async fn find_pkexec() -> Option<String> {
     let has_display =
         std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
     if !has_display {
@@ -2376,35 +2544,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
     }
 }
 
-/// Copies all companion FFmpeg binaries from a directory (used when copying system ffmpeg).
-///
-/// When the user has ffmpeg on their system PATH, ffprobe and ffplay typically
-/// live in the same directory. This copies them to the managed tool directory.
-fn copy_companion_ffprobe_from_dir(source_dir: &std::path::Path, tool_dir: &std::path::Path) {
-    let companions: &[&str] = &["ffprobe", "ffplay"];
-
-    for &base_name in companions {
-        let binary_name = if cfg!(target_os = "windows") {
-            format!("{base_name}.exe")
-        } else {
-            base_name.to_string()
-        };
-        let src = source_dir.join(&binary_name);
-        let dest = tool_dir.join(&binary_name);
-
-        if src.exists() {
-            match std::fs::copy(&src, &dest) {
-                Ok(_) => {
-                    archive::set_executable(&dest).ok();
-                    log::info!("Copied system {base_name} from {}", src.display());
-                }
-                Err(e) => log::warn!("Failed to copy system {base_name}: {e}"),
-            }
-        } else {
-            log::debug!("System {base_name} not found at {}", src.display());
-        }
-    }
-}
+// NOTE: the former `copy_companion_ffprobe_from_dir` was removed with #1081's
+// switch from copying system ffmpeg to referencing it in place. For an in-place
+// system ffmpeg, `metadata_tag_service::get_ffprobe_path` derives the `ffprobe`
+// sibling in the same dir (e.g. /opt/homebrew/bin/ffprobe) for free; downloaded
+// (managed) ffmpeg still fetches ffprobe via `install_companion_ffprobe`.
 
 /// Searches a directory tree for a file by exact name (case-sensitive).
 ///
@@ -2546,6 +2690,68 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    /// Every probed system dir must be absolute (a relative CWD can never inject
+    /// a candidate), Homebrew's dir present on macOS, and Windows probes nothing
+    /// (it relies on PATH shims via `where`).
+    #[test]
+    fn system_tool_search_dirs_are_absolute_and_platform_correct() {
+        let dirs = system_tool_search_dirs();
+        assert!(dirs.iter().all(|d| d.is_absolute()));
+        #[cfg(target_os = "macos")]
+        {
+            assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")));
+            assert!(dirs.contains(&PathBuf::from("/opt/local/bin")));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(dirs.contains(&PathBuf::from("/usr/local/bin")));
+            assert!(dirs.contains(&PathBuf::from("/snap/bin")));
+            assert!(dirs.contains(&PathBuf::from("/home/linuxbrew/.linuxbrew/bin")));
+        }
+        #[cfg(target_os = "windows")]
+        assert!(dirs.is_empty());
+    }
+
+    /// Defence-in-depth: a world-writable candidate (something an unprivileged
+    /// process could have planted) is untrusted; a normal 0755 binary is trusted.
+    #[cfg(unix)]
+    #[test]
+    fn world_writable_binary_is_untrusted() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let safe = dir.path().join("safe");
+        let evil = dir.path().join("evil");
+        std::fs::write(&safe, b"x").unwrap();
+        std::fs::write(&evil, b"x").unwrap();
+        std::fs::set_permissions(&safe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&evil, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert!(is_trusted_binary(&safe));
+        assert!(!is_trusted_binary(&evil));
+    }
+
+    // NOTE: the Homebrew formula-list parser (`homebrew_formulae`) moved to
+    // `services::package_manager` (the Homebrew arm of the package-manager
+    // abstraction); its parsing test now lives in `package_manager::tests`.
+
+    #[test]
+    fn external_tool_pointer_requires_an_existing_absolute_path() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        let binary = base.path().join("system-ffmpeg");
+        std::fs::write(&binary, b"fixture").unwrap();
+
+        std::fs::write(
+            tool_dir.join(".external-path"),
+            binary.to_string_lossy().as_bytes(),
+        )
+        .unwrap();
+        assert_eq!(read_external_tool_path(&tool_dir), Some(binary));
+
+        std::fs::write(tool_dir.join(".external-path"), "relative/ffmpeg").unwrap();
+        assert_eq!(read_external_tool_path(&tool_dir), None);
+    }
 
     /// Promoting over an EXISTING install replaces its contents entirely —
     /// this is the #996 regression scenario (reinstall must not leave the

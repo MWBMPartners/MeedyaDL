@@ -1241,6 +1241,29 @@ export interface DependencyStatus {
 }
 
 /**
+ * Read-only info about a `gamdl` entry point installed OUTSIDE MeedyaDL's
+ * managed venv (typically `pipx install gamdl`).
+ *
+ * Mirrors: Rust struct `ExternalGamdlInfo` in
+ * `src-tauri/src/commands/dependencies.rs`.
+ *
+ * Purely informational — MeedyaDL keeps and uses its own tested, version-
+ * controlled GAMDL and never consumes or updates an external copy.
+ */
+export interface ExternalGamdlInfo {
+  /** Absolute path to the external `gamdl` entry-point binary. */
+  path: string;
+  /** Detected version, e.g. "3.9.0". */
+  version: string;
+  /** Provenance marker, e.g. "pipx:gamdl" or "system". */
+  source: string;
+  /** Whether that version is inside MeedyaDL's tested support window. */
+  in_support_window: boolean;
+  /** Classification: "supported" | "untested" | "unsupported". */
+  classification: string;
+}
+
+/**
  * A compatible Python interpreter discovered on the user's system (#1017).
  *
  * Mirrors: Rust struct `SystemPython` in
@@ -1258,6 +1281,45 @@ export interface SystemPython {
   meetsFloor: boolean;
   /** Human-readable provenance label (e.g. "Homebrew", "python.org", "pyenv"). */
   source: string;
+}
+
+/**
+ * Discriminant for {@link PythonVenvHealthDto.status}.
+ *
+ * Mirrors: Rust enum `PythonVenvHealthStatus` in
+ * `src-tauri/src/services/python_manager.rs` (serialized `snake_case`).
+ */
+export type PythonVenvHealthStatus = 'ok' | 'broken_system_venv' | 'not_installed';
+
+/**
+ * Diagnosis of the managed Python's health, returned by `diagnosePythonVenv()`.
+ *
+ * Mirrors: Rust struct `PythonVenvHealthDto` in
+ * `src-tauri/src/services/python_manager.rs` (serialized `camelCase`).
+ *
+ * A flat, all-fields-present shape — only the fields relevant to `status`
+ * are non-null:
+ *   - `ok`: `version` is set, the rest are `null`.
+ *   - `broken_system_venv`: `recordedInterpreter` / `recordedVersion` /
+ *     `recordedInterpreterExists` are set (the first two may still be `null`
+ *     if the marker itself lacked them), `version` is `null`.
+ *   - `not_installed`: everything besides `status` is `null`.
+ */
+export interface PythonVenvHealthDto {
+  status: PythonVenvHealthStatus;
+  /** Set only when `status === 'ok'`. */
+  version: string | null;
+  /** Set only when `status === 'broken_system_venv'`. */
+  recordedInterpreter: string | null;
+  /** Set only when `status === 'broken_system_venv'`. */
+  recordedVersion: string | null;
+  /**
+   * Whether `recordedInterpreter` still exists as a file on disk. Set only
+   * when `status === 'broken_system_venv'` — determines whether a one-click
+   * rebuild from the SAME interpreter can be offered, or whether the user
+   * must pick a different one.
+   */
+  recordedInterpreterExists: boolean | null;
 }
 
 /**
@@ -1993,6 +2055,26 @@ export interface ComponentUpdate {
   pip_package: string | null;
   /** Canonical tool ID for binary tools (e.g., "ffmpeg", "nm3u8dlre"), or null for non-tool components */
   tool_id: string | null;
+  /**
+   * Human-readable label for the package manager that owns this tool's
+   * install (e.g. "Homebrew", "APT", "pipx"), read from the tool's
+   * `.source` provenance marker. `undefined`/absent when the tool is
+   * not package-manager-owned (MeedyaDL-managed download, plain
+   * `$PATH` detection with no identifiable owner, or a component with
+   * no package-manager concept at all, e.g. GAMDL or the app itself).
+   *
+   * Package-manager abstraction, Phase 2a -- see
+   * `.github/audits/package-manager-abstraction-design-2026-08-10.md` §3.D/§4.2.
+   */
+  managed_by?: string;
+  /**
+   * The exact command a user could run themselves to update this tool
+   * via its owning package manager (e.g. `"brew upgrade ffmpeg"` or
+   * `"sudo apt install --only-upgrade ffmpeg"`). `undefined`/absent
+   * when no such guidance applies. Backend-provided text -- render as
+   * a plain text child only, never as HTML.
+   */
+  manual_update_command?: string;
 }
 
 /**

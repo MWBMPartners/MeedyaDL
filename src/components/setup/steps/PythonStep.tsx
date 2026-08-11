@@ -24,6 +24,15 @@
  *    - **Download the portable runtime**: the original self-contained flow,
  *      always available as the fallback.
  *
+ *    A `diagnosePythonVenv()` check (run alongside `checkPython()` on mount)
+ *    can additionally surface a **broken system-venv** notice above these
+ *    options: if MeedyaDL previously built its venv from a system Python that
+ *    has since moved or been upgraded (e.g. `brew upgrade python` relocating
+ *    the Homebrew Cellar path), the notice explains what happened and offers
+ *    a one-click **Rebuild** from the same recorded interpreter when it's
+ *    still on disk — otherwise it points the user at the reuse/download
+ *    options below, which remain the fallback.
+ *
  * 4. **On error**, the message is displayed in a styled error banner.
  *
  * ## Key Design Decisions
@@ -38,9 +47,10 @@
  *
  * ## Store Connections
  *
- * - **dependencyStore**: `python`, `systemPythons`, `checkPython`,
- *   `detectSystemPythons`, `installPython`, `useSystemPython`, `isChecking`,
- *   `isDetectingPythons`, `isInstalling`, `error`.
+ * - **dependencyStore**: `python`, `systemPythons`, `pythonVenvHealth`,
+ *   `checkPython`, `detectSystemPythons`, `diagnosePythonVenv`,
+ *   `installPython`, `useSystemPython`, `isChecking`, `isDetectingPythons`,
+ *   `isInstalling`, `error`.
  * - **setupStore**: `completeStep`, `setStepError`.
  *
  * @see {@link ../SetupWizard.tsx}             -- Parent wizard container
@@ -51,8 +61,9 @@
 // React useEffect for checking status on mount and auto-completing.
 import { useEffect } from 'react';
 
-// Lucide icons: success, portable download, system-Python reuse, browse.
-import { CheckCircle, Download, FolderOpen, Terminal } from 'lucide-react';
+// Lucide icons: success, portable download, system-Python reuse, browse,
+// broken-venv notice, rebuild action.
+import { AlertTriangle, CheckCircle, Download, FolderOpen, RefreshCw, Terminal } from 'lucide-react';
 
 // Zustand stores: dependencyStore tracks Python status; setupStore manages the
 // wizard step lifecycle.
@@ -71,6 +82,8 @@ export function PythonStep() {
   const python = useDependencyStore((s) => s.python);
   /** Compatible system interpreters detected on the machine (#1017) */
   const systemPythons = useDependencyStore((s) => s.systemPythons);
+  /** Diagnosis of the managed Python's health (broken system-venv vs. not-installed) */
+  const pythonVenvHealth = useDependencyStore((s) => s.pythonVenvHealth);
   /** True while the backend is checking the managed Python */
   const isChecking = useDependencyStore((s) => s.isChecking);
   /** True while the backend is probing for system interpreters */
@@ -81,6 +94,8 @@ export function PythonStep() {
   const checkPython = useDependencyStore((s) => s.checkPython);
   /** Triggers system-interpreter detection */
   const detectSystemPythons = useDependencyStore((s) => s.detectSystemPythons);
+  /** Triggers the managed-Python venv-health diagnosis */
+  const diagnosePythonVenv = useDependencyStore((s) => s.diagnosePythonVenv);
   /** Downloads and installs the portable Python runtime */
   const installPython = useDependencyStore((s) => s.installPython);
   /** Provisions a venv from a chosen system interpreter.
@@ -99,12 +114,15 @@ export function PythonStep() {
 
   /**
    * On mount: check the managed Python and, in parallel, detect any compatible
-   * system Python so we can offer reuse instead of forcing a download.
+   * system Python (so we can offer reuse instead of forcing a download) and
+   * diagnose the managed Python's health (so a broken system-venv can be
+   * explained instead of showing an undifferentiated "Python Not Found").
    */
   useEffect(() => {
     checkPython();
     detectSystemPythons();
-  }, [checkPython, detectSystemPythons]);
+    diagnosePythonVenv();
+  }, [checkPython, detectSystemPythons, diagnosePythonVenv]);
 
   /**
    * Auto-complete this step once a managed Python is provisioned (by either a
@@ -188,6 +206,61 @@ export function PythonStep() {
         ) : (
           /* Not provisioned yet — offer reuse and/or download */
           <div className="space-y-4">
+            {/* Broken system-venv notice (#1017 follow-up): the managed
+                Python was previously built from a system interpreter that
+                has since moved or been upgraded (e.g. `brew upgrade
+                python` relocating the Homebrew Cellar path), so the venv's
+                own interpreter link no longer runs. Rendered ABOVE the
+                normal reuse/download options, which stay available as the
+                fallback either way. */}
+            {pythonVenvHealth?.status === 'broken_system_venv' && (
+              <div className="p-3 rounded-platform border border-status-warning bg-status-warning-bg space-y-2.5">
+                <div className="flex items-start gap-2.5">
+                  <AlertTriangle size={16} className="text-status-warning shrink-0 mt-0.5" />
+                  <div className="text-sm text-content-primary space-y-1.5">
+                    <p className="font-medium">Your Python environment stopped working</p>
+                    <p className="text-xs text-content-secondary">
+                      {pythonVenvHealth.recordedInterpreter ? (
+                        <>
+                          MeedyaDL built its Python environment from{' '}
+                          <span className="font-mono text-content-primary">
+                            {pythonVenvHealth.recordedInterpreter}
+                          </span>
+                          {pythonVenvHealth.recordedVersion
+                            ? ` (Python ${pythonVenvHealth.recordedVersion})`
+                            : ''}
+                          , but that interpreter no longer runs — for example after running{' '}
+                          <span className="font-mono text-content-primary">
+                            brew upgrade python
+                          </span>
+                          .
+                        </>
+                      ) : (
+                        "MeedyaDL's Python environment was built from a system Python that no " +
+                        'longer runs, most likely because it moved or was upgraded.'
+                      )}
+                    </p>
+                  </div>
+                </div>
+                {pythonVenvHealth.recordedInterpreter && pythonVenvHealth.recordedInterpreterExists ? (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<RefreshCw size={16} />}
+                    loading={isInstalling}
+                    disabled={isInstalling}
+                    onClick={() => handleUseSystem(pythonVenvHealth.recordedInterpreter as string)}
+                  >
+                    Rebuild from this Python
+                  </Button>
+                ) : (
+                  <p className="text-xs text-content-tertiary pl-[26px]">
+                    That interpreter is no longer available — choose a replacement below.
+                  </p>
+                )}
+              </div>
+            )}
+
             {isDetectingPythons ? (
               <LoadingSpinner size="sm" label="Looking for an existing Python..." />
             ) : reusable.length > 0 ? (
