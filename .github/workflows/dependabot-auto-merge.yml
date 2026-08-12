@@ -1,0 +1,181 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Dependabot Auto-merge
+# =====================
+#
+# WHAT THIS DOES
+# --------------
+# Automatically squash-merges a Dependabot pull request once EVERY check on it
+# has passed — but only for the two branches the maintainer opted in to:
+#
+#   * PRs targeting `alpha`  -> Dependabot *version* updates (the weekly,
+#     grouped minor/patch bumps routed here by `.github/dependabot.yml`'s
+#     `target-branch: alpha`). These respect the 7-day `cooldown` configured
+#     there, so a freshly-published (possibly compromised) release is never
+#     auto-merged within hours of appearing.
+#   * PRs targeting `main`   -> Dependabot *security* updates. GitHub forces
+#     security updates onto the default branch (`main`) and offers no way to
+#     redirect them, so a Dependabot PR against `main` is, by construction, a
+#     security fix. Security updates are NOT subject to `cooldown` — a fix
+#     shouldn't wait — so these auto-merge as soon as CI is green.
+#
+# `beta` and `release-candidate` are deliberately NOT auto-merged: changes reach
+# them through the deliberate alpha -> beta -> rc -> stable promotion path with a
+# human in the loop. The security forward-port PRs that `forward-port-security.yml`
+# opens onto the channel branches are authored by `github-actions[bot]`, not
+# `dependabot[bot]`, so they are never auto-merged here either — they keep their
+# human review.
+#
+# WHY `workflow_run` (and not `pull_request` / `pull_request_target`)
+# ------------------------------------------------------------------
+# The protected-branch rulesets require NO status checks, so a naive
+# `gh pr merge --auto` would merge immediately, before CI even runs. This
+# workflow instead waits for CI to finish and then confirms EVERY check on the
+# PR is green before merging — a CI gate that needs no branch-protection change.
+#
+# Triggering on `workflow_run` (rather than `pull_request_target`) is what makes
+# that safe:
+#   * `workflow_run` jobs run in the trusted base-repo context with the token
+#     permissions declared below — they never check out or execute PR head code
+#     (this workflow only calls the `gh` API), so the usual privileged-trigger
+#     code-execution risk does not apply.
+#   * A `workflow_run` run is NOT itself listed among the PR's check runs, so
+#     `gh pr checks --watch` cannot deadlock waiting on this job to finish.
+#   * The workflow file is read from the default branch (`main`) and fires for
+#     "CI" runs on any branch, so this single file covers both the alpha and the
+#     main PRs above.
+
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    # Fire after the "CI" workflow finishes. We then re-check ALL checks on the
+    # PR (CodeQL, Licence compliance, PR Security Checks, etc.), not just CI.
+    workflows: ["CI"]
+    types: [completed]
+
+# The built-in GITHUB_TOKEN is used only for read calls (listing the PR,
+# watching its checks). The actual merge is performed with RELEASE_PAT (see the
+# merge step for why), so the default token stays read-only — least privilege.
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+
+concurrency:
+  # One in-flight evaluation per head commit; a newer CI completion supersedes.
+  group: dependabot-automerge-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Only act when CI passed AND it was a pull-request CI run (not a push/merge
+    # run on a branch). Everything else — the branch gate, the Dependabot-author
+    # gate — is resolved from the live PR below.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    steps:
+      - name: Resolve the PR and decide eligibility
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Find the single open PR whose head is the branch CI just ran on.
+          PR_JSON=$(gh pr list --repo "$REPO" --head "$HEAD_BRANCH" --state open \
+            --json number,author,baseRefName,headRefName,url,title,headRefOid \
+            --jq '.[0] // empty')
+
+          if [ -z "$PR_JSON" ]; then
+            echo "::notice::No open PR for head branch '$HEAD_BRANCH' — nothing to merge."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NUMBER=$(jq -r '.number'      <<<"$PR_JSON")
+          AUTHOR=$(jq -r '.author.login'<<<"$PR_JSON")
+          BASE=$(jq -r '.baseRefName'   <<<"$PR_JSON")
+          URL=$(jq -r '.url'            <<<"$PR_JSON")
+          HEAD_OID=$(jq -r '.headRefOid'<<<"$PR_JSON")
+
+          # Author gate: only Dependabot's own PRs.
+          if [ "$AUTHOR" != "dependabot[bot]" ]; then
+            echo "::notice::PR #$NUMBER author is '$AUTHOR', not dependabot[bot] — skipping."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Branch gate: alpha (version updates) and main (security updates) only.
+          case "$BASE" in
+            alpha|main) : ;;
+            *)
+              echo "::notice::PR #$NUMBER targets '$BASE' (not alpha/main) — not auto-merged; leaving for review."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          # Guard against a race: the PR head must still be the commit CI ran on.
+          # If Dependabot rebased after CI finished, a newer CI run will re-trigger
+          # this workflow for the new SHA; we skip the stale one.
+          if [ "$HEAD_OID" != "$HEAD_SHA" ]; then
+            echo "::notice::PR #$NUMBER head ($HEAD_OID) moved past the CI commit ($HEAD_SHA) — waiting for the newer run."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::notice::PR #$NUMBER by $AUTHOR -> $BASE is eligible; verifying all checks before merge."
+          {
+            echo "proceed=true"
+            echo "pr_url=$URL"
+            echo "pr_number=$NUMBER"
+            echo "base=$BASE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Wait for every check to pass, then squash-merge
+        if: steps.gate.outputs.proceed == 'true'
+        env:
+          # RELEASE_PAT (a real user token), not GITHUB_TOKEN, performs the merge.
+          # A merge/push made with GITHUB_TOKEN does NOT trigger further workflow
+          # runs (GitHub's recursion guard), which would defeat the whole point:
+          #   * merging a version update into `alpha` must trigger alpha-release.yml
+          #     so a fresh alpha build is cut to actually test the update on, and
+          #   * merging a security fix into `main` must trigger the PR-close event
+          #     that forward-port-security.yml listens for, so the fix reaches
+          #     alpha/beta/rc.
+          # A PAT-driven merge behaves exactly like a human clicking "Merge", so
+          # both downstream automations fire. workflow_run runs in the trusted
+          # base-repo context, so the secret is available here.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          PR_URL: ${{ steps.gate.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
+          BASE: ${{ steps.gate.outputs.base }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::RELEASE_PAT is not available to this run — cannot auto-merge PR #$PR_NUMBER. Merge it manually; downstream builds/forward-port will fire from the human merge."
+            exit 0
+          fi
+
+          # Block until every check run on the PR reaches a terminal state.
+          # --fail-fast aborts (non-zero) the moment any check fails, so a red
+          # check downstream of CI (CodeQL, PR Security, Licence, etc.) prevents
+          # the merge. This job is not itself a PR check (workflow_run), so there
+          # is no self-wait deadlock.
+          echo "Waiting for all checks on PR #$PR_NUMBER ..."
+          gh pr checks "$PR_URL" --watch --fail-fast --interval 30
+
+          # Squash keeps the chore(deps) history tidy and produces a single-parent
+          # commit that forward-port-security.yml can cleanly cherry-pick onto the
+          # channel branches when BASE is main.
+          echo "All checks passed — squash-merging PR #$PR_NUMBER into $BASE."
+          gh pr merge "$PR_URL" --squash --delete-branch
