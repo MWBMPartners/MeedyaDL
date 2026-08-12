@@ -85,6 +85,7 @@
     "basic-ftp": "^5.3.1",
     "fast-uri": "^3.1.5",
     "ip-address": "^10.4.0",
+    "nanoid": "^3.3.17",
     "undici": "^7.29.0"
   }
 }
