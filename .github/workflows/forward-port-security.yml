@@ -86,12 +86,14 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
-          # pull_request_target payload (empty on workflow_dispatch)
+          # pull_request_target payload (empty on workflow_dispatch). Only the
+          # gate signals (merged / author) and the PR number are read from the
+          # event. The merge SHA and title are deliberately NOT taken from the
+          # event — they are re-read from the API below (see the else branch) so
+          # no untrusted event value reaches the later git fetch / cherry-pick.
           EVT_MERGED: ${{ github.event.pull_request.merged }}
           EVT_AUTHOR: ${{ github.event.pull_request.user.login }}
           EVT_NUMBER: ${{ github.event.pull_request.number }}
-          EVT_MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          EVT_TITLE: ${{ github.event.pull_request.title }}
           # workflow_dispatch input
           INPUT_PR: ${{ inputs.pr_number }}
         run: |
@@ -110,8 +112,17 @@ jobs:
             [ "$EVT_MERGED" = "true" ]              || skip "PR was closed without merging — skipping."
             [ "$EVT_AUTHOR" = "dependabot[bot]" ]   || skip "PR author '$EVT_AUTHOR' is not dependabot[bot] — skipping."
             PR="$EVT_NUMBER"
-            MERGE_SHA="$EVT_MERGE_SHA"
-            TITLE="$EVT_TITLE"
+            # Resolve the merge SHA and title from the API, NOT the event payload.
+            # Under pull_request_target, github.event.pull_request.merge_commit_sha
+            # is treated as untrusted (a merge SHA can carry PR-author code), and
+            # that taint would flow into the git fetch / cherry-pick in the next
+            # job — the "checkout of untrusted code in a privileged context"
+            # finding. gh pr view is a trusted API call in this privileged
+            # context and returns the same authoritative SHA from a non-event
+            # source, so nothing untrusted reaches the git operations.
+            data=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit,title)
+            MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
+            TITLE=$(jq -r '.title' <<<"$data")
           fi
 
           if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
@@ -140,28 +151,11 @@ jobs:
       matrix:
         target: [alpha, beta, release-candidate]
     steps:
-      - name: Set up an authenticated git workspace (no untrusted checkout)
-        env:
-          TOKEN: ${{ secrets.RELEASE_PAT }}
-          REPO: ${{ github.repository }}
-          SERVER_URL: ${{ github.server_url }}
-        run: |
-          set -euo pipefail
-          # Deliberately NOT actions/checkout. This job runs under
-          # pull_request_target (privileged, secret-bearing); actions/checkout in
-          # that context is flagged by CodeQL's "checkout of untrusted code in a
-          # privileged context" query. The job never needs the PR author's code —
-          # it only fetches trusted refs (a channel branch + a specific merge SHA)
-          # and cherry-picks by SHA — so we build an empty, authenticated
-          # workspace by hand. With no checkout action present, the query has
-          # nothing to match, yet stays fully armed to catch a genuinely unsafe
-          # checkout anywhere else (including any future one added here). The
-          # token is passed via a secret env var and lands only in the local
-          # remote URL, never in logs.
-          git init -q
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add origin "https://x-access-token:${TOKEN}@${SERVER_URL#https://}/${REPO}.git"
+      - name: Checkout (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
 
       - name: Cherry-pick onto ${{ matrix.target }} and open PR (or issue on conflict)
         env:
