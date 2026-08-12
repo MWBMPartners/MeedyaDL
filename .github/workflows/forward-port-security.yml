@@ -29,23 +29,27 @@
 # A Dependabot PR merged to `main` is, by construction, a security update:
 # version updates are configured to target `alpha`, so they never reach `main`.
 #
-# CAVEAT: `pull_request_target` runs triggered directly by `dependabot[bot]`
-# get a read-only token and no secrets (GitHub's Dependabot hardening). Here the
-# trigger is the PR *close*, whose actor is the human who merged it, so
-# `RELEASE_PAT` is available. If the repo later enables Dependabot auto-merge,
-# use the `workflow_dispatch` entry point (pass the merged PR number) to run it
-# manually with full credentials.
+# TRIGGER: a push to `main`. When a Dependabot security PR merges (including via
+# auto-merge), its squash commit lands on `main` and fires this workflow in the
+# base-repo trust context, where `RELEASE_PAT` is available. Because the trigger
+# is a push to the default branch — NOT `pull_request_target` — no untrusted PR
+# head is ever in scope: by the time we run, the fix is already merged, reviewed,
+# and on `main`, and we only cherry-pick that commit by SHA onto the channels.
+#
+# This also fixes the failure mode of the previous `pull_request_target: closed`
+# design: a close event whose actor is `dependabot[bot]` (which is what an
+# AUTO-merged Dependabot PR produces) gets a read-only token under GitHub's
+# Dependabot hardening, so the forward-port could not push. A push to `main` is
+# always full-trust, so auto-merged security fixes forward-port correctly.
 
 name: Forward-port Security Fixes
 
 on:
-  # Fires when any PR to main is closed; the gate job filters to merged
-  # Dependabot PRs. Using pull_request_target (not pull_request) so the run
-  # executes in the base-repo trust context with access to RELEASE_PAT. We
-  # never check out or execute the PR's head code — only cherry-pick a commit
-  # by SHA — so the usual pull_request_target code-execution risk does not apply.
-  pull_request_target:
-    types: [closed]
+  # A Dependabot security fix reaches this repo by merging to `main`, which is a
+  # push on the default branch. The gate job resolves the associated merged PR
+  # and filters to dependabot[bot]; non-PR pushes and non-Dependabot merges exit
+  # fast at the gate.
+  push:
     branches: [main]
   # Manual entry point: backfill a fix, or re-run after resolving a conflict,
   # or run when the automatic trigger could not access secrets.
@@ -64,7 +68,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: forward-port-security-${{ github.event.pull_request.number || inputs.pr_number }}
+  group: forward-port-security-${{ inputs.pr_number || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -86,44 +90,41 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
           REPO: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
-          # pull_request_target payload (empty on workflow_dispatch). Only the
-          # gate signals (merged / author) and the PR number are read from the
-          # event. The merge SHA and title are deliberately NOT taken from the
-          # event — they are re-read from the API below (see the else branch) so
-          # no untrusted event value reaches the later git fetch / cherry-pick.
-          EVT_MERGED: ${{ github.event.pull_request.merged }}
-          EVT_AUTHOR: ${{ github.event.pull_request.user.login }}
-          EVT_NUMBER: ${{ github.event.pull_request.number }}
-          # workflow_dispatch input
+          # Push tip: the merge commit already on `main`. Used ONLY to look up the
+          # associated PR number via the API — it is never fetched or checked out
+          # as a ref here (the forward-port job fetches the API-resolved merge SHA).
+          PUSH_SHA: ${{ github.sha }}
+          # workflow_dispatch input (empty on push).
           INPUT_PR: ${{ inputs.pr_number }}
         run: |
           set -euo pipefail
           skip() { echo "proceed=false" >> "$GITHUB_OUTPUT"; echo "::notice::$1"; exit 0; }
 
+          # Resolve the PR number. On push, find the merged PR whose merge commit
+          # is the pushed SHA (a trusted commit already on `main`). On dispatch,
+          # the operator supplies it. Both paths then read the PR's authoritative
+          # metadata from the API — no workflow event payload is ever trusted.
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             PR="$INPUT_PR"
-            data=$(gh pr view "$PR" --repo "$REPO" \
-              --json number,merged,baseRefName,author,mergeCommit,title)
-            [ "$(jq -r .merged <<<"$data")" = "true" ]      || skip "PR #$PR is not merged — nothing to forward-port."
-            [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
-            MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
-            TITLE=$(jq -r '.title' <<<"$data")
+            REQUIRE_DEPENDABOT=0
           else
-            [ "$EVT_MERGED" = "true" ]              || skip "PR was closed without merging — skipping."
-            [ "$EVT_AUTHOR" = "dependabot[bot]" ]   || skip "PR author '$EVT_AUTHOR' is not dependabot[bot] — skipping."
-            PR="$EVT_NUMBER"
-            # Resolve the merge SHA and title from the API, NOT the event payload.
-            # Under pull_request_target, github.event.pull_request.merge_commit_sha
-            # is treated as untrusted (a merge SHA can carry PR-author code), and
-            # that taint would flow into the git fetch / cherry-pick in the next
-            # job — the "checkout of untrusted code in a privileged context"
-            # finding. gh pr view is a trusted API call in this privileged
-            # context and returns the same authoritative SHA from a non-event
-            # source, so nothing untrusted reaches the git operations.
-            data=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit,title)
-            MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
-            TITLE=$(jq -r '.title' <<<"$data")
+            PR=$(gh api "repos/$REPO/commits/$PUSH_SHA/pulls" \
+              --jq 'map(select(.merged_at != null)) | (.[0].number // empty)')
+            [ -n "$PR" ] || skip "Push $PUSH_SHA is not a merged PR — nothing to forward-port."
+            REQUIRE_DEPENDABOT=1
           fi
+
+          data=$(gh pr view "$PR" --repo "$REPO" \
+            --json number,merged,baseRefName,author,mergeCommit,title)
+          [ "$(jq -r .merged <<<"$data")" = "true" ]      || skip "PR #$PR is not merged — nothing to forward-port."
+          [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
+          if [ "$REQUIRE_DEPENDABOT" = "1" ] \
+             && [ "$(jq -r '.author.login' <<<"$data")" != "dependabot[bot]" ]; then
+            skip "PR #$PR author is not dependabot[bot] — skipping."
+          fi
+
+          MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
+          TITLE=$(jq -r '.title' <<<"$data")
 
           if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
             skip "No merge commit SHA for PR #$PR — skipping."
