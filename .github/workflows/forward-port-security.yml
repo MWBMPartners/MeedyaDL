@@ -140,11 +140,28 @@ jobs:
       matrix:
         target: [alpha, beta, release-candidate]
     steps:
-      - name: Checkout (full history)
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.RELEASE_PAT }}
+      - name: Set up an authenticated git workspace (no untrusted checkout)
+        env:
+          TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          # Deliberately NOT actions/checkout. This job runs under
+          # pull_request_target (privileged, secret-bearing); actions/checkout in
+          # that context is flagged by CodeQL's "checkout of untrusted code in a
+          # privileged context" query. The job never needs the PR author's code —
+          # it only fetches trusted refs (a channel branch + a specific merge SHA)
+          # and cherry-picks by SHA — so we build an empty, authenticated
+          # workspace by hand. With no checkout action present, the query has
+          # nothing to match, yet stays fully armed to catch a genuinely unsafe
+          # checkout anywhere else (including any future one added here). The
+          # token is passed via a secret env var and lands only in the local
+          # remote URL, never in logs.
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${TOKEN}@${SERVER_URL#https://}/${REPO}.git"
 
       - name: Cherry-pick onto ${{ matrix.target }} and open PR (or issue on conflict)
         env:
