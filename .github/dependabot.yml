@@ -15,6 +15,22 @@
 # Minor/patch updates are grouped into a single PR per ecosystem to reduce
 # noise. Security updates are always created immediately (not batched).
 #
+# Cooldown (supply-chain safety)
+# ------------------------------
+# Version updates observe a 7-day `cooldown`: Dependabot waits until a release
+# has existed for 7 days before opening a PR for it. This blunts the "a package
+# version published an hour ago is compromised" window — by the time we auto-
+# merge, the release has had a week of public exposure. Cooldown applies to
+# VERSION updates only; Dependabot's separate SECURITY-update path is not
+# delayed by it, so security fixes are still raised (and auto-merged) immediately.
+#
+# Auto-merge (see .github/workflows/dependabot-auto-merge.yml)
+# -----------------------------------------------------------
+# Version PRs (which target `alpha`) and security PRs (which GitHub forces onto
+# `main`) are squash-merged automatically once EVERY check on them passes.
+# `beta` / `release-candidate` are not auto-merged — they advance via the
+# deliberate alpha -> beta -> rc -> stable promotion path.
+#
 # @see https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 
 version: 2
@@ -38,6 +54,10 @@ updates:
         update-types: ["version-update:semver-major"]
     # Limit open PRs to avoid overwhelming the maintainer
     open-pull-requests-limit: 5
+    # Wait 7 days after a release is published before opening a version-update
+    # PR for it (supply-chain cooldown). Does not affect security updates.
+    cooldown:
+      default-days: 7
     # Target branch for PRs
     # Target the alpha integration branch so dependency updates flow
     # through the same channel-promotion model as user-facing changes:
@@ -72,6 +92,10 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     open-pull-requests-limit: 5
+    # Wait 7 days after a release is published before opening a version-update
+    # PR for it (supply-chain cooldown). Does not affect security updates.
+    cooldown:
+      default-days: 7
     # Target the alpha integration branch so dependency updates flow
     # through the same channel-promotion model as user-facing changes:
     # alpha → (after testing) → beta / rc → stable. Without this,

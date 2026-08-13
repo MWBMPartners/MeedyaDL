@@ -1,0 +1,256 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Forward-port Security Fixes
+# ===========================
+#
+# WHY THIS EXISTS
+# ---------------
+# Dependabot *security* updates ALWAYS open against the repository's default
+# branch (`main`) and IGNORE the `target-branch` set in `.github/dependabot.yml`.
+# That `target-branch: alpha` only routes Dependabot *version* updates; it has
+# no effect on security updates. GitHub provides no configuration to redirect
+# security updates to a non-default branch.
+#
+# The consequence: routine version bumps flow through the careful
+# `alpha -> beta -> rc -> main` channel-promotion path, but security fixes —
+# the higher-stakes ones — land ONLY on `main` and never reach the long-lived
+# channel branches where active development and most prerelease builds live.
+# Those channels are left exposed to the very vulnerability that was just fixed.
+#
+# WHAT THIS DOES
+# --------------
+# When a Dependabot PR merges to `main`, this workflow cherry-picks the fix
+# onto each channel branch (alpha, beta, release-candidate) and opens a PR on
+# each so the channel's own CI validates the change before it merges. If the
+# cherry-pick conflicts (the channel's lockfile has diverged), it opens a
+# tracking issue with copy-paste manual-forward-port instructions instead.
+#
+# A Dependabot PR merged to `main` is, by construction, a security update:
+# version updates are configured to target `alpha`, so they never reach `main`.
+#
+# TRIGGER: a push to `main`. When a Dependabot security PR merges (including via
+# auto-merge), its squash commit lands on `main` and fires this workflow in the
+# base-repo trust context, where `RELEASE_PAT` is available. Because the trigger
+# is a push to the default branch — NOT `pull_request_target` — no untrusted PR
+# head is ever in scope: by the time we run, the fix is already merged, reviewed,
+# and on `main`, and we only cherry-pick that commit by SHA onto the channels.
+#
+# This also fixes the failure mode of the previous `pull_request_target: closed`
+# design: a close event whose actor is `dependabot[bot]` (which is what an
+# AUTO-merged Dependabot PR produces) gets a read-only token under GitHub's
+# Dependabot hardening, so the forward-port could not push. A push to `main` is
+# always full-trust, so auto-merged security fixes forward-port correctly.
+
+name: Forward-port Security Fixes
+
+on:
+  # A Dependabot security fix reaches this repo by merging to `main`, which is a
+  # push on the default branch. The gate job resolves the associated merged PR
+  # and filters to dependabot[bot]; non-PR pushes and non-Dependabot merges exit
+  # fast at the gate.
+  push:
+    branches: [main]
+  # Manual entry point: backfill a fix, or re-run after resolving a conflict,
+  # or run when the automatic trigger could not access secrets.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Merged Dependabot PR number on main to forward-port'
+        required: true
+        type: string
+
+# Privileged git pushes and PR/issue creation use RELEASE_PAT, not the
+# workflow GITHUB_TOKEN, so the default token stays read-only. Using a PAT also
+# ensures the forward-port PRs trigger channel CI (PRs opened by GITHUB_TOKEN do
+# not trigger other workflows).
+permissions:
+  contents: read
+
+concurrency:
+  group: forward-port-security-${{ inputs.pr_number || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Decide whether to proceed and resolve the source PR's metadata once, so the
+  # per-branch matrix jobs share a single consistent view.
+  # ---------------------------------------------------------------------------
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      pr_number: ${{ steps.decide.outputs.pr_number }}
+      merge_sha: ${{ steps.decide.outputs.merge_sha }}
+      pr_title: ${{ steps.decide.outputs.pr_title }}
+    steps:
+      - name: Resolve source PR and decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          # Push tip: the merge commit already on `main`. Used ONLY to look up the
+          # associated PR number via the API — it is never fetched or checked out
+          # as a ref here (the forward-port job fetches the API-resolved merge SHA).
+          PUSH_SHA: ${{ github.sha }}
+          # workflow_dispatch input (empty on push).
+          INPUT_PR: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          skip() { echo "proceed=false" >> "$GITHUB_OUTPUT"; echo "::notice::$1"; exit 0; }
+
+          # Resolve the PR number. On push, find the merged PR whose merge commit
+          # is the pushed SHA (a trusted commit already on `main`). On dispatch,
+          # the operator supplies it. Both paths then read the PR's authoritative
+          # metadata from the API — no workflow event payload is ever trusted.
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            PR="$INPUT_PR"
+            REQUIRE_DEPENDABOT=0
+          else
+            PR=$(gh api "repos/$REPO/commits/$PUSH_SHA/pulls" \
+              --jq 'map(select(.merged_at != null)) | (.[0].number // empty)')
+            [ -n "$PR" ] || skip "Push $PUSH_SHA is not a merged PR — nothing to forward-port."
+            REQUIRE_DEPENDABOT=1
+          fi
+
+          data=$(gh pr view "$PR" --repo "$REPO" \
+            --json number,merged,baseRefName,author,mergeCommit,title)
+          [ "$(jq -r .merged <<<"$data")" = "true" ]      || skip "PR #$PR is not merged — nothing to forward-port."
+          [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
+          if [ "$REQUIRE_DEPENDABOT" = "1" ] \
+             && [ "$(jq -r '.author.login' <<<"$data")" != "dependabot[bot]" ]; then
+            skip "PR #$PR author is not dependabot[bot] — skipping."
+          fi
+
+          MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
+          TITLE=$(jq -r '.title' <<<"$data")
+
+          if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
+            skip "No merge commit SHA for PR #$PR — skipping."
+          fi
+
+          {
+            echo "proceed=true"
+            echo "pr_number=$PR"
+            echo "merge_sha=$MERGE_SHA"
+            # Title may contain arbitrary text; write it as a single line.
+            echo "pr_title=${TITLE//$'\n'/ }"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Will forward-port security fix from PR #$PR ($MERGE_SHA)."
+
+  # ---------------------------------------------------------------------------
+  # One leg per channel branch. fail-fast: false so a conflict on one channel
+  # never blocks the others.
+  # ---------------------------------------------------------------------------
+  forward-port:
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [alpha, beta, release-candidate]
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - name: Cherry-pick onto ${{ matrix.target }} and open PR (or issue on conflict)
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          TARGET: ${{ matrix.target }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          MERGE_SHA: ${{ needs.gate.outputs.merge_sha }}
+          PR_TITLE: ${{ needs.gate.outputs.pr_title }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Ensure the labels we apply exist (idempotent; dependabot creates
+          # "dependencies", but "security" may not exist yet).
+          gh label create security --repo "$REPO" --color "d73a4a" \
+            --description "Security-relevant change" 2>/dev/null || true
+          gh label create dependencies --repo "$REPO" --color "0366d6" \
+            --description "Dependency updates" 2>/dev/null || true
+
+          # Channel branch may not exist in every repo state — skip cleanly.
+          if ! git ls-remote --exit-code --heads origin "$TARGET" >/dev/null 2>&1; then
+            echo "::notice::Branch '$TARGET' does not exist — skipping."
+            exit 0
+          fi
+          git fetch --no-tags origin "$TARGET" "$MERGE_SHA"
+
+          WORK="forward-port/security/pr-${PR_NUMBER}-to-${TARGET}"
+
+          # Idempotency: don't stack duplicate PRs on re-run.
+          if [ "$(gh pr list --repo "$REPO" --head "$WORK" --state open --json number --jq 'length')" != "0" ]; then
+            echo "::notice::Forward-port PR for #$PR_NUMBER -> $TARGET already open — skipping."
+            exit 0
+          fi
+
+          git checkout -B "$WORK" "origin/$TARGET"
+
+          # A squash/rebase merge leaves a single-parent commit; a merge commit
+          # has two parents and needs -m 1 to pick the mainline diff.
+          PARENTS=$(git rev-list --parents -n 1 "$MERGE_SHA" | wc -w)
+          if [ "$PARENTS" -ge 3 ]; then MFLAG=(-m 1); else MFLAG=(); fi
+
+          if git cherry-pick -x "${MFLAG[@]}" "$MERGE_SHA"; then
+            if git diff --quiet "origin/$TARGET" HEAD; then
+              echo "::notice::'$TARGET' already contains this fix — nothing to forward-port."
+              exit 0
+            fi
+            git push -u origin "$WORK"
+            BODY=$(printf '%s\n' \
+              "Automated forward-port of the security fix merged to \`main\` in #${PR_NUMBER} onto the \`${TARGET}\` channel branch." \
+              "" \
+              "Dependabot raises **security** updates only against the default branch (\`main\`); \`dependabot.yml\`'s \`target-branch: alpha\` governs *version* updates only, and GitHub offers no way to redirect security updates. This PR carries the same fix to \`${TARGET}\` so the channel isn't left exposed. The channel's own CI validates it here before merge." \
+              "" \
+              "- Source PR: #${PR_NUMBER}" \
+              "- Cherry-picked commit: \`${MERGE_SHA}\`" \
+              "" \
+              "---" \
+              "_Generated by [Claude Code](https://claude.ai/code)_")
+            gh pr create --repo "$REPO" --base "$TARGET" --head "$WORK" \
+              --title "chore(security): forward-port #${PR_NUMBER} to ${TARGET} — ${PR_TITLE}" \
+              --label "dependencies" --label "security" \
+              --body "$BODY"
+            echo "::notice::Opened forward-port PR: #$PR_NUMBER -> $TARGET"
+          else
+            git cherry-pick --abort || true
+            # Idempotency: one tracking issue per (PR, target).
+            MARKER="[forward-port] #${PR_NUMBER} -> ${TARGET}"
+            if [ "$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER\"" --json number --jq 'length')" != "0" ]; then
+              echo "::notice::Tracking issue for $MARKER already open — skipping."
+              exit 0
+            fi
+            BODY=$(printf '%s\n' \
+              "The security fix merged to \`main\` in #${PR_NUMBER} could not be cleanly cherry-picked onto \`${TARGET}\` — the channel's lockfile/manifest has diverged and the cherry-pick conflicts." \
+              "" \
+              "Please forward-port it manually:" \
+              "" \
+              '```bash' \
+              "git fetch origin ${TARGET} ${MERGE_SHA}" \
+              "git checkout -B forward-port/security/pr-${PR_NUMBER}-to-${TARGET} origin/${TARGET}" \
+              "git cherry-pick -x ${MERGE_SHA}" \
+              "# resolve conflicts, then:" \
+              "git push -u origin forward-port/security/pr-${PR_NUMBER}-to-${TARGET}" \
+              "gh pr create --base ${TARGET} --label dependencies --label security --title \"chore(security): forward-port #${PR_NUMBER} to ${TARGET}\"" \
+              '```' \
+              "" \
+              "- Source PR: #${PR_NUMBER}" \
+              "- Commit: \`${MERGE_SHA}\`" \
+              "" \
+              "---" \
+              "_Generated by [Claude Code](https://claude.ai/code)_")
+            gh issue create --repo "$REPO" \
+              --title "$MARKER: security fix needs manual forward-port" \
+              --label "dependencies" --label "security" \
+              --body "$BODY"
+            echo "::warning::Conflict forward-porting #$PR_NUMBER to $TARGET — opened tracking issue."
+          fi
