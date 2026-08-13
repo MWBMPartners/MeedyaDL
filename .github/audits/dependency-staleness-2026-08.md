@@ -64,11 +64,11 @@ These are security-*adjacent* and shipped/relevant, but each fails at least one 
 
 ---
 
-## Optional hygiene (non-security — do when convenient)
+## Optional hygiene (non-security)
 
-1. **`@testing-library/dom` is mis-declared as a runtime `dependency`** in `package.json` (it belongs under `devDependencies`). It's test-only (pulls `lz-string` transitively) and is tree-shaken out of the Vite prod bundle, so it doesn't actually ship — but moving it prevents a test library from ever being treated as runtime.
-2. **`git-raw-commits` is deprecated** ("use `@conventional-changelog/git-client` instead"). Dev-only release tooling; migrate when convenient.
-3. **`fs2` → `fs4`** — optional modernization of a 7.5-year-stale **direct** dependency. `fs4` is the maintained drop-in successor. Purely hygiene; `fs2` has no advisory and only does a metadata syscall.
+1. **`@testing-library/dom` is mis-declared as a runtime `dependency`** in `package.json` (it belongs under `devDependencies`). It's test-only (pulls `lz-string` transitively) and is tree-shaken out of the Vite prod bundle, so it doesn't actually ship — but moving it prevents a test library from ever being treated as runtime. **Actionable — fixed separately.**
+2. **`git-raw-commits` is deprecated** ("use `@conventional-changelog/git-client` instead"). **Not directly actionable** — it is a *transitive* dep (`@commitlint/cli → @commitlint/read → git-raw-commits@5.0.1`), not something MeedyaDL declares. It resolves on its own when `@commitlint` migrates upstream; there is no clean override (different package name/API). No action for us.
+3. **`fs2` → `fs4`: not recommended.** `fs2` is a 7.5-year-stale **direct** dependency, but on inspection `fs4` 1.x is **not** a clean drop-in — it reorganized into a feature-gated, backend-split API (`sync`/`tokio`/`async-std`/`smol`) and no longer exposes `available_space` as a crate-root free function. MeedyaDL uses `fs2` at exactly **one** callsite (`health_check_service.rs::available_space` on a trusted, user-chosen path) with **zero advisory history**. Migrating a shipped-binary code path for no functional or security gain is a poor trade. **Leave `fs2` as-is**; revisit only if it ever acquires an advisory.
 
 ---
 
