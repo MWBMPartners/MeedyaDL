@@ -69,7 +69,7 @@ tauri-build = { version = "2", features = [] }
 # ---- MeedyaSuite-core ----
 # Shared core library providing metadata providers, codec detection, and fingerprinting.
 # @see https://github.com/MWBMPartners/MeedyaSuite-core
-meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", branch = "claude/interesting-mirzakhani", features = ["full"] }
+meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.
