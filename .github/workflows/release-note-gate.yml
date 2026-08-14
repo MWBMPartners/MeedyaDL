@@ -1,0 +1,325 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Release Note Gate (#1028)
+# ==========================
+#
+# A cheap PR gate for MeedyaDL's ELI5 release-notes pipeline. No build step
+# -- this workflow only reads PR metadata and (for the release-please job)
+# checks a file's presence/shape, so it stays fast on every PR.
+#
+# Four independent jobs:
+#
+#   1. pr-trailer
+#      Every user-facing PR (title starts with `feat`/`fix`/`perf`) must
+#      end its body with a `Release-Note: <plain English line>` trailer
+#      (or `Release-Note: none`). That trailer becomes a commit footer at
+#      squash-merge time (repo squash settings = PR_TITLE + PR_BODY) and
+#      is what `.github/cliff-eli5-body.tera` / `cliff-cumulative-body.tera`
+#      read to render ELI5 release notes. See
+#      .github/release-notes/STYLE_GUIDE.md for the writing rules. Also
+#      content-lints the trailer via scripts/release-notes/lint-notes.py
+#      (closes leak L1 -- see .github/audits/release-notes-policy-audit-
+#      2026-07-24.md §3.2/§4.3).
+#
+#   2. release-pr-notes-file
+#      Gates the release-please PR itself (branch prefix
+#      `release-please--`). Stable cuts require a hand-polished tier-1
+#      file at `.github/release-notes/v<version>.md` (see
+#      .github/release-notes/README.md) to already be merged to main
+#      before the release-please PR can merge. `scripts/release-notes/
+#      draft-notes.sh` bootstraps that file from any Release-Note:
+#      trailers already on main. Also content-lints that file (part of
+#      closing leak L6).
+#
+#   3. push-trailer-advisory (#1046)
+#      job 1 only fires on `pull_request` -- but CLAUDE.md's documented
+#      convention is "push fix:/feat: commits directly to main", which
+#      never opens a PR and so never sees job 1. This job scans commits
+#      pushed directly to main/alpha/beta/release-candidate and warns
+#      (advisory only -- a push can't be un-pushed) on any feat/fix/perf
+#      commit missing a Release-Note: trailer, while the author is still
+#      likely to be looking at the Actions tab.
+#
+#   4. notes-file-lint
+#      Lints every `.github/release-notes/*.md` file touched by a PR
+#      (excluding STYLE_GUIDE.md / README.md), regardless of whether the
+#      PR is release-please's own branch. Closes leak L6 for curated
+#      files that never transit job 2 -- prerelease backfills, retro
+#      scrubs, and any future notes file staged ahead of a release-please
+#      cut.
+#
+# All jobs that read untrusted PR/commit title and body strings use
+# `env:` to pass them into `run:` blocks -- never direct `${{ }}`
+# interpolation in a shell command, which would let a crafted title/body
+# break out of the script (the same injection-hardening pattern used by
+# version-bump.yml and release.yml's workflow_dispatch inputs).
+
+name: Release Note Gate
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+    branches: [main, alpha, beta, release-candidate]
+  push:
+    branches: [main, alpha, beta, release-candidate]
+
+permissions:
+  contents: read
+
+# Cancel a stale run when the PR is updated again -- these are cheap
+# metadata checks, no point letting an old run finish after a new push.
+# Push events have no PR number, so fall back to the commit SHA (still
+# unique per push, just doesn't dedupe against other events).
+concurrency:
+  group: release-note-gate-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  # ------------------------------------------------------------------
+  # Job 1: require a Release-Note: trailer on every user-facing PR body.
+  # ------------------------------------------------------------------
+  pr-trailer:
+    name: Release-Note trailer present
+    runs-on: ubuntu-latest
+    # Skip release-please's own PR (fixed template body, not authored by
+    # a human, nothing to gate) and dependabot PRs (never user-facing in
+    # the ELI5 sense -- dependency bumps are covered by the "deps-only"
+    # release-notes shape, not per-PR trailers).
+    if: >-
+      !startsWith(github.event.pull_request.head.ref, 'release-please--') &&
+      github.actor != 'dependabot[bot]'
+    steps:
+      # Needed to reach scripts/release-notes/lint-notes.py for the
+      # content-lint step below (audit §4.3 point 1).
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check for a Release-Note trailer on user-facing PRs
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          # Only feat/fix/perf PRs are user-facing in the changelog sense.
+          # Matches the conventional-commit type followed by "(", "!", or
+          # ":" -- e.g. "feat:", "feat(wrapper):", "fix!:".
+          if ! printf '%s' "$PR_TITLE" | grep -qE '^(feat|fix|perf)(\(|!|:)'; then
+            echo "PR title '${PR_TITLE}' is not feat/fix/perf -- no Release-Note trailer required."
+            exit 0
+          fi
+
+          # Require a line starting with "Release-Note: " followed by at
+          # least one non-whitespace character (so a bare "Release-Note:"
+          # with nothing after it still fails the check).
+          if ! printf '%s' "$PR_BODY" | grep -qE '^Release-Note: \S'; then
+            echo "::error::This PR has no 'Release-Note:' line in its body. Add one plain-English line per user-visible change (see .github/release-notes/STYLE_GUIDE.md), or 'Release-Note: none' if nothing is user-visible."
+            exit 1
+          fi
+
+          echo "Release-Note trailer found."
+
+      # Content lint (audit §4.3 point 1, closes leak L1 -- "verbatim
+      # trailers, unlinted"): the presence check above only confirms a
+      # Release-Note: line exists, not that its content is safe to render
+      # verbatim. Every trailer line is piped through lint-notes.py
+      # --trailer, which enforces both plain-English (STYLE_GUIDE.md
+      # "Hard bans") and mechanism-confidentiality ("Never reveal how a
+      # feature is delivered"). Blocking.
+      - name: Lint Release-Note trailer content
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+
+          if ! printf '%s' "$PR_TITLE" | grep -qE '^(feat|fix|perf)(\(|!|:)'; then
+            echo "PR title '${PR_TITLE}' is not feat/fix/perf -- no Release-Note trailer to lint."
+            exit 0
+          fi
+
+          printf '%s\n' "$PR_BODY" \
+            | grep -E '^Release-Note: ' \
+            | sed 's/^Release-Note: //' \
+            | python3 scripts/release-notes/lint-notes.py --trailer
+
+  # ------------------------------------------------------------------
+  # Job 2: the release-please PR must carry a merged tier-1 notes file.
+  # ------------------------------------------------------------------
+  release-pr-notes-file:
+    name: Tier-1 release-notes file present
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.pull_request.head.ref, 'release-please--')
+    steps:
+      # Default checkout on a pull_request event resolves to the PR's
+      # merge ref (base + head merged) -- so a tier-1 file merged to main
+      # via a separate PR shows up here even though release-please's own
+      # branch never touches .github/release-notes/.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Require a populated tier-1 notes file for this version
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+
+          # Release-please PR titles look like "chore(main): release 1.11.0".
+          VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          if [ -z "$VER" ]; then
+            echo "::error::Could not parse a version number out of the PR title '${PR_TITLE}'."
+            exit 1
+          fi
+
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+          echo "Checking for: ${NOTES_FILE}"
+
+          if [ ! -f "$NOTES_FILE" ]; then
+            echo "::error::${NOTES_FILE} is missing. Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
+            exit 1
+          fi
+
+          if ! grep -qE '^### ' "$NOTES_FILE"; then
+            echo "::error::${NOTES_FILE} exists but has no populated '### ' sections (What's new / What's fixed / Performance / Notes). Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
+            exit 1
+          fi
+
+          echo "${NOTES_FILE} is present and populated."
+
+          # Content lint (audit §4.3 point 2, part of closing leak L6 --
+          # "curated files & splices are applied verbatim"): the shape
+          # check above only confirms populated sections exist, not that
+          # their content is safe to publish. Blocking.
+          if ! python3 scripts/release-notes/lint-notes.py "$NOTES_FILE"; then
+            echo "::error::${NOTES_FILE} failed the release-notes content lint (mechanism disclosure or commit-speak -- see findings above). Fix per .github/release-notes/STYLE_GUIDE.md and re-run this check."
+            exit 1
+          fi
+
+  # ------------------------------------------------------------------
+  # Job 3: advisory-only trailer check for commits pushed directly to a
+  # channel branch (#1046) -- closes the gap where job 1 (pull_request-
+  # only) never sees this repo's documented "push fix:/feat: commits
+  # directly to main" workflow.
+  # ------------------------------------------------------------------
+  push-trailer-advisory:
+    name: Release-Note trailer present (direct push, advisory)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 so `git rev-list before..after` can walk the
+      # actual pushed range -- a shallow checkout would only have the
+      # tip commit and every earlier SHA would be "missing".
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan pushed commits for missing Release-Note trailers
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A branch's first-ever push sets BEFORE to the all-zeroes SHA;
+          # a force-push / history rewrite can also leave BEFORE
+          # unreachable from this checkout. Neither has a meaningful
+          # "newly pushed commits" range, so skip rather than false-
+          # positive on unrelated pre-existing history.
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE_SHA" 2>/dev/null; then
+            echo "No usable commit range for this push (new branch or rewritten history) -- skipping."
+            exit 0
+          fi
+
+          MISSING=0
+          for SHA in $(git rev-list "${BEFORE_SHA}..${AFTER_SHA}"); do
+            SUBJECT=$(git log -1 --format='%s' "$SHA")
+            # Same feat/fix/perf gate as job 1 (pr-trailer).
+            if ! printf '%s' "$SUBJECT" | grep -qE '^(feat|fix|perf)(\(|!|:)'; then
+              continue
+            fi
+            BODY=$(git log -1 --format='%b' "$SHA")
+            if ! printf '%s' "$BODY" | grep -qE '^Release-Note: \S'; then
+              echo "::warning::Commit ${SHA:0:9} ('${SUBJECT}') is feat/fix/perf but has no 'Release-Note:' trailer. Direct-pushed commits should carry one too, same as PR bodies (see .claude/CLAUDE.md Conventions and .github/release-notes/STYLE_GUIDE.md). It can still be added via 'git commit --amend' before anything else builds on top of this commit."
+              MISSING=$((MISSING + 1))
+            fi
+          done
+
+          if [ "$MISSING" -gt 0 ]; then
+            {
+              echo "### Release-Note trailer check (advisory)"
+              echo
+              echo "${MISSING} direct-pushed \`feat\`/\`fix\`/\`perf\` commit(s) in this push have no \`Release-Note:\` trailer. See the warnings above for which commits."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "All feat/fix/perf commits in this push carry a Release-Note trailer (or there were none)."
+          fi
+
+          # Advisory only -- a push already happened; never fail the job.
+          exit 0
+
+  # ------------------------------------------------------------------
+  # Job 4: content-lint every release-notes file touched by this PR
+  # (audit §4.3 point 3, closes leak L6 -- "curated files & splices are
+  # applied verbatim"). Runs independently of job 2's release-please
+  # branch filter, so it also covers prerelease backfills and retro
+  # scrubs staged on ordinary feature PRs (e.g. the alpha.30/.31 repair
+  # files, or a future v1.10.0-alpha.15-style scrub) that never touch a
+  # `release-please--` branch.
+  # ------------------------------------------------------------------
+  notes-file-lint:
+    name: Lint changed release-notes files
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      # fetch-depth: 0 -- the pull_request event checks out the PR's
+      # merge ref (two parents: base + head), and we need both endpoints
+      # reachable locally to diff exactly the files this PR changed.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Find changed release-notes files
+        id: changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          # STYLE_GUIDE.md / README.md are policy documents, not curated
+          # release notes -- they legitimately quote denylisted terms as
+          # examples of what NOT to write, so linting them would be all
+          # false positives. --diff-filter=d excludes deleted files (a
+          # notes file removed in this PR obviously can't be lint-opened).
+          FILES=$(git diff --name-only --diff-filter=d "${BASE_SHA}" "${HEAD_SHA}" -- '.github/release-notes/*.md' \
+            | grep -vE '/(STYLE_GUIDE|README)\.md$' || true)
+
+          {
+            echo "files<<GATE_EOF"
+            echo "$FILES"
+            echo "GATE_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Lint changed notes files
+        if: steps.changed.outputs.files != ''
+        env:
+          FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          set -euo pipefail
+
+          STATUS=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            echo "Linting: $f"
+            python3 scripts/release-notes/lint-notes.py "$f" || STATUS=1
+          done <<< "$FILES"
+
+          exit "$STATUS"
