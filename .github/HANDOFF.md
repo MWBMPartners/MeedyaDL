@@ -1,13 +1,51 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-08-11
-**Working branch:** _(none active)_ — `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted. `alpha` is at **1.13.0-alpha.45** post-merge (this handoff push cuts alpha.46). Historical working branch:  `claude/gamdl-v3-8-5-review-gs36zl` (2026-08-03 session; forked at `feat/alpha-consolidated` HEAD `dc47a43` — identical content, zero divergence — so it cleanly continues the ONE-branch / ONE-PR-to-`alpha` model; the single eventual PR to `alpha` must be cut from THIS branch, not `feat/alpha-consolidated`, to avoid stacking). Prior context: `feat/alpha-consolidated` = 30 commits on top of `alpha` @ `243e8a2a` (1.12.0-alpha.42), HEAD was `b5924ae5` before the 2026-07-27 remote feature-control commits — ONE branch, ONE eventual PR to `alpha`.
+**Last updated:** 2026-08-14
+**Working branch:** _(no feature branch active)_ — the 2026-08-12→14 arc was **channel-hardening + security**, landed **per-channel** (`main` / `alpha` / `beta` / `release-candidate`) via short-lived `claude/*` branches, each PR'd + merged to its target channel; none stacked. Open + monitored as of this push: **PR #1101** (`claude/realign-rc-release-guard` → `release-candidate` — rc self-trigger-guard refinement). **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.49** · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**. This handoff push lands directly on `alpha` and (by the channel's push-trigger design) cuts the next `alpha.N`.
 
-Read top-to-bottom before continuing. Supersedes the earlier 2026-07-10 handoff.
+**Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
+
+Read top-to-bottom before continuing. **This is the single canonical handoff.** Two stale dated duplicates (`.claude/memory/` + `.OpenAI/memory/project_session_handoff_2026_07_26.md`, alpha.38 era, byte-identical) were **removed in this push** to avoid confusion. Supersedes the earlier 2026-07-10 handoff.
 
 ---
 
-## ★★★ LATEST — Session 2026-08-09/11: multi-PM tool detection + Phase 2a/2b → MERGED to alpha (#1082, v1.13.0-alpha.45)
+## ★★★ LATEST — Session 2026-08-12/14: channel-hardening + security sweep (all four channels)
+
+**Focus:** close a batch of release-engineering and security gaps that spanned **every channel** (`main` / `alpha` / `beta` / `release-candidate`), not a single feature branch. Net result: **all four channels are now CI-enforced on PRs, `npm audit`–clean, and `clippy -D warnings`–clean**, and the release-candidate self-trigger loop is contained. Work landed per-channel via short-lived `claude/*` branches (each PR'd to its target). Model routing per maintainer convention (Fable 5 for deep audit, Opus main-loop for the security-sensitive CI/release edits).
+
+### 1. CodeQL `actions/untrusted-checkout` on the forward-port workflow — root-caused, not laundered (#1087)
+CodeQL alert **#23** flagged `forward-port-security.yml` for the `pull_request_target` + checkout pair. SHA-laundering could not clear it (the query keys on the trigger+checkout shape, not the SHA). **Fix (maintainer-approved restructure):** switched the trigger from `pull_request_target: types:[closed] branches:[main]` → **`push: branches:[main]`**, with a gate job that resolves the merged PR from the pushed SHA (`gh api "repos/$REPO/commits/$SHA/pulls" --jq 'map(select(.merged_at!=null)) | (.[0].number // empty)'`), filters `dependabot[bot]` on the push path (`REQUIRE_DEPENDABOT`), and reads metadata via `gh pr view`. Alert #23 cleared. History collapsed via squash-merge. **Synced to `alpha` as #1088.**
+
+### 2. extract-zip CVE-2026-56876 (GHSA-jmr9-qjv8-65gv) — fixed on all four channels
+High Dependabot alert: **extract-zip** (unmaintained since 2023, symlink path-traversal, CWE-22, CVSS 8.1, **no upstream patch**) pulled **transitively by `puppeteer`** (dev-only — screenshot/visual tests; never ships in the signed binary or Vite bundle). **Fix:** bump `devDependencies.puppeteer ^24.43.1 → ^25.6.0` — puppeteer 25.x dropped extract-zip in favour of `modern-tar`. Applied to **main / alpha / beta / release-candidate** (branches `claude/fix-extract-zip-*`); on beta/rc the declared range normalised to `^25.6.0` (npm resolved `^25.7.0`). Verified: `npm ls extract-zip` → not present post-bump.
+
+### 3. Dependency staleness audit — evidence-backed, no false alarms
+Full-tree audit (**1336 packages**, npm + cargo) via a multi-agent Ultracode workflow (triage → deep-dive → adversarial completeness critic) → **`.github/audits/dependency-staleness-2026-08.md`**. Verdict: **no "next extract-zip" lurking**; one monitor item (`lzma-sys`). Plus **3 hygiene tidy-ups** (notably `@testing-library/dom` moved `dependencies` → `devDependencies`, #1091). The audit's method: age alone ≠ risk; real risk = security-sensitive function **AND** genuine abandonment **AND** reachable-with-untrusted-input.
+
+### 4. CI coverage gap on beta / rc — PRs were running ZERO checks (#1099 beta, #1098 rc)
+`beta` and `release-candidate` carried a stale `ci.yml` that only triggered on `pull_request:[main]`, so **PRs targeting beta/rc ran no CI at all**. **Fix:** promoted `alpha`'s `ci.yml` (triggers on `[main, alpha, beta, release-candidate]`; carries the #823 Windows-pwsh hardening `npm ci --no-audit --no-fund --no-progress` + `shell: bash`, the macOS upstream-rustup step, and cargo-provenance verification) **and** `release-note-gate.yml` **+ the `scripts/release-notes/` directory it depends on** (initially missed on the first promotion → `python3: can't open '.../lint-notes.py'`; added in a follow-up commit).
+
+### 5. Pre-existing vuln + clippy debt exposed by enabling CI — remediated in #1099 / #1098
+Turning CI on surfaced **9 `npm audit` vulns per channel** + a `clippy -D warnings` lint on beta & rc (latent, never previously gated). Remediated: adopted main/alpha's `overrides` block (`basic-ftp`, `fast-uri`, `ip-address`, `js-yaml`, `nanoid`, `undici`) + `sharp`/`vite`/`postcss` bumps → `npm audit` **0**; clippy fix in `download_queue.rs` (`format!("URLs: {:?} …", &urls, …)` → `urls` — `useless_borrows_in_formatting`).
+
+### 6. rc `meedya-core` deploy failure — pinned to SHA, not a deleted branch (#1096)
+The rc release deploy failed because `src-tauri/Cargo.toml` pinned `meedya-core` + 3 sibling crates (`meedya-codecs`/`-fingerprint`/`-metadata`) to a **deleted** branch ref (`?branch=claude%2Finteresting-mirzakhani`). **Fix:** repin to the resolved SHA rev (`?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94`, byte-identical content, matches main/alpha/beta) — zero code change.
+
+### 7. release-candidate self-trigger runaway loop — CONTAINED (#1100, refined #1101)
+The old `github.actor`-based guard on `release-candidate-release.yml` **never matched** (the bump is pushed with `RELEASE_PAT`, attributing it to a human account), so each `chore(rc):` bump re-triggered the workflow → runaway **rc.22 → rc.34** in minutes. **Fix #1100:** commit-subject guard `!startsWith(head_commit.message, 'chore(rc): ')`. **Verified contained:** run #60 (the real merge) cut exactly one release; run #61 (`chore(rc): 1.0.0-rc.35`) **skipped**; 0 in-progress/queued after. **Refinement #1101 (this session, open + monitored):** brought the guard to full parity with alpha/beta — `!(startsWith('chore(rc): ') && contains('-rc.'))` — so a legitimate non-bump `chore(rc): …` commit still cuts a release (the PR #954 failure mode). Guard-only; three further rc-vs-alpha divergences in that workflow flagged as **optional follow-ups**: the safer Cargo.lock step (`cargo update --package meedyadl --precise`, #995) vs rc's `cargo generate-lockfile`, a rebase-on-conflict push-retry loop, and a copyright-header string.
+
+### 8. Handoff consolidation (this push)
+Removed the two stale dated duplicates (`.claude/memory/` + `.OpenAI/memory/project_session_handoff_2026_07_26.md`); **`.github/HANDOFF.md` is now the single canonical handoff.**
+
+### ⚠ OUTSTANDING — maintainer / permission-gated (Claude lacks `actions:write` + release-delete; got 403)
+- **Delete the junk `v1.0.0-rc.22` … `v1.0.0-rc.34` tags + releases** and cancel any lingering `release.yml` builds they spawned during the loop. `rc.35` is the one real current RC.
+- **Optional:** bring `release-candidate-release.yml` to **full** parity with alpha (items in §7 — `cargo update --precise`, rebase-retry loop) beyond the guard already refined in #1101.
+- **Optional:** audit that the cron channels carry a self-trigger guard — **note:** `nightly`/`weekly`/`monthly-release.yml` were **removed from `alpha`** (they live on `main` only), so this audit is `main`-scoped.
+- **Longer-horizon:** `main` is ~2,600 lines behind `alpha` on release/CI infra (lint.yml, release-note-gate, release-body-audit, upstream-engine-watch, refined guards, vuln overrides) — an eventual `alpha → main` promotion, not a channel hotfix.
+
+---
+
+## ★★ LATEST — Session 2026-08-09/11: multi-PM tool detection + Phase 2a/2b → MERGED to alpha (#1082, v1.13.0-alpha.45)
 
 **Focus:** the setup wizard showed external tools (FFmpeg, MP4Box, MediaInfo, …) as **missing** even when they were installed via Homebrew — the maintainer's own screenshot with `ffmpeg-full` present but shown red. Investigate the root cause and make detection work for Homebrew-installed (and, generally, system-package-manager-installed) components, minimising duplicate installs. Standing one-branch / no-PR-stacking rule applies — all commits land on `claude/gamdl-v3-8-5-review-gs36zl`; the single PR to `alpha` is cut later.
 
@@ -50,7 +88,7 @@ Landed (backend, main-loop Opus given the security-sensitive subprocess/elevatio
 
 ---
 
-## ★★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
+## ★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
 
 **Focus:** Forward-port the two outstanding Dependabot **security** fixes onto this alpha-bound branch, resolve GitHub's 8 dependency + 2 secret-scanning alerts, then a full GitHub-issues sweep + documentation/memory refresh. **No new PR** (no-stacking rule — the single PR to `alpha` is cut later from this branch). Model routing per maintainer: sequential **Fable 5** for deep analysis/planning, Sonnet/Haiku for implementation.
 
