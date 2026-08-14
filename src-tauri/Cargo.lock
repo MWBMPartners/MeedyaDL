@@ -3267,7 +3267,7 @@ dependencies = [
 [[package]]
 name = "meedya-codecs"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=claude%2Finteresting-mirzakhani#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
 dependencies = [
  "meedya-metadata",
  "serde",
@@ -3281,7 +3281,7 @@ dependencies = [
 [[package]]
 name = "meedya-core"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=claude%2Finteresting-mirzakhani#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
 dependencies = [
  "meedya-codecs",
  "meedya-fingerprint",
@@ -3291,7 +3291,7 @@ dependencies = [
 [[package]]
 name = "meedya-fingerprint"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=claude%2Finteresting-mirzakhani#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
 dependencies = [
  "reqwest 0.12.28",
  "rusty-chromaprint 0.2.0",
@@ -3311,7 +3311,7 @@ dependencies = [
 [[package]]
 name = "meedya-metadata"
 version = "0.1.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=claude%2Finteresting-mirzakhani#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=0a4654ff4db30d27fc0e29699f342a93ebc86d94#0a4654ff4db30d27fc0e29699f342a93ebc86d94"
 dependencies = [
  "async-trait",
  "fuzzy-matcher",
