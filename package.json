@@ -70,7 +70,7 @@
     "pngjs": "^7.0.0",
     "postcss": "^8.5.13",
     "prettier": "^3.8.3",
-    "puppeteer": "^24.42.0",
+    "puppeteer": "^25.6.0",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.2.2",
     "terser": "^5.46.2",
