@@ -37,7 +37,13 @@ jobs:
   rc:
     name: Build release-candidate tag
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    # Self-trigger guard: the version-bump commit is authored by
+    # github-actions[bot] but PUSHED with RELEASE_PAT, so github.actor is the
+    # PAT owner (a human), NOT github-actions[bot] — the old actor-based guard
+    # never matched and the workflow re-triggered itself on its own bump commit
+    # (chore(rc): X -> push -> run -> bump -> push -> ... runaway loop).
+    # Gate on the commit message instead, which the bot controls directly.
+    if: "${{ github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(rc): ') }}"
     steps:
       - name: Checkout release-candidate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
