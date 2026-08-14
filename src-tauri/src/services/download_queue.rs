@@ -5705,7 +5705,7 @@ pub fn process_queue(
             &download_id,
             &format!(
                 "URLs: {:?} | Codec: {} | Native priority: {}",
-                &urls,
+                urls,
                 primary_codec_for_companions,
                 download_options.song_codec_priority.is_some()
             ),
