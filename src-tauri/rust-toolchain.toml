@@ -1,0 +1,27 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Pinned Rust toolchain — the single source of truth for the Rust version that
+# CI and local builds use. rustup reads this file and applies it as an override
+# for every cargo/rustc command run under `src-tauri/`, so `cargo check`,
+# `cargo clippy -- -D warnings`, and `cargo test` are all evaluated by exactly
+# this toolchain — regardless of what `dtolnay/rust-toolchain@stable` happens to
+# install at the workflow level (that step just bootstraps rustup; this pin wins
+# at cargo-invocation time).
+#
+# Why pin: CI used to float to the newest stable (dtolnay `@stable`, no pin), so
+# a fresh stable release could redden unrelated PRs with newly-promoted clippy
+# lints even though nothing in our code changed — e.g. `clippy::needless_match`
+# was promoted in 1.98 and broke an alpha PR that only touched a JSON file.
+# Pinning turns a Rust upgrade into a deliberate, reviewable PR instead of a
+# surprise. The scheduled `.github/workflows/rust-toolchain-bump.yml` workflow
+# opens that PR automatically when a newer stable ships, so the pin never goes
+# stale — and its CI run reveals any new lints before the bump lands.
+#
+# To upgrade Rust: bump `channel` (the auto-bump workflow does this for you).
+# Keep `components` in sync with what CI needs — `clippy` for `-D warnings`,
+# `rustfmt` for formatting checks.
+[toolchain]
+channel = "1.98.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"
