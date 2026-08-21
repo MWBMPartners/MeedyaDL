@@ -8,6 +8,26 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(deps)** Bump h2 0.4.15 -> 0.4.18 (RUSTSEC-2026-0258)
+
+cargo-deny flagged RUSTSEC-2026-0258 (h2 "unbounded empty DATA frames" — Low
+  severity, patched in 0.4.16) against the pinned h2 0.4.15, failing the Backend
+  job's `cargo deny check advisories` on the ubuntu runner. h2 is transitive
+  (reqwest <- tauri). Lockfile-only bump to the latest compatible 0.4.18 via
+  `cargo update -p h2` (cargo re-locked only h2; git deps untouched). New advisory
+  from the RustSec DB during the drift window, unrelated to the brace-expansion
+  change; folded in to unblock this PR's Backend check.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.3 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.3] - 2026-08-14
+
+### 🐛 Bug Fixes
+
 - **(deps)** Bump puppeteer to 25.6.0 to resolve extract-zip symlink traversal (CVE-2026-56876) (#1089)
 
 ## Summary
@@ -121,7 +141,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.3 [skip ci]
 
 ### 🔄 CI/CD
 
