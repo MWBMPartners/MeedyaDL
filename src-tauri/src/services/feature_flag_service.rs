@@ -529,12 +529,12 @@ fn remote_config() -> Option<RemoteConfig> {
 /// simply not match a rule, which is the fail-open outcome we want.
 #[must_use]
 fn platform_wire_name() -> &'static str {
-    match std::env::consts::OS {
-        "macos" => "macos",
-        "windows" => "windows",
-        "linux" => "linux",
-        other => other,
-    }
+    // The former `match` enumerated the closed vocabulary explicitly, but
+    // every arm (including `other => other`) mapped the value to itself, so
+    // it was a pure identity — `std::env::consts::OS` already yields the raw,
+    // pass-through value the doc comment above describes. Collapsed to satisfy
+    // clippy::needless_match under `-D warnings` (Rust 1.98 toolchain).
+    std::env::consts::OS
 }
 
 /// Fetches and parses the flag payload.
