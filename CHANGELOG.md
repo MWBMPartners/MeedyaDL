@@ -23,6 +23,11 @@ cargo-deny flagged RUSTSEC-2026-0258 (h2 "unbounded empty DATA frames" — Low
 
 - **(security)** Update supported versions to 1.10.3 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(rust)** Pin toolchain to 1.98.0 + weekly auto-bump workflow (#1108)
 
 ## [1.10.3] - 2026-08-14
 
