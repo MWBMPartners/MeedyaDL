@@ -21,7 +21,22 @@
 # To upgrade Rust: bump `channel` (the auto-bump workflow does this for you).
 # Keep `components` in sync with what CI needs — `clippy` for `-D warnings`,
 # `rustfmt` for formatting checks.
+#
+# `targets` MUST list every cross-compile triple `release.yml` builds. Because
+# this pin resolves to the `1.98.0` toolchain — a rustup toolchain distinct
+# from the `stable` alias that release.yml's `dtolnay/rust-toolchain@stable`
+# step installs its `targets:` onto — cargo (which honours this pin) would
+# otherwise only have the host's `x86_64` std and the ARM release builds fail
+# with "Target … is not installed". The host triple installs automatically; the
+# non-host cross targets below must be declared here so rustup installs their
+# `rust-std` onto the pinned toolchain. Add a triple here whenever release.yml's
+# build matrix gains a new cross-compiled platform.
 [toolchain]
 channel = "1.98.0"
 components = ["clippy", "rustfmt"]
+targets = [
+  "aarch64-pc-windows-msvc",       # Windows ARM64 (cross-compiled from x64)
+  "aarch64-unknown-linux-gnu",     # Linux ARM64  (cross-compiled from x64)
+  "armv7-unknown-linux-gnueabihf", # Linux ARMv7  (cross-compiled from x64)
+]
 profile = "minimal"
