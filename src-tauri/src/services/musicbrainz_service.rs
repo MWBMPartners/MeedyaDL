@@ -25,16 +25,28 @@
 // - User-Agent: Required by MusicBrainz ToS (identifies the application)
 // - Format: JSON (`fmt=json`)
 //
+// ## Endpoint policy (post 2026-11-30 search upgrade)
+//
+// MusicBrainz's 2026-11-30 search-service upgrade (Solr 9 → 10) changes
+// the behaviour of `query=`-style SEARCH requests. This service therefore
+// uses only non-search LOOKUP/BROWSE endpoints:
+//
+// - ISRC:      `GET /ws/2/isrc/{isrc}?inc=…`      (the live production path)
+// - Recording: `GET /ws/2/recording/{mbid}?inc=…` (MBID lookup)
+// - URL:       `GET /ws/2/url?resource={url}&inc=…` (browse by exact resource;
+//              Tier 1 groundwork — not yet wired by any production caller)
+//
 // ## Lookup Chain
 //
-// ISRC code (from Apple Music API metadata) → MusicBrainz recording →
+// ISRC code (from Apple Music API metadata) → MusicBrainz recording(s) →
 // relationships → video recording → external URLs (Apple Music, YouTube)
 //
 // ## Integration
 //
 // Called from the enrichment pipeline (Step 6b) as a fallback when the
-// MusicKit-based music video lookup (Step 6) finds no videos. Also
-// stores discovered cross-platform URLs as metadata for future use.
+// MusicKit-based music video lookup (Step 6) finds no videos. Discovered
+// cross-platform URLs are currently logged for diagnostics; persisting
+// them as file metadata is planned follow-up work.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -63,6 +75,75 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// with the app's actual version as it moved through the 1.x line —
 /// exactly the stale-version ToS defect this alias fixes).
 const USER_AGENT: &str = crate::utils::http_client::APP_USER_AGENT;
+
+// ============================================================
+// Internal: Endpoint-Anomaly Classification + URL Encoding
+// ============================================================
+
+/// Builds the error string for an "endpoint answered, but wrongly"
+/// condition — a non-2xx status (other than a legitimate 404
+/// not-found) or an HTTP 200 whose body lacks the expected top-level
+/// shape. These are the two signatures of a server-side API change
+/// (e.g. the 2026-11-30 search-service upgrade) as opposed to an
+/// ordinary transport failure, so `lookup_videos_for_tracks_enhanced`
+/// surfaces the FIRST one per album as a non-verbose warning instead
+/// of letting a regression masquerade as "no music videos found".
+///
+/// Deliberately contains NO query string, NO ISRC, and NO looked-up
+/// URL — endpoint kind + status (+ a static shape note) only, per the
+/// credential-redaction norms for non-verbose log lines.
+fn endpoint_anomaly_error(endpoint_kind: &str, status: u16, detail: Option<&str>) -> String {
+    match detail {
+        Some(d) => format!("MusicBrainz {endpoint_kind} endpoint anomaly (HTTP {status}): {d}"),
+        None => format!("MusicBrainz {endpoint_kind} endpoint anomaly (HTTP {status})"),
+    }
+}
+
+/// True when an error string produced inside this module represents an
+/// endpoint anomaly (see [`endpoint_anomaly_error`]). Substring-based
+/// classifier in the house idiom of `process::is_io_error` — transport
+/// failures ("MusicBrainz API request failed: …") and JSON-parse
+/// failures deliberately do NOT match: they are ordinary network
+/// conditions, not API-change signals.
+fn is_endpoint_anomaly(error: &str) -> bool {
+    error.contains("endpoint anomaly (HTTP ")
+}
+
+/// Once-per-invocation guard for the anomaly warning. Pure so the
+/// at-most-once behaviour is unit-testable without an AppHandle.
+/// Returns `true` exactly when a warning should be emitted now, and
+/// flips the flag.
+fn should_emit_endpoint_warning(error: &str, already_emitted: &mut bool) -> bool {
+    if is_endpoint_anomaly(error) && !*already_emitted {
+        *already_emitted = true;
+        true
+    } else {
+        false
+    }
+}
+
+/// Minimal RFC 3986 §2.3 component encoder — everything that is not
+/// unreserved (`A–Z a–z 0–9 - _ . ~`) is percent-encoded. Used to embed
+/// a full URL into the `?resource=` query parameter of the MB URL
+/// browse endpoint. Mirrors `best_cover_art_service::urlencode` (kept
+/// private there); avoids pulling in an extra crate for one call site.
+/// Closes the old hand-rolled-encoder gap where only `:` and `/` were
+/// encoded and a `?i=…`/`&`/`#` in an Apple Music URL corrupted the
+/// request.
+fn percent_encode_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char);
+            }
+            _ => {
+                out.push_str(&format!("%{b:02X}"));
+            }
+        }
+    }
+    out
+}
 
 // ============================================================
 // Public Types
@@ -108,25 +189,33 @@ pub struct MusicVideoUrl {
 
 /// Look up a MusicBrainz recording by ISRC code.
 ///
-/// Queries the MusicBrainz API for recordings matching the given ISRC,
-/// including URL relationships for discovering platform links and
-/// music videos.
+/// Uses the dedicated non-search ISRC lookup endpoint
+/// (`GET /ws/2/isrc/{isrc}`) — NOT the `query=isrc:` recording search,
+/// which is affected by MusicBrainz's 2026-11-30 search-service
+/// upgrade. The `inc=` parameters inline URL/recording relationships
+/// and artist credits into each returned recording, so one request
+/// yields the fully-populated result the old search + detail-lookup
+/// pair needed two requests for.
 ///
 /// # Arguments
 /// * `isrc` - International Standard Recording Code (e.g., "USUG12345678")
 ///
 /// # Returns
-/// The first matching recording with its relationships, or `None` if
-/// no recording matches the ISRC.
+/// The first recording bearing the ISRC, with its relationships, or
+/// `None` if MusicBrainz has no recording for it (HTTP 404, or an
+/// empty `recordings` array).
 pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRecording>, String> {
     if isrc.is_empty() {
         return Ok(None);
     }
 
-    // Build the MusicBrainz API query URL.
-    // The `isrc` query searches for recordings with a specific ISRC code.
-    // `inc=url-rels` includes URL relationships (streaming links, video links).
-    let url = format!("{MB_API_BASE}/recording?query=isrc:{isrc}&fmt=json&limit=1");
+    // Non-search ISRC lookup. All recordings in the response bear this
+    // exact ISRC, so "first element" ≈ "any correct match" — the same
+    // first-element behaviour the old search path had (scores were
+    // never inspected; the lookup endpoint has none to inspect).
+    let url = format!(
+        "{MB_API_BASE}/isrc/{isrc}?inc=url-rels+recording-rels+artist-credits&fmt=json"
+    );
 
     log::debug!("MusicBrainz: looking up ISRC {isrc}");
 
@@ -136,7 +225,6 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
             .user_agent(USER_AGENT),
     )?;
 
-    // Make the API request
     let response = client
         .get(&url)
         .header("Accept", "application/json")
@@ -144,11 +232,19 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
         .await
         .map_err(|e| format!("MusicBrainz API request failed: {e}"))?;
 
+    let status = response.status().as_u16();
+
+    // 404 is the endpoint's legitimate "this ISRC is not in the
+    // database" answer (lookup semantics — unlike the old search,
+    // which answered 200 + empty array). Quiet no-match, NOT an
+    // anomaly.
+    if status == 404 {
+        log::debug!("MusicBrainz: no recording found for ISRC {isrc} (404)");
+        return Ok(None);
+    }
+
     if !response.status().is_success() {
-        let status = response.status().as_u16();
-        return Err(format!(
-            "MusicBrainz API returned HTTP {status} for ISRC {isrc}"
-        ));
+        return Err(endpoint_anomaly_error("isrc", status, None));
     }
 
     let json: serde_json::Value = response
@@ -156,23 +252,51 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
         .await
         .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
 
-    // Parse the first recording from the search results
-    let recording = json
-        .get("recordings")
-        .and_then(|r| r.as_array())
-        .and_then(|arr| arr.first());
+    extract_recording_from_isrc_response(&json)
+}
 
-    let Some(rec) = recording else {
-        log::debug!("MusicBrainz: no recording found for ISRC {isrc}");
+/// Pure extraction half of [`lookup_recording_by_isrc`] — parses the
+/// `/ws/2/isrc/{isrc}` response body. Split out so the parse logic is
+/// unit-testable from inline JSON fixtures without a live client
+/// (house pattern; cf. `extract_syllable_ttml_from_response`).
+///
+/// Expected shape (HTTP 200):
+/// `{"isrc": "…", "recordings": [ { "id", "title", "artist-credit",
+/// "relations", … } ]}` — relations and artist-credit inlined per
+/// recording because of the `inc=` parameters.
+///
+/// - `recordings` present but empty → `Ok(None)` (legitimate no-match).
+/// - `recordings` missing or not an array → endpoint-anomaly `Err`
+///   (a 200 that doesn't look like the documented response is the
+///   signature of a server-side API change, and must be
+///   distinguishable from a legitimate empty result).
+fn extract_recording_from_isrc_response(
+    json: &serde_json::Value,
+) -> Result<Option<MusicBrainzRecording>, String> {
+    let Some(recordings) = json.get("recordings").and_then(|r| r.as_array()) else {
+        return Err(endpoint_anomaly_error(
+            "isrc",
+            200,
+            Some("response body is missing the expected 'recordings' array"),
+        ));
+    };
+
+    let Some(rec) = recordings.first() else {
+        log::debug!("MusicBrainz: ISRC known but has no recordings attached");
         return Ok(None);
     };
 
-    // Extract basic recording metadata
     let recording_id = rec
         .get("id")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+
+    if recording_id.is_empty() {
+        // A recording object with no usable MBID — treat as no-match
+        // (mirrors the old extract_first_recording_from_search guard).
+        return Ok(None);
+    }
 
     let title = rec
         .get("title")
@@ -188,51 +312,16 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
         .and_then(|v| v.as_str())
         .map(String::from);
 
+    // Relations are inlined on the recording object itself (that is
+    // what the inc= parameters buy us) — parse them with the shared
+    // helper, exactly as the old detail-lookup response was parsed.
+    let (external_urls, video_urls) = parse_recording_relations(rec);
+
     log::debug!(
-        "MusicBrainz: found recording {} — \"{}\" by {}",
+        "MusicBrainz: found recording {} — \"{}\" by {} ({} external URL(s), {} video URL(s))",
         recording_id,
         title,
-        artist.as_deref().unwrap_or("unknown")
-    );
-
-    // Now fetch the full recording with URL relationships
-    // The search endpoint doesn't include relationships, so we need a
-    // separate lookup by recording ID with inc=url-rels
-    let detail_url =
-        format!("{MB_API_BASE}/recording/{recording_id}?inc=url-rels+recording-rels&fmt=json");
-
-    // Rate limit: wait before the detail request
-    tokio::time::sleep(RATE_LIMIT_DELAY).await;
-
-    let detail_response = client
-        .get(&detail_url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("MusicBrainz detail request failed: {e}"))?;
-
-    if !detail_response.status().is_success() {
-        // Return basic recording without relationships
-        return Ok(Some(MusicBrainzRecording {
-            recording_id,
-            title,
-            artist,
-            external_urls: HashMap::new(),
-            video_urls: Vec::new(),
-        }));
-    }
-
-    let detail_json: serde_json::Value = detail_response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse MusicBrainz detail response: {e}"))?;
-
-    // Parse relationships using the shared helper function
-    let (external_urls, video_urls) = parse_recording_relations(&detail_json);
-
-    log::debug!(
-        "MusicBrainz: recording {} has {} external URL(s), {} video URL(s)",
-        recording_id,
+        artist.as_deref().unwrap_or("unknown"),
         external_urls.len(),
         video_urls.len()
     );
@@ -306,11 +395,15 @@ pub async fn lookup_videos_for_tracks_enhanced(
     download_id: &str,
     tracks: &[TrackLookupInfo],
 ) -> Result<Vec<MusicVideoUrl>, String> {
-    use crate::utils::activity_log::{emit_download_log, emit_verbose_download_log};
+    use crate::utils::activity_log::{emit_download_log, emit_download_warn, emit_verbose_download_log};
 
     let mut all_videos = Vec::new();
     let mut seen_urls = std::collections::HashSet::new();
     let mut request_count = 0;
+    // At most ONE non-verbose endpoint-anomaly warning per invocation
+    // (== per album — this fn is called once per album by the Step 6b
+    // lookup task). Everything else stays verbose-only.
+    let mut endpoint_warning_emitted = false;
 
     for track in tracks {
         let mut found = false;
@@ -363,6 +456,17 @@ pub async fn lookup_videos_for_tracks_enhanced(
                         download_id,
                         &format!("MusicBrainz: Tier 1 — URL lookup failed: {e}"),
                     );
+                    if should_emit_endpoint_warning(&e, &mut endpoint_warning_emitted) {
+                        emit_download_warn(
+                            app,
+                            download_id,
+                            &format!(
+                                "MusicBrainz: unexpected API response — {e}. \
+                                 Music-video discovery may be incomplete for this album; \
+                                 the download itself is not affected."
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -414,6 +518,17 @@ pub async fn lookup_videos_for_tracks_enhanced(
                             download_id,
                             &format!("MusicBrainz: Tier 2 — ISRC lookup failed: {e}"),
                         );
+                        if should_emit_endpoint_warning(&e, &mut endpoint_warning_emitted) {
+                            emit_download_warn(
+                                app,
+                                download_id,
+                                &format!(
+                                    "MusicBrainz: unexpected API response — {e}. \
+                                     Music-video discovery may be incomplete for this album; \
+                                     the download itself is not affected."
+                                ),
+                            );
+                        }
                     }
                 }
             }
@@ -465,6 +580,17 @@ pub async fn lookup_videos_for_tracks_enhanced(
                             download_id,
                             &format!("MusicBrainz: Tier 3 — ID lookup failed: {e}"),
                         );
+                        if should_emit_endpoint_warning(&e, &mut endpoint_warning_emitted) {
+                            emit_download_warn(
+                                app,
+                                download_id,
+                                &format!(
+                                    "MusicBrainz: unexpected API response — {e}. \
+                                     Music-video discovery may be incomplete for this album; \
+                                     the download itself is not affected."
+                                ),
+                            );
+                        }
                     }
                 }
             }
@@ -474,18 +600,29 @@ pub async fn lookup_videos_for_tracks_enhanced(
     Ok(all_videos)
 }
 
-/// Look up a MusicBrainz recording by searching for an external URL.
+/// Look up a MusicBrainz recording via the URL entity that carries the
+/// given resource.
 ///
-/// Searches MusicBrainz for recordings that have the given URL as an
-/// external link (e.g., an Apple Music song URL). This is the most
-/// direct discovery path — if a MusicBrainz record has this exact URL
-/// as an external link, the match is highly reliable.
+/// Uses the non-search URL browse endpoint
+/// (`GET /ws/2/url?resource={url}&inc=recording-rels`) — NOT the old
+/// `query=url:` recording search, which (a) is affected by the
+/// 2026-11-30 search-service upgrade, and (b) could never have worked
+/// well for recordings anyway: recording–URL relationships were not
+/// indexed by the search server at all before that upgrade
+/// (SEARCH-452). The browse endpoint reads the database directly, so
+/// it sees every recording–URL relationship today.
 ///
-/// # Arguments
-/// * `external_url` - The URL to search for (e.g., Apple Music song URL)
+/// #807 storefront-independence: the browse endpoint is EXACT-match on
+/// the stored resource — the old leading-wildcard Lucene glob has no
+/// browse equivalent. As a bounded substitute, when the exact user URL
+/// misses we retry once with the storefront-less canonical form
+/// (`https://music.apple.com/{type}/{id}`). Storefronted permutations
+/// other than the user's own are not probed; if Tier 1 is ever wired
+/// for real, extending the candidate list (e.g. `/us/…`) is the place
+/// to do it.
 ///
-/// # Returns
-/// The matching recording with relationships, or `None` if not found.
+/// Currently LATENT: no production caller populates
+/// `TrackLookupInfo.apple_music_url` — this is groundwork hardening.
 pub async fn lookup_recording_by_url(
     external_url: &str,
 ) -> Result<Option<MusicBrainzRecording>, String> {
@@ -493,151 +630,175 @@ pub async fn lookup_recording_by_url(
         return Ok(None);
     }
 
-    // #807: try the user's exact URL first, then fall back to the
-    // storefront-independent canonical form. MusicBrainz indexes
-    // URLs as-stored, so an MB record with `/us/album/123` won't
-    // match a Lucene query for `/gb/album/super-slug/123`. The
-    // canonical fallback issues a second query with a wildcard
-    // glob (`*album/123`) that matches every storefront-and-slug
-    // permutation MB might have indexed.
-    let exact_hit = try_lookup_recording_by_url_exact(external_url).await?;
-    if exact_hit.is_some() {
-        return Ok(exact_hit);
+    // Candidate resources, tried in order: the user's exact URL, then
+    // the storefront-and-slug-less canonical form (skipped when it
+    // would repeat the exact URL).
+    let mut candidates: Vec<String> = vec![external_url.to_string()];
+    if let Some(canonical) = super::apple_music_api::canonicalise_apple_music_url(external_url) {
+        // canonicalise returns scheme-less "music.apple.com/{type}/{id}";
+        // MB stores full URLs, so re-add the scheme.
+        let canonical_resource = format!("https://{canonical}");
+        if canonical_resource != external_url {
+            log::debug!(
+                "MusicBrainz: will fall back to canonical resource form if the exact URL misses (#807)"
+            );
+            candidates.push(canonical_resource);
+        }
     }
 
-    if let Some(canonical) =
-        super::apple_music_api::canonicalise_apple_music_url(external_url)
+    let mut recording_id: Option<String> = None;
+    for (i, resource) in candidates.iter().enumerate() {
+        if i > 0 {
+            // Rate limit between consecutive browse attempts.
+            tokio::time::sleep(RATE_LIMIT_DELAY).await;
+        }
+        if let Some(mbid) = browse_recording_id_by_resource(resource).await? {
+            recording_id = Some(mbid);
+            break;
+        }
+    }
+
+    let Some(mbid) = recording_id else {
+        return Ok(None);
+    };
+
+    // Rate limit before the follow-up recording lookup.
+    tokio::time::sleep(RATE_LIMIT_DELAY).await;
+    lookup_recording_by_id(&mbid).await
+}
+
+/// Browse the MB `url` entity for an exact resource and return the
+/// MBID of the first related recording, if any.
+///
+/// Endpoint: `GET /ws/2/url?resource={percent-encoded url}&inc=recording-rels&fmt=json`.
+/// The resource value is fully percent-encoded (RFC 3986 component
+/// rules) — the old hand-rolled encoder only covered `:` and `/`,
+/// so a `?i=…` query, `&`, `=` or `#` in an Apple Music URL corrupted
+/// the request.
+async fn browse_recording_id_by_resource(resource: &str) -> Result<Option<String>, String> {
+    let url = format!(
+        "{MB_API_BASE}/url?resource={}&inc=recording-rels&fmt=json",
+        percent_encode_component(resource)
+    );
+
+    log::debug!("MusicBrainz: browsing url entity by resource");
+
+    let client = crate::utils::http_client::build_client(
+        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
+            .user_agent(USER_AGENT),
+    )?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("MusicBrainz URL browse request failed: {e}"))?;
+
+    let status = response.status().as_u16();
+
+    // 404 = "no url entity stored for this resource" — the endpoint's
+    // legitimate miss answer. Quiet, not an anomaly.
+    if status == 404 {
+        return Ok(None);
+    }
+
+    if !response.status().is_success() {
+        return Err(endpoint_anomaly_error("url-browse", status, None));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
+
+    extract_recording_id_from_url_browse(&json)
+}
+
+/// Pure extraction half of [`browse_recording_id_by_resource`] —
+/// parses a `/ws/2/url?resource=…` response body and returns the MBID
+/// of the first related recording.
+///
+/// Handles BOTH documented response shapes defensively:
+/// - single-entity shape (one `resource` param): the url entity at the
+///   root — `{"id": …, "resource": …, "relations": […]}`;
+/// - browse-list shape: `{"urls": [ {…url entity…} ], "url-count": n}`
+///   → the first entity is used.
+///
+/// Relation scanning prefers the canonical `target-type` marker and
+/// the entity object named by it (`relation["recording"]["id"]`), and
+/// merely tolerates the legacy scalar `target` (SEARCH-752) as an MBID
+/// fallback.
+///
+/// - Recognised shape but no recording relation → `Ok(None)`.
+/// - A 200 body with none of `relations` / `urls` / `id` at the root →
+///   endpoint-anomaly `Err` (shape mismatch, distinct from a
+///   legitimate empty result).
+fn extract_recording_id_from_url_browse(
+    json: &serde_json::Value,
+) -> Result<Option<String>, String> {
+    // Resolve which JSON object is the url entity.
+    let entity: &serde_json::Value = if json.get("relations").is_some() || json.get("id").is_some()
     {
-        log::debug!(
-            "MusicBrainz: exact-URL lookup missed, falling back to canonical-form glob (#807)"
-        );
-        // The canonical form is `music.apple.com/{type}/{id}`. MB's
-        // Lucene query syntax supports wildcards on URL fields, so
-        // we glob the storefront + slug segments by searching for
-        // the tail. Search shape: `url:*{type}/{id}` — matches
-        // every MB external_url that ends in `{type}/{id}`
-        // regardless of storefront / slug.
-        // Strip `music.apple.com/` prefix to get just the
-        // type+ID portion that we want to anchor.
-        if let Some(tail) = canonical.strip_prefix("music.apple.com/") {
-            return try_lookup_recording_by_url_glob(tail).await;
+        // Single-entity shape.
+        json
+    } else if let Some(urls) = json.get("urls").and_then(|u| u.as_array()) {
+        // Browse-list shape.
+        match urls.first() {
+            Some(first) => first,
+            None => return Ok(None), // empty list = legitimate miss
+        }
+    } else {
+        return Err(endpoint_anomaly_error(
+            "url-browse",
+            200,
+            Some("response body has none of the expected 'relations', 'urls', or 'id' keys"),
+        ));
+    };
+
+    let Some(relations) = entity.get("relations").and_then(|r| r.as_array()) else {
+        // Entity found but no relations included/present — a miss,
+        // not an anomaly.
+        return Ok(None);
+    };
+
+    for rel in relations {
+        let target_type = rel
+            .get("target-type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        // Prefer the canonical shape: target-type names the entity
+        // object to read. Tolerate a missing target-type by falling
+        // back to the presence of the `recording` object itself.
+        let is_recording_rel =
+            target_type == "recording" || (target_type.is_empty() && rel.get("recording").is_some());
+        if !is_recording_rel {
+            continue;
+        }
+
+        if let Some(id) = rel
+            .get("recording")
+            .and_then(|r| r.get("id"))
+            .and_then(|v| v.as_str())
+        {
+            if !id.is_empty() {
+                return Ok(Some(id.to_string()));
+            }
+        }
+
+        // Legacy tolerance (SEARCH-752): older output carried the
+        // target entity's MBID in a scalar `target`. Only trust it
+        // when it does NOT look like a URL (a url-rel's target is the
+        // URL string itself).
+        if let Some(t) = rel.get("target").and_then(|v| v.as_str()) {
+            if !t.is_empty() && !t.starts_with("http") {
+                return Ok(Some(t.to_string()));
+            }
         }
     }
 
     Ok(None)
-}
-
-/// Issue the exact-string MB Lucene query for the given URL.
-/// Internal helper for `lookup_recording_by_url`; the canonical
-/// fallback path lives in `try_lookup_recording_by_url_glob`.
-async fn try_lookup_recording_by_url_exact(
-    external_url: &str,
-) -> Result<Option<MusicBrainzRecording>, String> {
-    // URL-encode the search URL for the MusicBrainz query
-    let encoded_url = external_url.replace(':', "%3A").replace('/', "%2F");
-    let url = format!("{MB_API_BASE}/recording?query=url:%22{encoded_url}%22&fmt=json&limit=1");
-
-    log::debug!("MusicBrainz: searching for recording by exact URL");
-
-    let client = crate::utils::http_client::build_client(
-        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
-            .user_agent(USER_AGENT),
-    )?;
-
-    let response = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("MusicBrainz URL search failed: {e}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "MusicBrainz API returned HTTP {}",
-            response.status().as_u16()
-        ));
-    }
-
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
-
-    extract_first_recording_from_search(&json).await
-}
-
-/// Wildcard-glob fallback (#807) — issues an MB Lucene query that
-/// matches the canonical `type/id` tail regardless of storefront
-/// or slug. Used when the exact-URL lookup misses because the
-/// user's URL carries `/gb/.../super-slug/` and MB's stored URL
-/// carries `/us/.../`.
-async fn try_lookup_recording_by_url_glob(
-    canonical_tail: &str,
-) -> Result<Option<MusicBrainzRecording>, String> {
-    // Encode the tail (path-separator + colon-safe) for inclusion
-    // in MB's Lucene query string. We deliberately do NOT wrap the
-    // value in quotes — quoted searches are exact match in Lucene.
-    // Wildcards anchor the suffix.
-    let encoded_tail = canonical_tail.replace('/', "%2F");
-    let url = format!(
-        "{MB_API_BASE}/recording?query=url:*{encoded_tail}&fmt=json&limit=1"
-    );
-
-    let client = crate::utils::http_client::build_client(
-        crate::utils::http_client::ClientConfig::with_timeout(REQUEST_TIMEOUT.as_secs())
-            .user_agent(USER_AGENT),
-    )?;
-
-    let response = client
-        .get(&url)
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| format!("MusicBrainz URL glob search failed: {e}"))?;
-
-    if !response.status().is_success() {
-        return Err(format!(
-            "MusicBrainz API returned HTTP {} on glob fallback",
-            response.status().as_u16()
-        ));
-    }
-
-    let json: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse MusicBrainz response: {e}"))?;
-
-    extract_first_recording_from_search(&json).await
-}
-
-/// Shared post-search step: pull the first recording's ID from
-/// the search JSON and fetch the full recording with relationships.
-async fn extract_first_recording_from_search(
-    json: &serde_json::Value,
-) -> Result<Option<MusicBrainzRecording>, String> {
-    // Get the first matching recording
-    let recording = json
-        .get("recordings")
-        .and_then(|r| r.as_array())
-        .and_then(|arr| arr.first());
-
-    let Some(rec) = recording else {
-        return Ok(None);
-    };
-
-    let recording_id = rec
-        .get("id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    if recording_id.is_empty() {
-        return Ok(None);
-    }
-
-    // Fetch full recording with relationships
-    tokio::time::sleep(RATE_LIMIT_DELAY).await;
-    lookup_recording_by_id(&recording_id).await
 }
 
 /// Get all discovered external URLs for a batch of tracks.
@@ -652,16 +813,19 @@ pub async fn lookup_external_urls_for_tracks(
     tracks: &[(String, Option<String>)],
 ) -> Result<HashMap<String, HashMap<String, String>>, String> {
     let mut results = HashMap::new();
+    let mut attempted = false;
 
     for (song_id, isrc) in tracks {
         let Some(isrc) = isrc else {
             continue;
         };
 
-        // Rate limit between requests
-        if !results.is_empty() {
+        // Rate limit between requests — keyed on prior ATTEMPTS, not
+        // prior HITS: consecutive misses must be paced too.
+        if attempted {
             tokio::time::sleep(RATE_LIMIT_DELAY).await;
         }
+        attempted = true;
 
         match lookup_recording_by_isrc(isrc).await {
             Ok(Some(recording)) if !recording.external_urls.is_empty() => {
@@ -710,11 +874,17 @@ pub async fn lookup_recording_by_id(
         .await
         .map_err(|e| format!("MusicBrainz API request failed: {e}"))?;
 
+    let status = response.status().as_u16();
+
+    // 404 = recording deleted or merged away — a legitimate miss for
+    // an MBID that may have come from stale AcoustID data.
+    if status == 404 {
+        log::debug!("MusicBrainz: recording {recording_id} not found (404)");
+        return Ok(None);
+    }
+
     if !response.status().is_success() {
-        let status = response.status().as_u16();
-        return Err(format!(
-            "MusicBrainz API returned HTTP {status} for recording {recording_id}"
-        ));
+        return Err(endpoint_anomaly_error("recording", status, None));
     }
 
     let json: serde_json::Value = response
@@ -815,31 +985,50 @@ fn parse_recording_relations(
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
 
-            // URL relationships — streaming/download links
-            if target_type == "url" {
-                if let Some(url_resource) = rel.get("url") {
-                    let resource_url = url_resource
-                        .get("resource")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+            // URL relationships — streaming/download links.
+            // Prefer the canonical `target-type` marker; when absent
+            // (pre-SEARCH-751/753 output lacked it on some entities)
+            // fall back to the presence of the `url` entity object.
+            let is_url_rel =
+                target_type == "url" || (target_type.is_empty() && rel.get("url").is_some());
+            if is_url_rel {
+                let mut resource_url = rel
+                    .get("url")
+                    .and_then(|u| u.get("resource"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
-                    if let Some((platform, clean_url)) = classify_url(resource_url) {
-                        external_urls.insert(platform.to_string(), clean_url.to_string());
-
-                        if resource_url.contains("music-video") || resource_url.contains("/video/")
-                        {
-                            video_urls.push(MusicVideoUrl {
-                                platform: platform.to_string(),
-                                url: clean_url.to_string(),
-                                title: Some(title.clone()),
-                            });
+                // Legacy tolerance (SEARCH-752): older search output
+                // carried the relation target in a scalar `target`.
+                // For url-rels that scalar is the URL string itself —
+                // only trust it when it actually looks like one.
+                if resource_url.is_empty() {
+                    if let Some(t) = rel.get("target").and_then(|v| v.as_str()) {
+                        if t.starts_with("http://") || t.starts_with("https://") {
+                            resource_url = t;
                         }
+                    }
+                }
+
+                if let Some((platform, clean_url)) = classify_url(resource_url) {
+                    external_urls.insert(platform.to_string(), clean_url.to_string());
+
+                    if resource_url.contains("music-video") || resource_url.contains("/video/")
+                    {
+                        video_urls.push(MusicVideoUrl {
+                            platform: platform.to_string(),
+                            url: clean_url.to_string(),
+                            title: Some(title.clone()),
+                        });
                     }
                 }
             }
 
-            // Recording-recording relationships — linked performances
-            if target_type == "recording" && rel_type == "performance" {
+            // Recording-recording relationships — linked performances.
+            // Same target-type-preferred / entity-object-fallback rule.
+            let is_recording_rel = target_type == "recording"
+                || (target_type.is_empty() && rel.get("recording").is_some());
+            if is_recording_rel && rel_type == "performance" {
                 if let Some(target_rec) = rel.get("recording") {
                     let video_title = target_rec
                         .get("title")
@@ -1126,5 +1315,329 @@ mod tests {
         let (urls, videos) = parse_recording_relations(&json);
         assert!(urls.is_empty());
         assert!(videos.is_empty());
+    }
+
+    // ----------------------------------------------------------
+    // ISRC endpoint (Decision A) — extract_recording_from_isrc_response
+    // ----------------------------------------------------------
+
+    fn isrc_fixture() -> serde_json::Value {
+        serde_json::json!({
+            "isrc": "USUG12345678",
+            "recordings": [
+                {
+                    "id": "5aa053a9-5b84-418f-bb3c-d61df67b3880",
+                    "title": "Test Song",
+                    "artist-credit": [ { "name": "Test Artist" } ],
+                    "relations": [
+                        {
+                            "type": "streaming",
+                            "target-type": "url",
+                            "url": { "resource": "https://music.apple.com/gb/music-video/test/291812351" }
+                        },
+                        {
+                            "type": "streaming",
+                            "target-type": "url",
+                            "url": { "resource": "https://open.spotify.com/track/abc123" }
+                        }
+                    ]
+                },
+                {
+                    "id": "ffffffff-0000-0000-0000-000000000000",
+                    "title": "Second Recording Same ISRC",
+                    "artist-credit": [ { "name": "Other Artist" } ],
+                    "relations": []
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn isrc_endpoint_response_extracts_recording_and_urls() {
+        let result = extract_recording_from_isrc_response(&isrc_fixture());
+        let rec = result.unwrap().unwrap();
+        assert_eq!(rec.recording_id, "5aa053a9-5b84-418f-bb3c-d61df67b3880");
+        assert_eq!(rec.title, "Test Song");
+        assert_eq!(rec.artist.as_deref(), Some("Test Artist"));
+        assert_eq!(rec.external_urls.len(), 2);
+        assert!(rec.external_urls.contains_key("apple_music"));
+        assert!(rec.external_urls.contains_key("spotify"));
+        assert_eq!(rec.video_urls.len(), 1);
+        assert_eq!(rec.video_urls[0].platform, "apple_music");
+        assert_eq!(rec.video_urls[0].title.as_deref(), Some("Test Song"));
+    }
+
+    #[test]
+    fn isrc_endpoint_takes_first_recording() {
+        let result = extract_recording_from_isrc_response(&isrc_fixture());
+        let rec = result.unwrap().unwrap();
+        assert_ne!(rec.recording_id, "ffffffff-0000-0000-0000-000000000000");
+        assert_eq!(rec.recording_id, "5aa053a9-5b84-418f-bb3c-d61df67b3880");
+    }
+
+    #[test]
+    fn isrc_endpoint_empty_recordings_returns_none_quietly() {
+        let json = serde_json::json!({"isrc": "GBAAA0000001", "recordings": []});
+        let result = extract_recording_from_isrc_response(&json);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn isrc_endpoint_recording_without_id_returns_none() {
+        let json = serde_json::json!({
+            "isrc": "GBAAA0000001",
+            "recordings": [ { "title": "No Id Here" } ]
+        });
+        let result = extract_recording_from_isrc_response(&json);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn isrc_endpoint_missing_recordings_key_is_anomaly() {
+        let json = serde_json::json!({"error": "something else entirely"});
+        let result = extract_recording_from_isrc_response(&json);
+        let e = result.unwrap_err();
+        assert!(is_endpoint_anomaly(&e));
+        assert!(e.contains("isrc"));
+        assert!(e.contains("HTTP 200"));
+        assert!(e.contains("recordings"));
+    }
+
+    // ----------------------------------------------------------
+    // parse_recording_relations hardening (SEARCH-752/751/753)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parse_relations_missing_target_type_falls_back_to_entity_object() {
+        let json = serde_json::json!({
+            "title": "Shape Shift",
+            "relations": [
+                { "type": "streaming", "url": { "resource": "https://music.apple.com/gb/music-video/x/999" } }
+            ]
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        assert_eq!(urls.len(), 1);
+        assert!(urls.contains_key("apple_music"));
+        assert_eq!(videos.len(), 1);
+    }
+
+    #[test]
+    fn parse_relations_tolerates_legacy_target_scalar() {
+        let json = serde_json::json!({
+            "title": "Legacy Shape",
+            "relations": [
+                { "type": "streaming", "target-type": "url",
+                  "target": "https://music.apple.com/gb/music-video/y/123" },
+                { "type": "streaming", "target-type": "url",
+                  "target": "0f0f0f0f-1111-2222-3333-444444444444" }
+            ]
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        assert_eq!(urls.len(), 1);
+        assert_eq!(videos.len(), 1);
+    }
+
+    #[test]
+    fn parse_relations_prefers_entity_object_over_legacy_target() {
+        let json = serde_json::json!({
+            "title": "Prefer Entity",
+            "relations": [
+                {
+                    "type": "streaming",
+                    "target-type": "url",
+                    "url": { "resource": "https://tidal.com/browse/track/1" },
+                    "target": "https://open.spotify.com/track/zzz"
+                }
+            ]
+        });
+
+        let (urls, _videos) = parse_recording_relations(&json);
+        assert!(urls.contains_key("tidal"));
+        assert!(!urls.contains_key("spotify"));
+    }
+
+    #[test]
+    fn parse_relations_video_classification_unchanged() {
+        let json = serde_json::json!({
+            "title": "Multi",
+            "relations": [
+                { "type": "streaming", "target-type": "url",
+                  "url": { "resource": "https://music.apple.com/gb/music-video/test/1" } },
+                { "type": "streaming", "target-type": "url",
+                  "url": { "resource": "https://www.youtube.com/video/abc" } },
+                { "type": "streaming", "target-type": "url",
+                  "url": { "resource": "https://music.apple.com/gb/album/test/2" } }
+            ]
+        });
+
+        let (urls, videos) = parse_recording_relations(&json);
+        // The two apple_music URLs collide on the same map key (HashMap
+        // insert overwrites), so only 2 distinct platform keys survive.
+        assert_eq!(urls.len(), 2);
+        assert!(urls.contains_key("apple_music"));
+        assert!(urls.contains_key("youtube"));
+        assert_eq!(videos.len(), 2);
+    }
+
+    // ----------------------------------------------------------
+    // URL browse endpoint (Decision B) — extract_recording_id_from_url_browse
+    // ----------------------------------------------------------
+
+    #[test]
+    fn url_browse_single_entity_shape_yields_recording_id() {
+        let json = serde_json::json!({
+            "id": "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+            "resource": "https://music.apple.com/us/album/1729264859",
+            "relations": [
+                { "type": "free streaming", "target-type": "recording",
+                  "recording": { "id": "5aa053a9-5b84-418f-bb3c-d61df67b3880", "title": "Test Song" } }
+            ]
+        });
+
+        let result = extract_recording_id_from_url_browse(&json);
+        assert_eq!(
+            result.unwrap(),
+            Some("5aa053a9-5b84-418f-bb3c-d61df67b3880".to_string())
+        );
+    }
+
+    #[test]
+    fn url_browse_list_shape_yields_recording_id() {
+        let entity = serde_json::json!({
+            "id": "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+            "resource": "https://music.apple.com/us/album/1729264859",
+            "relations": [
+                { "type": "free streaming", "target-type": "recording",
+                  "recording": { "id": "5aa053a9-5b84-418f-bb3c-d61df67b3880", "title": "Test Song" } }
+            ]
+        });
+        let json = serde_json::json!({
+            "url-count": 1,
+            "url-offset": 0,
+            "urls": [ entity ]
+        });
+
+        let result = extract_recording_id_from_url_browse(&json);
+        assert_eq!(
+            result.unwrap(),
+            Some("5aa053a9-5b84-418f-bb3c-d61df67b3880".to_string())
+        );
+    }
+
+    #[test]
+    fn url_browse_empty_list_returns_none() {
+        let json = serde_json::json!({"url-count": 0, "url-offset": 0, "urls": []});
+        let result = extract_recording_id_from_url_browse(&json);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn url_browse_entity_without_recording_rel_returns_none() {
+        let json = serde_json::json!({
+            "id": "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+            "relations": [
+                { "type": "member of band", "target-type": "artist",
+                  "artist": { "id": "some-artist-id", "name": "Someone" } }
+            ]
+        });
+        let result = extract_recording_id_from_url_browse(&json);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn url_browse_legacy_target_mbid_tolerated() {
+        let json = serde_json::json!({
+            "id": "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+            "relations": [
+                { "type": "x", "target-type": "recording",
+                  "target": "5aa053a9-5b84-418f-bb3c-d61df67b3880" }
+            ]
+        });
+        let result = extract_recording_id_from_url_browse(&json);
+        assert_eq!(
+            result.unwrap(),
+            Some("5aa053a9-5b84-418f-bb3c-d61df67b3880".to_string())
+        );
+
+        // A url-shaped target must NOT be tolerated as an MBID.
+        let json_url_target = serde_json::json!({
+            "id": "aaaa1111-bbbb-cccc-dddd-eeee22223333",
+            "relations": [
+                { "type": "x", "target-type": "recording",
+                  "target": "https://music.apple.com/us/album/1" }
+            ]
+        });
+        let result2 = extract_recording_id_from_url_browse(&json_url_target);
+        assert!(matches!(result2, Ok(None)));
+    }
+
+    #[test]
+    fn url_browse_unrecognised_shape_is_anomaly() {
+        let json = serde_json::json!({"whatever": true});
+        let result = extract_recording_id_from_url_browse(&json);
+        let e = result.unwrap_err();
+        assert!(is_endpoint_anomaly(&e));
+        assert!(e.contains("url-browse"));
+    }
+
+    // ----------------------------------------------------------
+    // percent_encode_component
+    // ----------------------------------------------------------
+
+    #[test]
+    fn percent_encode_component_encodes_query_reserved() {
+        assert_eq!(
+            percent_encode_component("https://music.apple.com/gb/album/x/123?i=456&l=en#frag"),
+            "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Fx%2F123%3Fi%3D456%26l%3Den%23frag"
+        );
+    }
+
+    #[test]
+    fn percent_encode_component_preserves_unreserved() {
+        assert_eq!(percent_encode_component("AbZ-09._~"), "AbZ-09._~");
+    }
+
+    // ----------------------------------------------------------
+    // Endpoint-anomaly classification
+    // ----------------------------------------------------------
+
+    #[test]
+    fn endpoint_anomaly_error_formats_and_classifies() {
+        let e = endpoint_anomaly_error("isrc", 503, None);
+        assert_eq!(e, "MusicBrainz isrc endpoint anomaly (HTTP 503)");
+        assert!(is_endpoint_anomaly(&e));
+        let e2 = endpoint_anomaly_error("url-browse", 200, Some("shape note"));
+        assert_eq!(e2, "MusicBrainz url-browse endpoint anomaly (HTTP 200): shape note");
+        assert!(is_endpoint_anomaly(&e2));
+    }
+
+    #[test]
+    fn transport_and_parse_errors_are_not_anomalies() {
+        assert!(!is_endpoint_anomaly(
+            "MusicBrainz API request failed: connection refused"
+        ));
+        assert!(!is_endpoint_anomaly(
+            "Failed to parse MusicBrainz response: EOF"
+        ));
+        assert!(!is_endpoint_anomaly(
+            "MusicBrainz URL browse request failed: timeout"
+        ));
+    }
+
+    #[test]
+    fn endpoint_warning_emitted_at_most_once() {
+        let mut flag = false;
+        let anomaly = endpoint_anomaly_error("isrc", 500, None);
+        assert!(should_emit_endpoint_warning(&anomaly, &mut flag)); // first anomaly → emit
+        assert!(!should_emit_endpoint_warning(&anomaly, &mut flag)); // second anomaly → suppressed
+
+        let mut flag2 = false;
+        assert!(!should_emit_endpoint_warning(
+            "MusicBrainz API request failed: x",
+            &mut flag2
+        ));
+        assert!(!flag2); // transport error neither emits nor consumes the budget
     }
 }
