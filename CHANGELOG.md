@@ -6,6 +6,156 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(deps-dev)** Bump browserslist from 4.28.2 to 4.28.8 (#1118)
+
+Bumps [browserslist](https://github.com/browserslist/browserslist) from
+  4.28.2 to 4.28.8.
+  <details>
+  <summary>Release notes</summary>
+  <p><em>Sourced from <a
+  href="https://github.com/browserslist/browserslist/releases">browserslist's
+  releases</a>.</em></p>
+  <blockquote>
+  <h2>4.28.8</h2>
+  <ul>
+  <li>Fixed <code>including kaios</code> in baseline queries (by <a
+  href="https://github.com/Jaybhade"><code>@​Jaybhade</code></a>).</li>
+  </ul>
+  <h2>4.28.7</h2>
+  <ul>
+  <li>Improved parsing performance.</li>
+  <li>Fixed unbounded memory growth (by <a
+  href="https://github.com/alanturing881"><code>@​alanturing881</code></a>).</li>
+  <li>Fixed prototype write issue (by <a
+  href="https://github.com/alanturing881"><code>@​alanturing881</code></a>).</li>
+  </ul>
+  <h2>4.28.6</h2>
+  <ul>
+  <li>Fixed Electron version queries (by <a
+  href="https://github.com/spokodev"><code>@​spokodev</code></a>).</li>
+  </ul>
+  <h2>4.28.5</h2>
+  <ul>
+  <li>Fixed <code>&gt;</code> and <code>&gt;=</code> queries (by <a
+  href="https://github.com/spokodev"><code>@​spokodev</code></a>).</li>
+  </ul>
+  <h2>4.28.4</h2>
+  <ul>
+  <li>Fixed <code>SyntaxError</code> regression of 4.28.3.</li>
+  </ul>
+  <h2>4.28.3</h2>
+  <ul>
+  <li>Fixed baseline query case-insensitivity (by <a
+  href="https://github.com/swwind"><code>@​swwind</code></a>).</li>
+  </ul>
+  </blockquote>
+  </details>
+  <details>
+  <summary>Changelog</summary>
+  <p><em>Sourced from <a
+  href="https://github.com/browserslist/browserslist/blob/main/CHANGELOG.md">browserslist's
+  changelog</a>.</em></p>
+  <blockquote>
+  <h2>4.28.8</h2>
+  <ul>
+  <li>Fixed <code>including kaios</code> in baseline queries (by <a
+  href="https://github.com/Jaybhade"><code>@​Jaybhade</code></a>).</li>
+  </ul>
+  <h2>4.28.7</h2>
+  <ul>
+  <li>Improved parsing performance.</li>
+  <li>Fixed unbounded memory growth (by <a
+  href="https://github.com/alanturing881"><code>@​alanturing881</code></a>).</li>
+  <li>Fixed prototype write issue (by <a
+  href="https://github.com/alanturing881"><code>@​alanturing881</code></a>).</li>
+  </ul>
+  <h2>4.28.6</h2>
+  <ul>
+  <li>Fixed Electron version queries (by <a
+  href="https://github.com/spokodev"><code>@​spokodev</code></a>).</li>
+  </ul>
+  <h2>4.28.5</h2>
+  <ul>
+  <li>Fixed <code>&gt;</code> and <code>&gt;=</code> queries (by <a
+  href="https://github.com/spokodev"><code>@​spokodev</code></a>).</li>
+  </ul>
+  <h2>4.28.4</h2>
+  <ul>
+  <li>Fixed <code>SyntaxError</code> regression of 4.28.3.</li>
+  </ul>
+  <h2>4.28.3</h2>
+  <ul>
+  <li>Fixed baseline query case-insensitivity (by <a
+  href="https://github.com/swwind"><code>@​swwind</code></a>).</li>
+  </ul>
+  </blockquote>
+  </details>
+  <details>
+  <summary>Commits</summary>
+  <ul>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/f2f2e6cfb01bb4942941d328737546f4e2ae41ad"><code>f2f2e6c</code></a>
+  Release 4.28.8 version</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/d0787c88fa29ba895fea51cfe921232c7b5d1377"><code>d0787c8</code></a>
+  Update dependencies</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/fcf8fa9857b30ccdf801a548f5d09d3c4ff0d43f"><code>fcf8fa9</code></a>
+  Merge pull request <a
+  href="https://redirect.github.com/browserslist/browserslist/issues/939">#939</a>
+  from Jaybhade/fix/baseline-kaios-without-downstream</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/57ecd64454e9252afdd6a7e76926e13dda48a38c"><code>57ecd64</code></a>
+  fix: support &quot;including kaios&quot; without downstream</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/093a0f67bb0becda55235d767b134df3197c54a1"><code>093a0f6</code></a>
+  Update EM banner</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/b637868045806d2fba4c24eb0060e4cc8b1db276"><code>b637868</code></a>
+  Release 4.28.7 version</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/313f4659b9f985ade89d1d6a54a860371c41cc46"><code>313f465</code></a>
+  Update dependencies</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/c935c5a206f8b13db8846818bc03643e147dcbdf"><code>c935c5a</code></a>
+  Fix regexp performance</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/d7e9e653cb53399065943f59f0b3063987b0a008"><code>d7e9e65</code></a>
+  Rewrite structure parsing to make it always fast</li>
+  <li><a
+  href="https://github.com/browserslist/browserslist/commit/ec4a55efd76bdfa506ec7ce4fea1691559e9ca8f"><code>ec4a55e</code></a>
+  Fix import order</li>
+  <li>Additional commits viewable in <a
+  href="https://github.com/browserslist/browserslist/compare/4.28.2...4.28.8">compare
+  view</a></li>
+  </ul>
+  </details>
+  <details>
+  <summary>Maintainer changes</summary>
+  <p>This version was pushed to npm by <a
+  href="https://www.npmjs.com/~GitHub%20Actions">GitHub Actions</a>, a new
+  releaser for browserslist since your current version.</p>
+  </details>
+  <br />
+
+
+  [![Dependabot compatibility
+  score](https://dependabot-badges.githubapp.com/badges/compatibility_score?dependency-name=browserslist&package-manager=npm_and_yarn&previous-version=4.28.2&new-version=4.28.8)](https://docs.github.com/en/github/managing-security-vulnerabilities/about-dependabot-security-updates#about-compatibility-scores)
+
+  Dependabot will resolve any conflicts with this PR as long as you don't
+  alter it yourself. You can also trigger a rebase manually by commenting
+  `@dependabot rebase`.
+
+
+## [1.10.4] - 2026-09-01
+
 ### 🐛 Bug Fixes
 
 - **(deps)** Bump h2 0.4.15 -> 0.4.18 (RUSTSEC-2026-0258)
@@ -27,7 +177,6 @@ cargo-deny flagged RUSTSEC-2026-0258 (h2 "unbounded empty DATA frames" — Low
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.4 [skip ci]
 
 ### 🔄 CI/CD
 
