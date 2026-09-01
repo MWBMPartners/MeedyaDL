@@ -942,8 +942,9 @@ pub struct AppSettings {
     /// codes. No credentials required (free public API). Also used by
     /// Music Video Companions (when enabled) as a fallback or sole
     /// discovery source when MusicKit credentials are not configured.
-    /// Stores discovered platform URLs (Spotify, YouTube, etc.) as
-    /// metadata for future cross-platform features.
+    /// Discovered cross-platform URLs (Spotify, YouTube, etc.) are
+    /// currently logged for diagnostics; persisting them as file
+    /// metadata is planned for future cross-platform features.
     #[serde(default)]
     pub musicbrainz_lookup: bool,
 

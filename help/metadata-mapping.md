@@ -177,8 +177,8 @@ These have no `com.apple.iTunes:*` counterpart — they're MeedyaDL-attributed o
 | `MeedyaMeta:ChannelConfig` | `5.1.4`, `7.1`, etc. | ffprobe detection |
 | `MeedyaMeta:ReplayGainTrack` / `ReplayGainAlbum` | EBU R128 loudness values | Internal analysis (opt-in) |
 | `MeedyaMeta:AcoustIDFingerprint` + `AcoustIDID` | Chromaprint fingerprint + canonical recording ID | Internal fingerprinting (opt-in) |
-| `MeedyaMeta:MusicBrainzRecordingID` | MB recording UUID | MusicBrainz lookup (opt-in) |
-| `MeedyaMeta:MusicBrainzExternalUrls` | Cross-platform URLs (Spotify, YouTube, Tidal, Deezer…) | MusicBrainz lookup (opt-in) |
+| `MeedyaMeta:MusicBrainzRecordingID` | MB recording UUID | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
+| `MeedyaMeta:MusicBrainzExternalUrls` | Cross-platform URLs (Spotify, YouTube, Tidal, Deezer…) | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
 | `MeedyaMeta:AppleLastModifiedDate` | When the album was last updated on Apple Music (drives smart re-download detection) | Apple Music Catalog API |
 
 ---

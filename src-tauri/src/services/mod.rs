@@ -364,12 +364,16 @@ pub mod settings_cache;
 ///
 /// Queries the MusicBrainz database to discover recording metadata,
 /// cross-platform URLs, and music video links. Uses a 3-tier priority
-/// chain: (1) Apple Music URL search in MB external links, (2) ISRC code
-/// search, (3) AcoustID recording ID direct lookup. Serves as a fallback
-/// for music video discovery (no MusicKit credentials needed) and
+/// chain: (1) Apple Music URL lookup via MB's URL browse endpoint
+/// (groundwork — not yet wired by production), (2) ISRC lookup via the
+/// dedicated `/ws/2/isrc` endpoint (the live path; non-search, so
+/// unaffected by MB's 2026-11-30 search-service upgrade), (3) AcoustID
+/// recording ID direct lookup (groundwork). Serves as a fallback for
+/// music video discovery (no MusicKit credentials needed) and
 /// groundwork for cross-platform song discovery.
 ///
-/// Used by: `download_queue` (post-download enrichment Step 6b, when `musicbrainz_lookup` enabled)
+/// Used by: `download_queue` (post-download enrichment Step 6b, when
+/// `musicbrainz_lookup` OR `music_video_companion` is enabled)
 pub mod musicbrainz_service;
 
 /// MediaInfo CLI service — accurate codec detection via `mediainfo --Output=JSON`.
