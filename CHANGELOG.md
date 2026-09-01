@@ -26,6 +26,8 @@ cargo-deny flagged RUSTSEC-2026-0258 (h2 "unbounded empty DATA frames" — Low
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.4 [skip ci]
 
 ### 🔄 CI/CD
 
