@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-08-14
+**Last updated:** 2026-09-01
 **Working branch:** _(no feature branch active)_ — the 2026-08-12→14 arc was **channel-hardening + security**, landed **per-channel** (`main` / `alpha` / `beta` / `release-candidate`) via short-lived `claude/*` branches, each PR'd + merged to its target channel; none stacked. Open + monitored as of this push: **PR #1101** (`claude/realign-rc-release-guard` → `release-candidate` — rc self-trigger-guard refinement). **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.49** · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**. This handoff push lands directly on `alpha` and (by the channel's push-trigger design) cuts the next `alpha.N`.
 
 **Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
@@ -9,7 +9,37 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★ LATEST — Session 2026-08-12/14: channel-hardening + security sweep (all four channels)
+## ★★★ LATEST — Session 2026-09-01: MusicBrainz Nov-30 search-break migration + Dependabot bundle (→ alpha)
+
+**Working branch:** `claude/musicbrainz-nov2026-search-and-deps` (off `alpha` @ `c88e4abb` = 1.13.0-alpha.53). One alpha landing bundling three things; **alpha only, normal cadence** (maintainer choice — the Nov-30 change hits all channels, but normal alpha→beta→rc→main promotion carries it to stable well before 2026-11-30). Model routing per maintainer: **sequential Fable** for analysis + deep planning, **Sonnet** for implementation. Egress note: `blog.metabrainz.org`/`musicbrainz.org` are BOTH blocked by this env's proxy allowlist — the announcement was pasted by the maintainer; no live API test was possible here (see smoke-test flag below).
+
+### 1. MusicBrainz 2026-11-30 search-service upgrade (Solr 9→10) — migrated OFF search
+MusicBrainz upgrades its search service on 2026-11-30; `query=`-style **search** requests may break (epic: https://blog.metabrainz.org/2026/08/31/search-upgrades-nov-30-2026/ — SEARCH-444 url/area relation-list, SEARCH-666 quality-field names, SEARCH-752 redundant `target` removal, SEARCH-764 Solr, + soft SEARCH-452/751/753). Exposure map + deep plan produced by sequential Fable passes. MeedyaDL's ONLY production-live MB call was Tier-2 **ISRC field search** (`GET /ws/2/recording?query=isrc:…`) for credential-free music-video discovery (enrichment Step 6b; fires when `musicbrainz_lookup OR music_video_companion`). All changes in `services/musicbrainz_service.rs` (`fix` commit):
+- **Live path migrated off search** → non-search **`GET /ws/2/isrc/{isrc}?inc=url-rels+recording-rels+artist-credits`** lookup (ONE request replaces the old search+detail pair; parses `recordings[0]` + inlined relations). 404 = quiet no-match; non-404 non-2xx OR a 200 missing `recordings` = endpoint anomaly.
+- **Latent Tier-1 URL search hardened** (kept per maintainer Decision B) → non-search **`GET /ws/2/url?resource={pct-encoded}&inc=recording-rels`** browse; deleted three dead search fns (`try_lookup_recording_by_url_exact`/`_glob`, `extract_first_recording_from_search`); replaced the old hand-rolled encoder (only `:`/`/`) with a proper RFC-3986 `percent_encode_component`. Still latent (production passes `apple_music_url: None`).
+- **Relationship parsing hardened** (SEARCH-752 defensive): prefers `target-type` + the entity object it names (`url.resource`, `recording.id`), tolerates the legacy `target` scalar. Our new calls are lookups/browses (unaffected by the search-only `target` removal) — hardened anyway.
+- **Detectability**: once-per-album non-verbose Warning ("MusicBrainz: unexpected API response — …") on an endpoint anomaly, so a post-Nov-30 regression can't hide as "no videos found". Legitimate empty results stay quiet.
+- Opt-in + non-blocking preserved; `processing.rs` caller untouched; `Vec<MusicVideoUrl>` contract unchanged; `APP_USER_AGENT` kept. **+20 fixture tests**. Docs (CLAUDE.md/README/Project_Plan/help/*) updated — **3-tier narrative kept aspirational** per Decision B; endpoint/mechanism wording made accurate (lookup, not search).
+
+### 2. Dependabot fold-in (supersedes #1113 + #1114, both were → alpha)
+Cherry-picked verbatim onto the bundle branch, so #1113/#1114 are redundant → **closed + their branches deleted**: **npm-minor-patch group** (13 deps incl. sentry 10.70, i18next 26.4, lucide-react 1.33, vite 8.2.2, eslint 10.9, puppeteer 25.8, zustand 5.0.15) and **cargo-minor-patch group** (uuid 1.24→1.25, log 0.4.33→0.4.34, thiserror 2.0.19→2.0.20, cookie 0.18.1→0.18.2).
+
+### Verification (exact CI toolchain, Rust 1.98.0 pinned)
+`cargo test --lib` **1695 passed / 0 failed** (1675 + 20 new) · `cargo clippy --all-targets -D warnings` **clean** · npm `tsc`/`eslint 10.9`/`vite build` **clean** · `check_user_agent.py`/`check_ipc_commands.py` **clean** · grep markers `emit_verbose_download_log`=10, `MusicBrainz: matched song`=3 · `processing.rs` diff empty.
+
+### Maintainer-flag items (raised, NOT acted on — need a decision)
+- Two phantom `MeedyaMeta:MusicBrainz*` atom rows in `help/metadata-mapping.md` (no writer exists) — kept with a "(planned)" qualifier; decide implement-writer vs drop-rows.
+- `rewrite_apple_music_storefront` is dead code (tests only) — delete vs wire into the latent URL-lookup result path.
+- `EnrichmentStage::MusicBrainz` never recorded into manifests (always "unknown") — pre-existing, unrelated.
+- Optional: dedupe `percent_encode_component` with `best_cover_art_service::urlencode` into `utils/http_client.rs`.
+- **Live smoke test (needs normal egress):** enable `verbose_activity_log` + `musicbrainz_lookup`, download an album with known ISRCs, confirm "matched song … (Tier 2)" lines, no "unexpected API response" warning, single round-trip per track.
+
+### Intervening work since alpha.49 (not previously handed off)
+Earlier this session, landed on alpha (alpha.50→.53): Rust toolchain **pin 1.98.0** + weekly auto-bump workflow (`rust-toolchain.toml` incl. cross-compile `targets`; `rust-toolchain-bump.yml`; #1107–#1110, incl. the ARM cross-target regression fix), and the **brace-expansion CVE-2026-13149** override. The rc self-trigger guard refinement (#1101) is merged.
+
+---
+
+## ★★★ Session 2026-08-12/14: channel-hardening + security sweep (all four channels)
 
 **Focus:** close a batch of release-engineering and security gaps that spanned **every channel** (`main` / `alpha` / `beta` / `release-candidate`), not a single feature branch. Net result: **all four channels are now CI-enforced on PRs, `npm audit`–clean, and `clippy -D warnings`–clean**, and the release-candidate self-trigger loop is contained. Work landed per-channel via short-lived `claude/*` branches (each PR'd to its target). Model routing per maintainer convention (Fable 5 for deep audit, Opus main-loop for the security-sensitive CI/release edits).
 

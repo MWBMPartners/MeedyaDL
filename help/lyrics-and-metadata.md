@@ -425,11 +425,11 @@ Enable in **Settings > Quality > Video Quality**. When the Apple Music API doesn
 
 MusicBrainz discovery uses a 3-tier priority chain for maximum coverage:
 
-1. **Apple Music URL search** — searches MusicBrainz external links for the exact Apple Music track URL (highest fidelity)
-2. **ISRC code search** — uses the ISRC identifier from Apple Music metadata (standard recording identifier)
+1. **Apple Music URL lookup** — looks up the exact Apple Music track URL among MusicBrainz's stored external links (highest fidelity)
+2. **ISRC code lookup** — uses the ISRC identifier from Apple Music metadata (standard recording identifier)
 3. **AcoustID recording ID lookup** — uses the MusicBrainz recording ID extracted during AcoustID fingerprinting (Step 4, if enabled)
 
-Each tier is tried in order; the first successful match is used. Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. The service also stores cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) as groundwork for future multi-service song discovery.
+Each tier is tried in order; the first successful match is used. Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. The service also stores cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) as groundwork for future multi-service song discovery. Today the ISRC tier is the active path; the URL and AcoustID tiers are groundwork for future releases.
 
 **Rate limiting:** MusicBrainz enforces 1 request per second. MeedyaDL respects this with a 1.1-second delay between requests.
 

@@ -50,7 +50,7 @@
 - **ASS subtitles** (opt-in) — converts TTML/WebVTT to Advanced SubStation Alpha with colours, positioning, and background vocal styling
 - **WebVTT subtitles** (opt-in) — generates `.vtt` subtitle files from lyrics sidecars (TTML, SRT, or LRC)
 - **Subtitle embedding** (opt-in) — embeds SRT and WebVTT content directly in MP4 containers as freeform atoms
-- **MusicBrainz video discovery** (opt-in) — discovers music videos via MusicBrainz database using a 3-tier lookup (Apple Music URL → ISRC → AcoustID recording ID). No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc.)
+- **MusicBrainz video discovery** (opt-in) — discovers music videos via the MusicBrainz database using a 3-tier lookup (Apple Music URL → ISRC → AcoustID recording ID; the ISRC tier is the live path today, the other two are groundwork). No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc.)
 - **API field audit tool** — developer diagnostic in Settings > Metadata that compares real API responses against known tag definitions, surfacing new fields for review
 
 ### 🔐 Authentication & Security
@@ -484,7 +484,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)
 - ✅ WebVTT subtitle generation from lyrics sidecars (TTML, SRT, LRC)
-- ✅ MusicBrainz video discovery with 3-tier lookup (URL → ISRC → AcoustID recording ID)
+- ✅ MusicBrainz video discovery with 3-tier lookup (URL → ISRC → AcoustID recording ID; ISRC is the live tier, the others are groundwork)
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 15 topics and search
