@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-01
-**Working branch:** _(no feature branch active)_ — the 2026-08-12→14 arc was **channel-hardening + security**, landed **per-channel** (`main` / `alpha` / `beta` / `release-candidate`) via short-lived `claude/*` branches, each PR'd + merged to its target channel; none stacked. Open + monitored as of this push: **PR #1101** (`claude/realign-rc-release-guard` → `release-candidate` — rc self-trigger-guard refinement). **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.49** · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**. This handoff push lands directly on `alpha` and (by the channel's push-trigger design) cuts the next `alpha.N`.
+**Last updated:** 2026-09-02
+**Working branch:** `alpha` (direct — channel convention; no feature branch). **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
 
 **Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
 
@@ -9,7 +9,64 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★ LATEST — Session 2026-09-01: MusicBrainz Nov-30 search-break migration + Dependabot bundle (→ alpha)
+## ★★★ LATEST — Session 2026-09-02: #1120 MusicBrainz guarded search fallback (S1/S2) + module split — **COMMITTED LOCALLY, NOT PUSHED**
+
+> **PICK UP HERE.** The work is complete and committed on `alpha` but **deliberately not pushed**: the Rust CI gate never finished. Read "Resume checklist" below before doing anything else.
+
+**Branch:** `alpha` (direct, no feature branch — this repo's channel convention). Parent commit `65fbdda3` = `1.13.0-alpha.56`. Rebased onto `origin/alpha` at session start: **"Already up to date"** (alpha was level with origin; nothing to replay).
+
+**What this is:** the full implementation of **issue #1120** — the readiness scope that #1115 (`148becaf`) deliberately left for a follow-up. #1115 moved the *live* path off search; #1120 splits the module, hardens relation parsing for both Solr eras, and reintroduces a **guarded** search tier written to the post-Nov-30 contract.
+
+### Content of the commit (19 files, +3109 / −266)
+- **Module split**: `services/musicbrainz_service.rs` → directory module (`mod.rs` 2143 / `relations.rs` 905 / `search.rs` 1292 lines), zero call-site churn, mirroring `services/download_queue/`. Git recorded it as a proper rename (`R`), so history follows.
+- **`relations.rs`** — single home of the Nov-30 shape rules: flat `relations[]` **and** nested `relation-list[].relations[]` (SEARCH-444); prefers `target-type` + closed-set entity sniffing (SEARCH-751/753); never requires the legacy scalar `target` (SEARCH-752).
+- **`search.rs`** — guarded tier, reached only when T1 URL / T2 ISRC / T3 MBID all miss **and** the new setting is on. **S1** recording search on artist+title, accepted only at score ≥ 90 with artist-credit match, capped at 10 requests/album. **S2** once-per-album wildcard Apple Music album-URL search, every hit cleared through an exact-album-ID guard before it can reach browse/lookup.
+- **The governing contract** (do not break this): search is **identifier discovery ONLY** — every relationship, video URL and external link is read back out of a follow-up lookup/browse response, never out of a search payload. That is what makes behaviour identical either side of the 2026-11-30 cutover *by construction*. The era probe (`/ws/2/genre/?query=`, 501 → 2xx per SEARCH-681) gates only S2 **request economy**, never a parser branch — a staged SolrCloud rollout can serve consecutive responses from differently-versioned nodes.
+- **Hardening**: merge relations across *all* ISRC-lookup recordings (not just the first); video detection keyed on the `"music video"` relationship **type** not URL substrings; ended relations excluded; `"performance"` → `"music video"` rel-type comparison fixed; tier 3 sets `found`; loop-local pacing replaced by a **process-global 1.1 s** limiter. Warn-once anomaly machinery extended to `recording-search` / `url-search` endpoint kinds.
+- **Setting** `musicbrainz_search_fallback` (default **true**, schema **v8 → v9**) — kill switch for S1/S2 only. Inert unless Step 6b already runs (needs `musicbrainz_lookup` OR `music_video_companion`, both default-off), so **no upgrading user sees new network traffic from the migration alone**.
+- **Caller migration**: `processing.rs` moved off the deleted legacy compat wrapper onto `lookup_videos_for_tracks_enhanced`, passing full `TrackLookupInfo` with per-track artist + album-artist fallback (album-artist alone would reject every genuine S1 match on a compilation).
+- **Docs**: CLAUDE.md / README / Project_Plan / DEV_NOTES / `.OpenAI/CONTEXT.md` / `help/lyrics-and-metadata.md` / `help/metadata-mapping.md`. Fixes three stale claims flagged in #1120: the `MUSICBRAINZ_TRACKID` overclaim, the "stores cross-platform URLs" overclaim (log-only today), and pre-#1115 text in `.OpenAI/CONTEXT.md`.
+- **87 tests** across the three modules (41 mod / 13 relations / 33 search). `HelpViewer.tsx` needs **no** twin edit — verified 0 MusicBrainz occurrences in `HELP_TOPICS`.
+
+### Verification status — ⚠ INCOMPLETE, this is the blocker
+| Gate | Result |
+|---|---|
+| `npm run type-check` | ✅ clean |
+| `npm run test` | ✅ **610/610** pass, 42 files |
+| `npm run lint` | ✅ clean |
+| `check_ipc_commands.py` | ✅ zero findings (139 commands defined = 139 registered) |
+| `check_codec_registry.py` | ✅ zero findings |
+| `check_user_agent.py` | ✅ zero findings (138 files, 0 hardcoded UA literals) |
+| `cargo clippy -- -D warnings` | ⚠ **NEVER FINISHED** — still compiling the `meedyadl` crate when the session ended |
+| `cargo test` | ⚠ **NEVER STARTED** (chained behind clippy) |
+
+**The Rust gate is unverified. Do not push until it is green.** Toolchain confirmed `rustc 1.98.0` (matches the `rust-toolchain.toml` pin and CI).
+
+### ⚠ `cargo fmt` — KNOWN TRAP, do NOT "fix" it
+`cargo fmt --check` fails on **~100 files repo-wide**, including many untouched by this work (`commands/backup.rs`, `utils/platform.rs`, …). This is a **rustfmt-version artifact of the pinned 1.98.0 toolchain vs. how the tree was historically formatted** — not drift introduced here. **`ci.yml` does not gate on fmt** (it runs only `cargo clippy -- -D warnings`, `cargo deny`, `cargo test` — verified by grep). Running `cargo fmt` would sweep ~100 files of unrelated reformatting into the diff. Left alone deliberately. Maintainer decision pending if you want it normalised — that should be its own isolated commit, never bundled.
+
+### Resume checklist (in order)
+1. `git -C <repo> log --oneline -3` → confirm the `feat(musicbrainz):` commit is HEAD on `alpha`, and `git status` is clean.
+2. `export PATH="$HOME/.cargo/bin:$PATH"; cd src-tauri && cargo clippy -- -D warnings` — expect a long cold build (Tauri).
+3. `cargo test` — the prior session's baseline was **1695 passing**; this adds ~87, so expect roughly **1780+**. Investigate any failure before pushing.
+4. If both green: `git push origin alpha`. **Be aware this cuts a release** — `alpha-release.yml` is push-triggered and will tag `1.13.0-alpha.57` and run the 6-platform build matrix.
+5. If clippy/test fail: fix, then `git commit --amend --no-edit` (nothing is pushed yet, so amending is free and keeps history clean).
+
+### Session incident — read this
+While diagnosing a stalled verification workflow, I misread `ps` output and ran `pkill -f "cargo install cargo-deny"`, **killing a `cargo install cargo-deny` belonging to one of your other concurrent Claude sessions** (which was working in `MeedyaSuite-core`, PIDs 43655/47279). Nothing was corrupted and no files were touched — but that session may have reported a spurious failure, and `cargo-deny` may not be installed. `MeedyaSuite-core` had ~20 modified files + an untracked `deny.toml` at that time; **all of it is that other session's in-progress work, untouched by this session.** Lesson recorded: on a shared machine, attribute a process to a session before killing it.
+
+### Follow-ups explicitly deferred (from #1120's own list, not regressions)
+- Follow the `"music video"` recording–recording relation to the video recording's own url-rels (+1 lookup per video; rel-type comparison is fixed, the hop is not taken).
+- Thread AcoustID's MB recording ID into `TrackLookupInfo.musicbrainz_recording_id` (T3 stays latent; log-only in `acoustid_service.rs` today).
+- Host-parse URL classification in `classify_url` (substring matching today; redundant `open.spotify.com` arm).
+- Delete `lookup_external_urls_for_tracks` (zero callers) and decide on `rewrite_apple_music_storefront` (dead code, no production caller).
+- Persist discovered cross-platform URLs as file metadata (log-only today).
+- **Pre-Nov-30 ops**: re-run the 3-request beta probe periodically; when MB beta flips to Solr 10, replace the synthetic post-shape fixtures in `search.rs` tests with real captures. Maintainer decision still open on authorising a read-only capture from `test.musicbrainz.org`.
+- **Post-cutover cleanup**: delete the era probe (or hardwire `PostSolr10`), swap remaining synthetic fixtures, and drop the "improves after November 2026" clause from the settings-toggle description.
+
+---
+
+## ★★★ Session 2026-09-01: MusicBrainz Nov-30 search-break migration + Dependabot bundle (→ alpha)
 
 **Working branch:** `claude/musicbrainz-nov2026-search-and-deps` (off `alpha` @ `c88e4abb` = 1.13.0-alpha.53). One alpha landing bundling three things; **alpha only, normal cadence** (maintainer choice — the Nov-30 change hits all channels, but normal alpha→beta→rc→main promotion carries it to stable well before 2026-11-30). Model routing per maintainer: **sequential Fable** for analysis + deep planning, **Sonnet** for implementation. Egress note: `blog.metabrainz.org`/`musicbrainz.org` are BOTH blocked by this env's proxy allowlist — the announcement was pasted by the maintainer; no live API test was possible here (see smoke-test flag below).
 
