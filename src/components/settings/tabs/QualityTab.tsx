@@ -137,6 +137,7 @@ export function QualityTab() {
   const videoRemuxFormat = useSettingsField('default_video_remux_format');
   const musicVideoCompanion = useSettingsField('music_video_companion');
   const musicbrainzLookup = useSettingsField('musicbrainz_lookup');
+  const musicbrainzSearchFallback = useSettingsField('musicbrainz_search_fallback');
   // #963/#1002: on GAMDL 3.8+ only ALAC needs the Wrapper; swap the codec
   // description prose accordingly. The (Experimental) labels stay (#965).
   const { capabilities: gamdlCaps } = useGamdlCapabilities();
@@ -396,6 +397,21 @@ export function QualityTab() {
           checked={musicbrainzLookup.value}
           onChange={musicbrainzLookup.set}
         />
+
+        {/* Guarded search fallback (S1/S2), only meaningful while MusicBrainz
+            lookup is actually reachable (musicbrainz_lookup OR music_video_companion —
+            both gate Step 6b's MusicBrainz lookup). Indented beneath the toggle it
+            depends on, matching the ReplayGain section's nested-toggle pattern. */}
+        {(musicbrainzLookup.value || musicVideoCompanion.value) && (
+          <div className="ml-6 pl-3 border-l-2 border-border-light">
+            <Toggle
+              label="MusicBrainz Search Fallback"
+              description="When exact-identifier lookups miss, fall back to MusicBrainz text search. Yield improves after MusicBrainz's November 2026 service upgrade."
+              checked={musicbrainzSearchFallback.value}
+              onChange={musicbrainzSearchFallback.set}
+            />
+          </div>
+        )}
       </SettingsSection>
     </div>
   );

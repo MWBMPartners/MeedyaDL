@@ -223,7 +223,7 @@ For maximum compatibility with non-Apple tooling, MeedyaDL writes these fields u
 |---|---|---|
 | `iTunesCatalogID` | `StoreID/AppleMusic` | beets `apple_music` plugin |
 | `AlbumArtist` | (native `aART`) | All MP4 readers |
-| `cnID` / `iTunesCatalogID` | `MUSICBRAINZ_TRACKID` (when MB lookup ran) | Picard, beets |
+| `cnID` / `iTunesCatalogID` | `MUSICBRAINZ_TRACKID` (planned — not yet written by current releases) | Picard, beets |
 | `LABEL` | (same) | Picard, Mp3tag, foobar2000, beets |
 | `COPYRIGHT` | (same) | Mp3tag, foobar2000 |
 | `UPC` + `Barcode` | (same) | Picard, beets |

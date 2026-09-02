@@ -163,6 +163,7 @@ beforeEach(() => {
       companion_mode: 'atmos_to_lossless',
       music_video_companion: false,
       musicbrainz_lookup: false,
+      musicbrainz_search_fallback: true,
       /* AdvancedTab fields */
       use_wrapper: false,
       auto_retry_without_wrapper: false,

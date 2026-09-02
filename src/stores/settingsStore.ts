@@ -108,6 +108,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   custom_companion_codecs: [], // Only relevant when companion_mode is 'custom'
   music_video_companion: false, // Disabled by default — requires MusicKit credentials
   musicbrainz_lookup: false, // MusicBrainz video/cross-platform discovery (no creds needed)
+  musicbrainz_search_fallback: true, // Guarded search fallback tier; inert unless lookup above is on
   artist_auto_select: null, // No default; let GAMDL use its own default for artist URLs
   artist_auto_select_multi: [], // Multi-mode: MeedyaDL creates N downloads for artist URLs
   // Pre-queue duplicate detection (#510). On by default, skipping songs that

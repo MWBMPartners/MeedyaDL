@@ -61,6 +61,7 @@ const MOCK_SETTINGS: AppSettings = {
   custom_companion_codecs: ['aac', 'alac'],
   music_video_companion: false,
   musicbrainz_lookup: false,
+  musicbrainz_search_fallback: true,
   artist_auto_select: 'main-albums',
   artist_auto_select_multi: ['main-albums', 'singles-eps'],
   duplicate_detection: {
@@ -186,6 +187,7 @@ beforeEach(() => {
       custom_companion_codecs: [],
       music_video_companion: false,
       musicbrainz_lookup: false,
+      musicbrainz_search_fallback: true,
       artist_auto_select: null,
       artist_auto_select_multi: [],
       duplicate_detection: {
