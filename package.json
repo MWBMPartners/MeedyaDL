@@ -1,7 +1,7 @@
 {
   "name": "meedyadl",
   "private": true,
-  "version": "1.13.0-alpha.56",
+  "version": "1.13.0-alpha.57",
   "description": "A multiplatform media downloader",
   "author": "MeedyaSuite",
   "license": "MIT",
