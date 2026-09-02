@@ -264,6 +264,17 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 8;
     }
 
+    // v8 -> v9: introduces `musicbrainz_search_fallback` (MusicBrainz
+    // 2026-11-30 search-upgrade readiness, #1120 — guarded S1/S2 search
+    // fallback tier). The new field gets `true` via `#[serde(default = …)]` for
+    // upgrading users; that default is inert unless the user has also
+    // enabled `musicbrainz_lookup` or `music_video_companion` (both
+    // default-off), so no upgrading user sees new network traffic just
+    // from this migration. Only stamps the version.
+    if settings.settings_version == 8 {
+        settings.settings_version = 9;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -1853,6 +1864,26 @@ mod tests {
             s.animated_artwork_resolution,
             crate::models::settings::AnimatedArtworkResolution::Fhd
         );
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v8 → v9 musicbrainz_search_fallback rollout
+    // (MusicBrainz 2026-11-30 search-upgrade readiness)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v8_to_v9_stamps_version_and_defaults_search_fallback_true() {
+        // v8→v9 only bumps the schema version. The new
+        // `musicbrainz_search_fallback` field gets its serde default
+        // (true) on deserialise; this test exercises the in-memory case
+        // where the field is already at the default.
+        let mut s = AppSettings {
+            settings_version: 8,
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert!(s.musicbrainz_search_fallback);
     }
 
     #[test]

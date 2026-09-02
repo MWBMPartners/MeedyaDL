@@ -368,8 +368,15 @@ pub mod settings_cache;
 /// (groundwork — not yet wired by production), (2) ISRC lookup via the
 /// dedicated `/ws/2/isrc` endpoint (the live path; non-search, so
 /// unaffected by MB's 2026-11-30 search-service upgrade), (3) AcoustID
-/// recording ID direct lookup (groundwork). Serves as a fallback for
-/// music video discovery (no MusicKit credentials needed) and
+/// recording ID direct lookup (groundwork). When all three miss, a
+/// guarded search tier (`musicbrainz_search_fallback`, module
+/// `search.rs`, default-ON since it's inert until Step 6b runs — see
+/// `AlbumLookupContext::search_fallback`) may resolve a track by
+/// text/URL search, but strictly as identifier discovery — every
+/// relationship is still read back out of a follow-up lookup/browse
+/// call, never out of the search response itself, so the module's
+/// endpoint policy above holds for this tier too. Serves as a fallback
+/// for music video discovery (no MusicKit credentials needed) and
 /// groundwork for cross-platform song discovery.
 ///
 /// Used by: `download_queue` (post-download enrichment Step 6b, when

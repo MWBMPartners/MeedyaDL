@@ -2946,18 +2946,56 @@ pub fn process_queue(
                             let run_musicbrainz_lookup = (enrich_settings.musicbrainz_lookup
                                 || mv_companion_enabled)
                                 && !enrich_shutdown.is_triggered();
-                            let mb_isrc_tracks: Option<Vec<(String, Option<String>)>> =
+                            // Built as `TrackLookupInfo` (not the legacy
+                            // `(song_id, isrc)` pair) so the lookup task
+                            // below can drive the full T1-T3 + S1/S2 chain
+                            // (`lookup_videos_for_tracks_enhanced`,
+                            // Tranche E migration off the now-deleted
+                            // legacy compat wrapper — m2). `artist` is the
+                            // per-track artist with an
+                            // album-artist fallback (M2a) — using the album
+                            // artist alone would reject every genuine S1
+                            // match on a compilation/various-artists album,
+                            // where per-track artists legitimately differ
+                            // from the album artist. `apple_music_url` (T1)
+                            // and `musicbrainz_recording_id` (T3) stay
+                            // `None` here — both tiers remain latent until a
+                            // caller threads those identifiers through,
+                            // unchanged by this migration.
+                            let mb_isrc_tracks: Option<Vec<super::musicbrainz_service::TrackLookupInfo>> =
                                 if run_musicbrainz_lookup {
                                     album_metadata.as_ref().map(|metadata| {
                                         metadata
                                             .tracks
                                             .iter()
-                                            .map(|t| (t.song_id.clone(), t.isrc.clone()))
+                                            .map(|t| super::musicbrainz_service::TrackLookupInfo {
+                                                song_id: t.song_id.clone(),
+                                                apple_music_url: None,
+                                                isrc: t.isrc.clone(),
+                                                musicbrainz_recording_id: None,
+                                                artist: t
+                                                    .artist_name
+                                                    .clone()
+                                                    .or_else(|| metadata.artist_name.clone()),
+                                                title: Some(t.name.clone()),
+                                            })
                                             .collect()
                                     })
                                 } else {
                                     None
                                 };
+                            // S2's once-per-album URL search input (§0.2
+                            // M3/m4) — the queue item's own Apple Music URL,
+                            // mirroring the `enrich_urls.first()` idiom used
+                            // for the Odesli cross-platform lookup below.
+                            // `AlbumLookupContext::search_fallback` is the
+                            // Tranche F kill switch: `false` makes S1/S2
+                            // completely inert, bit-for-bit identical to
+                            // today's T1/T2/T3-only chain.
+                            let mb_album_ctx = super::musicbrainz_service::AlbumLookupContext {
+                                album_url: enrich_urls.first().cloned(),
+                                search_fallback: enrich_settings.musicbrainz_search_fallback,
+                            };
 
                             set_label(
                                 "AcoustID + MusicBrainz lookup + ReplayGain (parallel)…",
@@ -3069,8 +3107,8 @@ pub fn process_queue(
                             // videos is deferred to a sequential step BELOW Step 5/6
                             // so it doesn't race with the per-track audio file writes.
                             let musicbrainz_lookup_task = async {
-                                let isrc_tracks = mb_isrc_tracks?;
-                                if isrc_tracks.is_empty() {
+                                let lookup_tracks = mb_isrc_tracks?;
+                                if lookup_tracks.is_empty() {
                                     return None;
                                 }
                                 emit_download_log(
@@ -3078,13 +3116,18 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     &format!(
                                         "MusicBrainz: looking up {} track(s) via ISRC...",
-                                        isrc_tracks.len()
+                                        lookup_tracks.len()
                                     ),
                                 );
-                                match super::musicbrainz_service::lookup_videos_for_tracks(
+                                // Tranche E: migrated off the deleted
+                                // legacy compat wrapper (m2 — this was its
+                                // only caller) onto the enhanced T1-T3 +
+                                // S1/S2 chain directly.
+                                match super::musicbrainz_service::lookup_videos_for_tracks_enhanced(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    &isrc_tracks,
+                                    &lookup_tracks,
+                                    &mb_album_ctx,
                                 )
                                 .await
                                 {
@@ -3122,6 +3165,15 @@ pub fn process_queue(
                                         None
                                     }
                                     Err(e) => {
+                                        // Structurally unreachable today (m3):
+                                        // `lookup_videos_for_tracks_enhanced`
+                                        // handles every per-tier error
+                                        // internally (verbose-logged, tier
+                                        // falls through) and always returns
+                                        // `Ok`. Retained as defensive
+                                        // belt-and-braces in case a future
+                                        // change to the fn's error contract
+                                        // reintroduces an `Err` path.
                                         log::debug!(
                                             "MusicBrainz lookup failed for {enrich_dl_id}: {e}"
                                         );

@@ -423,15 +423,19 @@ The generated `.vtt` file is saved alongside the downloaded media. Only one sour
 
 Enable in **Settings > Quality > Video Quality**. When the Apple Music API doesn't find music videos for your downloaded tracks (Step 6), MusicBrainz provides a fallback discovery mechanism. No Apple Developer credentials or MusicKit configuration required — the MusicBrainz API is free and public.
 
-MusicBrainz discovery uses a 3-tier priority chain for maximum coverage:
+MusicBrainz discovery uses a 3-tier identifier priority chain for maximum coverage, tried first:
 
-1. **Apple Music URL lookup** — looks up the exact Apple Music track URL among MusicBrainz's stored external links (highest fidelity)
-2. **ISRC code lookup** — uses the ISRC identifier from Apple Music metadata (standard recording identifier)
-3. **AcoustID recording ID lookup** — uses the MusicBrainz recording ID extracted during AcoustID fingerprinting (Step 4, if enabled)
+1. **Apple Music URL lookup** — looks up the exact Apple Music track URL among MusicBrainz's stored external links (highest fidelity, not yet active in production)
+2. **ISRC code lookup** — uses the ISRC identifier from Apple Music metadata (standard recording identifier — the active path today)
+3. **AcoustID recording ID lookup** — uses the MusicBrainz recording ID extracted during AcoustID fingerprinting (Step 4, if enabled; not yet active in production)
 
-Each tier is tried in order; the first successful match is used. Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. The service also stores cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) as groundwork for future multi-service song discovery. Today the ISRC tier is the active path; the URL and AcoustID tiers are groundwork for future releases.
+Each tier is tried in order; the first successful match is used. Today the ISRC tier is the active path; the URL and AcoustID tiers are groundwork for future releases.
 
-**Rate limiting:** MusicBrainz enforces 1 request per second. MeedyaDL respects this with a 1.1-second delay between requests.
+If none of the three identifier tiers finds a match, an optional **search fallback** (enabled by default, nested under this toggle in Settings) tries a text search on artist and title, then — for the whole album at once — a search for the Apple Music album URL among MusicBrainz's stored external links. Every match found this way is still confirmed against MusicBrainz's own recording data before being used, so a fallback match is held to the same standard as a direct lookup. This fallback's yield improves after MusicBrainz's search infrastructure upgrade in November 2026.
+
+Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. Cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) that MusicBrainz reports are logged for diagnostics today; storing them as file metadata for future multi-service song discovery is planned but not yet implemented.
+
+**Rate limiting:** MusicBrainz enforces 1 request per second. MeedyaDL respects this with a 1.1-second delay between requests, shared across every MusicBrainz request this feature makes (identifier lookups and search fallback alike).
 
 ---
 

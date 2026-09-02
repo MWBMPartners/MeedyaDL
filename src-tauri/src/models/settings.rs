@@ -948,6 +948,25 @@ pub struct AppSettings {
     #[serde(default)]
     pub musicbrainz_lookup: bool,
 
+    /// **Guarded MusicBrainz text-search fallback** (S1 recording search /
+    /// S2 once-per-album URL search), reintroduced ahead of MusicBrainz's
+    /// 2026-11-30 Solr 9→10 search-service upgrade. When the exact-identifier
+    /// tiers (T1 URL-browse / T2 ISRC / T3 MBID) miss for a track, this lets
+    /// the pipeline fall through to bounded search calls to discover
+    /// identifiers only — search results are never a source of relation
+    /// data (relations always come from a follow-up lookup/browse call).
+    ///
+    /// Default-true is safe: the tier is completely inert unless Step 6b's
+    /// MusicBrainz lookup already runs, which itself requires
+    /// `musicbrainz_lookup` OR `music_video_companion` — both default-off
+    /// above — so a fresh install makes zero extra requests until the user
+    /// opts into MusicBrainz lookup at all. Once active, volume is strictly
+    /// bounded (at most 2 requests per unresolved track, a 10-S1 and 1-S2
+    /// cap per album) and rate-limited by the existing 1.1 s MusicBrainz
+    /// limiter. This toggle is the kill switch for the fallback tier alone.
+    #[serde(default = "default_true")]
+    pub musicbrainz_search_fallback: bool,
+
     /// **Odesli (song.link) cross-platform URL lookup** (#295 Phase A).
     ///
     /// When enabled, after the primary download MeedyaDL queries
@@ -1853,7 +1872,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 8;
+pub const CURRENT_SETTINGS_VERSION: u32 = 9;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1982,6 +2001,9 @@ impl Default for AppSettings {
             music_video_companion: false,
             // MusicBrainz lookup disabled by default — opt-in for video discovery fallback.
             musicbrainz_lookup: false,
+            // Search fallback tier defaults on, but is inert until musicbrainz_lookup
+            // (or music_video_companion) is also enabled — see field doc-comment.
+            musicbrainz_search_fallback: true,
             odesli_lookup_enabled: false,
             odesli_api_key: String::new(),
 

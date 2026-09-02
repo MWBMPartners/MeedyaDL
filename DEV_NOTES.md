@@ -920,7 +920,13 @@ MeedyaDL/
 
 │       │   ├── ass_subtitle_service.rs # ASS subtitle generation
 
-│       │   ├── musicbrainz_service.rs # MusicBrainz video discovery
+│       │   ├── musicbrainz_service/ # MusicBrainz video discovery (directory module)
+
+│       │   │   ├── mod.rs          # Identifier chain (T1 URL/T2 ISRC/T3 MBID) + rate limiter
+
+│       │   │   ├── relations.rs    # Shape-tolerant relation parser (2026-11-30 upgrade)
+
+│       │   │   └── search.rs       # Guarded search fallback (S1/S2) + advisory era probe
 
 │       │   ├── history_service.rs   # Download history persistence
 

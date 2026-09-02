@@ -609,6 +609,10 @@ export interface AppSettings {
   /** When true, uses MusicBrainz to discover music videos and cross-platform links via ISRC.
    * No credentials required. Fallback for when MusicKit video lookup finds nothing. */
   musicbrainz_lookup: boolean;
+  /** When true, allows the guarded MusicBrainz text-search fallback tier (S1/S2) to run
+   * when exact-identifier lookups (URL-browse / ISRC / MBID) miss. Inert unless
+   * musicbrainz_lookup or music_video_companion is also enabled. Default true. */
+  musicbrainz_search_fallback: boolean;
   /** Default artist auto-selection mode for artist URL downloads (GAMDL >= 2.9.1) */
   artist_auto_select: ArtistAutoSelect | null;
   /** Multiple artist auto-select modes. When non-empty, takes precedence over artist_auto_select.
