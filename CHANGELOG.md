@@ -10,6 +10,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.10.6 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -84,6 +85,23 @@ Closes part of #1133. Main-side counterpart of #1138 (alpha).
   Cheap live validation after merge, without cutting a release: `gh
   workflow run "Fix Updater Manifest" -f tag=v1.10.6` exercises the
   identical hardened helper against a known-good six-key manifest.
+
+- Bring the release-notes gate and the Tauri drift guard to main (#1141)
+
+Closes part of #1134 and #1136. Part of #1040.
+
+  Two guards that exist on `alpha` have never existed on `main` — the
+  branch that ships to actual users. Both gaps caused real breakage this
+  week.
+
+  ## Why stable was the unprotected channel
+
+  `.github/release-notes/` had **40 files on alpha and 0 on main**;
+  `release-note-gate.yml` and `scripts/release-notes/` existed only on
+  alpha. A workflow only runs on a branch where its file exists, so the
+  check documented to **block** a stable release without curated notes
+  never appeared at all — GitHub reported the release PR "Ready to merge",
+  and `v1.10.5` published this to users:
 
 
 ## [1.10.6] - 2026-09-07
