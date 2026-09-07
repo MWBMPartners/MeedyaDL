@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-02
+**Last updated:** 2026-09-07
 **Working branch:** `alpha` (direct — channel convention; no feature branch). **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
 
 **Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
@@ -9,7 +9,90 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★ LATEST — Session 2026-09-02: #1120 MusicBrainz guarded search fallback (S1/S2) + module split — **COMMITTED LOCALLY, NOT PUSHED**
+## ★★★ LATEST — Session 2026-09-07: five silent failures found and fixed, then a wider resilience programme
+
+> **PICK UP HERE.** Working branch is `work/alpha-resilience-and-docs`, branched from `alpha` at
+> `v1.13.0-alpha.61`. Everything from here lands on that one branch and goes to `alpha` in a
+> single pull request at the end — deliberately one, to avoid two pull requests racing the same
+> branch.
+
+### The theme of the day, in one sentence
+
+Five separate things were broken, and every one of them broke **quietly** — a safety check
+stopped working, said nothing, and its silence looked exactly like it passing.
+
+### What was broken, and what was done about it
+
+1. **Security fixes stopped reaching the test channels.** The job that copies a security fix from
+   `main` out to `alpha`, `beta` and `release-candidate` had failed on every run since mid-August.
+   It asked the GitHub command-line tool for a piece of information that tool no longer provides,
+   so it stopped before doing anything. Nobody noticed, because a failing scheduled job on `main`
+   blocks nothing. **Real consequence:** a browserslist security fix never reached `alpha`, which
+   is why alpha's own checks were failing for six days. Fixed in #1130. Tracked as #1135.
+2. **A release shipped an incomplete update file.** `v1.13.0-alpha.58` published an update
+   description listing four platforms instead of six, so every Windows (64-bit) user was offered
+   no update at all — and the job reported success. The download of two signatures failed briefly
+   and the error was being thrown away. Fixed in #1138/#1139: errors are no longer discarded, the
+   download retries, and a new final step re-downloads the published file and checks it. Tracked
+   as #1133.
+3. **The check that stops unreadable release notes existed only on the test channel.** So the live
+   channel — the one users actually see — was the one channel it did not protect, and `v1.10.5`
+   published raw developer shorthand to users. Ported to `main` in #1141. Tracked as #1136.
+4. **Two halves of the app toolkit drifted apart and every build of stable `v1.10.5` failed.** The
+   Rust half moved to a newer version while the JavaScript half stayed put, because automatic
+   dependency updates are routed to `alpha` only. The tag and release already existed, so a stable
+   release sat there with nothing to download. Fixed by `b5c97439`; `v1.10.6` then built cleanly.
+   A guard was added in #1140/#1141. Tracked as #1134.
+5. **Three scheduled checks had never worked even once.** Not "broke later" — they shipped broken
+   and nobody saw. Tracked as #1137.
+
+### Shipped and verified today
+
+- `v1.13.0-alpha.58` update file repaired by hand; `v1.10.5` abandoned (it has no downloads) and
+  replaced by `v1.10.6`, which built cleanly on all six platforms.
+- `v1.13.0-alpha.59`, `.60`, `.61` all published. `.61` is the important one: all six platforms
+  built, and the new final check confirmed the published update file was complete — in its strict
+  mode, so the check is proven in the mode that actually enforces.
+- Six pull requests merged: #1128, #1129, #1130, #1138, #1139, #1140, #1141.
+
+### Where things stand right now
+
+- **Local repository is aligned with GitHub.** `alpha` and `main` match the server, fifteen stale
+  local branches were deleted, and leftover temporary working copies were cleaned up.
+- **Branch `ci/tier4-resilience-main` is pushed but has no pull request yet.** It holds five
+  further fixes aimed at `main`: stop the release job re-resolving every dependency (this is the
+  root cause of failure 4 above), repair the two scheduled checks that never worked, stop a
+  security-advisory check from failing unrelated pull requests, and stop a browser package being
+  dragged into the ARM builds where it breaks them.
+- **`.github/workflows/workflow-health.yml` exists but is deliberately NOT committed.** It is a
+  draft watchdog. Review found it has three bugs of exactly the kind it is meant to catch — most
+  importantly, a brief network error would make it invent a false alarm. It must not ship until
+  those are fixed.
+
+### Deliberate decisions worth not re-litigating
+
+- **Do not add required status checks to the protected branches.** The rule set has no exempt
+  accounts, so it would stop the automated jobs that push version bumps.
+- **Do not fail a release when only the ARM Linux builds are missing.** The update file has no ARM
+  Linux entry at all, so those users are unaffected, and failing on it would have turned two
+  otherwise-fine releases red for a problem measured at two in fifteen.
+- **Do not tighten the toolkit version pins yet.** The new guard already blocks the situation the
+  pins were meant to prevent, and pins introduce their own quiet stall.
+- **Never re-run the release job against a tag that already exists.** It rebuilds that tag and
+  overwrites already-published, signed downloads.
+
+### Still open
+
+- The dev-team plugin is installed and switched on, but plugin tools only load when a session
+  starts, so it cannot be used in the session that installed it. A restart is needed.
+- Making this repository private is **not possible today** without breaking every installed copy
+  of the app: the updater fetches public GitHub addresses, which stop working for anonymous
+  visitors on a private repository. #856 (routing updates through `update.mwbm.io`) is the
+  prerequisite, and is now labelled and on the project board.
+
+---
+
+## ★★★ Session 2026-09-02: #1120 MusicBrainz guarded search fallback (S1/S2) + module split — **COMMITTED LOCALLY, NOT PUSHED**
 
 > **PICK UP HERE.** The work is complete and committed on `alpha` but **deliberately not pushed**: the Rust CI gate never finished. Read "Resume checklist" below before doing anything else.
 
