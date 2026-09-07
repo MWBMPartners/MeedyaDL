@@ -66,8 +66,21 @@ jobs:
             exit 0
           fi
           PINNED=$(grep -E '^[[:space:]]*channel[[:space:]]*=' "$TOML" | sed -E 's/.*"([^"]+)".*/\1/')
-          LATEST=$(curl -sSf --max-time 30 https://static.rust-lang.org/dist/channel-rust-stable.toml \
-            | awk '/^\[pkg\.rust\]/{f=1} f && /^version = /{print; exit}' \
+          # Download to a file first, then parse the file -- do NOT pipe
+          # curl straight into `awk ... {exit}`. awk's early `exit` closes
+          # its end of the pipe as soon as it finds the version line, and
+          # curl (still writing) gets SIGPIPE and exits 23. Under
+          # `set -o pipefail` that non-zero curl exit fails the whole
+          # pipeline via `set -e`, aborting the step before it ever reaches
+          # the empty-value guard below. This is why the step failed on
+          # every run (0 of 3) since the workflow was added. Splitting
+          # download from parse removes the live pipe, so curl always runs
+          # to completion and writes the full file regardless of how little
+          # of it awk goes on to read.
+          CHANNEL_MANIFEST="${RUNNER_TEMP:-/tmp}/rust-channel-stable.toml"
+          curl -sSf --max-time 30 https://static.rust-lang.org/dist/channel-rust-stable.toml \
+            -o "$CHANNEL_MANIFEST"
+          LATEST=$(awk '/^\[pkg\.rust\]/{f=1} f && /^version = /{print; exit}' "$CHANNEL_MANIFEST" \
             | sed -E 's/version = "([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
           if [ -z "$LATEST" ]; then
             echo "::error::could not parse latest stable Rust version from the channel manifest"
