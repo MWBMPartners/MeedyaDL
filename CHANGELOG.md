@@ -6,6 +6,88 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.6 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(release)** Make updater-manifest failures loud, and verify the published latest.json (#1139)
+
+Closes part of #1133. Main-side counterpart of #1138 (alpha).
+
+  ## The bug this fixes
+
+  Release `v1.13.0-alpha.58` published a `latest.json` with **4** platform
+  entries instead of 6 — both `windows-x86_64` keys missing, so Windows
+  x64 users were offered no in-app update — and **the job reported
+  success**.
+
+  The release's asset listing was complete and every signature had been
+  uploaded 30 minutes earlier, so two `gh release download` calls failed
+  transiently within about two seconds and `2>/dev/null` hid it entirely.
+  The same helper exists on `main`, so the same silent failure is possible
+  on stable releases.
+
+  ## Why this is a separate PR from #1138
+
+  `release.yml` has **drifted substantially** between branches — roughly
+  1181 lines here versus 1738 on alpha. Anchors are not portable, so the
+  change had to be written twice against each branch's own file rather
+  than cherry-picked. That drift is itself tracked in #1137 and #1040.
+
+  ## What changes
+
+  - **`Append download guide to release notes` and `Auto-publish
+  prerelease draft` get `!cancelled()`.** Neither had any `if:`, so a
+  manifest-rebuild failure skipped both and left a prerelease stuck as a
+  draft. Not `always()` — a cancelled run must not keep editing the
+  release object.
+  - **`download_sig` becomes diagnosable:** stderr no longer discarded;
+  `gh`'s stdout routed to stderr so it cannot contaminate the captured
+  signature; zero-byte download treated as failure; 3 attempts with 5s/10s
+  backoff; asset listing printed first; a warning naming any missing
+  updater platform.
+  - **A new final step re-downloads the *published* `latest.json`** and
+  asserts the version (compared against the tag with its leading `v`
+  stripped — the manifest stores `1.10.6`, not `v1.10.6`) and all six
+  updater keys have non-empty signatures. Strict only when
+  `needs.publish.result == 'success'`, otherwise warn-only. It runs last,
+  so a failure withholds nothing — it only turns the run red.
+  - **The zero-signature case now fails deliberately.** Adding `mkdir -p`
+  silently removed an accidental safeguard: previously `jq` failed because
+  the directory did not exist, and that accident was the only thing
+  preventing an empty manifest being uploaded. Refusing to upload was
+  already handled, but the step still went green — the same fail-quietly
+  shape this change set exists to remove.
+
+  ## Notes for review
+
+  - Typed `ci:` deliberately, so release-please opens no release PR from
+  it.
+  - Linux ARM64/ARMv7 are never warned about — they build `deb`/`rpm` only
+  and legitimately have no updater signature. Warning on them would be
+  noise.
+  - `fix-updater-manifest.yml` here received the `download_sig` hardening
+  only. It is a single-step recovery tool with no downstream steps to
+  skip, and its existing zero-platform `exit 1` was left alone.
+
+  ## Verification
+
+  `actionlint` finding set is byte-identical to `origin/main` — 32
+  pre-existing shellcheck advisories in untouched regions, zero introduced
+  (verified by diffing normalised output; the only delta is one line
+  number shifting by exactly the number of lines added). Both files parse
+  as YAML.
+
+  Cheap live validation after merge, without cutting a release: `gh
+  workflow run "Fix Updater Manifest" -f tag=v1.10.6` exercises the
+  identical hardened helper against a known-good six-key manifest.
+
+
+## [1.10.6] - 2026-09-07
+
 ### 🐛 Bug Fixes
 
 - **(deps)** Align Tauri JS plugin versions with the Rust crates on main
@@ -39,7 +121,6 @@ Every platform build of the v1.10.5 stable release failed with:
 - **(security)** Update supported versions to 1.10.5 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.6 [skip ci]
 
 ## [1.10.5] - 2026-09-07
 
