@@ -30,7 +30,11 @@
 #      before the release-please PR can merge. `scripts/release-notes/
 #      draft-notes.sh` bootstraps that file from any Release-Note:
 #      trailers already on main. Also content-lints that file (part of
-#      closing leak L6).
+#      closing leak L6). Accepts either of the two shapes STYLE_GUIDE.md
+#      documents: the full '### ' sectioned form, or -- for a deps-only /
+#      internal-only release -- the documented single-line sentence with
+#      no headings at all. Still rejects an empty file, a title-only
+#      placeholder, or anything that is neither shape.
 #
 #   3. push-trailer-advisory (#1046)
 #      job 1 only fires on `pull_request` -- but CLAUDE.md's documented
@@ -180,8 +184,27 @@ jobs:
             exit 1
           fi
 
-          if ! grep -qE '^### ' "$NOTES_FILE"; then
-            echo "::error::${NOTES_FILE} exists but has no populated '### ' sections (What's new / What's fixed / Performance / Notes). Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
+          # STYLE_GUIDE.md's "Shape" section documents TWO valid shapes for
+          # this file, not one: the full four-section form (### What's new
+          # / What's fixed / Performance / Notes), OR -- for a deps-only /
+          # internal-only release -- "skip the sections entirely and write
+          # a single line" using this exact sentence. Before this check
+          # accepted the second shape too, an author who followed the guide
+          # literally for an urgent deps-only patch would write the bare
+          # single line, carry no '### ' heading, and get blocked here by a
+          # "no populated sections" error that has nothing to do with what
+          # they actually did wrong -- a confusing trap on exactly the kind
+          # of release someone is in a hurry to ship. Accept either shape;
+          # still reject anything else (an empty file, a title-only
+          # placeholder, or free text that isn't the documented sentence).
+          DEPS_ONLY_SENTENCE="Under-the-hood housekeeping and dependency updates — nothing changes in how you use the app."
+
+          if grep -qE '^### ' "$NOTES_FILE"; then
+            echo "${NOTES_FILE} has populated '### ' section(s)."
+          elif grep -qF "$DEPS_ONLY_SENTENCE" "$NOTES_FILE"; then
+            echo "${NOTES_FILE} uses the documented deps-only single-line form (STYLE_GUIDE.md 'Shape' section) instead of '### ' sections."
+          else
+            echo "::error::${NOTES_FILE} exists but has neither populated '### ' sections (What's new / What's fixed / Performance / Notes) nor the documented deps-only single line ('${DEPS_ONLY_SENTENCE}' -- see .github/release-notes/STYLE_GUIDE.md 'Shape' section, use this wording verbatim for a deps-only/internal-only release). Run 'scripts/release-notes/draft-notes.sh v${VER}', polish the draft per .github/release-notes/STYLE_GUIDE.md, merge it to main, then re-run this check."
             exit 1
           fi
 
