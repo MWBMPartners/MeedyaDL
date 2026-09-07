@@ -99,3 +99,7 @@ temp/
 # Legacy (from previous PyQt5 iteration)
 # ============================================================
 ProjectBrief_Chat.gpt
+
+# Transient git worktrees created by Claude Code workflow isolation.
+# They are scratch checkouts of real branches and must never be committed.
+.claude/worktrees/
