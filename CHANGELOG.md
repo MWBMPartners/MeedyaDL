@@ -6,9 +6,83 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ci)** Repair forward-port gate broken by a removed gh CLI field (#1130)
+
+## What was wrong
+
+  The security forward-port workflow has been **failing on every run since
+  at least 2026-08-14** — silently, because a failing scheduled/push
+  workflow on `main` does not block anything.
+
+  Its gate step asks the GitHub CLI for a `merged` field:
+
+  ```
+  gh pr view "$PR" --json number,merged,baseRefName,author,mergeCommit,title
+  ```
+
+  That field no longer exists. Current `gh` (2.97.0) exposes `mergedAt`,
+  `mergedBy` and `state`, but not `merged`. The command exits 1 with
+  `Unknown JSON field: "merged"`, and since the step runs under `set -euo
+  pipefail` the job dies immediately. The `forward-port` job is
+  `needs:`-gated on that job, so it was skipped every single time.
+
+  ## Why it matters
+
+  This workflow is the *only* mechanism carrying a Dependabot **security**
+  fix from `main` out to `alpha`, `beta` and `release-candidate`.
+  Dependabot always opens security PRs against the default branch and
+  gives no way to redirect them, which is precisely why this workflow was
+  written.
+
+  With the gate dead, **every security fix since mid-August stopped at
+  `main`.**
+
+  That is not hypothetical. #1118 bumped `browserslist` 4.28.2 → 4.28.8 to
+  clear a high-severity advisory pair (GHSA-c83g-rgw3-j3cx,
+  GHSA-73wf-gq98-2v4g). Its forward-port run failed on 2026-09-01, so
+  `alpha` sat on the vulnerable 4.28.2 until it was spotted and fixed by
+  hand today in #1129.
+
+  Run history — 7 of 7 most recent runs failed:
+
+  | Result | Trigger |
+  |---|---|
+  | failure | consolidate dev-dependency bumps (this session) |
+  | failure | **browserslist 4.28.2 → 4.28.8 (#1118)** |
+  | failure | release 1.10.4 (#1106) |
+  | failure | cross-compile targets (#1110) |
+  | failure | pin toolchain 1.98.0 (#1108) |
+  | failure | brace-expansion CVE pin |
+  | failure | release 1.10.3 (#1092) |
+
+  ## The fix
+
+  Switch to the `state` field, which is stable and unambiguous:
+
+  ```
+  [ "$(jq -r .state <<<"$data")" = "MERGED" ]
+  ```
+
+  Two lines. Behaviour is otherwise identical — a non-merged PR still
+  takes the same quiet `skip` path rather than failing the run.
+  `actionlint` clean.
+
+  ## Follow-up worth considering
+
+  A gate that fails closed and silently is the underlying hazard here; the
+  removed CLI field was just the trigger. Worth deciding separately
+  whether a failed forward-port run should raise an alert, so the next
+  breakage is noticed in days rather than three weeks. `alpha` carries the
+  same buggy line and is patched in #1129; `beta` and `release-candidate`
+  do not have this workflow.
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.4 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
