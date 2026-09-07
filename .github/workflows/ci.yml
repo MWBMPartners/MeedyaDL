@@ -5,7 +5,7 @@
 # ===================================================
 #
 # This GitHub Actions workflow validates code quality on every push and pull request.
-# It runs two independent job groups in parallel:
+# It runs three independent job groups in parallel:
 #
 #   1. Frontend (Node.js/TypeScript/React):
 #      - ESLint linting (eslint.config.js rules)
@@ -18,9 +18,22 @@
 #      - cargo deny (licence scanning and security advisory auditing)
 #      - cargo test (Rust unit tests)
 #
-# Both job groups run on a 3x3 matrix across macOS, Windows, and Linux to catch
-# platform-specific issues. The frontend and backend jobs run independently
-# (no dependency between them) for maximum parallelism.
+#   3. Tauri version sync (fast, no build required):
+#      - tools/audit-checks/check_tauri_version_sync.py --strict verifies every
+#        @tauri-apps/* npm package (package-lock.json) is on the same
+#        major.minor release as its Rust crate counterpart (src-tauri/Cargo.lock).
+#        `tauri build` hard-refuses when they disagree, and because this is a
+#        blocking CI job (not the advisory-only pr-security.yml), it also
+#        gates the release-please "chore(main): release X.Y.Z" PR — the exact
+#        PR whose own "update Cargo.lock" step re-resolves the Rust crates and
+#        is where this drift is actually introduced (see the v1.10.5 incident
+#        documented in the script's own module docstring).
+#
+# The frontend/backend jobs run on a 3x3 matrix across macOS, Windows, and Linux
+# to catch platform-specific issues; the version-sync job is a single fast
+# Linux-only job (no toolchain setup — the script is Python stdlib-only). All
+# three job groups run independently (no dependency between them) for maximum
+# parallelism.
 #
 # Cost Optimization:
 #   - 'fail-fast: false' ensures all matrix combinations run even if one fails,
@@ -471,3 +484,44 @@ jobs:
         run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: "-A rustdoc::all"
+
+  # ============================================================
+  # Tauri Version Sync Job: npm <-> Rust crate drift guard
+  # ============================================================
+  # `src-tauri/Cargo.toml` pins the Tauri plugin crates loosely (e.g. "2"), so
+  # any step that regenerates Cargo.lock — including release-please's own
+  # "chore(release): update Cargo.lock" step on the release PR — can silently
+  # re-resolve a crate to a newer major.minor than the npm half pinned in
+  # package-lock.json. `tauri build` hard-refuses in that state, and the
+  # v1.10.5 incident shipped an empty "Latest" GitHub Release because nothing
+  # caught it before the tag was cut.
+  #
+  # This job is deliberately its own top-level job in ci.yml (a BLOCKING
+  # workflow — the merge gate — not the advisory-only pr-security.yml) and
+  # deliberately has no `needs:`/matrix dependency on frontend/backend, so it:
+  #   (a) runs on every PR targeting `main`, including the release-please
+  #       "chore(main): release X.Y.Z" PR (ci.yml's `pull_request` trigger
+  #       above is scoped to `branches: [main]`, which is exactly what that
+  #       PR targets) — the one PR whose own commit creates this drift, and
+  #       the one a guard living only on ordinary feature-branch checks would
+  #       never see;
+  #   (b) needs no Rust toolchain, no `cargo build`, and no `npm ci` — it
+  #       only reads two already-checked-out lockfiles — so it finishes in
+  #       seconds and never blocks on the (much slower) build matrix.
+  #
+  # The script itself refuses to report success when it cannot actually
+  # compare the two lockfiles (missing/unparseable file, or zero comparable
+  # @tauri-apps/* <-> crate pairs) — see its module docstring.
+  tauri-version-sync:
+    name: Tauri npm/Rust version sync
+    runs-on: ubuntu-latest
+
+    steps:
+      # No setup-python step: the script is Python stdlib-only (json / re /
+      # sys / pathlib), so the runner's preinstalled python3 is sufficient —
+      # same rationale as pr-security.yml's cross-source consistency checks.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check Tauri npm/Rust version sync
+        run: python3 tools/audit-checks/check_tauri_version_sync.py --strict

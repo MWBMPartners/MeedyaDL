@@ -111,10 +111,403 @@ concurrency:
 
 jobs:
   # ============================================================
+  # Ensure the GitHub Release exists with proper notes (#857)
+  # ============================================================
+  #
+  # Runs ONCE before the build matrix. Resolves the tag + derives
+  # the prerelease flag, then either:
+  #   (a) confirms a release already exists for this tag (no-op),
+  #   or
+  #   (b) creates the release with proper notes content.
+  #
+  # By centralising the `gh release create` call here, the matrix
+  # jobs never have to race to create the release object — they
+  # just upload assets against the already-created release.
+  #
+  # The notes content is sourced via a 3-tier fallback:
+  #
+  #   1. **Pre-staged file** at `.github/release-notes/<tag>.md`.
+  #      Used when the maintainer wants full control of what the
+  #      end-user sees (e.g., a manual stable cut or a release
+  #      that needs a specific narrative).
+  #
+  #   2. **git-cliff diff** between the previous tag of the same
+  #      channel and this tag. Auto-generates a Markdown changelog
+  #      from conventional-commit subjects. Falls back gracefully
+  #      if git-cliff isn't installable on the runner.
+  #
+  #   3. **"See CHANGELOG.md"** stub linking to the repo's
+  #      maintained CHANGELOG.md. Always works, never empty.
+  #
+  # NEVER emits the legacy "Release in progress…" placeholder —
+  # the verification step in `finalize-release` already catches
+  # that string in the body, but consolidating creation here means
+  # the verification has nothing to flag.
+  ensure-release:
+    name: Ensure Release Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.derive.outputs.tag }}
+      is_prerelease: ${{ steps.derive.outputs.is_prerelease }}
+      gh_flag: ${{ steps.derive.outputs.gh_flag }}
+    steps:
+      - name: Checkout (full history for git-cliff)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Derive tag + prerelease flag
+        id: derive
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          # Resolve the tag the same way the publish matrix does
+          # below — `inputs.tag` wins on workflow_dispatch, else the
+          # tag-push ref name.
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="$REF_NAME"
+          fi
+          # Shape-validate before the tag flows into the ~9 downstream
+          # expression-interpolated run: shells (#977). A workflow_dispatch
+          # actor could otherwise inject shell metacharacters via inputs.tag
+          # and exfiltrate the code-signing secrets. Accept only vX.Y.Z with an
+          # optional semver-legal pre-release suffix — no spaces/semicolons/etc.
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid release tag format: '$TAG' (expected vX.Y.Z or vX.Y.Z-suffix)"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          # Prerelease flag derives from the tag suffix.
+          STRIPPED="${TAG#v}"
+          if [[ "$STRIPPED" == *-* ]]; then
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "gh_flag=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install git-cliff (best-effort)
+        shell: bash
+        continue-on-error: true
+        run: |
+          # git-cliff is the secondary release-notes source (#857
+          # item 3 tier 2). Install via cargo binstall for speed;
+          # if binstall isn't on the runner, fall back to a plain
+          # cargo install. continue-on-error so a binstall outage
+          # doesn't block the release — the tier-3 fallback covers
+          # the no-git-cliff case.
+          if ! command -v git-cliff &>/dev/null; then
+            # Pinned versions (#988) — no `releases/latest` / unversioned
+            # installs in a contents:write job that holds release secrets.
+            # Bump these deliberately when upgrading the toolchain.
+            BINSTALL_VERSION="1.21.0"
+            GITCLIFF_VERSION="2.13.1"
+            curl -fsSL "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz" \
+              | tar -xz -C /usr/local/bin/ 2>/dev/null || true
+            if command -v cargo-binstall &>/dev/null; then
+              cargo-binstall --no-confirm "git-cliff@${GITCLIFF_VERSION}" || true
+            else
+              cargo install --locked git-cliff --version "${GITCLIFF_VERSION}" || true
+            fi
+          fi
+          git-cliff --version 2>/dev/null || echo "::warning::git-cliff unavailable; release notes will use the static fallback"
+
+      - name: Create release if missing (with proper notes)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.derive.outputs.tag }}"
+          GH_FLAG="${{ steps.derive.outputs.gh_flag }}"
+          STRIPPED="${TAG#v}"
+          NOTES_FILE=".github/release-notes/${TAG}.md"
+
+          # SELF_HEAL=1 means: the release already exists, has no tier-1
+          # curated file, and its live body looks like commit-speak /
+          # bare version-bump noise (#1046). We fall through to the same
+          # tier-2 generation used for a brand-new release, then splice
+          # the regenerated notes onto the existing body at the very end
+          # (preserving the "Choose your download" footer if the platform
+          # builds already appended it) instead of `gh release create`.
+          SELF_HEAL=0
+          LIVE_BODY_FILE="$RUNNER_TEMP/live-body-${TAG}.md"
+
+          # If the release already exists (release-please-action / version-bump.yml
+          # pre-create it, #645), we can't re-create it — but a curated tier-1 ELI5
+          # notes file (#1028) should still WIN over the commit-speak body those
+          # tools set. Apply it (footer-preserving + idempotent) and exit. This is
+          # the mechanism that makes stable release notes user-friendly, and makes
+          # committed backfill notes self-heal if a build re-runs.
+          if gh release view "$TAG" --repo "$REPO" &>/dev/null; then
+            if [ -f "$NOTES_FILE" ]; then
+              echo "::notice::Release $TAG exists; applying curated tier-1 notes (overwrite, footer-preserving)"
+              bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO"
+              exit 0
+            fi
+
+            # No tier-1 file staged. PRERELEASES self-heal (#1046): detect
+            # whether the live body is commit-speak / bare bump noise (e.g.
+            # cut from a tree that predates #1027, or created by a stale
+            # workflow re-run) and, if so, regenerate + splice instead of
+            # leaving it broken forever. STABLES are never auto-rewritten
+            # here — they always require an explicit curated file so a
+            # maintainer signs off on stable release copy (see the
+            # ::error below, unchanged from before).
+            if [[ "$STRIPPED" == *-* ]]; then
+              gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
+                > "$LIVE_BODY_FILE" 2>/dev/null || echo "" > "$LIVE_BODY_FILE"
+              if python3 scripts/release-notes/detect-commit-speak.py < "$LIVE_BODY_FILE"; then
+                echo "::notice::Release $TAG exists with a commit-speak/bare body — regenerating ELI5 notes and self-healing (#1046)"
+                SELF_HEAL=1
+              else
+                echo "::notice::Release $TAG already exists with an ELI5-formatted body; leaving untouched"
+                exit 0
+              fi
+            else
+              echo "::notice::Release $TAG already exists and no tier-1 notes staged; leaving body untouched"
+              echo "::error::Stable $TAG has no .github/release-notes/${TAG}.md — its body may be release-please commit-speak. Stage the file on main, then run: bash scripts/release-notes/apply-notes.sh $TAG"
+              exit 1
+            fi
+          fi
+
+          # Tier 1: pre-staged release notes file (create path).
+          if [ -f "$NOTES_FILE" ]; then
+            echo "::notice::Using pre-staged release notes from $NOTES_FILE"
+            NOTES_PATH="$NOTES_FILE"
+          else
+            # Tier 2: git-cliff diff between this tag and the previous
+            # tag of the same channel for the same base version.
+            # Strip the trailing `.N` from prerelease suffixes
+            # (`v1.11.0-alpha.19` → channel `alpha`, base `1.11.0`) so
+            # we can find the previous tag in the same channel on the
+            # same base version.
+            #
+            # The earlier implementation searched `v*-alpha.*` which
+            # would semver-rank historic abandoned alphas (e.g.
+            # `v2.0.0-alpha.8` from 2025) above current alphas (e.g.
+            # `v1.11.0-alpha.19`), producing a months-of-commits
+            # changelog that blew through GitHub's 125 000-char body
+            # limit and failed the create-release API call. Constraining
+            # to the same base version keeps the range bounded.
+            #
+            # Fallback (e.g. when this is the FIRST alpha on a new base
+            # like `v1.11.0-alpha.18` after the `v1.10.0` → `v1.11.0`
+            # bump): use the matching channel on any LOWER base version
+            # whose tag sorts immediately below this one.
+            if [[ "$STRIPPED" == *-* ]]; then
+              CHANNEL_SUFFIX=$(echo "$STRIPPED" | sed -E 's/.*-([a-z]+)\..*/\1/')
+              BASE_VERSION=$(echo "$STRIPPED" | sed -E 's/-.*//')
+              PREV_TAG=$(git tag --sort=-version:refname --list "v${BASE_VERSION}-${CHANNEL_SUFFIX}.*" | grep -v "^$TAG$" | head -1 || true)
+              if [ -z "$PREV_TAG" ]; then
+                # First channel tag on this base. Use the previous
+                # base version's last channel tag — or, failing that,
+                # the previous stable. Skip semver-higher historic
+                # leftovers by selecting only tags lexicographically
+                # below this one in the version-aware sort.
+                PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*-${CHANNEL_SUFFIX}.*" \
+                  | awk -v cur="$TAG" '$0 < cur { print; exit }' || true)
+              fi
+              if [ -z "$PREV_TAG" ]; then
+                # No same-channel predecessor at all. Use the previous
+                # stable as the absolute fallback.
+                PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" \
+                  | grep -vE '\-' \
+                  | awk -v cur="$TAG" '$0 < cur { print; exit }' || true)
+              fi
+            else
+              PREV_TAG=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" \
+                | grep -vE '\-' \
+                | grep -v "^$TAG$" \
+                | head -1 || true)
+            fi
+            echo "::notice::Previous tag for $TAG = ${PREV_TAG:-<none>}"
+
+            # Cumulative anchor for PRERELEASE notes (#1027): the newest STABLE
+            # tag (git version-sort, prereleases stripped). For a prerelease
+            # this is always the right "since the last stable" baseline; a
+            # backwards/empty range (pathological) simply renders no content and
+            # is dropped below.
+            PREV_STABLE=""
+            if [[ "$STRIPPED" == *-* ]]; then
+              PREV_STABLE=$(git tag --sort=-version:refname --list "v[0-9]*.[0-9]*.[0-9]*" | grep -vE -- '-' | head -1 || true)
+              echo "::notice::Cumulative anchor (last stable) for $TAG = ${PREV_STABLE:-<none>}"
+            fi
+
+            GENERATED="$RUNNER_TEMP/release-notes-${TAG}.md"
+            INC="$RUNNER_TEMP/inc-${TAG}.md"
+            CUM="$RUNNER_TEMP/cum-${TAG}.md"
+
+            # git-cliff renders a `## [version]` header even when EVERY commit
+            # in the range is skipped, so `-s` is not a real content check.
+            # "Has content" == at least one `### <group>` section heading.
+            has_content() { grep -q '^### ' "$1" 2>/dev/null; }
+
+            # ELI5 render (#1028): plain-English notes from `Release-Note:` PR
+            # trailers, grouped into What's new / What's fixed / Performance /
+            # Notes by .github/cliff-eli5-body.tera. Empty until trailered commits
+            # land in the range — then it becomes the top of every release body.
+            ELI5="$RUNNER_TEMP/eli5-${TAG}.md"
+            if command -v git-cliff &>/dev/null && [ -n "$PREV_TAG" ]; then
+              git-cliff --strip all --tag "$TAG" \
+                --body "$(cat .github/cliff-eli5-body.tera)" \
+                "${PREV_TAG}..${TAG}" > "$ELI5" 2>/dev/null || true
+            fi
+
+            if command -v git-cliff &>/dev/null; then
+              # Full technical render — collapsed under <details> for developers.
+              # Subjects-only override (owner decision D1, audit §3.2 leak L2,
+              # .github/cliff-subjects-only-body.tera): commit BODIES are where
+              # mechanism detail lives (acquisition paths, credential/token
+              # names, protocol internals) and this render still ships inside
+              # the published, in-app-served release body. cliff.toml's shared
+              # default body template (which DOES include commit bodies) is
+              # left untouched because changelog.yml also uses it, verbatim,
+              # to regenerate the durable technical CHANGELOG.md.
+              [ -n "$PREV_TAG" ] && git-cliff --strip all --tag "$TAG" \
+                --body "$(cat .github/cliff-subjects-only-body.tera)" \
+                "${PREV_TAG}..${TAG}" > "$INC" 2>/dev/null || true
+
+              if [[ "$STRIPPED" != *-* ]]; then
+                # --- STABLE ---
+                # tier-1 (checked above) already won when present; reaching here
+                # means no curated file. A stable must NOT ship commit-speak, so
+                # require ELI5 from trailers — else FAIL now, before any platform
+                # build starts (#1028). (First-ever stable with no predecessor
+                # falls through to tier-3 rather than failing.)
+                if has_content "$ELI5"; then
+                  {
+                    echo "# MeedyaDL ${STRIPPED}"
+                    echo
+                    cat "$ELI5"
+                    if has_content "$INC"; then
+                      echo
+                      echo "<details><summary>Full technical changelog (for developers)</summary>"
+                      echo
+                      grep -v '^## \[' "$INC"
+                      echo
+                      echo "</details>"
+                    fi
+                  } > "$GENERATED"
+                  echo "::notice::Generated ELI5 stable notes for $TAG"
+                  NOTES_PATH="$GENERATED"
+                elif [ -n "$PREV_TAG" ]; then
+                  echo "::error::Stable release $TAG has no user-facing notes — no .github/release-notes/${TAG}.md and no Release-Note: trailers in ${PREV_TAG}..${TAG}. Stage a curated notes file (see .github/release-notes/STYLE_GUIDE.md) on main and re-run: gh workflow run Release -f tag=$TAG"
+                  exit 1
+                fi
+              else
+                # --- PRERELEASE ---
+                # Compact "since last stable" cumulative view so every prerelease
+                # is self-describing even when the delta is deps/housekeeping only
+                # (#1027). --ignore-tags (no leading '-', git-cliff parses that as
+                # a flag) collapses intermediate prerelease tags into ONE section.
+                if [ -n "$PREV_STABLE" ]; then
+                  git-cliff --strip all --tag "$TAG" \
+                    --ignore-tags '(alpha|beta|rc|nightly|weekly|monthly)\.[0-9]' \
+                    --body "$(cat .github/cliff-cumulative-body.tera)" \
+                    "${PREV_STABLE}..${TAG}" > "$CUM" 2>/dev/null || true
+                fi
+                {
+                  echo "# MeedyaDL ${STRIPPED}"
+                  echo
+                  if [ -n "${PREV_TAG:-}" ] && has_content "$ELI5"; then
+                    cat "$ELI5"
+                    echo
+                  elif [ -n "${PREV_TAG:-}" ] && ! has_content "$INC"; then
+                    # Genuinely nothing user-facing (all commits skipped, e.g. deps).
+                    # NOT shown when the technical changelog has content but no
+                    # Release-Note trailers yet (migration) — the cumulative
+                    # section + <details> below carry those changes.
+                    echo "_No user-facing changes since ${PREV_TAG} — dependency and internal housekeeping updates only._"
+                    echo
+                  fi
+                  if [ -n "${PREV_STABLE:-}" ] && has_content "$CUM"; then
+                    echo "## What's changed since ${PREV_STABLE} (the last stable release)"
+                    echo
+                    cat "$CUM"
+                    echo
+                  fi
+                  if has_content "$INC"; then
+                    echo "<details><summary>Full technical changelog (for developers)</summary>"
+                    echo
+                    grep -v '^## \[' "$INC"
+                    echo
+                    echo "</details>"
+                  fi
+                } > "$GENERATED"
+
+                # Body-size guard: GitHub caps release bodies at 125 000 chars
+                # and finalize-release later appends a ~3 000-char download guide.
+                MAX_NOTES_BYTES=100000
+                if [ "$(wc -c < "$GENERATED")" -gt "$MAX_NOTES_BYTES" ]; then
+                  head -c "$MAX_NOTES_BYTES" "$GENERATED" > "${GENERATED}.tmp"
+                  sed -i '$ d' "${GENERATED}.tmp"
+                  printf '\n\n_Notes truncated — see [CHANGELOG.md](https://github.com/%s/blob/main/CHANGELOG.md) for the full list._\n' "$REPO" >> "${GENERATED}.tmp"
+                  mv "${GENERATED}.tmp" "$GENERATED"
+                fi
+
+                # Composed body always has the title + a fallback line → non-empty.
+                if [ -s "$GENERATED" ]; then
+                  echo "::notice::Generated prerelease notes for $TAG (ELI5: $(has_content "$ELI5" && echo yes || echo none); cumulative: ${PREV_STABLE:-none})"
+                  NOTES_PATH="$GENERATED"
+                fi
+              fi
+            fi
+
+            # Tier 3: static fallback. Always produces non-empty
+            # content so the GitHub API never sees the "Release
+            # in progress…" placeholder string the #857 verification
+            # step is screening for.
+            if [ -z "${NOTES_PATH:-}" ]; then
+              cat > "$GENERATED" <<EOF
+          # MeedyaDL ${TAG}
+
+          See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for the full change list.
+
+          The platform-specific download links and \`.sig\` file
+          explanations are appended after all builds finish (see
+          \`finalize-release\` job in this workflow).
+          EOF
+              echo "::notice::Using tier-3 static-fallback release notes (git-cliff unavailable or no previous tag)"
+              NOTES_PATH="$GENERATED"
+            fi
+          fi
+
+          if [ "$SELF_HEAL" = "1" ]; then
+            # Splice the regenerated notes onto the EXISTING body,
+            # preserving the "Choose your download" footer if the
+            # platform builds already appended one (#1046). Shared regex
+            # with apply-notes.sh via splice-body.py.
+            SPLICED="$RUNNER_TEMP/spliced-${TAG}.md"
+            python3 scripts/release-notes/splice-body.py "$NOTES_PATH" "$LIVE_BODY_FILE" "$SPLICED"
+            gh release edit "$TAG" --repo "$REPO" --notes-file "$SPLICED"
+            echo "::notice::Self-healed release $TAG with regenerated ELI5 notes (footer preserved, #1046)"
+          else
+            # Create the release with the chosen notes content. The
+            # --notes-file form keeps the body intact (no shell
+            # quoting issues with multi-line Markdown).
+            gh release create "$TAG" \
+              --repo "$REPO" \
+              --draft $GH_FLAG \
+              --title "$TAG" \
+              --notes-file "$NOTES_PATH"
+            echo "::notice::Created release $TAG with proper notes (no placeholder)"
+          fi
+
+  # ============================================================
   # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
+    needs: ensure-release
 
     # permissions: contents: write is required for the tauri-action to:
     #   - Create the GitHub Release
