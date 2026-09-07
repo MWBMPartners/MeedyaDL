@@ -115,8 +115,8 @@ jobs:
           fi
 
           data=$(gh pr view "$PR" --repo "$REPO" \
-            --json number,merged,baseRefName,author,mergeCommit,title)
-          [ "$(jq -r .merged <<<"$data")" = "true" ]      || skip "PR #$PR is not merged — nothing to forward-port."
+            --json number,state,baseRefName,author,mergeCommit,title)
+          [ "$(jq -r .state <<<"$data")" = "MERGED" ]     || skip "PR #$PR is not merged — nothing to forward-port."
           [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
           if [ "$REQUIRE_DEPENDABOT" = "1" ] \
              && [ "$(jq -r '.author.login' <<<"$data")" != "dependabot[bot]" ]; then
