@@ -763,27 +763,56 @@ jobs:
           deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-security main restricted universe
           EOF
 
-          sudo apt-get update
+          # Hold firefox BEFORE the upgrade below. Ubuntu ships firefox as a
+          # "transitional" .deb whose postinst script shells out to
+          # api.snapcraft.io to pull down the real Firefox snap -- a network
+          # call `apt-get upgrade -y` makes on every ARM cross-compile run,
+          # entirely unrelated to anything MeedyaDL builds. When
+          # snapcraft.io hiccups (a 408 broke alpha.60) the whole upgrade
+          # step fails. Holding the package stops apt from touching it at
+          # all, so its postinst never runs and snapcraft.io is never
+          # contacted from this job.
+          sudo apt-mark hold firefox || true
 
-          # Upgrade all existing amd64 packages to their latest versions.
-          # This ensures Multi-Arch:same packages (like libgnutls30t64) have
-          # matching versions between amd64 and the ARM arch being installed.
-          # Without this, held-back packages on GitHub runners cause version
-          # conflicts when installing ARM library dependencies.
-          sudo apt-get upgrade -y
-
-          # Install the cross-compilation toolchain
-          sudo apt-get install -y $CROSS_GCC
-
-          # Install ARM versions of Tauri's native library dependencies.
-          # The :$CROSS_ARCH suffix tells apt to install the ARM variant.
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev:$CROSS_ARCH \
-            libappindicator3-dev:$CROSS_ARCH \
-            librsvg2-dev:$CROSS_ARCH \
-            patchelf \
-            libssl-dev:$CROSS_ARCH \
-            libgtk-3-dev:$CROSS_ARCH
+          # The apt work below hits ports.ubuntu.com for ARM package
+          # indices/files, which has been observed to 404 transiently
+          # (broke alpha.54). Retry the whole sequence up to 3 attempts;
+          # each attempt starts with a plain `apt-get update` (including
+          # retries), so a stale/partial index from a prior failed attempt
+          # is always refreshed before the next try. Deliberately NOT
+          # `apt-get update --error-on=any` -- that would turn the benign
+          # index warnings ports.ubuntu.com routinely emits into hard
+          # failures and could redden every alpha cut, not just the
+          # genuinely-transient ones.
+          attempt=1
+          max_attempts=3
+          while true; do
+            # apt-get upgrade -y upgrades all existing amd64 packages to
+            # their latest versions. This ensures Multi-Arch:same packages
+            # (like libgnutls30t64) have matching versions between amd64
+            # and the ARM arch being installed -- without it, held-back
+            # packages on GitHub runners cause version conflicts when
+            # installing the ARM library dependencies below.
+            if sudo apt-get update \
+                && sudo apt-get upgrade -y \
+                && sudo apt-get install -y $CROSS_GCC \
+                && sudo apt-get install -y \
+                     libwebkit2gtk-4.1-dev:$CROSS_ARCH \
+                     libappindicator3-dev:$CROSS_ARCH \
+                     librsvg2-dev:$CROSS_ARCH \
+                     patchelf \
+                     libssl-dev:$CROSS_ARCH \
+                     libgtk-3-dev:$CROSS_ARCH; then
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::ARM cross-compile apt setup failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::ARM cross-compile apt setup failed (attempt $attempt of $max_attempts) -- retrying"
+            attempt=$((attempt + 1))
+            sleep 5
+          done
 
       # Step 7: Configure cross-compilation environment variables.
       # These environment variables tell Cargo and pkg-config how to find
