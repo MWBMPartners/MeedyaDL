@@ -57,7 +57,13 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - name: Setup Python
-        uses: actions/setup-python@e348410041c5b0ca4452c8e292ca3936bac9ba7f # v6
+        # Verified resolvable 2026-09-07 (`gh api repos/actions/setup-python/commits/<sha>`
+        # succeeds and matches the commit the `v6` tag currently points to).
+        # The previous pin here was a SHA that does not exist upstream —
+        # every run of this workflow failed at this step with a GitHub API
+        # 422 ("No commit found for SHA"), so the watcher never ran even once
+        # since it was added.
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           # 3.11+ ships `tomllib` in the stdlib — no extra install step needed.
           python-version: '3.12'
