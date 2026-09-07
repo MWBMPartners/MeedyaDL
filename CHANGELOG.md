@@ -8,6 +8,41 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(deps)** Align Tauri JS plugin versions with the Rust crates on main
+
+Every platform build of the v1.10.5 stable release failed with:
+
+      Error Found version mismatched Tauri packages. Make sure the NPM
+      package and Rust crate versions are on the same major/minor releases
+
+  Two plugin pairs had drifted a full minor apart on `main`:
+
+      @tauri-apps/plugin-notification  2.3.3   vs  tauri-plugin-notification  2.4.0
+      @tauri-apps/plugin-updater       2.10.1  vs  tauri-plugin-updater       2.11.0
+
+  `src-tauri/Cargo.toml` pins these crates as just `"2"`, so the release
+  PR's own `chore(release): update Cargo.lock` step re-resolved them to the
+  newest minor. The JS side did not move, because `dependabot.yml` routes
+  version updates to `alpha` — so the matching npm bumps land there and never
+  reach `main`. `alpha` currently has zero mismatches for exactly that reason;
+  this is main-only drift.
+
+  Bump the two declared ranges so both halves sit on the same minor. The
+  regenerated lockfile changes exactly two entries and nothing else. Verified
+  with `npx tauri info`: neither plugin is flagged any more. The remaining
+  "(outdated)" entries there are patch-level within the same minor, which the
+  CLI's major/minor check tolerates — only minor drift fails a build.
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.5 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.5] - 2026-09-07
+
+### 🐛 Bug Fixes
+
 - **(ci)** Repair forward-port gate broken by a removed gh CLI field (#1130)
 
 ## What was wrong
@@ -86,7 +121,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.5 [skip ci]
 
 ### 🧹 Maintenance
 
