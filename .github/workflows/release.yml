@@ -1244,15 +1244,21 @@ jobs:
           # failure here would skip the "Append download guide" /
           # "Auto-publish prerelease draft" steps that follow — precisely
           # the class of incident their '!cancelled()' conditions exist to
-          # prevent), so the zero-platform case is instead made loud with
-          # an '::error::' annotation while still refusing to upload. The
-          # "Verify published updater manifest" step at the end of this
-          # job is the actual pass/fail gate for the workflow run.
+          # prevent). Before this job created /tmp/updater up front, a
+          # zero-signature run failed here by accident, because jq could not
+          # write into a directory that did not exist. That accident was the
+          # only thing stopping an empty manifest, so it is now made
+          # deliberate: refuse to upload AND fail, matching the alpha branch.
+          #
+          # Failing here is safe now that the two steps below carry
+          # '!cancelled()' — before that, any failure in this step skipped
+          # them and left a prerelease stuck as a draft.
           if [ "$PLATFORM_COUNT" -gt 0 ]; then
             gh release upload "$TAG" /tmp/updater/latest.json --repo "$REPO" --clobber
             echo "Uploaded rebuilt latest.json"
           else
             echo "::error::No platform signatures matched for $TAG — refusing to upload an empty updater manifest. Every 'gh release download' attempt above likely failed; check the retry output for details."
+            exit 1
           fi
 
       # Run even if the "Rebuild updater manifest" step above failed (for
