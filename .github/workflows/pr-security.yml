@@ -24,11 +24,22 @@
 #   5. Hardcoded absolute paths               — /Users//home/<user>/ C:\ literals
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
-#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent)
+#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent,
+#                                                Tauri npm/Rust version sync)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
 # audit scripts live in tools/audit-checks/ and are runnable locally.
+#
+# Tauri npm/Rust version sync coverage (the v1.10.5 incident): this workflow
+# triggers on `pull_request` against `main` (see the `on:` block below), and
+# the release-please "chore(main): release X.Y.Z" PR — whose own
+# "update Cargo.lock" step is exactly what created the v1.10.5 drift between
+# the npm-declared and Rust-crate-resolved Tauri plugin versions — is a PR
+# against `main` like any other. So this whole-repo, non-diff-scoped check 8
+# scan runs against that PR's head commit automatically, with no special
+# casing needed: it reads the release PR's own regenerated package-lock.json
+# and Cargo.lock, not just the files that PR happened to touch.
 #
 # Noise reduction (#1045): checks 2/3/5 grep raw source text, which flags
 # comments and doc examples as if they were live code. Three post-filters
@@ -386,6 +397,16 @@ jobs:
           UA=$(python3 tools/audit-checks/check_user_agent.py 2>&1 || true)
           if echo "$UA" | grep -q '•'; then
             add_section "Hardcoded User-Agent drift (use APP_USER_AGENT)" "$(echo "$UA" | grep -A100 '###')"
+          fi
+          # Tauri npm package <-> Rust crate version sync (the v1.10.5
+          # incident guard — see the header comment above). Whole-repo, not
+          # diff-scoped, so it reads whatever package-lock.json/Cargo.lock
+          # are actually at this PR's HEAD — including a release-please
+          # "update Cargo.lock" commit that never touched package-lock.json
+          # at all in its own diff.
+          TAURI_VER=$(python3 tools/audit-checks/check_tauri_version_sync.py 2>&1 || true)
+          if echo "$TAURI_VER" | grep -q '•'; then
+            add_section "Tauri npm/Rust version drift (tauri build refuses a major.minor mismatch)" "$(echo "$TAURI_VER" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

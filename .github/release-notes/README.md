@@ -51,6 +51,8 @@ Pure Markdown. The `finalize-release` job appends the platform-specific "Choose 
 
 Section headings must be `###` (H3) — the `release-note-gate.yml` CI check and `scripts/release-notes/draft-notes.sh` both key on a line starting with `###` followed by a space. Write the bullets in plain English per [`STYLE_GUIDE.md`](STYLE_GUIDE.md); `scripts/release-notes/draft-notes.sh <tag>` will scaffold this shape for you, pre-seeded from any `Release-Note:` trailers already merged.
 
+**Deps-only / internal-only release exception:** the gate also accepts a file with no `###` sections at all, as long as it contains STYLE_GUIDE.md's documented single-line sentence verbatim: *"Under-the-hood housekeeping and dependency updates — nothing changes in how you use the app."* Use that shape instead of an empty "Notes" section when nothing changed for users. A file with neither shape (empty, title-only, or free text that isn't that exact sentence) still fails the check.
+
 See `v1.11.0-alpha.21.md` / `v1.9.1.md` in this directory for the canonical gold standard.
 
 ## Filename rules
