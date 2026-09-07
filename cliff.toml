@@ -123,6 +123,9 @@ split_commits = false
 #
 # @see https://git-cliff.org/docs/configuration/git#commit_parsers
 commit_parsers = [
+    # --- Skip-first: internal session-handoff records (not user-facing).
+    # Must precede the `^doc` group matcher below (first-match-wins). ---
+    { message = "^docs\\(handoff\\)", skip = true },
     # --- Visible changelog groups (ordered by importance) ---
     { message = "^feat", group = "<!-- 0 -->✨ Features" },        # New features
     { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },        # Bug fixes
@@ -139,6 +142,16 @@ commit_parsers = [
     { message = "^chore\\(main\\): release", skip = true },  # Release-please version bumps
     { message = "^chore\\(deps\\)", skip = true },     # Dependency updates (automated)
     { message = "^chore\\(pr\\)", skip = true },       # PR-related chores (merge commits)
+    # Channel version-bump commits pushed by the release workflows
+    # (`chore(alpha): 1.11.0-alpha.28`). 3 live channels (alpha/beta/rc);
+    # nightly/weekly/monthly were removed by #879 but their bumps live in
+    # history and pollute the regenerated CHANGELOG.md, so match all six
+    # scopes. Match ONLY the machine pure-bump shape `X.Y.Z-<channel>.N` so
+    # human housekeeping like `chore(alpha): combined housekeeping…` (55ffd030,
+    # PR #954) still renders — same over-match lesson as alpha-release.yml:73-82.
+    { message = "^chore\\((alpha|beta|rc|nightly|weekly|monthly)\\): [0-9]+\\.[0-9]+\\.[0-9]+-(alpha|beta|rc|nightly|weekly|monthly)\\.[0-9]+", skip = true },
+    # Manual version-manifest bumps (`chore(version): bump minor to 1.12.0-alpha.28`).
+    { message = "^chore\\(version\\)", skip = true },
 
     # --- Catch-all for remaining chore commits ---
     { message = "^chore", group = "<!-- 9 -->🧹 Maintenance" },     # General maintenance
