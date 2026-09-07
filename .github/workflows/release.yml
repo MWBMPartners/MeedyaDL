@@ -1088,6 +1088,17 @@ jobs:
           VERSION="${TAG#v}"
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
+          # Create the scratch dir up front. Every 'gh release download'
+          # below writes here, including the very first one a few lines
+          # down — without this, a release with no existing latest.json
+          # asset AND zero matching signatures would never get this
+          # directory created at all ('gh release download' only creates
+          # --dir on a successful match), and the final 'jq > latest.json'
+          # write further down would crash. See the AMENDMENT note near
+          # the upload step below for why that crash used to be doing
+          # useful (if accidental) work.
+          mkdir -p /tmp/updater
+
           # Download the current latest.json to preserve notes and pub_date
           gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir /tmp/updater --clobber 2>/dev/null || true
 
@@ -1102,18 +1113,57 @@ jobs:
           # List all release assets to determine which platforms built successfully
           ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
 
+          # Diagnostics: the alpha.58 incident (two 'gh release download'
+          # calls failing transiently within about 2 seconds, hidden by
+          # '2>/dev/null') was only diagnosable after the fact because the
+          # asset listing itself happened to still be reconstructable.
+          # Logging it up front means the next incident's diagnosis doesn't
+          # depend on that. Written to stderr — see the STDOUT DISCIPLINE
+          # note on download_sig() below for why.
+          echo "Release assets for $TAG:" >&2
+          echo "$ASSETS" >&2
+
           # Start building the platforms JSON object
           PLATFORMS="{}"
 
-          # Helper: download a .sig file content from the release
+          # Helper: download a .sig file content from the release.
+          #
+          # STDOUT DISCIPLINE: this function's stdout is captured verbatim
+          # by every 'SIG=$(download_sig ...)' call site below — it becomes
+          # the literal signature bytes written into latest.json. Every
+          # diagnostic line in here MUST be redirected to stderr ('>&2' /
+          # '1>&2'), or it silently corrupts the captured signature and
+          # breaks updates for whichever platform it belongs to.
+          #
+          # Hardened after the alpha.58 incident, where two transient
+          # 'gh release download' failures were swallowed by '2>/dev/null'
+          # and the job still reported success even though windows-x86_64
+          # and windows-x86_64-nsis silently dropped out of latest.json:
+          #   - '2>/dev/null' removed; gh's own output is redirected to
+          #     stderr with '1>&2' instead, so a real failure reaches the
+          #     log without ever touching the captured stdout.
+          #   - '[ -s ... ]' (non-empty) instead of '[ -f ... ]' (merely
+          #     exists), so a zero-byte download counts as a failure.
+          #   - up to 3 attempts per signature, sleeping 5s then 10s
+          #     between them, to absorb exactly the kind of short transient
+          #     failure window that caused the incident.
           download_sig() {
             local sig_name="$1"
+            local attempt
             if echo "$ASSETS" | grep -qF "$sig_name"; then
-              gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 2>/dev/null
-              if [ -f "/tmp/updater/$sig_name" ]; then
-                cat "/tmp/updater/$sig_name"
-                return 0
-              fi
+              for attempt in 1 2 3; do
+                gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 1>&2
+                if [ -s "/tmp/updater/$sig_name" ]; then
+                  cat "/tmp/updater/$sig_name"
+                  return 0
+                fi
+                echo "download_sig: attempt $attempt failed for $sig_name" >&2
+                case "$attempt" in
+                  1) sleep 5 ;;
+                  2) sleep 10 ;;
+                esac
+              done
+              echo "download_sig: all 3 attempts failed for $sig_name" >&2
             fi
             return 1
           }
@@ -1170,15 +1220,56 @@ jobs:
           echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s)"
           jq '.platforms | keys' /tmp/updater/latest.json
 
-          # Upload the rebuilt manifest (overwrite the incomplete one)
+          # Diagnostics: name any of the four updater-producing platforms
+          # missing from the manifest we just built, so a partial failure
+          # (like alpha.58's two dropped Windows entries) is visible in the
+          # run log instead of only discoverable via a user report of "no
+          # update offered". Linux ARM64/ARMv7 build '--bundles deb rpm'
+          # only and never produce an updater signature on any release —
+          # they are deliberately excluded from this check.
+          for expected_platform in darwin-aarch64 windows-x86_64 windows-aarch64 linux-x86_64; do
+            if ! jq -e --arg p "$expected_platform" '.platforms | has($p)' /tmp/updater/latest.json > /dev/null; then
+              echo "::warning::latest.json for $TAG is missing the '$expected_platform' updater entry"
+            fi
+          done
+
+          # Upload the rebuilt manifest (overwrite the incomplete one).
+          #
+          # AMENDMENT: adding 'mkdir -p /tmp/updater' above means the jq
+          # write above can no longer fail just because the directory is
+          # missing. Before that mkdir existed, a zero-signature result
+          # crashed this step by accident — that accidental crash was the
+          # only thing stopping an empty manifest from ever being uploaded.
+          # This step deliberately still never exits non-zero (a hard
+          # failure here would skip the "Append download guide" /
+          # "Auto-publish prerelease draft" steps that follow — precisely
+          # the class of incident their '!cancelled()' conditions exist to
+          # prevent). Before this job created /tmp/updater up front, a
+          # zero-signature run failed here by accident, because jq could not
+          # write into a directory that did not exist. That accident was the
+          # only thing stopping an empty manifest, so it is now made
+          # deliberate: refuse to upload AND fail, matching the alpha branch.
+          #
+          # Failing here is safe now that the two steps below carry
+          # '!cancelled()' — before that, any failure in this step skipped
+          # them and left a prerelease stuck as a draft.
           if [ "$PLATFORM_COUNT" -gt 0 ]; then
             gh release upload "$TAG" /tmp/updater/latest.json --repo "$REPO" --clobber
             echo "Uploaded rebuilt latest.json"
           else
-            echo "WARNING: No platform signatures found — skipping latest.json upload"
+            echo "::error::No platform signatures matched for $TAG — refusing to upload an empty updater manifest. Every 'gh release download' attempt above likely failed; check the retry output for details."
+            exit 1
           fi
 
+      # Run even if the "Rebuild updater manifest" step above failed (for
+      # example a transient 'gh release download' error) — otherwise a
+      # single failure there leaves the release stuck with the "Release in
+      # progress..." placeholder body forever, since this step is the one
+      # that replaces it with real notes. '!cancelled()' rather than
+      # 'always()': a genuinely cancelled workflow run should not keep
+      # editing the release object.
       - name: Append download guide to release notes
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -1284,7 +1375,16 @@ jobs:
       #
       # Idempotent: skips releases that are already published, so re-running
       # the workflow on the same tag is safe.
+      #
+      # Runs even if an earlier step in this job failed — a prerelease that
+      # never gets published because "Rebuild updater manifest" hit a
+      # transient error is worse for users than one published with a
+      # manifest that's still missing a platform (the "Verify published
+      # updater manifest" step below flags that loudly). '!cancelled()'
+      # rather than 'always()' so a genuinely cancelled run does not keep
+      # mutating the release.
       - name: Auto-publish prerelease draft
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
@@ -1309,3 +1409,111 @@ jobs:
           echo "Publishing prerelease draft: $TAG"
           gh release edit "$TAG" --repo "$REPO" --draft=false
           echo "Published $TAG as a public prerelease"
+
+      # Verify the manifest that actually got published to the release
+      # matches what "Rebuild updater manifest" intended, and that the
+      # in-app updater has something to offer on every platform that's
+      # supposed to produce one.
+      #
+      # This is the direct fix for the alpha.58 incident: the release's
+      # asset listing was complete and every signature had been uploaded
+      # 30 minutes earlier, but latest.json still shipped with only 4 of 6
+      # platform entries — windows-x86_64 and windows-x86_64-nsis were
+      # silently dropped by two transient 'gh release download' failures,
+      # and the job reported success anyway because nothing ever checked
+      # what actually landed in the published file.
+      #
+      # This step runs LAST — after the manifest has already been
+      # uploaded and the release (if a prerelease) already published — so
+      # failing it never withholds anything from users. It only turns this
+      # workflow run red as a signal that a release shipped with a broken
+      # or incomplete updater manifest.
+      - name: Verify published updater manifest (latest.json)
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+
+          # latest.json's "version" field is the bare semver, e.g.
+          # "1.13.0-alpha.58" — never the "v"-prefixed tag name. Comparing
+          # against the tag itself would fail every single release, not
+          # just a genuinely broken one.
+          EXPECTED_VERSION="${TAG#v}"
+
+          # A DIFFERENT directory from the rebuild step's /tmp/updater —
+          # this step must read back what actually got published, not
+          # whatever the earlier step still happens to have on local disk.
+          VERIFY_DIR=/tmp/updater-verify
+          mkdir -p "$VERIFY_DIR"
+          rm -f "$VERIFY_DIR/latest.json"
+
+          DOWNLOADED=0
+          for attempt in 1 2 3; do
+            if gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir "$VERIFY_DIR" --clobber 1>&2; then
+              DOWNLOADED=1
+              break
+            fi
+            echo "Attempt $attempt: failed to download the published latest.json for $TAG" >&2
+            case "$attempt" in
+              1) sleep 5 ;;
+              2) sleep 10 ;;
+            esac
+          done
+
+          # Strictness: when every platform build actually succeeded, an
+          # incomplete manifest is exactly the alpha.58 incident, so all
+          # six keys are mandatory and we fail the run. When a build
+          # genuinely failed, this run is already red for that reason —
+          # piling a second hard failure on top for an updater manifest
+          # that was never going to be complete anyway would just be
+          # noise, so we only warn.
+          STRICT=false
+          if [ "$PUBLISH_RESULT" = "success" ]; then
+            STRICT=true
+          fi
+
+          report() {
+            local msg="$1"
+            if [ "$STRICT" = "true" ]; then
+              echo "::error::$msg"
+            else
+              echo "::warning::$msg"
+            fi
+          }
+
+          if [ "$DOWNLOADED" != "1" ] || [ ! -s "$VERIFY_DIR/latest.json" ]; then
+            report "Could not download the published latest.json for $TAG after 3 attempts — unable to verify the updater manifest."
+            if [ "$STRICT" = "true" ]; then
+              exit 1
+            fi
+            exit 0
+          fi
+
+          FAILED=0
+
+          ACTUAL_VERSION=$(jq -r '.version // ""' "$VERIFY_DIR/latest.json" 2>/dev/null) || ACTUAL_VERSION=""
+          if [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; then
+            report "Published latest.json has version '$ACTUAL_VERSION', expected '$EXPECTED_VERSION' (derived from tag $TAG)."
+            FAILED=1
+          fi
+
+          # The six keys the in-app updater can actually request. Linux
+          # ARM64/ARMv7 are deliberately absent — they build '--bundles deb
+          # rpm' only and never produce an updater signature.
+          for platform in darwin-aarch64 windows-x86_64 windows-x86_64-nsis windows-aarch64 windows-aarch64-nsis linux-x86_64; do
+            SIG=$(jq -r --arg p "$platform" '.platforms[$p].signature // ""' "$VERIFY_DIR/latest.json" 2>/dev/null) || SIG=""
+            if [ -z "$SIG" ]; then
+              report "Published latest.json for $TAG is missing a signature for '$platform' — the in-app updater will not offer this platform an update."
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "Verified: published latest.json for $TAG has version '$ACTUAL_VERSION' and all 6 updater platform entries."
+          elif [ "$STRICT" = "true" ]; then
+            exit 1
+          fi

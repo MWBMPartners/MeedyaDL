@@ -62,21 +62,49 @@ jobs:
 
           # List all release assets
           ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
-          echo "Release assets:"
-          echo "$ASSETS"
+          echo "Release assets:" >&2
+          echo "$ASSETS" >&2
 
           # Start building the platforms JSON object
           PLATFORMS="{}"
 
-          # Helper: download a .sig file content from the release
+          # Helper: download a .sig file content from the release.
+          #
+          # STDOUT DISCIPLINE: this function's stdout is captured verbatim
+          # by every 'SIG=$(download_sig ...)' call site below — it becomes
+          # the literal signature bytes written into latest.json. Every
+          # diagnostic line in here MUST be redirected to stderr ('>&2' /
+          # '1>&2'), or it silently corrupts the captured signature and
+          # breaks updates for whichever platform it belongs to.
+          #
+          # Hardened alongside release.yml's identical helper (the
+          # alpha.58 incident: two transient 'gh release download' calls
+          # failed within about 2 seconds, hidden by '2>/dev/null', and
+          # the platforms silently dropped out of latest.json):
+          #   - '2>/dev/null' removed; gh's own output goes to stderr with
+          #     '1>&2' instead, so a real failure reaches the log without
+          #     touching the captured stdout.
+          #   - '[ -s ... ]' (non-empty) instead of '[ -f ... ]' (merely
+          #     exists), so a zero-byte download counts as a failure.
+          #   - up to 3 attempts per signature, sleeping 5s then 10s
+          #     between them.
           download_sig() {
             local sig_name="$1"
+            local attempt
             if echo "$ASSETS" | grep -qF "$sig_name"; then
-              gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 2>/dev/null
-              if [ -f "/tmp/updater/$sig_name" ]; then
-                cat "/tmp/updater/$sig_name"
-                return 0
-              fi
+              for attempt in 1 2 3; do
+                gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 1>&2
+                if [ -s "/tmp/updater/$sig_name" ]; then
+                  cat "/tmp/updater/$sig_name"
+                  return 0
+                fi
+                echo "download_sig: attempt $attempt failed for $sig_name" >&2
+                case "$attempt" in
+                  1) sleep 5 ;;
+                  2) sleep 10 ;;
+                esac
+              done
+              echo "download_sig: all 3 attempts failed for $sig_name" >&2
             fi
             return 1
           }
@@ -141,6 +169,16 @@ jobs:
           echo ""
           echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s):"
           jq '.' /tmp/updater/latest.json
+
+          # Diagnostics: name any of the four updater-producing platforms
+          # missing from the manifest we just built. Linux ARM64/ARMv7
+          # build '--bundles deb rpm' only and never produce an updater
+          # signature on any release — they are deliberately excluded.
+          for expected_platform in darwin-aarch64 windows-x86_64 windows-aarch64 linux-x86_64; do
+            if ! jq -e --arg p "$expected_platform" '.platforms | has($p)' /tmp/updater/latest.json > /dev/null; then
+              echo "::warning::latest.json for $TAG is missing the '$expected_platform' updater entry"
+            fi
+          done
 
           # Upload the rebuilt manifest (overwrite the incomplete one)
           if [ "$PLATFORM_COUNT" -gt 0 ]; then
