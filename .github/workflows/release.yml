@@ -755,27 +755,56 @@ jobs:
           deb [arch=$CROSS_ARCH] http://ports.ubuntu.com/ubuntu-ports/ $CODENAME-security main restricted universe
           EOF
 
-          sudo apt-get update
+          # Hold firefox BEFORE the upgrade below. Ubuntu ships firefox as a
+          # "transitional" .deb whose postinst script shells out to
+          # api.snapcraft.io to pull down the real Firefox snap -- a network
+          # call `apt-get upgrade -y` makes on every ARM cross-compile run,
+          # entirely unrelated to anything MeedyaDL builds. When
+          # snapcraft.io hiccups (a 408 broke alpha.60) the whole upgrade
+          # step fails. Holding the package stops apt from touching it at
+          # all, so its postinst never runs and snapcraft.io is never
+          # contacted from this job.
+          sudo apt-mark hold firefox || true
 
-          # Upgrade all existing amd64 packages to their latest versions.
-          # This ensures Multi-Arch:same packages (like libgnutls30t64) have
-          # matching versions between amd64 and the ARM arch being installed.
-          # Without this, held-back packages on GitHub runners cause version
-          # conflicts when installing ARM library dependencies.
-          sudo apt-get upgrade -y
-
-          # Install the cross-compilation toolchain
-          sudo apt-get install -y $CROSS_GCC
-
-          # Install ARM versions of Tauri's native library dependencies.
-          # The :$CROSS_ARCH suffix tells apt to install the ARM variant.
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev:$CROSS_ARCH \
-            libappindicator3-dev:$CROSS_ARCH \
-            librsvg2-dev:$CROSS_ARCH \
-            patchelf \
-            libssl-dev:$CROSS_ARCH \
-            libgtk-3-dev:$CROSS_ARCH
+          # The apt work below hits ports.ubuntu.com for ARM package
+          # indices/files, which has been observed to 404 transiently
+          # (broke alpha.54). Retry the whole sequence up to 3 attempts;
+          # each attempt starts with a plain `apt-get update` (including
+          # retries), so a stale/partial index from a prior failed attempt
+          # is always refreshed before the next try. Deliberately NOT
+          # `apt-get update --error-on=any` -- that would turn the benign
+          # index warnings ports.ubuntu.com routinely emits into hard
+          # failures and could redden every alpha cut, not just the
+          # genuinely-transient ones.
+          attempt=1
+          max_attempts=3
+          while true; do
+            # apt-get upgrade -y upgrades all existing amd64 packages to
+            # their latest versions. This ensures Multi-Arch:same packages
+            # (like libgnutls30t64) have matching versions between amd64
+            # and the ARM arch being installed -- without it, held-back
+            # packages on GitHub runners cause version conflicts when
+            # installing the ARM library dependencies below.
+            if sudo apt-get update \
+                && sudo apt-get upgrade -y \
+                && sudo apt-get install -y $CROSS_GCC \
+                && sudo apt-get install -y \
+                     libwebkit2gtk-4.1-dev:$CROSS_ARCH \
+                     libappindicator3-dev:$CROSS_ARCH \
+                     librsvg2-dev:$CROSS_ARCH \
+                     patchelf \
+                     libssl-dev:$CROSS_ARCH \
+                     libgtk-3-dev:$CROSS_ARCH; then
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::ARM cross-compile apt setup failed after $max_attempts attempts"
+              exit 1
+            fi
+            echo "::warning::ARM cross-compile apt setup failed (attempt $attempt of $max_attempts) -- retrying"
+            attempt=$((attempt + 1))
+            sleep 5
+          done
 
       # Step 7: Configure cross-compilation environment variables.
       # These environment variables tell Cargo and pkg-config how to find
@@ -1908,5 +1937,86 @@ jobs:
           if [ "$FAILED" -eq 0 ]; then
             echo "Verified: published latest.json for $TAG has version '$ACTUAL_VERSION' and all 6 updater platform entries."
           elif [ "$STRICT" = "true" ]; then
+            exit 1
+          fi
+
+      # Checks that every download this release is supposed to offer
+      # actually made it onto the GitHub Release page, by listing the
+      # release's real assets and comparing them against the file names
+      # the "Choose your download" guide above promises (and the build
+      # matrix's own "Produces:" comments confirm).
+      #
+      # ARM Linux (Raspberry Pi 4/5 .deb/.rpm and the 32-bit ARMv7 .deb/
+      # .rpm) is WARNING ONLY and must never fail this job. Two reasons,
+      # both decided after watching this happen for real: (1) the Linux
+      # ARM build job above is already marked 'continue-on-error' because
+      # it is experimental, so a missing ARM Linux asset is an already-
+      # known, already-tolerated outcome, not a new problem to alarm on;
+      # (2) the in-app updater's latest.json (built two steps up) has no
+      # 'linux-arm64' or 'linux-armv7' entry at all — Linux ARM never had
+      # an auto-update path to begin with, so those users are unaffected
+      # either way. Turning the whole run red for a platform whose users
+      # were never going to auto-update from it happened twice in the
+      # last fifteen releases for no benefit, which is why this is a
+      # warning, not an error.
+      #
+      # Every other asset is something a user has no other way to get
+      # this release from, so a missing one is a real error and fails
+      # the job. This step runs LAST, after the manifest rebuild, the
+      # download guide append, and the prerelease publish — so a missing
+      # asset never withholds anything from users that would otherwise
+      # have shipped; it only turns this run red as a signal to go fix
+      # whichever platform build silently lost its upload.
+      - name: Verify published release assets
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+          VERSION="${TAG#v}"
+
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+
+          # Every platform a user can actually download today without
+          # going through ARM Linux's experimental, best-effort build.
+          REQUIRED_ASSETS=(
+            "MeedyaDL_${VERSION}_aarch64.dmg"
+            "MeedyaDL_${VERSION}_x64-setup.exe"
+            "MeedyaDL_${VERSION}_arm64-setup.exe"
+            "MeedyaDL_${VERSION}_amd64.deb"
+            "MeedyaDL_${VERSION}_amd64.AppImage"
+            "MeedyaDL-${VERSION}-1.x86_64.rpm"
+          )
+
+          # ARM Linux — Raspberry Pi 4/5 (64-bit) and ARMv7 (32-bit).
+          # Warning only; see the comment above this step for why.
+          ARM_LINUX_ASSETS=(
+            "MeedyaDL_${VERSION}_arm64.deb"
+            "MeedyaDL-${VERSION}-1.aarch64.rpm"
+            "MeedyaDL_${VERSION}_armv7.deb"
+            "MeedyaDL-${VERSION}-1.armv7.rpm"
+          )
+
+          FAILED=0
+
+          for asset in "${REQUIRED_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qFx "$asset"; then
+              echo "::error::Release $TAG is missing expected download '$asset'."
+              FAILED=1
+            fi
+          done
+
+          for asset in "${ARM_LINUX_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qFx "$asset"; then
+              echo "::warning::Release $TAG is missing ARM Linux download '$asset' — warning only (experimental build; no auto-update entry for this platform either way)."
+            fi
+          done
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "Verified: every required release asset is present for $TAG."
+          else
+            echo "::error::Release $TAG is missing one or more required downloads — see the errors above."
             exit 1
           fi
