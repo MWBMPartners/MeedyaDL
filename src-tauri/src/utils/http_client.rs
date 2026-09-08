@@ -97,8 +97,8 @@ pub const APP_USER_AGENT: &str = concat!(
 /// paragraph is why. See issue #1072.
 ///
 /// The VERSION NUMBER in the string is a separate matter and does need
-/// keeping current — see the note further down about how it is refreshed.
-/// Do not reach for this constant outside the Apple Music paths; every
+/// keeping current — see [`SAFARI_VERSION`] further down for how it is kept
+/// current. Do not reach for this constant outside the Apple Music paths; every
 /// other "needs to look like a real browser" call site wants
 /// [`browser_user_agent()`] instead, which is genuine for the host OS.
 ///
@@ -116,8 +116,16 @@ pub const APP_USER_AGENT: &str = concat!(
 /// itself an implausible, anomaly-signalling combination. This constant is
 /// scoped down to what it always should have been: Apple Music's own
 /// storefront, which genuinely expects Safari regardless of host OS. The
-/// Safari string value itself is unchanged across all of these moves.
-pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15";
+/// Safari string value itself is unchanged across all of these moves,
+/// except for the `Version/…` number — see [`SAFARI_VERSION`] below for how
+/// that one number is kept current while every other byte of this string
+/// stays exactly as written here.
+pub static SAFARI_MACOS_USER_AGENT: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/{} Safari/605.1.15",
+        sanitise_safari_version(SAFARI_VERSION)
+    )
+});
 
 /// Returns a genuine, platform-appropriate browser User-Agent string for
 /// the current host OS. Used by every third party that isn't first-party,
@@ -144,7 +152,7 @@ pub const SAFARI_MACOS_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS 
 /// [`CHROME_MAJOR`] and its surrounding constants for the mechanism.
 pub fn browser_user_agent() -> &'static str {
     match std::env::consts::OS {
-        "macos" => SAFARI_MACOS_USER_AGENT,
+        "macos" => SAFARI_MACOS_USER_AGENT.as_str(),
         "windows" => WINDOWS_CHROME_UA.as_str(),
         // "linux" and every other/unknown OS share the same generic
         // desktop-Linux Chrome string — see the doc comment above.
@@ -201,15 +209,13 @@ const CHROME_MAJOR_FALLBACK: &str = "151";
 ///    fetch there simply leaves the env var unset, which lands right back
 ///    on this same fallback.
 ///
-/// [`SAFARI_MACOS_USER_AGENT`] is deliberately **not** wired into this
-/// mechanism and stays a hand-maintained constant. That string is the
-/// Group B UA Apple Music's own edges must accept — tying it to a network
-/// fetch would mean a broken/rate-limited packaging-time request could ship
-/// a build that Apple Music's servers reject outright, which is far too
-/// high a blast radius for what this buys. Safari's major version also
-/// moves on a roughly annual cadence (vs. Chrome's ~4-week train), so the
-/// staleness pressure that motivates resolving Chrome barely applies —
-/// manual, infrequent refreshes are the right cost/benefit trade there.
+/// [`SAFARI_MACOS_USER_AGENT`] is deliberately **not** wired into this same
+/// network-fetch mechanism — it has its own, described at [`SAFARI_VERSION`]
+/// below, which resolves the version a different way for a reason that
+/// still stands: that string is the Group B UA Apple Music's own edges must
+/// accept, and a broken/rate-limited packaging-time network request could
+/// ship a build that Apple Music's servers reject outright, which is far
+/// too high a blast radius to accept for what a network fetch would buy.
 const CHROME_MAJOR: &str = match option_env!("MEEDYADL_CHROME_MAJOR") {
     Some(v) => v,
     None => CHROME_MAJOR_FALLBACK,
@@ -229,6 +235,86 @@ const CHROME_MAJOR: &str = match option_env!("MEEDYADL_CHROME_MAJOR") {
 fn sanitise_chrome_major(raw: &'static str) -> &'static str {
     let ok = (2..=4).contains(&raw.len()) && raw.bytes().all(|b| b.is_ascii_digit());
     if ok { raw } else { CHROME_MAJOR_FALLBACK }
+}
+
+/// Fallback Safari version number, compiled in for every build that doesn't
+/// inject [`MEEDYADL_SAFARI_VERSION`](SAFARI_VERSION) at packaging time —
+/// i.e. every local dev build, every fork build, and every CI/PR build (only
+/// `release.yml`'s macOS job ever sets the env var — see [`SAFARI_VERSION`]
+/// for why). Bump this by hand from time to time so it tracks a real,
+/// current Safari release; it only matters for builds that never go through
+/// that macOS job.
+///
+/// A stale value here is not merely untidy — an old Safari version number is
+/// itself an anomaly signal, which undercuts the entire reason
+/// [`SAFARI_MACOS_USER_AGENT`] exists (see that constant's doc comment for
+/// why presenting as Safari matters in the first place). Last refreshed
+/// 2026-09-08 against a real installed Safari (26.6.2) on the maintainer's
+/// Mac; kept here as the major-and-minor pair only, matching the shape most
+/// real Safari installs report.
+const SAFARI_VERSION_FALLBACK: &str = "26.6";
+
+/// The Safari version string (e.g. `"26.6"` or `"26.6.2"`) baked into
+/// [`SAFARI_MACOS_USER_AGENT`]'s `Version/…` field. Same `option_env!`-with-
+/// compiled-in-fallback shape as [`CHROME_MAJOR`], but resolved a
+/// deliberately DIFFERENT way — this is the one place in the four-way UA
+/// policy where the two mechanisms diverge on purpose, so read this
+/// alongside [`CHROME_MAJOR`]'s doc comment rather than assuming they match:
+///
+/// 1. **No network call, ever.** Chrome's number is fetched live from
+///    Google's public VersionHistory API because a stale Chrome major is a
+///    low-stakes anomaly signal at worst. Safari is different: a failed,
+///    timed-out, or rate-limited network fetch at packaging time could ship
+///    a build carrying a broken or nonsensical Apple Music identity, and
+///    Apple Music's own edges are the one destination this app genuinely
+///    cannot afford to be turned away by. That objection is on record (see
+///    [`SAFARI_MACOS_USER_AGENT`]'s doc comment) and this mechanism honours
+///    it by never touching the network for this value.
+/// 2. **Read off the actual build machine instead.** `release.yml` runs
+///    `plutil -extract CFBundleShortVersionString raw -o - \
+///    /Applications/Safari.app/Contents/Info.plist` on the macOS release
+///    runner — reading the version of the real Safari that ships with that
+///    runner's own macOS image, not a guess and not a fetch — and exports
+///    the result as `MEEDYADL_SAFARI_VERSION`.
+/// 3. **Resolved once, shared with every platform's build.** Only a macOS
+///    machine can read a Safari version at all, but this string ships in
+///    every platform's build (Windows and Linux included — see
+///    [`SAFARI_MACOS_USER_AGENT`]'s doc comment for why). So `release.yml`
+///    resolves it exactly once, in a small `resolve-safari-version` job that
+///    runs on a macOS runner ahead of the per-platform build matrix, and
+///    passes the result down to every platform's build job as a job output
+///    — the same "resolve once, fan out" shape `MEEDYADL_CHROME_MAJOR` would
+///    need if Chrome's number were platform-exclusive too, except Chrome's
+///    happens to be fetchable identically from any OS so it never needed
+///    this extra job.
+///
+/// NEVER-FAIL CONTRACT, identical in spirit to Chrome's: if the read fails
+/// for any reason — Safari absent from the runner image, an unexpected
+/// plist shape, the job output not making it to a platform's job — this
+/// resolves to [`SAFARI_VERSION_FALLBACK`] with no build-script requirement,
+/// no build failure, and no behavioural difference beyond which digits
+/// appear in the UA string. [`sanitise_safari_version()`] is the second line
+/// of defence for a value that arrived non-empty but malformed.
+const SAFARI_VERSION: &str = match option_env!("MEEDYADL_SAFARI_VERSION") {
+    Some(v) => v,
+    None => SAFARI_VERSION_FALLBACK,
+};
+
+/// Defence-in-depth validation for [`SAFARI_VERSION`], mirroring
+/// [`sanitise_chrome_major()`]. Accepts the two shapes Safari's own
+/// `CFBundleShortVersionString` actually uses — `"26.6"` (major.minor) or
+/// `"26.6.2"` (major.minor.patch), each component 1-3 digits — and
+/// substitutes [`SAFARI_VERSION_FALLBACK`] for anything else (empty,
+/// non-numeric, wrong number of parts, an implausibly long component), so a
+/// bad workflow edit or an unexpected plist read can never reach a shipped
+/// UA string.
+fn sanitise_safari_version(raw: &'static str) -> &'static str {
+    let parts: Vec<&str> = raw.split('.').collect();
+    let ok = (2..=3).contains(&parts.len())
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
+    if ok { raw } else { SAFARI_VERSION_FALLBACK }
 }
 
 /// Lazily-built Windows Chrome User-Agent string. Built once per process;
@@ -472,6 +558,44 @@ mod tests {
         // — see the constant's doc comment.
         assert!(SAFARI_MACOS_USER_AGENT.contains("Macintosh"));
         assert!(SAFARI_MACOS_USER_AGENT.contains("Safari"));
+        // The version number is the one part of the string that's expected
+        // to change over time (see SAFARI_VERSION) — everything else must
+        // stay byte-identical to what a real macOS Safari sends.
+        assert!(SAFARI_MACOS_USER_AGENT.starts_with(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/"
+        ));
+        assert!(SAFARI_MACOS_USER_AGENT.ends_with(" Safari/605.1.15"));
+    }
+
+    #[test]
+    fn safari_version_fallback_is_well_formed() {
+        // The compiled-in fallback is what every local/fork/CI build (and
+        // any non-macOS release job) actually ships, so it must
+        // independently satisfy the same shape sanitise_safari_version()
+        // enforces on the (possibly build-injected) value.
+        assert_eq!(
+            sanitise_safari_version(SAFARI_VERSION_FALLBACK),
+            SAFARI_VERSION_FALLBACK
+        );
+    }
+
+    #[test]
+    fn sanitise_safari_version_accepts_valid_and_rejects_garbage() {
+        // Real Safari CFBundleShortVersionString shapes: major.minor and
+        // major.minor.patch both occur in the wild.
+        assert_eq!(sanitise_safari_version("26.6"), "26.6");
+        assert_eq!(sanitise_safari_version("26.6.2"), "26.6.2");
+        assert_eq!(sanitise_safari_version("9.1"), "9.1");
+        // Anything else — empty, a single component, too many components,
+        // non-numeric, an absurdly long component — falls back to the
+        // compiled-in constant rather than propagating a malformed value
+        // into a shipped UA string.
+        assert_eq!(sanitise_safari_version(""), SAFARI_VERSION_FALLBACK);
+        assert_eq!(sanitise_safari_version("26"), SAFARI_VERSION_FALLBACK);
+        assert_eq!(sanitise_safari_version("26.6.2.1"), SAFARI_VERSION_FALLBACK);
+        assert_eq!(sanitise_safari_version("26.x"), SAFARI_VERSION_FALLBACK);
+        assert_eq!(sanitise_safari_version("26."), SAFARI_VERSION_FALLBACK);
+        assert_eq!(sanitise_safari_version("2600.6"), SAFARI_VERSION_FALLBACK);
     }
 
     #[test]
