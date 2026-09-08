@@ -1,11 +1,116 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-08
-**Working branch:** `alpha` (direct — channel convention; no feature branch). **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
+**Last updated:** 2026-09-08 (second session — see ★★★★ below)
+**Working branch:** `work/alpha-resilience-and-docs`, rooted on `alpha` at `v1.13.0-alpha.61`. Everything goes to `alpha` in one pull request; no PR stacking. **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
 
 **Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
 
 Read top-to-bottom before continuing. **This is the single canonical handoff.** Two stale dated duplicates (`.claude/memory/` + `.OpenAI/memory/project_session_handoff_2026_07_26.md`, alpha.38 era, byte-identical) were **removed in this push** to avoid confusion. Supersedes the earlier 2026-07-10 handoff.
+
+---
+
+## ★★★★ LATEST — Session 2026-09-08 (later): three finished features had never worked once
+
+> **PICK UP HERE.** Still one work branch: `work/alpha-resilience-and-docs`, rooted on
+> `alpha` at `v1.13.0-alpha.61`. Everything below is committed and pushed to it. The
+> earlier beta work is still on the same branch and still described further down.
+
+### What was found
+
+Several features are switched on by a value supplied when the app is **built**, not by a
+setting a user can see. Each one treats a missing value as "not configured" and then,
+deliberately, says nothing at all.
+
+That silence is right for someone building their own copy. It was very wrong for us.
+A sweep comparing every value the code asks for against what the release build actually
+supplies found **three finished, reviewed, shipped features that have never worked once
+in a build anybody could install**:
+
+| Feature | Missing value | Consequence | Issue |
+| --- | --- | --- | --- |
+| Crash reporting | `SENTRY_DSN`, `VITE_SENTRY_DSN` | No crash report has ever been sent, from any version | #1161 |
+| The remote pause switch | `INTAPPS_BASE_URL`, `_APP_ID`, `_API_KEY` | The lever for stopping a service across the fleet without shipping an update is connected to nothing | #1163 |
+| Developer access | `DEV_ACCESS_HASH` | Worse than inert — see below | #1162 |
+
+Nothing failed. Nothing turned red. Nobody could have noticed. Same shape as every other
+problem found this week.
+
+### The one that needed fixing immediately
+
+With no passphrase built in, the developer-access check fell back to accepting **the hash
+of an empty string**. The reasoning in the source was that only an empty passphrase would
+match, so it was effectively switched off. But an empty entry is the *starting state of
+the text box* — the easiest thing in the world to submit — and nothing on either side
+rejected it.
+
+So in every shipped build: do the hidden key sequence, press Activate without typing
+anything, and you are in. That opens **Spotify downloading**, the button that **resets the
+daily download counter** (an anti-ban protection), and the unstable update channels. The
+key sequence is written down in this repository's own `CLAUDE.md`, so both halves are
+public.
+
+**Fixed** in `6c21bd5c`. Two rules, in a small pure function so they can be tested: an
+empty or whitespace-only entry is refused before anything is hashed, and a build with no
+configured passphrase now has **no way in at all** rather than a fallback way in. Six
+tests; `cargo test` 12/12, clippy and `tsc` clean.
+
+### Crash reporting now goes to GlitchTip — and the code does not change
+
+GlitchTip accept **Sentry's own client libraries**, so the `sentry` crate and
+`@sentry/browser` already in the app send to either service unchanged. Which backend
+receives reports is decided entirely by the address. **Do not add a second library
+believing two are needed.**
+
+GlitchTip won because **Sentry's free tier allows exactly one person to sign in**, which
+rules it out for something covering several MWBM and MeedyaSuite apps. GlitchTip allow
+unlimited team members at £0 (1,000 reports/month), then $15/month for 100,000 against
+Sentry's $26 for 50,000. Going over the free allowance **throttles rather than bills**, so
+there is no surprise-invoice risk.
+
+Neither can run on DreamHost shared hosting — full reasoning, costs and the small-server
+option in `.github/audits/crash-reporting-hosting-options-2026-09-08.md`.
+
+### The guard, and the fact that the guard was broken too
+
+`tools/audit-checks/check_build_secrets.py` now reads every build-time value the code asks
+for and reports any the release build never supplies. It runs on every pull request.
+
+**A Codex review caught that it did not work.** The workflow pulls a check's findings out
+with `grep -A100 '###'`, and the function it hands them to silently skips an empty body.
+The new script printed bullets but no `###` heading, so every finding it made would have
+been thrown away — the check would run, pass, and report nothing whatever it found. The
+guard against silent failures was itself failing silently.
+
+Reproduced before fixing, fixed, and re-reproduced to confirm. All four original checks
+print that heading; nobody had written down that they must, so the fifth did not. **That
+convention is now in `tools/audit-checks/README.md` with a two-line command to prove a new
+check's findings actually survive the pipeline.**
+
+### What still needs a human
+
+1. **Create the repository secrets.** Only four exist (`ACOUSTID_API_KEY`, `RELEASE_PAT`,
+   and the two Tauri signing ones). `release.yml` now passes all six missing values
+   through in all three build paths — an uncreated secret resolves to an empty string, so
+   the wiring is already safe and each feature switches itself on the moment its secret is
+   set. **No further code change is needed for any of them.**
+2. **#998 must land alongside the crash-reporting secret** — the app's own security rules
+   do not currently permit reaching a reporting service, so the frontend half would stay
+   silently broken behind the fix. Two invisible failures stacked.
+3. **Prove each one end to end.** A passing build proves nothing here. Cause a real crash
+   and watch a report arrive; pause a feature from the server and watch an installed build
+   stop offering it. #231 was closed as "fixed" in March on exactly the missing half of
+   this, and stayed broken for five months.
+
+### Decisions taken this session (recorded on their issues)
+
+- **Crash reports → GlitchTip free tier first** (#1161)
+- **Translations reach the app screens *and* the help pages**, but **#1075 must land
+  first** — help text currently lives in two hand-synchronised places, and adding two
+  languages would make six copies of every topic (#111)
+- **Ship the German and French wording marked as machine-assisted**, rather than holding
+  it for a reviewer we do not have (#111)
+- **Cover art: build every source now**, including the ones needing an account; keys
+  arrive through GitHub Secrets like the AcoustID one already does (#1159)
 
 ---
 
