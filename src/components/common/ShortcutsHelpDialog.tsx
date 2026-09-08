@@ -8,7 +8,7 @@
  * shortcuts does this app have" binding across most macOS / Linux
  * desktop apps). Renders a Modal listing every shortcut handled by
  * `useKeyboardShortcuts.ts` plus the component-local ones
- * (Modal's Escape, DownloadForm's Cmd+Enter).
+ * (Modal's Escape, DownloadForm's Enter-to-submit).
  *
  * Two responsibilities:
  *
@@ -141,14 +141,8 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
             Downloads
           </h3>
           <ShortcutRow
-            label="Submit current URL (in Download input)"
-            keys={
-              <>
-                <Key>{mod}</Key>
-                <span>+</span>
-                <Key>↵</Key>
-              </>
-            }
+            label="Submit current URL (in Download input; Shift+Enter for a new line instead)"
+            keys={<Key>↵</Key>}
           />
           <ShortcutRow
             label="Abort all active and queued downloads"

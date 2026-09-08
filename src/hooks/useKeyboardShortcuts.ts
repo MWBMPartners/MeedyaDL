@@ -13,8 +13,12 @@
  * | `Cmd/Ctrl + D`          | Navigate to Download page and focus URL input  |
  * | `Cmd/Ctrl + ,`          | Navigate to Settings page                      |
  * | `Cmd/Ctrl + Q`          | Navigate to Queue page                         |
+ * | `Cmd/Ctrl + L`          | Navigate to Library page (#465)                |
+ * | `Cmd/Ctrl + H`          | Navigate to History page (#465)                |
+ * | `Cmd/Ctrl + K`          | Navigate to Activity page (#465)               |
  * | `Cmd/Ctrl + Shift + .`  | Abort all active and queued downloads (#620)   |
- * | `Cmd/Ctrl + Enter`      | Start download (when URL input is focused)     |
+ * | `Cmd/Ctrl + Shift + ?`  | Open the keyboard shortcuts dialog (#465)      |
+ * | `Enter`                 | Start download (when URL input is focused; Shift+Enter inserts a newline instead) |
  * | `Escape`                | Close active modal                             |
  *
  * ## Design decisions
@@ -28,11 +32,13 @@
  * - **Escape handling**: Not handled here — the {@link Modal} component already
  *   registers its own Escape key listener when open. Adding a global Escape handler
  *   would create conflicts and duplicate dismiss behaviour.
- * - **Cmd/Ctrl+Enter handling**: Not handled here — the URL input's `onKeyDown`
- *   handler in `DownloadForm.tsx` already triggers form submission on Enter
- *   (including `Cmd/Ctrl+Enter`), and that handler runs essential pre-download
- *   checks (internet, output path, cookies). Duplicating submission here would
- *   cause double-fire and bypass those safety checks.
+ * - **Enter handling**: Not handled here — the URL input's `onKeyDown`
+ *   handler in `DownloadForm.tsx` already triggers form submission on a plain
+ *   Enter press (Shift+Enter inserts a newline instead, for multi-URL entry),
+ *   and that handler runs essential pre-download checks (internet, output
+ *   path, cookies). Duplicating submission here would cause double-fire and
+ *   bypass those safety checks. No modifier key is required for this one —
+ *   unlike every other shortcut in this file, which all need Cmd/Ctrl.
  * - **`e.preventDefault()`**: Called for handled shortcuts to suppress browser/OS
  *   default behaviour (e.g., Cmd+D bookmarks the page in browsers, Cmd+Q quits
  *   the app on macOS).
