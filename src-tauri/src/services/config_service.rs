@@ -754,17 +754,27 @@ fn ini_video_section(lines: &mut Vec<String>, settings: &AppSettings) {
     ));
     // Video codec priority is a comma-separated list (e.g., "h265,h264").
     // Only written if the user has set a preference.
+    //
+    // Passed through `sanitize_ini_value` like every other text value here.
+    // These two were the only ones that were not, and that mattered more than
+    // it looks: a line break inside the value ends the line early and whatever
+    // follows becomes a new setting of its own. One of the settings GAMDL
+    // accepts is the path to the ffmpeg program it runs, so a value carrying a
+    // line break could point that at any program on the machine. The value can
+    // come from a settings file someone was sent and imported, which is
+    // exactly the case issue #229 exists to guard. Same fix as #226.
     if !settings.default_video_codec_priority.is_empty() {
         lines.push(format!(
             "music_video_codec_priority = {}",
-            settings.default_video_codec_priority
+            sanitize_ini_value(&settings.default_video_codec_priority)
         ));
     }
     // Video remux format (e.g., "mkv", "mp4"). Only written if set.
+    // Sanitised for the same reason as the codec priority above.
     if !settings.default_video_remux_format.is_empty() {
         lines.push(format!(
             "music_video_remux_format = {}",
-            settings.default_video_remux_format
+            sanitize_ini_value(&settings.default_video_remux_format)
         ));
     }
 }
@@ -1111,6 +1121,58 @@ pub fn get_default_output_path() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    // ── INI injection through the two video fields (#229) ──────────────
+    //
+    // Every text value written into GAMDL's settings file goes through
+    // `sanitize_ini_value`, which removes line breaks. Two of them did not:
+    // the video codec priority and the video container format. A line break
+    // inside a value ends that line early, and whatever follows becomes a
+    // setting of its own — including the path to the ffmpeg program GAMDL
+    // runs. The value can arrive from a settings file someone was sent and
+    // imported, which is the case #229 exists to guard against.
+    //
+    // These tests fail if either write loses its sanitising again.
+
+    #[test]
+    fn video_codec_priority_cannot_inject_an_extra_ini_setting() {
+        let mut settings = crate::models::settings::AppSettings::default();
+        settings.default_video_codec_priority = "h264\nffmpeg_path = /tmp/attacker".to_string();
+        let ini = super::settings_to_ini(&settings);
+        // What matters is whether a NEW SETTING was created, and a setting is
+        // only a setting when it starts its own line. After sanitising, the
+        // hostile text is still present but welded onto the end of the value it
+        // came in on, where GAMDL reads it as one nonsense codec name and
+        // ignores it. So the check is "does any line start with ffmpeg_path",
+        // not "does the text appear anywhere" — the looser check fails even
+        // when the fix is working correctly.
+        assert!(
+            !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            "a line break in the codec priority started a new setting:\n{ini}"
+        );
+    }
+
+    #[test]
+    fn video_remux_format_cannot_inject_an_extra_ini_setting() {
+        let mut settings = crate::models::settings::AppSettings::default();
+        settings.default_video_remux_format = "mp4\r\nffmpeg_path = /tmp/attacker".to_string();
+        let ini = super::settings_to_ini(&settings);
+        assert!(
+            !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            "a carriage return in the remux format started a new setting:\n{ini}"
+        );
+    }
+
+    #[test]
+    fn the_ordinary_video_values_still_reach_the_file_intact() {
+        // The fix must not break the normal case.
+        let mut settings = crate::models::settings::AppSettings::default();
+        settings.default_video_codec_priority = "h265,h264".to_string();
+        settings.default_video_remux_format = "mp4".to_string();
+        let ini = super::settings_to_ini(&settings);
+        assert!(ini.contains("music_video_codec_priority = h265,h264"), "{ini}");
+        assert!(ini.contains("music_video_remux_format = mp4"), "{ini}");
+    }
+
     use super::*;
     use crate::models::settings::CURRENT_SETTINGS_VERSION;
     use crate::services::gamdl_capabilities;
