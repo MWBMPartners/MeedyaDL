@@ -113,3 +113,6 @@ temp/
 # Legacy (from previous PyQt5 iteration)
 # ============================================================
 ProjectBrief_Chat.gpt
+
+# Scratch space for drafts and briefs that should never reach GitHub.
+_temp/
