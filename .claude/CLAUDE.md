@@ -269,14 +269,14 @@ The `.release-please-manifest.json` must match the current version to avoid rele
 | Milestone | Version | Service     | Engine                                                             | Key Notes                                                                       |
 | --------- | ------- | ----------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
 | M8        | v2.0.0  | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp | Region-restricted (UK VPN may be required); yt-dlp as fallback engine           |
-| M9        | v2.1.0  | Spotify     | [votify](https://github.com/glomatico/votify)                      | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support         |
+| M9        | v2.1.0  | Spotify     | [votify](https://github.com/glomatico/votify)                      | pip install, subprocess calls like GAMDL; adds Ogg Vorbis codec support — **most of this is already built** (see the M9 dispatch-gate bullet below), but it stays behind a hidden developer-only preview flag until it's ready for regular users |
 | M10       | v2.2.0  | YouTube     | [yt-dlp](https://github.com/yt-dlp/yt-dlp)                        | pip install, shared with BBC iPlayer; video-first service with format selection  |
 
 Architecture foundation completed (#107, issues #314-#321):
 
 - **`MediaServiceId` enum** (renamed from `MusicServiceId` in #314) with 5 services: AppleMusic, YouTubeMusic, YouTube, Spotify, BbcIPlayer
 - **`EngineRegistry`** in `engine_registry.rs` — runtime query layer for `engines.toml` with `resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`
-- **`EngineCommandBuilder` trait** + `run_engine()` in `engine_runner.rs` — service-agnostic subprocess spawning with stub builders for Votify, yt-dlp, get_iplayer
+- **`EngineCommandBuilder` trait** + `run_engine()` in `engine_runner.rs` — service-agnostic subprocess spawning. The Votify (Spotify) builder is a real, wired implementation now (`spotify_service.rs`), not a stub; yt-dlp and get_iplayer remain stub builders pending M8/M10
 - **Service-aware URL parser** (`detectService()`, `parseMediaUrl()` in `url-parser.ts`) detects service from URL and routes to correct engine
 - **Service-aware download queue** — `QueueItem` carries `service`/`engine` fields; Apple Music enrichment guarded behind service check
 - **`PerServiceSettings`** in `settings.rs` — nested per-service config with `engine_priority` overrides per platform
