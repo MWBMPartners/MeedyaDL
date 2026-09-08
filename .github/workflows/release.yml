@@ -1484,6 +1484,47 @@ jobs:
           # Allows release builds to ship with a pre-configured key for audio
           # fingerprinting, so users don't need to register their own.
           ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
+          # ── Build-time values that switch features on (#1161, #1162, #1163) ──
+          #
+          # Each of these is read by the app with `option_env!` (Rust) or
+          # `import.meta.env` (frontend). When a value is absent the app treats
+          # the feature as "not configured" and, by design, says nothing at all.
+          #
+          # That silence is right for someone building their own copy, and was
+          # very wrong for us: a sweep on 2026-09-08 found three finished
+          # features that had never once worked in a build a user could install,
+          # purely because these lines were missing. Nothing failed, so nobody
+          # noticed for months.
+          #
+          # A secret that has not been created yet resolves to an empty string,
+          # which lands the app back on exactly the behaviour it has today. So
+          # these lines are safe to add before the secrets exist, and the
+          # feature switches itself on the moment one is set. There is no second
+          # change needed here later.
+          #
+          # `tools/audit-checks/check_build_secrets.py` fails review if a new
+          # build-time value is added to the code without being listed here.
+
+          # Where crash reports are sent. We send to GlitchTip, which accepts
+          # Sentry's own client libraries, so the app code is unchanged and only
+          # this address differs — see #1161. Both halves of the app report
+          # separately and both need it.
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+
+          # The remote pause switch — lets us stop a service across every
+          # installed copy without shipping an update, if we ever had to. All
+          # three are needed: the app goes inert if any one is missing, which is
+          # correct for a fork and useless for us. See #1163.
+          INTAPPS_BASE_URL: ${{ secrets.INTAPPS_BASE_URL }}
+          INTAPPS_APP_ID: ${{ secrets.INTAPPS_APP_ID }}
+          INTAPPS_API_KEY: ${{ secrets.INTAPPS_API_KEY }}
+
+          # The hidden developer-access passphrase, stored as a hash so the
+          # phrase itself never enters the binary. With no value here, developer
+          # access cannot be unlocked at all — which is now the deliberate
+          # behaviour rather than an accident. See #1162.
+          DEV_ACCESS_HASH: ${{ secrets.DEV_ACCESS_HASH }}
         with:
           tagName: ${{ steps.tag.outputs.name }}
           releaseName: '${{ steps.tag.outputs.name }}'
@@ -1560,6 +1601,47 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
+          # ── Build-time values that switch features on (#1161, #1162, #1163) ──
+          #
+          # Each of these is read by the app with `option_env!` (Rust) or
+          # `import.meta.env` (frontend). When a value is absent the app treats
+          # the feature as "not configured" and, by design, says nothing at all.
+          #
+          # That silence is right for someone building their own copy, and was
+          # very wrong for us: a sweep on 2026-09-08 found three finished
+          # features that had never once worked in a build a user could install,
+          # purely because these lines were missing. Nothing failed, so nobody
+          # noticed for months.
+          #
+          # A secret that has not been created yet resolves to an empty string,
+          # which lands the app back on exactly the behaviour it has today. So
+          # these lines are safe to add before the secrets exist, and the
+          # feature switches itself on the moment one is set. There is no second
+          # change needed here later.
+          #
+          # `tools/audit-checks/check_build_secrets.py` fails review if a new
+          # build-time value is added to the code without being listed here.
+
+          # Where crash reports are sent. We send to GlitchTip, which accepts
+          # Sentry's own client libraries, so the app code is unchanged and only
+          # this address differs — see #1161. Both halves of the app report
+          # separately and both need it.
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+
+          # The remote pause switch — lets us stop a service across every
+          # installed copy without shipping an update, if we ever had to. All
+          # three are needed: the app goes inert if any one is missing, which is
+          # correct for a fork and useless for us. See #1163.
+          INTAPPS_BASE_URL: ${{ secrets.INTAPPS_BASE_URL }}
+          INTAPPS_APP_ID: ${{ secrets.INTAPPS_APP_ID }}
+          INTAPPS_API_KEY: ${{ secrets.INTAPPS_API_KEY }}
+
+          # The hidden developer-access passphrase, stored as a hash so the
+          # phrase itself never enters the binary. With no value here, developer
+          # access cannot be unlocked at all — which is now the deliberate
+          # behaviour rather than an accident. See #1162.
+          DEV_ACCESS_HASH: ${{ secrets.DEV_ACCESS_HASH }}
         shell: bash
         run: |
           MAX_ATTEMPTS=3
@@ -1671,6 +1753,47 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           ACOUSTID_API_KEY: ${{ secrets.ACOUSTID_API_KEY }}
+          # ── Build-time values that switch features on (#1161, #1162, #1163) ──
+          #
+          # Each of these is read by the app with `option_env!` (Rust) or
+          # `import.meta.env` (frontend). When a value is absent the app treats
+          # the feature as "not configured" and, by design, says nothing at all.
+          #
+          # That silence is right for someone building their own copy, and was
+          # very wrong for us: a sweep on 2026-09-08 found three finished
+          # features that had never once worked in a build a user could install,
+          # purely because these lines were missing. Nothing failed, so nobody
+          # noticed for months.
+          #
+          # A secret that has not been created yet resolves to an empty string,
+          # which lands the app back on exactly the behaviour it has today. So
+          # these lines are safe to add before the secrets exist, and the
+          # feature switches itself on the moment one is set. There is no second
+          # change needed here later.
+          #
+          # `tools/audit-checks/check_build_secrets.py` fails review if a new
+          # build-time value is added to the code without being listed here.
+
+          # Where crash reports are sent. We send to GlitchTip, which accepts
+          # Sentry's own client libraries, so the app code is unchanged and only
+          # this address differs — see #1161. Both halves of the app report
+          # separately and both need it.
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+
+          # The remote pause switch — lets us stop a service across every
+          # installed copy without shipping an update, if we ever had to. All
+          # three are needed: the app goes inert if any one is missing, which is
+          # correct for a fork and useless for us. See #1163.
+          INTAPPS_BASE_URL: ${{ secrets.INTAPPS_BASE_URL }}
+          INTAPPS_APP_ID: ${{ secrets.INTAPPS_APP_ID }}
+          INTAPPS_API_KEY: ${{ secrets.INTAPPS_API_KEY }}
+
+          # The hidden developer-access passphrase, stored as a hash so the
+          # phrase itself never enters the binary. With no value here, developer
+          # access cannot be unlocked at all — which is now the deliberate
+          # behaviour rather than an accident. See #1162.
+          DEV_ACCESS_HASH: ${{ secrets.DEV_ACCESS_HASH }}
         shell: bash
         run: npx tauri build --target armv7-unknown-linux-gnueabihf --bundles deb rpm
 
