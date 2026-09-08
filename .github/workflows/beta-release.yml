@@ -115,20 +115,24 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Regenerate Cargo.lock
+        # Update ONLY this package's own entry in the lockfile.
+        #
+        # `cargo generate-lockfile` re-resolves EVERY dependency to the
+        # newest version its range allows. That is how stable v1.10.5 broke:
+        # it quietly moved two halves of the app toolkit to different
+        # versions while the JavaScript half stayed put, and all six platform
+        # builds then refused to build (#1134). A release bump should change
+        # one version number and nothing else.
+        #
+        # The version comes in as an environment variable from the step that
+        # already computed it. Do NOT read package.json here: this step runs
+        # inside src-tauri and package.json lives in the repository root, so
+        # reading it from here fails and, under `set -e`, would stop every
+        # beta release before the commit and tag. Same shape alpha uses.
         working-directory: src-tauri
-        run: |
-          set -euo pipefail
-          # Update ONLY this package's own entry in the lockfile.
-          #
-          # `cargo generate-lockfile` re-resolves EVERY dependency to the
-          # newest version its range allows. That is how stable v1.10.5
-          # broke: it quietly moved two halves of the app toolkit to a
-          # newer version while the JavaScript half stayed put, and all six
-          # platform builds then refused to build (#1134).
-          #
-          # A release bump should change one version number, nothing else.
-          NEW_VERSION=$(node -p "require('./package.json').version")
-          cargo update --package meedyadl --precise "$NEW_VERSION"
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       - name: Commit version bump
         run: |
