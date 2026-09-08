@@ -27,3 +27,5 @@ Re-run after `git pull` whenever a teammate has updated a memory file. The copy 
 ## Why one-way?
 
 So the repo stays the deliberate source of truth. Local edits stay local until you copy them back into the repo and open a PR. This avoids the failure mode where a memory file silently drifts on one developer's machine and surprises everyone else when they sync.
+- [project build time secrets](project_build_time_secrets.md) — build-time values must be wired into release.yml or a feature ships inert and silent
+- [project crash reporting backend](project_crash_reporting_backend.md) — crash reports go to GlitchTip; same SDK as Sentry, so never add a second library
