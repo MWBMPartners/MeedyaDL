@@ -12,6 +12,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -105,6 +106,104 @@ Closes part of #1134 and #1136. Part of #1040.
   and `v1.10.5` published this to users:
 
 - Repair five checks that had quietly stopped working, and add a watchdog so it cannot happen again (#1146)
+- Make dependency updates reach every channel, and make their silence visible (#1147)
+
+Part of #1137. Related: #1135, and the beta rot that prompted it.
+
+  ## What went wrong, and the thing most people would assume is wrong but
+  isn't
+
+  The beta channel spent weeks carrying a high-severity problem in
+  `fast-uri`, a moderate one in `humanfs`, and a denial-of-service one in
+  `h2` — that last one **inside the app people install**, not just build
+  tooling. All three had been fixed on alpha and main weeks earlier.
+
+  The obvious diagnosis is "updates were only pointed at alpha, so point
+  them at every branch too". **That would not have fixed any of it.** Two
+  facts, both verified in this repository:
+
+  1. **Pointing updates at a branch only steers routine updates.**
+  Security fixes always go to the default branch and ignore that setting
+  entirely. The history proves it: **21 of 21** routine updates went to
+  alpha, **10 of 10** security fixes went to main.
+  2. **All three problems were indirect dependencies** — pulled in by
+  other packages, not listed in our own files. Routine updates never touch
+  those at all.
+
+  So the real culprit was the job that carries security fixes from main
+  out to the channels — which **had never once produced a pull request in
+  this repository's history**. It was repaired separately and, on 8
+  September, **proven working end to end for the first time**: it ran on
+  all three channels, hit a genuine conflict on each, and correctly opened
+  tracking issues #1143, #1144 and #1145 rather than failing silently.
+
+  This pull request is the remaining half.
+
+  ## What changes
+
+  **Routine updates now reach every channel.** The npm and Rust entries
+  are repeated for alpha, beta, release-candidate and main — same settings
+  on each, including the seven-day safety delay, ignoring major versions,
+  the labels and the commit format. The file's introduction now explains,
+  in plain English, the routine-versus-security distinction above, because
+  misunderstanding it is what let a channel rot.
+
+  **Automatic merging now covers beta and release-candidate.** Without
+  this the new pull requests would sit waiting for someone to press a
+  button — the opposite of the point — and once five pile up, no more are
+  offered.
+
+  **The forward-port job no longer mistakes routine updates for security
+  fixes.** It assumed every automated pull request merged to main was a
+  security fix. Once main starts receiving routine weekly updates too,
+  that becomes wrong, so it now skips them by branch name.
+
+  **A weekly check that notices when updates go quiet.** Today that
+  silence is invisible — which is exactly how three weeks passed. It runs
+  **Monday at 06:00**, deliberately before the regular Monday batch, so a
+  problem is known before the next lot arrives. It opens or updates a
+  single tracking issue, and says nothing at all when everything is
+  healthy.
+
+  ## Deliberately not done
+
+  **Combining the JavaScript and Rust updates into one pull request per
+  branch.** The feature is real, but GitHub's server rejects the required
+  shape in ways that invalidate the **whole file** — which would silence
+  updates on every branch, including alpha. That is precisely the failure
+  this work exists to remove, so it is not worth the tidiness.
+
+  ## A bug caught by independent review
+
+  The new weekly check treated **any** failure — a rate limit, a server
+  error, a network blip — as "this branch does not exist", skipped it, and
+  could then close its own warning while never having looked. A watchdog
+  reporting all-clear because it could not look is worse than none,
+  because people believe it.
+
+  Now a genuine "not found" still means gone and is skipped on purpose;
+  anything else stops the run with a loud error naming what GitHub
+  actually said.
+
+  Codex also raised a concern that the seven-day delay on the `main` entry
+  would delay security fixes. **That one was wrong** — GitHub's
+  documentation states the delay never applies to security updates,
+  regardless of branch. Verified before acting rather than accepted.
+
+  ## Verification
+
+  All four files parse; `actionlint` clean on all three workflows; the
+  configuration has 8 entries with every branch-plus-ecosystem combination
+  unique, which GitHub requires; and every setting present before is still
+  present.
+
+  Rebased onto main after the Tier 4 work merged — no overlapping files,
+  clean rebase.
+
+  **How you will know it worked, within a day:** next Monday's runs should
+  show updates offered against all four branches, and the new weekly check
+  should stay silent.
+
 
 ## [1.10.6] - 2026-09-07
 
