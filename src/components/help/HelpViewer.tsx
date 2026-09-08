@@ -299,7 +299,7 @@ MeedyaDL relies on several external command-line tools for downloading, decrypti
 
 ## Required Tools
 
-All four tools below are required for full functionality.
+All five tools below are required for full functionality.
 
 ### FFmpeg
 Used for audio/video processing and container remuxing. Required for most download operations.
@@ -312,6 +312,9 @@ HLS/DASH stream downloader. Used for downloading segmented media streams from Ap
 
 ### MP4Box
 Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
+
+### MediaInfo
+Used to accurately detect the codec of a downloaded file, so the app can tell what quality it actually got.
 
 ## Installation & Management
 
@@ -854,7 +857,7 @@ MeedyaDL relies on several third-party libraries and services to function, inclu
 
 - **GAMDL** — the core download engine
 - **Python** — runtime environment for GAMDL
-- **FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box** — media processing tools
+- **FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo** — media processing tools
 
 These are independent projects maintained by their respective developers. Changes to these projects may affect MeedyaDL's functionality.
 
