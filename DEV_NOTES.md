@@ -75,7 +75,14 @@ Run this whenever engines are enabled/disabled or dependencies change.
 
 ## Release Workflow
 
-### There Are 7 Separate Workflows — Don't Confuse Them
+### The Core Workflows — Don't Confuse Them
+
+This is not every workflow in `.github/workflows/` (there are around 30 by now,
+covering things like security scans and dependency updates) — just the ones a
+developer needs to understand the main release path. (Note: this table used to
+list a `nightly-release.yml` workflow. It, and its weekly/monthly siblings, were
+removed in the v1.11.0 cleanup — issue #879 — in favour of the Alpha channel
+below, which covers the same "latest work-in-progress" need.)
 
 | Workflow | Trigger | What It Does | Produces Binaries? |
 | -------- | ------- | ------------ | ------------------ |
@@ -83,7 +90,7 @@ Run this whenever engines are enabled/disabled or dependencies change.
 | **Release Please** (`release-please.yml`) | Every push to `main` | Creates or updates a "Release PR" that bumps version numbers | **No** — just creates/updates a PR |
 | **Release** (`release.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Builds the app on all 6 platforms | **Yes** — this is the only workflow that produces installable binaries |
 | **Changelog** (`changelog.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Regenerates `CHANGELOG.md` via git-cliff | **No** — just updates the changelog file |
-| **Nightly Release** (`nightly-release.yml`) | Cron `0 0 * * *` (daily 00:00 UTC) or manual `workflow_dispatch` | Merges `feat/*` branches into `nightly`, bumps version to `X.Y.Z-nightly.YYYYMMDD`, pushes tag to trigger `release.yml` | **Yes** — via the tag it pushes |
+| **Alpha / Beta / RC Release** (`alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml`) | Every push to the matching long-lived branch | Bumps the version to `X.Y.Z-{channel}.N` and pushes a tag to trigger `release.yml` | **Yes** — via the tag they push |
 | **Apply Branch Rulesets** (`apply-branch-rulesets.yml`) | Push to `.github/rulesets/*.json` or manual `workflow_dispatch` | Idempotently applies every ruleset in `.github/rulesets/` via the GitHub API | **No** — repo-config only |
 | **Auto-Delete Merged Branches** (`auto-delete-merged-branches.yml`) | `pull_request` closed (merged) | Deletes merged PR head branches except the protected channels | **No** — repo-config only |
 
@@ -249,11 +256,19 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 
 If **any** of the three is unset at build time, the feature-availability client is completely inert: no network call is attempted, no error is logged, and every feature resolves as enabled. Forks and local builds therefore work fully with zero configuration. **Never put real values, hostnames, or wire header names in this file — env-var names and the `option_env!()` mechanism only.**
 
-### MusicKit (Optional, End-User Enablement)
+### MusicKit — no build-time secret today
 
-| Secret | Description |
-|--------|-------------|
-| `MUSICKIT_DEVELOPER_TOKEN` | Apple Music developer token embedded at compile time via `option_env!("MUSICKIT_DEVELOPER_TOKEN")`. Enables MusicKit-powered metadata/artwork features for end users who do not have Apple Developer credentials. Prefer embedding a pre-generated developer token, not Team ID/Key ID/private key. Rotate before expiry and treat as sensitive (extractable from binaries). |
+There used to be a `MUSICKIT_DEVELOPER_TOKEN` build secret here: an Apple Music
+developer token baked into the app at compile time, so people without their
+own Apple Developer account could still use MusicKit-powered features. It was
+removed on 2026-07-19 (issue #1034) — a token embedded in the binary can be
+pulled back out of it by anyone holding the app, which was judged too risky to
+keep. **No CI workflow sets this variable any more, and no code reads it.**
+
+The features it used to help with now fall back to a token captured from the
+user's own web-player sign-in (kept in the OS keychain) when the user hasn't
+entered their own Team ID/Key ID/private key. See "MusicKit Credential
+Validation" above for the full fallback chain.
 
 ### Release Please
 
@@ -321,8 +336,14 @@ Users reported repeated `HTTP 401` failures when testing MusicKit credentials in
 3. Validation now probes both `amp-api.music.apple.com` and `api.music.apple.com` for clearer auth diagnostics.
 4. Runtime MusicKit API callers now resolve tokens via:
    - user Team ID + Key ID + private key, or
-   - embedded `MUSICKIT_DEVELOPER_TOKEN` fallback.
-5. Settings UI now surfaces when a build-time MusicKit token is embedded so Apple Developer credentials are optional for most end users.
+   - a token captured from the user's own Apple Music web-player sign-in, stored in the OS keychain, as a last resort.
+
+   **Later update (2026-07-19, issue #1034):** an earlier version of this fix also
+   added a build-time embedded developer token as a middle fallback tier. That
+   tier was removed for security reasons (a token baked into the app binary can be
+   pulled back out of it) — see "MusicKit (Optional, End-User Enablement)" below.
+   There is no longer a build-time token option; the two tiers above are the
+   whole story today.
 
 ### Recommended Production Architecture (Option 2: Server-Issued Token)
 
@@ -343,9 +364,13 @@ tokens to clients. Do not ship `.p8` private keys in desktop builds.
 #### Fallback Strategy
 
 - Dev/local: user Team ID + Key ID + private key in OS keychain.
-- Release without backend: optional embedded `MUSICKIT_DEVELOPER_TOKEN`
-  (higher extraction/abuse risk, rotate aggressively).
-- Preferred release: server-issued short-lived token.
+- Release without backend, today: user Team ID + Key ID + private key, or (last
+  resort) a token captured from the user's own web-player sign-in, kept in the
+  OS keychain. A build-time embedded token used to be a third fallback here but
+  was removed (issue #1034) — baking a token into the app binary meant anyone
+  could pull it back out.
+- Preferred release (not yet built): server-issued short-lived token, per the
+  "Recommended Production Architecture" above.
 
 #### 401 Scope Clarification
 
@@ -399,45 +424,39 @@ If the private key is lost:
 
 ## Release Channels
 
-MeedyaDL ships across six long-lived channels, ordered from least to most stable:
+MeedyaDL ships across four long-lived channels, ordered from least to most stable:
 
 | Channel | Branch | Tag format | Cadence | Audience |
 | ------- | ------ | ---------- | ------- | -------- |
-| Nightly | `nightly` | `vX.Y.Z-nightly.YYYYMMDD` | Daily 00:00 UTC | Developers validating today's `feat/*` integrations |
-| Weekly | `weekly` | `vX.Y.Z-weekly.YYYYWW` | Weekly Sunday 00:00 UTC (planned) | Testers willing to trial a week's worth of nightlies |
-| Monthly | `monthly` | `vX.Y.Z-monthly.YYYYMM` | Monthly 1st 00:00 UTC (planned) | Early adopters wanting monthly preview builds |
-| Alpha | `alpha` | `vX.Y.Z-alpha.N` | Ad-hoc | Feature-complete previews |
-| Beta | `beta` | `vX.Y.Z-beta.N` | Ad-hoc | Release candidates |
-| Stable | `main` | `vX.Y.Z` | Release-please PR merges | End users |
+| Alpha | `alpha` | `vX.Y.Z-alpha.N` | Ad-hoc, on every push | Feature-complete previews |
+| Beta | `beta` | `vX.Y.Z-beta.N` | Ad-hoc, on every push | Polishing-stage features |
+| RC | `release-candidate` | `vX.Y.Z-rc.N` | Ad-hoc, on every push | Release candidates |
+| Stable | `main` | `vX.Y.Z` | Release-please PR merges (or a manual hotfix bump) | End users |
 
-All six channel branches are **protected against deletion and non-fast-forward pushes** via `.github/rulesets/protected-release-branches.json`.
+All four channel branches are **protected against deletion and non-fast-forward pushes** via `.github/rulesets/protected-stable-branches.json`.
 
-### Channel auto-merge pipeline
+**Earlier history:** MeedyaDL used to also run three cron-driven channels — Nightly (daily), Weekly (every Sunday), and Monthly (1st of the month) — each auto-merging `feat/*` branches into its own long-lived branch and cutting a build on a timer. They were removed in the v1.11.0 cleanup (issue #879): the auto-merges produced more merge-conflict noise than useful testing signal, and the Alpha channel below already covers the "give me the latest work-in-progress" need on its own, at a fraction of the release-history clutter. If you see `nightly-release.yml`, `weekly-release.yml`, `monthly-release.yml`, or a `protected-cron-channels.json` ruleset referenced anywhere, that's describing the old system — none of those files exist any more.
 
-Each channel's source branch is refreshed from the one directly below it plus any ready `feat/*` branches, preserving the stability ladder:
+### How a channel build gets made today
 
-```
-feat/* ─→ nightly ─→ weekly ─→ monthly ─→ alpha ─→ beta ─→ main (stable)
-```
+Each channel is push-driven, not auto-merged from a "channel below" any more. Pushing to `alpha`, `beta`, or `release-candidate` (a maintainer's direct push, or a merged PR) fires that branch's own workflow (`alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml`), which bumps the version to `X.Y.Z-{channel}.N` (a counter that only ever goes up, even across base-version bumps), commits the bump, and pushes a tag. The tag push triggers `release.yml`, which produces the platform installers.
 
-`nightly-release.yml` is the live implementation of the first hop: it resets `nightly` to `main`, merges every `origin/feat/*` branch (skipping any that conflict and opening an issue listing them), bumps the version in `package.json` / `tauri.conf.json` / `Cargo.toml`, force-pushes `nightly`, and creates an annotated tag. The tag push triggers `release.yml`, which produces the platform installers. Weekly and monthly use the same pattern with their own crons (`0 0 * * 0` and `0 0 1 * *`).
-
-### In-app update guard (option 2)
+### In-app update guard
 
 The app filters and enforces the channel on the client:
 
-- `UpdateChannel` enum in `src-tauri/src/models/settings.rs` — ordered `Nightly < Weekly < Monthly < Alpha < Beta < Stable`.
-- `UpdateChannel::from_tag()` parses the pre-release suffix of any tag (`"-nightly.20260420"` → `Nightly`, `"-beta.1"` → `Beta`, no suffix → `Stable`).
-- `update_channel: UpdateChannel` is persisted in `AppSettings`, exposed as the **Update Channel** dropdown under *Settings > General > Updates*.
-- `check_all_updates` filters the GitHub releases list to the user's channel, so a Stable user never sees Nightly entries and vice-versa. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=20` and picks the first entry matching the selection.
+- `UpdateChannel` enum in `src-tauri/src/models/settings.rs` still declares seven variants (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) for backward compatibility with old `settings.json` files, but only four are reachable today — `Nightly`/`Weekly`/`Monthly` are silently migrated to `Alpha` the first time an old settings file loads, and nothing in the app can produce them again.
+- `UpdateChannel::from_tag()` parses the pre-release suffix of any tag (`"-alpha.3"` → `Alpha`, `"-rc.1"` → `Rc`, no suffix → `Stable`).
+- `update_channel: UpdateChannel` is persisted in `AppSettings`, exposed as the **Update Channel** dropdown under *Settings > General > Updates*. Only Alpha is hidden from that dropdown unless developer access is unlocked — Beta, RC, and Stable are visible to everyone.
+- `check_all_updates` filters the GitHub releases list to the user's channel using `>=`, so (e.g.) a Beta user also sees RC and Stable releases, but never anything less stable than Beta. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=20` and picks the newest entry at or above the selection.
 - `download_and_install_app_update` refuses to install a tag whose channel is **less stable** than the user's current selection. This is the enforcement point: even if a cross-channel URL reaches the installer (deep link, stale cache, or manifest tampering), the installer returns a clear error instead of downgrading the user's stability tier. Switching to a less-stable channel is always an explicit action in Settings.
 
 The legacy `check_pre_releases: bool` setting still exists and is implicitly enabled whenever `update_channel != Stable` — it controls which GitHub endpoint the checker hits, but the channel drives which release is actually surfaced and installable.
 
 ### Branch protection + auto-delete
 
-- `.github/rulesets/protected-release-branches.json` blocks deletion and non-fast-forward pushes on `main`, `beta`, `alpha`, `monthly`, `weekly`, `nightly`. Apply (or re-apply) with `gh workflow run "Apply Branch Rulesets" --ref main`, or through **Actions → Apply Branch Rulesets → Run workflow** in the GitHub UI.
-- `auto-delete-merged-branches.yml` deletes merged PR head branches (so `feat/*` and `fix/*` don't accumulate), while the same six channel names in its `case` are exempted as a soft guardrail. The ruleset is the hard guarantee — the workflow is just quieter.
+- `.github/rulesets/protected-stable-branches.json` blocks deletion and non-fast-forward pushes on `main`, `release-candidate`, `beta`, and `alpha`. Apply (or re-apply) with `gh workflow run "Apply Branch Rulesets" --ref main`, or through **Actions → Apply Branch Rulesets → Run workflow** in the GitHub UI.
+- `auto-delete-merged-branches.yml` deletes merged PR head branches (so `feat/*` and `fix/*` don't accumulate), while the four channel names are exempted as a soft guardrail. The ruleset is the hard guarantee — the workflow is just quieter.
 - Requires a `RELEASE_PAT` with `administration:write` to apply rulesets.
 
 ---
@@ -972,7 +991,7 @@ MeedyaDL/
 
 │   └── fr/translation.json     #    French (stub)
 
-├── help/                       # Markdown help documentation (12 topics)
+├── help/                       # Markdown help documentation (16 pages)
 
 ├── assets/screenshots/         # App screenshots for README
 
@@ -1094,10 +1113,12 @@ Both are saved as sidecar files alongside downloaded audio in the album director
 
 Animated artwork uses the **Apple Music catalog API**, which authenticates via MusicKit Developer Tokens (ES256-signed JWTs). This is completely independent of the wrapper, which provides alternative Apple ID login for audio DRM decryption.
 
-**Two-tier credential resolution** (`resolve_musickit_developer_token()` in `apple_music_api.rs`):
+**Two-tier credential resolution** (`resolve_premium_feature_token()` in `apple_music_api.rs`):
 
 1. **User credentials (priority):** Team ID + Key ID (in `settings.json`) + private key (in OS keychain) → generates fresh 1-hour JWT
-2. **Embedded token (fallback):** Compile-time `MUSICKIT_DEVELOPER_TOKEN` env var → allows users without Apple Developer accounts to use the feature
+2. **Web-player token (last resort):** a token captured from the user's own Apple Music web-player sign-in, stored in the OS keychain → lets a user who hasn't entered their own Team ID/Key ID/private key still use the feature, as long as they've signed in to Apple Music inside MeedyaDL at least once
+
+(A compile-time embedded token used to be a third fallback here; it was removed on 2026-07-19, issue #1034, for the security reason explained under "MusicKit — no build-time secret today" above.)
 
 ### API Flow
 
@@ -1139,7 +1160,7 @@ Runs in a separate `tokio::spawn` task (non-blocking). Shutdown-aware (checked b
 The feature silently succeeds with no output (returns `Ok(empty_result())`) when:
 
 - Feature disabled in settings (`animated_artwork_enabled: false`)
-- No MusicKit credentials configured (and no embedded token)
+- No MusicKit credentials configured, and no web-player sign-in token available either
 - URL is not an album (single track, playlist, music video)
 - Album has no animated artwork available (most older/lower-profile albums)
 - FFmpeg not installed
