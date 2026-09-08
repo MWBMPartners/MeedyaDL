@@ -1,0 +1,208 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Dependency Update Canary
+# =========================
+#
+# WHY THIS EXISTS
+# ---------------
+# `.github/dependabot.yml` now opens a weekly, grouped dependency-update pull
+# request directly against each of the four channel branches — `alpha`,
+# `beta`, `release-candidate`, and `main`. If that ever quietly stops working
+# for one branch — the config file gets edited into an invalid shape, GitHub
+# disables updates for a directory, a branch gets deleted and re-created under
+# a name Dependabot no longer recognises, and so on — nothing today would
+# tell anyone. The weekly pull request for that branch would simply stop
+# appearing, and because nobody is watching for an ABSENCE of something, that
+# silence could continue for months before a person happened to notice the
+# branch was quietly running on stale, unpatched dependencies.
+#
+# WHAT THIS DOES
+# ---------------
+# Once a week, for each of the four channel branches, this checks whether
+# Dependabot has opened a pull request against that branch recently (any
+# state — open, merged, or closed; a pull request having been opened at all
+# is the evidence that the weekly run actually happened, regardless of what
+# became of it afterwards). If every branch has a recent one, this workflow
+# does and says nothing further — no issue, no comment, no job-summary noise.
+# If one or more branches have gone quiet, it opens a single tracking issue
+# naming exactly which branches and how long it's been (or updates that same
+# issue in place if one is already open, so a second bad week doesn't spawn a
+# second issue) — and if health returns on a later run, it closes that issue
+# again automatically, so a stale "still broken" issue never lingers once the
+# problem is actually fixed.
+#
+# GitHub has no public API for "the last time Dependabot's own scan ran" —
+# only for the pull requests it produces — so a recent pull request is used
+# as the proxy signal here. This can't tell a genuinely broken branch apart
+# from a branch that is already 100% up to date and so has nothing left to
+# propose that week; in practice, across two ecosystems with frequent
+# upstream releases (npm, cargo), that coincidence is very unlikely to persist
+# for the ~9-day lookback window this uses, so it's an acceptable trade-off
+# for a low-noise canary.
+#
+# SCHEDULE
+# --------
+# Dependabot's own weekly scan fires around 07:34 UTC on Mondays for this
+# repository. This runs at 06:00 UTC on Mondays — before that — so a problem
+# on any branch is already known and flagged before that week's batch of
+# updates would have arrived, rather than being discovered a week (or more)
+# after the fact.
+#
+# ISSUE-OPENING PATTERN
+# ----------------------
+# Reuses the same idempotent "search by a fixed title marker, then create or
+# leave alone" pattern `.github/workflows/forward-port-security.yml` already
+# uses for its own conflict-tracking issues, extended here with an update-in-
+# place step (so a second bad week refreshes the existing issue instead of
+# opening a new one) and an auto-close step (so recovery clears the issue
+# without a human needing to close it by hand).
+
+name: Dependency Update Canary
+
+on:
+  schedule:
+    # Monday 06:00 UTC — roughly 1.5 hours before Dependabot's own weekly
+    # scan (~07:34 UTC) fires for this repository. See "SCHEDULE" above.
+    - cron: '0 6 * * 1'
+  # Manual entry point: check health on demand, or re-run after fixing a
+  # reported problem to close the tracking issue without waiting a week.
+  workflow_dispatch: {}
+
+# Issue creation/editing uses RELEASE_PAT (see the step below), not the
+# workflow GITHUB_TOKEN, matching forward-port-security.yml's convention — so
+# the default token stays read-only here too.
+permissions:
+  contents: read
+
+concurrency:
+  # Only one health check needs to be in flight at a time; a newer manual run
+  # supersedes rather than queuing behind an old one.
+  group: dependency-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check every channel branch for a recent dependency update, then open/update/close the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::RELEASE_PAT is not available to this run — cannot check dependency-update health or manage the tracking issue. Skipping quietly; this will retry on the next scheduled run."
+            exit 0
+          fi
+
+          # Ensure the label we tag the tracking issue with exists (idempotent;
+          # dependabot.yml already creates PRs with this label, but a fresh
+          # repo state might not have it yet). Mirrors forward-port-security.yml.
+          gh label create dependencies --repo "$REPO" --color "0366d6" \
+            --description "Dependency updates" 2>/dev/null || true
+
+          # A branch is "healthy" if Dependabot has opened at least one pull
+          # request against it (any state) within this many days. The regular
+          # cadence is 7 days; +2 days of slack absorbs a single late/jittery
+          # scheduled run without ever masking two consecutive missed weeks.
+          LOOKBACK_DAYS=9
+          NOW_EPOCH=$(date -u +%s)
+          CUTOFF_EPOCH=$(date -u -d "-${LOOKBACK_DAYS} days" +%s)
+
+          STALE_LINES=""
+          CHECKED_COUNT=0
+
+          for BRANCH in alpha beta release-candidate main; do
+            # Branch may not exist in every repo state — skip cleanly rather
+            # than reporting a branch that was deliberately removed.
+            # Tell "this branch is genuinely gone" apart from "I could not
+            # ask". Treating them the same is the exact fault this workflow
+            # exists to catch: if a rate limit or a server error were read as
+            # "branch missing", that branch would be quietly skipped, and if
+            # the others looked fine we would close the warning issue having
+            # never actually checked. A watchdog that reports all-clear
+            # because it could not look is worse than none, because people
+            # believe it.
+            #
+            # A real "not found" means gone, and we skip it deliberately.
+            # Anything else stops the run loudly.
+            BRANCH_RC=0
+            BRANCH_ERR=$(gh api "repos/${REPO}/branches/${BRANCH}" --silent 2>&1) || BRANCH_RC=$?
+            if [ "$BRANCH_RC" -ne 0 ]; then
+              if printf '%s' "$BRANCH_ERR" | grep -q "HTTP 404"; then
+                echo "::notice::Branch '$BRANCH' does not exist — skipping it deliberately."
+                continue
+              fi
+              echo "::error::Could not check whether branch '$BRANCH' exists, and it was not a plain 'not found'. Stopping rather than reporting a result from an incomplete check. GitHub said: ${BRANCH_ERR}"
+              exit 1
+            fi
+            CHECKED_COUNT=$((CHECKED_COUNT + 1))
+
+            # A small pause between search calls avoids tripping GitHub's
+            # secondary rate limit on the search API when run back-to-back.
+            sleep 2
+
+            RESPONSE=$(gh api "search/issues?q=repo:${REPO}+is:pr+author:app%2Fdependabot+base:${BRANCH}&sort=created&order=desc&per_page=1")
+            CREATED_AT=$(jq -r '.items[0].created_at // empty' <<<"$RESPONSE")
+            PR_URL=$(jq -r '.items[0].html_url // empty' <<<"$RESPONSE")
+
+            if [ -z "$CREATED_AT" ]; then
+              STALE_LINES="${STALE_LINES}- **\`${BRANCH}\`** — no Dependabot pull request has ever been recorded against this branch.\n"
+              continue
+            fi
+
+            CREATED_EPOCH=$(date -u -d "$CREATED_AT" +%s)
+            if [ "$CREATED_EPOCH" -ge "$CUTOFF_EPOCH" ]; then
+              echo "::notice::'$BRANCH' is healthy — most recent dependency PR was $CREATED_AT ($PR_URL)."
+              continue
+            fi
+
+            DAYS_SINCE=$(( (NOW_EPOCH - CREATED_EPOCH) / 86400 ))
+            STALE_LINES="${STALE_LINES}- **\`${BRANCH}\`** — last dependency pull request was ${DAYS_SINCE} days ago (${PR_URL}), more than the ${LOOKBACK_DAYS}-day expected cadence.\n"
+          done
+
+          MARKER_TITLE="[dependency-canary] dependency updates have gone quiet on one or more channel branches"
+          EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER_TITLE\"" --json number --jq '.[0].number // empty')
+          CHECKED_AT="$(date -u +"%Y-%m-%d %H:%M UTC")"
+
+          if [ -n "$STALE_LINES" ]; then
+            BODY=$(printf '%s\n' \
+              "Dependabot is supposed to open a weekly, grouped dependency-update pull request against every channel branch (see \`.github/dependabot.yml\`). At least one branch hasn't had one recently:" \
+              "" \
+              "$(printf '%b' "$STALE_LINES")" \
+              "Checked: ${CHECKED_AT} (of ${CHECKED_COUNT} branch(es) that currently exist)." \
+              "" \
+              "**What this can mean:** \`.github/dependabot.yml\` was edited into a shape GitHub silently rejected for that branch's entry, the branch was renamed/recreated under a name Dependabot no longer recognises, or Dependabot's own weekly scan is failing for some other reason. It's rarely \"nothing to update\" for two ecosystems (npm, cargo) at once for over a week." \
+              "" \
+              "**What to check:** the repository's Insights > Dependency graph > Dependabot page for the affected branch/directory, and that \`.github/dependabot.yml\` still parses (\`python3 -c \"import yaml;yaml.safe_load(open('.github/dependabot.yml'))\"\`)." \
+              "" \
+              "This issue is opened/updated automatically by \`.github/workflows/dependency-canary.yml\` and closes itself automatically once every branch has a recent dependency pull request again." \
+              "" \
+              "---" \
+              "_Generated by [Claude Code](https://claude.ai/code)_")
+
+            if [ -n "$EXISTING" ]; then
+              gh issue edit "$EXISTING" --repo "$REPO" --body "$BODY"
+              gh issue comment "$EXISTING" --repo "$REPO" \
+                --body "Still quiet as of ${CHECKED_AT} — see the updated status above."
+              echo "::warning::Updated existing dependency-canary tracking issue #$EXISTING."
+            else
+              gh issue create --repo "$REPO" \
+                --title "$MARKER_TITLE" \
+                --label "dependencies" \
+                --body "$BODY"
+              echo "::warning::Opened dependency-canary tracking issue — one or more channel branches have gone quiet."
+            fi
+          else
+            if [ -n "$EXISTING" ]; then
+              gh issue comment "$EXISTING" --repo "$REPO" \
+                --body "Every channel branch has had a dependency pull request within the last ${LOOKBACK_DAYS} days again as of ${CHECKED_AT} — closing."
+              gh issue close "$EXISTING" --repo "$REPO" --reason completed
+              echo "::notice::All channels healthy — closed tracking issue #$EXISTING."
+            else
+              echo "::notice::All channels healthy — nothing to do."
+            fi
+          fi
