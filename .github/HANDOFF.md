@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-07
+**Last updated:** 2026-09-08
 **Working branch:** `alpha` (direct — channel convention; no feature branch). **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
 
 **Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
@@ -9,7 +9,118 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★ LATEST — Session 2026-09-07: five silent failures found and fixed, then a wider resilience programme
+## ★★★ LATEST — Session 2026-09-08: beta brought back to life, everything consolidated onto one branch
+
+> **PICK UP HERE.** One work branch: `work/alpha-resilience-and-docs`, rooted on `alpha`
+> at `v1.13.0-alpha.61`. It carries everything and goes to `alpha` in a single pull
+> request. Two other branches still exist and are explained below.
+
+### The headline: the beta channel was dead for over three weeks, and is now alive
+
+Three beta versions were tagged from 14 August onwards. **Not one produced a release, a
+download, or even a build.** Nobody was told, because nothing turned red — the builds
+simply never started.
+
+The cause was a marker in the version-bump commit telling GitHub to skip the build. It
+was there to stop the job re-triggering itself, and it did — but GitHub applies that
+skip to *every* job started by the push, including the one that builds the release.
+
+**Two faults were stacked, and fixing only the obvious one would have been worse than
+doing nothing.** Beta's other safeguard checked *who* pushed, which never worked (the
+push uses a token, so GitHub credits a person). The skip marker was the only thing
+actually preventing a runaway. Removing it alone would have made beta cut release after
+release in minutes — release-candidate did exactly that once, producing rc.22 through
+rc.34 before anyone caught it. Both were fixed together in #1142.
+
+**Proven working in production.** The fix commit cut a tag; the bump commit it created
+was correctly *skipped* by the new guard; exactly one new tag exists (4 total, was 3).
+
+**But beta is still not useful yet, deliberately.** Beta is on 1.9.4 and stable is on
+1.10.6. The updater only offers something newer than you are running, so nobody is
+eligible for beta.4. It is a proof-of-life build. Making beta genuinely useful means
+bringing its content forward — deferred by the maintainer until alpha is ready to
+promote, which is the right call.
+
+**Beta was also carrying real security problems**, fixed by hand in the same pull
+request: a high-severity one in fast-uri, a moderate one in humanfs, and a
+denial-of-service one in h2 — that last one inside the app people install, not just
+build tooling. They were fixed on alpha and main weeks ago and never reached beta.
+
+### Why beta rotted, and the thing that actually fixes it
+
+Not the update routing, which is what everyone assumed. Two facts settle it:
+
+- Pointing updates at a branch only steers **routine** updates. **Security fixes always
+  go to the default branch** and ignore that setting. This repository proves it: 21 of
+  21 routine updates went to alpha, 10 of 10 security fixes went to main.
+- All three problems found on beta were **indirect** dependencies — pulled in by other
+  packages. Routine updates never touch those at all.
+
+So routing updates to more branches would have delivered **none** of the three fixes.
+The thing that should carry them is the forward-port job — which **had never once
+produced a pull request in the repository's history.** It was fixed and, on 8
+September, **proven working end to end for the first time**: it ran on all three
+channels, hit a genuine conflict on each, and correctly opened tracking issues #1143,
+#1144 and #1145 instead of failing silently.
+
+### Landed today
+
+- **#1142 → beta** (`a131880d`): channel revived, security problems cleared.
+- **#1146 → main** (`97f98584`): all seven Tier 4 items, 950 lines.
+
+### The watchdog needed three rounds of fixing, which is the lesson of the week
+
+It arrived carrying the exact fault it exists to catch, three separate times:
+
+1. A brief network error read as "this job has never run", inventing a false alarm. No
+   allowance for newly added jobs. No way of proving it was still alive.
+2. If it could not read its own tracking issue, it assumed there wasn't one.
+3. **Worst:** if it failed to write its findings, it reported success and refreshed its
+   heartbeat anyway — so the findings reached nobody while the heartbeat said all was
+   well. A watchdog claiming everything is fine at the exact moment it failed at its
+   only job.
+
+Rounds 2 and 3 were found by Codex, not by us. **Expect one real finding on its first
+run**: a watcher file exists only on alpha and never on main, so its schedule can never
+fire. That is a genuine gap, not noise.
+
+### Branch state — read before creating anything
+
+| Branch | State |
+|---|---|
+| `work/alpha-resilience-and-docs` | **The one work branch.** Everything is here. Goes to `alpha`. |
+| `ci/dependency-propagation` | Still needs its own pull request **to main**, because update routing and scheduled jobs only work from the default branch. |
+| `ci/tier4-resilience-main` | Local leftover; #1146 merged and GitHub deleted the remote. Safe to delete. |
+| `fix/beta-channel-revival` | Local leftover; #1142 merged and GitHub deleted the remote. Safe to delete. |
+
+Local safety tags `backup/tier4`, `backup/dep-prop`, `backup/beta-revival` exist and
+are not pushed. Delete them once the alpha pull request merges.
+
+**Never `git merge` a main-rooted branch into alpha.** It drags in 55 unrelated commits
+and hits conflicts on files created on both sides. Cherry-pick only — that was proven
+clean for all nine commits.
+
+### Two Tier 4 items deliberately NOT carried to alpha
+
+- The release-dependency fix: **alpha already has it**.
+- The GAMDL watcher repair: **alpha deleted that file** and uses a differently named
+  one. Porting it would resurrect something alpha retired.
+
+### Settled decisions — do not re-litigate
+
+- **The Safari identity sent to Apple Music is cross-platform on purpose.** Safari
+  implies a Mac, and Apple Music serves its fullest feature set to a Mac. Making it
+  "honest per platform" would quietly degrade the app for every non-Mac user. Recorded
+  in the code, the project notes, memory and #1072. The **version number** does need
+  refreshing (it says 17.6; current is 26.6) — read it on the build machine, never over
+  the network and never on the user's machine.
+- **`update.mwbm.io` should be its own repository** (#856). It outlives every app, it
+  serves the whole organisation, and its failures affect every installed copy at once.
+  It is also the prerequisite for ever making this repository private.
+
+---
+
+## ★★★ Session 2026-09-07: five silent failures found and fixed, then a wider resilience programme
 
 > **PICK UP HERE.** Working branch is `work/alpha-resilience-and-docs`, branched from `alpha` at
 > `v1.13.0-alpha.61`. Everything from here lands on that one branch and goes to `alpha` in a
