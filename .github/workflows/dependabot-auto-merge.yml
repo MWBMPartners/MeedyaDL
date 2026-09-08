@@ -7,25 +7,32 @@
 # WHAT THIS DOES
 # --------------
 # Automatically squash-merges a Dependabot pull request once EVERY check on it
-# has passed — but only for the two branches the maintainer opted in to:
+# has passed — for PRs targeting any of the four branches that
+# `.github/dependabot.yml` now opens routine dependency-update PRs against:
 #
-#   * PRs targeting `alpha`  -> Dependabot *version* updates (the weekly,
-#     grouped minor/patch bumps routed here by `.github/dependabot.yml`'s
-#     `target-branch: alpha`). These respect the 7-day `cooldown` configured
+#   * `alpha`, `beta`, `release-candidate`, `main` -> Dependabot *version*
+#     updates. `dependabot.yml` repeats each ecosystem's config once per
+#     branch, so every channel gets its own weekly, grouped minor/patch bump
+#     opened directly against it (not only via a manual promotion that might
+#     not happen for weeks). These respect the 7-day `cooldown` configured
 #     there, so a freshly-published (possibly compromised) release is never
 #     auto-merged within hours of appearing.
-#   * PRs targeting `main`   -> Dependabot *security* updates. GitHub forces
-#     security updates onto the default branch (`main`) and offers no way to
-#     redirect them, so a Dependabot PR against `main` is, by construction, a
-#     security fix. Security updates are NOT subject to `cooldown` — a fix
-#     shouldn't wait — so these auto-merge as soon as CI is green.
+#   * `main` -> also where Dependabot *security* updates land. GitHub always
+#     forces security updates onto the default branch (`main`) and offers no
+#     way to redirect them, regardless of `target-branch`. A Dependabot PR
+#     against `main` can now be either kind — a routine bump or a security
+#     fix — but both are safe to auto-merge the same way once every check is
+#     green; security updates are additionally NOT subject to `cooldown`, so
+#     they merge as soon as CI passes rather than waiting a week.
 #
-# `beta` and `release-candidate` are deliberately NOT auto-merged: changes reach
-# them through the deliberate alpha -> beta -> rc -> stable promotion path with a
-# human in the loop. The security forward-port PRs that `forward-port-security.yml`
-# opens onto the channel branches are authored by `github-actions[bot]`, not
-# `dependabot[bot]`, so they are never auto-merged here either — they keep their
-# human review.
+# A security fix still needs to reach `alpha`/`beta`/`release-candidate` too —
+# that forward-porting is handled separately by
+# `.github/workflows/forward-port-security.yml`, which now distinguishes a
+# genuine security fix from a routine grouped update (both can appear on
+# `main` once `dependabot.yml` targets it) so it only forward-ports the former.
+# The security forward-port PRs that workflow opens onto the channel branches
+# are authored by `github-actions[bot]`, not `dependabot[bot]`, so they are
+# never auto-merged here either — they keep their human review.
 #
 # WHY `workflow_run` (and not `pull_request` / `pull_request_target`)
 # ------------------------------------------------------------------
@@ -113,11 +120,14 @@ jobs:
             exit 0
           fi
 
-          # Branch gate: alpha (version updates) and main (security updates) only.
+          # Branch gate: the four branches dependabot.yml opens routine
+          # updates against (alpha, beta, release-candidate, main) — main
+          # also carries security updates, which land there regardless of
+          # dependabot.yml.
           case "$BASE" in
-            alpha|main) : ;;
+            alpha|beta|release-candidate|main) : ;;
             *)
-              echo "::notice::PR #$NUMBER targets '$BASE' (not alpha/main) — not auto-merged; leaving for review."
+              echo "::notice::PR #$NUMBER targets '$BASE' (not alpha/beta/release-candidate/main) — not auto-merged; leaving for review."
               echo "proceed=false" >> "$GITHUB_OUTPUT"
               exit 0
               ;;
@@ -146,11 +156,12 @@ jobs:
           # RELEASE_PAT (a real user token), not GITHUB_TOKEN, performs the merge.
           # A merge/push made with GITHUB_TOKEN does NOT trigger further workflow
           # runs (GitHub's recursion guard), which would defeat the whole point:
-          #   * merging a version update into `alpha` must trigger alpha-release.yml
-          #     so a fresh alpha build is cut to actually test the update on, and
+          #   * merging a version update into `alpha`/`beta`/`release-candidate`
+          #     must trigger that branch's own *-release.yml so a fresh build is
+          #     cut to actually test the update on, and
           #   * merging a security fix into `main` must trigger the PR-close event
           #     that forward-port-security.yml listens for, so the fix reaches
-          #     alpha/beta/rc.
+          #     alpha/beta/rc too.
           # A PAT-driven merge behaves exactly like a human clicking "Merge", so
           # both downstream automations fire. workflow_run runs in the trusted
           # base-repo context, so the secret is available here.

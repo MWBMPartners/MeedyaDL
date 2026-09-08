@@ -8,15 +8,15 @@
 # ---------------
 # Dependabot *security* updates ALWAYS open against the repository's default
 # branch (`main`) and IGNORE the `target-branch` set in `.github/dependabot.yml`.
-# That `target-branch: alpha` only routes Dependabot *version* updates; it has
-# no effect on security updates. GitHub provides no configuration to redirect
-# security updates to a non-default branch.
+# Every `target-branch` entry in that file only routes Dependabot *version*
+# (routine) updates; none of them has any effect on security updates. GitHub
+# provides no configuration to redirect security updates to a non-default
+# branch — this is true no matter how many `target-branch` entries exist.
 #
-# The consequence: routine version bumps flow through the careful
-# `alpha -> beta -> rc -> main` channel-promotion path, but security fixes —
-# the higher-stakes ones — land ONLY on `main` and never reach the long-lived
-# channel branches where active development and most prerelease builds live.
-# Those channels are left exposed to the very vulnerability that was just fixed.
+# The consequence: without this workflow, security fixes — the higher-stakes
+# updates — would land ONLY on `main` and never reach the long-lived channel
+# branches where active development and most prerelease builds live. Those
+# channels would be left exposed to the very vulnerability that was just fixed.
 #
 # WHAT THIS DOES
 # --------------
@@ -26,8 +26,19 @@
 # cherry-pick conflicts (the channel's lockfile has diverged), it opens a
 # tracking issue with copy-paste manual-forward-port instructions instead.
 #
-# A Dependabot PR merged to `main` is, by construction, a security update:
-# version updates are configured to target `alpha`, so they never reach `main`.
+# TELLING A SECURITY FIX APART FROM A ROUTINE UPDATE ON `main`
+# --------------------------------------------------------------
+# `.github/dependabot.yml` now also opens ROUTINE (weekly, grouped) update
+# PRs directly against `main`, alongside the security PRs GitHub always sends
+# there. So a Dependabot PR on `main` is no longer automatically a security
+# fix — it could be either kind, and forward-porting a routine update here
+# would be redundant (it already has its own direct `main` entry) as well as
+# wrong to label "security" in the tracking PR/issue this workflow opens.
+# The gate below tells them apart by branch name: Dependabot names a routine
+# grouped-update branch with `/npm-minor-patch-` or `/cargo-minor-patch-`
+# (see the `npm-minor-patch` / `cargo-minor-patch` group names in
+# dependabot.yml); a security-update branch never contains that substring.
+# Only branches WITHOUT that marker are forward-ported here.
 #
 # TRIGGER: a push to `main`. When a Dependabot security PR merges (including via
 # auto-merge), its squash commit lands on `main` and fires this workflow in the
@@ -46,9 +57,11 @@ name: Forward-port Security Fixes
 
 on:
   # A Dependabot security fix reaches this repo by merging to `main`, which is a
-  # push on the default branch. The gate job resolves the associated merged PR
-  # and filters to dependabot[bot]; non-PR pushes and non-Dependabot merges exit
-  # fast at the gate.
+  # push on the default branch. So does a routine Dependabot update now that
+  # `dependabot.yml` targets `main` too — the gate job resolves the associated
+  # merged PR, filters to dependabot[bot], and (see "TELLING A SECURITY FIX
+  # APART..." above) skips routine grouped updates by branch name; non-PR
+  # pushes and non-Dependabot merges exit fast at the gate as before.
   push:
     branches: [main]
   # Manual entry point: backfill a fix, or re-run after resolving a conflict,
@@ -115,13 +128,29 @@ jobs:
           fi
 
           data=$(gh pr view "$PR" --repo "$REPO" \
-            --json number,state,baseRefName,author,mergeCommit,title)
+            --json number,state,baseRefName,author,mergeCommit,title,headRefName)
           [ "$(jq -r .state <<<"$data")" = "MERGED" ]     || skip "PR #$PR is not merged — nothing to forward-port."
           [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
           if [ "$REQUIRE_DEPENDABOT" = "1" ] \
              && [ "$(jq -r '.author.login' <<<"$data")" != "dependabot[bot]" ]; then
             skip "PR #$PR author is not dependabot[bot] — skipping."
           fi
+
+          # `dependabot.yml` now also opens ROUTINE (weekly, grouped)
+          # update PRs directly against `main`, so a Dependabot PR on
+          # `main` is no longer automatically a security fix. Dependabot
+          # names a routine grouped-update branch with `/npm-minor-patch-`
+          # or `/cargo-minor-patch-` (the group names configured in
+          # dependabot.yml) — a real security-update branch never contains
+          # that substring. Skip the routine ones: they already have their
+          # own direct `target-branch: main` entry and don't need
+          # forward-porting anywhere else.
+          HEAD_REF=$(jq -r '.headRefName' <<<"$data")
+          case "$HEAD_REF" in
+            */npm-minor-patch-*|*/cargo-minor-patch-*)
+              skip "PR #$PR head branch '$HEAD_REF' is a routine grouped dependency update, not a security fix — skipping."
+              ;;
+          esac
 
           MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
           TITLE=$(jq -r '.title' <<<"$data")
@@ -209,7 +238,7 @@ jobs:
             BODY=$(printf '%s\n' \
               "Automated forward-port of the security fix merged to \`main\` in #${PR_NUMBER} onto the \`${TARGET}\` channel branch." \
               "" \
-              "Dependabot raises **security** updates only against the default branch (\`main\`); \`dependabot.yml\`'s \`target-branch: alpha\` governs *version* updates only, and GitHub offers no way to redirect security updates. This PR carries the same fix to \`${TARGET}\` so the channel isn't left exposed. The channel's own CI validates it here before merge." \
+              "Dependabot always raises **security** updates against the default branch (\`main\`) and GitHub offers no way to redirect them — \`dependabot.yml\`'s \`target-branch\` settings only steer *routine* updates. This PR carries the same fix to \`${TARGET}\` so the channel isn't left exposed. The channel's own CI validates it here before merge." \
               "" \
               "- Source PR: #${PR_NUMBER}" \
               "- Cherry-picked commit: \`${MERGE_SHA}\`" \
