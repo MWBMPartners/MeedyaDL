@@ -118,9 +118,26 @@ jobs:
           for BRANCH in alpha beta release-candidate main; do
             # Branch may not exist in every repo state — skip cleanly rather
             # than reporting a branch that was deliberately removed.
-            if ! gh api "repos/${REPO}/branches/${BRANCH}" --silent 2>/dev/null; then
-              echo "::notice::Branch '$BRANCH' does not exist — skipping."
-              continue
+            # Tell "this branch is genuinely gone" apart from "I could not
+            # ask". Treating them the same is the exact fault this workflow
+            # exists to catch: if a rate limit or a server error were read as
+            # "branch missing", that branch would be quietly skipped, and if
+            # the others looked fine we would close the warning issue having
+            # never actually checked. A watchdog that reports all-clear
+            # because it could not look is worse than none, because people
+            # believe it.
+            #
+            # A real "not found" means gone, and we skip it deliberately.
+            # Anything else stops the run loudly.
+            BRANCH_RC=0
+            BRANCH_ERR=$(gh api "repos/${REPO}/branches/${BRANCH}" --silent 2>&1) || BRANCH_RC=$?
+            if [ "$BRANCH_RC" -ne 0 ]; then
+              if printf '%s' "$BRANCH_ERR" | grep -q "HTTP 404"; then
+                echo "::notice::Branch '$BRANCH' does not exist — skipping it deliberately."
+                continue
+              fi
+              echo "::error::Could not check whether branch '$BRANCH' exists, and it was not a plain 'not found'. Stopping rather than reporting a result from an incomplete check. GitHub said: ${BRANCH_ERR}"
+              exit 1
             fi
             CHECKED_COUNT=$((CHECKED_COUNT + 1))
 
