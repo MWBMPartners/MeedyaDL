@@ -1,0 +1,693 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Workflow Health Watchdog
+# ========================
+#
+# WHY THIS EXISTS
+# ---------------
+# Some of our workflows are safety nets: they exist to protect something
+# (security fixes reaching the channel branches, release notes being readable,
+# the updater manifest being complete). A safety net that breaks does not
+# announce itself — nothing turns red in a place anyone is looking, no build
+# is blocked, no PR is held up. It just quietly stops protecting.
+#
+# On 2026-09-07 we found five of these at once:
+#
+#   1. forward-port-security.yml had failed on every run since mid-August
+#      (a `gh` CLI JSON field was removed upstream). For three weeks, every
+#      Dependabot SECURITY fix stopped at `main` and never reached alpha,
+#      beta or release-candidate.
+#   2. release.yml silently dropped a platform from latest.json.
+#   3. release-note-gate.yml was not present on `main`, so the check that is
+#      supposed to BLOCK a release PR had never once run for a PR into main.
+#      A workflow file only runs on a branch where the file exists. Fixed
+#      2026-09-07 — the file is on `main` now — but it stays in the list
+#      below, because a regression here is exactly what the MISSING check
+#      exists to catch.
+#   4. rust-toolchain-bump.yml had been failing on schedule, unnoticed.
+#   5. upstream-gamdl-watch.yml — found while writing this file — had failed
+#      on EVERY run on record (20+, going back over four months) and had
+#      never succeeded once. Its `actions/setup-python` pin points at a commit
+#      that does not exist, so the job dies during "Set up job", before any
+#      step runs. The one thing that was supposed to warn us that GAMDL had
+#      shipped past our tested ceiling was dead on arrival.
+#
+# GitHub does email on scheduled-workflow failure, and that plainly did not
+# work. Three reasons, all structural rather than "someone wasn't paying
+# attention":
+#
+#   * It emails per RUN, not per STATE CHANGE. The twentieth identical
+#     "a run failed" email is indistinguishable from the first, so it reads
+#     as a flake and gets filtered. The fact that actually matters — "this
+#     has been broken for four months" — is never in the message.
+#   * It only covers `schedule`. forward-port-security.yml is push-triggered,
+#     so defect 1 generated no failure email at all, by design.
+#   * It cannot express ABSENCE. Defect 3 is a workflow that never runs. There
+#     is no failed run, so there is nothing to email about, ever.
+#
+# WHAT THIS DOES
+# --------------
+# Once a day, from outside the workflows it is checking, it asks the Actions
+# API a different question: not "did a run fail?" but "is this safety net
+# still standing?" It checks four ways a net can fall down:
+#
+#   * FAILING     — N consecutive failed runs (N per entry, so a single flake
+#                   is never reported).
+#   * NEVER WORKED— failures with no successful run on record at all. Called
+#                   out separately and louder, because it means the workflow
+#                   has never protected anything (defect 5).
+#   * MISSING     — the file is absent from a branch it must exist on. This is
+#                   the only check that can see defect 3. It also catches a
+#                   subtler one: GitHub runs `schedule` triggers ONLY from the
+#                   default branch, so a cron workflow living only on `alpha`
+#                   never fires anywhere.
+#   * STALE/OFF   — no run in longer than its cadence allows (the trigger
+#                   stopped firing), or its state is not `active`. That catches
+#                   GitHub auto-disabling a scheduled workflow after 60 days of
+#                   repository inactivity, which happens silently.
+#
+# Findings go into ONE GitHub Issue, rewritten in place, labelled and
+# assignable, that closes itself when everything is healthy. An OPEN issue
+# always means a live problem, and its age is the signal the email channel
+# destroys: "opened 4 months ago" is impossible to misread as a flake.
+# A comment is posted only when the set of findings CHANGES, so a long-running
+# problem does not generate a daily nag — the thing that trains you to ignore
+# a channel.
+#
+# NOT MAKING THE SAME MISTAKE IT EXISTS TO CATCH
+# -----------------------------------------------
+# A watchdog that produces false alarms trains people to ignore it, which is
+# the exact failure mode described above — so three things it must never do:
+#
+#   * Confuse "I could not ask GitHub" with "the answer is no". A network
+#     blip or a rate limit while checking one workflow is logged loudly as
+#     an error in THIS run's log, and skipped — never reported as a finding
+#     about the workflow it failed to check.
+#   * Flag a workflow that was only just added. An entry with no run history
+#     yet gets a grace period (the longer of one week or its own cadence)
+#     before an empty history counts as "Never run".
+#   * Die without anyone noticing. See "PROVING IT IS STILL ALIVE" below.
+#
+# PROVING IT IS STILL ALIVE
+# --------------------------
+# A dedicated issue, separate from the findings issue above, stays open
+# forever and has its body (never a comment, so it never notifies anyone)
+# rewritten with the current time on every run that completes. Its "updated"
+# timestamp is the answer to "is the watchdog still running?" — check that,
+# not Actions run history. It is deliberately the LAST thing a healthy run
+# does, so a bug anywhere earlier in the script still fails the job loudly
+# instead of a heartbeat papering over it.
+#
+# DEPENDENCIES: DELIBERATELY NONE
+# -------------------------------
+# This workflow uses no third-party actions — not even actions/checkout. It is
+# `gh` and `python3`, both preinstalled on the runner. That is a direct
+# response to defect 5: a watchdog must not be able to die the same way its
+# subject died, and its subject died on a bad action pin. It also needs no
+# secrets: the default GITHUB_TOKEN can read Actions and write an issue.
+#
+# ADDING A WORKFLOW: add one entry to WATCHED below. That is the whole change.
+#
+# To run manually: `gh workflow run "Workflow Health" --ref main`
+# Related: #1118 (the security fix that never reached alpha).
+
+name: Workflow Health
+
+on:
+  schedule:
+    # 09:17 UTC daily. Deliberately off the hour: GitHub delays or drops
+    # on-the-hour scheduled runs under load, and 09:17 is late enough to see
+    # the results of the 06:00 and 08:00 Monday jobs on the same morning.
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report findings in the job summary without touching the issue'
+        type: boolean
+        default: false
+
+# Least privilege, and no PAT. `actions: read` to query run history,
+# `contents: read` for the per-branch file-presence check, `issues: write`
+# to maintain the single tracking issue.
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: workflow-health
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit critical workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check safety nets and maintain tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 <<'PY'
+          """Audit the workflows that protect something, and keep one issue in sync.
+
+          Reads only the Actions API and the repo's file tree. Writes only one
+          GitHub Issue. No checkout, no third-party actions, no secrets.
+          """
+          import hashlib
+          import json
+          import os
+          import subprocess
+          import sys
+          from datetime import datetime, timezone
+
+          REPO = os.environ["REPO"]
+          DRY_RUN = os.environ.get("DRY_RUN", "false") == "true"
+          RUN_URL = os.environ.get("RUN_URL", "")
+
+          # Stable title marker. The issue is found by this substring, so the
+          # rest of the title is free to change without orphaning the issue.
+          MARKER = "[workflow-health]"
+          TITLE = f"{MARKER} A CI safety net has stopped protecting something"
+          LABEL = "workflow-health"
+
+          # ── The allowlist ───────────────────────────────────────────────
+          # Only workflows that PROTECT something belong here. A workflow whose
+          # failure is loud and immediate (it blocks a PR, it breaks a build the
+          # author is watching) does not need a watchdog and would only add
+          # noise. Keys:
+          #   why            — one plain sentence, shown in the issue, so a
+          #                    finding explains its own stakes without digging.
+          #   fail_threshold — consecutive failures before reporting. Raise it
+          #                    for flaky, network-dependent workflows.
+          #   max_age_days   — for scheduled work: longest acceptable gap since
+          #                    the last run. Catches a trigger that stopped
+          #                    firing, which produces no failed run to notice.
+          #   require_on     — branches the file MUST exist on. Any workflow
+          #                    with a `schedule:` trigger must list "main":
+          #                    GitHub fires cron only from the default branch.
+          #   branch / event — narrow which runs count, so unrelated red runs
+          #                    (a failing feature branch, a dry-run dispatch)
+          #                    do not mask or fake a real streak.
+          WATCHED = [
+              {
+                  "path": ".github/workflows/forward-port-security.yml",
+                  "why": "Carries Dependabot SECURITY fixes from main onto alpha, beta and "
+                         "release-candidate. While it is down, every channel branch stays "
+                         "exposed to vulnerabilities that main has already fixed.",
+                  "fail_threshold": 2,
+                  "require_on": ["main"],
+              },
+              {
+                  "path": ".github/workflows/release-note-gate.yml",
+                  "why": "Blocks a release PR that has no plain-English release notes. The "
+                         "in-app updater shows that text to users.",
+                  "fail_threshold": 2,
+                  "require_on": ["main", "alpha", "beta", "release-candidate"],
+              },
+              {
+                  # Was upstream-gamdl-watch.yml. alpha already retired that name and
+                  # replaced it with this generalised, multi-engine version (PR M9-1 /
+                  # #101) — watching the old name here would itself become a stale
+                  # expectation the moment `main` catches up with the same rename.
+                  # Until then this correctly reports MISSING: the file lives only on
+                  # `alpha` today, and a schedule trigger on a non-default branch never
+                  # fires (see the MISSING explanation above) — a real gap, not a false
+                  # alarm, and worth knowing about rather than silently hiding.
+                  "path": ".github/workflows/upstream-engine-watch.yml",
+                  "why": "The only signal that GAMDL or another download engine has shipped "
+                         "a release beyond our tested ceiling. Without it the first sign of "
+                         "a breaking upstream change is a user crash report weeks later.",
+                  "fail_threshold": 2,
+                  "max_age_days": 10,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
+                  "path": ".github/workflows/rust-toolchain-bump.yml",
+                  "why": "Keeps the pinned Rust toolchain current, so a new stable clippy is a "
+                         "deliberate reviewed bump instead of reddening an unrelated PR.",
+                  "fail_threshold": 2,
+                  "max_age_days": 10,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
+                  "path": ".github/workflows/release.yml",
+                  "why": "Builds and publishes every release, and rebuilds latest.json for the "
+                         "in-app updater. A partial failure can drop a platform from the "
+                         "updater manifest without failing the run.",
+                  "fail_threshold": 2,
+                  "require_on": ["main"],
+              },
+              {
+                  "path": ".github/workflows/licences.yml",
+                  "why": "Enforces the licence allowlist and the ACKNOWLEDGEMENTS coverage "
+                         "check. Catches an upstream dependency re-licensing to copyleft.",
+                  "fail_threshold": 2,
+                  "require_on": ["main"],
+              },
+              {
+                  "path": ".github/workflows/codeql.yml",
+                  "why": "Static security analysis for JS/TS and Actions.",
+                  "fail_threshold": 2,
+                  "max_age_days": 10,
+                  "require_on": ["main"],
+              },
+              {
+                  "path": ".github/workflows/dependency-report.yml",
+                  "why": "Monthly dependency staleness report.",
+                  "fail_threshold": 2,
+                  "max_age_days": 40,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
+                  "path": ".github/workflows/ci.yml",
+                  "why": "The merge gate: clippy, tests, cargo-deny, tsc, eslint.",
+                  "fail_threshold": 3,
+                  "branch": "main",
+                  "require_on": ["main"],
+              },
+              {
+                  # The watchdog watches itself, but this entry alone cannot see
+                  # TOTAL death — a run that never happens leaves nothing here to
+                  # find, since nothing runs to find it. A transient failure it
+                  # recovers from IS reported the next day, and a stale last-run
+                  # age surfaces a cron that stopped but occasionally still fires.
+                  # Total, permanent silence is what the heartbeat issue is for
+                  # (see "PROVING IT IS STILL ALIVE" at the top of this file).
+                  "path": ".github/workflows/workflow-health.yml",
+                  "why": "This watchdog.",
+                  "fail_threshold": 2,
+                  "max_age_days": 3,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+          ]
+
+          # A run that ended in one of these was not protecting anything.
+          FAILED = {"failure", "timed_out", "startup_failure", "action_required"}
+          # Neither success nor failure: skip without breaking a failure streak.
+          # A cancelled run is usually a human superseding a push; a skipped one
+          # never executed. Counting either would invent or hide a streak.
+          NEUTRAL = {"cancelled", "skipped", "neutral", None}
+
+          # A workflow that was only just added has had zero chances to run yet
+          # if its only trigger is a schedule — reporting "Never run" on day one
+          # would itself be a false alarm of exactly the kind this file exists to
+          # stop happening to OTHER workflows. Give a brand-new entry the longer
+          # of one week or its own declared cadence (max_age_days) before an
+          # empty run history counts as a real finding.
+          NEW_WORKFLOW_GRACE_DAYS = 7
+
+          NOW = datetime.now(timezone.utc)
+
+          # Paths (or "path (what we were trying to check)" descriptions) where a
+          # GitHub API call itself failed this run. Kept separate from `findings`
+          # on purpose — an API failure is an explicit error about THIS run of
+          # the watchdog, never a claim about the health of the workflow we
+          # failed to ask about. Reported in the job log/summary, never written
+          # into the tracking issue.
+          api_errors = []
+
+
+          def gh_json(path):
+              """GET an API path via the preinstalled gh CLI. Returns None ONLY when
+              the call itself failed (network blip, rate limit, bad JSON) — never as
+              a stand-in for "there is genuinely no data". Every call site MUST check
+              for None explicitly and treat it as "I could not ask", not "the answer
+              is empty" — collapsing the two (e.g. `gh_json(x) or {}`) is exactly the
+              bug this file exists to catch in the workflows it watches, so it must
+              not also be present here."""
+              p = subprocess.run(["gh", "api", path], capture_output=True, text=True)
+              if p.returncode != 0:
+                  print(f"::error::API call failed for {path}: {p.stderr.strip()[:200]}")
+                  return None
+              try:
+                  return json.loads(p.stdout)
+              except json.JSONDecodeError:
+                  print(f"::error::Could not parse the API response for {path} as JSON.")
+                  return None
+
+
+          def file_exists_on(path, ref):
+              """Tri-state, on purpose: True (exists), False (GitHub confirmed it is
+              genuinely absent — a 404), or None (we could not tell, because the API
+              call itself failed — a network blip, a rate limit, a timeout). None
+              must NEVER be treated the same as False: that would report a workflow
+              as missing simply because we failed to ask the question, which is the
+              exact "I could not ask" vs "there is no run" mix-up this file exists to
+              avoid making about the workflows it watches."""
+              p = subprocess.run(
+                  ["gh", "api", f"repos/{REPO}/contents/{path}?ref={ref}", "--silent"],
+                  capture_output=True, text=True)
+              if p.returncode == 0:
+                  return True
+              if "HTTP 404" in p.stderr:
+                  return False
+              print(f"::error::Could not check whether {path} exists on {ref} — the API "
+                    f"call itself failed, so this is being skipped rather than reported "
+                    f"as missing: {p.stderr.strip()[:200]}")
+              return None
+
+
+          def age_days(iso):
+              return (NOW - datetime.fromisoformat(iso.replace("Z", "+00:00"))).days
+
+
+          # ── Collect findings ────────────────────────────────────────────
+          registry = gh_json(f"repos/{REPO}/actions/workflows?per_page=100")
+          if registry is None:
+              print("::error::Could not list workflows — aborting without touching the issue.")
+              sys.exit(1)
+          by_path = {w["path"]: w for w in registry.get("workflows", [])}
+
+          findings = []  # (path, severity, kind, message, why)
+
+          for spec in WATCHED:
+              path = spec["path"]
+              why = spec["why"]
+
+              # 1. Present on every branch it must run from. `exists` is tri-state:
+              #    False means GitHub confirmed it is genuinely absent (a real
+              #    finding); None means we could not tell because the API call
+              #    itself failed (an explicit error, never a finding — reporting
+              #    "Missing" here would be inventing a false alarm from a network
+              #    blip, exactly what this file exists to stop happening elsewhere).
+              for ref in spec.get("require_on", []):
+                  exists = file_exists_on(path, ref)
+                  if exists is False:
+                      findings.append((
+                          path, "critical", "Missing",
+                          f"Not present on `{ref}`. A workflow only runs on branches where its "
+                          f"file exists, so on `{ref}` this check silently never runs.", why))
+                  elif exists is None:
+                      api_errors.append(f"{path} (checking presence on {ref})")
+
+              wf = by_path.get(path)
+              if wf is None:
+                  findings.append((
+                      path, "critical", "Unregistered",
+                      "GitHub has no workflow registered at this path — it has never been "
+                      "seen on the default branch.", why))
+                  continue
+
+              # 2. Still switched on. `disabled_inactivity` is GitHub auto-disabling
+              #    a scheduled workflow after 60 days of repo inactivity, silently.
+              state = wf.get("state")
+              if state != "active":
+                  note = (" GitHub auto-disabled this after a quiet period; re-enable it."
+                          if state == "disabled_inactivity" else "")
+                  findings.append((
+                      path, "critical", "Disabled",
+                      f"State is `{state}`, not `active`.{note}", why))
+
+              # 3. Run history, narrowed to the runs that actually matter.
+              query = f"repos/{REPO}/actions/workflows/{wf['id']}/runs?per_page=30"
+              if spec.get("branch"):
+                  query += f"&branch={spec['branch']}"
+              if spec.get("event"):
+                  query += f"&event={spec['event']}"
+              runs_data = gh_json(query)
+              if runs_data is None:
+                  # The call itself failed — an explicit error about THIS run of
+                  # the watchdog, not evidence about the workflow's health. Do
+                  # NOT fall back to "no runs": that is precisely the "I could
+                  # not ask" vs "there is no run" mix-up this file exists to
+                  # catch elsewhere, so it must not repeat it about itself.
+                  api_errors.append(f"{path} (fetching run history)")
+                  continue
+              runs = runs_data.get("workflow_runs", [])
+              completed = [r for r in runs if r.get("status") == "completed"]
+
+              if not completed:
+                  created = wf.get("created_at")
+                  grace = max(NEW_WORKFLOW_GRACE_DAYS, spec.get("max_age_days") or 0)
+                  if created and age_days(created) < grace:
+                      print(f"::notice::{path} has no completed runs yet, but was only "
+                            f"created {age_days(created)} day(s) ago — within its "
+                            f"{grace}-day grace period, not reporting.")
+                      continue
+                  findings.append((
+                      path, "warning", "Never run",
+                      "No completed runs match its trigger. Either it has never fired or its "
+                      "trigger no longer matches reality.", why))
+                  continue
+
+              streak = 0
+              for r in completed:
+                  c = r.get("conclusion")
+                  if c in NEUTRAL:
+                      continue
+                  if c in FAILED:
+                      streak += 1
+                  else:
+                      break
+
+              successes = [r for r in completed if r.get("conclusion") == "success"]
+
+              if streak >= spec.get("fail_threshold", 2):
+                  if not successes:
+                      # The loudest case: it has never once worked, so nothing it
+                      # was supposed to protect has ever been protected.
+                      findings.append((
+                          path, "critical", "Never succeeded",
+                          f"{streak} consecutive failures and no successful run in the last "
+                          f"{len(completed)}. This has most likely never worked at all — treat "
+                          f"it as unprotected since the day it was added.", why))
+                  else:
+                      last = successes[0]["created_at"]
+                      findings.append((
+                          path, "critical", "Failing",
+                          f"{streak} consecutive failures. Last success was {last} "
+                          f"({age_days(last)} days ago).", why))
+
+              # 4. Cadence. A trigger that stopped firing produces no failed run,
+              #    so nothing else here would ever notice it.
+              max_age = spec.get("max_age_days")
+              if max_age:
+                  gap = age_days(completed[0]["created_at"])
+                  if gap > max_age:
+                      findings.append((
+                          path, "warning", "Stale",
+                          f"Last run was {gap} days ago, but it should run at least every "
+                          f"{max_age}. Its trigger may have stopped firing.", why))
+
+          # A GitHub API call failing this run is an explicit error about this
+          # run of the watchdog — surfaced loudly in the job log (and summary
+          # below) so a persistent pattern is easy to notice — but it is never
+          # written into `findings`, so it can never masquerade as evidence
+          # that a watched workflow is unhealthy.
+          if api_errors:
+              print(f"::error::{len(api_errors)} check(s) could not complete because a "
+                    f"GitHub API call failed — skipped rather than reported as a false "
+                    f"finding: {'; '.join(api_errors)}")
+
+          # ── Render ──────────────────────────────────────────────────────
+          def issue_body(items):
+              lines = [
+                  "One or more workflows that exist to **protect something** are not currently "
+                  "doing so. These fail quietly: nothing goes red where anyone is looking, no "
+                  "build is blocked, and no PR is held up — so this issue is the signal.",
+                  "",
+                  f"Checked {len(WATCHED)} workflows. **{len(items)} problem(s) found.**",
+                  "",
+              ]
+              order = {"critical": 0, "warning": 1}
+              for path, sev, kind, msg, why in sorted(items, key=lambda i: (order[i[1]], i[0])):
+                  icon = "🔴" if sev == "critical" else "🟠"
+                  lines += [
+                      f"### {icon} `{path.rsplit('/', 1)[-1]}` — {kind}",
+                      "",
+                      msg,
+                      "",
+                      f"> **What this protects:** {why}",
+                      "",
+                      f"[View recent runs]({os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}"
+                      f"/{REPO}/actions/workflows/{path.rsplit('/', 1)[-1]})",
+                      "",
+                  ]
+              lines += [
+                  "---",
+                  "",
+                  "**How to clear this issue:** fix the workflow, or — if a finding is expected "
+                  "and permanent — remove that entry from `WATCHED` in "
+                  "`.github/workflows/workflow-health.yml`. This issue closes itself on the "
+                  "next run once there are no findings, so an open issue always means a live "
+                  "problem, and its age is the real signal.",
+                  "",
+                  "**Is the watchdog itself still alive?** Check the "
+                  "[heartbeat issue](" + f"{os.environ.get('GITHUB_SERVER_URL', 'https://github.com')}/{REPO}/issues?q=is%3Aissue+label%3Aworkflow-health-heartbeat" + ") — "
+                  "its \"updated\" time is rewritten on every run that completes, whether or "
+                  "not there is anything to report. A stale timestamp there means the "
+                  "watchdog itself has stopped, which this issue's own silence cannot show.",
+                  "",
+                  f"_Last checked {NOW.strftime('%Y-%m-%d %H:%M UTC')} by "
+                  f"[workflow-health]({RUN_URL}). Runs daily._",
+              ]
+              return "\n".join(lines)
+
+
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as fh:
+                  if findings:
+                      fh.write(f"## {len(findings)} unhealthy workflow(s)\n\n")
+                      for path, sev, kind, msg, _ in findings:
+                          fh.write(f"- **{path}** — _{kind}_: {msg}\n")
+                  else:
+                      fh.write(f"## All {len(WATCHED)} watched workflows are healthy\n")
+                  if api_errors:
+                      fh.write(f"\n## {len(api_errors)} check(s) skipped — GitHub API call failed\n\n")
+                      fh.write("Not reported as findings above; retried automatically on the "
+                               "next scheduled run.\n\n")
+                      for err in api_errors:
+                          fh.write(f"- {err}\n")
+
+          for path, sev, kind, msg, _ in findings:
+              level = "error" if sev == "critical" else "warning"
+              print(f"::{level}::{path} — {kind}: {msg}")
+
+          if DRY_RUN:
+              print("::notice::Dry run — issue not created, updated or closed.")
+              sys.exit(0)
+
+          # ── Reconcile the single tracking issue ─────────────────────────
+          # Fetch by label and match the title marker client-side. The search
+          # API's quoting rules choke on brackets and colons, and the same
+          # approach is already used in upstream-gamdl-watch.yml.
+          subprocess.run(
+              ["gh", "label", "create", LABEL, "--repo", REPO, "--color", "B60205",
+               "--description", "A workflow that protects something has stopped working",
+               "--force"],
+              capture_output=True, text=True)
+
+          listing = subprocess.run(
+              ["gh", "issue", "list", "--repo", REPO, "--state", "open",
+               "--label", LABEL, "--json", "number,title,body", "--limit", "50"],
+              capture_output=True, text=True)
+          existing = None
+          if listing.returncode == 0:
+              for issue in json.loads(listing.stdout or "[]"):
+                  if MARKER in issue["title"]:
+                      existing = issue
+                      break
+
+          if not findings:
+              if existing:
+                  subprocess.run(
+                      ["gh", "issue", "comment", str(existing["number"]), "--repo", REPO,
+                       "--body", f"All {len(WATCHED)} watched workflows are healthy again as of "
+                                 f"{NOW.strftime('%Y-%m-%d %H:%M UTC')}. Closing automatically."],
+                      check=False)
+                  subprocess.run(
+                      ["gh", "issue", "close", str(existing["number"]), "--repo", REPO,
+                       "--reason", "completed"], check=False)
+                  print(f"::notice::All healthy — closed issue #{existing['number']}.")
+              else:
+                  print(f"::notice::All {len(WATCHED)} watched workflows are healthy.")
+          else:
+              # Fingerprint the finding SET (not the run). A comment fires only when
+              # the set changes, so a problem that stays broken for months produces
+              # one notification, not one per day. Daily nagging is exactly what
+              # trains a maintainer to tune a channel out.
+              fingerprint = hashlib.sha256(
+                  "\n".join(sorted(f"{p}|{k}" for p, _, k, _, _ in findings)).encode()
+              ).hexdigest()[:12]
+              body = issue_body(findings) + f"\n\n<!-- fingerprint: {fingerprint} -->"
+
+              if existing:
+                  previous = ""
+                  if "<!-- fingerprint: " in (existing.get("body") or ""):
+                      previous = existing["body"].split("<!-- fingerprint: ")[1].split(" -->")[0]
+                  subprocess.run(
+                      ["gh", "issue", "edit", str(existing["number"]), "--repo", REPO,
+                       "--body", body], check=False)
+                  if previous != fingerprint:
+                      subprocess.run(
+                          ["gh", "issue", "comment", str(existing["number"]), "--repo", REPO,
+                           "--body", f"The set of unhealthy workflows changed. There are now "
+                                     f"**{len(findings)}** finding(s) — see the updated description."],
+                          check=False)
+                      print(f"::notice::Findings changed — updated and commented on #{existing['number']}.")
+                  else:
+                      print(f"::notice::Same findings as last run — updated #{existing['number']} quietly.")
+              else:
+                  subprocess.run(
+                      ["gh", "issue", "create", "--repo", REPO, "--title", TITLE,
+                       "--label", LABEL, "--label", "ci", "--label", "observability",
+                       "--body", body], check=False)
+                  print(f"::notice::Opened tracking issue with {len(findings)} finding(s).")
+
+          # ── Prove this watchdog is still alive ──────────────────────────
+          # A watchdog that stops running is worse than no watchdog: nothing
+          # about a workflow that never fires looks any different, from the
+          # outside, to one that fires and finds nothing wrong. The simplest
+          # thing that proves the difference, with no new dependency, secret
+          # or permission: one issue that is never closed, whose BODY (never
+          # a comment — editing a body sends no notification to anyone) is
+          # rewritten with the current time on every run that reaches this
+          # point. Anyone can glance at that issue's "updated" timestamp and
+          # answer "is the watchdog still alive?" without reading Actions run
+          # history at all. This is deliberately the LAST thing the script
+          # does — after the tracking issue above has already been fully
+          # reconciled — so a bug anywhere earlier (including in that
+          # reconciliation) still fails the job loudly instead of this step
+          # papering over it with a falsely reassuring heartbeat. It is a
+          # separate issue from the tracking issue above on purpose: that
+          # one's very existence (open vs closed) IS its signal ("open ==
+          # live problem"), and diluting that with routine housekeeping
+          # would blunt the one property that makes it worth having.
+          HEARTBEAT_LABEL = "workflow-health-heartbeat"
+          HEARTBEAT_MARKER = "[workflow-health-heartbeat]"
+          HEARTBEAT_TITLE = f"{HEARTBEAT_MARKER} Proof the watchdog is still running — please leave open"
+
+          subprocess.run(
+              ["gh", "label", "create", HEARTBEAT_LABEL, "--repo", REPO, "--color", "0E8A16",
+               "--description", "Heartbeat for the workflow-health watchdog — its \"updated\" "
+                                 "time is the proof this workflow is still running",
+               "--force"],
+              capture_output=True, text=True)
+
+          hb_listing = subprocess.run(
+              ["gh", "issue", "list", "--repo", REPO, "--state", "all",
+               "--label", HEARTBEAT_LABEL, "--json", "number,title,state", "--limit", "10"],
+              capture_output=True, text=True)
+          hb_issue = None
+          if hb_listing.returncode == 0:
+              for issue in json.loads(hb_listing.stdout or "[]"):
+                  if HEARTBEAT_MARKER in issue["title"]:
+                      hb_issue = issue
+                      break
+
+          hb_result = "healthy — 0 findings" if not findings else f"{len(findings)} finding(s) — see the tracking issue"
+          hb_body = (
+              "This issue exists for one reason: to prove the workflow-health watchdog is "
+              "still running. Its **last updated** time (top right) is that proof — check "
+              "it, rather than digging through Actions run history, to answer \"is the "
+              "watchdog still alive?\" at a glance. It is edited on every run, never "
+              "commented on, so it never sends a notification. Please leave it open — an "
+              "old, stale timestamp here is itself the signal that something has gone wrong "
+              "with the watchdog.\n\n"
+              f"- Last run: {NOW.strftime('%Y-%m-%d %H:%M UTC')}\n"
+              f"- Result: {hb_result}\n"
+              f"- [This run]({RUN_URL})"
+          )
+
+          if hb_issue:
+              subprocess.run(
+                  ["gh", "issue", "edit", str(hb_issue["number"]), "--repo", REPO,
+                   "--body", hb_body], check=False)
+              if hb_issue.get("state") == "CLOSED":
+                  subprocess.run(
+                      ["gh", "issue", "reopen", str(hb_issue["number"]), "--repo", REPO],
+                      check=False)
+          else:
+              subprocess.run(
+                  ["gh", "issue", "create", "--repo", REPO, "--title", HEARTBEAT_TITLE,
+                   "--label", HEARTBEAT_LABEL, "--body", hb_body], check=False)
+          PY
