@@ -128,9 +128,34 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      - name: Regenerate Cargo.lock
+      - name: Sync Cargo.lock to bumped version (#995)
+        # Why this is not `cargo generate-lockfile`.
+        #
+        # All this step needs to do is write the new version number into the
+        # one line of the lock file that records this app's own version.
+        # `cargo generate-lockfile` does far more than that: it re-resolves
+        # EVERY dependency to the newest version still allowed by the
+        # manifest, including the two shared MeedyaSuite libraries that are
+        # pulled straight from git and are not pinned at all.
+        #
+        # The result is a release built against dependency versions nobody
+        # has ever tested, chosen at the moment the tag was cut. Measured on
+        # this branch: 145 packages moved in a single run.
+        #
+        # There is a sharper edge to it too. Tauri ships each plugin as both
+        # a JavaScript package and a Rust crate, and refuses to build when
+        # the two are on different major/minor releases. Re-resolving moves
+        # the Rust half while the JavaScript half stays pinned, so a bump can
+        # split them and fail all six platform builds at once. That is what
+        # happened to v1.10.5.
+        #
+        # `cargo update --package meedyadl --precise` changes only this app's
+        # own entry and leaves every dependency exactly where it was tested.
+        # Already in use on the alpha branch for all three channels.
         working-directory: src-tauri
-        run: cargo generate-lockfile
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       - name: Commit version bump
         run: |
