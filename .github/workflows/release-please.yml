@@ -23,13 +23,15 @@
 #   - package.json              -- Native (node release-type)
 #   - src-tauri/tauri.conf.json -- Via extra-files (JSON jsonpath)
 #   - src-tauri/Cargo.toml      -- Via extra-files (TOML jsonpath)
-#   - src-tauri/Cargo.lock      -- Via cargo generate-lockfile (workflow step)
+#   - src-tauri/Cargo.lock      -- Via `cargo update --package meedyadl --precise` (workflow step, #995)
 #
 # IMPORTANT:
 #   - Uses RELEASE_PAT (not GITHUB_TOKEN) so the tag push triggers release.yml
 #   - git-cliff owns CHANGELOG.md -- release-please has skip-changelog: true
 #   - Cargo.lock cannot use release-please annotations (cargo strips comments),
-#     so a separate workflow step regenerates it from the updated Cargo.toml
+#     so a separate workflow step syncs just the local package's lockfile
+#     entry to the bumped version (#995 -- NOT `cargo generate-lockfile`,
+#     which fully re-resolves the dependency tree and broke v1.10.5)
 #
 # For non-standard releases (explicit version, hotfix), use the manual override:
 #   gh workflow run "Version Bump" -f bump=<major|minor|patch|X.Y.Z>
@@ -101,13 +103,14 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Step 2: If a Release PR was just created, update Cargo.lock.
+      # Step 2: If a Release PR was just created, sync Cargo.lock.
       # release-please updates Cargo.toml via TOML jsonpath, but cannot reliably
       # update Cargo.lock (cargo strips TOML comments, and lock file jsonpath
       # filters are unreliable for multi-package lock files).
       #
-      # Instead, we check out the Release PR branch, run `cargo generate-lockfile`
-      # to regenerate Cargo.lock from the updated Cargo.toml, and push the change
+      # Instead, we check out the Release PR branch, run a targeted
+      # `cargo update --package meedyadl --precise` (see Step 4 below, #995)
+      # to sync just the local package's lockfile entry, and push the change
       # back to the PR branch.
       #
       # This step only runs when release-please has created/updated a PR
@@ -124,21 +127,57 @@ jobs:
           ref: release-please--branches--main--components--meedyadl
           token: ${{ secrets.RELEASE_PAT }}
 
-      # Step 3: Set up Rust toolchain for Cargo.lock regeneration.
+      # Step 3a: Read the version release-please already bumped onto the
+      # Release PR branch. release-please-action patches package.json (its
+      # native `node` release-type) as part of creating/updating the PR --
+      # by the time the checkout above runs, package.json on that branch
+      # already carries the new version, so we read it back rather than
+      # relying on an action output that may not be populated on the
+      # PR-only (not-yet-merged) path.
+      - name: Read bumped version from Release PR
+        if: steps.release.outputs.prs_created == 'true'
+        id: version
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Step 3b: Set up Rust toolchain for Cargo.lock sync.
       # Only the stable toolchain is needed — no specific target required since
-      # we're only regenerating the lock file, not compiling.
+      # we're only updating the lock file, not compiling.
       - name: Setup Rust
         if: steps.release.outputs.prs_created == 'true'
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
-      # Step 4: Regenerate Cargo.lock from the updated Cargo.toml.
-      # `cargo generate-lockfile` reads Cargo.toml and produces a fresh Cargo.lock
-      # with the correct version for meedyadl. This is more reliable than trying
-      # to regex-replace the version in the lock file.
-      - name: Regenerate Cargo.lock
+      # Step 4: Sync Cargo.lock to the bumped version (#995 — see alpha-release.yml
+      # for the identical pattern this mirrors).
+      #
+      # `cargo generate-lockfile` fully re-resolves EVERY dependency to the
+      # newest semver-compatible version on the registry, including the
+      # unpinned `meedya-fingerprint`/`meedya-lyrics` git deps (branch =
+      # "main"). That means the Release PR — and the tag built from it —
+      # could ship crate versions that never ran through CI's `cargo test` /
+      # `cargo clippy` / `cargo-deny` gates on this exact combination —
+      # supply-chain drift introduced solely by the version-bump step. This
+      # asymmetry (Cargo.lock fully re-resolved on every Release PR while
+      # `npm ci` keeps package-lock.json frozen) is what broke all six
+      # platform builds of stable v1.10.5: `cargo generate-lockfile` silently
+      # bumped tauri-plugin-updater 2.10.1->2.11.0 and tauri-plugin-notification
+      # 2.3.3->2.4.0 out from under CI's already-validated combination.
+      #
+      # `cargo update --package meedyadl --precise` re-resolves ONLY the
+      # local `meedyadl` package's own lockfile entry (its version, matching
+      # the Cargo.toml release-please just patched via TOML jsonpath) and
+      # leaves every other dependency — including the git deps — exactly as
+      # CI validated them. No network access is required: the local
+      # package's manifest is read from disk, so this works even if a
+      # runner has no route to crates.io or the git remotes.
+      - name: Sync Cargo.lock to bumped version (#995)
         if: steps.release.outputs.prs_created == 'true'
         working-directory: src-tauri
-        run: cargo generate-lockfile
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       # Step 5: Commit and push the updated Cargo.lock back to the Release PR branch.
       # The `git diff --staged --quiet` check ensures we only commit if there are
@@ -164,7 +203,7 @@ jobs:
             echo "- **Release workflow**: Should be triggered by the tag push" >> "$GITHUB_STEP_SUMMARY"
           elif [ "${{ steps.release.outputs.prs_created }}" = "true" ]; then
             echo "- **Release PR created/updated**" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Cargo.lock has been regenerated on the PR branch" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Cargo.lock has been synced to the bumped version on the PR branch" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "- No release actions taken (no releasable commits since last release)" >> "$GITHUB_STEP_SUMMARY"
           fi
