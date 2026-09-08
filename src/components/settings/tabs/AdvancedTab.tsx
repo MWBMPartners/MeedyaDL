@@ -121,7 +121,6 @@ import {
   storeCredential,
   getCredential,
   validateMusicKitCredentialsWithInput,
-  hasEmbeddedMusicKitToken,
   hasEmbeddedAcoustidKey,
   auditApiFields,
   hasWebplayerToken,
@@ -257,8 +256,6 @@ export function AdvancedTab() {
   // ── AcoustID state ──
   /** Whether a built-in AcoustID API key is available (embedded at compile time) */
   const [hasBuiltInKey, setHasBuiltInKey] = useState(false);
-  /** Whether a build-time MusicKit developer token is available */
-  const [hasBuiltInMusicKitToken, setHasBuiltInMusicKitToken] = useState(false);
 
   // ── GAMDL capabilities (#853) ──
   /**
@@ -330,13 +327,6 @@ export function AdvancedTab() {
         // is populated by the startup dependency probe, so this
         // catch path only fires in unusual scenarios.
       });
-  }, []);
-
-  // Check for build-time MusicKit token on mount
-  useEffect(() => {
-    hasEmbeddedMusicKitToken()
-      .then(setHasBuiltInMusicKitToken)
-      .catch(() => setHasBuiltInMusicKitToken(false));
   }, []);
 
   /** Handles the "Test Connection" button click */
@@ -757,13 +747,6 @@ export function AdvancedTab() {
             </button>
             .
           </p>
-          {hasBuiltInMusicKitToken && (
-            <div className="rounded-platform border border-status-info/40 bg-status-info/10 px-3 py-2 text-xs text-status-info">
-              A build-time MusicKit developer token is embedded in this release. Most end users do
-              not need to enter Apple Developer credentials unless they want to override the built-in
-              token for testing.
-            </div>
-          )}
           <Input
             label="MusicKit Team ID"
             description="Your Apple Developer Team ID (10-character alphanumeric)"
@@ -1247,12 +1230,12 @@ function DevToolsSection() {
   const loadSettings = useSettingsStore((s) => s.loadSettings);
 
   const [webplayerStatus, setWebplayerStatus] = useState<boolean | null>(null);
-  const [embeddedStatus, setEmbeddedStatus] = useState<boolean | null>(null);
 
-  // Check token status on mount.
+  // Check token status on mount. (A build-time embedded token used to be a
+  // second tier checked here; it was removed on 2026-07-19, issue #1034 —
+  // there is no longer anything to check.)
   useEffect(() => {
     hasWebplayerToken().then(setWebplayerStatus).catch(() => setWebplayerStatus(false));
-    hasEmbeddedMusicKitToken().then(setEmbeddedStatus).catch(() => setEmbeddedStatus(false));
   }, []);
 
   const hasUserCreds =
@@ -1285,16 +1268,10 @@ function DevToolsSection() {
               <span>Priority 1: User credentials (Team ID + Key ID + .p8)</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className={embeddedStatus ? 'text-green-500' : 'text-gray-400'}>
-                {embeddedStatus ? '\u2713' : '\u2717'}
-              </span>
-              <span>Priority 2: Embedded build token</span>
-            </div>
-            <div className="flex items-center gap-2">
               <span className={webplayerStatus ? 'text-green-500' : 'text-gray-400'}>
                 {webplayerStatus ? '\u2713' : '\u2717'}
               </span>
-              <span>Priority 3: Web session token</span>
+              <span>Priority 2: Web session token</span>
               {webplayerStatus && (
                 <button
                   type="button"
