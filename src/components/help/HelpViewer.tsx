@@ -969,10 +969,15 @@ MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
 | Shortcut | Action |
 |----------|--------|
 | **Cmd/Ctrl + D** | Go to Download page and focus URL input |
-| **Cmd/Ctrl + ,** | Open Settings |
 | **Cmd/Ctrl + Q** | Open Queue |
+| **Cmd/Ctrl + L** | Open Library |
+| **Cmd/Ctrl + H** | Open History |
+| **Cmd/Ctrl + K** | Open Activity |
+| **Cmd/Ctrl + ,** | Open Settings |
+| **Enter** | Start download (when URL input is focused; Shift+Enter inserts a new line instead) |
+| **Cmd/Ctrl + Shift + .** | Abort every active and queued download |
+| **Cmd/Ctrl + Shift + ?** | Open this keyboard-shortcuts reference from anywhere |
 | **Escape** | Close active modal/dialog |
-| **Cmd/Ctrl + Enter** | Start download (when URL input is focused) |
 
 ### Notes
 
