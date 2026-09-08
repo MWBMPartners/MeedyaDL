@@ -67,6 +67,31 @@ That is a sixty-fold difference in memory. It would run comfortably on a small v
 though **still not on shared hosting**, because it needs a database and a continuously running
 process.
 
+### Can GlitchTip run on DreamHost shared hosting? Also no.
+
+Asked directly on 2026-09-08, for a shared plan with no command line for installing software.
+
+**No — and three separate things each rule it out on their own.**
+
+1. **It needs PostgreSQL. Shared hosting gives you MySQL.** This is the hard blocker. GlitchTip
+   requires PostgreSQL 14 or newer and does not support MySQL. That is not a setting to change; it
+   is a different database engine, and the application is built against it.
+2. **It needs a program running all the time.** GlitchTip is a Django web application with
+   background workers. Shared hosting serves a page when someone asks for one and then stops.
+   There is nowhere for a permanently running process to live.
+3. **It is Python, not PHP — so Composer is not the missing piece.** Composer installs PHP
+   libraries. GlitchTip needs a Python environment, its own package installer, and a way to run and
+   restart the application. GlitchTip's own documentation calls the non-Docker route "not
+   recommended" and aimed at people comfortable deploying complex Python applications by hand,
+   including the web server, the workers, SSL and upgrades.
+
+**A useful contrast, since both are in flight:** the MWBM Updater is a good fit for shared hosting
+— PHP and MySQL, serving a page when asked, nothing running in between. GlitchTip is the opposite
+shape. This is not "difficult on shared hosting"; it is the wrong kind of hosting for the job.
+
+**It would run fine on a small virtual server** — 512 MB of memory is genuinely modest, and
+DreamHost sell those, as does everyone else.
+
 **Two things to verify before committing to this route:**
 
 1. **That our applications can send to it unchanged.** GlitchTip is designed as a Sentry
