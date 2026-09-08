@@ -48,6 +48,23 @@ python3 tools/audit-checks/check_build_secrets.py --strict
 - **Findings are printed as `  • path:line — message` bullets.** The
   workflow greps for the `•` bullet to decide whether to surface a section in
   the PR comment, so keep that prefix if you add findings.
+- **Print a `### ` heading line before the bullets.** This is not decoration,
+  and getting it wrong is silent. `pr-security.yml` extracts a check's output
+  with `grep -A100 '###'` before handing it to `add_section`, which skips an
+  empty body without counting it. A script that prints bullets but no `###`
+  line has **every finding discarded, with nothing reporting that it
+  happened** — the check appears to run, passes, and tells you nothing.
+
+  All four original scripts did this, but nobody had written it down, so the
+  fifth (`check_build_secrets.py`) was added without one and was quietly
+  useless until a review caught it. If you add a check, reproduce a real
+  finding and confirm it survives the pipeline:
+
+  ```bash
+  OUT=$(python3 tools/audit-checks/your_check.py 2>&1)
+  echo "$OUT" | grep -q '•' && [ -n "$(echo "$OUT" | grep -A100 '###')" ] \
+    && echo "finding survives" || echo "finding would be DISCARDED"
+  ```
 - **Zero findings on a clean tree is mandatory.** These are precision tools,
   not lint nags — a check that cries wolf on day one gets ignored. Add a
   negative test (inject the drift, confirm it's caught, revert) when you add
