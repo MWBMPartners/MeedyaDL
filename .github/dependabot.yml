@@ -15,6 +15,38 @@
 # Minor/patch updates are grouped into a single PR per ecosystem to reduce
 # noise. Security updates are always created immediately (not batched).
 #
+# ROUTINE UPDATES vs SECURITY FIXES — read this before touching this file
+# -------------------------------------------------------------------------
+# GitHub Dependabot actually runs two separate systems, and only one of them
+# reads anything in this file:
+#
+#   * ROUTINE updates — the weekly, grouped, minor/patch bumps configured
+#     below — are the only thing `target-branch` controls. Each entry below
+#     targets exactly one branch, so this file repeats the same two
+#     ecosystems (npm, cargo) once per released channel branch — `alpha`,
+#     `beta`, `release-candidate`, and `main` — giving each channel its own
+#     weekly dependency bump opened directly against it. Before this, only
+#     `alpha` received routine updates and the other three channels only got
+#     newer dependencies whenever a human manually promoted `alpha`'s changes
+#     forward — which could be weeks, or never.
+#
+#   * SECURITY updates (Dependabot has found a known vulnerability in a
+#     dependency) ALWAYS open against the repository's default branch
+#     (`main`) and COMPLETELY IGNORE `target-branch` — there is no setting
+#     anywhere in this file that changes that; it's how GitHub built the
+#     feature. Getting a security fix onto `alpha`/`beta`/`release-candidate`
+#     is handled by a separate, independent workflow —
+#     `.github/workflows/forward-port-security.yml` — which watches for a
+#     Dependabot fix landing on `main` and copies it onto each channel branch
+#     afterwards. Adding a branch entry to THIS file does nothing for
+#     security fixes; it only ever changes where ROUTINE updates go.
+#
+# Also note: GitHub's Dependabot config schema rejects a "group" that spans
+# more than one package-ecosystem in a single entry — a config file with one
+# of those fails validation for the ENTIRE file, silencing updates on every
+# branch, not just the entry that was wrong. Every group below stays scoped
+# to one ecosystem for that reason.
+#
 # Cooldown (supply-chain safety)
 # ------------------------------
 # Version updates observe a 7-day `cooldown`: Dependabot waits until a release
@@ -26,16 +58,19 @@
 #
 # Auto-merge (see .github/workflows/dependabot-auto-merge.yml)
 # -----------------------------------------------------------
-# Version PRs (which target `alpha`) and security PRs (which GitHub forces onto
-# `main`) are squash-merged automatically once EVERY check on them passes.
-# `beta` / `release-candidate` are not auto-merged — they advance via the
-# deliberate alpha -> beta -> rc -> stable promotion path.
+# Every routine-update PR opened by an entry below — whichever of the four
+# branches it targets — is squash-merged automatically once EVERY check on it
+# passes. Security PRs (which GitHub always opens against `main`, regardless
+# of what's configured here) are auto-merged the same way, without the cooldown.
 #
 # @see https://docs.github.com/en/code-security/dependabot/dependabot-version-updates
 
 version: 2
 updates:
-  # npm dependencies (frontend + build tools)
+  # ---------------------------------------------------------------------------
+  # npm dependencies (frontend + build tools) — one entry per channel branch,
+  # each identical apart from `target-branch`.
+  # ---------------------------------------------------------------------------
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
@@ -58,15 +93,6 @@ updates:
     # PR for it (supply-chain cooldown). Does not affect security updates.
     cooldown:
       default-days: 7
-    # Target branch for PRs
-    # Target the alpha integration branch so dependency updates flow
-    # through the same channel-promotion model as user-facing changes:
-    # alpha → (after testing) → beta / rc → stable. Without this,
-    # Dependabot would land patches directly on main, bypassing the
-    # validation that the alpha channel provides. Security updates
-    # are still created immediately by Dependabot's separate
-    # vulnerability path; this only changes the cadence of the
-    # weekly batched updates.
     target-branch: "alpha"
     # Labels for easy filtering
     labels:
@@ -76,7 +102,79 @@ updates:
       prefix: "chore"
       include: "scope"
 
-  # Cargo dependencies (Rust backend)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "beta"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "release-candidate"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "main"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # ---------------------------------------------------------------------------
+  # Cargo dependencies (Rust backend) — one entry per channel branch, each
+  # identical apart from `target-branch`.
+  # ---------------------------------------------------------------------------
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
@@ -96,15 +194,76 @@ updates:
     # PR for it (supply-chain cooldown). Does not affect security updates.
     cooldown:
       default-days: 7
-    # Target the alpha integration branch so dependency updates flow
-    # through the same channel-promotion model as user-facing changes:
-    # alpha → (after testing) → beta / rc → stable. Without this,
-    # Dependabot would land patches directly on main, bypassing the
-    # validation that the alpha channel provides. Security updates
-    # are still created immediately by Dependabot's separate
-    # vulnerability path; this only changes the cadence of the
-    # weekly batched updates.
     target-branch: "alpha"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "beta"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "release-candidate"
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+    target-branch: "main"
     labels:
       - "dependencies"
     commit-message:
