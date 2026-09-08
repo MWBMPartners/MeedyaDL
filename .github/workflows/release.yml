@@ -503,11 +503,71 @@ jobs:
           fi
 
   # ============================================================
+  # Resolve the Safari Version for the Apple Music User-Agent
+  # ============================================================
+  # MeedyaDL always tells Apple Music it is Safari on a Mac, from every
+  # platform -- Windows and Linux included. That is deliberate and must
+  # stay that way: Safari implies a Mac, and Apple Music serves its fullest
+  # feature set to a Mac running Safari, so presenting as anything else can
+  # mean a reduced experience. See SAFARI_MACOS_USER_AGENT's doc comment in
+  # src-tauri/src/utils/http_client.rs for the full reasoning -- read that
+  # before touching this job.
+  #
+  # The one part of that identity that does need to stay current is the
+  # version number inside it, and a version number can only be read from a
+  # real Mac with Safari installed. This job runs once, on a macOS runner,
+  # reads the version straight off that runner's own copy of Safari, and
+  # hands the result to every platform's build job below as a job output --
+  # the Windows and Linux jobs have no other way to learn it.
+  #
+  # This is deliberately NOT a network fetch, unlike the Chrome major
+  # version resolved inside the `publish` matrix below. A failed or
+  # rate-limited network fetch here could ship a build Apple Music refuses
+  # outright, and that risk is one this project has decided not to take --
+  # see SAFARI_VERSION's doc comment in http_client.rs for the full
+  # rationale. Reading a local file on the build machine carries no such
+  # risk.
+  #
+  # NEVER-FAIL CONTRACT: this job must never be able to fail the release.
+  # If the read fails, Safari is missing from the runner image, or the
+  # value doesn't look like a real version number, this job simply produces
+  # an empty output -- http_client.rs's SAFARI_VERSION_FALLBACK constant
+  # covers that case exactly the way it covers a local dev build.
+  resolve-safari-version:
+    name: Resolve Safari version (Apple Music identity)
+    needs: ensure-release
+    runs-on: macos-latest
+    outputs:
+      safari_version: ${{ steps.resolve.outputs.safari_version }}
+    steps:
+      - name: Read Safari's version from this Mac
+        id: resolve
+        shell: bash
+        run: |
+          set +e
+          # /Applications/Safari.app is a symlink into the system on modern
+          # macOS, but this read works without any special permissions.
+          RAW=$(plutil -extract CFBundleShortVersionString raw -o - \
+            /Applications/Safari.app/Contents/Info.plist 2>/dev/null)
+          # Only accept something shaped like a real version number --
+          # major.minor or major.minor.patch, each part 1-3 digits. Anything
+          # else (missing file, empty read, unexpected plist shape) is left
+          # unset, and http_client.rs's compiled-in fallback takes over for
+          # every platform's build.
+          if [[ "$RAW" =~ ^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?$ ]]; then
+            echo "safari_version=$RAW" >> "$GITHUB_OUTPUT"
+            echo "::notice::Apple Music UA: building with Safari version $RAW (read from this runner)"
+          else
+            echo "::warning::Could not read a well-formed Safari version from this runner -- every platform's build will use the compiled-in fallback UA."
+          fi
+          exit 0
+
+  # ============================================================
   # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
-    needs: ensure-release
+    needs: [ensure-release, resolve-safari-version]
 
     # permissions: contents: write is required for the tauri-action to:
     #   - Create the GitHub Release
@@ -872,6 +932,38 @@ jobs:
           else
             echo "::warning::Could not resolve current Chrome version — using compiled-in fallback UA."
             echo "**Browser UA:** compiled-in fallback (version fetch failed)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit 0
+
+      # Step 8.4b: Export the Safari version resolved once, on a macOS
+      # runner, by the `resolve-safari-version` job above this one (see that
+      # job's comment, and http_client.rs's SAFARI_VERSION doc comment, for
+      # why this can't just be a step here the way the Chrome step above is
+      # -- only a Mac can read a Safari version, so it has to be resolved
+      # once and handed down, not re-resolved per platform). This step just
+      # re-exports that already-resolved value into this job's own
+      # environment as MEEDYADL_SAFARI_VERSION, so it reaches the
+      # `cargo tauri build` step later in this job the same way
+      # MEEDYADL_CHROME_MAJOR does.
+      #
+      # NEVER-FAIL CONTRACT: same as Step 8.4 -- this step must not be able
+      # to fail the build. An empty or malformed value here simply leaves
+      # MEEDYADL_SAFARI_VERSION unset, and http_client.rs's
+      # SAFARI_VERSION_FALLBACK constant covers that case identically to a
+      # local dev build. `set +e` plus the trailing `exit 0` are both
+      # LOAD-BEARING for this contract -- do not remove either.
+      - name: Export resolved Safari version for Apple Music UA (best-effort)
+        shell: bash
+        run: |
+          set +e
+          VALUE="${{ needs.resolve-safari-version.outputs.safari_version }}"
+          if [[ "$VALUE" =~ ^[0-9]{1,3}\.[0-9]{1,3}(\.[0-9]{1,3})?$ ]]; then
+            echo "MEEDYADL_SAFARI_VERSION=$VALUE" >> "$GITHUB_ENV"
+            echo "::notice::Apple Music UA: building with Safari version $VALUE"
+            echo "**Apple Music UA:** Safari \`$VALUE\` (read from the macOS build runner)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::No resolved Safari version available — using compiled-in fallback UA."
+            echo "**Apple Music UA:** compiled-in fallback (version unavailable)" >> "$GITHUB_STEP_SUMMARY"
           fi
           exit 0
 

@@ -735,7 +735,7 @@ async fn resolve_hls_variant_url(master_url: &str, target_height: Option<u32>) -
         .header("Referer", "https://music.apple.com/")
         .header(
             "User-Agent",
-            crate::utils::http_client::SAFARI_MACOS_USER_AGENT,
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
         )
         .send()
         .await
@@ -921,7 +921,7 @@ fn apple_cdn_headers(req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         .header("Referer", "https://music.apple.com/")
         .header(
             "User-Agent",
-            crate::utils::http_client::SAFARI_MACOS_USER_AGENT,
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
         )
 }
 
@@ -1191,7 +1191,7 @@ async fn download_hls_to_mp4(
     //   -loglevel warning    -- suppress verbose output, only show warnings/errors
     // Apple Music always gets the fixed macOS Safari UA regardless of host
     // OS (single source of truth in utils::http_client).
-    let browser_user_agent = crate::utils::http_client::SAFARI_MACOS_USER_AGENT;
+    let browser_user_agent = crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str();
     let apple_music_headers = "Origin: https://music.apple.com\r\nReferer: https://music.apple.com/\r\n";
 
     let output = Command::new(&ffmpeg_bin)
