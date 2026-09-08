@@ -465,11 +465,21 @@ pub async fn clear_webplayer_token() -> Result<(), String> {
 
 /// Compile-time developer-access passphrase hash (SHA-256), injected via a CI
 /// secret (`DEV_ACCESS_HASH`) in production builds. The plaintext passphrase
-/// never appears in the binary. `None` in local dev builds, where
-/// `activate_dev_access` falls back to the SHA-256 of the empty string —
-/// effectively disabled (only an empty passphrase would match). Kept as an
-/// `Option` rather than a hardcoded fallback hash so no hash literal sits in
-/// source (which otherwise trips a false-positive secret-scanning match).
+/// never appears in the binary.
+///
+/// **When this is `None`, developer access cannot be unlocked at all.**
+///
+/// That wording is deliberate, and it is a correction. This used to fall back
+/// to the SHA-256 of the empty string when no hash was supplied, on the
+/// reasoning that "only an empty passphrase would match", which was treated as
+/// equivalent to being switched off. It was not. An empty passphrase is the
+/// starting state of the text box in the prompt — the easiest thing in the
+/// world to submit — and nothing on either side rejected it. So every build
+/// that shipped without the secret configured (which, as of #1162, was every
+/// build we had ever shipped) could be unlocked by doing the hidden key
+/// sequence and pressing the button without typing anything.
+///
+/// The rule now is simply: no configured hash means no way in. See #1162.
 const DEV_ACCESS_HASH: Option<&str> = option_env!("DEV_ACCESS_HASH");
 
 /// Keychain account name for the developer access sentinel.
@@ -500,12 +510,53 @@ pub fn check_dev_access(app: tauri::AppHandle) -> bool {
     matches!(entry.get_password(), Ok(val) if val == DEV_ACCESS_SENTINEL)
 }
 
+/// Decides whether a typed passphrase unlocks developer access.
+///
+/// Split out from [`activate_dev_access`] so the rules can be tested on their
+/// own — the command itself needs a running app and writes to the OS keychain,
+/// neither of which belongs in a unit test.
+///
+/// Two things are refused before the passphrase is even compared, both added
+/// by #1162:
+///
+/// 1. **An empty entry.** Blank, or nothing but whitespace. The prompt's text
+///    box starts empty, so accepting an empty value would mean the gate opens
+///    by pressing the button. Trimmed, so spaces do not sneak past.
+/// 2. **A build with no passphrase configured.** If no hash was supplied when
+///    this binary was built, there is no way in at all. It used to fall back to
+///    the hash of an empty string, which quietly turned "not configured" into
+///    "the empty passphrase works".
+///
+/// # Arguments
+///
+/// * `passphrase` -- What the user typed.
+/// * `configured` -- The SHA-256 hash built into this binary, if any.
+fn passphrase_is_accepted(passphrase: &str, configured: Option<&str>) -> bool {
+    use sha2::{Digest, Sha256};
+
+    // Rule 1: nothing typed means nothing unlocked.
+    if passphrase.trim().is_empty() {
+        return false;
+    }
+
+    // Rule 2: no passphrase configured for this build means no way in.
+    let Some(expected) = configured else {
+        log::debug!("dev access: no passphrase configured for this build — refused");
+        return false;
+    };
+
+    // Compare the hash of what was typed against the hash built in.
+    format!("{:x}", Sha256::digest(passphrase.as_bytes())) == expected
+}
+
 /// Activates developer access after validating the passphrase.
 ///
 /// **Frontend caller:** `activateDevAccess(passphrase)` in `src/lib/tauri-commands.ts`
 ///
-/// The passphrase is hashed (SHA-256) and compared against the compile-time
-/// embedded hash. On success, stores a keychain sentinel and enables
+/// The passphrase is checked by [`passphrase_is_accepted`], which refuses an
+/// empty entry and refuses everything when this build has no configured
+/// passphrase (#1162), then compares the SHA-256 hash of what was typed against
+/// the hash built into the binary. On success, stores a keychain sentinel and enables
 /// `dev_access_enabled` in settings. Returns whether activation succeeded.
 ///
 /// On failure, returns `false` silently (no error hint to prevent brute-forcing).
@@ -519,8 +570,6 @@ pub fn check_dev_access(app: tauri::AppHandle) -> bool {
 /// `import_cookies_from_browser`, and `check_all_updates`.
 #[tauri::command]
 pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> bool {
-    use sha2::{Digest, Sha256};
-
     // Reject after 5 attempts in the rolling 60-second window. The IPC
     // returns `-> bool` (not Result) so we map the rate-limit Err to
     // a plain `false` — visually indistinguishable to the attacker from
@@ -530,13 +579,11 @@ pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> b
         return false;
     }
 
-    // Hash the provided passphrase and compare against the embedded hash.
-    let hash = format!("{:x}", Sha256::digest(passphrase.as_bytes()));
-    // Fall back to SHA-256("") when no CI hash was injected (local dev builds):
-    // dev access is effectively disabled, and no hash literal sits in source.
-    let expected =
-        DEV_ACCESS_HASH.map_or_else(|| format!("{:x}", Sha256::digest(b"")), str::to_owned);
-    if hash != expected {
+    // Decide whether the typed passphrase is accepted. Kept in a separate,
+    // pure function so the two refusal rules added by #1162 can be tested
+    // directly — this command takes an `AppHandle` and writes to the keychain,
+    // so it cannot be exercised in a unit test.
+    if !passphrase_is_accepted(&passphrase, DEV_ACCESS_HASH) {
         return false;
     }
 
@@ -674,5 +721,76 @@ mod tests {
                 allowed
             );
         }
+    }
+
+    // ── Developer-access passphrase rules (#1162) ──────────────────────
+    //
+    // These cover the hole found on 2026-09-08: every shipped build could be
+    // unlocked by doing the hidden key sequence and pressing the button with
+    // the box left empty, because "no passphrase configured" fell back to
+    // accepting the hash of an empty string.
+
+    /// SHA-256 of the empty string — the value the old code fell back to.
+    /// Written out here rather than in the source under test, so no hash
+    /// literal sits in shipped code.
+    fn hash_of_empty() -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(b""))
+    }
+
+    fn hash_of(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    }
+
+    #[test]
+    fn empty_passphrase_is_refused_when_nothing_is_configured() {
+        // This is the exact hole: a build with no configured passphrase, and a
+        // user who pressed the button without typing anything.
+        assert!(!passphrase_is_accepted("", None));
+    }
+
+    #[test]
+    fn whitespace_only_passphrase_is_refused() {
+        // A box containing only spaces is still an empty box.
+        assert!(!passphrase_is_accepted("   ", None));
+        assert!(!passphrase_is_accepted("\t \n", None));
+    }
+
+    #[test]
+    fn nothing_unlocks_a_build_with_no_configured_passphrase() {
+        // Not just the empty case — when no passphrase was built in, there is
+        // no way in at all.
+        assert!(!passphrase_is_accepted("correct horse battery staple", None));
+        assert!(!passphrase_is_accepted("a", None));
+    }
+
+    #[test]
+    fn empty_passphrase_is_refused_even_if_the_empty_hash_were_configured() {
+        // Belt and braces. Even if someone configured the hash of an empty
+        // string by accident, pressing the button without typing must not
+        // unlock anything — an empty box is the prompt's starting state, not a
+        // deliberate act.
+        let empty_hash = hash_of_empty();
+        assert!(!passphrase_is_accepted("", Some(&empty_hash)));
+        assert!(!passphrase_is_accepted("   ", Some(&empty_hash)));
+    }
+
+    #[test]
+    fn the_configured_passphrase_is_accepted() {
+        // The feature still works when it is set up properly.
+        let secret = "a-real-passphrase";
+        let configured = hash_of(secret);
+        assert!(passphrase_is_accepted(secret, Some(&configured)));
+    }
+
+    #[test]
+    fn a_wrong_passphrase_is_refused() {
+        let configured = hash_of("a-real-passphrase");
+        assert!(!passphrase_is_accepted("not-the-passphrase", Some(&configured)));
+        // Case matters, and so does surrounding whitespace: only the empty
+        // check trims, the comparison itself does not.
+        assert!(!passphrase_is_accepted("A-Real-Passphrase", Some(&configured)));
+        assert!(!passphrase_is_accepted(" a-real-passphrase ", Some(&configured)));
     }
 }

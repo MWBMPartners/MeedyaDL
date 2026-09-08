@@ -302,6 +302,10 @@ function App() {
   useKonamiCode(handleKonami);
 
   const handleDevSubmit = useCallback(async () => {
+    // Do not even ask when nothing has been typed (#1162). The backend refuses
+    // an empty passphrase too, but sending one would burn one of the five
+    // attempts allowed per minute for no reason.
+    if (devPassphrase.trim().length === 0) return;
     const ok = await activateDevAccess(devPassphrase);
     setShowDevPrompt(false);
     setDevPassphrase('');
@@ -1327,9 +1331,21 @@ function App() {
             onChange={(e) => setDevPassphrase(e.target.value)}
             autoFocus
           />
+          {/*
+            Disabled while the box is empty (#1162).
+
+            This is the visible half of a fix whose real work happens in the
+            backend. Until now an empty box would unlock developer access in
+            every shipped build, because a build with no configured passphrase
+            fell back to accepting the hash of an empty string. The backend now
+            refuses both, so this button no longer needs to guard anything — but
+            offering an action that cannot possibly succeed is its own small
+            dishonesty, so it is greyed out until something is typed.
+          */}
           <button
             type="submit"
-            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            disabled={devPassphrase.trim().length === 0}
+            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
           >
             Activate
           </button>
