@@ -1939,3 +1939,84 @@ jobs:
           elif [ "$STRICT" = "true" ]; then
             exit 1
           fi
+
+      # Checks that every download this release is supposed to offer
+      # actually made it onto the GitHub Release page, by listing the
+      # release's real assets and comparing them against the file names
+      # the "Choose your download" guide above promises (and the build
+      # matrix's own "Produces:" comments confirm).
+      #
+      # ARM Linux (Raspberry Pi 4/5 .deb/.rpm and the 32-bit ARMv7 .deb/
+      # .rpm) is WARNING ONLY and must never fail this job. Two reasons,
+      # both decided after watching this happen for real: (1) the Linux
+      # ARM build job above is already marked 'continue-on-error' because
+      # it is experimental, so a missing ARM Linux asset is an already-
+      # known, already-tolerated outcome, not a new problem to alarm on;
+      # (2) the in-app updater's latest.json (built two steps up) has no
+      # 'linux-arm64' or 'linux-armv7' entry at all — Linux ARM never had
+      # an auto-update path to begin with, so those users are unaffected
+      # either way. Turning the whole run red for a platform whose users
+      # were never going to auto-update from it happened twice in the
+      # last fifteen releases for no benefit, which is why this is a
+      # warning, not an error.
+      #
+      # Every other asset is something a user has no other way to get
+      # this release from, so a missing one is a real error and fails
+      # the job. This step runs LAST, after the manifest rebuild, the
+      # download guide append, and the prerelease publish — so a missing
+      # asset never withholds anything from users that would otherwise
+      # have shipped; it only turns this run red as a signal to go fix
+      # whichever platform build silently lost its upload.
+      - name: Verify published release assets
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.name }}"
+          REPO="${{ github.repository }}"
+          VERSION="${TAG#v}"
+
+          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
+
+          # Every platform a user can actually download today without
+          # going through ARM Linux's experimental, best-effort build.
+          REQUIRED_ASSETS=(
+            "MeedyaDL_${VERSION}_aarch64.dmg"
+            "MeedyaDL_${VERSION}_x64-setup.exe"
+            "MeedyaDL_${VERSION}_arm64-setup.exe"
+            "MeedyaDL_${VERSION}_amd64.deb"
+            "MeedyaDL_${VERSION}_amd64.AppImage"
+            "MeedyaDL-${VERSION}-1.x86_64.rpm"
+          )
+
+          # ARM Linux — Raspberry Pi 4/5 (64-bit) and ARMv7 (32-bit).
+          # Warning only; see the comment above this step for why.
+          ARM_LINUX_ASSETS=(
+            "MeedyaDL_${VERSION}_arm64.deb"
+            "MeedyaDL-${VERSION}-1.aarch64.rpm"
+            "MeedyaDL_${VERSION}_armv7.deb"
+            "MeedyaDL-${VERSION}-1.armv7.rpm"
+          )
+
+          FAILED=0
+
+          for asset in "${REQUIRED_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qFx "$asset"; then
+              echo "::error::Release $TAG is missing expected download '$asset'."
+              FAILED=1
+            fi
+          done
+
+          for asset in "${ARM_LINUX_ASSETS[@]}"; do
+            if ! echo "$ASSETS" | grep -qFx "$asset"; then
+              echo "::warning::Release $TAG is missing ARM Linux download '$asset' — warning only (experimental build; no auto-update entry for this platform either way)."
+            fi
+          done
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "Verified: every required release asset is present for $TAG."
+          else
+            echo "::error::Release $TAG is missing one or more required downloads — see the errors above."
+            exit 1
+          fi
