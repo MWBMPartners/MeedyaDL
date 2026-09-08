@@ -133,6 +133,16 @@ def check() -> int:
         missing.append((name, sites))
 
     if missing:
+        # The heading matters, and not only cosmetically. `pr-security.yml`
+        # extracts a check's findings with `grep -A100 '###'` before handing
+        # them to `add_section`, which silently drops an empty body. A script
+        # that prints bullets but no `###` line therefore has every finding
+        # discarded, with nothing reporting that it happened — which is exactly
+        # the class of failure this script exists to catch, and exactly what
+        # this script did on the day it was written. Every other check in this
+        # directory emits one; so does this.
+        print("### Build-time value read by the app but never supplied by the release build")
+        print()
         print("Build-time values the app reads but the release build never supplies:")
         print()
         for name, sites in missing:
