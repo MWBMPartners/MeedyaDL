@@ -85,7 +85,7 @@ Build the Rust services that power the application: Python management, GAMDL ins
 
 #### 2.3 Dependency Manager
 
-- ✅ Download and manage: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box (all required)
+- ✅ Download and manage: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo (all required; rclone was added later as an optional tool for cloud uploads)
 - ✅ Platform-specific download URLs and extraction
 - ✅ Version tracking and binary verification
 - ✅ Display name → tool ID resolution (`resolve_tool_id()`)
@@ -208,7 +208,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
 - ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
-- ✅ **In-App Help System** - Markdown renderer, search, 12 help topics
+- ✅ **In-App Help System** - Markdown renderer, search, help topics (16 help pages exist today, in `help/*.md`; the in-app viewer currently shows 15 of them as its own topics — see the note under Phase 6 about this drift)
 - ✅ **System Tray** - Minimize to tray, download count badge
 - ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
@@ -222,7 +222,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ SVG icon set (app icon + UI icons)
 - ✅ Platform testing (macOS, Windows, Linux)
-- ✅ Complete help documentation (12 topics)
+- ✅ Complete help documentation (16 pages in `help/*.md`)
 - ✅ Release workflow verification (release-please v4)
 - ✅ README with badges and project structure
 
@@ -344,7 +344,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Verbose mode bypasses \r coalescing** (v0.32.0) - When `verbose_activity_log` is enabled, all progress lines are emitted to the activity log without `\r` segment coalescing.
 - ✅ **Companion lyrics recursive directory discovery** (v0.32.0) - `run_companion_lyrics_conversion()` now uses `find_dirs_with_ttml()` to recursively find album directories containing `.ttml` files, fixing missing LRC/SRT/VTT/ASS for companion tiers (#439).
 - ✅ **Persistent on-disk activity log** (#541) - Every `ActivityLogEvent` is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered Tokio background task (unbounded channel + `BufWriter` + 500 ms flush tick + UTC date rollover + graceful shutdown drain). All four `emit_*` helpers in `utils::activity_log` and the four direct-emit sites in `services::download_queue` fan out to the writer after emitting the Tauri event, so every event reaches disk regardless of the 10K in-memory cap or the Verbose UI filter. New `export_disk_activity_log` and `get_logs_folder_path` IPC commands back the "Export Disk" and "Reveal" buttons in the Activity Log toolbar. User-configurable storage location via `activity_log_path_override` setting in Settings > Advanced > Diagnostics (Browse + Reset buttons; empty = default). Pruned alongside tracing logs in `clear_old_logs()` at startup (7-day retention). Zero hot-path disk I/O, no change to WebView memory footprint — complete forensic record for bug hunting without reintroducing the 14 GB WebView RAM leak.
-- ✅ **Release channel ladder** — seven-tier channel hierarchy `feat/* → nightly → weekly → monthly → alpha → beta → release-candidate → main (stable)` with protected long-lived branches. Three cron-driven channels: `nightly-release.yml` (daily 00:00 UTC), `weekly-release.yml` (Sundays 00:00 UTC, #628 / PR #652), `monthly-release.yml` (1st of month 00:00 UTC, #628 / PR #652) — each merges `feat/*` into its branch, bumps version to `-{channel}.YYYYMMDD`, and pushes a tag to trigger `release.yml`. Three push-driven channels: `alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml` (#631) — each fires on push to its branch, computes a monotonic `-{channel}.N` counter that never resets across base-version bumps, and pushes the tag. `UpdateChannel` enum (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) plus `update_channel` AppSetting with channel-aware update checker (uses `>=` for promotion, so a Beta user also sees RC + Stable) and install guard (`download_and_install_app_update` refuses tags from a less-stable channel — #630). Channel selector in Settings > General > Updates with `ChannelSwitchWarning.tsx` modal on switch to a pre-release channel; the four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated behind `dev_access_enabled` so they only appear after the Konami unlock (#632). Branch protection split into `.github/rulesets/protected-stable-branches.json` (main / release-candidate / beta / alpha — no bypass actor, fast-forward only) and `protected-cron-channels.json` (nightly / weekly / monthly with admin-bypass for cron force-pushes — #629). `auto-delete-merged-branches.yml` exempts the channel branches from PR-merge cleanup. `release.yml` derives the `prerelease` flag dynamically from the tag suffix, auto-publishes prerelease drafts at the end of `finalize-release` (#646), and is fed by `version-bump.yml`'s pre-created GitHub Release object on the manual stable path (#645) so platform jobs can't race to fragment installers across multiple drafts. `update-security-policy.yml` rewrites SECURITY.md's "Supported Versions" table on every main push and tag push (#633). One-shot `realign-alpha.yml` helper for fast-forwarding `alpha` after a stable cut (#634).
+- ✅ **Release channel ladder** — seven-tier channel hierarchy `feat/* → nightly → weekly → monthly → alpha → beta → release-candidate → main (stable)` with protected long-lived branches. Three cron-driven channels: `nightly-release.yml` (daily 00:00 UTC), `weekly-release.yml` (Sundays 00:00 UTC, #628 / PR #652), `monthly-release.yml` (1st of month 00:00 UTC, #628 / PR #652) — each merges `feat/*` into its branch, bumps version to `-{channel}.YYYYMMDD`, and pushes a tag to trigger `release.yml`. Three push-driven channels: `alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml` (#631) — each fires on push to its branch, computes a monotonic `-{channel}.N` counter that never resets across base-version bumps, and pushes the tag. `UpdateChannel` enum (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) plus `update_channel` AppSetting with channel-aware update checker (uses `>=` for promotion, so a Beta user also sees RC + Stable) and install guard (`download_and_install_app_update` refuses tags from a less-stable channel — #630). Channel selector in Settings > General > Updates with `ChannelSwitchWarning.tsx` modal on switch to a pre-release channel; the four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated behind `dev_access_enabled` so they only appear after the Konami unlock (#632). Branch protection split into `.github/rulesets/protected-stable-branches.json` (main / release-candidate / beta / alpha — no bypass actor, fast-forward only) and `protected-cron-channels.json` (nightly / weekly / monthly with admin-bypass for cron force-pushes — #629). `auto-delete-merged-branches.yml` exempts the channel branches from PR-merge cleanup. `release.yml` derives the `prerelease` flag dynamically from the tag suffix, auto-publishes prerelease drafts at the end of `finalize-release` (#646), and is fed by `version-bump.yml`'s pre-created GitHub Release object on the manual stable path (#645) so platform jobs can't race to fragment installers across multiple drafts. `update-security-policy.yml` rewrites SECURITY.md's "Supported Versions" table on every main push and tag push (#633). One-shot `realign-alpha.yml` helper for fast-forwarding `alpha` after a stable cut (#634). **Later update:** the three cron-driven channels (Nightly, Weekly, Monthly) described above were removed in the v1.11.0 cleanup (#879) — `nightly-release.yml`, `weekly-release.yml`, `monthly-release.yml`, and the `protected-cron-channels.json` ruleset no longer exist. Alpha now covers the "latest work-in-progress" need on its own. The channel ladder today is four tiers: Alpha → Beta → RC → Stable, with only Alpha gated behind `dev_access_enabled`. See the "Release Channels (current state)" note in `.claude/CLAUDE.md` for the up-to-date picture.
 - 🔲 **Library folder scan for re-download** (#380) - Scan existing music folder to find quality upgrade and re-download opportunities.
 - ✅ **Multi-service groundwork** (#430, #431, #432, #433, #424, #425, #426, #288) - All service modules registered and compiling, frontend types/IPC ready, Settings Services group, DownloadForm service detection, shared deps, enrichment routing, per-service auth.
 - ✅ **Shared `meedya-fingerprint` crate adoption** (#353) - AcoustID HTTP lookup (Phase 1), ReplayGain EBU R128 analyser (Phase 2), and Chromaprint fingerprint generation (Phase 3) all routed through `meedya_fingerprint::*` from `MWBMPartners/MeedyaSuite-core`. Phase 3 is gated behind an opt-in `chromaprint` cargo feature flag (`MeedyaSuite-core#10`, [PR #35](https://github.com/MWBMPartners/MeedyaSuite-core/pull/35)) so future consumer crates that only want the HTTP client or the loudness analyser don't pay the compile-time cost of `rusty-chromaprint` + `symphonia`. Three pure adapter functions (`map_shared_acoustid_result` / `map_shared_replaygain_result` / `map_shared_chromaprint_result`) project the shared `FingerprintError` variants back to MeedyaDL's historical `String` error surface so log scrapers and `classify_error()` stay aligned. ARM Linux property preserved (pure Rust, no fpcalc binary). Net win: ~200 LOC removed from MeedyaDL.
@@ -362,7 +362,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 | --- | --- | --- | --- | --- | --- |
 | — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | ✅ Groundwork done |
 | M8 | v2.0.0 | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
-| M9 | v2.1.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M9 | v2.1.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🚧 In development — hidden behind a developer-only preview switch, not available to regular users yet |
 | M10 | v2.2.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
 | v3.x | TBD | YouTube Music | [gytmdl](https://github.com/glomatico/gytmdl) | [#103](https://github.com/MWBMPartners/MeedyaDL/issues/103) | 🔮 Future |
 | v3.x | TBD | Smart Download | Cross-platform | [#110](https://github.com/MWBMPartners/MeedyaDL/issues/110) | 🔮 Future |
@@ -378,36 +378,35 @@ The architecture is designed with a `MediaService` trait pattern (`src-tauri/src
 
 ### Milestone 8 — Spotify Support (v2.0.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
 
-**Status:** 🔲 Planned
+**Status:** 🚧 Most of the plan below has already been built, but it sits behind a hidden developer-only preview switch. A regular user cannot turn Spotify downloading on yet, and pasting a Spotify link today is only accepted as far as the safety checks below — it does not produce a finished download for a normal user. Treat every "done" item here as "built, not yet released", not as "shipped."
 
 Spotify integration via [votify](https://github.com/glomatico/votify), a Python CLI tool by the same developer as GAMDL. Follows the identical subprocess pattern (`python -m votify ...`), making it the natural first service to add.
 
 #### Spotify Architecture Changes
 
-- Add `Spotify` variant to `MediaServiceId` enum
-- Update `url_domains()` to match `open.spotify.com`
-- Update `pip_package()` to return `"votify"`
-- Generalise download queue to route by `MediaServiceId` (currently hardcoded for GAMDL)
+- ✅ Added a `Spotify` variant to `MediaServiceId` enum
+- ✅ `url_domains()` matches `open.spotify.com`
+- ✅ `pip_package()` returns `"votify"`
+- ✅ Download queue routes by `MediaServiceId` (no longer hardcoded to GAMDL)
 
 #### Spotify Backend
 
-- 🔲 `services/votify_service.rs` — votify CLI wrapper (install, version check, subprocess execution)
-- 🔲 `commands/spotify.rs` — Spotify-specific IPC commands
-- 🔲 votify installation in dependency manager (pip install alongside GAMDL)
-- 🔲 Spotify OAuth authentication flow (votify uses OAuth, not cookies)
-- 🔲 Spotify quality options: OGG Vorbis 320kbps, AAC 256kbps, AAC 128kbps
-- 🔲 Spotify fallback quality chain
-- 🔲 Spotify URL parsing (tracks, albums, playlists, artists, podcasts)
-- 🔲 Multi-service queue routing (service detection from URL → correct CLI tool)
+- ✅ `services/spotify_service.rs` — votify CLI wrapper (install, version check, subprocess execution; named `spotify_service.rs` rather than the originally-planned `votify_service.rs`)
+- ✅ `commands/spotify_anti_ban.rs` — Spotify-specific IPC commands (the anti-ban dispatch gate: developer-access check, first-run consent, daily download cap)
+- ✅ votify installation in the setup wizard (installed alongside GAMDL)
+- ✅ Spotify sign-in — turned out to be cookie-based, the same shape as Apple Music, **not** OAuth as originally planned here
+- ✅ Spotify quality/codec options are modelled in `VotifyOptions`
+- 🔲 Spotify fallback quality chain — not yet built
+- ✅ Spotify URL parsing (tracks, albums, playlists — podcast-specific parsing not yet verified)
+- ✅ Multi-service queue routing (service detected from the URL, routed to the matching engine)
 
 #### Spotify Frontend
 
-- 🔲 Update URL parser to detect `open.spotify.com` URLs
-- 🔲 Spotify-specific quality selector (no lossless, no spatial, no video options)
-- 🔲 Spotify authentication UI (OAuth flow, not cookie import)
-- 🔲 Service indicator in download form showing detected service
-- 🔲 Settings tab additions for Spotify-specific options
-- 🔲 Update setup wizard to optionally install votify
+- ✅ URL parser detects `open.spotify.com` URLs
+- ✅ Spotify settings tab exists, including session/sign-in options and the anti-ban safeguards (throttle, daily cap, consent)
+- 🔲 Spotify-specific quality selector on the download form itself — not yet built
+- 🔲 Service indicator in download form showing detected service — not yet built
+- ✅ Setup wizard installs votify automatically alongside GAMDL
 
 #### Spotify Capabilities
 
@@ -418,8 +417,8 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 | Music videos   | No                                           |
 | Synced lyrics  | Yes                                          |
 | Cover art      | Yes                                          |
-| Auth method    | OAuth                                        |
-| Content types  | Songs, Albums, Playlists, Artists, Podcasts  |
+| Auth method    | Cookies (like Apple Music), not OAuth        |
+| Content types  | Songs, Albums, Playlists (podcasts unverified) |
 
 ---
 
