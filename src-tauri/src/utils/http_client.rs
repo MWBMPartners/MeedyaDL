@@ -69,9 +69,35 @@ pub const APP_USER_AGENT: &str = concat!(
 /// Fixed macOS Safari User-Agent string reserved for **Apple's own
 /// endpoints only** (`apple_music_api.rs`, `commands/credentials.rs`,
 /// `animated_artwork_service.rs`'s `ffmpeg -user_agent`). This is
-/// deliberately sent regardless of the host OS — Apple Music's edges expect
-/// a Safari client and this is the identity that gets a 200 rather than a
-/// 403, so a Windows or Linux install still presents as macOS Safari here.
+/// deliberately sent regardless of the host OS — a Windows, Linux or
+/// Raspberry Pi install still presents as macOS Safari here.
+///
+/// WHY THIS IS CROSS-PLATFORM ON PURPOSE — DO NOT "FIX" IT.
+///
+/// There are two reasons, and the second is the important one that keeps
+/// getting forgotten:
+///
+/// 1. It is the identity Apple Music's own servers expect, so it gets a
+///    normal response rather than a refusal.
+///
+/// 2. Safari implies a Mac, and Apple Music serves its FULLEST feature set
+///    to a Mac running Safari. Presenting as anything else — even something
+///    genuine and platform-appropriate like Chrome on Windows — can mean a
+///    reduced experience: fewer or lower-quality assets and features that
+///    simply are not offered to a non-Apple client. Sending Safari from
+///    every platform is how a Windows or Raspberry Pi user gets the same
+///    Apple Music experience a Mac user does.
+///
+/// So this is NOT accidental impersonation left over from an earlier
+/// design, and it is NOT an oversight that Windows and Linux do not use
+/// `browser_user_agent()` here. Making this "honest per platform" would
+/// quietly degrade the app for every non-Mac user. If you are reading this
+/// because a lint, an audit or an instinct says the user agent should match
+/// the host operating system: it should not, for Apple Music, and this
+/// paragraph is why. See issue #1072.
+///
+/// The VERSION NUMBER in the string is a separate matter and does need
+/// keeping current — see the note further down about how it is refreshed.
 /// Do not reach for this constant outside the Apple Music paths; every
 /// other "needs to look like a real browser" call site wants
 /// [`browser_user_agent()`] instead, which is genuine for the host OS.
