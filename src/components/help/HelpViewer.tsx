@@ -1098,20 +1098,18 @@ Very occasionally we may pause a service or feature for all users while we inves
     icon: GitBranch,
     content: `# Release Channels
 
-MeedyaDL publishes builds on six channels, ordered from **least** to **most** stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
+MeedyaDL publishes builds on four channels, ordered from **least** to **most** stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
 
-## The six channels
+## The four channels
 
 | Channel | Cadence | Version suffix | Who it's for |
 | --- | --- | --- | --- |
-| **Nightly** | Daily at 00:00 UTC | \`-nightly.YYYYMMDD\` | Developers validating today's work-in-progress. Can be broken. |
-| **Weekly** | Sunday at 00:00 UTC | \`-weekly.YYYYWW\` | Testers who want a week of nightlies rolled up. |
-| **Monthly** | 1st of the month at 00:00 UTC | \`-monthly.YYYYMM\` | Early adopters wanting a monthly preview. |
-| **Alpha** | Ad-hoc | \`-alpha.N\` | Feature-complete previews with known rough edges. |
-| **Beta** | Ad-hoc | \`-beta.N\` | Release candidates close to Stable. |
+| **Alpha** | Ad-hoc | \`-alpha.N\` | Feature-complete previews with known rough edges. Hidden from the channel picker unless developer access is unlocked. |
+| **Beta** | Ad-hoc | \`-beta.N\` | Polishing-stage features, closer to Stable than Alpha. |
+| **RC** (Release Candidate) | Ad-hoc | \`-rc.N\` | Final validation pass before a Stable release. |
 | **Stable** | Release-please merge | _(no suffix)_ | Most users — production-ready. |
 
-Each channel is an integration of the channel directly below it plus any ready feature branches, so moving up the ladder picks up strictly more testing.
+Picking a channel opts you into everything at least that stable: choosing Beta also lets Stable and RC releases reach you, but nothing less stable than Beta.
 
 ## Switching channels
 
@@ -1125,20 +1123,21 @@ Switching to a less-stable channel is always an explicit choice. Switching back 
 
 MeedyaDL will **never auto-downgrade your stability tier**:
 
-- The update check only ever surfaces a release from your selected channel — a Stable install will not be offered a Nightly build.
+- The update check only ever surfaces a release from your selected channel (or a more stable one) — a Stable install will not be offered an Alpha build.
 - If an update URL or deep link points at a less-stable build than your current channel, the installer refuses to apply it and shows a clear error. Change channel first if you genuinely want that build.
 
 ## Which channel should I use?
 
 - **Stable** — the default. Pick this unless you have a reason not to.
-- **Beta** — pre-release candidates. Helps catch regressions before they reach Stable.
-- **Alpha / Monthly / Weekly / Nightly** — only if you are comfortable filing bug reports and rolling back to a working build. Expect regressions.
+- **RC** — helps catch problems in the last build before it becomes Stable.
+- **Beta** — helps catch regressions a bit earlier, before they reach RC.
+- **Alpha** — only if you are comfortable filing bug reports and rolling back to a working build. Expect regressions. Requires developer access to select.
 
 ## Reporting problems on pre-release builds
 
 When reporting an issue for any pre-release channel, please include:
 
-- The **exact version** from *Settings > About* (e.g., \`0.34.6-nightly.20260420\`).
+- The **exact version** from *Settings > About* (e.g., \`1.13.0-alpha.56\`).
 - Your selected **Update Channel**.
 - Reproduction steps and any relevant log output.`,
   },
