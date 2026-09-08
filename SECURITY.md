@@ -62,7 +62,7 @@ MeedyaDL implements the following security measures:
 - **No shell interpolation** — all subprocess calls use parameterised arguments
 - **Content Security Policy** configured in Tauri for the webview
 - **Secrets stored in OS keychain** (not on disk)
-- **SHA-256 checksum verification** for downloaded dependencies
+- **Checksum-checking code exists but is not yet turned on** — MeedyaDL can compute and check a downloaded tool's checksum against a saved value, but no download currently uses this check (tracked in issue [#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **GitHub Actions hardening**: all actions pinned to immutable commit SHAs
 - **cargo-deny** licence scanning and source allowlisting in CI (org-level `[sources.allow-org]`)
 - **CodeQL** static analysis for JavaScript/TypeScript and GitHub Actions, with the `security-and-quality` query suite enabled
