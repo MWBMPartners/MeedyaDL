@@ -167,3 +167,57 @@ clear notice, and should stay switched off unless someone chooses it.
 Checked on 2026-09-08: Sentry's self-hosting requirements page, Sentry's pricing page, and
 GlitchTip's installation documentation. **Prices and free-tier limits change** — confirm before
 committing money.
+
+---
+
+## Correction: GlitchTip sell a hosted service too
+
+Everything above treated GlitchTip as a self-host-only option. That was wrong, and it matters,
+because it changes which option is cheapest. Checked against their own pricing page on 2026-09-08.
+
+### What hosted GlitchTip costs
+
+| Plan | Cost | Events per month |
+| ---- | ---- | ---------------- |
+| Free | £0 | 1,000 |
+| Small | $15/month | 100,000 |
+| Medium | $50/month | 500,000 |
+| Large | $250/month | 3,000,000 |
+
+**Hosted GlitchTip Small is cheaper than Sentry Team and carries twice the events** — $15 for
+100,000 against $26 for 50,000. Nothing to install, nothing to keep running, nothing to upgrade.
+
+### What happens if you go over the free allowance
+
+You do not get a bill. GlitchTip slow things down rather than charging. In their own words:
+
+> "After your quota is full, we throttle by 10%. We increase this gradually until at 2x the quota
+> we block fully."
+
+So past 1,000 events they begin dropping a small share, drop more as the count climbs, and stop
+accepting anything at 2,000. The cost of going over is lost visibility, never an unexpected
+invoice. That is a safer way to fail than overage billing, and it makes the free tier genuinely
+safe to switch on without watching it.
+
+### If we still want it on our own machine
+
+Only worth doing if owning the data becomes a requirement in its own right. Roughly, cheapest
+first — prices move, so check before committing:
+
+1. **Oracle Cloud Always Free** — genuinely free, permanently, and their ARM allowance is more than
+   enough. The catch is that these instances are frequently unavailable in a given region, so it is
+   a "try it and see" rather than something to plan around.
+2. **Hetzner** — around €4/month for more than enough machine. Best value we know of.
+3. **DigitalOcean, Vultr or Linode** — around $5 to $6/month. More familiar names, slightly dearer.
+
+Any of these would let `sentry.mwbm.cloud` point at our own box.
+
+### Recommendation
+
+**Start on the GlitchTip free tier.** It costs nothing and answers the question we cannot answer
+from here: does MeedyaDL actually produce crash reports worth reading? Nothing has ever been sent,
+so the real volume is unknown, and that number is what decides everything else — whether a paid
+plan is needed at all, and if we ever self-host, how big a machine to buy.
+
+If 1,000 a month turns out to be tight, $15/month buys a hundred times the headroom with no server
+to look after.
