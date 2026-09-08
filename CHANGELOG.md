@@ -11,6 +11,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.10.6 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -103,6 +104,7 @@ Closes part of #1134 and #1136. Part of #1040.
   never appeared at all — GitHub reported the release PR "Ready to merge",
   and `v1.10.5` published this to users:
 
+- Repair five checks that had quietly stopped working, and add a watchdog so it cannot happen again (#1146)
 
 ## [1.10.6] - 2026-09-07
 
