@@ -481,3 +481,33 @@ jobs:
         run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: "-A rustdoc::all"
+
+  # ===================================================================
+  # Tauri npm/Rust version sync
+  # ===================================================================
+  # Tauri ships each plugin twice: a JavaScript package and a Rust crate.
+  # `tauri build` refuses to build if the two halves are on different
+  # major/minor releases, and it refuses for every platform at once — so a
+  # mismatch is not a warning, it is six failed builds and no release.
+  #
+  # This branch has already been bitten by the shape of that problem. Two
+  # dependency updates arrived separately, one moving the JavaScript halves
+  # and one moving the Rust halves, and merging either on its own would have
+  # produced exactly that mismatch. Verified rather than assumed: with only
+  # the Rust update applied the check below reports two mismatched plugins.
+  #
+  # The check reads the two lock files and nothing else — no Rust toolchain,
+  # no `npm ci`, no build — so it finishes in seconds and answers the
+  # question long before the build matrix would.
+  tauri-version-sync:
+    name: Tauri npm/Rust version sync
+    runs-on: ubuntu-latest
+
+    steps:
+      # No Python setup step: the script uses only what Python ships with, so
+      # the runner's own python3 is enough.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check Tauri npm/Rust version sync
+        run: python3 tools/audit-checks/check_tauri_version_sync.py --strict
