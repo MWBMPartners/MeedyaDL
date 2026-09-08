@@ -275,11 +275,11 @@ If your question is not answered here, check the full [Troubleshooting](troubles
 
 ### What are "release channels"?
 
-MeedyaDL ships across six channels, ordered from least to most stable: **Nightly → Weekly → Monthly → Alpha → Beta → Stable**. Pre-release channels (anything below Stable) may be incomplete, untested, or broken. Pick your channel in **Settings > General > Updates**. See [Release Channels](release-channels.md) for the full breakdown.
+MeedyaDL ships across four channels, ordered from least to most stable: **Alpha → Beta → RC → Stable**. Pre-release channels (anything below Stable) may be incomplete, untested, or broken. Pick your channel in **Settings > General > Updates**. See [Release Channels](release-channels.md) for the full breakdown.
 
-### Will I accidentally get a Nightly build if I'm on Stable?
+### Will I accidentally get an Alpha build if I'm on Stable?
 
-No. The in-app updater only surfaces releases matching your selected channel, and the installer refuses to apply a tag from a less-stable channel than the one you're on. Switching channel is always an explicit action in Settings.
+No. The in-app updater only surfaces releases matching your selected channel (or a more stable one), and the installer refuses to apply a tag from a less-stable channel than the one you're on. Switching channel is always an explicit action in Settings.
 
 ### How do I move back to Stable after trying a pre-release build?
 
@@ -287,10 +287,7 @@ Open **Settings > General > Updates**, pick **Stable** from the Update Channel d
 
 ### How often are pre-release builds published?
 
-- **Nightly**: every day at 00:00 UTC (if there are new changes to integrate).
-- **Weekly**: every Sunday at 00:00 UTC.
-- **Monthly**: on the 1st of every month at 00:00 UTC.
-- **Alpha / Beta**: published ad-hoc during release preparation.
+- **Alpha / Beta / RC**: published ad-hoc during release preparation — whenever a new set of changes is ready, not on a fixed schedule.
 
 ---
 
