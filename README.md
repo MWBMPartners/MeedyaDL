@@ -10,7 +10,7 @@
   <strong>A multiplatform media downloader</strong>
 </p>
 <p align="center">
-  Download songs, albums, playlists, music videos, and more from Apple Music, Spotify, and other services.
+  Download songs, albums, playlists, and music videos from Apple Music, with support for more services on the way.
 </p>
 
 <p align="center">
@@ -80,11 +80,11 @@
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — local crash report logging with optional Sentry telemetry and one-click GitHub Issues reporting (pre-filled issue opened in your browser with privacy preview)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
-- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, SHA-256 checksum verification for dependency downloads, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaDL` GitHub orgs)
+- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaDL` GitHub orgs). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 - **Pre-release version handling** — verbose activity logging persists across restarts during pre-release versions (v0.x.x) for easier debugging; first-load notice modal warns users when a new pre-release version is launched
-- **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box) via the `get_component_versions` IPC command
+- **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
 - **CodeQL workflow** — GitHub CodeQL static analysis for Actions YAML and JavaScript/TypeScript. Rust is intentionally excluded (build hangs indefinitely) since Rust code quality is covered by clippy and cargo test in CI
 - **Brand assets** — vinyl/reel icon design with animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + wordtype via `<object>` tags with static PNG/text fallbacks
@@ -291,13 +291,10 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Release channels
 
-MeedyaDL publishes across seven channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
+MeedyaDL publishes across four channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
 
 | Channel | Cadence | Trigger | Suffix | Audience |
 | ------- | ------- | ------- | ------ | -------- |
-| **Nightly** | Daily 00:00 UTC | cron | `-nightly.YYYYMMDD` | Testing today's in-flight features; expect bugs |
-| **Weekly** | Sunday 00:00 UTC | cron | `-weekly.YYYYMMDD` | Week-old integrations |
-| **Monthly** | 1st of month 00:00 UTC | cron | `-monthly.YYYYMMDD` | Monthly preview |
 | **Alpha** | Ad-hoc | push to `alpha` branch | `-alpha.N` (monotonic) | Feature-complete previews |
 | **Beta** | Ad-hoc | push to `beta` branch | `-beta.N` (monotonic) | Polishing-stage features |
 | **RC** | Ad-hoc | push to `release-candidate` branch | `-rc.N` (monotonic) | Release candidates |
@@ -305,7 +302,7 @@ MeedyaDL publishes across seven channels, ordered from least to most stable. You
 
 Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
 
-The four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are hidden from the channel selector by default and only appear when developer access is unlocked. Beta, RC, and Stable are always visible to all users.
+Only **Alpha** is hidden from the channel selector by default — it only appears once developer access is unlocked. Beta, RC, and Stable are always visible to all users. (MeedyaDL used to also publish daily/weekly/monthly test builds; those were retired in favour of the Alpha channel, which already covers the same "latest work-in-progress" need with far less noise.)
 
 ### First-Run Setup
 
@@ -472,7 +469,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
-- ✅ CI/CD pipeline with release-please, six-tier channel ladder (Nightly → Weekly → Monthly → Alpha → Beta → Stable), automated nightly tag-and-release, and bundled dependencies
+- ✅ CI/CD pipeline with release-please, a four-tier channel ladder (Alpha → Beta → RC → Stable), automated tag-and-release per channel, and bundled dependencies
 - ✅ Settings UI with 10 configuration tabs
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download, install, and rollback
@@ -512,7 +509,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 | — | v2.0.0 | Multi-service architecture | — | [#107](https://github.com/MWBMPartners/MeedyaDL/issues/107) | ✅ Groundwork done |
 | — | v2.0.0 | Engine priority system | — | [#268](https://github.com/MWBMPartners/MeedyaDL/issues/268) | ✅ Groundwork done |
 | M8 | v2.0.0 | BBC iPlayer | [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp | [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102) | 🔲 Planned |
-| M9 | v2.1.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🔲 Planned |
+| M9 | v2.1.0 | Spotify | [votify](https://github.com/glomatico/votify) | [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101) | 🚧 In development — hidden behind a developer-only preview flag, not available to regular users yet |
 | M10 | v2.2.0 | YouTube | [yt-dlp](https://github.com/yt-dlp/yt-dlp) | [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104) | 🔲 Planned |
 
 Each milestone adds a new media service with its own CLI subprocess engine, URL parser, settings tab, and help documentation. Engine priority per platform is defined in `engines.toml`. See [Project Plan](Project_Plan.md) for full milestone details.
