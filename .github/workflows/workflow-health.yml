@@ -570,23 +570,55 @@ jobs:
               ["gh", "issue", "list", "--repo", REPO, "--state", "open",
                "--label", LABEL, "--json", "number,title,body", "--limit", "50"],
               capture_output=True, text=True)
+          # If we cannot READ the current tracking issue, stop. Carrying on
+          # would mean acting on a guess: we would either open a duplicate
+          # issue, or believe there is nothing to close. Both are worse than
+          # failing loudly, and "I could not ask" must never be recorded as
+          # "there is nothing there".
+          if listing.returncode != 0:
+              print("::error::Could not read the existing tracking issue, so this run cannot "
+                    "safely decide what to open, update or close. Stopping instead of guessing. "
+                    f"GitHub said: {(listing.stderr or '').strip()}")
+              sys.exit(1)
+
           existing = None
-          if listing.returncode == 0:
-              for issue in json.loads(listing.stdout or "[]"):
-                  if MARKER in issue["title"]:
-                      existing = issue
-                      break
+          for issue in json.loads(listing.stdout or "[]"):
+              if MARKER in issue["title"]:
+                  existing = issue
+                  break
+
+          # Every write below is checked. Ignoring a failed write would let
+          # the run finish "successfully" and refresh the heartbeat while the
+          # findings never actually reached anyone — a watchdog that says all
+          # is well precisely when it has failed to report.
+          write_failures = []
+
+          def write(args, what):
+              r = subprocess.run(args, capture_output=True, text=True)
+              if r.returncode != 0:
+                  write_failures.append(f"{what}: {(r.stderr or '').strip()}")
+              return r.returncode == 0
+
+          if not findings and api_errors:
+              # Some checks could not run, so "no findings" does not mean
+              # "nothing is wrong" — it may mean "we could not look". Never
+              # declare recovery on an incomplete picture.
+              print("::error::No findings were produced, but "
+                    f"{len(api_errors)} check(s) could not complete. Leaving any existing "
+                    "tracking issue exactly as it is rather than reporting a recovery that "
+                    "was never actually verified.")
+              sys.exit(1)
 
           if not findings:
               if existing:
-                  subprocess.run(
+                  write(
                       ["gh", "issue", "comment", str(existing["number"]), "--repo", REPO,
                        "--body", f"All {len(WATCHED)} watched workflows are healthy again as of "
                                  f"{NOW.strftime('%Y-%m-%d %H:%M UTC')}. Closing automatically."],
-                      check=False)
-                  subprocess.run(
+                      "comment that everything recovered")
+                  write(
                       ["gh", "issue", "close", str(existing["number"]), "--repo", REPO,
-                       "--reason", "completed"], check=False)
+                       "--reason", "completed"], "close the tracking issue")
                   print(f"::notice::All healthy — closed issue #{existing['number']}.")
               else:
                   print(f"::notice::All {len(WATCHED)} watched workflows are healthy.")
@@ -604,24 +636,35 @@ jobs:
                   previous = ""
                   if "<!-- fingerprint: " in (existing.get("body") or ""):
                       previous = existing["body"].split("<!-- fingerprint: ")[1].split(" -->")[0]
-                  subprocess.run(
+                  write(
                       ["gh", "issue", "edit", str(existing["number"]), "--repo", REPO,
-                       "--body", body], check=False)
+                       "--body", body], "update the tracking issue description")
                   if previous != fingerprint:
-                      subprocess.run(
+                      write(
                           ["gh", "issue", "comment", str(existing["number"]), "--repo", REPO,
                            "--body", f"The set of unhealthy workflows changed. There are now "
                                      f"**{len(findings)}** finding(s) — see the updated description."],
-                          check=False)
+                          "comment that the findings changed")
                       print(f"::notice::Findings changed — updated and commented on #{existing['number']}.")
                   else:
                       print(f"::notice::Same findings as last run — updated #{existing['number']} quietly.")
               else:
-                  subprocess.run(
+                  write(
                       ["gh", "issue", "create", "--repo", REPO, "--title", TITLE,
                        "--label", LABEL, "--label", "ci", "--label", "observability",
-                       "--body", body], check=False)
+                       "--body", body], "open the tracking issue")
                   print(f"::notice::Opened tracking issue with {len(findings)} finding(s).")
+
+          # If any of the writes above failed, the findings never reached
+          # anyone. Stop here: refreshing the heartbeat now would state that
+          # the watchdog is working at the exact moment it has failed at its
+          # only job.
+          if write_failures:
+              print("::error::The health checks ran, but the findings could not be recorded: "
+                    + "; ".join(write_failures)
+                    + ". Not refreshing the heartbeat, because the heartbeat would then be saying "
+                      "everything is fine while nobody has been told what is wrong.")
+              sys.exit(1)
 
           # ── Prove this watchdog is still alive ──────────────────────────
           # A watchdog that stops running is worse than no watchdog: nothing
