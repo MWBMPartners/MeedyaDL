@@ -99,18 +99,14 @@ This trailer becomes a commit footer at squash-merge time and is what turns Meed
 
 ## Branching Model
 
-MeedyaDL uses a six-tier release-channel ladder (least → most stable):
+MeedyaDL uses a four-tier release-channel ladder (least → most stable): `alpha → beta → release-candidate → main (stable)`.
 
-```
-feat/* ─→ nightly ─→ weekly ─→ monthly ─→ alpha ─→ beta ─→ main (stable)
-```
+(MeedyaDL used to also run three cron-driven channels below Alpha — Nightly, Weekly, Monthly — but they were removed in the v1.11.0 cleanup. The Alpha channel covers the same "give me the latest work-in-progress" need on its own now.)
 
-All six channel branches are **long-lived and protected** against deletion and non-fast-forward pushes. The `Auto-Delete Merged Branches` workflow keeps merged `feat/*` / `fix/*` branches from accumulating but exempts the six protected ones.
+All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **long-lived and protected** against deletion and non-fast-forward pushes. The `Auto-Delete Merged Branches` workflow keeps merged `feat/*` / `fix/*` branches from accumulating but exempts the four protected ones.
 
 - Open PRs against `main`. Your branch name should start with `feat/` or `fix/`.
-- The **Nightly Release** workflow (`nightly-release.yml`) automatically merges every `feat/*` branch into `nightly` daily at 00:00 UTC, tags `vX.Y.Z-nightly.YYYYMMDD`, and triggers a nightly build. If your branch conflicts with another, the workflow skips it and files an issue; rebase on `main` and the next nightly will pick it up.
-- Weekly / monthly / alpha / beta integrate upward from the channel directly below on their own cadence.
-- See [DEV_NOTES.md → Release Channels](DEV_NOTES.md#release-channels) for the full pipeline and in-app update-channel guard.
+- Pushing to `alpha`, `beta`, or `release-candidate` (a maintainer's direct push, or a merged PR) triggers that channel's own release build — see [DEV_NOTES.md → Release Channels](DEV_NOTES.md#release-channels) for the full pipeline and in-app update-channel guard.
 
 ## Pull Request Process
 
