@@ -33,7 +33,28 @@ jobs:
   beta:
     name: Build beta tag
     runs-on: ubuntu-latest
-    if: github.actor != 'github-actions[bot]' || github.event_name == 'workflow_dispatch'
+    # Stop this workflow re-triggering on the version-bump commit it pushes
+    # itself. Without a working guard here the channel runs away: release
+    # candidate did exactly that once, cutting rc.22 through rc.34 in minutes.
+    #
+    # The guard MUST match on the commit subject, not on who pushed. The push
+    # uses RELEASE_PAT, so GitHub attributes it to the token owner — a human
+    # account — and the old `github.actor != 'github-actions[bot]'` test below
+    # never matched. That is why `[skip ci]` was added to the bump commit as a
+    # belt-and-braces measure, and `[skip ci]` is what silently killed this
+    # whole channel: it also stopped the tag push from starting a build, so
+    # v1.9.4-beta.1, .2 and .3 were tagged and produced nothing at all.
+    #
+    # Matching `chore(beta): ` AND `-beta.` together is deliberate. Matching
+    # the prefix alone would also swallow a human commit such as
+    # "chore(beta): combined housekeeping", which is how PR #954 was silently
+    # suppressed on the alpha channel. A human subject never carries the
+    # `-beta.` version suffix.
+    #
+    # workflow_dispatch always proceeds so a maintainer can force a build.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      !(startsWith(github.event.head_commit.message, 'chore(beta): ') && contains(github.event.head_commit.message, '-beta.'))
     steps:
       - name: Checkout beta
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -94,17 +115,43 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
 
       - name: Regenerate Cargo.lock
+        # Update ONLY this package's own entry in the lockfile.
+        #
+        # `cargo generate-lockfile` re-resolves EVERY dependency to the
+        # newest version its range allows. That is how stable v1.10.5 broke:
+        # it quietly moved two halves of the app toolkit to different
+        # versions while the JavaScript half stayed put, and all six platform
+        # builds then refused to build (#1134). A release bump should change
+        # one version number and nothing else.
+        #
+        # The version comes in as an environment variable from the step that
+        # already computed it. Do NOT read package.json here: this step runs
+        # inside src-tauri and package.json lives in the repository root, so
+        # reading it from here fails and, under `set -e`, would stop every
+        # beta release before the commit and tag. Same shape alpha uses.
         working-directory: src-tauri
-        run: cargo generate-lockfile
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+        run: cargo update --package meedyadl --precise "$NEW_VERSION"
 
       - name: Commit version bump
         run: |
           git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
-          # `[skip ci]` prevents the bot's push from re-triggering this same
-          # workflow (RELEASE_PAT attributes the push to the PAT owner, not
-          # github-actions[bot], which defeats the actor check). See the
-          # release-candidate-release.yml comment for the full incident write-up.
-          git commit -m "chore(beta): ${{ steps.version.outputs.version }} [skip ci]"
+          # NO `[skip ci]` here. It used to be present, to stop this
+          # workflow re-triggering on its own push. It did that — but it
+          # ALSO stopped the release build from ever starting, because
+          # GitHub applies the skip rule to every workflow triggered by
+          # that push, including the tag push that release.yml listens for.
+          #
+          # The result was a silently dead channel: v1.9.4-beta.1, .2 and .3
+          # were all tagged, and not one of them produced a release, a
+          # download, or even a build. Nobody was told.
+          #
+          # Self-triggering is now prevented by the job-level `if:` guard at
+          # the top of this job instead, which gates only THIS workflow and
+          # leaves the tag push free to start the build. Same fix alpha and
+          # release-candidate already carry (#937).
+          git commit -m "chore(beta): ${{ steps.version.outputs.version }}"
 
       - name: Push beta branch and tag
         if: ${{ !inputs.dry_run }}
