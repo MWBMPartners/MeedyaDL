@@ -96,7 +96,6 @@ ignore = [
     # in glib 0.20+, which requires the GTK4 ecosystem; will be resolved
     # naturally when Tauri migrates to GTK4 (same upstream pin as the other
     # gtk-rs unmaintained advisories above).
-    "RUSTSEC-2024-0429", # glib — VariantStrIter unsoundness (Linux-only, not user-reachable)
 
     # Security advisories with demonstrably unreachable code paths (carve-out
     # (b) in the policy comment above). Each entry MUST cite the specific
