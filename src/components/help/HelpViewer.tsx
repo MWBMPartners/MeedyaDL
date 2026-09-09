@@ -390,16 +390,25 @@ export function HelpViewer() {
   const modifierKey = useMemo(() => (isMacPlatform() ? '⌘' : 'Ctrl'), []);
 
   /**
-   * Filters HELP_TOPICS based on the current searchQuery.
+   * Narrows the page list down to whatever the person typed in the
+   * search box.
    *
-   * Matching logic:
-   * - If the query is empty or whitespace-only, all topics are returned.
-   * - Otherwise, a topic matches if the query appears anywhere in its
-   *   label OR its markdown content (case-insensitive).
+   * An empty box means "show everything". Otherwise a page is kept if
+   * what they typed appears in its name or anywhere in its text,
+   * ignoring capitals.
    *
-   * The result is memoized so the filter only re-runs when the search
-   * query actually changes, avoiding unnecessary array iterations on
-   * every render.
+   * **Both languages are searched, not just English.** Somebody reading
+   * the German pages sees German headings, so those are the words they
+   * will type. Searching only the English would mean typing a heading
+   * that is visible on screen and being told there are no results,
+   * which reads as the search being broken. The English is searched as
+   * well as the translation, not instead of it, because plenty of the
+   * words worth searching for — setting names, file names, service
+   * names — stay in English on every page in every language.
+   *
+   * Recalculated when the search text changes and when a translation
+   * finishes loading, so results do not stay stale behind a language
+   * that has just arrived.
    */
   const filteredTopics = useMemo(() => {
     const trimmed = searchQuery.trim().toLowerCase();
@@ -409,12 +418,15 @@ export function HelpViewer() {
       return HELP_TOPICS;
     }
 
-    /* Filter topics whose label or content contains the query substring */
-    return HELP_TOPICS.filter(
-      (topic) =>
-        topic.label.toLowerCase().includes(trimmed) || topic.content.toLowerCase().includes(trimmed)
-    );
-  }, [searchQuery]);
+    return HELP_TOPICS.filter((topic) => {
+      const translated = translatedPages[topic.id];
+      return (
+        topic.label.toLowerCase().includes(trimmed) ||
+        topic.content.toLowerCase().includes(trimmed) ||
+        (translated !== undefined && translated.toLowerCase().includes(trimmed))
+      );
+    });
+  }, [searchQuery, translatedPages]);
 
   /**
    * Look up the currently active topic object.

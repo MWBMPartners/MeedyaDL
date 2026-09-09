@@ -179,7 +179,7 @@
     "resultCount_other": "{{count}} Ergebnisse",
     "noResults": "Keine passenden Themen gefunden.",
     "machineTranslatedPage": "Diese Seite wurde maschinell übersetzt. Wenn etwas seltsam klingt, ist die englische Fassung die von den Entwicklern geschriebene.",
-    "pageNotTranslated": "Diese Seite wurde noch nicht ins {{language}} übersetzt und wird daher auf Englisch angezeigt."
+    "pageNotTranslated": "Diese Seite wurde noch nicht auf {{language}} übersetzt und wird daher auf Englisch angezeigt."
   },
   "common": {
     "loading": "Laden...",

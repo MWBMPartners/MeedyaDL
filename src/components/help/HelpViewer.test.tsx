@@ -247,7 +247,35 @@ describe('HelpViewer translated pages (#111)', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Getting Started' })
     ).toBeInTheDocument();
-    expect(screen.getByText(/noch nicht ins Deutsch übersetzt/)).toBeInTheDocument();
+    expect(screen.getByText(/noch nicht auf Deutsch übersetzt/)).toBeInTheDocument();
+  });
+
+  /**
+   * Somebody reading the German pages sees German headings, so German
+   * is what they will type into the search box. Searching only the
+   * English text would answer "no results" for a heading that is
+   * visible on screen, which reads as the search being broken rather
+   * than as a missing translation.
+   */
+  it('finds a page by a heading that only exists in the German translation', async () => {
+    await useTestLanguage('de');
+    render(<HelpViewer />);
+
+    // Wait for the German pages to arrive before searching, since the
+    // search has nothing German to look at until they do.
+    await waitFor(() => {
+      expect(screen.getByText(/noch nicht auf Deutsch übersetzt/)).toBeInTheDocument();
+    });
+
+    // Find the box by its role, not by its English placeholder — the
+    // placeholder is itself translated, which is the whole point here.
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Tastaturkürzel' },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Keyboard Shortcuts' })).toBeInTheDocument();
+    });
   });
 });
 
