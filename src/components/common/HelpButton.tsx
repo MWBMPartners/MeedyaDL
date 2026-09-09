@@ -15,13 +15,21 @@
 
 import { HelpCircle } from 'lucide-react';
 import { useUiStore } from '@/stores/uiStore';
+import type { HelpTopicId } from '@/components/help';
 
 /**
  * Props for the {@link HelpButton} component.
  */
 interface HelpButtonProps {
-  /** Help topic ID to navigate to (must match a topic.id in HelpViewer) */
-  topic: string;
+  /**
+   * Which help page to open. Typed against `HelpTopicId` -- the real,
+   * loaded set of `help/*.md` pages -- so a typo or a renamed page is a
+   * TypeScript error at build time, not a click that silently does
+   * nothing (which is exactly what used to happen when this was a plain
+   * `string`: nothing stopped you writing a page id that no longer
+   * existed).
+   */
+  topic: HelpTopicId;
   /** Optional tooltip text shown on hover */
   tooltip?: string;
 }
@@ -32,7 +40,7 @@ interface HelpButtonProps {
  *
  * @example
  * ```tsx
- * <HelpButton topic="cookies-help" tooltip="Learn about cookie authentication" />
+ * <HelpButton topic="cookie-management" tooltip="Learn about cookie authentication" />
  * ```
  */
 export function HelpButton({ topic, tooltip }: HelpButtonProps) {

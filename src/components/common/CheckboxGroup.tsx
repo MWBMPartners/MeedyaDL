@@ -7,6 +7,7 @@
 // codecs and multi-select artist auto-select modes.
 
 import { HelpButton } from './HelpButton';
+import type { HelpTopicId } from '@/components/help';
 
 interface CheckboxGroupProps<T extends string> {
   /** Group label displayed above the checkboxes */
@@ -21,8 +22,12 @@ interface CheckboxGroupProps<T extends string> {
   onChange: (selected: T[]) => void;
   /** When true, all checkboxes are disabled */
   disabled?: boolean;
-  /** Optional help topic link */
-  helpTopic?: string;
+  /**
+   * Optional help topic link. Typed as `HelpTopicId` -- the real set of
+   * `help/*.md` pages -- so a typo or a renamed page id fails the build
+   * instead of silently doing nothing when clicked.
+   */
+  helpTopic?: HelpTopicId;
   /** Maximum number of columns for the checkbox grid (default: 2) */
   columns?: 1 | 2 | 3;
 }

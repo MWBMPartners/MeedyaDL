@@ -1,3 +1,9 @@
+<!--
+  MeedyaDL Help Documentation
+  Copyright (c) 2026 MeedyaSuite
+  Licensed under the MIT License. See LICENSE file in the project root for details.
+-->
+
 # Keyboard Shortcuts
 
 MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
@@ -29,3 +35,17 @@ MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
 - On **Windows/Linux**, use the **Ctrl** key
 - Shortcuts are disabled when typing in text fields to prevent accidental navigation
 - The Activity Log supports text selection and copy (Cmd/Ctrl + C)
+- **Cmd/Ctrl + D** also selects all text in the URL input for quick replacement.
+
+## Modal Shortcuts
+
+When a modal dialog is open (e.g., Crash Report, file picker):
+
+- **Escape** closes the modal and returns focus to the main content.
+- Tab key cycles through focusable elements within the modal (focus trapping).
+
+## Accessibility
+
+- **Tab** moves focus forward through interactive elements.
+- **Shift + Tab** moves focus backward.
+- **Skip to main content** link appears on first Tab press (top-left corner).

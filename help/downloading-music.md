@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :musical_note: Downloading Music
+# Downloading Music
 
 This guide explains how to download songs, albums, playlists, and artist discographies from Apple Music using MeedyaDL.
 

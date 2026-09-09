@@ -576,12 +576,13 @@ The tab list itself (names, icons, order) is the `TABS` array in `src/components
 
 ### Help Topics
 
-Help content is embedded as JSX in the HelpViewer component, **not** loaded from external markdown files:
+Help content lives in real Markdown files and is loaded into the app at build time — there is no second, hand-typed copy:
 
 | File | Description |
 | --- | --- |
-| `src/components/help/HelpViewer.tsx` | All help topics defined in the `HELP_TOPICS` array (15 entries; ids are not 1:1 with filenames) |
-| `help/*.md` | 16 files (15 topics + `index.md`) — kept for reference but **not** rendered by the app. Any content change must ALSO be made in the matching inline `HELP_TOPICS` entry. |
+| `help/*.md` | 21 files: the 20 pages the Help screen shows, plus `index.md` (a GitHub-only table of contents the app deliberately doesn't show — its own sidebar already does that job). This is the only place a page's words live. |
+| `src/components/help/helpTopics.ts` | Reads every file above at build time (`import.meta.glob`) and holds `HELP_TOPIC_MANIFEST` — the list that says which pages exist, in what sidebar order, with what label and icon. Adding a page means adding both the file and a manifest line. |
+| `src/components/help/HelpViewer.tsx` | Renders whichever page is selected. Carries no page text of its own — only the "About" page's build-specific part (installed version, component versions, bundled licence text) is assembled here, because a static file can't know that. |
 
 ### Other UI Text
 

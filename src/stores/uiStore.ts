@@ -94,6 +94,12 @@ export function __resetToastWorkerForTests(): void {
 // ToastType -- severity level union ('success' | 'error' | 'warning' | 'info')
 import type { AppPage, Toast, ToastType } from '@/types';
 import { useSettingsStore } from '@/stores/settingsStore';
+// HelpTopicId -- the real set of `help/*.md` page ids. Imported as a
+// type only (erased at compile time, so it adds no runtime dependency
+// on the help feature) purely so `helpActiveTopic` and `navigateToHelp`
+// can't be handed a page id that doesn't exist -- that used to compile
+// fine as a plain string and just silently do nothing when clicked.
+import type { HelpTopicId } from '@/components/help';
 
 /**
  * Shape of the UI state slice and its actions.
@@ -243,7 +249,7 @@ interface UiState {
    * settings fields to their corresponding help documentation.
    * Reset to `null` after the HelpViewer consumes it.
    */
-  helpActiveTopic: string | null;
+  helpActiveTopic: HelpTopicId | null;
 
   /**
    * Whether the global Keyboard Shortcuts help dialog (#465) is
@@ -294,9 +300,9 @@ interface UiState {
    * Navigate to the Help page and auto-select a specific topic.
    * Sets both `currentPage` to 'help' and `helpActiveTopic` to the given ID.
    * Called by `<HelpButton>` components embedded in settings fields.
-   * @param topic -- Help topic ID (e.g. 'cookies-help', 'audio-codecs')
+   * @param topic -- Help topic ID (e.g. 'cookie-management', 'audio-codecs')
    */
-  navigateToHelp: (topic: string) => void;
+  navigateToHelp: (topic: HelpTopicId) => void;
 
   /**
    * Clear the help topic deep-link after it has been consumed by HelpViewer.

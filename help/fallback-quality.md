@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :arrows_counterclockwise: Fallback Quality
+# Fallback Quality
 
 This guide explains how MeedyaDL's quality fallback system works when your preferred audio or video quality is not available for a particular piece of content.
 

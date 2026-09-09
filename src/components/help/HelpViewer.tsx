@@ -23,12 +23,22 @@
  *   - A keyboard shortcut hint (Cmd+K / Ctrl+K) is shown as a visual
  *     placeholder for future shortcut implementation.
  *
- * ## Help Topics
+ * ## Where the content comes from
  *
- * Topics are defined as a static `HELP_TOPICS` array of `HelpTopic`
- * objects, each containing an ID, label, icon, and inline Markdown string.
- * Topics cover: Getting Started, Downloading, Settings, Cookies, Tools,
- * Audio Codecs, Music Videos, Troubleshooting, and About.
+ * Every topic's Markdown text is read from a real file in `help/*.md` --
+ * this component does not carry its own copy of the words. `./helpTopics.ts`
+ * is what does the reading: it lists which pages exist and in what
+ * sidebar order (`HELP_TOPIC_MANIFEST`), loads each one's file at build
+ * time, and hands this component the finished list (`HELP_TOPICS`). See
+ * that file for the full reasoning. This component's only job with
+ * respect to content is picking which topic is active and rendering it --
+ * it never needs to know that the words live in files at all.
+ *
+ * The one topic that isn't pure file content is "About": its version
+ * number, installed-tool list, and the bundled licence text can only be
+ * known once the app is actually running, so `helpTopics.ts` exposes
+ * `buildAboutBuildSection()` to build that part, and this component
+ * appends it to `about.md`'s file content before rendering.
  *
  * ## Markdown Rendering
  *
@@ -103,27 +113,11 @@ const helpSanitizeSchema = {
   tagNames: [...(defaultSchema.tagNames ?? []), 'details', 'summary'],
 };
 
-// Lucide icons for each help topic in the sidebar.
-// Each topic has a dedicated icon for quick visual identification.
-import {
-  BookOpen, // "Getting Started" topic
-  Download, // "Downloading" topic
-  Settings, // "Settings" topic
-  Cookie, // "Cookies" topic
-  Wrench, // "Tools" topic
-  Shield, // "Wrapper" topic
-  Music, // "Audio Codecs" topic
-  Video, // "Music Videos" topic
-  Film, // "Animated Artwork" topic
-  HelpCircle, // "Troubleshooting" topic
-  FileText, // "About" topic
-  ShieldAlert, // "Disclaimer" topic
-  Keyboard, // "Keyboard Shortcuts" topic
-  Globe, // "Supported Services" topic
-  GitBranch, // "Release Channels" topic
-  Search, // Search icon in the sidebar search bar
-  X, // Clear search button icon
-} from 'lucide-react';
+// Only two Lucide icons are used directly by this component itself (the
+// search bar). The per-topic icons come attached to each entry in
+// `HELP_TOPICS` -- see helpTopics.ts -- so they don't need to be
+// imported here by name.
+import { Search, X } from 'lucide-react';
 
 // Tauri app API for reading the version from tauri.conf.json at runtime.
 import { getVersion } from '@tauri-apps/api/app';
@@ -134,1026 +128,10 @@ import { PageHeader } from '@/components/layout';
 // UI store for reading/clearing the help deep-link topic.
 import { useUiStore } from '@/stores/uiStore';
 
-/**
- * Shape of a single help topic entry.
- *
- * @property id      - Unique identifier used for the React `key` prop and
- *                     for tracking the active topic in component state.
- * @property label   - Short display name shown in the sidebar navigation.
- *                     Also searched when the user types in the search bar.
- * @property icon    - Lucide icon component rendered next to the label in
- *                     the sidebar. Typed as `typeof BookOpen` (all Lucide
- *                     icons share the same component signature).
- * @property content - Full Markdown content string rendered in the viewer
- *                     pane when this topic is selected. Also searched
- *                     when the user types in the search bar.
- */
-interface HelpTopic {
-  id: string;
-  label: string;
-  icon: typeof BookOpen;
-  content: string;
-}
-
-/**
- * Static array of all built-in help topics.
- *
- * Each topic contains inline Markdown content rather than loading from
- * external files. This approach keeps help content bundled with the
- * application and eliminates the need for async file loading.
- *
- * Topics are displayed in the sidebar in the order they appear in this
- * array. The order is intentional: Getting Started and Downloading come
- * first as the most common entry points, followed by reference material
- * (Settings, Cookies, Tools, Codecs, Videos), troubleshooting, and About.
- */
-const HELP_TOPICS: HelpTopic[] = [
-  {
-    id: 'getting-started',
-    label: 'Getting Started',
-    icon: BookOpen,
-    content: `# Getting Started
-
-## Welcome to MeedyaDL
-
-MeedyaDL is a media downloader application for downloading music and videos. This guide will help you get started.
-
-### First-Time Setup
-
-When you first launch the app, you'll be guided through a setup wizard that:
-
-1. **Installs Python** - A portable Python runtime is downloaded (no system changes)
-2. **Installs GAMDL** - The download tool is installed into the portable Python
-3. **Installs Tools** - Required tools like FFmpeg are downloaded automatically
-4. **Imports Cookies** - You provide your Apple Music authentication cookies
-
-### Downloading Music
-
-1. Copy an Apple Music URL from your browser or the Apple Music app
-2. Paste it into the URL field on the Download page
-3. (Optional) Adjust quality settings using the override panel
-4. Click **Add to Queue**
-5. Monitor progress on the Queue page
-
-### Supported Content Types
-
-- **Songs** - Individual tracks
-- **Albums** - Complete albums with all tracks
-- **Playlists** - User or editorial playlists
-- **Music Videos** - Music videos in up to 4K
-- **Artist Pages** - Downloads the artist's top songs`,
-  },
-  {
-    id: 'downloading',
-    label: 'Downloading',
-    icon: Download,
-    content: `# Downloading
-
-## How to Download
-
-### Supported URLs
-
-GAMDL supports the following Apple Music URL formats:
-
-- \`https://music.apple.com/{country}/album/{name}/{id}\`
-- \`https://music.apple.com/{country}/album/{name}/{id}?i={track_id}\`
-- \`https://music.apple.com/{country}/playlist/{name}/{id}\`
-- \`https://music.apple.com/{country}/music-video/{name}/{id}\`
-- \`https://music.apple.com/{country}/artist/{name}/{id}\`
-
-The \`classical.apple.com\` and \`itunes.apple.com\` variants are accepted too. **Spotify links** (\`open.spotify.com\`) are also accepted as input — pasting one queues it and routes it through Spotify's own eligibility checks rather than rejecting it. Other domains are rejected with a validation error.
-
-### Quality Overrides
-
-By default, downloads use the settings from the Quality settings tab. You can override the codec and resolution for individual downloads using the "Quality Overrides" panel on the Download page.
-
-### Fallback Chain
-
-When the preferred **audio** codec is unavailable, MeedyaDL tries the next option in the fallback chain. Configure the chain order in **Settings > Fallback**.\n\nVideo works differently: the resolution you choose is treated as a maximum, and Apple Music returns the closest quality at or below it in one go, so there is no stepping down.`,
-  },
-  {
-    id: 'settings-help',
-    label: 'Settings',
-    icon: Settings,
-    content: `# Settings
-
-## Configuration Guide
-
-### General
-- **Output Directory** - Where files are saved (default: ~/Music/Apple Music)
-- **Language** - Metadata language preference
-- **Overwrite** - Whether to replace existing files
-
-### Quality
-- **Audio Codec** - Default: ALAC (lossless). Options range from lossless to compressed AAC variants
-- **Video Resolution** - Default: 2160p (4K). Treated as a maximum: Apple Music returns the closest quality at or below it
-- **Fallback** - Enable/disable trying the next audio codec when your preferred one isn't available
-
-### Lyrics
-
-Settings > Lyrics includes a **Test word-level lyrics connection** button next to the Enhanced Lyrics toggle. It checks whether MeedyaDL can currently fetch word-level (syllable) lyrics from Apple Music -- without waiting for a full download. The test resolves your MusicKit developer token the same way a real download does (your own MusicKit credentials, falling back to the developer token captured from your Apple Music web-player session if you haven't configured your own), reads the Media-User-Token from your imported cookies, and probes Apple's syllable-lyrics endpoint against a known song. A green result means word-level timing came back and Enhanced LRC will work (noting when it succeeded via your web-player session rather than configured credentials); an amber result means the endpoint responded but only with line-level timing; anything else comes with guidance on what to fix -- signing in to Apple Music, configuring MusicKit credentials in Settings > Advanced, or re-importing cookies.
-
-### Metadata
-
-Settings > Metadata includes an opt-in **Links on Other Music Services** toggle. When it's on, MeedyaDL asks song.link (a lookup service run by a company called Odesli) where else each downloaded album is available -- Spotify, YouTube Music, Tidal, and others -- and saves what it finds into your files. It needs an access key from Odesli, entered under Settings > Advanced > API Credentials.
-
-### Paths
-Override paths to external tools. Leave empty to use the managed (auto-installed) versions.
-
-### Templates
-Customize how files and folders are named using template variables like \`{artist}\`, \`{album}\`, \`{title}\`, \`{track:02d}\`.`,
-  },
-  {
-    id: 'cookies-help',
-    label: 'Cookies',
-    icon: Cookie,
-    content: `# Cookie Authentication
-
-## Why Cookies Are Needed
-
-Apple Music requires authentication to access content. GAMDL uses browser cookies from your Apple Music subscription to authenticate download requests.
-
-## How to Export Cookies
-
-1. Install a **cookies.txt** browser extension:
-   - Chrome: "[Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)" extension
-   - Firefox: "[cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)" extension
-2. Go to **[music.apple.com](https://music.apple.com)** and log in with your Apple ID
-3. Click the extension icon and choose **Export** or **Download**
-4. Save the file somewhere accessible
-
-## Importing Cookies
-
-1. Go to **Settings > Cookies** or use the Setup Wizard
-2. Click **Browse** and select your cookies.txt file
-3. Click **Validate Cookies** to verify they work
-4. Save your settings
-
-## Cookie Expiry
-
-Cookies expire after some time. If downloads start failing with authentication errors, export fresh cookies from your browser.`,
-  },
-  {
-    id: 'tools',
-    label: 'Tools',
-    icon: Wrench,
-    content: `# External Tools
-
-MeedyaDL relies on several external command-line tools for downloading, decrypting, and processing media. You can check their status and install or update them from **Settings > Tools** at any time.
-
-## Required Tools
-
-All five tools below are required for full functionality.
-
-### FFmpeg
-Used for audio/video processing and container remuxing. Required for most download operations.
-
-### mp4decrypt
-Part of the Bento4 toolkit. Used for decrypting DRM-protected streams. Essential for downloading protected content.
-
-### N_m3u8DL-RE
-HLS/DASH stream downloader. Used for downloading segmented media streams from Apple Music's CDN.
-
-### MP4Box
-Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
-
-### MediaInfo
-Used to accurately detect the codec of a downloaded file, so the app can tell what quality it actually got.
-
-## Installation & Management
-
-Tools are automatically downloaded during first-time setup. After setup, go to **Settings > Tools** to:
-
-- **Check All** — refresh the status of all tools
-- **Install missing tools** — individually or all at once
-- **Override paths** — click the chevron on any tool to set a custom binary path (e.g., if you have a system-wide installation you prefer)
-
-If new tools are added in a future update, the Tools tab will show them as missing so you can install them.`,
-  },
-  {
-    id: 'wrapper',
-    label: 'Wrapper',
-    icon: Shield,
-    content: `# Wrapper
-
-The **wrapper** is an alternative authentication method for accessing Apple Music content. Instead of using browser cookies, it uses a locally-running server that handles Apple ID authentication and DRM key exchange.
-
-**Note:** The Wrapper service only provides native binaries for **Linux x86_64**. On other platforms, the Wrapper section in Settings > Advanced shows guidance for remote or Docker-based usage.
-
-## When to Use It
-
-Most users should use **cookie-based authentication** (the default). The wrapper is an advanced option for users who:
-
-- Need more reliable access to **Dolby Atmos** or other DRM-protected formats
-- Experience frequent cookie expiration issues
-- Are familiar with running local server software
-
-## When you actually need a wrapper
-
-Most users don't. The catalog API, song metadata, lyrics, artwork, and the entire \`aac-web\` / \`aac-he-web\` codec family all work with cookie-only authentication. **What still needs a wrapper depends on your GAMDL version:**
-
-**GAMDL 3.8 and newer — wrapper needed for ALAC only.** GAMDL 3.8 introduced a new HLS asset endpoint that unlocks every non-web codec — \`aac\`, \`aac-he\`, \`aac-binaural\`, \`aac-downmix\`, and even **Atmos** and **AC3** — *without* a wrapper. On 3.8+ the only codec that still requires wrapper auth is **ALAC** (lossless). (3.8.1 further fixed some songs that previously failed on non-web codecs.) If you don't need ALAC lossless, you can skip wrapper setup entirely on 3.8+.
-
-**GAMDL 3.0 – 3.7.x — wrapper needed for the full non-web set.** On these releases wrapper auth is required for:
-
-- **ALAC** (lossless), **Atmos** (Dolby Atmos), **AC3** (Dolby Digital).
-- **Music videos** (on certain regional content).
-- The \`aac\` / \`aac-he\` / \`aac-binaural\` / \`aac-downmix\` codec variants (the ones that don't end in \`-web\`).
-- The full set of audio traits / spatial audio flags on certain albums.
-
-## How It Works
-
-1. A **wrapper service** runs on your computer (typically at \`http://127.0.0.1:30020\`)
-2. MeedyaDL connects to the wrapper instead of using cookies
-3. The wrapper handles Apple ID login, DRM key exchange, and decryption on your behalf
-
-## Platform Support
-
-| Platform | Wrapper | MeedyaDL Integration |
-|----------|---------|---------------------|
-| Linux x86_64 | Available | Full support (Settings > Advanced) |
-| All other platforms | Not natively available | Remote or Docker setup (see below) |
-
-### Why Only Linux x86_64?
-
-The Wrapper service only provides Linux x86_64 binaries. On other platforms, MeedyaDL still shows the Wrapper settings but includes a note about remote usage.
-
-### Remote Setup on Other Platforms
-
-Power users on unsupported platforms can still use the Wrapper by:
-
-1. **Running Wrapper remotely** — Run the Wrapper service on a Linux x86_64 server (or VPS) and point MeedyaDL to it via a custom URL
-2. **Docker** — Run the Wrapper in a Docker container on any host OS (the Wrapper provides a Docker-based setup)
-3. **Edit settings directly** — Open the MeedyaDL settings JSON file (in the app data directory) and set \`"use_wrapper": true\` and \`"wrapper_account_url"\` to the URL of your remote Wrapper service
-
-## Setup
-
-### 1. Obtain and run the wrapper service
-The wrapper is a separate application that you run locally. It listens on \`http://127.0.0.1:30020\` by default. You will need to source this separately — it is not bundled with MeedyaDL.
-
-### 2. Enable the wrapper in MeedyaDL
-Go to **Settings > Advanced** and enable the **Use Wrapper** toggle. The default URL (\`http://127.0.0.1:30020\`) should work if the wrapper is running locally with default settings.
-
-### 3. Configure the URL (if needed)
-If your wrapper runs on a different port or host, update the **Wrapper Account URL** field in Settings > Advanced.
-
-## Verifying Connectivity
-
-MeedyaDL checks whether the wrapper is reachable in two ways:
-
-### Manual Test
-
-In **Settings > Advanced**, click the **Test Connection** button next to the Wrapper Account URL field. MeedyaDL sends an HTTP GET to the wrapper URL with a 5-second timeout:
-
-- **Success** — shows "Connected" with the round-trip latency in milliseconds (e.g., "Connected (42ms)")
-- **Timeout** — "Connection timed out (5s)" — the wrapper may not be running or the URL is wrong
-- **Connection refused** — "Connection refused — is the wrapper running at {url}?" — the host is reachable but nothing is listening on that port
-- **Other errors** — the specific error message is shown
-
-### Automatic Pre-Flight Check
-
-Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at \`http://127.0.0.1:30020\` timed out — check that it is running").
-
-This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper notifications are **deduplicated** (only one is shown at a time) and **auto-dismiss** when the wrapper becomes reachable again on a subsequent download.
-
-### Troubleshooting Wrapper Connectivity
-
-If MeedyaDL reports the wrapper is unreachable (yellow toast or "Test Connection" failure), work through the steps below from a terminal on the **machine running MeedyaDL**.
-
-#### Step 1 — Verify the URL in MeedyaDL
-
-Open **Settings > Advanced** and check the **Wrapper Account URL**. It should look like:
-
-- Local: \`http://127.0.0.1:30020\` (wrapper on the same machine)
-- Remote: \`http://192.168.x.x:30020\` (wrapper on another device, e.g. a Raspberry Pi)
-
-Make sure the IP address and port are correct. If the wrapper is on another device, use that device's LAN IP — not \`127.0.0.1\`.
-
-#### Step 2 — Test from your terminal with curl
-
-Open a terminal on the machine running MeedyaDL and run:
-
-\`\`\`
-curl -v http://192.168.x.x:30020
-\`\`\`
-
-Replace the URL with your actual wrapper URL. Possible outcomes:
-
-- **A response (any HTTP status)** — the wrapper is running and reachable. If MeedyaDL still fails, double-check the URL matches exactly.
-- **"Connection refused"** — the host is reachable but nothing is listening on that port. The wrapper process may not be running, or it's on a different port.
-- **"Connection timed out" / no response** — the host is not reachable. Check network, firewall, or IP address.
-- **"Could not resolve host"** — the hostname/IP is wrong. Verify the address.
-
-#### Step 3 — Check the wrapper is running on the host
-
-SSH into the wrapper host (or open a terminal locally) and check:
-
-**Docker:**
-\`\`\`
-docker ps | grep wrapper
-\`\`\`
-If no output, the container isn't running. Start it with \`docker start <container_name>\` or \`docker compose up -d\`.
-
-Check container logs for errors:
-\`\`\`
-docker logs <container_name> --tail 50
-\`\`\`
-
-**Native (systemd):**
-\`\`\`
-systemctl status wrapper
-\`\`\`
-
-**Native (manual):**
-\`\`\`
-ps aux | grep wrapper
-\`\`\`
-
-If the process isn't running, start it according to the wrapper's own documentation.
-
-#### Step 4 — Check the port is open (remote setups)
-
-If the wrapper is on a different machine, the port must be accessible over the network.
-
-**On the wrapper host**, check the port is listening:
-\`\`\`
-ss -tlnp | grep 30020
-\`\`\`
-or:
-\`\`\`
-netstat -tlnp | grep 30020
-\`\`\`
-
-You should see the wrapper listening on \`0.0.0.0:30020\` (all interfaces) or your LAN IP. If it only shows \`127.0.0.1:30020\`, the wrapper is only accepting local connections — you'll need to configure it to bind to \`0.0.0.0\` or the LAN interface.
-
-**Docker port mapping:** ensure the container maps the port to the host. Check with:
-\`\`\`
-docker port <container_name>
-\`\`\`
-You should see \`30020/tcp -> 0.0.0.0:30020\`. If not, recreate the container with \`-p 30020:30020\`.
-
-#### Step 5 — Check firewall rules
-
-**Linux (ufw):**
-\`\`\`
-sudo ufw status
-sudo ufw allow 30020/tcp
-\`\`\`
-
-**Linux (iptables):**
-\`\`\`
-sudo iptables -L -n | grep 30020
-\`\`\`
-
-**macOS:** Check System Settings > Network > Firewall (or \`/usr/libexec/ApplicationFirewall/socketfilterfw --listapps\`).
-
-**Windows:** Check Windows Defender Firewall > Inbound Rules for port 30020.
-
-**Router/NAT:** If the wrapper is behind a router on a different subnet, you may need port forwarding. For devices on the same LAN, this is usually not needed.
-
-#### Step 6 — Verify from MeedyaDL
-
-After resolving the issue, go back to **Settings > Advanced** and click **Test Connection**. You should see "Connected" with a latency reading. If it still fails, repeat from Step 2.
-
-## Cookie Auth vs Wrapper
-
-| Feature | Cookie Auth | Wrapper |
-|---------|-------------|---------|
-| Setup difficulty | Easy (browser extension export) | Advanced (local server) |
-| Dolby Atmos access | Sometimes unreliable | More reliable |
-| Session duration | Cookies expire periodically | Persistent while server runs |
-| Dependencies | None (cookies file only) | Wrapper service |
-| Platform support | All platforms | Linux x86_64 (native) or remote/Docker |
-| Recommended for | Most users | Advanced users needing reliable Atmos access |
-
-## Auto-Retry without Wrapper
-
-When a wrapper download fails (all retries and fallbacks exhausted), MeedyaDL normally shows a **"Retry without Wrapper"** button on the failed queue item. Clicking it re-queues the download with wrapper disabled, falling back to cookie-based authentication.
-
-If you'd prefer this to happen **automatically**, enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled:
-
-1. A wrapper download fails terminally (all retries exhausted)
-2. MeedyaDL automatically re-queues the item with wrapper disabled
-3. The Activity Log shows "Wrapper failed — auto-retrying without wrapper"
-4. The download retries with cookie-based authentication — no manual intervention needed
-
-This is particularly useful if your wrapper service is intermittently unavailable and you want downloads to proceed regardless.
-
-## Settings Reference
-
-| Setting | Location | Default |
-|---------|----------|---------|
-| Use Wrapper | Settings > Advanced | Off |
-| Auto-Retry without Wrapper | Settings > Advanced | Off |
-| Wrapper Account URL | Settings > Advanced | \`http://127.0.0.1:30020\` |`,
-  },
-  {
-    id: 'audio-codecs',
-    label: 'Audio Codecs',
-    icon: Music,
-    content: `# Audio Codecs
-
-Understanding the differences between audio codecs helps you choose the right balance between quality, file size, and device compatibility. This guide explains each option in plain language.
-
----
-
-## Reliability Notice
-
-Most audio codecs are marked **(Experimental)** in the codec selector. This means they may fail intermittently when using cookie-based authentication. **On GAMDL versions before 3.8**, only two codecs are reliably downloadable without the Wrapper service:
-
-- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies
-- **AAC-HE Legacy** (64kbps) — reliable with cookies
-
-### On GAMDL 3.8 and newer, most of that changes
-
-GAMDL 3.8 added a new HLS asset endpoint that lets every codec except **ALAC (Lossless)** download with cookie-based authentication alone — including **Dolby Atmos** and **AC3**, which previously needed the Wrapper on every earlier release. Codecs are still labelled **(Experimental)** regardless of GAMDL version — they can still fail intermittently — but on GAMDL 3.8+ only ALAC actually depends on the Wrapper for reliable downloads. See [Wrapper Authentication](wrapper.md) for the full version-by-version breakdown.
-
-All other codecs — including ALAC (Lossless), Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures with experimental codecs, consider:
-
-1. **Retrying** — failures are intermittent, a retry may succeed
-2. **Enabling the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Using the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — provides more reliable access (Linux x86_64 only, see Help > Wrapper)
-
----
-
-## The Main Codecs Explained
-
-### ALAC — Lossless (Apple Lossless Audio Codec)
-
-ALAC is the highest-quality audio option. It compresses audio without losing any data — the decoded audio is identical to the original studio master. Think of it like a ZIP file for music: smaller than the raw source, but nothing is thrown away.
-
-- **Quality:** Bit-for-bit identical to the source. Available in CD quality (16-bit/44.1kHz), studio quality (24-bit/48kHz), Hi-Res (24-bit/96kHz), and maximum resolution (24-bit/192kHz)
-- **File size:** ~5 MB/min (CD quality) to ~15 MB/min (24-bit/192kHz) — roughly 2.5–7× larger than AAC
-- **Compatibility:** All Apple devices, iTunes, and many third-party players. Some non-Apple devices may need conversion to FLAC
-- **Best for:** Audiophile listening, high-quality speakers/headphones, archival. If you want the absolute best quality and have the storage space, this is the one to choose
-
-### Dolby Atmos — Spatial Audio
-
-Dolby Atmos is an immersive audio format that places sounds in 3D space around you. Instead of traditional stereo (left/right), Atmos positions individual instruments and sounds as "objects" that your playback system renders all around and above you. The result is a more enveloping, cinematic listening experience.
-
-- **Quality:** Depends on the spatial mix — can be stunning on compatible hardware. Encoded as Enhanced AC-3 (EC-3)
-- **File size:** Varies by complexity of the spatial mix
-- **Compatibility:** Requires Atmos-compatible hardware for the full experience — AirPods Pro, AirPods Max, AirPods 3rd gen+, Dolby Atmos soundbars, AV receivers, and supported speakers. On unsupported devices, it plays as a standard stereo or surround downmix
-- **Best for:** Listening through AirPods Pro/Max or a Dolby Atmos home theatre. If you have compatible headphones, Atmos tracks can sound dramatically more spacious and immersive than stereo
-
-### AC3 — Dolby Digital (Surround Sound)
-
-AC3 (also called Dolby Digital) is the classic surround-sound format used in DVDs and home theatres since the 1990s. It delivers up to 5.1 channels: front left, centre, front right, surround left, surround right, plus a subwoofer channel.
-
-- **Quality:** Lossy compression, but designed for surround sound with up to 5.1 channels
-- **File size:** Moderate — roughly comparable to AAC
-- **Compatibility:** Universally supported by AV receivers, soundbars, and home theatre systems. Less common on phones and portable devices
-- **Best for:** Playing through a traditional surround-sound speaker setup (5.1 or 7.1). If you have an AV receiver or soundbar, AC3 will give you multichannel audio without needing Atmos hardware
-
-### AAC — Standard (256 kbps)
-
-AAC (Advanced Audio Coding) at 256 kbps is Apple Music's standard lossy format. It discards audio data that is theoretically inaudible to achieve much smaller file sizes. At 256 kbps, most listeners cannot distinguish it from lossless in a blind test.
-
-- **Quality:** Very good. Transparent to most listeners in everyday environments
-- **File size:** ~2 MB/min — the smallest files of the main codecs
-- **Compatibility:** Universal. Plays on every device, operating system, browser, and media player
-- **Best for:** Everyday listening, phones, portable devices, limited storage. This is the sensible default if you don't have strong feelings about audio quality
-
-### AAC Binaural
-
-AAC Binaural takes a Dolby Atmos or spatial audio mix and renders it as a two-channel stereo signal specifically processed for headphone listening. It simulates the 3D positioning of Atmos using psychoacoustic techniques (head-related transfer functions), so you hear spatial depth and width through ordinary stereo headphones.
-
-- **Quality:** 256 kbps lossy, but with spatial processing applied. Not the same as standard stereo — it's designed to trick your ears into perceiving surround sound
-- **File size:** Similar to standard AAC (~2 MB/min)
-- **Compatibility:** Plays on any device as a standard stereo .m4a file
-- **Best for:** Experiencing spatial audio through regular wired or wireless headphones that don't support Atmos natively. If you want the "immersive" feel but your headphones aren't AirPods Pro/Max, this is the next best thing
-
-### AAC Legacy (256 kbps, 44.1 kHz)
-
-An older AAC encoding profile capped at 44.1 kHz sample rate. Functionally identical to standard AAC for most content, but uses a legacy encoding path designed for maximum compatibility with vintage hardware.
-
-- **Best for:** Older iPods, early-generation media players, or any device that struggles with standard AAC. Only use this if you have playback issues on older equipment
-
-### Experimental Codecs
-
-All codecs except **AAC Legacy** and **AAC-HE Legacy** are marked as **(Experimental)**. This includes the main codecs above (ALAC, Dolby Atmos, AC3, AAC, AAC Binaural) as well as the following niche variants:
-
-- **AAC-HE** — High Efficiency AAC at ~48–96 kbps. Much smaller files but audibly lower quality
-- **AAC Downmix** — Surround-to-stereo downmix without binaural processing (a "flat" stereo fold-down)
-- **AAC-HE Binaural** — AAC-HE combined with binaural rendering
-- **AAC-HE Downmix** — AAC-HE combined with stereo downmix
-
-The "Experimental" label indicates that these codecs may fail intermittently when using cookie-based authentication. The Wrapper service provides more reliable access to all codec types — see Help > Wrapper for details.
-
----
-
-## Pros & Cons Comparison
-
-| Codec | Pros | Cons |
-| ----- | ---- | ---- |
-| **ALAC (Lossless)** | Perfect quality, no data lost; supports Hi-Res up to 24-bit/192kHz; great for archival | Large files (2.5–7× bigger than AAC); requires more storage; overkill for casual listening |
-| **Dolby Atmos** | Immersive 3D spatial audio; stunning on compatible hardware; reveals details stereo cannot | Requires Atmos-compatible headphones/speakers for full effect; falls back to flat stereo on unsupported devices; not all tracks have Atmos mixes |
-| **AC3 (Dolby Digital)** | True multichannel surround (5.1); universally supported by home theatre gear | Lossy compression; limited to 5.1 channels; not useful on phones/headphones; fewer tracks available in AC3 than AAC |
-| **AAC (256 kbps)** | Universal compatibility; tiny files (~2 MB/min); indistinguishable from lossless for most listeners | Lossy — discards some audio data permanently; not ideal for archival or high-end listening |
-| **AAC Binaural** | Simulated spatial audio through any stereo headphones; same small file size as AAC | Lossy; spatial simulation is approximate — not as good as native Atmos on compatible hardware; only useful with headphones, not speakers |
-
----
-
-## Which Should I Choose?
-
-There are two main goals when choosing a codec, and each has its own recommended setup:
-
-### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
-
-If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Quality.
-
-ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain (e.g., AAC 256 kbps) so you always get a download.
-
-**Choose ALAC if:** you listen on quality speakers or headphones, you want the best your equipment can reproduce, or you want to build a future-proof archive. ALAC files are larger (2.5–7× bigger than AAC), so make sure you have the storage space.
-
-### Recommendation 2: Immersive Spatial/Multichannel Audio → Dolby Atmos
-
-If your priority is **immersive, three-dimensional audio** — hearing instruments and sounds placed all around you in 3D space — choose **Dolby Atmos** as your default codec and enable the **fallback chain**.
-
-Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
-
-**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Quality) so you also get a lossless copy of every track alongside the Atmos version.
-
-### Which One Is Right for Me?
-
-| Priority | Recommended Codec | Why |
-| -------- | ----------------- | --- |
-| Raw quality, perfect reproduction | **ALAC** | Bit-for-bit identical to the studio master. No data lost. Best for quality speakers, headphones, and archival |
-| Immersive spatial/3D audio | **Dolby Atmos** | 3D object-based positioning. Instruments surround you. Best for AirPods Pro/Max and Atmos systems |
-
-If you care about **both**, set Dolby Atmos as your default with a Companion Download of ALAC. You'll get the spatial experience on compatible tracks and a lossless backup for everything.
-
-### Other Scenarios
-
-- **"I have a surround-sound system but not Atmos"** → Choose **AC3** (Dolby Digital) for 5.1 multichannel content.
-- **"I just want it to work everywhere"** → Choose **AAC** (256 kbps). Smallest files, plays on everything, sounds great.
-- **"I want spatial audio but my headphones aren't AirPods"** → Choose **AAC Binaural**. You'll get simulated 3D audio through any standard headphones.
-
-For more details on fallback behaviour, see the Fallback Quality section.`,
-  },
-  {
-    id: 'video',
-    label: 'Music Videos',
-    icon: Video,
-    content: `# Music Videos
-
-## Video Quality
-
-Available resolutions (highest to lowest):
-- **2160p** (4K Ultra HD)
-- **1440p** (QHD)
-- **1080p** (Full HD)
-- **720p** (HD)
-- **540p** (qHD)
-- **480p** (SD)
-- **360p** (Low)
-- **240p** (Lowest)
-
-## Video Codecs
-
-Configure codec priority in **Settings > Quality**:
-- **H.265/HEVC** - Better quality at smaller file sizes (recommended)
-- **H.264/AVC** - More compatible, larger file sizes
-
-## Remux Format
-
-Choose the container format in **Settings > Quality**:
-- **M4V** - Apple standard format
-- **MP4** - Universal compatibility
-- **MKV** - Matroska (supports more features)`,
-  },
-  {
-    id: 'animated-artwork',
-    label: 'Animated Artwork',
-    icon: Film,
-    content: `# Animated Artwork
-
-MeedyaDL can automatically download **animated cover art** (motion artwork) from Apple Music. These are short looping videos used as album artwork.
-
-## Requirements
-
-1. **A free Apple Developer account** (no paid membership required)
-2. **A MusicKit key** created in the Apple Developer portal
-3. **FFmpeg** installed (handled by MeedyaDL's setup wizard)
-
-## Setup Guide
-
-### Step 1: Create an Apple Developer Account
-
-Sign up at [developer.apple.com](https://developer.apple.com) using any Apple Account. Accept the Apple Developer Agreement when prompted. The **free tier** is all you need.
-
-### Step 2: Create a MusicKit Key
-
-1. Sign in to the [Apple Developer Portal](https://developer.apple.com/account)
-2. Go to **Certificates, Identifiers & Profiles** (under Program resources)
-3. Click **[Keys](https://developer.apple.com/account/resources/authkeys/list)** in the left sidebar
-4. Click the **+** button to create a new key
-5. Enter a name (e.g., "MeedyaDL"), check **MusicKit** or **(Media Services (MusicKit, ShazamKit, Apple Music Feed))**, then click **Continue** > **Register**
-
-### Step 3: Download Your Private Key
-
-After registering, click **Download** to save the \`.p8\` file. Note the **Key ID** shown on this page.
-
-> **Warning:** Apple only lets you download the \`.p8\` file **once**. Save it somewhere safe. If lost, you must revoke and recreate the key.
-
-### Step 4: Find Your Team ID
-
-Your **Team ID** is a 10-character code found on the **Membership** page in the Apple Developer portal, or in the top-right corner of some portal pages.
-
-### Step 5: Extract the Private Key Content
-
-1. Open the \`.p8\` file in any plain text editor (TextEdit, Notepad, etc.)
-2. The content looks like:
-
-\`\`\`text
------BEGIN PRIVATE KEY-----
-MIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQg...
------END PRIVATE KEY-----
-\`\`\`
-
-3. **Select all** and **copy** the entire content, including the BEGIN/END lines
-
-### Step 6: Configure MeedyaDL
-
-1. Go to **Settings > Cover Art**
-2. Enable **"Download Animated Cover Art"**
-3. Enter your **Team ID** and **Key ID**
-4. Paste the private key content into the **"MusicKit Private Key"** textarea
-5. Click **"Save to Keychain"** -- the key is stored securely in your OS keychain
-6. Click **Save**
-
-## Choosing a Resolution
-
-Apple's animated artwork is delivered as an HLS stream with several resolution renditions, similar to how a video streaming service offers multiple quality tiers of the same clip. The **Animated Artwork Resolution** setting in **Settings > Cover Art** (shown once "Download Animated Cover Art" is enabled) controls which rendition MeedyaDL requests:
-
-| Option | Target | Notes |
-|--------|--------|-------|
-| **Standard (~1080p, recommended)** | Caps at ~1080p | Default. Smallest files -- indistinguishable from higher renditions at the sizes artwork is normally displayed |
-| **High (~2160p / 4K)** | Caps at ~2160p | Noticeably larger files for a quality difference most people won't notice |
-| **Maximum (highest available, largest files)** | No cap | Always downloads the highest-resolution rendition Apple offers, regardless of size -- MeedyaDL's behaviour before this setting existed |
-
-Higher resolution means a larger file -- a few MB difference per video adds up quickly across a large library, so **Standard** is the recommended default unless you have a specific reason to want the largest available rendition.
-
-## Troubleshooting
-
-- **"Invalid MusicKit private key"** -- Make sure you copied the complete key including the \`-----BEGIN PRIVATE KEY-----\` and \`-----END PRIVATE KEY-----\` lines
-- **Lost your \`.p8\` file** -- Revoke the old key in the Developer portal and create a new one (Step 2)
-- **No animated artwork downloaded** -- Not all albums have animated artwork. MeedyaDL silently skips albums without it`,
-  },
-  {
-    id: 'troubleshooting',
-    label: 'Troubleshooting',
-    icon: HelpCircle,
-    content: `# Troubleshooting
-
-## Common Issues
-
-### "Authentication Failed" / Cookie Errors
-- Your cookies may have expired. Export fresh cookies from your browser
-- Make sure you're logged into music.apple.com before exporting
-- Verify cookies using **Settings > Cookies > Validate**
-
-### "Codec Not Available"
-- Not all tracks are available in all codecs
-- Enable the fallback chain in **Settings > Quality**
-- ALAC (lossless) has the widest availability
-
-### Downloads Stuck at 0%
-- Check your internet connection
-- Try cancelling and re-adding the download
-- Check if FFmpeg is properly installed in **Settings > Tools**
-
-### "Tool Not Found" Errors
-- Re-run the setup wizard from **Settings > General**
-- Or manually set tool paths in **Settings > Tools**
-- Already installed a tool via Homebrew, apt, dnf, pipx, Scoop or another package manager? MeedyaDL reuses it in place (shown with a **Homebrew** / **System** badge) instead of downloading a duplicate, and can update it through that package manager from the Updates page
-
-### Python Stopped Working After a System Update
-- If you set MeedyaDL up to reuse a Python already on your system and later upgrade or move it (for example \`brew upgrade python\`), the shared environment can break
-- Re-open the setup wizard's **Python** step: MeedyaDL detects this and offers a one-click **Rebuild** from your current Python, instead of just saying "Python not found"
-
-### Application Won't Start
-- Delete the settings file from the app data directory and restart
-- On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/
-- On Windows: %APPDATA%/com.meedyasuite.meedyadl/
-- On Linux: ~/.local/share/com.meedyasuite.meedyadl/
-
-### A Feature Says "Temporarily Unavailable"
-- This is deliberate and temporary — occasionally we pause a feature for everyone while we investigate something
-- Nothing is wrong with your installation, and there is nothing you need to do
-- The feature returns automatically once it is switched back on; the rest of the app keeps working
-- Being offline never causes this — if the app can't check in, it keeps its last known state
-- If a whole download service is paused, MeedyaDL won't start new downloads for it and will explain why — anything already downloading finishes normally, and other services keep working`,
-  },
-  {
-    id: 'disclaimer',
-    label: 'Disclaimer',
-    icon: ShieldAlert,
-    content: `# Disclaimer
-
-## Important Notice
-
-MeedyaDL is provided "as is" without warranty of any kind, express or implied.
-
-### Third-Party Dependencies
-
-MeedyaDL relies on several third-party libraries and services to function, including but not limited to:
-
-- **GAMDL** — the core download engine
-- **Python** — runtime environment for GAMDL
-- **FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo** — media processing tools
-
-These are independent projects maintained by their respective developers. Changes to these projects may affect MeedyaDL's functionality.
-
-### No Guarantees
-
-- Quality of service, features, and performance are **not guaranteed**
-- Third-party services may change, become unavailable, or cease to function at any time
-- While we endeavour to provide updates and fixes, this **cannot be guaranteed**
-- The developers accept **no liability** for loss of functionality, data, or service
-
-### Your Responsibility
-
-By using MeedyaDL, you acknowledge and accept that:
-
-- You are responsible for complying with all applicable laws and terms of service
-- Downloaded content is for personal use in accordance with your existing subscriptions
-- The developers are not responsible for how the software is used
-
-### License
-
-MeedyaDL is licensed under the MIT License. See the LICENSE file for full details.`,
-  },
-  {
-    id: 'about',
-    label: 'About',
-    icon: FileText,
-    // Content uses {{VERSION}} placeholder, replaced at runtime with the
-    // actual app version from tauri.conf.json via getVersion().
-    content: `# About MeedyaDL
-
-**Version** v{{VERSION}}
-
-A multiplatform media downloader desktop application. Currently supports Apple Music via GAMDL, with planned support for additional services.
-
-<details>
-<summary><strong>Credits</strong></summary>
-
-- **GAMDL** by glomatico — The Apple Music download engine
-- **Tauri** — Cross-platform desktop framework
-- **React** — User interface library
-- **TypeScript** — Type-safe JavaScript
-- **Rust** — Backend systems language
-- **Tailwind CSS** — Utility-first CSS framework
-- **Zustand** — Lightweight state management
-- **Vite** — Frontend build tooling
-
-</details>
-
-<details>
-<summary><strong>License</strong></summary>
-
-Copyright (c) 2026 MeedyaSuite
-
-Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
-
-</details>
-
-<details>
-<summary><strong>Links</strong></summary>
-
-- MeedyaDL: [g2my.link/MeedyaDL](https://g2my.link/MeedyaDL)
-- GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)
-- Report Issues: [GitHub Issues](https://github.com/MWBMPartners/MeedyaDL/issues)
-
-</details>
-
-<details>
-<summary><strong>Open Source Acknowledgements</strong></summary>
-
-MeedyaDL is built on top of many open-source projects. The full inventory of every direct dependency, its licence, and its purpose lives in the \`ACKNOWLEDGEMENTS.md\` file bundled inside this build (#802). Expand below to read it inline without leaving the app.
-
-<details>
-<summary><em>Show full acknowledgements (ACKNOWLEDGEMENTS.md)</em></summary>
-
-{{ACKNOWLEDGEMENTS_MD}}
-
-</details>
-
-</details>
-
-<details>
-<summary><strong>Third-Party Licences</strong></summary>
-
-The verbatim upstream copyright notices and licence text for every external engine and tool MeedyaDL invokes or bundles (GAMDL, FFmpeg, MP4Box, MediaInfo, mp4decrypt, N_m3u8DL-RE, Python, etc.) — plus the LGPL/GPL written offer for source code that applies to the offline-installer build — are reproduced verbatim from upstream in the \`THIRD_PARTY_LICENSES.md\` file bundled inside this build. Expand to read.
-
-<details>
-<summary><em>Show full third-party licences (THIRD_PARTY_LICENSES.md)</em></summary>
-
-{{THIRD_PARTY_LICENSES_MD}}
-
-</details>
-
-</details>
-
-<details>
-<summary><strong>Dependencies</strong></summary>
-
-{{COMPONENT_VERSIONS}}
-
-</details>`,
-  },
-  {
-    id: 'keyboard-shortcuts',
-    label: 'Keyboard Shortcuts',
-    icon: Keyboard,
-    content: `# Keyboard Shortcuts
-
-## Application Shortcuts
-
-MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
-
-| Shortcut | Action |
-|----------|--------|
-| **Cmd/Ctrl + D** | Go to Download page and focus URL input |
-| **Cmd/Ctrl + Q** | Open Queue |
-| **Cmd/Ctrl + L** | Open Library |
-| **Cmd/Ctrl + H** | Open History |
-| **Cmd/Ctrl + K** | Open Activity |
-| **Cmd/Ctrl + ,** | Open Settings |
-| **Enter** | Start download (when URL input is focused; Shift+Enter inserts a new line instead) |
-| **Cmd/Ctrl + Shift + .** | Abort every active and queued download |
-| **Cmd/Ctrl + Shift + ?** | Open this keyboard-shortcuts reference from anywhere |
-| **Escape** | Close active modal/dialog |
-
-### Notes
-
-- On **macOS**, use the **Cmd (⌘)** key as the modifier.
-- On **Windows** and **Linux**, use the **Ctrl** key.
-- Shortcuts are disabled when typing in text inputs, textareas, or dropdown menus to avoid interference.
-- **Cmd/Ctrl + D** also selects all text in the URL input for quick replacement.
-
-### Modal Shortcuts
-
-When a modal dialog is open (e.g., Crash Report, file picker):
-- **Escape** closes the modal and returns focus to the main content.
-- Tab key cycles through focusable elements within the modal (focus trapping).
-
-### Accessibility
-
-- **Tab** moves focus forward through interactive elements.
-- **Shift + Tab** moves focus backward.
-- **Skip to main content** link appears on first Tab press (top-left corner).`,
-  },
-  {
-    id: 'supported-services',
-    label: 'Supported Services',
-    icon: Globe,
-    content: `# Supported Services
-
-MeedyaDL supports downloading from multiple media services. Each service uses a dedicated download engine.
-
-## Apple Music
-
-**Engine:** [GAMDL](https://github.com/glomatico/gamdl) (installed via pip)
-
-Apple Music is the primary and most feature-rich service in MeedyaDL. It supports:
-
-- Songs, albums, playlists, music videos, and artist pages
-- Lossless (ALAC), Dolby Atmos, and AAC audio codecs
-- Enhanced LRC lyrics with word-by-word synchronization
-- Animated artwork download
-- Content advisory suffixes ([Explicit]/[Clean])
-- Smart re-download detection
-- Companion downloads (e.g., download both Atmos and Lossless versions)
-
-**Authentication:** Requires Apple Music cookies (imported from your browser or via the built-in login window).
-
-**Accepted URLs:**
-- \`https://music.apple.com/{region}/album/...\`
-- \`https://music.apple.com/{region}/playlist/...\`
-- \`https://music.apple.com/{region}/artist/...\`
-- \`https://classical.apple.com/...\` (Apple Music Classical)
-- \`https://itunes.apple.com/...\` (legacy)
-
----
-
-## Spotify (Planned - v2.1.0)
-
-**Engine:** [Votify](https://github.com/glomatico/votify) (installed via pip)
-
-Spotify support will include:
-
-- Songs, albums, and playlists
-- Ogg Vorbis audio format
-- Lyrics download
-
-**Authentication:** Will require Spotify Premium cookies.
-
-**URL acceptance:** MeedyaDL's download form already accepts \`open.spotify.com\` links today — pasting one queues it and routes it through Spotify's own eligibility checks (developer access, consent, and a daily cap) rather than rejecting it as unsupported. Full Spotify feature parity with Apple Music remains Milestone M9.
-
-**Accepted URLs:**
-- \`https://open.spotify.com/track/...\`
-- \`https://open.spotify.com/album/...\`
-- \`https://open.spotify.com/playlist/...\`
-
----
-
-## YouTube / YouTube Music (Planned - v2.2.0)
-
-**Engine:** [yt-dlp](https://github.com/yt-dlp/yt-dlp) (installed via pip)
-
-YouTube support will include:
-
-- Videos, playlists, and channels
-- Multiple video resolutions (up to 4K)
-- Audio-only extraction
-- Subtitle download
-
-**Accepted URLs:**
-- \`https://youtube.com/watch?v=...\`
-- \`https://youtu.be/...\`
-- \`https://music.youtube.com/watch?v=...\`
-
----
-
-## BBC iPlayer (Planned - v2.0.0)
-
-**Engines:** [get_iplayer](https://github.com/get-iplayer/get_iplayer) (primary) / [yt-dlp](https://github.com/yt-dlp/yt-dlp) (fallback)
-
-BBC iPlayer is the first service with **engine fallback**: if get_iplayer fails, MeedyaDL automatically tries yt-dlp.
-
-- TV programmes and radio shows
-- Region-restricted (UK VPN may be required)
-
-**Accepted URLs:**
-- \`https://bbc.co.uk/iplayer/...\`
-- \`https://bbc.co.uk/sounds/...\`
-
----
-
-## Engine Fallback System
-
-Some services support multiple download engines. When the primary engine fails with a tool error (binary missing, crash, or unsupported format), MeedyaDL automatically tries the next engine in the priority order.
-
-**Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
-
-The engine priority for each service is defined in \`engines.toml\` and can be customised in Settings.
-
-## When a Service or Feature Is Temporarily Paused
-
-Very occasionally we may pause a service or feature for all users while we investigate something on the provider's side. MeedyaDL shows an in-app notice when this happens — it is deliberate and temporary, not a fault in your installation, and the feature returns automatically once re-enabled. A paused service won't accept new downloads until it returns; anything already downloading finishes normally. See **Troubleshooting** for details.`,
-  },
-  {
-    id: 'release-channels',
-    label: 'Release Channels',
-    icon: GitBranch,
-    content: `# Release Channels
-
-MeedyaDL publishes builds on four channels, ordered from **least** to **most** stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
-
-## The four channels
-
-| Channel | Cadence | Version suffix | Who it's for |
-| --- | --- | --- | --- |
-| **Alpha** | Ad-hoc | \`-alpha.N\` | Feature-complete previews with known rough edges. Hidden from the channel picker unless developer access is unlocked. |
-| **Beta** | Ad-hoc | \`-beta.N\` | Polishing-stage features, closer to Stable than Alpha. |
-| **RC** (Release Candidate) | Ad-hoc | \`-rc.N\` | Final validation pass before a Stable release. |
-| **Stable** | Release-please merge | _(no suffix)_ | Most users — production-ready. |
-
-Picking a channel opts you into everything at least that stable: choosing Beta also lets Stable and RC releases reach you, but nothing less stable than Beta.
-
-## Switching channels
-
-1. Open **Settings > General > Updates**.
-2. Pick a channel from the **Update Channel** dropdown.
-3. Save. The next update check will use the new channel.
-
-Switching to a less-stable channel is always an explicit choice. Switching back up is equally explicit.
-
-## The auto-update guard
-
-MeedyaDL will **never auto-downgrade your stability tier**:
-
-- The update check only ever surfaces a release from your selected channel (or a more stable one) — a Stable install will not be offered an Alpha build.
-- If an update URL or deep link points at a less-stable build than your current channel, the installer refuses to apply it and shows a clear error. Change channel first if you genuinely want that build.
-
-## Which channel should I use?
-
-- **Stable** — the default. Pick this unless you have a reason not to.
-- **RC** — helps catch problems in the last build before it becomes Stable.
-- **Beta** — helps catch regressions a bit earlier, before they reach RC.
-- **Alpha** — only if you are comfortable filing bug reports and rolling back to a working build. Expect regressions. Requires developer access to select.
-
-## Reporting problems on pre-release builds
-
-When reporting an issue for any pre-release channel, please include:
-
-- The **exact version** from *Settings > About* (e.g., \`1.13.0-alpha.56\`).
-- Your selected **Update Channel**.
-- Reproduction steps and any relevant log output.`,
-  },
-];
+// The loaded help pages (content read from help/*.md, see that file for
+// the full explanation) plus the "About" build-info builder and the
+// HelpTopicId type used to keep the active-topic state honest.
+import { HELP_TOPICS, buildAboutBuildSection, type HelpTopicId } from './helpTopics';
 
 /**
  * Detects whether the user is on macOS so we can display the correct
@@ -1248,7 +226,7 @@ function HighlightedLabel({ label, query }: { label: string; query: string }) {
  */
 export function HelpViewer() {
   /** Tracks which help topic is currently displayed in the content viewer */
-  const [activeTopic, setActiveTopic] = useState('getting-started');
+  const [activeTopic, setActiveTopic] = useState<HelpTopicId>('getting-started');
 
   /** Tracks the current search input value for filtering the sidebar topics */
   const [searchQuery, setSearchQuery] = useState('');
@@ -1259,17 +237,17 @@ export function HelpViewer() {
   const [componentVersions, setComponentVersions] = useState('*Loading...*');
   /**
    * Verbatim content of `ACKNOWLEDGEMENTS.md` (#802). Embedded into the
-   * binary via `include_str!()` and surfaced through the legal IPC. The
-   * placeholder `{{ACKNOWLEDGEMENTS_MD}}` in the About topic gets
-   * replaced with this string at render time. `*Loading…*` is the
-   * pre-load fallback so the section never renders an empty block.
+   * binary via `include_str!()` and surfaced through the legal IPC. Fed
+   * into `buildAboutBuildSection()` below to fill in the About topic's
+   * "Open Source Acknowledgements" section at render time. `*Loading…*`
+   * is the pre-load fallback so the section never renders an empty block.
    */
   const [acknowledgementsMd, setAcknowledgementsMd] = useState('*Loading…*');
   /**
    * Verbatim content of `THIRD_PARTY_LICENSES.md` (#802) — the actual
    * MIT/BSD/LGPL/GPL/PSF licence text + source offers for bundled
-   * components. Placeholder `{{THIRD_PARTY_LICENSES_MD}}` in the
-   * About topic gets replaced with this at render time.
+   * components. Fed into `buildAboutBuildSection()` below to fill in the
+   * About topic's "Third-Party Licences" section at render time.
    */
   const [thirdPartyLicensesMd, setThirdPartyLicensesMd] = useState('*Loading…*');
   useEffect(() => {
@@ -1322,10 +300,16 @@ export function HelpViewer() {
    */
   useEffect(() => {
     if (helpActiveTopic) {
-      // Only navigate if the topic exists in our list
-      const exists = HELP_TOPICS.some((t) => t.id === helpActiveTopic);
-      if (exists) {
-        setActiveTopic(helpActiveTopic);
+      // Only navigate if the topic exists in our list. helpActiveTopic is
+      // typed as HelpTopicId (see uiStore.ts), which already stops a
+      // mistyped or renamed page id from compiling anywhere a HelpButton
+      // is written -- this find() is a second, defensive check for a
+      // value that reached the store some other way (a deep link parsed
+      // from outside React, for instance), so it stays a silent no-op
+      // instead of a broken active-topic state rather than throwing.
+      const target = HELP_TOPICS.find((t) => t.id === helpActiveTopic);
+      if (target) {
+        setActiveTopic(target.id);
       }
       clearHelpActiveTopic();
     }
@@ -1337,7 +321,7 @@ export function HelpViewer() {
    * This is memoized because isMacPlatform() accesses navigator, and
    * we only need to evaluate it once per component mount.
    */
-  const modifierKey = useMemo(() => (isMacPlatform() ? '\u2318' : 'Ctrl'), []);
+  const modifierKey = useMemo(() => (isMacPlatform() ? '⌘' : 'Ctrl'), []);
 
   /**
    * Filters HELP_TOPICS based on the current searchQuery.
@@ -1378,7 +362,7 @@ export function HelpViewer() {
    * Updates the active topic state so the content viewer shows
    * the selected topic's markdown.
    */
-  const handleTopicSelect = useCallback((topicId: string) => {
+  const handleTopicSelect = useCallback((topicId: HelpTopicId) => {
     setActiveTopic(topicId);
   }, []);
 
@@ -1404,6 +388,26 @@ export function HelpViewer() {
    * Used to conditionally render the result count and clear button.
    */
   const isSearchActive = searchQuery.trim().length > 0;
+
+  /**
+   * The Markdown text to actually render for the active topic.
+   *
+   * Every topic except "About" is just its file's content, unchanged.
+   * "About" is the one page whose content can't be fully known until
+   * the app is running (see the file-level comment above), so its
+   * file content is followed by a build-info section assembled from
+   * live data -- the app version and the three pieces of licence/tool
+   * text fetched by the effect above.
+   */
+  const markdown =
+    topic.id === 'about'
+      ? `${topic.content}\n\n${buildAboutBuildSection({
+          version: appVersion,
+          componentVersionsTable: componentVersions,
+          acknowledgementsMd,
+          thirdPartyLicencesMd: thirdPartyLicensesMd,
+        })}`
+      : topic.content;
 
   return (
     <div className="flex flex-col h-full">
@@ -1581,31 +585,82 @@ export function HelpViewer() {
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}
               components={{
-                // Custom link handler:
-                //  - Internal links (#topic-id) navigate within the help viewer
-                //  - External links (http/https) open in the system browser
+                // Custom link handler. Help pages carry three different
+                // kinds of link, and each needs different handling inside
+                // a Tauri WebView (which has no browser chrome to fall
+                // back on -- a navigation that "fails" just leaves the
+                // user staring at a blank window):
+                //
+                //  1. `#topic-id` -- an anchor naming another help topic
+                //     by id. Handled within the viewer: switches the
+                //     active topic instead of scrolling (there's nothing
+                //     to scroll to; the target topic isn't on screen).
+                //  2. `some-page.md` / `./some-page.md`, optionally with
+                //     a `#fragment` -- a relative link from one help page
+                //     to another, written the way it needs to be for the
+                //     pages to also read correctly as plain files on
+                //     GitHub. This is the fix this handler exists for:
+                //     previously these were left to the browser's default
+                //     handling, which in a WebView means navigating the
+                //     entire app window to a `help/some-page.md` URL that
+                //     doesn't resolve to anything -- the app itself
+                //     disappears, replaced by a blank page, with no way
+                //     back except restarting it. That bug is real today:
+                //     the "Audio Codecs" page links to `wrapper.md`. Any
+                //     trailing `#fragment` is ignored -- the renderer
+                //     doesn't currently give headings ids to jump to, so
+                //     there is nowhere for it to jump.
+                //  3. `http://` / `https://` -- opened in the user's
+                //     normal web browser, not inside the app.
+                //
+                // Everything else (a handful of pages link to source
+                // files in the repo, e.g. `../src-tauri/tags.toml`, for
+                // someone reading on GitHub) falls through to a final
+                // catch-all that blocks the default navigation. That
+                // catch-all is deliberately unconditional: it is the
+                // guarantee that no link, known or not-yet-written, can
+                // ever navigate the WebView away from the app.
                 a: ({ href, children, ...props }) => (
                   <a
                     {...props}
                     href={href}
                     onClick={(e) => {
                       if (!href) return;
-                      // Internal help topic link (e.g., #cookies-help)
+                      // 1. Internal help topic anchor (e.g., #cookie-management)
                       if (href.startsWith('#')) {
                         e.preventDefault();
                         const topicId = href.slice(1);
-                        if (HELP_TOPICS.some((t) => t.id === topicId)) {
-                          setActiveTopic(topicId);
+                        const target = HELP_TOPICS.find((t) => t.id === topicId);
+                        if (target) {
+                          setActiveTopic(target.id);
                         }
                         return;
                       }
-                      // External link — open in system default browser
+                      // 2. Relative link to another help page, e.g.
+                      // "cookie-management.md" or "./cookie-management.md",
+                      // optionally with a "#fragment" that we ignore.
+                      const pageLink = href.match(/^(?:\.\/)?([a-z0-9-]+)\.md(?:#[\w-]*)?$/);
+                      if (pageLink) {
+                        e.preventDefault();
+                        const target = HELP_TOPICS.find((t) => t.id === pageLink[1]);
+                        if (target) {
+                          setActiveTopic(target.id);
+                        }
+                        return;
+                      }
+                      // 3. External link — open in system default browser
                       if (href.startsWith('http://') || href.startsWith('https://')) {
                         e.preventDefault();
                         import('@tauri-apps/plugin-shell')
                           .then(({ open }) => open(href))
                           .catch(() => {});
+                        return;
                       }
+                      // Catch-all: anything not handled above (e.g. a
+                      // link into the repo's source tree) is inert rather
+                      // than left to navigate the WebView away from the
+                      // app -- see the block comment above this handler.
+                      e.preventDefault();
                     }}
                   >
                     {children}
@@ -1613,17 +668,7 @@ export function HelpViewer() {
                 ),
               }}
             >
-              {topic.content
-                .replace('{{VERSION}}', appVersion)
-                .replace('{{COMPONENT_VERSIONS}}', componentVersions)
-                // #802 — embedded ACKNOWLEDGEMENTS.md + THIRD_PARTY_LICENSES.md
-                // surfaced through the About topic. Lazy-loaded on first
-                // open of the About page, default `*Loading…*` until the
-                // IPCs resolve. Both files are `include_str!`-baked so
-                // there's no disk I/O — the lazy load is purely a
-                // first-render optimisation.
-                .replace('{{ACKNOWLEDGEMENTS_MD}}', acknowledgementsMd)
-                .replace('{{THIRD_PARTY_LICENSES_MD}}', thirdPartyLicensesMd)}
+              {markdown}
             </ReactMarkdown>
           </div>
         </div>
