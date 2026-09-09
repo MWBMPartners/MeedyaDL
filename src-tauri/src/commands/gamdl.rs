@@ -967,9 +967,14 @@ pub async fn start_download(
         app.emit("download-queued", &first_id)
             .map_err(|e| format!("Failed to emit event: {e}"))?;
 
-        if settings.auto_start_queue && !skip_auto_start.unwrap_or(false) {
-            download_queue::process_queue(app, queue_handle).await;
-        }
+        dispatch_after_enqueue(
+            &app,
+            &queue_handle,
+            settings.auto_start_queue,
+            skip_auto_start.unwrap_or(false),
+            artist_modes.len(),
+        )
+        .await;
 
         return Ok(StartDownloadResult {
             download_id: first_id,
@@ -1237,18 +1242,87 @@ pub async fn start_download(
     app.emit("download-queued", &download_id)
         .map_err(|e| format!("Failed to emit event: {e}"))?;
 
-    // Trigger queue processing if auto-start is enabled AND the caller
-    // didn't request skipping it. `skip_auto_start` is set by the frontend
-    // when the device is offline — the item is queued but not processed
-    // until the user retries or a future download triggers queue processing.
-    if settings.auto_start_queue && !skip_auto_start.unwrap_or(false) {
-        download_queue::process_queue(app, queue_handle).await;
-    }
+    dispatch_after_enqueue(
+        &app,
+        &queue_handle,
+        settings.auto_start_queue,
+        skip_auto_start.unwrap_or(false),
+        1,
+    )
+    .await;
 
     Ok(StartDownloadResult {
         download_id,
         duplicate_warning,
     })
+}
+
+/// Stops anything that is waiting for the internet on the user's behalf.
+///
+/// Called whenever the user starts the queue themselves (#1156). Once they have
+/// taken over, a watcher still waiting in the background would be both
+/// pointless and surprising — it could start the queue again later, after they
+/// had decided when it should run.
+///
+/// Safe to call when nothing is waiting; it simply does nothing.
+fn stop_waiting_for_internet(app: &tauri::AppHandle) {
+    use tauri::Manager as _;
+    app.state::<std::sync::Arc<crate::services::connectivity_watcher::ConnectivityWatcher>>()
+        .disarm();
+}
+
+/// Decides what happens after downloads have been added to the queue.
+///
+/// Three outcomes, and they used to be two duplicated `if` statements (#1156):
+///
+/// * **Start now.** The ordinary case — automatic starting is on and nothing
+///   is wrong.
+/// * **Wait for the internet.** The connection check failed, so the downloads
+///   are queued but not started. This is where the promise "will start when
+///   internet is available" is made, so this is where something has to be
+///   listening for the connection coming back. Before this existed, nothing
+///   was, and the download simply sat there.
+/// * **Do nothing.** The user has automatic starting switched off, so nothing
+///   should begin on its own. No promise is made, so nothing waits.
+///
+/// # Arguments
+///
+/// * `app` -- Used to reach the watcher and write to the activity log.
+/// * `queue` -- The download queue.
+/// * `auto_start` -- Whether the user wants downloads to begin on their own.
+/// * `offline` -- Whether these were queued because the connection check failed.
+/// * `queued` -- How many were just added, for the message.
+async fn dispatch_after_enqueue(
+    app: &tauri::AppHandle,
+    queue: &std::sync::Arc<tokio::sync::Mutex<download_queue::DownloadQueue>>,
+    auto_start: bool,
+    offline: bool,
+    queued: usize,
+) {
+    if !auto_start {
+        return;
+    }
+    if !offline {
+        download_queue::process_queue(app.clone(), queue.clone()).await;
+        return;
+    }
+    emit_app_log(
+        app,
+        &format!(
+            "No internet — {queued} download(s) queued. They will start automatically \
+             when the connection comes back."
+        ),
+    );
+    use tauri::Manager as _;
+    let watcher =
+        app.state::<std::sync::Arc<crate::services::connectivity_watcher::ConnectivityWatcher>>();
+    let shutdown = app.state::<download_queue::ShutdownSignal>();
+    crate::services::connectivity_watcher::arm(
+        (*watcher).clone(),
+        app.clone(),
+        queue.clone(),
+        std::sync::Arc::new((*shutdown).clone()),
+    );
 }
 
 /// Cancels an active or queued download.
@@ -2109,6 +2183,9 @@ pub async fn resume_queue(
     app: AppHandle,
     queue: State<'_, QueueHandle>,
 ) -> Result<bool, String> {
+    // Same as starting by hand: the user is driving now, so stop waiting for
+    // the internet on their behalf (#1156).
+    stop_waiting_for_internet(&app);
     let was_paused = {
         let mut q = queue.lock().await;
         q.resume()
@@ -2466,6 +2543,10 @@ pub async fn process_queue_manual(
     app: AppHandle,
     queue: State<'_, QueueHandle>,
 ) -> Result<(), String> {
+    // The user has taken over, so stop anything waiting for the internet on
+    // their behalf (#1156). Without this, the watcher would keep checking and
+    // could start the queue a second time later.
+    stop_waiting_for_internet(&app);
     log::info!("Manual queue processing triggered");
     emit_app_log(&app, "Queue processing started (manual)");
     let queue_handle = queue.inner().clone();

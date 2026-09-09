@@ -1020,6 +1020,14 @@ pub fn run() {
         // Fire-and-forget tasks (companions, lyrics, enrichment) poll this
         // flag between iterations and exit early when the app is closing.
         .manage(services::download_queue::ShutdownSignal::new())
+        // Waits for the internet to come back and then starts the queue, so
+        // that "will start when internet is available" is actually true
+        // (#1156). Registered here but not running: it is started only when a
+        // download is queued while the connection is down, and stops itself as
+        // soon as it has nothing left to do.
+        .manage(std::sync::Arc::new(
+            services::connectivity_watcher::ConnectivityWatcher::new(),
+        ))
         // In-process AppSettings cache (#690). Eliminates redundant
         // disk reads on the queue hot path — `load_settings_for_queue`
         // and friends now read from this cache instead of round-

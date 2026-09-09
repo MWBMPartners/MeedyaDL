@@ -94,6 +94,7 @@ import {
  */
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { offlineQueuedMessage, OFFLINE_TOAST_KEY } from '@/lib/offline-wording';
 import { useUiStore } from '@/stores/uiStore';
 /**
  * Remote feature-availability snapshot + its pure "is this service
@@ -263,6 +264,10 @@ export function DownloadForm() {
    */
   const defaultSongCodec = useSettingsStore((s) => s.settings.default_song_codec);
   const smartRedownloadDetection = useSettingsStore((s) => s.settings.smart_redownload_detection);
+  // Needed to word the offline message truthfully: someone who has switched
+  // automatic starting off must be told to press Start Queue, not told it
+  // will happen on its own (#1156).
+  const autoStartQueue = useSettingsStore((s) => s.settings.auto_start_queue);
   /** Shows a toast notification (success/error) after submission. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -649,7 +654,15 @@ export function DownloadForm() {
         const summaryMsg = parts.join(', ');
 
         if (isOffline) {
-          addToast(`${summaryMsg} — will start when internet is available`, 'warning');
+          // Keyed so the connection watcher can take it away when the
+          // internet returns, and so pasting twice does not leave two
+          // identical messages on screen (#1156).
+          addToast(
+            offlineQueuedMessage(summaryMsg, autoStartQueue),
+            'warning',
+            undefined,
+            OFFLINE_TOAST_KEY
+          );
         } else if (result.failed > 0 || multiUrlInfo.invalidCount > 0) {
           addToast(summaryMsg, 'warning');
         } else {
@@ -676,7 +689,12 @@ export function DownloadForm() {
         }
 
         if (isOffline) {
-          addToast('Download queued — will start when internet is available', 'warning');
+          addToast(
+            offlineQueuedMessage('Download queued', autoStartQueue),
+            'warning',
+            undefined,
+            OFFLINE_TOAST_KEY
+          );
         } else {
           addToast('Download added to queue', 'success');
         }
