@@ -301,21 +301,17 @@ Open **Settings > General > Updates**, pick **Stable** from the Update Channel d
 
 ### macOS shows "MeedyaDL can't be opened because Apple cannot check it for malicious software"
 
-This is macOS Gatekeeper protecting you from unverified software. MeedyaDL's pre-release builds are not yet signed with an Apple Developer ID certificate. To open MeedyaDL:
+**This should no longer happen for official releases.** MeedyaDL is signed with an Apple Developer ID and notarised by Apple, so macOS opens it normally.
 
-1. **Right-click** (or Control-click) the MeedyaDL app icon
-2. Click **Open** from the context menu
-3. Click **Open** again in the dialog that appears
+If you do see this warning, it is almost certainly one of these:
 
-Alternatively, run this command in Terminal after installing:
+- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
+- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
+- **The download was interrupted or altered.** Download it again.
 
-```bash
-xattr -cr /Applications/MeedyaDL.app
-```
+If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
 
-(or `xattr -cr /Applications/MeedyaSuite/MeedyaDL.app` if you've moved MeedyaDL into the shared MeedyaSuite folder)
-
-This only needs to be done once. Future launches will open normally. macOS code signing and notarization are planned for the v1 stable release.
+**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
 
 ### Windows shows "Windows protected your PC" (SmartScreen)
 

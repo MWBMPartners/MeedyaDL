@@ -1559,11 +1559,11 @@ jobs:
 
             ### macOS Users
 
-            The macOS `.dmg` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
-            ```
-            xattr -cr /Applications/MeedyaDL.app
-            ```
-            (or `xattr -cr /Applications/MeedyaSuite/MeedyaDL.app` if you've moved MeedyaDL into the shared MeedyaSuite folder)
+            The macOS `.dmg` and the app inside it are both signed with an Apple Developer ID and notarised by Apple, so macOS opens them normally with no warning.
+
+            If you do see a warning, you are most likely on a build you made yourself, or on a download from before September 2026. Right-click the app and choose **Open**, then **Open** again. That tells macOS you trust this one app, and only needs doing once.
+
+            (We used to suggest `xattr -cr` here. Please do not — it strips every extended attribute rather than just the one macOS checks, and it is not needed for an official release.)
 
             ### First-Time Users
 
@@ -1687,6 +1687,76 @@ jobs:
               exit $EXIT_CODE
             fi
           done
+
+      # Step 10a.0: Notarise the disk image itself, and staple the result.
+      #
+      # The app inside was already signed and notarised by the build step above,
+      # and opens with no warning. The disk image people actually download was
+      # signed but never notarised — verified on the shipped v1.10.6 build:
+      #
+      #   MeedyaDL.app                  accepted, source=Notarized Developer ID
+      #   MeedyaDL_1.10.6_aarch64.dmg   rejected, source=Unnotarized Developer ID
+      #
+      # macOS checks the disk image before anyone can reach the app inside it,
+      # so an unnotarised image is the security warning our own help describes —
+      # and the reason the help tells people to strip the quarantine flag by
+      # hand, which they should never have needed to do.
+      #
+      # Notarising is a separate submission from the app's: Apple checks each
+      # thing you distribute. Stapling then attaches the result to the file, so
+      # it verifies without the machine needing to be online.
+      #
+      # Deliberately non-fatal. A notarisation queue that is slow or briefly
+      # unavailable must not throw away a build that is otherwise complete — it
+      # warns and carries on, leaving the release exactly as good as it is
+      # today. Verified below rather than assumed, so a silent failure shows up
+      # in the log instead of shipping quietly.
+      - name: Notarise and staple the macOS disk image
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          VERSION: ${{ steps.version.outputs.number }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          DMG="src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/MeedyaDL_${VERSION}_aarch64.dmg"
+
+          if [ ! -f "$DMG" ]; then
+            echo "::warning::No disk image at $DMG — nothing to notarise"
+            exit 0
+          fi
+          if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+            echo "::warning::Apple credentials not available — the disk image will show a security warning"
+            exit 0
+          fi
+
+          echo "Submitting the disk image to Apple. This usually takes a few minutes."
+          if ! xcrun notarytool submit "$DMG" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" \
+                --wait --timeout 30m; then
+            echo "::warning::Apple did not accept the disk image. It stays signed but not notarised, which is where we were before."
+            exit 0
+          fi
+
+          if ! xcrun stapler staple "$DMG"; then
+            echo "::warning::Could not attach the notarisation result to the disk image"
+            exit 0
+          fi
+
+          # Confirm rather than assume. This is the check that would have caught
+          # the original problem, so it runs every time.
+          echo "--- verifying ---"
+          xcrun stapler validate "$DMG" || echo "::warning::The notarisation result did not verify"
+          if spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 | grep -q "accepted"; then
+            echo "The disk image opens with no warning."
+          else
+            echo "::warning::The disk image would still show a security warning"
+          fi
 
       # Step 10a.1: Upload macOS artifacts to the GitHub release.
       # Since macOS is built manually (not via tauri-action), we need to upload
@@ -2195,11 +2265,11 @@ jobs:
 
           ### macOS Users
 
-          The macOS \`.dmg\` is code-signed and notarized by Apple. If macOS still shows a security warning on an unsigned development build, right-click the app and choose **Open**, or run:
-          \`\`\`
-          xattr -cr /Applications/MeedyaDL.app
-          \`\`\`
-          (or \`xattr -cr /Applications/MeedyaSuite/MeedyaDL.app\` if you've moved MeedyaDL into the shared MeedyaSuite folder)
+          The macOS \`.dmg\` and the app inside it are both signed with an Apple Developer ID and notarised by Apple, so macOS opens them normally with no warning.
+
+          If you do see a warning, you are most likely on a build you made yourself, or on a download from before September 2026. Right-click the app and choose **Open**, then **Open** again. That tells macOS you trust this one app, and only needs doing once.
+
+          (We used to suggest \`xattr -cr\` here. Please do not — it strips every extended attribute rather than just the one macOS checks, and it is not needed for an official release.)
 
           ### First-Time Users
 

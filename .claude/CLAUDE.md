@@ -300,7 +300,7 @@ Remaining per-milestone work:
 
 | Platform | Architecture | Format | Notes |
 | -------- | ------------ | ------ | ----- |
-| macOS | Apple Silicon (ARM64) | `.dmg`, `.app` | Requires macOS 13.3+; needs `xattr -cr` for unsigned builds |
+| macOS | Apple Silicon (ARM64) | `.dmg`, `.app` | Requires macOS 13.3+. **Signed with a Developer ID and notarised** — verified on the shipped v1.10.6 `.app`: `spctl` reports `accepted`, `source=Notarized Developer ID`, ticket stapled. Do NOT tell users to run `xattr -cr`; it is unnecessary and strips every extended attribute, not just the quarantine flag. **The `.dmg` was signed but NOT notarised** until the DMG-notarisation step was added (2026-09-09) — `spctl` on the v1.10.6 disk image reports `rejected`, `source=Unnotarized Developer ID`, no ticket. macOS checks the disk image before the app inside is reachable, so that was the warning users actually hit, and the reason the FAQ had been telling them to strip the flag by hand. Apple notarises each distributed artefact separately; the Tauri action covers the `.app` only. |
 | Windows | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
 | Windows | ARM64 | `.exe` (NSIS) | Native ARM64 build |
 | Linux | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
