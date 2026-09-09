@@ -1229,9 +1229,9 @@ pub struct AppSettings {
     /// originating engine already wrote. Surface lives at
     /// Settings > Cover Art.
     ///
-    /// See `services/best_cover_art_service.rs` for the comparator
-    /// + tie-break logic (M9-3), and `upgrade_cover_if_better()` for
-    /// where it connects to an actual download (#1159).
+    /// See `services/best_cover_art_service.rs` for how it decides one
+    /// picture is better than another, and `upgrade_cover_if_better()`
+    /// for where it joins an actual download (#1159).
     #[serde(default)]
     pub best_cover_art_enabled: bool,
 
