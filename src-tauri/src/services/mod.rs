@@ -458,6 +458,11 @@ pub mod votify_capabilities;
 /// of the queue processor's task tree so a hang in the parent can't
 /// kill the watchdog. Recovers from the #815 silent-hang failure
 /// class without needing to identify each specific hang surface.
+/// Waiting for the internet to come back, then starting the queue.
+///
+/// Makes the promise "will start when internet is available" true (#1156).
+pub mod connectivity_watcher;
+
 pub mod queue_watchdog;
 
 /// Odesli (song.link) API client (#295 Phase A).
