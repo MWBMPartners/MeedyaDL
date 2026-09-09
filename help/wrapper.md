@@ -78,8 +78,9 @@ and falls back gracefully.
 
 ## wrapper-v1 (GAMDL ≤ 3.5.x)
 
-The original wrapper is a native binary (Windows / macOS / Linux ports
-exist) that exposes three local sockets. MeedyaDL talks to it via the
+The original wrapper is a native program that exposes three local sockets.
+Which platforms it has builds for is a question for that project — see
+"Platform support" below. MeedyaDL talks to it via the
 three Settings fields in **Settings → Advanced → Wrapper**:
 
 | Setting | Default | Purpose |
@@ -319,22 +320,52 @@ mitigations if you need stronger isolation.
 
 ## Platform support
 
-| Platform | Wrapper | MeedyaDL Integration |
+MeedyaDL shows the wrapper settings on every platform it runs on. It does
+not check what you are running, and it does not need to: all it ever does
+is talk to three addresses you give it, and those addresses can point at
+this machine or at another one.
+
+What varies is whether a wrapper you can run **on this machine** exists for
+your platform at all. That is decided by the wrapper projects, not by
+MeedyaDL:
+
+- **wrapper-v1** is a native program. Which platforms it has builds for is
+  a question for that project — check its own releases page before assuming
+  one exists for yours.
+- **wrapper-v2** is documented above: Linux can run it directly, while
+  macOS and Windows need Docker Desktop.
+
+If there is no wrapper you can run here, you can still use one. See below.
+
+### Using a wrapper running somewhere else
+
+If you cannot run a wrapper on this machine, you can point MeedyaDL at one
+running elsewhere:
+
+1. **On another machine** — run the wrapper on any machine that can host
+   it (a spare box, a home server, a small VPS, a Raspberry Pi) and point
+   MeedyaDL at that machine's address.
+2. **In Docker** — run it in a container, which works on any host that has
+   Docker. wrapper-v2 ships a Docker setup; see the section above.
+3. **By editing the settings file** — open MeedyaDL's `settings.json` in the
+   app data folder and set `"use_wrapper": true` along with the three
+   addresses below.
+
+**Point all three addresses at the same machine, not just one.** This is
+the single most common reason a remote wrapper "does not work". MeedyaDL
+makes three separate connections, and each has its own setting:
+
+| Setting | Default | What it is for |
 |---|---|---|
-| Linux x86_64 | Available | Full support (Settings > Advanced) |
-| All other platforms | Not natively available | Remote or Docker setup (see below) |
+| `wrapper_account_url` | `http://127.0.0.1:30020` | Signing in and getting a token |
+| `wrapper_m3u8_ip` | `127.0.0.1:20020` | Fetching the playlist address (GAMDL 3.1 and later) |
+| `wrapper_decrypt_ip` | `127.0.0.1:10020` | The decryption connection |
 
-### Why only Linux x86_64?
-
-The Wrapper service only provides Linux x86_64 binaries. On other platforms, MeedyaDL still shows the Wrapper settings but includes a note about remote usage.
-
-### Remote setup on other platforms
-
-Power users on unsupported platforms can still use the Wrapper by:
-
-1. **Running Wrapper remotely** — Run the Wrapper service on a Linux x86_64 server (or VPS) and point MeedyaDL to it via a custom URL
-2. **Docker** — Run the Wrapper in a Docker container on any host OS (the Wrapper provides a Docker-based setup)
-3. **Edit settings directly** — Open the MeedyaDL settings JSON file (in the app data directory) and set `"use_wrapper": true` and `"wrapper_account_url"` to the URL of your remote Wrapper service
+If you change only the first one, signing in appears to work and the
+download then fails partway through — because the other two are still
+trying to reach this machine, where nothing is listening. All three are
+also in **Settings → Advanced → Wrapper**, which is easier than editing the
+file by hand.
 
 ---
 
