@@ -148,4 +148,12 @@ pub mod file_locks;
 /// per-GAMDL-subprocess output for the lifetime of the download —
 /// the largest single contributor to RSS growth identified in the
 /// 2026-05-28 memory audit (#897).
+/// Reading timestamps out of lyrics and subtitle files.
+///
+/// One reader shared by every output format. Three separate copies used to
+/// exist and they disagreed about spaces and about unreadable values, so the
+/// same file could produce different timings depending on which format you
+/// asked for (#1158).
+pub mod lyric_time;
+
 pub mod bounded_log;

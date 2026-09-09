@@ -534,34 +534,7 @@ fn build_lrc_header(metadata: &TtmlMetadata) -> String {
 /// - `NNs` (seconds with `s` suffix, e.g., `15.8s`)
 ///
 /// Returns `None` if the timestamp cannot be parsed.
-fn parse_ttml_time(time_str: &str) -> Option<f64> {
-    let s = time_str.trim();
-
-    // Handle "NNs" format (e.g., "15.8s")
-    if let Some(stripped) = s.strip_suffix('s') {
-        return stripped.parse::<f64>().ok();
-    }
-
-    let parts: Vec<&str> = s.split(':').collect();
-    match parts.len() {
-        // SS.fff
-        1 => parts[0].parse::<f64>().ok(),
-        // MM:SS.fff
-        2 => {
-            let mins: f64 = parts[0].parse().ok()?;
-            let secs: f64 = parts[1].parse().ok()?;
-            Some(mins * 60.0 + secs)
-        }
-        // HH:MM:SS.fff
-        3 => {
-            let hrs: f64 = parts[0].parse().ok()?;
-            let mins: f64 = parts[1].parse().ok()?;
-            let secs: f64 = parts[2].parse().ok()?;
-            Some(hrs * 3600.0 + mins * 60.0 + secs)
-        }
-        _ => None,
-    }
-}
+use crate::utils::lyric_time::parse_ttml_time;
 
 /// Formats seconds to LRC timestamp format `mm:ss.xx` (centiseconds).
 ///

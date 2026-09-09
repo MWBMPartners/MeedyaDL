@@ -830,28 +830,7 @@ fn wrap_with_style(text: &str, style: &TtmlStyle) -> String {
 /// Parse a TTML timestamp string to seconds.
 ///
 /// Supports: `HH:MM:SS.fff`, `MM:SS.fff`, `SS.fff`, `NNs` (with 's' suffix).
-pub(crate) fn parse_ttml_time(time_str: &str) -> f64 {
-    if let Some(stripped) = time_str.strip_suffix('s') {
-        return stripped.parse::<f64>().unwrap_or(0.0);
-    }
-
-    let parts: Vec<&str> = time_str.split(':').collect();
-    match parts.len() {
-        3 => {
-            let hours = parts[0].parse::<f64>().unwrap_or(0.0);
-            let minutes = parts[1].parse::<f64>().unwrap_or(0.0);
-            let seconds = parts[2].parse::<f64>().unwrap_or(0.0);
-            hours * 3600.0 + minutes * 60.0 + seconds
-        }
-        2 => {
-            let minutes = parts[0].parse::<f64>().unwrap_or(0.0);
-            let seconds = parts[1].parse::<f64>().unwrap_or(0.0);
-            minutes * 60.0 + seconds
-        }
-        1 => parts[0].parse::<f64>().unwrap_or(0.0),
-        _ => 0.0,
-    }
-}
+pub(crate) use crate::utils::lyric_time::parse_ttml_time_or_zero as parse_ttml_time;
 
 /// Format seconds as SRT timestamp: `HH:MM:SS,mmm`
 ///
