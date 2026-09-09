@@ -309,12 +309,23 @@ pub fn process_queue(
         let Some((download_id, urls, mut options, item_service)) = pending else {
             let (is_idle, was_aborted, ran) = {
                 let mut q = queue.lock().await;
-                (
-                    q.is_idle(),
-                    q.take_recently_aborted(),
-                    // Did the queue actually do anything this time round?
-                    q.take_ran_since_drain(),
-                )
+                let idle = q.is_idle();
+                // Only consume the record when the queue has actually gone
+                // quiet.
+                //
+                // This function is also reached while a download is still
+                // running — another request arrives, the concurrency limit is
+                // already met, and nothing is handed out. Clearing the record
+                // then would wipe the fact that the queue HAD been busy, and
+                // the last item finishing would look like nothing had ever
+                // run. Anyone who set "shut down when the downloads are done"
+                // would find it silently stopped happening.
+                //
+                // Consuming it only when idle keeps the two cases apart: the
+                // queue was never busy (nothing to act on) versus the queue
+                // was busy and has now finished (act on it).
+                let ran = if idle { q.take_ran_since_drain() } else { false };
+                (idle, q.take_recently_aborted(), ran)
             };
             if is_idle && !ran {
                 // Nothing ran, so nothing drained (#1169).
@@ -1997,8 +2008,6 @@ pub fn process_queue(
                                 if let Some(ref metadata) = album_metadata {
                                     let cover_stem =
                                         enrich_settings.cover_art_name.to_filename_stem();
-                                    let extension = enrich_settings.cover_format.to_cli_string();
-                                    let existing_pixels = None; // Not measured yet — see below.
                                     let request =
                                         crate::services::best_cover_art_service::BestCoverArtRequest {
                                             apple_metadata: Some(metadata),
@@ -2012,9 +2021,7 @@ pub fn process_queue(
                                         crate::services::best_cover_art_service::upgrade_cover_if_better(
                                             std::path::Path::new(&album_dir),
                                             cover_stem,
-                                            extension,
                                             &request,
-                                            existing_pixels,
                                         )
                                         .await
                                     {

@@ -383,15 +383,28 @@ pub async fn find_best_cover_art(
 pub async fn upgrade_cover_if_better(
     album_dir: &std::path::Path,
     cover_stem: &str,
-    extension: &str,
     request: &BestCoverArtRequest<'_>,
-    current_pixels: Option<u64>,
 ) -> Option<CoverArtCandidate> {
     let best = find_best_cover_art(request).await.ok().flatten()?;
 
+    // Measure what is already saved, so a better cover is never replaced by a
+    // worse one. Two mistakes review caught here, both worth stating:
+    //
+    // Without this, every candidate won, so a lower-resolution picture could
+    // overwrite a higher-resolution one the person already had — the opposite
+    // of what this feature is for.
+    //
+    // And a cover of exactly the same size was downloaded and rewritten for no
+    // gain, risking a good file to a failed write in exchange for nothing.
+    let existing = find_existing_cover(album_dir, cover_stem);
+    let existing_pixels = existing
+        .as_ref()
+        .and_then(|p| crate::utils::image_info::read_image_info_from_file(p))
+        .map(|info| info.pixels());
+
     let candidate_pixels = u64::from(best.width) * u64::from(best.height);
-    if let Some(existing) = current_pixels {
-        if candidate_pixels <= existing {
+    match existing_pixels {
+        Some(current) if candidate_pixels <= current => {
             log::debug!(
                 "cover art: {} offers {}x{}, which is no better than what is already saved",
                 best.source.kebab_id(),
@@ -400,6 +413,15 @@ pub async fn upgrade_cover_if_better(
             );
             return None;
         }
+        None if existing.is_some() => {
+            // There is a cover, but its size could not be read. Leaving it
+            // alone is the safe choice: replacing something we cannot measure
+            // could easily be a downgrade, and the cover already there is at
+            // least known to work.
+            log::debug!("cover art: leaving the existing cover alone — its size could not be read");
+            return None;
+        }
+        _ => {}
     }
 
     let bytes = crate::services::cover_art_fallback::fetch_artwork_bytes(&best.url)
@@ -407,18 +429,65 @@ pub async fn upgrade_cover_if_better(
         .map_err(|e| log::debug!("cover art: could not fetch from {}: {e}", best.source.kebab_id()))
         .ok()?;
 
-    let target = album_dir.join(format!("{cover_stem}.{extension}"));
+    // Name the file after what it actually is, not after the setting.
+    //
+    // The picture-format setting offers "raw", which is not a format at all —
+    // it means "whatever the source gives us". Using it as a file extension
+    // produced `Cover.raw`, which no picture viewer opens, sitting alongside
+    // the real cover instead of replacing it. Writing JPEG data into a file
+    // named `.png` is the same mistake wearing a different hat.
+    let downloaded = crate::utils::image_info::read_image_info(&bytes)?;
+
+    // Sanity-check the platform's claim against the picture we actually got.
+    // Platforms advertise a maximum, which is not always what arrives.
+    if let Some(current) = existing_pixels {
+        if downloaded.pixels() <= current {
+            log::debug!(
+                "cover art: the downloaded picture is {}x{}, no better than what is saved",
+                downloaded.width,
+                downloaded.height
+            );
+            return None;
+        }
+    }
+
+    let target = album_dir.join(format!("{cover_stem}.{}", downloaded.extension));
     crate::services::cover_art_fallback::write_cover_atomically(&target, &bytes)
         .map_err(|e| log::debug!("cover art: could not save the better cover: {e}"))
         .ok()?;
 
+    // Remove nothing. If the old cover had a different extension it stays
+    // where it is — deleting a file to tidy up is not worth the risk of
+    // removing something the person put there themselves.
     log::info!(
-        "cover art: replaced with a {}x{} version from {}",
-        best.width,
-        best.height,
-        best.source.kebab_id()
+        "cover art: saved a {}x{} version from {} as {}",
+        downloaded.width,
+        downloaded.height,
+        best.source.kebab_id(),
+        target.file_name().and_then(|n| n.to_str()).unwrap_or("cover")
     );
-    Some(best)
+    Some(CoverArtCandidate {
+        width: downloaded.width,
+        height: downloaded.height,
+        ..best
+    })
+}
+
+/// Finds the cover already saved for an album, whatever picture format it is in.
+///
+/// The setting says what format to ASK for, which is not always what is on
+/// disk — the download tool falls back between formats, and "raw" means
+/// whatever the source supplied.
+///
+/// # Arguments
+///
+/// * `album_dir` -- Where the album's files are.
+/// * `cover_stem` -- The cover's name without its extension.
+fn find_existing_cover(album_dir: &std::path::Path, cover_stem: &str) -> Option<std::path::PathBuf> {
+    ["jpg", "jpeg", "png"]
+        .iter()
+        .map(|ext| album_dir.join(format!("{cover_stem}.{ext}")))
+        .find(|path| path.is_file())
 }
 
 // ============================================================
@@ -644,6 +713,71 @@ mod tests {
         // The ordinary case for anyone who has not set up the extra sources:
         // the cover already on disk is left alone.
         assert!(pick_best(Vec::new()).is_none());
+    }
+
+    // ── Not replacing a good cover with a worse one (#1159, review) ─────
+    //
+    // Before review, nothing measured the cover already on disk, so every
+    // candidate won. A lower-resolution picture could overwrite a
+    // higher-resolution one the person already had — the opposite of what
+    // this feature is for.
+
+    fn png_of(width: u32, height: u32) -> Vec<u8> {
+        let mut v = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        v.extend_from_slice(&13u32.to_be_bytes());
+        v.extend_from_slice(b"IHDR");
+        v.extend_from_slice(&width.to_be_bytes());
+        v.extend_from_slice(&height.to_be_bytes());
+        v.extend_from_slice(&[8, 6, 0, 0, 0]);
+        v
+    }
+
+    #[test]
+    fn finds_the_existing_cover_whatever_format_it_is_in() {
+        // The setting says what to ASK for, which is not always what is on
+        // disk: the download tool falls back between formats, and "raw" means
+        // whatever the source supplied.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(find_existing_cover(dir.path(), "Cover").is_none());
+
+        std::fs::write(dir.path().join("Cover.png"), png_of(10, 10)).unwrap();
+        assert!(find_existing_cover(dir.path(), "Cover").is_some());
+    }
+
+    #[test]
+    fn does_not_confuse_a_different_cover_name_for_this_one() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Folder.jpg"), png_of(10, 10)).unwrap();
+        // The user's chosen name is FrontCover; Folder.jpg is somebody else's.
+        assert!(find_existing_cover(dir.path(), "FrontCover").is_none());
+    }
+
+    #[test]
+    fn the_size_of_the_saved_cover_can_be_read_back() {
+        // This is what makes the comparison possible at all.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Cover.png");
+        std::fs::write(&path, png_of(3000, 3000)).unwrap();
+
+        let found = find_existing_cover(dir.path(), "Cover").expect("should find it");
+        let info = crate::utils::image_info::read_image_info_from_file(&found)
+            .expect("should read its size");
+        assert_eq!(info.pixels(), 9_000_000);
+    }
+
+    #[test]
+    fn a_cover_whose_size_cannot_be_read_is_left_alone() {
+        // Replacing something we cannot measure could easily be a downgrade,
+        // and the cover already there is at least known to work.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("Cover.jpg");
+        std::fs::write(&path, b"this is not really a picture").unwrap();
+
+        let found = find_existing_cover(dir.path(), "Cover").expect("the file exists");
+        assert!(
+            crate::utils::image_info::read_image_info_from_file(&found).is_none(),
+            "its size should not be readable, which is what makes us leave it alone"
+        );
     }
 
 }

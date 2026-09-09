@@ -159,6 +159,12 @@ pub mod file_locks;
 /// Settings, the queue and the history are all read at startup. When one
 /// cannot be read the app used to carry on with nothing and say nothing, and
 /// the next save then destroyed the evidence (#1156).
+/// Reading a picture's size and kind from the first few bytes of it.
+///
+/// Used to decide whether a cover found elsewhere is genuinely better than the
+/// one already saved, and to give the saved file the right name (#1159).
+pub mod image_info;
+
 pub mod damaged_file;
 
 pub mod lyric_time;
