@@ -28,6 +28,11 @@ import { HelpViewer } from './HelpViewer';
 import { HELP_TOPIC_MANIFEST } from './helpTopics';
 import { useUiStore } from '@/stores/uiStore';
 
+// Test-only helper that switches the shared i18next instance to German or
+// French without a real network fetch -- see src/testing/i18n.ts. Used by
+// the "HelpViewer translated pages" tests below.
+import { useTestLanguage } from '@/testing/i18n';
+
 /**
  * Capture what the shell plugin would have opened, same pattern as
  * ErrorMessageDisplay.test.tsx. This is how test 6 proves an external
@@ -193,6 +198,56 @@ describe('HelpViewer link handling inside rendered Markdown', () => {
     expect(
       screen.getByRole('heading', { level: 1, name: 'Wrapper authentication' })
     ).toBeInTheDocument();
+  });
+});
+
+describe('HelpViewer translated pages (#111)', () => {
+  /**
+   * `useTestLanguage` changes the shared i18next instance for the whole
+   * test run, not just one test (see that helper's own doc comment) --
+   * every test in this block must switch back to English afterwards so
+   * it doesn't leak into whichever test file runs next.
+   */
+  afterEach(async () => {
+    await useTestLanguage('en');
+  });
+
+  /**
+   * "Keyboard Shortcuts" is the one page that has a real German
+   * translation today (help/de/keyboard-shortcuts.md). Once the app is
+   * displaying German, opening that page should show the German text
+   * -- not the English original -- with a note above it saying plainly
+   * that the translation was made by a machine.
+   */
+  it('shows the German page and the "translated by a machine" note when the app is displaying German', async () => {
+    await useTestLanguage('de');
+    render(<HelpViewer />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keyboard Shortcuts' }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { level: 1, name: 'Tastaturkürzel' })
+      ).toBeInTheDocument();
+    });
+    expect(screen.getByText(/wurde maschinell übersetzt/)).toBeInTheDocument();
+  });
+
+  /**
+   * "Getting Started" -- the page HelpViewer opens on by default --
+   * has no German translation yet. With the app displaying German, it
+   * must still show the real (English) page rather than a blank screen
+   * or a spinner, alongside a note that plainly says this particular
+   * page isn't translated into German yet.
+   */
+  it('shows the English page and the "not translated yet" note for a page with no German version', async () => {
+    await useTestLanguage('de');
+    render(<HelpViewer />);
+
+    expect(
+      screen.getByRole('heading', { level: 1, name: 'Getting Started' })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/noch nicht ins Deutsch übersetzt/)).toBeInTheDocument();
   });
 });
 

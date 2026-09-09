@@ -59,6 +59,9 @@
       "autoCheckDesc": "Vérifier automatiquement les mises à jour de GAMDL et des outils au démarrage",
       "preRelease": "Inclure les versions préliminaires",
       "preReleaseDesc": "Rechercher les versions préliminaires en plus des versions stables."
+    },
+    "language": {
+      "machineAssistedNote": "Cette traduction a été réalisée par une machine et n'a pas encore été relue par une personne parlant cette langue. Certaines formulations peuvent être inexactes ou maladroites. Vous pouvez revenir à l'anglais à tout moment."
     }
   },
   "updates": {
@@ -148,6 +151,10 @@
     "emptyHint": "Les téléchargements terminés et échoués apparaîtront ici.",
     "noMatches": "Aucun téléchargement correspondant trouvé.",
     "clearAll": "Effacer l'historique"
+  },
+  "help": {
+    "machineTranslatedPage": "Cette page a été traduite par une machine. Si quelque chose semble étrange, la version anglaise est celle écrite par les développeurs.",
+    "pageNotTranslated": "Cette page n'a pas encore été traduite en {{language}}, elle est donc affichée en anglais."
   },
   "common": {
     "loading": "Chargement...",

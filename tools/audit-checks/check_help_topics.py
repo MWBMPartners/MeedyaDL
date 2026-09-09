@@ -32,10 +32,14 @@ row's "?" button, a "Learn more" click -- and that id can be wrong.
 Help pages can link to *each other* and get a filename wrong. A help
 page can use GitHub-only emoji syntax (`:rocket:`) that renders as a
 picture on GitHub but as the literal text ":rocket:" inside the app,
-which has no emoji renderer. And a translated help page can exist with
-no English original for the app to fall back to.
+which has no emoji renderer. A translated help page can exist with no
+English original for the app to fall back to. And a translated page's
+language folder (`help/<language>/`) can name a language the app has
+never heard of -- a typo, or a translation nobody wired up in the
+Settings language dropdown -- which means nobody can ever actually
+select it and see the page.
 
-This script checks all seven of those things.
+This script checks all eight of those things.
 
 Exit code:
   0 -- no findings (or only informational), OR findings without --strict
@@ -54,6 +58,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELP_DIR = REPO_ROOT / "help"
 HELPTOPICS_TS = REPO_ROOT / "src" / "components" / "help" / "helpTopics.ts"
+I18N_TS = REPO_ROOT / "src" / "lib" / "i18n.ts"
 FRONTEND_SRC = REPO_ROOT / "src"
 
 # Files that DEFINE the `helpTopic` prop / `navigateToHelp` action rather
@@ -307,6 +312,46 @@ def collect_translation_gaps() -> list[tuple[str, str]]:
     return results
 
 
+# ---------------------------------------------------------------------------
+# Check 8: a translated-page folder for a language the app doesn't know.
+# ---------------------------------------------------------------------------
+
+
+def collect_locale_codes() -> set[str]:
+    """Every language code the app actually knows about -- read from the
+    `LOCALES` list in `src/lib/i18n.ts`, the one place (per that file's
+    own comment) a supported language is declared. Bracket-matches the
+    array the same way `collect_manifest_entries()` above bracket-matches
+    `HELP_TOPIC_MANIFEST` -- this script does not attempt to parse
+    TypeScript for real, same as everywhere else in this file."""
+    if not I18N_TS.exists():
+        print(f"WARNING: {I18N_TS} does not exist", file=sys.stderr)
+        return set()
+    text = I18N_TS.read_text(encoding="utf-8", errors="ignore")
+    block, block_offset = extract_bracket_block(text, "LOCALES = [")
+    if block_offset == -1:
+        print("WARNING: LOCALES = [ not found in i18n.ts", file=sys.stderr)
+        return set()
+    stripped = strip_line_comments(block)
+    return {
+        m.group(1) for m in re.finditer(r"""code:\s*['"]([a-z]{2,3})['"]""", stripped)
+    }
+
+
+def collect_unknown_language_folders() -> list[str]:
+    """Every `help/<name>/` directory whose name is NOT one of the codes
+    in `LOCALES`. Two ways this happens in practice: a typo in the
+    folder name (`help/frr/` instead of `help/fr/`), or a translation
+    added for a language nobody has added to `LOCALES` yet -- which
+    means it never appears in the Settings language dropdown, so no
+    user can ever select it and no one would ever see the page sitting
+    there. Returns the bare folder names, sorted."""
+    locale_codes = collect_locale_codes()
+    return sorted(
+        p.name for p in HELP_DIR.iterdir() if p.is_dir() and p.name not in locale_codes
+    )
+
+
 def check() -> int:
     help_pages = collect_help_pages()
     manifest = collect_manifest_entries()
@@ -314,6 +359,7 @@ def check() -> int:
     cross_links = collect_help_cross_links()
     emoji_shortcodes = collect_emoji_shortcodes()
     translation_gaps = collect_translation_gaps()
+    unknown_language_folders = collect_unknown_language_folders()
 
     print(f"Help pages in help/*.md            : {len(help_pages)}")
     print(f"Entries in HELP_TOPIC_MANIFEST      : {len(manifest)}")
@@ -416,13 +462,30 @@ def check() -> int:
         print()
         findings += len(translation_gaps)
 
+    # 8. A translated-page folder for a language the app doesn't know.
+    if unknown_language_folders:
+        print("### Translated help page folder is not a language the app knows about\n")
+        for name in unknown_language_folders:
+            print(
+                f"  • help/{name}/ — '{name}' is not one of the language codes in LOCALES "
+                f"(src/lib/i18n.ts), so no one can ever select it in the Settings language "
+                f"dropdown and no one would ever see the pages inside it. Add '{name}' to "
+                f"LOCALES if this is meant to be a real, supported language, or remove the "
+                f"help/{name}/ folder if it isn't."
+            )
+        print()
+        findings += len(unknown_language_folders)
+
     if findings == 0:
+        translated_page_count = sum(
+            1 for sub in HELP_DIR.iterdir() if sub.is_dir() for _ in sub.glob("*.md")
+        )
         print(
             f"OK — {len(help_pages)} help page(s), {len(manifest)} HELP_TOPIC_MANIFEST "
             f"entries, {len(frontend_links)} in-app deep link(s), {len(cross_links)} "
-            f"page-to-page link(s), and 0 translated pages all agree. "
-            f"{len(EXCEPTIONS)} page ({', '.join(sorted(EXCEPTIONS))}) is deliberately "
-            f"repo-only, with a recorded reason."
+            f"page-to-page link(s), and {translated_page_count} translated page(s) all "
+            f"agree. {len(EXCEPTIONS)} page ({', '.join(sorted(EXCEPTIONS))}) is "
+            f"deliberately repo-only, with a recorded reason."
         )
 
     if findings and "--strict" in sys.argv:

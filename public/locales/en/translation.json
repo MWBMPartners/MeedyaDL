@@ -59,6 +59,9 @@
       "autoCheckDesc": "Automatically check for GAMDL and tool updates on startup",
       "preRelease": "Include Pre-Release Versions",
       "preReleaseDesc": "Check for pre-release versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
+    },
+    "language": {
+      "machineAssistedNote": "This translation was made by a machine and has not yet been checked by someone who speaks the language. Some wording may be wrong or awkward. You can switch back to English at any time."
     }
   },
   "updates": {
@@ -148,6 +151,10 @@
     "emptyHint": "Completed and failed downloads will appear here.",
     "noMatches": "No matching downloads found.",
     "clearAll": "Clear History"
+  },
+  "help": {
+    "machineTranslatedPage": "This page was translated by a machine. If something reads oddly, the English version is the one the developers wrote.",
+    "pageNotTranslated": "This page has not been translated into {{language}} yet, so it is shown in English."
   },
   "common": {
     "loading": "Loading...",

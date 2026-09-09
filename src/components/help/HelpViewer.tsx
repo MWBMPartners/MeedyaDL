@@ -40,6 +40,18 @@
  * `buildAboutBuildSection()` to build that part, and this component
  * appends it to `about.md`'s file content before rendering.
  *
+ * ## Translated pages (#111)
+ *
+ * When the app's display language is not English, this component asks
+ * `helpTopics.ts`'s `loadTranslatedHelpPages()` for that language's
+ * translated pages (from `help/<language>/*.md`) and, for whichever
+ * topic is on screen, swaps in the translated text if one exists for it.
+ * A small notice appears above the page either way: "this was
+ * machine-translated" when a translation was found, or "not translated
+ * yet, showing English" when it wasn't. English itself is always a
+ * ready fallback -- this component never shows a blank page or a
+ * loading spinner while a translation is still being fetched.
+ *
  * ## Markdown Rendering
  *
  * Content is rendered using:
@@ -74,6 +86,13 @@
 // React hooks: useState for active topic and search state, useMemo for
 // memoized filtering and platform detection, useCallback for stable handlers.
 import { useState, useEffect, useMemo, useCallback } from 'react';
+
+// react-i18next's hook gives us the app's CURRENT display language
+// (i18n.language) -- e.g. "de", "fr-FR", "en" -- which is what decides
+// whether this screen has a translated page to show and which note (if
+// any) to display above it. See the effect further down for how it's
+// used.
+import { useTranslation } from 'react-i18next';
 
 /**
  * react-markdown -- Renders Markdown strings as React components.
@@ -129,9 +148,23 @@ import { PageHeader } from '@/components/layout';
 import { useUiStore } from '@/stores/uiStore';
 
 // The loaded help pages (content read from help/*.md, see that file for
-// the full explanation) plus the "About" build-info builder and the
-// HelpTopicId type used to keep the active-topic state honest.
-import { HELP_TOPICS, buildAboutBuildSection, type HelpTopicId } from './helpTopics';
+// the full explanation) plus the "About" build-info builder, the
+// translated-page loader, and the HelpTopicId type used to keep the
+// active-topic state honest.
+import {
+  HELP_TOPICS,
+  buildAboutBuildSection,
+  loadTranslatedHelpPages,
+  type HelpTopicId,
+} from './helpTopics';
+
+// LOCALES gives us each language's own name (e.g. "Deutsch" for "de") so
+// the "not translated yet" note can say which language is missing, in
+// words a reader recognises, instead of a bare code like "de".
+// baseLanguageOf is the one place "de-DE means de" is decided -- reused
+// here so this screen can never disagree with helpTopics.ts or the
+// Settings language dropdown about what a given language setting means.
+import { LOCALES, baseLanguageOf } from '@/lib/i18n';
 
 /**
  * Detects whether the user is on macOS so we can display the correct
@@ -230,6 +263,39 @@ export function HelpViewer() {
 
   /** Tracks the current search input value for filtering the sidebar topics */
   const [searchQuery, setSearchQuery] = useState('');
+
+  /** The app's current display language, e.g. "de", "fr-FR", "en". */
+  const { t, i18n } = useTranslation();
+
+  /**
+   * Every translated help page for the current language, keyed by page
+   * id. Starts empty on every language change and only fills in once
+   * `loadTranslatedHelpPages()` resolves -- see the effect below for why
+   * that "starts empty" moment is never shown to the user as a blank
+   * page or a spinner: while this is empty (or simply doesn't have the
+   * page someone's looking at), the render logic further down falls
+   * back to the English content that's already sitting in `HELP_TOPICS`,
+   * which was loaded eagerly and is always ready immediately.
+   */
+  const [translatedPages, setTranslatedPages] = useState<Record<string, string>>({});
+
+  /**
+   * (Re)loads the translated help pages whenever the app's display
+   * language changes. `cancelled` guards against a slow load from a
+   * PREVIOUS language finishing after the user has already switched to
+   * a different one and landing in the wrong state.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    loadTranslatedHelpPages(i18n.language).then((pages) => {
+      if (!cancelled) {
+        setTranslatedPages(pages);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [i18n.language]);
 
   /** App version fetched from tauri.conf.json, used in the About topic */
   const [appVersion, setAppVersion] = useState('...');
@@ -390,24 +456,62 @@ export function HelpViewer() {
   const isSearchActive = searchQuery.trim().length > 0;
 
   /**
-   * The Markdown text to actually render for the active topic.
-   *
-   * Every topic except "About" is just its file's content, unchanged.
-   * "About" is the one page whose content can't be fully known until
-   * the app is running (see the file-level comment above), so its
-   * file content is followed by a build-info section assembled from
-   * live data -- the app version and the three pieces of licence/tool
-   * text fetched by the effect above.
+   * The base two-letter code for the app's current display language
+   * (e.g. "de-DE" -> "de"). English is treated as "not a translated
+   * language" -- there is nothing to translate FROM English INTO
+   * English, so no note and no translated-page lookup ever apply when
+   * this is "en".
    */
+  const activeLanguage = baseLanguageOf(i18n.language);
+  const isTranslatedLanguage = activeLanguage !== 'en';
+
+  /**
+   * Does the CURRENT topic specifically have a translated version for
+   * the current language? Most of the app's ~20 help pages don't have
+   * one yet (translation is added page by page -- see helpTopics.ts for
+   * the full plan), so this is checked per-topic, not once for the
+   * whole screen.
+   */
+  const translatedContent = translatedPages[topic.id];
+  const hasTranslation = isTranslatedLanguage && translatedContent !== undefined;
+
+  /**
+   * The English name of the currently active locale (e.g. "German" is
+   * NOT what we want -- we want "Deutsch", the name IN that language),
+   * used to fill in the "not translated yet" note below. Falls back to
+   * the bare code on the (should-never-happen) chance a language is
+   * active that isn't in `LOCALES` at all.
+   */
+  const activeLanguageName =
+    LOCALES.find((locale) => locale.code === activeLanguage)?.nativeName ?? activeLanguage;
+
+  /**
+   * The Markdown text to actually render for the active topic: the
+   * translated version when the current language has one, otherwise the
+   * original English text from `HELP_TOPICS`. English is ALWAYS a valid
+   * fallback here -- never a blank page, never a spinner -- because a
+   * reader who can't yet get a page in their own language is still far
+   * better served by the real English page than by nothing at all.
+   *
+   * Every topic except "About" is just this content, unchanged. "About"
+   * is the one page whose content can't be fully known until the app is
+   * running (see the file-level comment above), so its content is
+   * followed by a build-info section assembled from live data -- the
+   * app version and the three pieces of licence/tool text fetched by
+   * the effect above. That build-info section is only ever generated in
+   * English today -- there is no translated build-info to fall back
+   * from, so this is unaffected by the language logic above.
+   */
+  const activeContent = hasTranslation ? translatedContent : topic.content;
   const markdown =
     topic.id === 'about'
-      ? `${topic.content}\n\n${buildAboutBuildSection({
+      ? `${activeContent}\n\n${buildAboutBuildSection({
           version: appVersion,
           componentVersionsTable: componentVersions,
           acknowledgementsMd,
           thirdPartyLicencesMd: thirdPartyLicensesMd,
         })}`
-      : topic.content;
+      : activeContent;
 
   return (
     <div className="flex flex-col h-full">
@@ -580,6 +684,35 @@ export function HelpViewer() {
          * typographic styling with dark mode support.
          * ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto p-6">
+          {/*
+           * Language notice -- deliberately its OWN small block, sitting
+           * above and outside the `.prose` markdown container below, not
+           * inside it. If this text were rendered as part of the
+           * markdown, a reader could mistake it for something the help
+           * page itself says; keeping it a separate, quietly-styled
+           * element makes clear it's a note from the app about the
+           * page, not a line the page's author wrote.
+           *
+           * Two different situations get two different messages here:
+           *   - The page DOES have a translation for the current
+           *     language: say so, and point back to English as the
+           *     version the developers actually wrote (in case
+           *     something reads oddly).
+           *   - The page does NOT have one yet: say so plainly, and
+           *     name the person's own language (not just "it's in
+           *     English") so they understand why they're reading
+           *     English on a screen they set to something else.
+           * Nothing is shown at all while the active language is
+           * English -- there is no translation situation to report.
+           */}
+          {isTranslatedLanguage && (
+            <p className="text-xs text-content-tertiary italic mb-3">
+              {hasTranslation
+                ? t('help.machineTranslatedPage')
+                : t('help.pageNotTranslated', { language: activeLanguageName })}
+            </p>
+          )}
+
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}

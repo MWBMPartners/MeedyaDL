@@ -27,6 +27,7 @@
  */
 
 import type { LucideIcon } from 'lucide-react';
+import { baseLanguageOf } from '@/lib/i18n';
 import {
   BookOpen, // "Getting Started" -- first thing a new user needs
   Download, // "Downloading Music"
@@ -132,6 +133,27 @@ const HELP_PAGE_FILES = import.meta.glob<string>('/help/*.md', {
 });
 
 /**
+ * Every *translated* help page, at `help/<language>/<same file name>.md`.
+ *
+ * This is deliberately NOT `eager: true`, unlike `HELP_PAGE_FILES` above.
+ * Eager means "read every matching file into the JS bundle right now, at
+ * build time" -- fine for English, because English is the one language
+ * every user's Help screen needs the instant it opens. It would be the
+ * wrong choice here: a German reader never looks at the French pages and
+ * a French reader never looks at the German ones, so shipping every
+ * language's Markdown to every user on every launch would only make the
+ * app bigger for no one's benefit. Instead, Vite generates one small
+ * `import()` per file, and `loadTranslatedHelpPages()` below only calls
+ * the ones for the language actually being viewed -- mirroring exactly
+ * how `src/lib/i18n.ts` bundles English straight in but fetches German or
+ * French only once someone actually needs them.
+ */
+const TRANSLATED_HELP_PAGES = import.meta.glob<string>('/help/*/*.md', {
+  query: '?raw',
+  import: 'default',
+});
+
+/**
  * Cleans up one page's raw file text so it is fit to show inside the
  * app. Every `help/*.md` file is written to read well on GitHub as well
  * as in the app, which means it carries a couple of things that only
@@ -169,6 +191,49 @@ export function prepareHelpMarkdown(raw: string): string {
   // 3. Trim so the page starts right at its heading, not on a blank
   // line left over from removing the comment block above.
   return text.trim();
+}
+
+/**
+ * Loads every translated help page for one language, keyed by page id
+ * (e.g. `{ 'keyboard-shortcuts': '# Tastaturkürzel\n\n...' }`).
+ *
+ * `language` is whatever the app's current UI language happens to be --
+ * it can be a bare code ("de") or a full OS/browser tag ("de-DE"). This
+ * function narrows it down with `baseLanguageOf()` from `src/lib/i18n.ts`
+ * before looking anything up, rather than re-deciding on its own what
+ * "de-DE" should mean -- that decision is made in exactly one place, so
+ * the Help screen and the rest of the app can never disagree about which
+ * language folder a given setting points at.
+ *
+ * Returns an empty object -- not a thrown error, not a rejected promise
+ * -- when the language is English. This isn't a missing-translation
+ * case: English is the original wording every other language is a
+ * translation OF, and it already lives in `HELP_TOPICS` above (read
+ * eagerly, once, at build time). There is nothing to "load" for it, so
+ * callers can safely treat "the language is English" and "no translated
+ * pages exist" as the exact same situation and handle both with one
+ * fallback -- show the English content from `HELP_TOPICS`.
+ */
+export async function loadTranslatedHelpPages(language: string): Promise<Record<string, string>> {
+  const code = baseLanguageOf(language);
+  if (code === 'en') {
+    return {};
+  }
+
+  const prefix = `/help/${code}/`;
+  const matches = Object.entries(TRANSLATED_HELP_PAGES).filter(([path]) =>
+    path.startsWith(prefix)
+  );
+
+  const pages = await Promise.all(
+    matches.map(async ([path, loadRaw]) => {
+      const id = path.slice(prefix.length).replace(/\.md$/, '');
+      const raw = await loadRaw();
+      return [id, prepareHelpMarkdown(raw)] as const;
+    })
+  );
+
+  return Object.fromEntries(pages);
 }
 
 /**
