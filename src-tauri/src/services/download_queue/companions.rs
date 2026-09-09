@@ -2251,7 +2251,30 @@ impl CompanionTaskHandle {
             hb.stop();
         }
     }
+}
 
+/// If a `CompanionTaskHandle` is ever dropped WITHOUT `abort()` having
+/// been called first — the owning task panicked, was itself aborted, or
+/// simply forgot the call on some exit path — the companion download
+/// this handle was watching would otherwise keep running in the
+/// background for an item that is already finished, or already marked
+/// as failed. Nobody would be checking on it any more, and it could go
+/// on for as long as GAMDL takes.
+///
+/// `abort()` is already safe to call more than once (setting a flag
+/// that's already set, aborting an already-aborted task, and stopping
+/// an already-stopped heartbeat are all no-ops), so `Drop` simply calls
+/// it again as a safety net. This is the same shape as `ActiveSlotGuard`
+/// elsewhere in this module: the normal exit path calls the cleanup
+/// explicitly, and `Drop` only has work left to do if something skipped
+/// that call.
+impl Drop for CompanionTaskHandle {
+    fn drop(&mut self) {
+        self.abort();
+    }
+}
+
+impl CompanionTaskHandle {
     pub(crate) fn describe_pending(&self) -> String {
         self.progress
             .lock()

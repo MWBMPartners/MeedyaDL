@@ -348,7 +348,11 @@ pub async fn validate_musickit_credentials(
             )
         })?;
 
-    log::info!("MusicKit validation: JWT generated (iss={team_id}, kid={key_id})");
+    // Do not log `team_id` / `key_id` here. Both are treated as sensitive
+    // everywhere else in the app — redacted from the settings-change log,
+    // cleared before export, and redacted in diagnostic bundles — so
+    // writing them to the daily log file would undo all of that.
+    log::info!("MusicKit validation: JWT generated");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
