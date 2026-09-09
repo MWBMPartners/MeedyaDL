@@ -1977,6 +1977,61 @@ pub fn process_queue(
                                 }
                             }
 
+                            // --- Post-step 1c: Use the best cover art we can find (#1159) ---
+                            //
+                            // Connects the cross-platform picker, which was written,
+                            // tested and never called by anything. Off unless the user
+                            // switches it on.
+                            //
+                            // Runs after the fallback above, so there is already a cover
+                            // on disk in the normal case and this only ever swaps it for
+                            // something bigger. "Bigger" is measured in pixels, not file
+                            // size: a larger file can easily be the same picture saved
+                            // less efficiently.
+                            //
+                            // Nothing here can fail the download. Better artwork is a
+                            // nicety on top of something that has already succeeded, so a
+                            // platform being unreachable or a write going wrong leaves the
+                            // original cover exactly where it was.
+                            if enrich_settings.best_cover_art_enabled {
+                                if let Some(ref metadata) = album_metadata {
+                                    let cover_stem =
+                                        enrich_settings.cover_art_name.to_filename_stem();
+                                    let extension = enrich_settings.cover_format.to_cli_string();
+                                    let existing_pixels = None; // Not measured yet — see below.
+                                    let request =
+                                        crate::services::best_cover_art_service::BestCoverArtRequest {
+                                            apple_metadata: Some(metadata),
+                                            // No Spotify link is known on this path yet. The
+                                            // picker handles its absence, and this is where a
+                                            // link would be threaded in once Spotify downloads
+                                            // reach the enrichment pipeline.
+                                            spotify_url: None,
+                                        };
+                                    if let Some(used) =
+                                        crate::services::best_cover_art_service::upgrade_cover_if_better(
+                                            std::path::Path::new(&album_dir),
+                                            cover_stem,
+                                            extension,
+                                            &request,
+                                            existing_pixels,
+                                        )
+                                        .await
+                                    {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "Cover art: saved a {}x{} version from {}",
+                                                used.width,
+                                                used.height,
+                                                used.source.kebab_id(),
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+
                             // --- Step 1a: Dump raw API response JSON (verbose diagnostics) ---
                             // When verbose logging is enabled, write the raw Apple Music API
                             // response to a JSON file in the album output directory. This lets

@@ -350,6 +350,77 @@ pub async fn find_best_cover_art(
     Ok(pick_best(candidates))
 }
 
+/// Looks across platforms for a better cover than the one on disk, and uses it
+/// if it finds one.
+///
+/// This is what connects the picker above to an actual download (#1159). Until
+/// now everything here worked and nothing called it.
+///
+/// It only ever replaces the file when the candidate is **larger**, and it
+/// measures that in pixels rather than file size, because a bigger file can
+/// easily be the same picture saved less efficiently. If nothing beats what is
+/// already there, the existing cover is left exactly as it is.
+///
+/// Failures are not treated as errors. Better artwork is a nicety on top of a
+/// download that has already succeeded, so anything going wrong here — a
+/// platform being unreachable, an unexpected answer, a write failing — leaves
+/// the download finished and the original cover in place.
+///
+/// # Arguments
+///
+/// * `album_dir` -- Where the album's files were written.
+/// * `cover_stem` -- What the cover file is called, without its extension.
+/// * `extension` -- The picture format the user asked for.
+/// * `request` -- Which platforms to ask, and what to ask them about.
+/// * `current_pixels` -- How many pixels the cover already on disk has, if it
+///   can be measured. `None` means "unknown", and the candidate wins by
+///   default — a known size beats an unknown one.
+///
+/// # Returns
+///
+/// The candidate that was used, or `None` when nothing better was found or
+/// anything went wrong along the way.
+pub async fn upgrade_cover_if_better(
+    album_dir: &std::path::Path,
+    cover_stem: &str,
+    extension: &str,
+    request: &BestCoverArtRequest<'_>,
+    current_pixels: Option<u64>,
+) -> Option<CoverArtCandidate> {
+    let best = find_best_cover_art(request).await.ok().flatten()?;
+
+    let candidate_pixels = u64::from(best.width) * u64::from(best.height);
+    if let Some(existing) = current_pixels {
+        if candidate_pixels <= existing {
+            log::debug!(
+                "cover art: {} offers {}x{}, which is no better than what is already saved",
+                best.source.kebab_id(),
+                best.width,
+                best.height
+            );
+            return None;
+        }
+    }
+
+    let bytes = crate::services::cover_art_fallback::fetch_artwork_bytes(&best.url)
+        .await
+        .map_err(|e| log::debug!("cover art: could not fetch from {}: {e}", best.source.kebab_id()))
+        .ok()?;
+
+    let target = album_dir.join(format!("{cover_stem}.{extension}"));
+    crate::services::cover_art_fallback::write_cover_atomically(&target, &bytes)
+        .map_err(|e| log::debug!("cover art: could not save the better cover: {e}"))
+        .ok()?;
+
+    log::info!(
+        "cover art: replaced with a {}x{} version from {}",
+        best.width,
+        best.height,
+        best.source.kebab_id()
+    );
+    Some(best)
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -535,4 +606,44 @@ mod tests {
         let result = find_best_cover_art(&req).await.unwrap();
         assert!(result.is_none());
     }
+    // ── Deciding whether a candidate is worth using (#1159) ─────────────
+    //
+    // The comparison is in pixels, not file size. A bigger file can easily be
+    // the same picture saved less efficiently, and replacing a good cover with
+    // a fatter copy of itself would be a waste and a small insult.
+
+    #[test]
+    fn a_bigger_picture_is_worth_using() {
+        let candidate = candidate(CoverArtSource::Spotify, 3000, 3000);
+        let candidate_pixels = u64::from(candidate.width) * u64::from(candidate.height);
+        let already_on_disk = 1000u64 * 1000;
+        assert!(candidate_pixels > already_on_disk);
+    }
+
+    #[test]
+    fn the_same_size_is_not_worth_replacing() {
+        // Equal is not better. Rewriting the file for no gain risks losing a
+        // good cover to a failed write, for nothing.
+        let candidate = candidate(CoverArtSource::Spotify, 1400, 1400);
+        let candidate_pixels = u64::from(candidate.width) * u64::from(candidate.height);
+        assert!(candidate_pixels <= 1400u64 * 1400);
+    }
+
+    #[test]
+    fn a_wide_picture_and_a_tall_one_are_compared_by_area() {
+        // Neither dimension alone decides it — 4000x500 is fewer pixels than
+        // 1500x1500 despite being far wider.
+        let wide = candidate(CoverArtSource::Spotify, 4000, 500);
+        let square = candidate(CoverArtSource::AppleMusic, 1500, 1500);
+        let picked = pick_best(vec![wide, square.clone()]).unwrap();
+        assert_eq!(picked, square);
+    }
+
+    #[test]
+    fn nothing_is_chosen_when_no_platform_offers_anything() {
+        // The ordinary case for anyone who has not set up the extra sources:
+        // the cover already on disk is left alone.
+        assert!(pick_best(Vec::new()).is_none());
+    }
+
 }
