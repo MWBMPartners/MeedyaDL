@@ -94,14 +94,16 @@
 
 ## 💻 Supported Platforms
 
-| Platform | Architecture | Format | Notes |
-| -------- | ------------ | ------ | ----- |
-| 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | Requires macOS 13.3 (Ventura) or later |
-| 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | Also works on ARM64 via emulation |
-| 🪟 **Windows** | ARM64 | `.exe` (NSIS) | Native ARM64 build |
-| 🐧 **Linux** | x64 | `.deb`, `.AppImage` | Also works on ChromeOS via Crostini |
-| 🐧 **Linux** | ARM64 | `.deb` | Raspberry Pi 4/5, ARM servers |
-| 🐧 **Linux** | ARMv7 | `.deb` | Raspberry Pi 32-bit (experimental) |
+| Platform | Architecture | Format | In-App Updates | Notes |
+| -------- | ------------ | ------ | --------------- | ----- |
+| 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | ✅ Yes | Requires macOS 13.3 (Ventura) or later |
+| 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | ✅ Yes | Also works on ARM64 via emulation |
+| 🪟 **Windows** | ARM64 | `.exe` (NSIS) | ✅ Yes | Native ARM64 build |
+| 🐧 **Linux** | x64 | `.deb`, `.AppImage` | ✅ Yes | Also works on ChromeOS via Crostini |
+| 🐧 **Linux** | ARM64 | `.deb` | ✅ Yes¹ | Raspberry Pi 4/5, ARM servers |
+| 🐧 **Linux** | ARMv7 | `.deb` | ✅ Yes¹ | Raspberry Pi 32-bit (experimental) |
+
+¹ Releases published before September 2026 never told the in-app updater about Linux ARM builds at all — it simply had no way to know a newer version existed, so an older ARM install on one of those releases was never offered one. Nothing needs reinstalling to get this working: the first release built after the fix is offered normally, the same as every other platform.
 
 ---
 
