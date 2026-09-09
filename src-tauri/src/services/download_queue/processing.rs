@@ -2332,7 +2332,7 @@ pub fn process_queue(
                                 // that would starve tokio on slow FUSE mounts.
                                 let lrc_dir = album_dir.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&lrc_dir)
+                                    super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&lrc_dir, enrich_settings.keep_lyrics_sidecar)
                                 }).await.unwrap_or_else(|e| Err(format!("LRC task panicked: {e}"))) {
                                 Ok(count) if count > 0 => {
                                     log::info!(
@@ -2391,7 +2391,10 @@ pub fn process_queue(
                             // compatibility. Source priority: TTML → SRT → LRC.
                             // Runs after lyrics fallback so all available sources are present.
                             tokio::task::yield_now().await;
-                            if enrich_settings.generate_webvtt && !enrich_shutdown.is_triggered() {
+                            if enrich_settings.generate_webvtt
+                                && enrich_settings.keep_lyrics_sidecar
+                                && !enrich_shutdown.is_triggered()
+                            {
                                 set_label(
                                     "Generating WebVTT subtitles…",
                                     ProgressStage::LyricsConversion.weight(),
@@ -2444,7 +2447,9 @@ pub fn process_queue(
                             // SRT already exists (from GAMDL or lyrics fallback), the
                             // rich SRT replaces it since TTML has richer data.
                             tokio::task::yield_now().await;
-                            if enrich_settings.generate_rich_srt && !enrich_shutdown.is_triggered()
+                            if enrich_settings.generate_rich_srt
+                                && enrich_settings.keep_lyrics_sidecar
+                                && !enrich_shutdown.is_triggered()
                             {
                                 set_label(
                                     "Generating Rich SRT…",
@@ -2542,7 +2547,10 @@ pub fn process_queue(
                             // subtitle files from TTML or WebVTT with rich styling
                             // (colours, bold, italic, positioning, background vocals).
                             tokio::task::yield_now().await;
-                            if enrich_settings.generate_ass && !enrich_shutdown.is_triggered() {
+                            if enrich_settings.generate_ass
+                                && enrich_settings.keep_lyrics_sidecar
+                                && !enrich_shutdown.is_triggered()
+                            {
                                 set_label(
                                     "Generating ASS subtitles…",
                                     ProgressStage::LyricsConversion.weight(),
@@ -2602,6 +2610,7 @@ pub fn process_queue(
                             // format is officially experimental per LRCGET 2.0
                             // release notes.
                             if enrich_settings.generate_lyricsfile
+                                && enrich_settings.keep_lyrics_sidecar
                                 && !enrich_shutdown.is_triggered()
                             {
                                 set_label(
