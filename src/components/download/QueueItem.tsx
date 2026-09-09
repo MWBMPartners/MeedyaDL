@@ -380,18 +380,18 @@ function QueueItemComponent({
   const isActive = item.state === 'downloading' || item.state === 'processing';
 
   /**
-   * Opens the output folder in the native file manager (Finder on macOS,
-   * Explorer on Windows, or the default file manager on Linux).
+   * Reveals the output folder in the native file manager (Finder on
+   * macOS, Explorer on Windows, or the default file manager on Linux),
+   * selected inside its parent -- "Show in Finder/Explorer".
    *
-   * Uses a dynamic import of `@tauri-apps/plugin-shell` to:
-   *  1. Avoid hard failures when running outside the Tauri shell.
-   *  2. Keep the shell plugin tree-shaken when not needed.
+   * `openContainingFolder` (in `@/lib/openPath`) does this via
+   * `@tauri-apps/plugin-opener`, not the shell plugin -- the shell
+   * plugin's `open()` only accepts things that look like a web address
+   * (`https://...`), so a filesystem path was always silently refused by
+   * it. We extract the parent directory of the output file by stripping
+   * the last path segment (substring up to the last '/').
    *
-   * The `open()` function from the shell plugin opens a path in the
-   * OS default handler. We extract the parent directory of the output
-   * file by stripping the last path segment (substring up to the last '/').
-   *
-   * @see https://v2.tauri.app/plugin/shell/#open
+   * @see https://v2.tauri.app/plugin/opener/
    */
   const handleOpenFolder = async () => {
     if (!item.output_path) return;
@@ -406,8 +406,11 @@ function QueueItemComponent({
    * Opens the output file in its default application (e.g., Music.app,
    * VLC, or the system default media player).
    *
-   * Uses the same `open()` function from the shell plugin, which
-   * delegates to the OS default handler for the file type.
+   * Uses `openDownloadedFile` (in `@/lib/openPath`), which delegates to
+   * the OS default handler for the file type via
+   * `@tauri-apps/plugin-opener` (see the comment on `handleOpenFolder`
+   * above for why this is a different plugin from the one that opens
+   * web addresses).
    */
   const handleOpenFile = async () => {
     if (!item.output_path) return;

@@ -137,13 +137,16 @@ pub async fn export_disk_activity_log(
 
 /// Returns the absolute path of the active on-disk activity log
 /// directory, creating it if necessary. The frontend passes the
-/// returned path to `@tauri-apps/plugin-shell`'s `open()` to reveal
-/// it in Finder / Explorer / the default Linux file manager (same
-/// pattern as `QueueItem`'s "Open Folder" action).
+/// returned path to `@tauri-apps/plugin-opener`'s `revealItemInDir()`
+/// to reveal it in Finder / Explorer / the default Linux file manager
+/// (same pattern as `QueueItem`'s "Open Folder" action). It is NOT
+/// passed to the shell plugin's `open()` -- that only accepts things
+/// that look like a web address, so a filesystem path was always
+/// silently refused by it before the OS ever saw the request.
 ///
-/// Doing the `open()` on the frontend avoids the deprecated Rust-side
-/// `Shell::open` API and keeps the platform-specific reveal logic
-/// in the JS plugin where it already lives.
+/// Doing the reveal on the frontend keeps the platform-specific logic
+/// in the JS plugin where it already lives, rather than reintroducing
+/// it on the Rust side.
 #[tauri::command]
 pub async fn get_logs_folder_path(app: AppHandle) -> Result<String, String> {
     let log_dir = active_log_dir(&app);

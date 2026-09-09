@@ -27,8 +27,8 @@
  *     `getItemKey` contract by simply rendering the full list.
  *   - `StatisticsPanel` — replaced with an empty placeholder so
  *     this file tests the log component, not the panel.
- *   - `@tauri-apps/plugin-shell` — `open()` stub so the Reveal
- *     button doesn't throw on click.
+ *   - `@tauri-apps/plugin-opener` — `revealItemInDir()` stub so the
+ *     Reveal button doesn't throw on click.
  *
  * @see src/components/download/ActivityLog.tsx
  */
@@ -65,8 +65,8 @@ vi.mock('@/components/download/StatisticsPanel', () => ({
   StatisticsPanel: () => <div data-testid="stats-panel-mock" />,
 }));
 
-vi.mock('@tauri-apps/plugin-shell', () => ({
-  open: vi.fn().mockResolvedValue(undefined),
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  revealItemInDir: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@/lib/tauri-commands', () => ({

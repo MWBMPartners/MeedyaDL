@@ -591,12 +591,16 @@ export function AdvancedTab() {
                 Browse…
               </Button>
               {/*
-                Open the currently-configured log folder in the OS
+                Reveal the currently-configured log folder in the OS
                 native file viewer (Finder / Explorer / Nautilus). Uses
-                the same `get_logs_folder_path` IPC + `plugin-shell`
-                open() pattern that powers the Activity Log page's
-                "Reveal" button, so the behaviour is consistent across
-                the two entry points (#581).
+                the same `get_logs_folder_path` IPC + `plugin-opener`
+                revealItemInDir() pattern that powers the Activity Log
+                page's "Reveal" button, so the behaviour is consistent
+                across the two entry points (#581). NOT the shell
+                plugin used elsewhere on this page for web addresses --
+                its `open()` only accepts things that look like
+                `https://...`, so a filesystem path was always
+                silently refused by it.
               */}
               <Button
                 variant="secondary"
@@ -605,8 +609,8 @@ export function AdvancedTab() {
                   const addToast = useUiStore.getState().addToast;
                   try {
                     const path = await getLogsFolderPath();
-                    const { open } = await import('@tauri-apps/plugin-shell');
-                    await open(path);
+                    const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+                    await revealItemInDir(path);
                   } catch (err) {
                     const msg = err instanceof Error ? err.message : String(err);
                     addToast(`Failed to open logs folder: ${msg}`, 'error');

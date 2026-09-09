@@ -563,16 +563,24 @@ export function ActivityLog() {
   };
 
   /**
-   * Open the logs folder in the OS file manager so users can browse,
-   * archive, or attach files to bug reports directly. Uses the shell
-   * plugin (same pattern as QueueItem's "Open Folder" action).
+   * Reveal the logs folder in the OS file manager so users can browse,
+   * archive, or attach files to bug reports directly.
+   *
+   * Uses `@tauri-apps/plugin-opener`'s `revealItemInDir()`, not the
+   * shell plugin used elsewhere in this file for web addresses -- the
+   * shell plugin's `open()` only accepts things that look like
+   * `https://...`, so a filesystem path was always silently refused by
+   * it before the OS file manager ever opened. The opener plugin's
+   * permission for this is granted separately in
+   * `capabilities/default.json`, so it can only ever reveal a path, not
+   * open an address (same pattern as QueueItem's "Open Folder" action).
    */
   const handleRevealLogsFolder = async () => {
     const addToast = useUiStore.getState().addToast;
     try {
       const path = await getLogsFolderPath();
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(path);
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
+      await revealItemInDir(path);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast(`Failed to open logs folder: ${msg}`, 'error');

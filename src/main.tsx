@@ -53,6 +53,13 @@ import { invoke } from '@tauri-apps/api/core';
 import App from './App';
 
 /**
+ * Scrubs a personal folder path (and any address query string) out of a
+ * crash report before it is sent — see the file header on this module
+ * for why that is necessary here specifically.
+ */
+import { scrubCrashReportEvent } from './lib/crashReportRedaction';
+
+/**
  * Global CSS styles imported as a side-effect module.
  * Contains Tailwind CSS directives (@tailwind base/components/utilities),
  * CSS custom properties for theming, and base layout styles.
@@ -85,6 +92,18 @@ import './styles/globals.css';
           environment: import.meta.env.DEV ? 'development' : 'production',
           sampleRate: 1.0,
           tracesSampleRate: 0.2,
+          // Settings promises the user that a crash report never
+          // includes personal data. Without this, that was not quite
+          // true: a failed call into the Rust backend rejects with
+          // Rust's own error text, and some of that text is written to
+          // include the download folder on purpose (so the activity log
+          // is useful) -- which means it includes the user's account
+          // name. `beforeSend` runs on every event just before it
+          // leaves the machine; `scrubCrashReportEvent` (see
+          // `./lib/crashReportRedaction.ts`) replaces the folder's
+          // username with a placeholder and drops any address's query
+          // string, wherever in the report either happens to appear.
+          beforeSend: (event) => scrubCrashReportEvent(event),
         });
       } else {
         console.debug('[Sentry] No DSN configured — error reporting disabled');

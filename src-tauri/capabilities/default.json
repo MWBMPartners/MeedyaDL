@@ -1,18 +1,20 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/permissions.schema.json",
   "identifier": "default",
-  "description": "Default capability set for the MeedyaDL application. Grants permissions for file system access, native dialogs, shell execution, OS detection, persistent storage, and process management.",
+  "description": "Default capability set for the MeedyaDL application. Grants permissions for file system access, native dialogs, shell execution, OS detection, opening/revealing files and folders, and process management. `shell:allow-open` is for web addresses only (its address pattern refuses anything that is not mailto:/tel:/http(s):, so it can never be used to open a file on disk); opening or revealing a file/folder goes through the separate `opener:*` permissions below instead, scoped just to that.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "shell:allow-open",
     "dialog:default",
     "fs:default",
-    "store:default",
     "process:default",
     "os:default",
-    "updater:default",
     "notification:default",
-    "deep-link:default"
+    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "**" }]
+    }
   ]
 }

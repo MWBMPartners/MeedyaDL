@@ -12,8 +12,16 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const openMock = vi.fn();
-vi.mock('@tauri-apps/plugin-shell', () => ({ open: (p: string) => openMock(p) }));
+// `openContainingFolder` reveals (selects the folder in its parent) and
+// `openDownloadedFile` opens (launches the file in its own app) -- see
+// the file header for why these went from the shell plugin to the
+// opener plugin, and why they use two different opener functions.
+const revealItemInDirMock = vi.fn();
+const openPathMock = vi.fn();
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  revealItemInDir: (p: string) => revealItemInDirMock(p),
+  openPath: (p: string) => openPathMock(p),
+}));
 
 const addToastMock = vi.fn();
 vi.mock('@/stores/uiStore', () => ({
@@ -24,45 +32,46 @@ import { openContainingFolder, openDownloadedFile } from './openPath';
 
 describe('openPath', () => {
   beforeEach(() => {
-    openMock.mockReset();
+    revealItemInDirMock.mockReset();
+    openPathMock.mockReset();
     addToastMock.mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   describe('when the path opens', () => {
-    it('opens an album folder as given, without stripping anything', async () => {
-      openMock.mockResolvedValue(undefined);
+    it('reveals an album folder as given, without stripping anything', async () => {
+      revealItemInDirMock.mockResolvedValue(undefined);
       const ok = await openContainingFolder('/Users/me/Music/Artist/Album', true);
       expect(ok).toBe(true);
-      expect(openMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album');
+      expect(revealItemInDirMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album');
       expect(addToastMock).not.toHaveBeenCalled();
     });
 
-    it('opens the containing folder when given a file', async () => {
-      openMock.mockResolvedValue(undefined);
+    it('reveals the containing folder when given a file', async () => {
+      revealItemInDirMock.mockResolvedValue(undefined);
       await openContainingFolder('/Users/me/Music/Artist/Album/01 Track.m4a', false);
-      expect(openMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album');
+      expect(revealItemInDirMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album');
     });
 
     it('handles Windows paths by their own separator, not the host machine\'s', async () => {
       // A queue file exported on Windows and imported on a Mac still has
       // backslashes in it, so the separator has to come from the path.
-      openMock.mockResolvedValue(undefined);
+      revealItemInDirMock.mockResolvedValue(undefined);
       await openContainingFolder('C:\\Users\\me\\Music\\Album\\01 Track.m4a', false);
-      expect(openMock).toHaveBeenCalledWith('C:\\Users\\me\\Music\\Album');
+      expect(revealItemInDirMock).toHaveBeenCalledWith('C:\\Users\\me\\Music\\Album');
     });
 
     it('opens a file as given', async () => {
-      openMock.mockResolvedValue(undefined);
+      openPathMock.mockResolvedValue(undefined);
       const ok = await openDownloadedFile('/Users/me/Music/Artist/Album/01 Track.m4a');
       expect(ok).toBe(true);
-      expect(openMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album/01 Track.m4a');
+      expect(openPathMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album/01 Track.m4a');
     });
   });
 
   describe('when the path cannot be opened — the behaviour this file exists for', () => {
     it('tells the user, rather than failing silently', async () => {
-      openMock.mockRejectedValue(new Error('No such file or directory'));
+      revealItemInDirMock.mockRejectedValue(new Error('No such file or directory'));
       const ok = await openContainingFolder('/Users/me/Music/Gone', true);
 
       expect(ok).toBe(false);
@@ -75,7 +84,8 @@ describe('openPath', () => {
     });
 
     it('says "folder" for a folder and "file" for a file', async () => {
-      openMock.mockRejectedValue(new Error('nope'));
+      revealItemInDirMock.mockRejectedValue(new Error('nope'));
+      openPathMock.mockRejectedValue(new Error('nope'));
 
       await openContainingFolder('/some/folder', true);
       expect(addToastMock.mock.calls[0][0]).toContain('That folder');
@@ -88,7 +98,7 @@ describe('openPath', () => {
     it('does not claim to know why it failed', async () => {
       // The likely causes are not reliably distinguishable from the error,
       // and a confident wrong guess is worse than an honest general one.
-      openMock.mockRejectedValue(new Error('EACCES: permission denied'));
+      openPathMock.mockRejectedValue(new Error('EACCES: permission denied'));
       await openDownloadedFile('/some/file.m4a');
       const message = addToastMock.mock.calls[0][0] as string;
       expect(message).toContain('may have been');
@@ -97,7 +107,7 @@ describe('openPath', () => {
 
     it('replaces its own message instead of stacking copies', async () => {
       // Clicking a dead button five times should leave one message, not five.
-      openMock.mockRejectedValue(new Error('nope'));
+      openPathMock.mockRejectedValue(new Error('nope'));
       await openDownloadedFile('/a.m4a');
       await openDownloadedFile('/a.m4a');
       const firstKey = addToastMock.mock.calls[0][3];

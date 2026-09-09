@@ -40,13 +40,15 @@ all-features = true
 # Ignore policy — two narrow carve-outs:
 #
 #   (a) Unmaintained-crate advisories that come from Tauri's transitive
-#       dependencies. Tauri 2.x still uses GTK3 bindings on Linux, which
-#       the gtk-rs team has archived in favour of gtk4-rs. These are
-#       outside our control and will be resolved when Tauri migrates to
-#       GTK4. Similarly, several other unmaintained crates (derivative,
-#       fxhash, instant, proc-macro-error, unic-*) are transitive
-#       dependencies from Tauri, tao, or wry that we cannot update
-#       independently.
+#       dependencies (derivative, fxhash, instant, proc-macro-error,
+#       unic-*, and previously the GTK3 bindings) — none of these are
+#       something MeedyaDL can update independently of Tauri/tao/wry
+#       themselves. The GTK3 entries this comment used to mention were
+#       removed on 2026-09-09: the gtk-rs project un-archived those
+#       bindings and picked development back up, and RustSec marked all
+#       ten advisories `withdrawn` on 2026-08-14 — see the `ignore` list
+#       below for the verification.
+#
 #
 #   (b) Security advisories whose vulnerable code path is demonstrably
 #       unreachable in MeedyaDL's build/runtime AND that are tracked
@@ -59,21 +61,14 @@ all-features = true
 # If a genuine security vulnerability with a reachable code path
 # appears, it will NOT be ignored — fix it, don't hide it.
 ignore = [
-    # GTK3 bindings (Tauri Linux dependency — awaiting Tauri GTK4 migration).
-    # Package names below reflect the actual upstream advisory subjects as
-    # of cargo-audit 0.22.1 (2026-05-24 audit, refreshed for #696). The
-    # eight package names that drifted between PR #688 and this audit are
-    # noted with their previous attribution in parentheses for forensics.
-    "RUSTSEC-2024-0411", # gdkwayland-sys — unmaintained (was: cairo-rs)
-    "RUSTSEC-2024-0412", # gdk — unmaintained (was: cairo-sys-rs)
-    "RUSTSEC-2024-0413", # atk — unmaintained
-    "RUSTSEC-2024-0414", # gdkx11-sys — unmaintained (was: gdk)
-    "RUSTSEC-2024-0415", # gtk — unmaintained (was: gdk-pixbuf)
-    "RUSTSEC-2024-0416", # atk-sys — unmaintained
-    "RUSTSEC-2024-0417", # gdkx11 — unmaintained (was: gdk-sys)
-    "RUSTSEC-2024-0418", # gdk-sys — unmaintained (was: gdk-pixbuf-sys)
-    "RUSTSEC-2024-0419", # gtk3-macros — unmaintained (was: gio)
-    "RUSTSEC-2024-0420", # gtk-sys — unmaintained (was: glib)
+    # GTK3 bindings (Tauri Linux dependency). These ten were previously
+    # ignored as "awaiting Tauri GTK4 migration" -- that reason no longer
+    # holds. The gtk-rs project un-archived its GTK3 bindings and picked
+    # development back up; every one of these ten advisories carries
+    # `withdrawn = "2026-08-14"` in the RustSec database now, and
+    # `cargo deny check advisories` reports all ten as "advisory was not
+    # encountered" (verified locally against cargo-deny 0.20.2). There is
+    # nothing left for this ignore list to suppress.
 
     # Other unmaintained transitive dependencies from Tauri/tao/wry
     "RUSTSEC-2024-0370", # proc-macro-error — unmaintained (used by tao, field-offset)
@@ -101,23 +96,48 @@ ignore = [
     # advisory trigger conditions that do NOT apply to our usage, an internal
     # tracker issue, and an upstream tracker URL.
     #
-    # quick-xml 0.39.4 — two DoS advisories on the O(N²) attribute /
-    # namespace scan hot paths. Transitive chain: quick-xml → plist 1.9.0
-    # → tauri 2.11.2 → MeedyaDL. Both are DoS via crafted XML with either
-    # many attributes on a single tag (0194) or many `xmlns:` declarations
-    # on a single tag (0195). MeedyaDL never feeds untrusted XML into the
-    # plist → tauri path — the only XML the app parses via this chain is
-    # Tauri's own bundled `tauri.conf.json` (JSON, not XML), its own build
-    # metadata, and the Apple-signed macOS updater manifest (all inputs
-    # under our control or Apple's). User-supplied lyrics TTML is parsed
-    # via the separate `roxmltree` crate (in `enhanced_lyrics_service.rs`,
-    # not via quick-xml). Patched in quick-xml 0.41.0 which requires a
-    # coordinated bump through plist and Tauri; will resolve naturally
-    # once Tauri 2.12+ ships that upgrade chain. Upstream trackers:
+    # quick-xml 0.36.2 — two DoS advisories on the O(N²) attribute /
+    # namespace scan hot paths (both patched in quick-xml >= 0.41.0).
+    #
+    # This entry previously claimed the vulnerable copy only arrives via
+    # `plist -> tauri`, on a path that never sees untrusted XML, and that
+    # user-supplied lyrics TTML is parsed via the separate `roxmltree`
+    # crate instead. Checked again while auditing this file (2026-09-09,
+    # `cargo tree -i quick-xml@0.36.2`): that is no longer true, and may
+    # not have been true when written. There are two copies of quick-xml
+    # in the tree today. `quick-xml 0.41.0` does arrive via
+    # `plist -> tauri`, and IS already patched. But `quick-xml 0.36.2` —
+    # the vulnerable one this ignore entry is actually about — arrives
+    # via `meedya-lyrics -> meedyadl` (`meedya-lyrics::lyricsfile_ttml.rs`
+    # / `lyricsfile_ttml_classify.rs`, both plain `quick_xml::Reader`,
+    # both call `.attributes()` with duplicate-name checking on, its
+    # default). `services/lyricsfile_service.rs` feeds that reader the
+    # TTML lyrics sidecar GAMDL fetched from Apple Music for the track
+    # just downloaded — exactly the untrusted input this ignore entry
+    # said never reached quick-xml.
+    #
+    # What actually limits the exposure: this whole code path is opt-in
+    # and off by default. It only runs when the user has turned on
+    # `generate_lyricsfile` (Settings > Lyrics > Lyricsfile), and only
+    # RUSTSEC-2026-0194 (the O(N²) duplicate-attribute-name scan) is
+    # reachable through it — `meedya-lyrics` never uses `NsReader`, so
+    # RUSTSEC-2026-0195 (unbounded namespace-declaration allocation)
+    # cannot fire via this path; cargo-deny still has to be told to
+    # ignore both, because it flags a vulnerable crate VERSION in the
+    # tree, not a specific reachable function. Both advisories are
+    # denial-of-service only (CPU or memory exhaustion) — a
+    # maliciously-crafted lyrics file already covered by this ignore
+    # could make the app become unresponsive while converting it, never
+    # anything worse (no code execution, no data exposure).
+    #
+    # This cannot be fixed from this repository: MeedyaDL cannot bump
+    # `meedya-lyrics`'s own `quick-xml` dependency, only MeedyaSuite-core
+    # can. The real fix is upstream, in `meedya-lyrics`'s `Cargo.toml`.
+    # Upstream trackers (for quick-xml's own fix, already released):
     # https://github.com/tafia/quick-xml/issues/970
     # https://github.com/tafia/quick-xml/issues/978
-    "RUSTSEC-2026-0194", # quick-xml — O(N²) attributes() (DoS, no untrusted XML on the plist path)
-    "RUSTSEC-2026-0195", # quick-xml — NsReader unbounded push (DoS, no untrusted XML on the plist path)
+    "RUSTSEC-2026-0194", # quick-xml 0.36.2 via meedya-lyrics — O(N²) attributes() on untrusted TTML, opt-in feature, DoS only
+    "RUSTSEC-2026-0195", # quick-xml 0.36.2 via meedya-lyrics — NsReader unbounded push; not reachable (meedya-lyrics never uses NsReader), kept ignored because cargo-deny flags the crate version regardless
 ]
 
 # ============================================================
@@ -153,7 +173,6 @@ allow = [
     "Zlib",                     # bytemuck, objc2-*, miniz_oxide, raw-window-handle
     "0BSD",                     # adler2 (BSD Zero Clause)
     "CC0-1.0",                  # constant_time_eq, dunce, tiny-keccak
-    "OpenSSL",                  # aws-lc-sys (OpenSSL licence, permissive)
     "Unicode-3.0",              # icu_*, unicode-ident, zerovec, yoke
     "CDLA-Permissive-2.0",      # webpki-root-certs (Community Data Licence)
 
