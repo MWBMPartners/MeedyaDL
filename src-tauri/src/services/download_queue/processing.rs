@@ -1210,12 +1210,37 @@ pub fn process_queue(
                                         warnings.last().cloned().unwrap_or_default()
                                     )
                                 } else if only_codec_skips {
-                                    "No audio available: Apple Music does not offer \
-                                 this content in any of your requested formats. Try \
-                                 alternative codecs in Settings > Quality > Music \
-                                 Codec, or check that this content exists in your \
-                                 storefront."
-                                        .to_string()
+                                    // Say the right thing for what was actually
+                                    // asked for (#1155). A music video used to be
+                                    // told to try other codecs in the Music Codec
+                                    // setting — advice about audio, for a video,
+                                    // pointing at a setting with no bearing on it.
+                                    // Anyone following it would change their music
+                                    // format, try again, and get the same result.
+                                    let is_music_video = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .is_some_and(|i| {
+                                            super::helpers::urls_are_all_music_videos(
+                                                &i.status.urls,
+                                            )
+                                        });
+                                    if is_music_video {
+                                        "This music video is not available in any of \
+                                     the video formats you allow. Try adding another \
+                                     video codec in Settings > Quality > Video \
+                                     Quality, or check that the video exists in your \
+                                     storefront."
+                                            .to_string()
+                                    } else {
+                                        "No audio available: Apple Music does not offer \
+                                     this content in any of your requested formats. Try \
+                                     alternative codecs in Settings > Quality > Music \
+                                     Codec, or check that this content exists in your \
+                                     storefront."
+                                            .to_string()
+                                    }
                                 } else if let Some(last_warning) = warnings.last() {
                                     format!(
                                         "Download completed but no output files were \

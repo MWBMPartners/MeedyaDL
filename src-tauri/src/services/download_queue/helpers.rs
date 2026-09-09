@@ -971,3 +971,89 @@ pub(crate) fn cleanup_duplicate_cover_art(album_dir: &std::path::Path, target_st
     }
     cleaned
 }
+
+/// Whether these links point at music videos rather than songs or albums.
+///
+/// Used to say something true when a download produces nothing. A music video
+/// that Apple Music does not offer in any allowed video format used to be told
+/// "try alternative codecs in Settings > Quality > Music Codec" — advice about
+/// audio, for a video, pointing at a setting that has no bearing on it. Someone
+/// following it would change their music format and try again, and get the same
+/// result (#1155).
+///
+/// Decided from the link rather than from the failure message, because the
+/// download tool words the message identically for songs and videos — only the
+/// list of formats inside it differs, which is far too fragile to read.
+///
+/// A mixed batch counts as audio: the audio advice is then right for at least
+/// part of it, and the video advice would be wrong for the rest.
+///
+/// # Arguments
+///
+/// * `urls` -- The links for one queued item.
+///
+/// # Returns
+///
+/// `true` only when every link is a music video and there is at least one.
+pub(crate) fn urls_are_all_music_videos(urls: &[String]) -> bool {
+    !urls.is_empty()
+        && urls.iter().all(|url| {
+            let lower = url.to_lowercase();
+            // The public shape and the personal-library shape.
+            lower.contains("/music-video/") || lower.contains("/library/music-videos/")
+        })
+}
+
+#[cfg(test)]
+mod media_kind_tests {
+    use super::urls_are_all_music_videos;
+
+    #[test]
+    fn recognises_a_music_video_link() {
+        assert!(urls_are_all_music_videos(&[
+            "https://music.apple.com/gb/music-video/some-video/1234567890".to_string()
+        ]));
+    }
+
+    #[test]
+    fn recognises_one_from_a_personal_library() {
+        assert!(urls_are_all_music_videos(&[
+            "https://music.apple.com/library/music-videos/l.AbCdEfG".to_string()
+        ]));
+    }
+
+    #[test]
+    fn an_album_or_song_is_not_a_music_video() {
+        assert!(!urls_are_all_music_videos(&[
+            "https://music.apple.com/gb/album/some-album/1234567890".to_string()
+        ]));
+        // A single song within an album, which is the shape used for
+        // track-level downloads.
+        assert!(!urls_are_all_music_videos(&[
+            "https://music.apple.com/gb/album/some-album/123?i=456".to_string()
+        ]));
+    }
+
+    #[test]
+    fn a_mixed_batch_counts_as_audio() {
+        // The audio advice is then right for at least part of it, whereas the
+        // video advice would be wrong for the rest.
+        assert!(!urls_are_all_music_videos(&[
+            "https://music.apple.com/gb/music-video/v/1".to_string(),
+            "https://music.apple.com/gb/album/a/2".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn nothing_at_all_is_not_a_music_video() {
+        assert!(!urls_are_all_music_videos(&[]));
+    }
+
+    #[test]
+    fn capitalisation_in_the_link_does_not_matter() {
+        assert!(urls_are_all_music_videos(&[
+            "https://music.apple.com/GB/Music-Video/X/1".to_string()
+        ]));
+    }
+}
+

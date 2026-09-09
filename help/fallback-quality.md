@@ -73,7 +73,11 @@ The default video fallback chain, in order of priority, is:
 7. **360p**
 8. **240p**
 
-When a requested resolution is not available, MeedyaDL falls to the next lower resolution in the chain until it finds one that is available.
+When you set a video resolution, MeedyaDL passes it on as a **maximum**, not as an exact request. Apple Music then gives the closest quality it has at or below that. So asking for 4K for a video that only exists in 1080p gives you the 1080p version straight away — there is no stepping down to find it, because nothing failed.
+
+That means the resolution order below has no effect on video downloads today. It is kept because the setting is stored and may matter for other services later, but nothing reads it at the moment.
+
+A music video **can** still fail, but not because of resolution — it fails when Apple Music does not offer it in any of the video codecs you allow (h265 or h264). When that happens MeedyaDL tells you so, and the fix is to allow another codec rather than a different resolution.
 
 ---
 
@@ -129,7 +133,7 @@ See [Downloading Music](downloading-music.md) for general audio download informa
 
 ### Music Videos
 
-Video fallback works the same way, stepping through resolutions in the configured chain until an available resolution is found. For example, requesting 4K for a music video that is only available up to 1080p will cause MeedyaDL to try 2160p, then 1440p, then 1080p, downloading at the first resolution that succeeds.
+Video does **not** work the same way as audio. See the note above: the resolution you choose is treated as a maximum, and Apple Music gives you the closest quality at or below it in one go. There is no stepping down, because a missing resolution is not a failure.
 
 See [Downloading Videos](downloading-videos.md) for general video download information.
 
@@ -170,14 +174,15 @@ A user requests ALAC for a 6-track album. Here is what happens during the downlo
    - Tries **AAC** -- available! Track 6 downloads successfully in AAC.
 3. **Result** -- The album download completes with tracks 1-5 in ALAC and track 6 in AAC. The download queue shows a fallback indicator badge on track 6, indicating "Requested: ALAC | Downloaded: AAC".
 
-### Example 2: Video Fallback
+### Example 2: A Music Video
 
-A user requests 4K UHD (2160p) for a music video. The video is only available up to 1080p. Here is what happens:
+A user asks for 4K (2160p) for a music video. The video only exists up to 1080p. Here is what happens:
 
-1. MeedyaDL attempts **2160p** -- resolution unavailable.
-2. Falls back to **1440p** -- resolution unavailable.
-3. Falls back to **1080p** -- available! The video downloads successfully at 1080p.
-4. **Result** -- The download queue shows a fallback indicator badge on the video, indicating "Requested: 2160p | Downloaded: 1080p".
+1. MeedyaDL asks for **2160p as a maximum**.
+2. Apple Music returns the closest quality it has at or below that: **1080p**.
+3. **Result** -- the video downloads at 1080p, in one attempt. Nothing failed, so there is no stepping down and no fallback badge.
+
+This is why the resolution order does not apply to video. What *can* go wrong is the video not being offered in any codec you allow — and MeedyaDL now says so plainly when that happens, pointing at the video codec setting rather than the music one.
 
 ---
 
