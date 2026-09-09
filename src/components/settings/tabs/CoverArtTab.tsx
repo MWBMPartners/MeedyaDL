@@ -23,6 +23,12 @@
  *     art image. Valid range: 100-10000. Maps to `settings.cover_size` and
  *     GAMDL's `--cover-size` flag.
  *
+ *   - **Upgrade Cover Art From Other Services** -- Toggle that checks
+ *     Deezer's public catalogue (matched by the release barcode) for a
+ *     bigger picture of the same album, and replaces the saved cover art
+ *     file only when Deezer's picture has more pixels. Off by default
+ *     because it contacts Deezer. Maps to `settings.best_cover_art_enabled`.
+ *
  * ## Animated Artwork (MusicKit API)
  *
  *   - **Download Animated Cover Art** -- Toggle to enable/disable automatic
@@ -110,6 +116,8 @@ export function CoverArtTab() {
   const animatedResolution = useSettingsField('animated_artwork_resolution');
   // #533 / #569: embed MV cover sidecar into MP4 + delete sidecar.
   const mvEmbedCoverSidecar = useSettingsField('music_video_embed_cover_sidecar');
+  // #1159: cross-service cover art upgrade (checks Deezer for a bigger picture).
+  const bestCoverArtEnabled = useSettingsField('best_cover_art_enabled');
   /** Navigate to a help topic (for the "Animated Artwork help page" link) */
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
@@ -169,6 +177,18 @@ export function CoverArtTab() {
                 options={COVER_ART_NAME_OPTIONS}
                 value={coverArtName.value}
                 onChange={(e) => coverArtName.set(e.target.value as CoverArtName)}
+              />
+
+              {/* #1159: cross-service cover art upgrade. Placed alongside the
+                  other cover-file settings because it can only act on a cover
+                  art file that this section is responsible for -- it has
+                  nothing to compare against, or replace, when there is no
+                  saved cover art at all. */}
+              <Toggle
+                label="Upgrade Cover Art From Other Services"
+                description="Checks Deezer's public catalogue for a bigger picture of the same album, matched by its release barcode. The saved cover art file is only replaced when Deezer's picture has more pixels than what is already there -- a same-size or smaller picture is left alone, and only pixel count is compared, never which picture looks nicer. The picture already embedded inside each track file is not touched. Off by default because it sends the album's barcode to Deezer for every download."
+                checked={bestCoverArtEnabled.value}
+                onChange={bestCoverArtEnabled.set}
               />
 
               {/* #533 / #569: embed MV cover sidecar into MP4 + delete. */}

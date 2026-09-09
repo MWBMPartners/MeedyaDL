@@ -173,16 +173,23 @@ pub mod cover_art_fallback;
 
 /// Best-cover-art picker (M9-3).
 ///
-/// Fans out to every supported music platform in parallel, scores
-/// each platform's candidate by pixel area, and returns the
+/// Asks each supported music platform in turn (not in parallel),
+/// scores each platform's candidate by pixel area, and returns the
 /// highest-resolution winner — with Apple Music as the tie-breaker
 /// on equal-pixel matches. The cross-platform design is forward-
-/// looking: today Apple Music almost always wins, but as Tidal and
-/// Bandcamp adapters land their typically-higher-than-Spotify
-/// resolutions will participate in the race without code change.
+/// looking: today only Deezer's public catalogue is actually reached
+/// (Apple Music's data is reused from metadata already fetched
+/// elsewhere; the Spotify adapter exists but has no caller feeding it
+/// a URL yet), but as Tidal and Bandcamp adapters land their
+/// typically-higher-than-Spotify resolutions will participate in the
+/// race without code change.
 ///
-/// Opt-in via `AppSettings::best_cover_art_enabled`. Queue
-/// integration lives in M9-4.
+/// Opt-in via `AppSettings::best_cover_art_enabled` (default off —
+/// Settings > Cover Art). Connected to the download pipeline in
+/// `services/download_queue/processing.rs` (#1159): it can only
+/// replace the cover art file already saved on disk, and only with
+/// something bigger — it never touches the artwork embedded inside
+/// a track itself.
 pub mod best_cover_art_service;
 
 /// Anti-ban runtime for Spotify downloads (M9-4).

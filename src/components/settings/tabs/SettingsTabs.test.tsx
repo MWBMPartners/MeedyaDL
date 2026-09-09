@@ -31,6 +31,7 @@ import { GeneralTab } from './GeneralTab';
 import { QualityTab } from './QualityTab';
 import { AdvancedTab } from './AdvancedTab';
 import { MetadataTab } from './MetadataTab';
+import { CoverArtTab } from './CoverArtTab';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Test-only helper that switches the shared i18next instance to German or
@@ -676,5 +677,28 @@ describe('MetadataTab', () => {
 
     const { settings } = useSettingsStore.getState();
     expect(settings.odesli_lookup_enabled).toBe(true);
+  });
+});
+
+describe('CoverArtTab', () => {
+  // ===========================================================================
+  // Toggle -- cross-service cover art upgrade (#1159)
+  // ===========================================================================
+
+  /**
+   * Verifies that clicking the "Upgrade Cover Art From Other Services"
+   * toggle updates the store's `best_cover_art_enabled` field. The toggle
+   * only renders when `save_cover` is on, which it is by default.
+   */
+  it('updates settings store when the cover art upgrade toggle is clicked', () => {
+    render(<CoverArtTab />);
+
+    const toggle = screen.getByRole('switch', {
+      name: /upgrade cover art from other services/i,
+    });
+    fireEvent.click(toggle);
+
+    const { settings } = useSettingsStore.getState();
+    expect(settings.best_cover_art_enabled).toBe(true);
   });
 });

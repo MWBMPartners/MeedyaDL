@@ -470,6 +470,16 @@ In **Settings > Cover Art**, you can enable saving cover art as a standalone ima
 
 This is useful for media players and library managers (such as Plex, Jellyfin, or Kodi) that look for a `cover.jpg` or `folder.jpg` file in the album directory to display artwork.
 
+### Checking Other Services for a Bigger Cover (Opt-In)
+
+Enable **"Upgrade Cover Art From Other Services"** in **Settings > Cover Art**. After a download finishes, MeedyaDL asks Deezer's public catalogue for its picture of the same album, matched by the album's release barcode -- never by searching for the album's name, so it can never come back with the wrong album's art.
+
+If Deezer's picture has more pixels than the cover art file MeedyaDL already saved, the saved file is replaced with Deezer's version. If Deezer's picture is the same size or smaller, or Deezer doesn't recognise the barcode, nothing changes. Only the pixel count is compared -- MeedyaDL does not judge which picture looks better.
+
+This only replaces the standalone cover art file described above (`cover.jpg` / `cover.png`). The artwork Apple Music already embedded inside each track's own file is never touched by this setting.
+
+This is off by default because turning it on means MeedyaDL sends the album's barcode to Deezer, a service run by a different company, for every album you download.
+
 ---
 
 ## Troubleshooting Lyrics and Metadata
