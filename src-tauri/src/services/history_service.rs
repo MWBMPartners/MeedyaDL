@@ -105,7 +105,24 @@ fn load_history_from_disk(app: &AppHandle) -> Vec<HistoryEntry> {
                 entries
             }
             Err(e) => {
-                log::debug!("Failed to parse history.json: {e}");
+                // Do NOT quietly carry on with an empty history (#1156).
+                //
+                // This used to log at debug level — which most people never
+                // see — and return nothing. From the outside that looks
+                // exactly like every download you have ever made vanishing.
+                //
+                // Worse, nothing was said, so the next save wrote a fresh file
+                // over the unreadable one and the contents were gone for good.
+                // Moving it aside first means it can still be recovered, and
+                // the message below means the person knows to look.
+                log::warn!("could not read history.json: {e}");
+                let kept = crate::utils::damaged_file::preserve_damaged_file(&path);
+                crate::utils::damaged_file::report_damaged_file(
+                    app,
+                    "download history",
+                    kept.as_deref(),
+                    "Your history will look empty until it is restored.",
+                );
                 vec![]
             }
         },

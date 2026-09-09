@@ -258,7 +258,18 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
                 items
             }
             Err(e) => {
-                log::debug!("Failed to parse queue.json: {e}");
+                // Say so, and keep the file (#1156). This used to log at debug
+                // level and start with an empty queue, so anything waiting to
+                // download simply disappeared with no explanation — and the
+                // next save wrote over the evidence.
+                log::warn!("could not read queue.json: {e}");
+                let kept = crate::utils::damaged_file::preserve_damaged_file(&queue_path);
+                crate::utils::damaged_file::report_damaged_file(
+                    app,
+                    "download queue",
+                    kept.as_deref(),
+                    "Anything that was waiting to download is not in the queue.",
+                );
                 vec![]
             }
         },
