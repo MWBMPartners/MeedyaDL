@@ -205,7 +205,16 @@ export function AdvancedTab() {
   const truncate = useSettingsField('truncate');
   const excludeTags = useSettingsField('exclude_tags');
   const sentryEnabled = useSettingsField('sentry_enabled');
-  const analyticsEnabled = useSettingsField('analytics_enabled');
+  /*
+   * Deliberately not bound to the switch below (#1155).
+   *
+   * The usage-analytics switch is shown but cannot be changed, because
+   * nothing collects usage data yet. The stored value is left untouched so a
+   * preference somebody set earlier survives until there is something to
+   * apply it to. Kept as a named read rather than deleted so the next person
+   * can see the field still exists and why nothing reads it.
+   */
+  void useSettingsField('analytics_enabled');
   const verboseActivityLog = useSettingsField('verbose_activity_log');
   const verboseGamdlExceptions = useSettingsField('verbose_gamdl_exceptions');
   const activityLogPathOverride = useSettingsField('activity_log_path_override');
@@ -464,11 +473,34 @@ export function AdvancedTab() {
           checked={sentryEnabled.value}
           onChange={sentryEnabled.set}
         />
+        {/*
+          Switched off and not clickable, on purpose (#1155).
+
+          This switch described something the app does not do. There is no
+          usage-reporting code anywhere in MeedyaDL — the switch shipped when
+          #405 was closed with the collecting half deferred, so turning it on
+          changed nothing and there was no way for anyone to tell.
+
+          It is left visible rather than removed because the capability is
+          genuinely planned, through MWBM's own service, and because a switch
+          that quietly disappears is its own small confusion. What it must not
+          do is keep claiming to send data.
+
+          `checked` is forced to false rather than reading the stored value:
+          somebody may have turned this on months ago believing it did
+          something, and showing it on would repeat the original untruth. The
+          stored value is deliberately left alone so their preference is still
+          there when there is something to apply it to.
+        */}
         <Toggle
           label="Anonymous Usage Analytics"
-          description="Send anonymised feature usage data (which features are used, platform, download counts) to help prioritise development. No personal data, URLs, or content information is ever collected."
-          checked={analyticsEnabled.value ?? false}
-          onChange={analyticsEnabled.set}
+          description="Not available yet. Nothing is collected or sent. When this is built it will report only which features get used and on which platform — never your downloads, links, or anything identifying you — and it will stay off unless you turn it on."
+          checked={false}
+          disabled
+          onChange={() => {
+            /* Nothing to turn on yet. Left empty rather than removed because
+               Toggle requires the handler. */
+          }}
         />
         <p className="text-xs text-content-tertiary">
           Error reports (crashes and download failures) are always saved locally to your app data
