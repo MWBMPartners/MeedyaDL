@@ -155,6 +155,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   // Metadata enrichment (opt-in post-download processing)
   acoustid_enabled: false, // AcoustID fingerprinting (embedded Chromaprint)
   acoustid_api_key: '', // AcoustID application API key (user-provided)
+  odesli_lookup_enabled: false, // off by default: it sends the album's link to a company with nothing else to do with the download, and needs a key to work at all
+  odesli_api_key: '',
   replaygain_enabled: false, // ReplayGain loudness analysis (uses FFmpeg)
   replaygain_reference_level: -18.0, // EBU R128 default (-18 LUFS)
   replaygain_prevent_clipping: true, // Limit gain to prevent clipping

@@ -237,6 +237,7 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
         "musickit_team_id",
         "musickit_key_id",
         "acoustid_api_key",
+        "odesli_api_key",
     ];
 
     let mut changes = Vec::new();
@@ -599,8 +600,8 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
 ///
 /// Contains a schema version, app identifier, timestamp, and the
 /// actual settings data. Sensitive fields (cookies path, wrapper URL,
-/// MusicKit credentials) are cleared before export to prevent
-/// accidental credential sharing.
+/// MusicKit credentials, the song.link key) are cleared before export
+/// to prevent accidental credential sharing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SettingsExportFile {
     /// Schema version for forward compatibility. Currently `1`.
@@ -624,6 +625,7 @@ fn clear_sensitive_fields(settings: &mut AppSettings) {
     settings.musickit_team_id = None;
     settings.musickit_key_id = None;
     settings.acoustid_api_key = String::new();
+    settings.odesli_api_key = String::new();
 }
 
 /// Exports application settings to a JSON file via a native save dialog.
@@ -632,8 +634,9 @@ fn clear_sensitive_fields(settings: &mut AppSettings) {
 ///
 /// Opens a native "Save As" dialog with the `.json` file filter. The
 /// exported file contains all settings except sensitive fields (cookies
-/// path, wrapper URL, MusicKit credentials, AcoustID API key), which
-/// are cleared to prevent accidental credential sharing.
+/// path, wrapper URL, MusicKit credentials, AcoustID API key, the
+/// song.link key), which are cleared to prevent accidental credential
+/// sharing.
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for loading current settings and opening the dialog.
@@ -823,6 +826,7 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.musickit_team_id = current.musickit_team_id.clone();
     imported.musickit_key_id = current.musickit_key_id.clone();
     imported.acoustid_api_key = current.acoustid_api_key.clone();
+    imported.odesli_api_key = current.odesli_api_key.clone();
     // Security: the paths to the helper programs must never come from an
     // imported file (#229).
     //
@@ -1128,6 +1132,25 @@ mod tests {
             imported.output_path, "/Users/them/Music",
             "a preference must not be reset — that would make importing pointless"
         );
+    }
+
+    #[test]
+    fn an_imported_file_cannot_change_the_song_link_key() {
+        // A settings file someone else made must never be able to swap in
+        // their own song.link key. That key is credential-shaped — it is
+        // sent to a third party on this person's behalf — so it follows
+        // the same rule as the other credentials above: it stays whatever
+        // this machine already had, not whatever the imported file says.
+        let current = crate::models::settings::AppSettings {
+            odesli_api_key: "this-machines-real-key".to_string(),
+            ..Default::default()
+        };
+        let mut imported = crate::models::settings::AppSettings {
+            odesli_api_key: "someone-elses-key".to_string(),
+            ..Default::default()
+        };
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.odesli_api_key, "this-machines-real-key");
     }
 
 }

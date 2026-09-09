@@ -306,6 +306,7 @@ The enrichment stages run in order:
 5. **ReplayGain analysis** (opt-in)
 6. **Music video companion downloads** (opt-in, requires MusicKit credentials)
 6b. **MusicBrainz video discovery** (opt-in) — fallback music video discovery when Step 6 finds no results
+6c. **Links on other music services** (opt-in) — asks song.link where else the downloaded album is available, and writes what it finds into each track's tags and into the album's manifest file
 
 #### Codec Tags (Always-On)
 
@@ -436,6 +437,16 @@ If none of the three identifier tiers finds a match, an optional **search fallba
 Discovered music video URLs (Apple Music, YouTube) trigger companion downloads. Cross-platform URLs (Spotify, Deezer, Tidal, SoundCloud, Bandcamp) that MusicBrainz reports are logged for diagnostics today; storing them as file metadata for future multi-service song discovery is planned but not yet implemented.
 
 **Rate limiting:** MusicBrainz enforces 1 request per second. MeedyaDL respects this with a 1.1-second delay between requests, shared across every MusicBrainz request this feature makes (identifier lookups and search fallback alike).
+
+#### Links on Other Music Services (Opt-In)
+
+Enable in **Settings > Metadata > Links on Other Music Services**. After a download finishes, MeedyaDL sends only the album's Apple Music link — nothing else about you or the rest of your library — to [song.link](https://song.link), a lookup service run by a company called Odesli, and asks where else that album can be found: Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and anything else song.link knows about.
+
+Whatever it finds comes back as one link per service. Each one is saved as a tag on every track, named `MeedyaMeta:<Service>Url` — for example `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:DeezerUrl`, or `MeedyaMeta:YoutubeMusicUrl`. The name is worked out automatically from whatever song.link calls the service (capitalise the first letter, keep the rest, add "Url"), so a service added to song.link after this was written still gets a sensible tag with no update needed — the one cost of doing it that way is that it produces `YoutubeMusicUrl` rather than the more familiar-looking `YouTubeMusicUrl`. The same links are also written into the album's `manifest.meedyadl` file, so they survive even for file formats that can't hold custom tags.
+
+This needs an access key. Odesli closed free public access to song.link in 2026, so without a key the toggle does nothing except say so once in the activity log. Apply for a key through [Odesli's help pages](https://odesli.co/help) and paste it into **Settings > Advanced > API Credentials > song.link (Odesli)**.
+
+Answers — including "no matches found" — are remembered for 30 days, so re-downloading an album, fetching a different codec of it, or filling a gap found by a library scan doesn't spend another lookup on something already known.
 
 ---
 
