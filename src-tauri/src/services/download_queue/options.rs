@@ -390,7 +390,53 @@ pub(crate) fn merge_options(
         options.no_synced_lyrics = Some(false);
     }
 
+    // === Layer 5: separate lyrics files switched off ===
+    //
+    // Runs last, so it has the final say over the two layers above (#1155).
+    //
+    // Someone who turns this off wants their music folders kept tidy. The
+    // layers above force the download tool to write its own lyrics file,
+    // because MeedyaDL usually needs it as the source for the formats it
+    // builds. When none of those formats is wanted either, that file has no
+    // purpose and should not be written at all — otherwise turning the switch
+    // off would still leave files behind, which is exactly the sort of
+    // half-truth this switch was guilty of before.
+    //
+    // The lyrics still go INTO the music file. Only the separate files stop.
+    // Nothing already on disk is touched: those may be files the person wrote
+    // or corrected themselves in a lyrics editor, and removing someone's own
+    // work on their behalf would be far worse than the switch not working.
+    if !settings.keep_lyrics_sidecar && !needs_lyrics_source_file(settings) {
+        options.no_synced_lyrics = Some(true);
+    }
+
     options
+}
+
+/// Whether MeedyaDL still needs the download tool to write its lyrics file.
+///
+/// Several of the formats MeedyaDL produces are built by reading the file the
+/// download tool writes — it is the source, not a duplicate. So the file has to
+/// exist while any of them is wanted, even if the person has asked not to keep
+/// separate lyrics files, because the alternative is those formats silently
+/// producing nothing.
+///
+/// In practice this rarely conflicts: every one of these formats IS a separate
+/// file, so switching separate files off usually switches all of them off too.
+/// The case it protects is someone who has left one of them on while turning
+/// the master switch off — where the honest thing is to keep working rather
+/// than quietly stop.
+///
+/// # Arguments
+///
+/// * `settings` -- The settings in force for this download.
+fn needs_lyrics_source_file(settings: &AppSettings) -> bool {
+    settings.enhanced_lrc
+        || settings.generate_webvtt
+        || settings.generate_rich_srt
+        || settings.generate_ass
+        || settings.generate_lyricsfile
+        || settings.lyrics_fallback_enabled
 }
 
 // ============================================================

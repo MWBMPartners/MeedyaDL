@@ -155,7 +155,10 @@ struct TtmlMetadata {
 /// performs only synchronous file I/O (std::fs, mp4ameta). Callers in the
 /// enrichment pipeline wrap it in `tokio::task::spawn_blocking()` to prevent
 /// blocking the async runtime on slow filesystems (FUSE mounts, NFS, etc.).
-pub fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, String> {
+pub fn process_enhanced_lyrics_for_directory(
+    album_dir: &str,
+    save_sidecar_files: bool,
+) -> Result<usize, String> {
     let dir = Path::new(album_dir);
     if !dir.is_dir() {
         return Err(format!("Not a directory: {album_dir}"));
@@ -216,9 +219,23 @@ pub fn process_enhanced_lyrics_for_directory(album_dir: &str) -> Result<usize, S
             );
         }
 
-        // Write the .lrc sidecar file
+        // Write the .lrc sidecar file — unless the user has asked not to have
+        // separate lyrics files (#1155).
+        //
+        // Only the FILE is skipped. The lyrics still go into the music file
+        // itself further down, which is the point: someone who turns this off
+        // wants their music folder kept tidy, not their lyrics thrown away.
+        //
+        // Nothing existing is ever removed. A file already on disk stays
+        // there, because it might be one the person wrote or corrected
+        // themselves in a lyrics editor.
         let lrc_path = dir.join(format!("{stem}.lrc"));
-        if let Err(e) = std::fs::write(&lrc_path, &result.lrc_content) {
+        if !save_sidecar_files {
+            log::debug!(
+                "not writing {} — separate lyrics files are switched off",
+                lrc_path.display()
+            );
+        } else if let Err(e) = std::fs::write(&lrc_path, &result.lrc_content) {
             log::debug!("Failed to write {}: {e}", lrc_path.display());
             continue;
         }

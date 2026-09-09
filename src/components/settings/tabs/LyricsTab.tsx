@@ -251,11 +251,24 @@ export function LyricsTab() {
             onChange={embedLyrics.set}
           />
 
-          {/* Keep sidecar files (only shown when embed is enabled) */}
+          {/*
+            Renamed and made real (#1155).
+
+            It used to be called "Keep Sidecar Lyrics / Caption Files", which
+            promised something it could not deliver: nothing read the setting
+            at all, so it did nothing whichever way it was set. Worse, the word
+            "Keep" reads as a promise to remove them when switched off — and
+            removing them is exactly what must not happen, because those
+            folders can hold lyrics the person wrote or corrected themselves.
+
+            It now controls whether MeedyaDL SAVES separate files, which is
+            something it can honestly do. Files already on disk are never
+            touched.
+          */}
           {embedLyrics.value && (
             <Toggle
-              label="Keep Sidecar Lyrics / Caption Files"
-              description="Keep separate .lrc, .srt, and .ttml files alongside audio files after embedding. Useful for players that read external lyrics files."
+              label="Save Lyrics/Captions as Separate Files"
+              description="Save lyrics and captions as separate files next to your music, for players that read them. Turn this off to keep your music folders tidy — the lyrics still go into the music files themselves. Files already saved are never removed."
               checked={keepSidecar.value}
               onChange={keepSidecar.set}
             />

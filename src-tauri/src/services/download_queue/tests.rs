@@ -4379,3 +4379,96 @@
         );
     }
 
+    // ── "Save Lyrics as Separate Files" now does something (#1155) ──────
+    //
+    // The switch used to be read nowhere at all, so it did nothing whichever
+    // way it was set. It also used to be called "Keep ...", which reads as a
+    // promise to REMOVE files when switched off — and removing them is exactly
+    // what must not happen, because those folders can hold lyrics the person
+    // wrote or corrected themselves.
+
+    #[test]
+    fn switching_separate_files_off_stops_the_download_tool_writing_one() {
+        let mut settings = test_settings();
+        settings.keep_lyrics_sidecar = false;
+        // Nothing MeedyaDL builds needs the source file, so it has no purpose.
+        settings.enhanced_lrc = false;
+        settings.generate_webvtt = false;
+        settings.generate_rich_srt = false;
+        settings.generate_ass = false;
+        settings.generate_lyricsfile = false;
+        settings.lyrics_fallback_enabled = false;
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(
+            options.no_synced_lyrics,
+            Some(true),
+            "with separate files off and nothing needing the source, no file should be written"
+        );
+    }
+
+    #[test]
+    fn the_source_file_is_still_written_when_something_is_built_from_it() {
+        // Someone who left one of the converted formats on while turning the
+        // master switch off. The honest answer is to keep that format working,
+        // not to let it silently produce nothing.
+        let mut settings = test_settings();
+        settings.keep_lyrics_sidecar = false;
+        settings.enhanced_lrc = true;
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(
+            options.no_synced_lyrics,
+            Some(false),
+            "the source file is needed, so it must still be written"
+        );
+    }
+
+    #[test]
+    fn leaving_separate_files_on_changes_nothing() {
+        // The default, and by far the commonest case.
+        let mut settings = test_settings();
+        settings.keep_lyrics_sidecar = true;
+        settings.enhanced_lrc = true;
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(options.no_synced_lyrics, Some(false));
+    }
+
+    #[test]
+    fn every_format_on_its_own_keeps_the_source_file() {
+        // Each of these is built by reading the download tool's file, so any
+        // one of them alone is enough to require it.
+        for (name, apply) in [
+            ("enhanced_lrc", 0),
+            ("generate_webvtt", 1),
+            ("generate_rich_srt", 2),
+            ("generate_ass", 3),
+            ("generate_lyricsfile", 4),
+            ("lyrics_fallback_enabled", 5),
+        ] {
+            let mut settings = test_settings();
+            settings.keep_lyrics_sidecar = false;
+            settings.enhanced_lrc = false;
+            settings.generate_webvtt = false;
+            settings.generate_rich_srt = false;
+            settings.generate_ass = false;
+            settings.generate_lyricsfile = false;
+            settings.lyrics_fallback_enabled = false;
+            match apply {
+                0 => settings.enhanced_lrc = true,
+                1 => settings.generate_webvtt = true,
+                2 => settings.generate_rich_srt = true,
+                3 => settings.generate_ass = true,
+                4 => settings.generate_lyricsfile = true,
+                _ => settings.lyrics_fallback_enabled = true,
+            }
+            let options = merge_options(None, &settings, None);
+            assert_eq!(
+                options.no_synced_lyrics,
+                Some(false),
+                "{name} is built from the source file, so it must still be written"
+            );
+        }
+    }
+

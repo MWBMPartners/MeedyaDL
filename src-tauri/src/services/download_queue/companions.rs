@@ -3022,7 +3022,7 @@ pub(crate) fn spawn_companion_downloads(
 
             // Enhanced LRC: TTML → word-by-word LRC
             if settings.enhanced_lrc {
-                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str)
+                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str, settings.keep_lyrics_sidecar)
                 {
                     Ok(count) if count > 0 => {
                         emit_download_log(
@@ -3039,7 +3039,7 @@ pub(crate) fn spawn_companion_downloads(
             }
 
             // Rich SRT: TTML → styled SRT with bold/italic/colour
-            if settings.generate_rich_srt {
+            if settings.generate_rich_srt && settings.keep_lyrics_sidecar {
                 match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
                     Ok(count) if count > 0 => {
                         log::debug!("Companion: generated {count} Rich SRT file(s)");
@@ -3052,7 +3052,7 @@ pub(crate) fn spawn_companion_downloads(
             }
 
             // WebVTT: TTML/SRT/LRC → .vtt
-            if settings.generate_webvtt {
+            if settings.generate_webvtt && settings.keep_lyrics_sidecar {
                 match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
                     Ok(count) if count > 0 => {
                         log::debug!("Companion: generated {count} WebVTT file(s)");
@@ -3065,7 +3065,7 @@ pub(crate) fn spawn_companion_downloads(
             }
 
             // ASS: → styled .ass subtitles
-            if settings.generate_ass {
+            if settings.generate_ass && settings.keep_lyrics_sidecar {
                 match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
                     Ok(count) if count > 0 => {
                         log::debug!("Companion: generated {count} ASS subtitle file(s)");
