@@ -89,7 +89,7 @@ The audio track embedded within a downloaded video uses the same audio codec set
 
 Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec, and MeedyaDL will use those settings for all subsequent video downloads.
 
-If your preferred resolution is not available for a particular video, the app automatically falls back to the next lower resolution using this chain:
+The resolution you choose is treated as a **maximum**. Apple Music gives you the closest quality it has at or below it, so asking for 4K for a video that only exists in 1080p simply gives you the 1080p version. The order below is stored in your settings but is not used for video downloads today:
 
 > 2160p --> 1440p --> 1080p --> 720p --> 576p --> 480p --> 360p --> 240p
 

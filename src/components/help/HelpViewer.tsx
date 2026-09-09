@@ -229,7 +229,7 @@ By default, downloads use the settings from the Quality settings tab. You can ov
 
 ### Fallback Chain
 
-When the preferred codec or resolution is unavailable, GAMDL automatically tries the next option in the fallback chain. Configure the chain order in **Settings > Fallback**.`,
+When the preferred **audio** codec is unavailable, MeedyaDL tries the next option in the fallback chain. Configure the chain order in **Settings > Fallback**.\n\nVideo works differently: the resolution you choose is treated as a maximum, and Apple Music returns the closest quality at or below it in one go, so there is no stepping down.`,
   },
   {
     id: 'settings-help',
@@ -246,8 +246,8 @@ When the preferred codec or resolution is unavailable, GAMDL automatically tries
 
 ### Quality
 - **Audio Codec** - Default: ALAC (lossless). Options range from lossless to compressed AAC variants
-- **Video Resolution** - Default: 2160p (4K). Falls back to lower resolutions if unavailable
-- **Fallback** - Enable/disable automatic fallback when preferred quality isn't available
+- **Video Resolution** - Default: 2160p (4K). Treated as a maximum: Apple Music returns the closest quality at or below it
+- **Fallback** - Enable/disable trying the next audio codec when your preferred one isn't available
 
 ### Lyrics
 
