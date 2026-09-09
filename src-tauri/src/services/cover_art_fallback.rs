@@ -127,7 +127,7 @@ fn build_artwork_url(template: &str, max_width: u32, max_height: u32, ext: &str)
 /// error string for any other outcome (network failure, non-2xx, body
 /// read failure). The error is intentionally short — it surfaces in
 /// the activity log without overwhelming the line.
-async fn fetch_artwork_bytes(url: &str) -> Result<Vec<u8>, String> {
+pub(crate) async fn fetch_artwork_bytes(url: &str) -> Result<Vec<u8>, String> {
     let client = crate::utils::http_client::build_simple(30)?;
     let response = client
         .get(url)
@@ -150,7 +150,7 @@ async fn fetch_artwork_bytes(url: &str) -> Result<Vec<u8>, String> {
 /// Writes cover-art bytes atomically (temp file + rename) so a
 /// crash mid-write can't leave a partial file behind that the next
 /// run would mistake for a successful GAMDL output.
-fn write_cover_atomically(target: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(crate) fn write_cover_atomically(target: &Path, bytes: &[u8]) -> Result<(), String> {
     let tmp = target.with_extension(format!(
         "{}.tmp",
         target.extension().and_then(|e| e.to_str()).unwrap_or("img")
