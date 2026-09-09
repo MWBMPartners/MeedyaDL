@@ -454,12 +454,21 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
     match client.get(wrapper_url).send().await {
         Ok(_) => None,
         Err(e) => {
+            // Security: the wrapper's address can carry a sign-in token in
+            // its query string — that is exactly what `redact_url_query`
+            // exists for elsewhere in the app. This message goes into the
+            // daily log file, the on-disk activity log, AND a toast, so
+            // the raw address must never appear in it. We also strip the
+            // address out of the error itself with `without_url()`,
+            // because reqwest's own error text appends "for url (...)"
+            // whenever it knows the address it was trying to reach.
+            let safe_url = crate::services::download_queue::redact_url_query(wrapper_url);
             let message = if e.is_timeout() {
-                format!("Wrapper service at {wrapper_url} timed out — check that it is running")
+                format!("Wrapper service at {safe_url} timed out — check that it is running")
             } else if e.is_connect() {
-                format!("Cannot connect to wrapper at {wrapper_url} — is the service running?")
+                format!("Cannot connect to wrapper at {safe_url} — is the service running?")
             } else {
-                format!("Wrapper health check failed: {e}")
+                format!("Wrapper health check failed: {}", e.without_url())
             };
             Some(PreflightWarning {
                 check: PreflightCheck::Wrapper,

@@ -640,10 +640,22 @@ pub(crate) fn extract_tts_style(node: &roxmltree::Node) -> TtmlStyle {
 pub(crate) fn normalize_color(value: &str) -> Option<String> {
     let trimmed = value.trim();
 
-    // Already a hex code
-    if trimmed.starts_with('#') && (trimmed.len() == 7 || trimmed.len() == 9) {
+    // Already a hex code.
+    //
+    // `trimmed.len()` is a BYTE count, not a character count, and this
+    // value comes straight from a lyrics file — text we did not write and
+    // cannot vouch for. Requiring `is_ascii()` first guarantees every byte
+    // is one character, so cutting at byte 7 can never land in the
+    // middle of a multi-byte character. `truncate_str` is kept as a
+    // second, belt-and-braces guard rather than a plain `&trimmed[..7]` —
+    // if this condition is ever loosened later to accept non-ASCII input,
+    // it stays safe instead of quietly becoming a crash again.
+    if trimmed.starts_with('#')
+        && trimmed.is_ascii()
+        && (trimmed.len() == 7 || trimmed.len() == 9)
+    {
         // Return the first 7 chars (#RRGGBB), strip alpha channel if present (#RRGGBBAA)
-        return Some(trimmed[..7].to_uppercase());
+        return Some(crate::utils::text::truncate_str(trimmed, 7).to_uppercase());
     }
 
     // Hex without # prefix

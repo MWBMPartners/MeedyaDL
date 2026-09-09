@@ -526,24 +526,47 @@ pub fn process_queue(
         // Detect the installed GAMDL version on the first download so we can
         // decide whether to use native `--song-codec-priority` (>= 2.9.1) or
         // our own `try_fallback` system for older versions.
-        let gamdl_version = {
+        //
+        // The probe below runs a subprocess (`gamdl --version`) that can take
+        // up to ten seconds on a slow machine or a network-mounted install.
+        // This used to run WHILE holding the queue lock, which meant every
+        // other queue operation — and the watchdog — sat blocked for that
+        // whole ten seconds on the first download of a session. We now read
+        // whether we already know the version with a brief lock, run the
+        // slow probe with NO lock held at all, and take the lock again only
+        // long enough to write the answer down.
+        let already_known = { queue.lock().await.gamdl_version.clone() };
+        let gamdl_version = if let Some(ver) = already_known {
+            Some(ver)
+        } else {
+            // First download in this queue session — detect version once.
+            // Nothing here touches the queue lock, so other queue work can
+            // carry on while this subprocess call is in flight.
+            let detected = match gamdl_service::get_gamdl_version(&app).await {
+                Ok(Some(ver)) => {
+                    log::info!("Detected GAMDL version: {ver}");
+                    Some(ver)
+                }
+                Ok(None) => {
+                    log::warn!("GAMDL not installed — version detection skipped");
+                    None
+                }
+                Err(e) => {
+                    log::warn!("Failed to detect GAMDL version: {e}");
+                    None
+                }
+            };
+            // Write the answer down. Guarded by `is_none()` so that if
+            // another download slipped in and detected it first while we
+            // were probing, we don't clobber a real answer with our own
+            // failed one.
             let mut q = queue.lock().await;
             if q.gamdl_version.is_none() {
-                // First download in this queue session — detect version once
-                match gamdl_service::get_gamdl_version(&app).await {
-                    Ok(Some(ver)) => {
-                        log::info!("Detected GAMDL version: {ver}");
-                        q.gamdl_version = Some(ver);
-                    }
-                    Ok(None) => {
-                        log::warn!("GAMDL not installed — version detection skipped");
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to detect GAMDL version: {e}");
-                    }
-                }
+                q.gamdl_version = detected.clone();
             }
-            q.gamdl_version.clone()
+            let stored = q.gamdl_version.clone();
+            drop(q);
+            stored
         };
 
         // === Native codec priority (GAMDL >= 2.9.1) ===
@@ -4013,7 +4036,15 @@ pub fn process_queue(
                                         );
                                         handle.abort();
                                     }
-                                    let _ = handle.handle.await;
+                                    // Borrow rather than move `handle.handle` out of
+                                    // `handle` — `CompanionTaskHandle` now has a
+                                    // `Drop` impl (so its abort() safety net still
+                                    // fires if this task is ever dropped without
+                                    // finishing normally), and Rust will not let you
+                                    // move a field out of a value that has a
+                                    // destructor. `&mut handle.handle` awaits the
+                                    // same underlying task without taking it apart.
+                                    let _ = (&mut handle.handle).await;
                                 }
                             }
 
@@ -5763,19 +5794,29 @@ pub(crate) async fn run_download_with_events(
     let status = loop {
         // Step 1: Check if the user cancelled this download.
         // The cancel() method on the queue sets the item's state to Cancelled,
-        // which we detect here. The lock is held very briefly (just a read check).
-        {
-            let q = queue.lock().await;
-            if q.is_cancelled(download_id) {
-                log::info!("Download {download_id} cancelled, killing process");
-                // Kill the GAMDL process and wait for cleanup
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                // Wait for reader tasks to finish draining any buffered output
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
-                return Err("Download cancelled by user".to_string());
-            }
+        // which we detect here.
+        //
+        // We read the flag inside its own tiny block so the queue lock is
+        // dropped straight away, BEFORE we kill the process and wait for
+        // the reader tasks below. Those reader tasks take this same lock
+        // on every line they read from the process. If we still held the
+        // lock while waiting for them, and a line arrived just before the
+        // kill, the reader would be stuck waiting for the lock while we
+        // were stuck waiting for the reader — neither side can move, the
+        // queue slot never frees up, and the whole app's queue stops
+        // responding to anything.
+        let cancelled = { queue.lock().await.is_cancelled(download_id) };
+        if cancelled {
+            log::info!("Download {download_id} cancelled, killing process");
+            // Kill the GAMDL process and wait for cleanup
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            // Wait for reader tasks to finish draining any buffered output.
+            // The lock from above is already released, so these can
+            // freely take it themselves without deadlocking against us.
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Err("Download cancelled by user".to_string());
         }
 
         // Step 1b (#508): idle watchdog. When the post-processing flag
