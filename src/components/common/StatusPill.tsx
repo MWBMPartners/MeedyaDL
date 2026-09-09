@@ -46,7 +46,26 @@ const STATE_CONFIG: Record<
   {
     icon: typeof Clock;
     label: string;
+    /**
+     * Colour classes for the pill's TEXT (the visible label word) and
+     * its background tint / border. Uses the `-text` sibling of each
+     * status colour (e.g. `text-status-success-text`, not
+     * `text-status-success`): the plain colour is tuned for small fills
+     * and icons, which only need to clear a 3:1 "UI component" contrast
+     * floor, and falls short of the 4.5:1 that an actual readable word
+     * needs -- e.g. plain `text-status-success` is only 2.22:1 as text
+     * on a white background. See base.css for the full arithmetic
+     * behind the two separate token sets.
+     */
     colorClasses: string;
+    /**
+     * Colour class for the pill's ICON specifically, kept at the plain
+     * (undarkened) status colour -- an icon is a small graphic, not
+     * text, so it only needs the lower 3:1 bar the plain colour already
+     * clears, and darkening it for no reason would just make the icon a
+     * duller version of its usual colour for no accessibility benefit.
+     */
+    iconColorClass: string;
     /** Whether to apply `animate-spin` to the icon (processing state). */
     spinIcon?: boolean;
   }
@@ -56,41 +75,48 @@ const STATE_CONFIG: Record<
     label: 'Queued',
     colorClasses:
       'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
+    iconColorClass: 'text-content-tertiary',
   },
   downloading: {
     icon: Download,
     label: 'Downloading',
-    colorClasses: 'text-status-info bg-status-info/15 border-status-info/30',
+    colorClasses: 'text-status-info-text bg-status-info/15 border-status-info/30',
+    iconColorClass: 'text-status-info',
   },
   processing: {
     icon: Loader2,
     label: 'Processing',
     colorClasses:
-      'text-status-warning bg-status-warning/15 border-status-warning/30',
+      'text-status-warning-text bg-status-warning/15 border-status-warning/30',
+    iconColorClass: 'text-status-warning',
     spinIcon: true,
   },
   complete: {
     icon: CheckCircle,
     label: 'Complete',
     colorClasses:
-      'text-status-success bg-status-success/15 border-status-success/30',
+      'text-status-success-text bg-status-success/15 border-status-success/30',
+    iconColorClass: 'text-status-success',
   },
   'complete-with-warnings': {
     icon: AlertTriangle,
     label: 'Warnings',
     colorClasses:
-      'text-status-warning bg-status-warning/15 border-status-warning/30',
+      'text-status-warning-text bg-status-warning/15 border-status-warning/30',
+    iconColorClass: 'text-status-warning',
   },
   error: {
     icon: XCircle,
     label: 'Error',
-    colorClasses: 'text-status-error bg-status-error/15 border-status-error/30',
+    colorClasses: 'text-status-error-text bg-status-error/15 border-status-error/30',
+    iconColorClass: 'text-status-error',
   },
   cancelled: {
     icon: XCircle,
     label: 'Cancelled',
     colorClasses:
       'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
+    iconColorClass: 'text-content-tertiary',
   },
 };
 
@@ -158,7 +184,7 @@ export function StatusPill({
     >
       <Icon
         size={iconSize}
-        className={config.spinIcon ? 'animate-spin' : undefined}
+        className={`${config.iconColorClass}${config.spinIcon ? ' animate-spin' : ''}`}
         aria-hidden="true"
       />
       {showLabel && <span>{config.label}</span>}

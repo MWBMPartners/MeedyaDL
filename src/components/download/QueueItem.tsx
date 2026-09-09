@@ -617,7 +617,7 @@ function QueueItemComponent({
           {/* Fallback-chain indicator — when GAMDL couldn't get the
            * preferred codec and fell back to something else. */}
           {item.fallback_occurred && (
-            <div className="flex items-center gap-1 mt-1 text-xs text-status-warning">
+            <div className="flex items-center gap-1 mt-1 text-xs text-status-warning-text">
               <AlertTriangle size={12} />
               <span>Fallback used (codec: {item.codec_used})</span>
             </div>
@@ -854,7 +854,7 @@ function QueueItemComponent({
       {hasWarnings && (
         <div className="mt-1.5 pl-[60px] space-y-0.5">
           {item.warnings.map((warning, i) => (
-            <p key={i} className="text-xs text-status-warning">
+            <p key={i} className="text-xs text-status-warning-text">
               {warning}
             </p>
           ))}

@@ -209,7 +209,7 @@ export function WelcomeStep() {
                     {b.summary.sections.length} optional section
                     {b.summary.sections.length === 1 ? '' : 's'}
                     {!b.summary.produced_by_this_app && (
-                      <span className="ml-2 text-status-warning">
+                      <span className="ml-2 text-status-warning-text">
                         ⚠ produced by another MeedyaSuite app
                       </span>
                     )}
@@ -219,7 +219,7 @@ export function WelcomeStep() {
                   type="button"
                   onClick={() => handleRestoreBundle(b)}
                   disabled={isRestoringBundle}
-                  className="px-3 py-1 rounded bg-accent text-content-inverse hover:opacity-90 disabled:opacity-50 flex-shrink-0"
+                  className="px-3 py-1 rounded bg-accent text-content-on-accent hover:opacity-90 disabled:opacity-50 flex-shrink-0"
                 >
                   {isRestoringBundle ? 'Restoring...' : 'Restore'}
                 </button>
@@ -231,7 +231,7 @@ export function WelcomeStep() {
 
       {/* App icon */}
       <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-accent">
-        <Download size={40} className="text-content-inverse" />
+        <Download size={40} className="text-content-on-accent" />
       </div>
 
       {/* Welcome heading */}

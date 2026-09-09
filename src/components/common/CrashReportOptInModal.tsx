@@ -58,7 +58,7 @@ export default function CrashReportOptInModal() {
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleAccept}
           >
             Yes, send crash reports

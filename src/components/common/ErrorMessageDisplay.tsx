@@ -55,9 +55,12 @@ export interface ErrorMessageDisplayProps {
   truncateLines?: number | null;
   /**
    * Tailwind classes for the visible text. Defaults to
-   * `"text-xs text-status-error"` to match the existing inline
-   * pattern. Override when the host context needs different
-   * sizing (e.g. larger error in a detail panel).
+   * `"text-xs text-status-error-text"` -- the darkened "as text"
+   * variant, not the plain `text-status-error` (which is tuned for
+   * icons/fills and only reaches 3.55:1 as actual text, short of the
+   * 4.5:1 ordinary text needs; see base.css for the arithmetic).
+   * Override when the host context needs different sizing (e.g.
+   * larger error in a detail panel).
    */
   className?: string;
 }
@@ -128,7 +131,7 @@ export function ErrorMessageDisplay({
   message,
   sourceUrl,
   truncateLines = 2,
-  className = 'text-xs text-status-error',
+  className = 'text-xs text-status-error-text',
 }: ErrorMessageDisplayProps): ReactElement | null {
   const addToast = useUiStore((s) => s.addToast);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);

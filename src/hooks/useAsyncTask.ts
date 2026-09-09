@@ -30,7 +30,7 @@
  *   <Button loading={submit.isRunning} onClick={() => submit.run()}>
  *     Submit
  *   </Button>
- *   {submit.error && <p className="text-status-error">{submit.error}</p>}
+ *   {submit.error && <p className="text-status-error-text">{submit.error}</p>}
  *
  * Pairs naturally with `withErrorToast` when the call site wants a
  * toast in addition to local error state:

@@ -284,7 +284,12 @@ export function UpdateBanner() {
             <button
               type="button"
               onClick={() => setPage('updates')}
-              className="text-xs text-accent hover:underline cursor-pointer"
+              /* `text-accent-hover`, not plain `text-accent`: the plain
+               * accent colour only reaches 4.02:1 as small text on
+               * macOS/Linux light mode (needs 4.5:1); the hover shade is
+               * dark enough to clear it on every platform. See
+               * base.css / tailwind.config.js for the arithmetic. */
+              className="text-xs text-accent-hover hover:underline cursor-pointer"
             >
               View Details
             </button>
@@ -312,11 +317,11 @@ export function UpdateBanner() {
                   {update.current_version && <span> v{update.current_version}</span>}
                   {/* Latest version -- highlighted in accent colour with arrow */}
                   {update.latest_version && (
-                    <span className="text-accent"> &rarr; v{update.latest_version}</span>
+                    <span className="text-accent-hover"> &rarr; v{update.latest_version}</span>
                   )}
                   {/* Pre-release badge -- amber indicator for beta/RC versions */}
                   {update.is_prerelease && (
-                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning">
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text">
                       Pre-Release
                     </span>
                   )}
@@ -333,7 +338,7 @@ export function UpdateBanner() {
                    */}
                   {update.is_untested && !update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
                       title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
                     >
                       Untested
@@ -351,7 +356,7 @@ export function UpdateBanner() {
                    */}
                   {update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
                       title="No compatible wheel has been published for this platform yet -- installing would fail."
                     >
                       Not Installable
@@ -436,7 +441,7 @@ export function UpdateBanner() {
                               <button
                                 type="button"
                                 onClick={() => handleViewRelease(update.release_url!)}
-                                className="text-[11px] text-accent hover:underline cursor-pointer"
+                                className="text-[11px] text-accent-hover hover:underline cursor-pointer"
                                 title="Download the update manually from GitHub"
                               >
                                 Download Manually
@@ -490,7 +495,7 @@ export function UpdateBanner() {
                * amber/warning colour scheme to draw attention.
                */}
               {update.is_prerelease && (
-                <p className="text-[11px] text-status-warning pl-0.5">
+                <p className="text-[11px] text-status-warning-text pl-0.5">
                   This is a pre-release version and may contain bugs or incomplete features. Not
                   recommended for production use.
                 </p>
@@ -504,7 +509,7 @@ export function UpdateBanner() {
                * validated against MeedyaDL's GAMDL CLI / INI surface yet.
                */}
               {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning pl-0.5">
+                <p className="text-[11px] text-status-warning-text pl-0.5">
                   This GAMDL release was published after MeedyaDL&apos;s last validation pass and
                   hasn&apos;t been audited yet. Install at your own risk, or wait for the next
                   MeedyaDL build.
@@ -520,7 +525,7 @@ export function UpdateBanner() {
                * blocker: the Upgrade button is disabled, not just risky.
                */}
               {update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning pl-0.5">
+                <p className="text-[11px] text-status-warning-text pl-0.5">
                   Not installable — no compatible wheel has been published for this platform yet.
                   Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with
                   a matching Python runtime.
@@ -548,7 +553,7 @@ export function UpdateBanner() {
                       <span className="font-medium">{update.name}</span>
                       {update.current_version && <span> v{update.current_version}</span>}
                       {update.latest_version && (
-                        <span className="text-accent"> &rarr; v{update.latest_version}</span>
+                        <span className="text-accent-hover"> &rarr; v{update.latest_version}</span>
                       )}
                     </span>
                     {/* Backend-provided plain text only -- never HTML. */}
@@ -578,7 +583,7 @@ export function UpdateBanner() {
                 <button
                   type="button"
                   onClick={() => setPage('updates')}
-                  className="text-accent hover:underline"
+                  className="text-accent-hover hover:underline"
                 >
                   View Details
                 </button>

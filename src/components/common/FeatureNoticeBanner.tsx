@@ -93,13 +93,13 @@ function severityToToken(severity: NoticeSeverity): StatusToken {
 
 /** Tailwind classes for each status token, matching ToastContainer's convention. */
 const TOKEN_CLASSES: Record<StatusToken, { bg: string; border: string; text: string }> = {
-  info: { bg: 'bg-status-info-bg', border: 'border-status-info', text: 'text-status-info' },
+  info: { bg: 'bg-status-info-bg', border: 'border-status-info', text: 'text-status-info-text' },
   warning: {
     bg: 'bg-status-warning-bg',
     border: 'border-status-warning',
-    text: 'text-status-warning',
+    text: 'text-status-warning-text',
   },
-  error: { bg: 'bg-status-error-bg', border: 'border-status-error', text: 'text-status-error' },
+  error: { bg: 'bg-status-error-bg', border: 'border-status-error', text: 'text-status-error-text' },
 };
 
 /** One icon per status token, matching ToastContainer's icon choices. */

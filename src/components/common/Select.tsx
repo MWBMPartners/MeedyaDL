@@ -213,7 +213,7 @@ export function Select({
       </select>
 
       {/* Error message -- takes priority over description */}
-      {error && <p className="text-xs text-status-error">{error}</p>}
+      {error && <p className="text-xs text-status-error-text">{error}</p>}
 
       {/* Helper description text -- only shown when there is no error */}
       {!error && description && <p className="text-xs text-content-tertiary">{description}</p>}

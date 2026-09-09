@@ -1523,8 +1523,13 @@ export interface GamdlProgress {
  *
  * Drives the per-entry text colour in `ActivityLog.tsx`:
  *   - `info` — default text colour (no override)
- *   - `warning` — `text-status-warning` (amber/yellow), theme-aware
- *   - `error` — `text-status-error` (red), theme-aware
+ *   - `warning` — `text-status-warning-text` (amber/yellow), theme-aware
+ *   - `error` — `text-status-error-text` (red), theme-aware
+ *
+ * The `-text` suffix matters: this colours actual log-line TEXT, which
+ * needs WCAG's 4.5:1 text-contrast floor, not the plain `text-status-*`
+ * colour (tuned for icons/pills, which only need 3:1). See base.css for
+ * the contrast arithmetic behind the two separate sets of tokens.
  *
  * Optional in the wire format so older Rust builds / persisted
  * records default cleanly to `info` (deserialised via

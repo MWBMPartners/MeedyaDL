@@ -179,10 +179,10 @@ export function LyricsTab() {
               <span
                 className={
                   lyricsTestResult.granularity === 'word'
-                    ? 'text-xs text-status-success'
+                    ? 'text-xs text-status-success-text'
                     : lyricsTestResult.success
-                      ? 'text-xs text-status-warning'
-                      : 'text-xs text-status-error'
+                      ? 'text-xs text-status-warning-text'
+                      : 'text-xs text-status-error-text'
                 }
               >
                 {lyricsTestResult.granularity === 'word'
@@ -191,7 +191,7 @@ export function LyricsTab() {
               </span>
             )}
             {lyricsTest.error && (
-              <span className="text-xs text-status-error">{lyricsTest.error}</span>
+              <span className="text-xs text-status-error-text">{lyricsTest.error}</span>
             )}
           </div>
 
@@ -303,7 +303,13 @@ export function LyricsTab() {
                       checked={settings.enhanced_lrc ? (value === 'ttml' || checkedFormats.has(value)) : isChecked}
                       disabled={formatsDisabled || isLocked}
                       onChange={(e) => handleFormatToggle(value, e.target.checked)}
-                      className="h-4 w-4 rounded border-border accent-[var(--color-accent)] cursor-pointer disabled:cursor-not-allowed"
+                      /* `--color-accent` was never a defined custom
+                       * property (the real name is `--accent`), so this
+                       * checkbox's tick mark rendered in the browser's
+                       * default blue instead of the theme's accent
+                       * colour. `accent-accent` is the equivalent
+                       * generated Tailwind utility for the real token. */
+                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer disabled:cursor-not-allowed"
                     />
                     <span className="text-sm text-content-primary">{label}</span>
                     {isPrimary && <span className="text-xs text-content-tertiary">(Primary)</span>}

@@ -37,7 +37,7 @@ export function BBCiPlayerTab() {
         <p className="text-xs text-content-tertiary mt-2 max-w-md mx-auto">
           Note: BBC iPlayer content is region-restricted to the UK. A UK VPN may be required.
         </p>
-        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning text-xs font-medium">
+        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning-text text-xs font-medium">
           Coming Soon
         </div>
       </div>

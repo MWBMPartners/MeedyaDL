@@ -152,7 +152,7 @@ export function MvGapFillModal({
           <button
             type="button"
             onClick={handleYes}
-            className="px-3 py-1.5 rounded-md text-sm bg-accent text-white flex items-center gap-1.5 hover:bg-accent-hover"
+            className="px-3 py-1.5 rounded-md text-sm bg-accent text-content-on-accent flex items-center gap-1.5 hover:bg-accent-hover"
             aria-label={
               mvCompanionEnabledInSettings
                 ? 'Yes, inherit your enabled setting (audio + music videos)'

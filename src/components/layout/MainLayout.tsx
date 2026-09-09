@@ -300,7 +300,7 @@ export function MainLayout({ children }: MainLayoutProps) {
        */}
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-accent focus:text-white focus:rounded-platform focus:text-sm focus:font-medium focus:shadow-platform focus:outline-none"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-accent focus:text-content-on-accent focus:rounded-platform focus:text-sm focus:font-medium focus:shadow-platform focus:outline-none"
       >
         Skip to main content
       </a>
@@ -403,16 +403,28 @@ export function MainLayout({ children }: MainLayoutProps) {
            * mouse events itself (the parent div handles drag events).
            * `z-50` places it above page content but below toasts.
            */}
+          {/*
+           * None of `--color-bg-primary`, `--color-accent` or
+           * `--color-text-primary` were ever defined anywhere in the
+           * theme files -- the real custom property names are
+           * `--surface-primary`, `--accent` and `--text-primary` (no
+           * `color-` prefix). An arbitrary-value class like
+           * `bg-[var(--color-bg-primary)]` compiles fine (Tailwind
+           * doesn't validate what's inside the brackets) but resolves to
+           * nothing at runtime, so this whole overlay used to render with
+           * no background tint, no border colour, and text sitting
+           * directly on the page behind it with no colour at all.
+           */}
           {isDragOver && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--color-bg-primary)]/80 backdrop-blur-sm pointer-events-none">
-              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-[var(--color-accent)] rounded-2xl">
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/80 backdrop-blur-sm pointer-events-none">
+              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-accent rounded-2xl">
                 {/*
                  * Arrow-down icon (SVG) -- visual indicator that content
                  * can be dropped here. Uses the accent colour for emphasis.
                  */}
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="w-12 h-12 text-[var(--color-accent)]"
+                  className="w-12 h-12 text-accent"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -421,7 +433,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                 >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
                 </svg>
-                <span className="text-lg font-medium text-[var(--color-text-primary)]">
+                <span className="text-lg font-medium text-content-primary">
                   Drop Apple Music URL here
                 </span>
               </div>

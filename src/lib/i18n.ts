@@ -99,6 +99,27 @@ export function isMachineAssisted(language: string | undefined): boolean {
 }
 
 /**
+ * Keeps the page's declared language (the `lang` attribute on `<html>`)
+ * in sync with whatever language i18next is actually showing text in.
+ *
+ * A screen reader uses that attribute to choose pronunciation rules --
+ * `index.html` hard-codes `lang="en"` and nothing ever updated it, so a
+ * screen reader user who had set German or French would still hear
+ * German/French *words* read with English pronunciation rules the
+ * whole time. This is WCAG 3.1.1 ("Language of Page"), a Level A
+ * requirement.
+ *
+ * Only the base code is written (e.g. "de", not "de-DE") -- that
+ * matches how `LOCALES` and the `public/locales/<code>/` folders are
+ * keyed, via the same `baseLanguageOf()` helper everything else here
+ * uses, so this can never disagree with the rest of the module about
+ * what a given language setting means.
+ */
+function syncDocumentLanguage(language: string): void {
+  document.documentElement.lang = baseLanguageOf(language);
+}
+
+/**
  * Load a locale's translation JSON from the public directory and add it
  * to i18next's resource bundle. Fails silently — missing locales fall
  * through to the English fallback.
@@ -122,6 +143,12 @@ async function loadLocaleResources(lng: string): Promise<void> {
  * Call this once during app startup, before rendering.
  */
 export async function initI18n(): Promise<void> {
+  // Registered before `.init()` so it also catches whatever language
+  // detection resolves to on this very first call, not just later
+  // changes -- `i18next` fires `languageChanged` as part of `init()`
+  // itself once a language has been resolved.
+  i18n.on('languageChanged', syncDocumentLanguage);
+
   await i18n
     .use(LanguageDetector)
     .use(initReactI18next)
@@ -140,6 +167,11 @@ export async function initI18n(): Promise<void> {
         en: { translation: enTranslations },
       },
     });
+
+  // Belt-and-suspenders: set it directly too, in case some i18next
+  // version/config path resolves the initial language without firing
+  // the event synchronously during `init()`.
+  syncDocumentLanguage(i18n.language);
 
   // If the detected language is not English, fetch and add its file too.
   const detected = baseLanguageOf(i18n.language);

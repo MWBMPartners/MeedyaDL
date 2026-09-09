@@ -148,15 +148,87 @@
   }
 
   /*
-   * Remove default browser focus outlines (the blue or dotted outline).
-   * Platform themes provide their own focus indicators:
-   *   - macOS: Blue glow ring (box-shadow) in macos.css
-   *   - Windows: Bottom border accent in windows.css
-   *   - Linux: Colored ring (box-shadow) in linux.css
-   * This prevents a double-focus-indicator appearance.
+   * Focus indicators: the difference between `:focus` and `:focus-visible`,
+   * and why the old blanket removal below was a serious accessibility bug.
+   * -----------------------------------------------------------------------
+   * A browser draws a ring around whatever currently has keyboard focus.
+   * `:focus` matches that element no matter HOW it got focus -- clicking it
+   * with a mouse counts exactly the same as reaching it by pressing Tab.
+   * Designers usually dislike how that ring looks after an ordinary mouse
+   * click, which is why so much CSS in the wild -- including the single
+   * line that used to be here, `*:focus { outline: none; }` -- turns the
+   * ring off completely.
+   *
+   * The bug: turning it off for "I clicked this with my mouse" also turns
+   * it off for "I just pressed Tab to get here and this ring is the only
+   * way I can tell where I am." Because the rule applied to every element
+   * on the page (`*`), and almost nothing in this file replaced it with
+   * anything else, a person navigating by keyboard could not see where
+   * they were on ANY button, link, checkbox, native dropdown, sidebar
+   * item, settings tab, help topic, modal button, toast button, queue
+   * action, fallback-chain arrow, activity-log filter chip, or context-menu
+   * row -- across the whole app. The only exception was `input`, `select`
+   * and `textarea`, because the platform theme files (macos.css / windows.css
+   * / linux.css) happen to style those three tags specifically. That is a
+   * failure of WCAG 2.4.7 ("Focus Visible"), a Level AA requirement, and it
+   * had gone unnoticed because the high-contrast theme (a11y-high-contrast.css)
+   * separately puts a ring back on everything, so testing only in that mode
+   * would never have shown the gap.
+   *
+   * `:focus-visible` is the browser's own fix for exactly this problem: it
+   * only matches when the browser itself has decided the focus is
+   * keyboard-driven (or otherwise not from a plain mouse click). So instead
+   * of "never show a ring", the rule below reads as "don't show a ring when
+   * the focus came from a mouse click, but leave the keyboard case alone."
+   * A mouse click still shows no ring; Tab still shows one everywhere.
+   *
+   * @see https://developer.mozilla.org/en-US/docs/Web/CSS/:focus-visible
    */
-  *:focus {
+  *:focus:not(:focus-visible) {
     outline: none;
+  }
+
+  /*
+   * Visible keyboard-focus ring for everything that is not a plain text
+   * field. `input`, `select` and `textarea` already get a themed ring from
+   * the platform CSS files (a glow on macOS, an underline on Windows, an
+   * outline on Linux) -- those rules were never touched by the line above,
+   * so they keep working as before. Everything else a keyboard can land on
+   * -- buttons, links, checkboxes, radios, a native `<select>` written
+   * directly in a page rather than through the shared `<Select>` wrapper,
+   * anything with a `role` of button/tab/menuitem/option, and anything
+   * given an explicit `tabindex` -- gets this same ring instead.
+   *
+   * Putting it here, once, means every one of the affected components --
+   * `Button.tsx`, the sidebar links, the Settings tab list, the Help topic
+   * list, a modal's close button, a toast's dismiss/action button, a queue
+   * row's Cancel/Retry buttons, a fallback-chain's reorder arrows, an
+   * activity-log filter chip, a right-click context-menu row -- looks the
+   * same way when reached by keyboard, without needing this same style
+   * repeated by hand in every one of those files (and forgotten in the
+   * next new one).
+   *
+   * `var(--accent)` keeps the ring colour matched to whichever platform
+   * theme is active, so it never clashes with the surrounding UI. It has
+   * been checked against every theme's light and dark surfaces and clears
+   * the WCAG 3:1 contrast minimum for a UI/focus indicator in all of them
+   * (worst case measured: Linux light mode, accent #3584e4 on white,
+   * 3.77:1). 2px with a 2px gap (outline-offset) is thick enough to see
+   * plainly without a small icon-only button's ring merging into its icon.
+   */
+  button:focus-visible,
+  a:focus-visible,
+  select:focus-visible,
+  input[type='checkbox']:focus-visible,
+  input[type='radio']:focus-visible,
+  summary:focus-visible,
+  [role='button']:focus-visible,
+  [role='tab']:focus-visible,
+  [role='menuitem']:focus-visible,
+  [role='option']:focus-visible,
+  [tabindex]:not([tabindex='-1']):focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
   /*
@@ -310,7 +382,14 @@
 /* Prose context: style details/summary within react-markdown output */
 .prose details {
   margin: 0.75rem 0;
-  border: 1px solid var(--border-primary);
+  /*
+   * `--border-primary` was never defined anywhere in the theme files --
+   * the real token for a standard card/box border is plain `--border`
+   * (see base.css). A custom property that resolves to nothing simply
+   * makes `border-color` fall back to `currentColor`, so this box was
+   * quietly borderless in every theme.
+   */
+  border: 1px solid var(--border);
   border-radius: 0.5rem;
   overflow: hidden;
 }
