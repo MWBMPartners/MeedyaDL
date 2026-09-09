@@ -127,6 +127,11 @@ const RATE_LIMIT_GAP_WITH_KEY: Duration = Duration::from_millis(1100);
 /// header asks for more.
 const RATE_LIMIT_BACKOFF_MAX: Duration = Duration::from_secs(60);
 
+/// How many goes one lookup gets: the first, and one more only if
+/// song.link asked us to slow down. Pushing harder than that is how a
+/// temporary "slow down" turns into a lasting block.
+const MAX_ATTEMPTS: u8 = 2;
+
 /// Name of the on-disk cache file, inside the app's data folder.
 pub const CACHE_FILENAME: &str = "odesli-cache.json";
 
@@ -488,15 +493,19 @@ fn cache_put(
     }
 }
 
-/// Waits until it's this request's turn, then claims the turn.
+/// Waits until it's this request's turn, claims it, and hands back the
+/// still-locked limiter so the caller keeps holding it.
 ///
-/// The sleep happens **while still holding the limiter lock** — that
-/// is deliberate, not an oversight. If the lock were released before
-/// sleeping, a second album's lookup could slip in and fire during
-/// the wait; holding it through the sleep is what turns "every album
-/// shares one clock" into "every album genuinely queues behind
+/// The sleep happens while holding the lock, so a second album's lookup
+/// cannot slip in and fire during the wait. That is what turns "every
+/// album shares one clock" into "every album genuinely queues behind
 /// whichever one is already waiting".
-async fn wait_turn(gap: Duration) {
+///
+/// The caller then keeps holding it for the request itself. Only
+/// [`paced_attempt`] calls this, and it never lets the lock escape, so
+/// the turn's whole life is one short function you can read at a
+/// glance — see that function for why that matters.
+async fn claim_turn(gap: Duration) -> tokio::sync::MutexGuard<'static, Limiter> {
     let mut limiter = LIMITER.lock().await;
     if let Some(target) = next_allowed_at(limiter.last_request_at, limiter.blocked_until, gap) {
         let now = Instant::now();
@@ -509,6 +518,7 @@ async fn wait_turn(gap: Duration) {
     if limiter.blocked_until.is_some_and(|b| b <= now) {
         limiter.blocked_until = None;
     }
+    limiter
 }
 
 /// Asks song.link for the cross-platform URLs of one source URL,
@@ -522,6 +532,115 @@ async fn wait_turn(gap: Duration) {
 /// instead; this stays public because `lookup` itself needs to call
 /// it, and because a caller that genuinely wants to bypass the cache
 /// (a hypothetical "check again now" action) should be able to.
+/// What one paced attempt came back with.
+///
+/// `SlowDown` means song.link asked us to wait; by the time this is
+/// returned the wait has already been written down, so the next
+/// attempt honours it without anyone having to remember to.
+enum AttemptOutcome {
+    Links(CrossPlatformUrls),
+    NoMatches,
+    SlowDown,
+    Failed(OdesliError),
+}
+
+/// Makes exactly one request to song.link, at the right moment, and
+/// deals with whatever comes back.
+///
+/// This function owns the turn from start to finish, and that is the
+/// whole reason it exists separately rather than being written inline
+/// inside [`fetch_links`]. The turn is taken here and given up here,
+/// so there is no way for a caller to let go of it early and leave a
+/// gap. That gap was the original bug: an album told to slow down had
+/// to queue up all over again just to write down how long to wait, and
+/// by then every album already waiting had started — straight into the
+/// limit that had just been hit, each burning its one retry for
+/// nothing. Keeping the turn's whole life inside one short function
+/// means that cannot come back by accident.
+async fn paced_attempt(
+    gap: Duration,
+    source_url: &str,
+    trimmed_key: Option<&str>,
+    attempt: u8,
+) -> AttemptOutcome {
+    // Taking the turn. Everything below happens before we give it up.
+    let mut limiter = claim_turn(gap).await;
+
+    let mut url = format!(
+        "{base}?url={encoded}",
+        base = ODESLI_BASE_URL,
+        encoded = urlencoded(source_url),
+    );
+    if let Some(key) = trimmed_key {
+        url.push_str("&key=");
+        url.push_str(&urlencoded(key));
+    }
+
+    log::debug!("song.link lookup (attempt {attempt}): {source_url}");
+    let client = match crate::utils::http_client::build_simple(15) {
+        Ok(c) => c,
+        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(e)),
+    };
+    let response = match client
+        .get(&url)
+        .header("User-Agent", crate::utils::http_client::browser_user_agent())
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        // Display, never Debug. Debug would print the whole request
+        // address, and the access key is part of it.
+        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(format!("{e}"))),
+    };
+
+    let status = response.status();
+
+    if status.as_u16() == 429 {
+        let retry_after = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|v| v.to_str().ok());
+        let delay = retry_after_delay(retry_after);
+        // Written down while we still hold the turn, so nobody else can
+        // start before they know about it.
+        limiter.blocked_until = Some(Instant::now() + delay);
+        log::debug!("song.link asked us to wait {delay:?} before trying {source_url} again");
+        return AttemptOutcome::SlowDown;
+    }
+
+    if status.as_u16() == 401 {
+        let body = response.text().await.unwrap_or_default();
+        let error = classify_unauthorised(&body);
+        match &error {
+            OdesliError::PublicAccessClosed => {
+                PUBLIC_ACCESS_CLOSED.store(true, Ordering::Relaxed);
+            }
+            OdesliError::KeyRejected => {
+                if let Some(key) = trimmed_key {
+                    *REJECTED_KEY.lock().await = Some(key.to_string());
+                }
+            }
+            _ => {}
+        }
+        return AttemptOutcome::Failed(error);
+    }
+
+    if status.as_u16() == 404 {
+        log::debug!("song.link: no matches for {source_url}");
+        return AttemptOutcome::NoMatches;
+    }
+
+    if !status.is_success() {
+        return AttemptOutcome::Failed(OdesliError::Http(status.as_u16()));
+    }
+
+    match response.json::<serde_json::Value>().await {
+        Ok(json) => AttemptOutcome::Links(extract_links_by_platform(&json)),
+        Err(e) => AttemptOutcome::Failed(OdesliError::Parse(format!("{e}"))),
+    }
+    // The turn is given up here, where this function ends.
+}
+
 pub async fn fetch_links(
     source_url: &str,
     api_key: Option<&str>,
@@ -533,6 +652,8 @@ pub async fn fetch_links(
         None
     };
 
+    // Both of these are things song.link has already told us this
+    // session, so there is nothing to gain by asking again.
     if !has_key && PUBLIC_ACCESS_CLOSED.load(Ordering::Relaxed) {
         return Err(OdesliError::PublicAccessClosed);
     }
@@ -544,85 +665,18 @@ pub async fn fetch_links(
     }
 
     let gap = request_gap(has_key);
-    let mut attempt = 0u8;
 
-    loop {
-        attempt += 1;
-        wait_turn(gap).await;
-
-        let mut url = format!(
-            "{base}?url={encoded}",
-            base = ODESLI_BASE_URL,
-            encoded = urlencoded(source_url),
-        );
-        if let Some(key) = &trimmed_key {
-            url.push_str("&key=");
-            url.push_str(&urlencoded(key));
+    // The first go, and one more only if song.link asked us to slow
+    // down. A second refusal is reported rather than fought.
+    for attempt in 1..=MAX_ATTEMPTS {
+        match paced_attempt(gap, source_url, trimmed_key.as_deref(), attempt).await {
+            AttemptOutcome::Links(urls) => return Ok(Some(urls)),
+            AttemptOutcome::NoMatches => return Ok(None),
+            AttemptOutcome::Failed(e) => return Err(e),
+            AttemptOutcome::SlowDown => continue,
         }
-
-        log::debug!("Odesli lookup (attempt {attempt}): {source_url}");
-        let client = crate::utils::http_client::build_simple(15).map_err(OdesliError::Network)?;
-        let response = client
-            .get(&url)
-            .header("User-Agent", crate::utils::http_client::browser_user_agent())
-            .send()
-            .await
-            .map_err(|e| OdesliError::Network(format!("{e}")))?;
-
-        let status = response.status();
-
-        if status.as_u16() == 429 {
-            let retry_after = response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|v| v.to_str().ok());
-            let delay = retry_after_delay(retry_after);
-            {
-                let mut limiter = LIMITER.lock().await;
-                limiter.blocked_until = Some(Instant::now() + delay);
-            }
-            if attempt < 2 {
-                log::debug!(
-                    "Odesli: rate-limited, waiting {delay:?} before one retry for {source_url}"
-                );
-                continue;
-            }
-            return Err(OdesliError::RateLimited);
-        }
-
-        if status.as_u16() == 401 {
-            let body = response.text().await.unwrap_or_default();
-            let error = classify_unauthorised(&body);
-            match &error {
-                OdesliError::PublicAccessClosed => {
-                    PUBLIC_ACCESS_CLOSED.store(true, Ordering::Relaxed);
-                }
-                OdesliError::KeyRejected => {
-                    if let Some(key) = &trimmed_key {
-                        *REJECTED_KEY.lock().await = Some(key.clone());
-                    }
-                }
-                _ => {}
-            }
-            return Err(error);
-        }
-
-        if status.as_u16() == 404 {
-            log::debug!("Odesli: no matches for {source_url}");
-            return Ok(None);
-        }
-
-        if !status.is_success() {
-            return Err(OdesliError::Http(status.as_u16()));
-        }
-
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| OdesliError::Parse(format!("{e}")))?;
-
-        return Ok(Some(extract_links_by_platform(&json)));
     }
+    Err(OdesliError::RateLimited)
 }
 
 /// Cache-aware entry point — this is what the enrichment pipeline
@@ -856,6 +910,27 @@ mod tests {
         assert_eq!(urls.len(), 1);
         assert!(urls.contains_key("spotify"));
         assert!(!urls.contains_key("broken"));
+    }
+
+    #[tokio::test]
+    async fn claiming_a_turn_keeps_the_lock_until_the_caller_lets_go() {
+        // `claim_turn` hands the lock back rather than releasing it, so
+        // that the request and whatever it comes back with all happen
+        // before anybody else can take a turn. The bigger guarantee —
+        // that nobody can let go of it early — is enforced by the
+        // compiler, because the lock never leaves `paced_attempt`. This
+        // test pins the smaller half: while the caller holds what it
+        // was given, nobody else gets through.
+        let guard = claim_turn(Duration::from_millis(0)).await;
+        assert!(
+            LIMITER.try_lock().is_err(),
+            "another lookup was able to start while a turn was still in progress"
+        );
+        drop(guard);
+        assert!(
+            LIMITER.try_lock().is_ok(),
+            "letting go of the turn should let the next lookup through"
+        );
     }
 
     #[test]
