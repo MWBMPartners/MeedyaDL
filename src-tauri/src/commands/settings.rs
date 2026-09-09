@@ -772,6 +772,24 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     merged.musickit_team_id = current.musickit_team_id;
     merged.musickit_key_id = current.musickit_key_id;
     merged.acoustid_api_key = current.acoustid_api_key;
+    // Security: the paths to the helper programs must never come from an
+    // imported file (#229).
+    //
+    // Each of these is a path to a program that MeedyaDL runs. FFmpeg and the
+    // others are passed to the download tool, which starts them; MediaInfo is
+    // started directly. So a settings file that set one of them to any program
+    // on the machine would have that program run during an ordinary download.
+    // That is a settings file someone was sent and opened — exactly the case
+    // this issue exists to guard.
+    //
+    // Nothing is lost by refusing them. A path is where a program sits on ONE
+    // machine; it means nothing on anybody else's, so carrying these across in
+    // an exported file was never useful even when it was safe.
+    merged.ffmpeg_path = current.ffmpeg_path;
+    merged.mp4decrypt_path = current.mp4decrypt_path;
+    merged.mp4box_path = current.mp4box_path;
+    merged.nm3u8dlre_path = current.nm3u8dlre_path;
+    merged.mediainfo_path = current.mediainfo_path;
     // Security: dev-access gating must only change via the dedicated
     // activate/deactivate commands, never via a settings import.
     merged.dev_access_enabled = current.dev_access_enabled;
@@ -806,9 +824,32 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     // callers with no such policy get the safe default.
     settings.dev_access_enabled = false;
 
+    /// Shortens a value to a sensible length and removes line breaks.
+    ///
+    /// The length limit is in bytes, but it has to be cut at a point that is a
+    /// whole character. Rust refuses to cut a piece of text in the middle of a
+    /// character and stops the program if asked to — and that is not a rare
+    /// edge: any accented or non-Latin text uses more than one byte per
+    /// character, so a long enough path in French, German, Greek, Arabic or
+    /// Japanese will land the cut mid-character.
+    ///
+    /// Before this, importing a settings file with a long enough accented path
+    /// took the whole backend down and filed a crash report — from a file the
+    /// person had just been invited to open (#229). Confirmed by reproducing
+    /// it: 400 euro signs is 1200 bytes, and byte 1024 is not a character
+    /// boundary.
+    ///
+    /// Cutting at the last whole character before the limit keeps the value
+    /// slightly shorter than asked, which is always safe.
     fn truncate(s: &mut String, max: usize) {
         if s.len() > max {
-            s.truncate(max);
+            // Walk back to the last point that starts a character. Byte 0
+            // always is, so this cannot run off the front.
+            let mut cut = max;
+            while cut > 0 && !s.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            s.truncate(cut);
         }
         // Strip newlines and carriage returns (INI injection prevention)
         *s = s.replace(['\n', '\r'], "");
@@ -862,3 +903,84 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
         settings.notification_style = "native_and_in_app".to_string();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Shortening a value must not crash the app (#229) ────────────────
+    //
+    // The length limit is in bytes, but text has to be cut at a whole
+    // character. Rust stops the program if asked to cut mid-character, and
+    // that is not a rare edge: accented and non-Latin text uses more than one
+    // byte per character, so a long enough path in French, German, Greek,
+    // Arabic or Japanese lands the cut in the middle of one.
+    //
+    // Importing such a file took the whole backend down and filed a crash
+    // report — from a file the person had just been invited to open.
+    // Reproduced as a real panic before this fix.
+
+    #[test]
+    fn a_long_accented_path_does_not_crash_the_app() {
+        // 400 euro signs is 1200 bytes, and byte 1024 is mid-character.
+        let mut settings = crate::models::settings::AppSettings {
+            output_path: "\u{20ac}".repeat(400),
+            ..Default::default()
+        };
+        sanitize_imported_settings(&mut settings);
+        assert!(settings.output_path.len() <= 1024);
+        // Still valid text, not a broken half-character.
+        assert!(settings.output_path.chars().all(|c| c == '\u{20ac}'));
+    }
+
+    #[test]
+    fn other_multi_byte_writing_systems_are_safe_too() {
+        for sample in ["\u{65e5}", "\u{639}", "\u{3b1}", "\u{1f600}"] {
+            let mut settings = crate::models::settings::AppSettings {
+                output_path: sample.repeat(600),
+                ..Default::default()
+            };
+            sanitize_imported_settings(&mut settings);
+            assert!(
+                settings.output_path.len() <= 1024,
+                "{sample} was not shortened safely"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_paths_are_left_exactly_as_they_are() {
+        let mut settings = crate::models::settings::AppSettings {
+            output_path: "/Users/me/Music".to_string(),
+            ..Default::default()
+        };
+        sanitize_imported_settings(&mut settings);
+        assert_eq!(settings.output_path, "/Users/me/Music");
+    }
+
+    #[test]
+    fn line_breaks_are_still_removed_after_shortening() {
+        // The other half of this function, which must keep working: a line
+        // break in a value can start a new setting in the download tool's own
+        // configuration file.
+        let mut settings = crate::models::settings::AppSettings {
+            output_path: "/Users/me\nffmpeg_path = /tmp/attacker".to_string(),
+            ..Default::default()
+        };
+        sanitize_imported_settings(&mut settings);
+        assert!(!settings.output_path.contains('\n'));
+    }
+
+    #[test]
+    fn developer_access_can_never_be_switched_on_by_an_imported_file() {
+        // Pre-existing behaviour, pinned here because it is security-relevant
+        // and sits in the same function.
+        let mut settings = crate::models::settings::AppSettings {
+            dev_access_enabled: true,
+            ..Default::default()
+        };
+        sanitize_imported_settings(&mut settings);
+        assert!(!settings.dev_access_enabled);
+    }
+}
+
