@@ -211,8 +211,27 @@ def check_npm_lockfile(old: str, new: str, target: str | None) -> tuple[bool, li
         for key, new_version in new_map.items()
         if key in old_map and old_map[key] != new_version
     }
-    if not changed:
-        return True, ["package-lock.json: no dependency version changed between the two commits — nothing to check"]
+
+    # A fix can also work by REMOVING a dependency outright rather than
+    # raising its version. Those entries are in the old file and not in the
+    # new one, so the comparison above never sees them. Left unhandled, a
+    # removal-only fix looks like "nothing changed", which then reads as
+    # "the target already has it" — and the fix is skipped while the target
+    # still carries the very thing that was removed.
+    removed = sorted(set(old_map) - set(new_map))
+
+    if not changed and not removed:
+        # Nothing recognisable changed. That is not the same as "the target
+        # is fine": it means this check could not tell, most likely because
+        # the fix took a shape it does not understand. Say so, and let the
+        # cherry-pick go ahead. A cherry-pick that turns out to be redundant
+        # costs a conflict somebody has to look at. A fix skipped by mistake
+        # costs a branch left vulnerable, which is the whole reason this
+        # file exists.
+        return False, [
+            "package-lock.json: no dependency version changed between the two commits, "
+            "so this check cannot tell whether the target needs the fix — going ahead with the cherry-pick"
+        ]
 
     target_map = parse_npm_lock(target) if target is not None else None
     details: list[str] = []
@@ -231,6 +250,18 @@ def check_npm_lockfile(old: str, new: str, target: str | None) -> tuple[bool, li
         else:
             all_fixed = False
             details.append(f"package-lock.json: \"{key}\" is {target_version} on the target branch, behind the fixed {fixed_version} — needs the fix")
+
+    # Anything the fix removed has to be gone from the target too, or the
+    # target still has the thing that was taken out for a reason.
+    for key in removed:
+        if target_map is None:
+            all_fixed = False
+            details.append(f"package-lock.json: target branch's lockfile could not be read — cannot confirm \"{key}\" was removed there too")
+        elif key in target_map:
+            all_fixed = False
+            details.append(f"package-lock.json: the fix removed \"{key}\", but the target branch still has it — needs the fix")
+        else:
+            details.append(f"package-lock.json: the fix removed \"{key}\" and the target branch does not have it either — already fixed")
     return all_fixed, details
 
 
@@ -238,30 +269,63 @@ def check_cargo_lockfile(old: str, new: str, target: str | None) -> tuple[bool, 
     old_map = parse_cargo_lock(old)
     new_map = parse_cargo_lock(new)
 
-    changed: dict[str, str] = {}
-    for name, new_versions in new_map.items():
+    # A crate can legitimately appear more than once in Cargo.lock at
+    # different versions, because two dependencies can each want their own.
+    # So a fix is described by BOTH halves: which versions it took away and
+    # which it brought in. Looking only at what arrived is what lets a
+    # branch that still carries the vulnerable copy look fixed, simply
+    # because some other, newer copy happens to be sitting beside it.
+    changed: dict[str, tuple[set[str], set[str]]] = {}
+    for name in set(old_map) | set(new_map):
         old_versions = old_map.get(name, set())
+        new_versions = new_map.get(name, set())
         added = new_versions - old_versions
-        if added:
-            # A fix commit that bumps a crate normally adds exactly one new
-            # version for that name; if more than one showed up, the
-            # highest is the one worth checking for on the target branch.
-            changed[name] = max(added, key=lambda v: parse_version(v)[0])
+        dropped = old_versions - new_versions
+        if added or dropped:
+            changed[name] = (added, dropped)
 
     if not changed:
-        return True, ["Cargo.lock: no crate version changed between the two commits — nothing to check"]
+        # Nothing recognisable changed, which is not the same as the target
+        # being fine — see the matching note on the npm side. Go ahead with
+        # the cherry-pick rather than guess.
+        return False, [
+            "Cargo.lock: no crate version changed between the two commits, "
+            "so this check cannot tell whether the target needs the fix — going ahead with the cherry-pick"
+        ]
 
     target_map = parse_cargo_lock(target) if target is not None else {}
     details: list[str] = []
     all_fixed = True
-    for name, fixed_version in sorted(changed.items()):
-        target_versions = target_map.get(name)
+    for name, (added, dropped) in sorted(changed.items()):
+        target_versions = target_map.get(name, set())
+
+        # The versions the fix removed must be gone from the target as well.
+        # This is the half that matters: it is what proves the vulnerable
+        # copy is actually gone, rather than merely outnumbered.
+        still_there = sorted(dropped & target_versions)
+        if still_there:
+            all_fixed = False
+            details.append(
+                f"Cargo.lock: the fix replaced \"{name}\" {', '.join(still_there)}, "
+                f"but the target branch still has {'that version' if len(still_there) == 1 else 'those versions'} — needs the fix"
+            )
+            continue
+
+        if not added:
+            # A pure removal, and the target does not have the removed
+            # versions either. Nothing further to look for.
+            details.append(f"Cargo.lock: the fix removed \"{name}\" {', '.join(sorted(dropped))} and the target branch does not have {'it' if len(dropped) == 1 else 'them'} either — already fixed")
+            continue
+
         if not target_versions:
             all_fixed = False
             details.append(f"Cargo.lock: \"{name}\" not present in target lockfile — cannot confirm it is fixed")
-        elif any(version_gte(v, fixed_version) for v in target_versions):
+            continue
+
+        fixed_version = max(added, key=lambda v: parse_version(v)[0])
+        if any(version_gte(v, fixed_version) for v in target_versions):
             best = max(target_versions, key=lambda v: parse_version(v)[0])
-            details.append(f"Cargo.lock: \"{name}\" is {best} on the target branch (fix bumped it to {fixed_version}) — already fixed")
+            details.append(f"Cargo.lock: \"{name}\" is {best} on the target branch (fix brought in {fixed_version}, and the old version it replaced is gone) — already fixed")
         else:
             all_fixed = False
             have = ", ".join(sorted(target_versions))

@@ -441,6 +441,23 @@ jobs:
           # cherry-pick; anything else (behind, missing, unparseable, or the
           # commit didn't touch either lockfile) falls through to the
           # existing attempt unchanged.
+          # ...but only when the commit changed NOTHING BUT dependency files.
+          # A pull request can carry a code change and a dependency bump
+          # together. The target branch may well already have the bump —
+          # from its own Dependabot run, say — while still missing the code
+          # change. Skipping on the strength of the lockfiles alone would
+          # then drop the code fix on the floor, silently, which is the
+          # exact failure this whole workflow exists to prevent. So the
+          # shortcut is allowed only when there is nothing else in the
+          # commit to lose.
+          CHANGED_FILES=$(git diff --name-only "${MERGE_SHA}^" "$MERGE_SHA")
+          OTHER_FILES=$(echo "$CHANGED_FILES" | grep -vE '^(package-lock\.json|package\.json|src-tauri/Cargo\.lock|src-tauri/Cargo\.toml)$' || true)
+          if [ -n "$OTHER_FILES" ]; then
+            echo "::notice::#$PR_NUMBER changes files other than the dependency lists, so the 'already has it' shortcut does not apply — those changes still have to be carried across. Going ahead with the cherry-pick."
+            while IFS= read -r line; do echo "  also changed: $line"; done <<<"$OTHER_FILES"
+            LOCKFILE_RC=1
+            LOCKFILE_CHECK=""
+          else
           LOCKFILE_CHECK=$(python3 "$GITHUB_WORKSPACE/.github/scripts/check_lockfile_already_fixed.py" \
             --repo-root "$GITHUB_WORKSPACE" \
             --old "${MERGE_SHA}^" \
@@ -448,6 +465,7 @@ jobs:
             --target "origin/$TARGET" \
             package-lock.json src-tauri/Cargo.lock) && LOCKFILE_RC=0 || LOCKFILE_RC=$?
           while IFS= read -r line; do echo "  $line"; done <<<"$LOCKFILE_CHECK"
+          fi
           if [ "$LOCKFILE_RC" = "0" ] && echo "$LOCKFILE_CHECK" | grep -q "^RESULT=ALREADY_FIXED$"; then
             echo "::notice::'$TARGET' already has every dependency this fix touched at the fixed version or newer — nothing to forward-port. See the DETAIL lines above."
             exit 0
