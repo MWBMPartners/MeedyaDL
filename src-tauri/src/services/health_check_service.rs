@@ -1148,6 +1148,56 @@ fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<Prefl
 
 #[cfg(test)]
 mod tests {
+
+    // ── The name a pre-flight check travels under (#1156) ──────────────
+    //
+    // Two events carry this value: one when a check fails, one when it
+    // passes so the screen can take the message away. The screen matches
+    // them by name, so the two must produce the SAME name.
+    //
+    // They did not. The failure event serialised the value, giving
+    // "internet"; the pass event printed it, giving "Internet". Nothing
+    // ever matched, so no pre-flight message has ever cleared itself — a
+    // warning saying there is no internet stayed on screen after the
+    // connection came back, for every check, always.
+    //
+    // These tests pin the serialised name, so the printed form can never
+    // quietly become the one that is sent.
+
+    #[test]
+    fn a_preflight_check_serialises_to_its_lower_case_name() {
+        let cases = [
+            (PreflightCheck::Internet, "internet"),
+            (PreflightCheck::Cookies, "cookies"),
+            (PreflightCheck::Wrapper, "wrapper"),
+            (PreflightCheck::WrapperM3u8, "wrapper_m3u8"),
+        ];
+        for (check, expected) in cases {
+            let wire = serde_json::to_value(&check).expect("check should serialise");
+            assert_eq!(
+                wire,
+                serde_json::Value::String(expected.to_string()),
+                "{check:?} serialises to {wire} — the screen keys its messages on this name"
+            );
+        }
+    }
+
+    #[test]
+    fn the_printed_name_is_not_the_serialised_one() {
+        // Guards the reasoning rather than the code. If these ever became
+        // the same, the bug above would be impossible and this test would
+        // say so — rather than leaving someone to wonder why the fix
+        // insisted on serialising.
+        let printed = format!("{:?}", PreflightCheck::Internet);
+        let sent = serde_json::to_value(PreflightCheck::Internet).unwrap();
+        assert_ne!(
+            serde_json::Value::String(printed.clone()),
+            sent,
+            "printing and serialising now agree — the distinction this guards may be gone"
+        );
+        assert_eq!(printed, "Internet");
+    }
+
     use super::*;
 
     #[test]
