@@ -192,7 +192,7 @@ export function CoverArtTab() {
             description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and FrontCoverPortrait.mp4 alongside album files."
             checked={animatedEnabled.value}
             onChange={animatedEnabled.set}
-            helpTopic="settings-help"
+            helpTopic="settings"
           />
 
           {/* Animated artwork resolution ceiling (#972, only shown when enabled) */}

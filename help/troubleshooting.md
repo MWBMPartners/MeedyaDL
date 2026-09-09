@@ -64,6 +64,12 @@ Network errors include connection timeouts, DNS resolution failures, and server-
 
 If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able to reach Apple Music's servers. The application respects the system proxy settings on all platforms. If you are using a VPN, ensure it does not interfere with connections to Apple's content delivery servers.
 
+#### Downloads Stuck at 0%
+
+- Check your internet connection
+- Try cancelling and re-adding the download
+- Check if FFmpeg is properly installed in **Settings > Tools**
+
 ---
 
 ### Codec / Quality Errors (codec)
@@ -74,6 +80,7 @@ Not all content on Apple Music is available in every codec and resolution. Some 
 
 - **Cause:** The specific codec or quality level you requested is not available for this particular content on Apple Music.
 - **Solution:** Enable fallback quality in **Settings > Fallback** tab so that MeedyaDL automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
+- **Note:** ALAC (lossless) has the widest availability.
 
 ---
 
@@ -318,6 +325,13 @@ MeedyaDL requires certain system libraries that may not be installed by default 
 
      Then run it directly: `./MeedyaDL.AppImage`
   3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
+
+#### Application Won't Start
+
+- Delete the settings file from the app data directory and restart
+- On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/
+- On Windows: %APPDATA%/com.meedyasuite.meedyadl/
+- On Linux: ~/.local/share/com.meedyasuite.meedyadl/
 
 #### Crash on Launch (Queue Recovery Panic)
 

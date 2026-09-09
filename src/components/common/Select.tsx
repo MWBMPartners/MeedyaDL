@@ -26,6 +26,7 @@
 
 import type { SelectHTMLAttributes } from 'react';
 import { HelpButton } from './HelpButton';
+import type { HelpTopicId } from '@/components/help';
 
 /**
  * Describes a single option in the select dropdown.
@@ -90,8 +91,11 @@ interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'chi
   /**
    * When set, renders a small "?" help button next to the label that
    * navigates to the Help page with the specified topic pre-selected.
+   * Typed as `HelpTopicId` -- the real set of `help/*.md` pages -- so a
+   * typo or a renamed page id fails the build instead of silently doing
+   * nothing when clicked.
    */
-  helpTopic?: string;
+  helpTopic?: HelpTopicId;
 }
 
 /**

@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :pencil2: Lyrics and Metadata
+# Lyrics and Metadata
 
 This guide explains how MeedyaDL handles lyrics in various formats and how metadata is embedded into downloaded files.
 

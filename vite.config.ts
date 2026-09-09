@@ -196,14 +196,31 @@ export default defineConfig({
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
 
     /**
-     * `chunkSizeWarningLimit` -- Threshold (in kB) for the "chunk too large" warning.
+     * `chunkSizeWarningLimit` -- how big (in kB) one bundled file can get
+     * before the build prints a "this is large" warning.
      *
-     * The default is 500 kB. MeedyaDL's main bundle is ~605 kB minified (~180 kB
-     * gzipped) due to the feature-rich UI (markdown rendering, i18n, Zustand stores,
-     * multiple page components). This is acceptable for a desktop app where the
-     * bundle is loaded from the local filesystem, not over a network.
+     * Vite's own default is 500 kB. MeedyaDL's main bundle is bigger than
+     * that because the whole user interface is in it: the markdown
+     * renderer, translations, the state stores, and every page.
+     *
+     * Measured on 2026-09-09: 1,330 kB once minified, 398 kB once
+     * compressed. Two things went into that number. About 1,075 kB was
+     * already there — the comment that used to sit here claimed 605 kB,
+     * which had not been true for a long time, so every build had been
+     * printing this warning and nobody had noticed the figure was stale.
+     * The other ~255 kB is the help pages, which are now read from
+     * `help/*.md` and built into the bundle rather than being typed a
+     * second time inside the Help component.
+     *
+     * That size is fine here. This is a desktop app: the bundle is read
+     * from the user's own disk, not fetched over a network, and most of
+     * the added weight is plain text rather than code to run.
+     *
+     * The limit is set a little above the real figure rather than far
+     * above it, so that a genuinely surprising jump still gets noticed.
+     * If you raise it, say what you measured and when, as above.
      */
-    chunkSizeWarningLimit: 700,
+    chunkSizeWarningLimit: 1500,
 
     rolldownOptions: {
       onwarn(warning, warn) {

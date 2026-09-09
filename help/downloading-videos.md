@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :clapper: Downloading Videos
+# Downloading Videos
 
 This guide explains how to download music videos and post videos from Apple Music using MeedyaDL, including how to configure video quality options.
 

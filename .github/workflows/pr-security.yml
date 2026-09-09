@@ -25,7 +25,7 @@
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
 #   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent,
-#                                                Tauri npm/Rust version sync)
+#                                                Tauri npm/Rust version sync, build-secret wiring, help docs)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -419,6 +419,19 @@ jobs:
           BUILD_SECRETS=$(python3 tools/audit-checks/check_build_secrets.py 2>&1 || true)
           if echo "$BUILD_SECRETS" | grep -q '•'; then
             add_section "Build-time value read by the app but never supplied by the release build (feature ships inert and silent)" "$(echo "$BUILD_SECRETS" | grep -A100 '###')"
+          fi
+          # Help docs: help/*.md on disk vs. HELP_TOPIC_MANIFEST in
+          # helpTopics.ts vs. deep links to a help page from elsewhere in the
+          # app vs. links between help pages themselves. The in-app Help
+          # screen used to carry a hand-typed second copy of every page's
+          # words, and the two silently drifted apart (#949) — that copy is
+          # gone, but a file and the app's list of pages are still two
+          # sources that have to agree, with nothing to notice when they
+          # stop. Whole-repo, because a stale link can live in a help page
+          # this PR never touched.
+          HELP_TOPICS=$(python3 tools/audit-checks/check_help_topics.py 2>&1 || true)
+          if echo "$HELP_TOPICS" | grep -q '•'; then
+            add_section "Help documentation drift (help/*.md vs. HELP_TOPIC_MANIFEST vs. in-app links)" "$(echo "$HELP_TOPICS" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :bookmark_tabs: Metadata Mapping Reference
+# Metadata Mapping Reference
 
 This page documents **every** metadata field MeedyaDL writes into downloaded files. It is the canonical reference for music-library tooling (MusicBrainz Picard, beets, Mp3tag, foobar2000) and for anyone scripting against MeedyaDL's output.
 
@@ -12,7 +12,7 @@ Last updated: 2026-05-17 (v1.7 bundle).
 
 ---
 
-## :compass: Table of Contents
+## Table of Contents
 
 1. [How metadata gets written](#how-metadata-gets-written)
 2. [Tag namespaces](#tag-namespaces)
@@ -188,13 +188,13 @@ These have no `com.apple.iTunes:*` counterpart — they're MeedyaDL-attributed o
 
 | Field class | M4A / M4V (MP4 atoms) | FLAC (Vorbis comments) | MP3 (ID3v2 frames) | OGG / Opus (Vorbis comments) |
 |---|---|---|---|---|
-| Standard tags (title/artist/album/…) | :white_check_mark: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| `covr` (cover artwork) | :white_check_mark: | :white_check_mark: (`METADATA_BLOCK_PICTURE`) | :white_check_mark: (APIC) | :white_check_mark: |
-| iTunes freeform atoms | :white_check_mark: | :grey_question: (some via Vorbis fallback) | :grey_question: (TXXX) | :grey_question: |
-| `MeedyaMeta:*` freeform atoms | :white_check_mark: | :white_check_mark: (Vorbis) | :white_check_mark: (TXXX) | :white_check_mark: (Vorbis) |
-| ReplayGain | :white_check_mark: (via `mp4ameta`) | :white_check_mark: (`lofty`) | :white_check_mark: (`lofty`) | :white_check_mark: (`lofty`) |
-| BPM (`tmpo` / `BPM` / `TBPM`) | :white_check_mark: (`tmpo`) | :white_check_mark: (`BPM` Vorbis) | :white_check_mark: (`TBPM` ID3v2) | :white_check_mark: |
-| Enhanced LRC lyrics (`©lyr`) | :white_check_mark: | :grey_question: (text only, no `<mm:ss.xx>` parsing in most players) | :grey_question: | :grey_question: |
+| Standard tags (title/artist/album/…) | ✅ | ✅ | ✅ | ✅ |
+| `covr` (cover artwork) | ✅ | ✅ (`METADATA_BLOCK_PICTURE`) | ✅ (APIC) | ✅ |
+| iTunes freeform atoms | ✅ | ❔ (some via Vorbis fallback) | ❔ (TXXX) | ❔ |
+| `MeedyaMeta:*` freeform atoms | ✅ | ✅ (Vorbis) | ✅ (TXXX) | ✅ (Vorbis) |
+| ReplayGain | ✅ (via `mp4ameta`) | ✅ (`lofty`) | ✅ (`lofty`) | ✅ (`lofty`) |
+| BPM (`tmpo` / `BPM` / `TBPM`) | ✅ (`tmpo`) | ✅ (`BPM` Vorbis) | ✅ (`TBPM` ID3v2) | ✅ |
+| Enhanced LRC lyrics (`©lyr`) | ✅ | ❔ (text only, no `<mm:ss.xx>` parsing in most players) | ❔ | ❔ |
 
 GAMDL produces M4A (audio) and M4V (music videos) by default. The other formats appear when MeedyaDL is configured to use a non-GAMDL engine (e.g., yt-dlp for YouTube → MP3, votify for Spotify → Ogg Vorbis).
 

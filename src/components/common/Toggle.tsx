@@ -28,6 +28,7 @@
 import { useId } from 'react';
 
 import { HelpButton } from './HelpButton';
+import type { HelpTopicId } from '@/components/help';
 
 /**
  * Props accepted by the {@link Toggle} component.
@@ -55,8 +56,11 @@ interface ToggleProps {
   /**
    * When set, renders a small "?" help button next to the label that
    * navigates to the Help page with the specified topic pre-selected.
+   * Typed as `HelpTopicId` -- the real set of `help/*.md` pages -- so a
+   * typo or a renamed page id fails the build instead of silently doing
+   * nothing when clicked.
    */
-  helpTopic?: string;
+  helpTopic?: HelpTopicId;
 }
 
 /**

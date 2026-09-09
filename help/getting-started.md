@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :rocket: Getting Started
+# Getting Started
 
 This guide walks you through the first-time setup of MeedyaDL, from system requirements to your first download.
 

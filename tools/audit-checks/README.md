@@ -24,6 +24,7 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | `check_user_agent.py` | Outbound User-Agent consistency: every `.header("User-Agent", ...)` / `.user_agent(...)` call site uses the shared `APP_USER_AGENT` constant (or the deliberate `APPLE_BROWSER_USER_AGENT`), never a hand-typed string literal. | A new call site hardcoding its own UA string, silently drifting out of sync with the app version (the MusicBrainz `"MeedyaDL/0.6"` defect this check exists to prevent recurring). |
 | `check_tauri_version_sync.py` | The Tauri npm package and the Tauri Rust crate agree on major.minor, read from whatever `package-lock.json` and `Cargo.lock` are actually at this commit. | A version bump touching only one of the two lock files → `tauri build` refuses the mismatch and every platform build fails at once (the v1.10.5 incident). |
 | `check_build_secrets.py` | Every build-time value the app reads — `option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the frontend — is either passed through by `release.yml` or listed in the script as deliberately not needed. | A finished feature shipping completely inert because its value was never wired into the release build. The app treats "absent" as "not configured" and says nothing, so nothing fails and nobody notices — three features were in exactly that state, none ever having worked once (#1161, #1162, #1163). |
+| `check_help_topics.py` | Help docs: every `help/<id>.md` file has a line in `HELP_TOPIC_MANIFEST` (`helpTopics.ts`) and vice versa; every in-app deep link (`helpTopic="..."`, `navigateToHelp('...')`) and every help-page-to-help-page link points at a real page; no GitHub-only emoji shortcode (`:rocket:`) that would show as literal text in the app; every translated page has an English original. | The in-app Help and the help files used to be two hand-typed copies of the same words, kept in sync by hand — and #949 was the moment they disagreed somewhere a user could see it (the two copies named different "coming soon" versions). The hand-typed copy is gone, but a file and the app's list of pages are still two sources that have to agree. |
 
 ## Running locally
 
@@ -34,6 +35,7 @@ python3 tools/audit-checks/check_codec_registry.py
 python3 tools/audit-checks/check_user_agent.py
 python3 tools/audit-checks/check_tauri_version_sync.py
 python3 tools/audit-checks/check_build_secrets.py
+python3 tools/audit-checks/check_help_topics.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
 python3 tools/audit-checks/check_ipc_commands.py --strict
@@ -41,6 +43,7 @@ python3 tools/audit-checks/check_codec_registry.py --strict
 python3 tools/audit-checks/check_user_agent.py --strict
 python3 tools/audit-checks/check_tauri_version_sync.py --strict
 python3 tools/audit-checks/check_build_secrets.py --strict
+python3 tools/audit-checks/check_help_topics.py --strict
 ```
 
 ## Conventions
