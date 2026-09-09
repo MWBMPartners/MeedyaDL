@@ -6,6 +6,8 @@
   "nav": {
     "download": "Download",
     "queue": "Queue",
+    "library": "Library",
+    "history": "History",
     "activity": "Activity",
     "updates": "Updates",
     "settings": "Settings",
@@ -17,23 +19,36 @@
     "checkForUpdates": "Check for Updates",
     "checking": "Checking...",
     "updatesAvailable_one": "{{count}} Update",
-    "updatesAvailable_other": "{{count}} Updates"
+    "updatesAvailable_other": "{{count}} Updates",
+    "toolMissing": "{{tool}} is missing",
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar",
+    "logoAlt": "MeedyaDL logo"
   },
   "settings": {
     "title": "Settings",
+    "subtitle": "Configure download options, paths, and preferences",
     "save": "Save Changes",
     "reset": "Reset",
     "tabs": {
       "general": "General",
-      "quality": "Quality",
-      "fallback": "Fallback",
-      "paths": "Paths",
+      "quality": "Codec & Resolution",
+      "fallback": "Codec Fallback Order",
+      "tools": "Tools",
       "cookies": "Cookies",
       "lyrics": "Lyrics",
       "coverArt": "Cover Art",
       "metadata": "Metadata",
       "templates": "Templates",
+      "spotify": "Spotify",
       "advanced": "Advanced"
+    },
+    "groups": {
+      "general": "General",
+      "download": "Download",
+      "authentication": "Authentication",
+      "services": "Services",
+      "system": "System"
     },
     "general": {
       "output": "Output",
@@ -83,8 +98,8 @@
     "preReleaseWarning": "This is a pre-release version and may contain bugs or incomplete features. Not recommended for every-day use."
   },
   "crashReporting": {
-    "title": "Recent Crash Reports",
-    "noReports": "No crash reports found.",
+    "title": "Recent Error Reports",
+    "noReports": "No error reports found.",
     "report": "Report",
     "delete": "Delete crash report",
     "deleted": "Crash report deleted",
@@ -136,7 +151,7 @@
     "refresh": "Refresh"
   },
   "activity": {
-    "title": "Activity",
+    "title": "Activity Log",
     "empty": "No activity yet",
     "emptyHint": "Start a download to see live output here. The log resets on app restart.",
     "noMatches": "No entries match the current search or filter criteria.",
@@ -153,6 +168,16 @@
     "clearAll": "Clear History"
   },
   "help": {
+    "title": "Help",
+    "subtitle": "Documentation and guides for using MeedyaDL",
+    "searchPlaceholder": "Search topics...",
+    "searchAriaLabel": "Search help topics",
+    "clearSearch": "Clear search",
+    "searchShortcutHint": "{{key}}+K to focus search (coming soon)",
+    "searchShortcutAriaLabel": "Keyboard shortcut: {{key}} plus K (coming soon)",
+    "resultCount_one": "{{count}} result",
+    "resultCount_other": "{{count}} results",
+    "noResults": "No matching topics found.",
     "machineTranslatedPage": "This page was translated by a machine. If something reads oddly, the English version is the one the developers wrote.",
     "pageNotTranslated": "This page has not been translated into {{language}} yet, so it is shown in English."
   },
@@ -167,8 +192,38 @@
     "retry": "Retry",
     "clear": "Clear"
   },
+  "toast": {
+    "dismiss": "Dismiss",
+    "ariaLabel": "Notifications"
+  },
   "featureFlags": {
     "fallbackMessage": "{{feature}} is temporarily unavailable. We've paused it while we look into something — nothing is wrong with your installation, and there's nothing you need to do.",
     "servicePaused": "{{service}} downloads are temporarily paused. We've paused them while we look into something — nothing is wrong with your installation, and they'll come back automatically."
+  },
+  "statusBar": {
+    "ariaLabel": "Download status",
+    "downloading_one": "{{count}} downloading",
+    "downloading_other": "{{count}} downloading",
+    "processing_one": "{{count}} processing",
+    "processing_other": "{{count}} processing",
+    "queued_one": "{{count}} queued",
+    "queued_other": "{{count}} queued",
+    "completed_one": "{{count}} completed",
+    "completed_other": "{{count}} completed",
+    "noDownloads": "No downloads",
+    "abort": "Abort",
+    "abortAriaLabel": "Abort queue",
+    "abortTitle": "Abort queue — stop every active and queued download ({{shortcut}})",
+    "abortConfirm": "Abort every active and queued download? This cannot be undone.",
+    "afterQueue": "After queue: {{label}}",
+    "afterQueueOnce": "After queue: {{label}} (once)",
+    "actions": {
+      "openOutputFolder": "Open folder",
+      "playSound": "Play sound",
+      "closeApp": "Close app",
+      "restart": "Restart",
+      "hibernate": "Hibernate",
+      "shutdown": "Shut down"
+    }
   }
 }

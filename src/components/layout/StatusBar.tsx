@@ -34,6 +34,11 @@ import { getVersion } from '@tauri-apps/api/app';
 
 import { Square } from 'lucide-react';
 
+// This component is visible on every screen of the app (it's pinned under
+// every page), so every word in it needs to go through i18next rather than
+// being typed once in English.
+import { useTranslation } from 'react-i18next';
+
 /**
  * Zustand store hook for the download queue.
  * Provides `queueItems` -- an array of `QueueItemStatus` objects whose
@@ -46,15 +51,21 @@ import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 
-/** Human-readable labels for after-queue actions (status bar display). */
-const AFTER_QUEUE_LABELS: Record<string, string> = {
+/**
+ * Translation keys (under `statusBar.actions.*`) for each after-queue
+ * action's human-readable label. Keyed by the same strings the settings
+ * store uses (`AfterQueueAction`), so this is a lookup table, not a
+ * duplicate of the wording itself -- the wording lives in the locale
+ * files, same as everywhere else.
+ */
+const AFTER_QUEUE_LABEL_KEYS: Record<string, string> = {
   do_nothing: '',
-  open_output_folder: 'Open folder',
-  play_sound: 'Play sound',
-  close_meedyadl: 'Close app',
-  restart_computer: 'Restart',
-  hibernate_computer: 'Hibernate',
-  shutdown_computer: 'Shut down',
+  open_output_folder: 'statusBar.actions.openOutputFolder',
+  play_sound: 'statusBar.actions.playSound',
+  close_meedyadl: 'statusBar.actions.closeApp',
+  restart_computer: 'statusBar.actions.restart',
+  hibernate_computer: 'statusBar.actions.hibernate',
+  shutdown_computer: 'statusBar.actions.shutdown',
 };
 
 /**
@@ -62,6 +73,7 @@ const AFTER_QUEUE_LABELS: Record<string, string> = {
  * Shows "(once)" suffix for one-shot actions vs the persistent action.
  */
 function AfterQueueIndicator() {
+  const { t } = useTranslation();
   const afterOnce = useSettingsStore((s) => s.settings.after_queue_once);
   const afterAlways = useSettingsStore((s) => s.settings.after_queue_action);
 
@@ -69,12 +81,15 @@ function AfterQueueIndicator() {
   const action = afterOnce ?? afterAlways ?? 'do_nothing';
   if (action === 'do_nothing') return null;
 
-  const label = AFTER_QUEUE_LABELS[action] ?? action;
-  const suffix = afterOnce ? ' (once)' : '';
+  const labelKey = AFTER_QUEUE_LABEL_KEYS[action];
+  const label = labelKey ? t(labelKey) : action;
+  const text = afterOnce
+    ? t('statusBar.afterQueueOnce', { label })
+    : t('statusBar.afterQueue', { label });
 
   return (
-    <span className="text-status-warning" title={`After queue: ${label}${suffix}`}>
-      After queue: {label}{suffix}
+    <span className="text-status-warning" title={text}>
+      {text}
     </span>
   );
 }
@@ -95,6 +110,9 @@ function AfterQueueIndicator() {
  * @returns A thin horizontal bar with activity summary (left) and version (right).
  */
 export function StatusBar() {
+  /** i18n translation function for every piece of text in this bar. */
+  const { t } = useTranslation();
+
   /**
    * Application version string, fetched once on mount from `tauri.conf.json`
    * via the Tauri app API. Falls back to 'unknown' if the call fails
@@ -164,13 +182,11 @@ export function StatusBar() {
       // own the shared Modal component the Queue page uses. The Queue
       // page's richer confirmation (with "Don't ask again") remains
       // the canonical flow.
-      const confirmed = window.confirm(
-        'Abort every active and queued download? This cannot be undone.',
-      );
+      const confirmed = window.confirm(t('statusBar.abortConfirm'));
       if (!confirmed) return;
     }
     void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
-  }, [abortAll, abortQueueConfirm, addToast]);
+  }, [abortAll, abortQueueConfirm, addToast, t]);
 
   return (
     /**
@@ -189,7 +205,7 @@ export function StatusBar() {
     <div
       role="status"
       aria-live="polite"
-      aria-label="Download status"
+      aria-label={t('statusBar.ariaLabel')}
       className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary"
     >
       {/*
@@ -209,7 +225,7 @@ export function StatusBar() {
         {downloadingCount > 0 && (
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-status-info animate-pulse" />
-            {downloadingCount} downloading
+            {t('statusBar.downloading', { count: downloadingCount })}
           </span>
         )}
         {/* Processing count (#817) — items past GAMDL exit and in
@@ -222,39 +238,49 @@ export function StatusBar() {
         {processingCount > 0 && (
           <span className="flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-status-warning" />
-            {processingCount} processing
+            {t('statusBar.processing', { count: processingCount })}
           </span>
         )}
         {/* Queued count -- items waiting to start */}
-        {queuedCount > 0 && <span>{queuedCount} queued</span>}
+        {queuedCount > 0 && <span>{t('statusBar.queued', { count: queuedCount })}</span>}
         {/*
           Global "Abort Queue" affordance (#620). Always available — even
           when the user is on Settings / History pages and can't reach the
           queue-page button. Fires the same abort path (confirmation
           respects `abort_queue_confirm`).
+
+          The "Cmd/Ctrl+Shift+." keyboard hint is deliberately kept out of
+          the translated sentence and passed in as `{{shortcut}}` — key
+          names like Cmd and Ctrl are never translated, and pulling it out
+          means a translator can't accidentally reword it.
         */}
         {(activeCount > 0 || queuedCount > 0) && (
           <button
             type="button"
             onClick={triggerAbort}
-            aria-label="Abort queue"
-            title="Abort queue — stop every active and queued download (Cmd/Ctrl+Shift+.)"
+            aria-label={t('statusBar.abortAriaLabel')}
+            title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
             className="flex items-center gap-1 text-status-error hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
           >
             <Square size={12} />
-            <span className="text-xs">Abort</span>
+            <span className="text-xs">{t('statusBar.abort')}</span>
           </button>
         )}
         {/* Completed count -- successfully finished items */}
-        {completedCount > 0 && <span>{completedCount} completed</span>}
+        {completedCount > 0 && <span>{t('statusBar.completed', { count: completedCount })}</span>}
         {/* Empty-queue fallback message */}
-        {queueItems.length === 0 && <span>No downloads</span>}
+        {queueItems.length === 0 && <span>{t('statusBar.noDownloads')}</span>}
       </div>
 
       {/* Centre: after-queue action indicator (if non-default) */}
       <AfterQueueIndicator />
 
-      {/* Right section: application version string (fetched from tauri.conf.json) */}
+      {/* Right section: application version string (fetched from
+          tauri.conf.json). "MeedyaDL v1.2.3" has no actual English words in
+          it to translate -- just the product name (never translated) and a
+          version-prefix convention ("v" + number) that reads the same in
+          every language, so this is left as a plain string rather than
+          wired through i18next. */}
       <span>MeedyaDL v{appVersion}</span>
     </div>
   );

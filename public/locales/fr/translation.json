@@ -6,6 +6,8 @@
   "nav": {
     "download": "Télécharger",
     "queue": "File d'attente",
+    "library": "Bibliothèque",
+    "history": "Historique",
     "activity": "Activité",
     "updates": "Mises à jour",
     "settings": "Paramètres",
@@ -17,23 +19,36 @@
     "checkForUpdates": "Rechercher des mises à jour",
     "checking": "Vérification...",
     "updatesAvailable_one": "{{count}} mise à jour",
-    "updatesAvailable_other": "{{count}} mises à jour"
+    "updatesAvailable_other": "{{count}} mises à jour",
+    "toolMissing": "{{tool}} est manquant",
+    "expandSidebar": "Développer la barre latérale",
+    "collapseSidebar": "Réduire la barre latérale",
+    "logoAlt": "Logo MeedyaDL"
   },
   "settings": {
     "title": "Paramètres",
+    "subtitle": "Configurez les options de téléchargement, les chemins et les préférences",
     "save": "Enregistrer les modifications",
     "reset": "Réinitialiser",
     "tabs": {
       "general": "Général",
-      "quality": "Qualité",
-      "fallback": "Repli",
-      "paths": "Chemins",
+      "quality": "Codec et résolution",
+      "fallback": "Ordre de repli des codecs",
+      "tools": "Outils",
       "cookies": "Cookies",
       "lyrics": "Paroles",
       "coverArt": "Pochette",
       "metadata": "Métadonnées",
       "templates": "Modèles",
+      "spotify": "Spotify",
       "advanced": "Avancé"
+    },
+    "groups": {
+      "general": "Général",
+      "download": "Téléchargement",
+      "authentication": "Authentification",
+      "services": "Services",
+      "system": "Système"
     },
     "general": {
       "output": "Sortie",
@@ -83,8 +98,8 @@
     "preReleaseWarning": "Ceci est une version préliminaire qui peut contenir des bugs ou des fonctionnalités incomplètes."
   },
   "crashReporting": {
-    "title": "Rapports de plantage récents",
-    "noReports": "Aucun rapport de plantage trouvé.",
+    "title": "Rapports d'erreur récents",
+    "noReports": "Aucun rapport d'erreur trouvé.",
     "report": "Signaler",
     "delete": "Supprimer le rapport de plantage",
     "deleted": "Rapport de plantage supprimé",
@@ -136,7 +151,7 @@
     "refresh": "Actualiser"
   },
   "activity": {
-    "title": "Activité",
+    "title": "Journal d'activité",
     "empty": "Pas encore d'activité",
     "emptyHint": "Démarrez un téléchargement pour voir la sortie en direct ici. Le journal est réinitialisé au redémarrage de l'application.",
     "noMatches": "Aucune entrée ne correspond aux critères de recherche ou de filtre actuels.",
@@ -153,6 +168,16 @@
     "clearAll": "Effacer l'historique"
   },
   "help": {
+    "title": "Aide",
+    "subtitle": "Documentation et guides pour utiliser MeedyaDL",
+    "searchPlaceholder": "Rechercher des sujets…",
+    "searchAriaLabel": "Rechercher dans les sujets d'aide",
+    "clearSearch": "Effacer la recherche",
+    "searchShortcutHint": "{{key}}+K pour accéder à la recherche (à venir)",
+    "searchShortcutAriaLabel": "Raccourci clavier : {{key}} plus K (à venir)",
+    "resultCount_one": "{{count}} résultat",
+    "resultCount_other": "{{count}} résultats",
+    "noResults": "Aucun sujet correspondant trouvé.",
     "machineTranslatedPage": "Cette page a été traduite par une machine. Si quelque chose semble étrange, la version anglaise est celle écrite par les développeurs.",
     "pageNotTranslated": "Cette page n'a pas encore été traduite en {{language}}, elle est donc affichée en anglais."
   },
@@ -167,8 +192,38 @@
     "retry": "Réessayer",
     "clear": "Effacer"
   },
+  "toast": {
+    "dismiss": "Ignorer",
+    "ariaLabel": "Notifications"
+  },
   "featureFlags": {
     "fallbackMessage": "{{feature}} est temporairement indisponible. Nous l'avons mise en pause le temps d'examiner un point précis — rien ne cloche avec votre installation, vous n'avez rien à faire.",
     "servicePaused": "Les téléchargements {{service}} sont temporairement en pause. Nous les avons mis en pause le temps d'examiner un point précis — rien ne cloche avec votre installation, et ils reviendront automatiquement."
+  },
+  "statusBar": {
+    "ariaLabel": "État du téléchargement",
+    "downloading_one": "{{count}} téléchargement en cours",
+    "downloading_other": "{{count}} téléchargements en cours",
+    "processing_one": "{{count}} traitement en cours",
+    "processing_other": "{{count}} traitements en cours",
+    "queued_one": "{{count}} en attente",
+    "queued_other": "{{count}} en attente",
+    "completed_one": "{{count}} terminé",
+    "completed_other": "{{count}} terminés",
+    "noDownloads": "Aucun téléchargement",
+    "abort": "Annuler",
+    "abortAriaLabel": "Annuler la file d'attente",
+    "abortTitle": "Annuler la file d'attente — arrêter tous les téléchargements actifs et en attente ({{shortcut}})",
+    "abortConfirm": "Annuler tous les téléchargements actifs et en attente ? Cette action est irréversible.",
+    "afterQueue": "Après la file d'attente : {{label}}",
+    "afterQueueOnce": "Après la file d'attente : {{label}} (une fois)",
+    "actions": {
+      "openOutputFolder": "Ouvrir le dossier",
+      "playSound": "Jouer un son",
+      "closeApp": "Fermer l'application",
+      "restart": "Redémarrer",
+      "hibernate": "Mettre en veille prolongée",
+      "shutdown": "Éteindre"
+    }
   }
 }

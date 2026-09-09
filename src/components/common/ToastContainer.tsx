@@ -32,6 +32,11 @@
  */
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 
+// Every toast in the app passes through this one shared container, so
+// translating its two fixed strings (the dismiss button, the landmark
+// aria-label) here covers every toast automatically.
+import { useTranslation } from 'react-i18next';
+
 /** Global UI store hook -- provides the `toasts` array and `removeToast` action */
 import { useUiStore } from '@/stores/uiStore';
 
@@ -108,6 +113,8 @@ const ICON_COLORS: Record<ToastType, string> = {
  * @param onDismiss - Callback that receives the toast id to remove it from the store.
  */
 function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+  /** i18n translation function for the dismiss button's aria-label. */
+  const { t } = useTranslation();
   /* Look up the visual config (icon component, bg colour, border colour) for this toast type */
   const config = TOAST_CONFIG[toast.type];
   /* Alias the icon component for JSX usage (must start with uppercase) */
@@ -152,7 +159,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
       <button
         onClick={() => onDismiss(toast.id)}
         className="flex-shrink-0 p-0.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
-        aria-label="Dismiss"
+        aria-label={t('toast.dismiss')}
       >
         <X size={14} />
       </button>
@@ -178,6 +185,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
  * in multiple places or duplicate toasts will appear.
  */
 export function ToastContainer() {
+  /** i18n translation function for the region's aria-label. */
+  const { t } = useTranslation();
   /* Subscribe to the toasts array from the global UI store (Zustand) */
   const toasts = useUiStore((s) => s.toasts);
   /* Action to remove a single toast by its id */
@@ -197,7 +206,7 @@ export function ToastContainer() {
       className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
       role="status"
       aria-live="polite"
-      aria-label="Notifications"
+      aria-label={t('toast.ariaLabel')}
     >
       {toasts.map((toast) => (
         /*
