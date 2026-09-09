@@ -375,32 +375,7 @@ pub fn lrc_to_webvtt(lrc_content: &str) -> String {
 /// - `MM:SS.fff` (minutes:seconds.fractional)
 /// - `SS.fff` (seconds.fractional)
 /// - `NNs` (seconds with 's' suffix)
-fn parse_ttml_time(time_str: &str) -> f64 {
-    // Handle 's' suffix (e.g., "15.8s")
-    if let Some(stripped) = time_str.strip_suffix('s') {
-        return stripped.parse::<f64>().unwrap_or(0.0);
-    }
-
-    let parts: Vec<&str> = time_str.split(':').collect();
-    match parts.len() {
-        // HH:MM:SS.fff
-        3 => {
-            let hours = parts[0].parse::<f64>().unwrap_or(0.0);
-            let minutes = parts[1].parse::<f64>().unwrap_or(0.0);
-            let seconds = parts[2].parse::<f64>().unwrap_or(0.0);
-            hours * 3600.0 + minutes * 60.0 + seconds
-        }
-        // MM:SS.fff
-        2 => {
-            let minutes = parts[0].parse::<f64>().unwrap_or(0.0);
-            let seconds = parts[1].parse::<f64>().unwrap_or(0.0);
-            minutes * 60.0 + seconds
-        }
-        // SS.fff
-        1 => parts[0].parse::<f64>().unwrap_or(0.0),
-        _ => 0.0,
-    }
-}
+use crate::utils::lyric_time::parse_ttml_time_or_zero as parse_ttml_time;
 
 /// Parse an LRC timestamp string `mm:ss.xx` to seconds.
 ///
