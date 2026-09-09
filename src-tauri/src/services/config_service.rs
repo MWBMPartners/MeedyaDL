@@ -340,12 +340,37 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
                 parsed
             }
             Err(e) => {
+                // Keep the unreadable file, and say so (#1156).
+                //
+                // The note that used to be here said the file was "preserved
+                // on disk". That was true at this instant and not for long:
+                // the app then runs on defaults, and the first thing that
+                // saves settings writes those defaults straight over the file
+                // it could not read. Everything the person had configured was
+                // gone, and the only sign was a line in a log.
+                //
+                // Moving it aside makes it recoverable. The stale checksum
+                // companion goes with it, or the next genuine save would be
+                // greeted by a "your settings may have been modified" warning
+                // that has nothing to do with anything the person did.
                 log::error!(
-                    "Settings file corrupted or incompatible — using defaults. \
-                     Error: {e}. File: {}. This typically happens when a field type \
-                     changed between app versions. The settings file is preserved on \
-                     disk; only the in-memory state uses defaults.",
+                    "could not read the settings file — carrying on with defaults. \
+                     Error: {e}. File: {}",
                     settings_path.display()
+                );
+                let kept = crate::utils::damaged_file::preserve_damaged_file(&settings_path);
+                if kept.is_some() {
+                    let checksum_path = settings_path.with_extension("json.sha256");
+                    if checksum_path.exists() {
+                        let _ = std::fs::remove_file(&checksum_path);
+                    }
+                }
+                crate::utils::damaged_file::report_damaged_file(
+                    app,
+                    "settings",
+                    kept.as_deref(),
+                    "MeedyaDL has started with its standard settings, so anything you had \
+                     changed will need setting again.",
                 );
                 AppSettings::default()
             }

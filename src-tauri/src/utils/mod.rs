@@ -154,6 +154,13 @@ pub mod file_locks;
 /// exist and they disagreed about spaces and about unreadable values, so the
 /// same file could produce different timings depending on which format you
 /// asked for (#1158).
+/// Keeping a saved file that could not be read, before something overwrites it.
+///
+/// Settings, the queue and the history are all read at startup. When one
+/// cannot be read the app used to carry on with nothing and say nothing, and
+/// the next save then destroyed the evidence (#1156).
+pub mod damaged_file;
+
 pub mod lyric_time;
 
 pub mod bounded_log;
