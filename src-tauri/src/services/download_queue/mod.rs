@@ -556,13 +556,20 @@ impl DownloadQueue {
         // with global settings to produce the final set of GAMDL options.
         // For example, a user might override the codec for a specific download
         // while keeping the global output path from settings.
-        let merged_options = merge_options(request.options.as_ref(), settings);
-
         // Detect which media service this URL belongs to (Apple Music, Spotify, etc.)
         // and resolve the primary download engine from the engine registry.
+        //
+        // Worked out BEFORE merging the options, because the naming patterns
+        // can contain {platform} and it has to become this download's actual
+        // service (#829). It used to be worked out just below, which is why
+        // {platform} was hard-coded to Apple Music.
         let first_url = request.urls.first().map(String::as_str).unwrap_or("");
         let detected_service = crate::models::media_service::MediaServiceId::from_url(first_url);
         let service_str = detected_service.as_ref().map(std::string::ToString::to_string);
+
+        // Merge per-download overrides (from the frontend's "custom options" UI)
+        // with global settings to produce the final set of GAMDL options.
+        let merged_options = merge_options(request.options.as_ref(), settings, detected_service);
 
         // Resolve the primary engine for this service via the engine registry
         let engine_str = detected_service.as_ref().and_then(|svc| {
@@ -1820,7 +1827,18 @@ impl DownloadQueue {
 
                 // Re-merge options from the original request with current settings.
                 // This picks up any settings changes the user made since the original attempt.
-                item.merged_options = merge_options(item.request.options.as_ref(), settings);
+                // Work the service out from the link again rather than reading
+                // the stored text back. Same call the queue made when this item
+                // was first added, so the two can never disagree, and it needs
+                // no reverse lookup from the stored form (#829).
+                item.merged_options = merge_options(
+                    item.request.options.as_ref(),
+                    settings,
+                    item.request
+                        .urls
+                        .first()
+                        .and_then(|u| crate::models::media_service::MediaServiceId::from_url(u)),
+                );
                 // Reset fallback and retry counters to their initial values
                 item.fallback_index = 0;
                 item.network_retries_left = self.max_network_retries;
@@ -1893,7 +1911,18 @@ impl DownloadQueue {
                 && item.status.used_wrapper
             {
                 // Re-merge options from the original request with current settings
-                item.merged_options = merge_options(item.request.options.as_ref(), settings);
+                // Work the service out from the link again rather than reading
+                // the stored text back. Same call the queue made when this item
+                // was first added, so the two can never disagree, and it needs
+                // no reverse lookup from the stored form (#829).
+                item.merged_options = merge_options(
+                    item.request.options.as_ref(),
+                    settings,
+                    item.request
+                        .urls
+                        .first()
+                        .and_then(|u| crate::models::media_service::MediaServiceId::from_url(u)),
+                );
                 // Override wrapper settings: disable wrapper, clear wrapper URLs
                 item.merged_options.use_wrapper = Some(false);
                 item.merged_options.wrapper_account_url = None;
@@ -1994,7 +2023,16 @@ impl DownloadQueue {
         for p in persisted {
             // Re-merge the original request's overrides with the current settings.
             // This ensures setting changes made between sessions are respected.
-            let merged_options = merge_options(p.request.options.as_ref(), settings);
+            // Same as the retry paths: re-detect from the link rather than
+            // parsing the stored service text back into the enum (#829).
+            let merged_options = merge_options(
+                p.request.options.as_ref(),
+                settings,
+                p.request
+                    .urls
+                    .first()
+                    .and_then(|u| crate::models::media_service::MediaServiceId::from_url(u)),
+            );
 
             // Items with a persisted error are restored in Error state so the
             // user sees the failure reason and can choose to retry. Active

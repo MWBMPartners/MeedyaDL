@@ -651,15 +651,27 @@ fn sanitize_ini_value(value: &str) -> String {
 /// broken variable highly discoverable. Any user who clicked the chip
 /// got `Error processing "...": 'platform'` on every download until
 /// they manually removed the chip from their templates.
-pub(crate) fn resolve_meedyadl_template_vars(template: &str) -> String {
-    // Short-circuit the common case (no MeedyaDL vars in the template)
-    // to avoid an unnecessary allocation. The check is cheap — if the
-    // template doesn't contain `{platform}`, return the original slice
-    // unchanged via `to_string`.
+pub(crate) fn resolve_meedyadl_template_vars(
+    template: &str,
+    service: Option<crate::models::media_service::MediaServiceId>,
+) -> String {
+    // Nothing to do for the overwhelmingly common case of a pattern with no
+    // {platform} in it. Checked first because it is cheap and saves the copy.
     if !template.contains("{platform}") {
         return template.to_string();
     }
-    template.replace("{platform}", "AppleMusic")
+    // Falls back to Apple Music when the service is not known.
+    //
+    // Two call sites pass nothing, both writing GAMDL's own settings file.
+    // GAMDL only ever downloads from Apple Music, so that file cannot be for
+    // anything else and the fallback is exact rather than a guess. A download
+    // whose service we genuinely do not know also lands here, which is the
+    // right answer today: Apple Music is the only service that reaches this
+    // code at all.
+    let name = service
+        .unwrap_or(crate::models::media_service::MediaServiceId::AppleMusic)
+        .folder_name();
+    template.replace("{platform}", name)
 }
 
 /// Validate a user-provided path for safety (#459).
@@ -907,7 +919,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "album_folder_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.album_folder_template
+                &settings.album_folder_template,
+                None,
             ))
         ));
     }
@@ -915,7 +928,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "compilation_folder_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.compilation_folder_template
+                &settings.compilation_folder_template,
+                None,
             ))
         ));
     }
@@ -923,7 +937,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "no_album_folder_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.no_album_folder_template
+                &settings.no_album_folder_template,
+                None,
             ))
         ));
     }
@@ -940,7 +955,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "playlist_folder_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.playlist_folder_template
+                &settings.playlist_folder_template,
+                None,
             ))
         ));
     }
@@ -948,7 +964,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "single_disc_file_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.single_disc_file_template
+                &settings.single_disc_file_template,
+                None,
             ))
         ));
     }
@@ -956,7 +973,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "multi_disc_file_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.multi_disc_file_template
+                &settings.multi_disc_file_template,
+                None,
             ))
         ));
     }
@@ -964,7 +982,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "no_album_file_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.no_album_file_template
+                &settings.no_album_file_template,
+                None,
             ))
         ));
     }
@@ -972,7 +991,8 @@ fn ini_template_section(lines: &mut Vec<String>, settings: &AppSettings) {
         lines.push(format!(
             "playlist_file_template = {}",
             sanitize_ini_value(&resolve_meedyadl_template_vars(
-                &settings.playlist_file_template
+                &settings.playlist_file_template,
+                None,
             ))
         ));
     }
@@ -1222,30 +1242,85 @@ mod tests {
     // ----------------------------------------------------------
 
     #[test]
-    fn platform_var_is_substituted_to_apple_music() {
+    fn platform_var_uses_the_download_s_own_service() {
+        use crate::models::media_service::MediaServiceId;
+        // The whole point of #829: this used to be hard-coded to Apple Music
+        // whatever the download actually was.
         assert_eq!(
-            resolve_meedyadl_template_vars("{platform}/{album_artist}/{album}"),
+            resolve_meedyadl_template_vars(
+                "{platform}/{album_artist}/{album}",
+                Some(MediaServiceId::AppleMusic)
+            ),
             "AppleMusic/{album_artist}/{album}"
+        );
+        assert_eq!(
+            resolve_meedyadl_template_vars(
+                "{platform}/{album_artist}/{album}",
+                Some(MediaServiceId::Spotify)
+            ),
+            "Spotify/{album_artist}/{album}"
+        );
+    }
+
+    #[test]
+    fn every_service_produces_the_agreed_folder_name() {
+        use crate::models::media_service::MediaServiceId;
+        // These names are what appear in people's music folders, so they are
+        // fixed. Changing one renames folders for anyone using {platform}.
+        for (service, expected) in [
+            (MediaServiceId::AppleMusic, "AppleMusic"),
+            (MediaServiceId::YouTubeMusic, "YouTubeMusic"),
+            (MediaServiceId::YouTube, "YouTube"),
+            (MediaServiceId::Spotify, "Spotify"),
+            (MediaServiceId::BBCiPlayer, "BbcIPlayer"),
+        ] {
+            assert_eq!(
+                resolve_meedyadl_template_vars("{platform}", Some(service)),
+                expected,
+                "folder name for {service:?} changed"
+            );
+            // No spaces: they cause trouble for scripts and older tools people
+            // point at their library. Part of the reason this shape was chosen.
+            assert!(!expected.contains(' '), "{expected} must not contain a space");
+        }
+    }
+
+    #[test]
+    fn an_unknown_service_falls_back_to_apple_music() {
+        // GAMDL's own settings file passes nothing, because GAMDL only ever
+        // downloads from Apple Music — so this is exact, not a guess.
+        assert_eq!(
+            resolve_meedyadl_template_vars("{platform}/{album}", None),
+            "AppleMusic/{album}"
         );
     }
 
     #[test]
     fn platform_var_substitutes_every_occurrence() {
+        use crate::models::media_service::MediaServiceId;
         // Defensive: a user could put `{platform}` in both folder AND
         // file templates and the result must substitute consistently.
         assert_eq!(
-            resolve_meedyadl_template_vars("[{platform}]/{artist}/{platform}-cover"),
+            resolve_meedyadl_template_vars(
+                "[{platform}]/{artist}/{platform}-cover",
+                Some(MediaServiceId::AppleMusic)
+            ),
             "[AppleMusic]/{artist}/AppleMusic-cover"
         );
     }
 
     #[test]
     fn templates_without_platform_pass_through_unchanged() {
+        use crate::models::media_service::MediaServiceId;
         // The short-circuit branch must not corrupt templates that
         // don't mention `{platform}`. GAMDL's own placeholders
         // (`{album_artist}`, `{album}`, `{track}`) survive verbatim.
         let template = "{album_artist}/{album}/{track:02d} {title}";
-        assert_eq!(resolve_meedyadl_template_vars(template), template);
+        assert_eq!(resolve_meedyadl_template_vars(template, None), template);
+        assert_eq!(
+            resolve_meedyadl_template_vars(template, Some(MediaServiceId::Spotify)),
+            template
+        );
     }
 
     #[test]

@@ -74,7 +74,11 @@ pub(crate) fn apply_padding_to_template(template: &str, track_width: usize, disc
 // clippy's suggestion would produce a 400-line initialiser and bury
 // the layered-assignment logic that makes the merge order readable.
 #[allow(clippy::field_reassign_with_default)]
-pub(crate) fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSettings) -> GamdlOptions {
+pub(crate) fn merge_options(
+    overrides: Option<&GamdlOptions>,
+    settings: &AppSettings,
+    service: Option<crate::models::media_service::MediaServiceId>,
+) -> GamdlOptions {
     let mut options = GamdlOptions::default();
 
     // === Layer 1: Apply global settings as the base ===
@@ -102,12 +106,15 @@ pub(crate) fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSett
     // etc. when overriding INI defaults.
     options.album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.album_folder_template,
+        service,
     ));
     options.compilation_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.compilation_folder_template,
+        service,
     ));
     options.no_album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.no_album_folder_template,
+        service,
     ));
     // `playlist_folder_template` is a GAMDL v3.0+ CLI flag (#618). We can
     // safely set the field on `options` unconditionally — the CLI-emission
@@ -117,6 +124,7 @@ pub(crate) fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSett
     // every version keeps `GamdlOptions` the canonical debug dump.
     options.playlist_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.playlist_folder_template,
+        service,
     ));
     // Apply user-configurable zero-padding (#587). Padding widths are
     // derived from the user's settings; `resolve_width(None)` passes
@@ -136,6 +144,7 @@ pub(crate) fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSett
     options.single_disc_file_template = Some(apply_padding_to_template(
         &super::config_service::resolve_meedyadl_template_vars(
             &settings.single_disc_file_template,
+            service,
         ),
         settings.track_number_padding.resolve_width(None),
         settings.disc_number_padding.resolve_width(None),
@@ -143,15 +152,18 @@ pub(crate) fn merge_options(overrides: Option<&GamdlOptions>, settings: &AppSett
     options.multi_disc_file_template = Some(apply_padding_to_template(
         &super::config_service::resolve_meedyadl_template_vars(
             &settings.multi_disc_file_template,
+            service,
         ),
         settings.track_number_padding.resolve_width(None),
         settings.disc_number_padding.resolve_width(None),
     ));
     options.no_album_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.no_album_file_template,
+        service,
     ));
     options.playlist_file_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.playlist_file_template,
+        service,
     ));
     options.use_wrapper = Some(settings.use_wrapper);
     options.wrapper_account_url = Some(settings.wrapper_account_url.clone());
