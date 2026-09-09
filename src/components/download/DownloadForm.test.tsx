@@ -162,7 +162,7 @@ describe('DownloadForm', () => {
     expect(screen.getByText(/^2 URLs$/)).toBeInTheDocument();
   });
 
-  it('shows "(N invalid)" suffix when batch contains a mix', () => {
+  it('says a line is not recognised when it is not a link to anything we know', () => {
     render(<DownloadForm />);
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, {
@@ -175,7 +175,32 @@ describe('DownloadForm', () => {
       },
     });
     expect(screen.getByText(/^2 URLs$/)).toBeInTheDocument();
-    expect(screen.getByText(/\(1 invalid\)/)).toBeInTheDocument();
+    expect(screen.getByText(/\(1 not recognised\)/)).toBeInTheDocument();
+  });
+
+  /*
+   * The reason the wording changed at all (#1157).
+   *
+   * A YouTube link is not a mistake the person made — it is a good link to a
+   * service MeedyaDL cannot download from yet. Calling it "invalid" sends
+   * them off checking a link that was fine. This project has form: Apple
+   * Music Classical links were refused as invalid for a long time while
+   * being exactly the kind of link MeedyaDL was meant to accept.
+   */
+  it('says a recognised service is not supported YET, rather than invalid', () => {
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, {
+      target: {
+        value: [
+          'https://music.apple.com/us/album/foo/123',
+          'https://www.youtube.com/watch?v=abc123',
+        ].join('\n'),
+      },
+    });
+    expect(screen.getByText(/\(1 not supported yet\)/)).toBeInTheDocument();
+    // The word that caused the confusion must not appear.
+    expect(screen.queryByText(/invalid/i)).not.toBeInTheDocument();
   });
 
   it('shows the multi-URL error when every line is invalid', () => {

@@ -1135,8 +1135,10 @@ mod tests {
 
     #[test]
     fn video_codec_priority_cannot_inject_an_extra_ini_setting() {
-        let mut settings = crate::models::settings::AppSettings::default();
-        settings.default_video_codec_priority = "h264\nffmpeg_path = /tmp/attacker".to_string();
+        let settings = crate::models::settings::AppSettings {
+            default_video_codec_priority: "h264\nffmpeg_path = /tmp/attacker".to_string(),
+            ..Default::default()
+        };
         let ini = super::settings_to_ini(&settings);
         // What matters is whether a NEW SETTING was created, and a setting is
         // only a setting when it starts its own line. After sanitising, the
@@ -1153,8 +1155,10 @@ mod tests {
 
     #[test]
     fn video_remux_format_cannot_inject_an_extra_ini_setting() {
-        let mut settings = crate::models::settings::AppSettings::default();
-        settings.default_video_remux_format = "mp4\r\nffmpeg_path = /tmp/attacker".to_string();
+        let settings = crate::models::settings::AppSettings {
+            default_video_remux_format: "mp4\r\nffmpeg_path = /tmp/attacker".to_string(),
+            ..Default::default()
+        };
         let ini = super::settings_to_ini(&settings);
         assert!(
             !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
@@ -1165,9 +1169,11 @@ mod tests {
     #[test]
     fn the_ordinary_video_values_still_reach_the_file_intact() {
         // The fix must not break the normal case.
-        let mut settings = crate::models::settings::AppSettings::default();
-        settings.default_video_codec_priority = "h265,h264".to_string();
-        settings.default_video_remux_format = "mp4".to_string();
+        let settings = crate::models::settings::AppSettings {
+            default_video_codec_priority: "h265,h264".to_string(),
+            default_video_remux_format: "mp4".to_string(),
+            ..Default::default()
+        };
         let ini = super::settings_to_ini(&settings);
         assert!(ini.contains("music_video_codec_priority = h265,h264"), "{ini}");
         assert!(ini.contains("music_video_remux_format = mp4"), "{ini}");

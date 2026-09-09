@@ -121,7 +121,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
-import { detectService, parseSubmittableUrl } from '@/lib/url-parser';
+import { classifyForSubmission, detectService } from '@/lib/url-parser';
 import { ServiceDownloadPreview } from './ServiceDownloadPreview';
 
 /** Single-operation async lifecycle hook (audit v2 #2). */
@@ -348,18 +348,39 @@ export function DownloadForm() {
     if (!isMultiUrl) return null;
 
     const validUrls: string[] = [];
-    let invalidCount = 0;
+    // Counted separately, because they are different situations and used to
+    // be reported as one (#1157). A YouTube link is not a mistake the person
+    // made — it is a good link to a service MeedyaDL cannot download from
+    // yet. Calling it "invalid" sends them off checking a link that was fine.
+    let notYetSupportedCount = 0;
+    let unrecognisedCount = 0;
+    // Which services were seen, so the message can name them rather than
+    // saying "some links". A Set because pasting forty YouTube links should
+    // say "YouTube" once.
+    const notYetSupportedServices = new Set<string>();
 
     for (const line of parsedLines) {
-      const parsed = parseSubmittableUrl(line);
-      if (parsed.isValid) {
-        validUrls.push(parsed.url);
+      const check = classifyForSubmission(line);
+      if (check.kind === 'supported') {
+        validUrls.push(check.url);
+      } else if (check.kind === 'not-yet-supported') {
+        notYetSupportedCount++;
+        notYetSupportedServices.add(MEDIA_SERVICE_LABELS[check.service]);
       } else {
-        invalidCount++;
+        unrecognisedCount++;
       }
     }
 
-    return { validUrls, invalidCount, totalLines: parsedLines.length };
+    return {
+      validUrls,
+      notYetSupportedCount,
+      unrecognisedCount,
+      notYetSupportedServices: [...notYetSupportedServices].sort(),
+      // Kept so existing call sites that only care "how many were skipped"
+      // keep working without each having to add the two numbers itself.
+      invalidCount: notYetSupportedCount + unrecognisedCount,
+      totalLines: parsedLines.length,
+    };
   }, [isMultiUrl, parsedLines]);
 
   /**
@@ -611,8 +632,18 @@ export function DownloadForm() {
         if (result.failed > 0) {
           parts.push(`${result.failed} failed to queue`);
         }
-        if (multiUrlInfo.invalidCount > 0) {
-          parts.push(`${multiUrlInfo.invalidCount} invalid URL${multiUrlInfo.invalidCount !== 1 ? 's' : ''} skipped`);
+        // Two separate sentences, because they are two different situations
+        // and lumping them together as "invalid" was misleading (#1157).
+        if (multiUrlInfo.notYetSupportedCount > 0) {
+          const services = multiUrlInfo.notYetSupportedServices.join(' and ');
+          const n = multiUrlInfo.notYetSupportedCount;
+          parts.push(
+            `${n} ${services} link${n !== 1 ? 's' : ''} skipped — not supported yet`
+          );
+        }
+        if (multiUrlInfo.unrecognisedCount > 0) {
+          const n = multiUrlInfo.unrecognisedCount;
+          parts.push(`${n} line${n !== 1 ? 's' : ''} skipped — not a link MeedyaDL recognises`);
         }
 
         const summaryMsg = parts.join(', ');
@@ -936,9 +967,19 @@ export function DownloadForm() {
                 <div className="absolute right-2 top-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
                   <Layers size={12} />
                   {multiUrlInfo.validUrls.length} URL{multiUrlInfo.validUrls.length !== 1 ? 's' : ''}
-                  {multiUrlInfo.invalidCount > 0 && (
+                  {/*
+                    Says which of the two it is, rather than calling both
+                    "invalid" (#1157). A recognised service that we cannot
+                    download from yet is not the user getting it wrong.
+                  */}
+                  {multiUrlInfo.notYetSupportedCount > 0 && (
                     <span className="text-status-warning ml-1">
-                      ({multiUrlInfo.invalidCount} invalid)
+                      ({multiUrlInfo.notYetSupportedCount} not supported yet)
+                    </span>
+                  )}
+                  {multiUrlInfo.unrecognisedCount > 0 && (
+                    <span className="text-status-warning ml-1">
+                      ({multiUrlInfo.unrecognisedCount} not recognised)
                     </span>
                   )}
                 </div>
