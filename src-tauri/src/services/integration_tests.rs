@@ -454,6 +454,7 @@ mod tests {
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
+            true,
         )
         .expect("process_enhanced_lyrics_for_directory failed");
 
@@ -525,6 +526,7 @@ mod tests {
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
+            true,
         )
         .expect("process_enhanced_lyrics_for_directory failed");
 
@@ -564,6 +566,7 @@ mod tests {
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
+            true,
         )
         .expect("process_enhanced_lyrics_for_directory failed");
 
@@ -577,6 +580,7 @@ mod tests {
     fn enhanced_lrc_invalid_directory() {
         let result = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             "/nonexistent/path/that/does/not/exist",
+            true,
         );
         assert!(result.is_err(), "Expected error for invalid directory");
     }
@@ -833,6 +837,7 @@ mod tests {
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
+            true,
         )
         .expect("process_enhanced_lyrics_for_directory failed with mixed CJK filename");
 
@@ -926,6 +931,7 @@ mod tests {
         // Step 2: Enhanced LRC from TTML
         let lrc_count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
+            true,
         )
         .expect("Enhanced LRC failed");
         assert_eq!(lrc_count, 1);
