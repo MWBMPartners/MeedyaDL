@@ -180,6 +180,7 @@ These have no `com.apple.iTunes:*` counterpart — they're MeedyaDL-attributed o
 | `MeedyaMeta:MusicBrainzRecordingID` | MB recording UUID | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
 | `MeedyaMeta:MusicBrainzExternalUrls` | Cross-platform URLs (Spotify, YouTube, Tidal, Deezer…) | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
 | `MeedyaMeta:AppleLastModifiedDate` | When the album was last updated on Apple Music (drives smart re-download detection) | Apple Music Catalog API |
+| `MeedyaMeta:<Service>Url` (e.g. `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:YoutubeMusicUrl`) | Where the album can be found on another music service, one tag per service song.link reports a match for | song.link (Odesli) lookup (opt-in; needs an access key) |
 
 ---
 
@@ -210,6 +211,7 @@ Which API contributes each field. Enrichment fetches both APIs and merges result
 | **MusicKit `/syllable-lyrics`** | MusicKit JWT + Music-User-Token from cookies | Word-level TTML for Enhanced LRC upgrade (fallback when GAMDL's TTML lacks word timing). |
 | **GAMDL / Apple CDN** | Cookies or wrapper | All standard 4-char atoms (`©nam`, `©ART`, …), proprietary IDs (`cnID`, `atID`, …), `covr` artwork. |
 | **MusicBrainz API** (`musicbrainz.org/ws/2/`) | None (public, rate-limited 1 req/sec) | Cross-platform external URLs (Spotify, YouTube, Tidal, Deezer, Bandcamp, SoundCloud), MB recording ID. Opt-in via Settings > Quality > Video Quality. |
+| **song.link** (`api.song.link`) | Access key, granted by application through [Odesli's help pages](https://odesli.co/help) — free public access closed in 2026, so a request with no key or a rejected key is refused | Cross-platform links for the album (Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and others). Opt-in via Settings > Metadata. |
 | **AcoustID** (`api.acoustid.org`) | Embedded API key | Chromaprint fingerprint + AcoustID recording ID. Opt-in via Settings > Metadata. |
 | **ffprobe** (local binary) | None | `SpatialAudioCodec`, `ChannelConfig`, codec confirmation when native priority is active. |
 

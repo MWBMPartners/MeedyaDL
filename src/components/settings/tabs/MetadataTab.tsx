@@ -21,6 +21,13 @@
  *     loudness using FFmpeg's EBU R128 filter and writes non-destructive
  *     ReplayGain metadata tags. Maps to `settings.replaygain_enabled`.
  *
+ *   - **Links on Other Music Services** (opt-in) -- When enabled, asks
+ *     song.link where else each downloaded album is available (Spotify,
+ *     YouTube Music, Tidal, and so on) and writes what it finds into
+ *     each track's tags and into the album's manifest file. Maps to
+ *     `settings.odesli_lookup_enabled`. Needs an access key, set in
+ *     Settings &gt; Advanced.
+ *
  * ## Field wiring
  *
  * Each form control uses the `useSettingsField` hook (audit v2 #6) so
@@ -40,6 +47,8 @@ export function MetadataTab() {
   const replaygainReferenceLevel = useSettingsField('replaygain_reference_level');
   const replaygainPreventClipping = useSettingsField('replaygain_prevent_clipping');
   const replaygainAlbumGain = useSettingsField('replaygain_album_gain');
+  const odesliLookupEnabled = useSettingsField('odesli_lookup_enabled');
+  const odesliApiKey = useSettingsField('odesli_api_key');
 
   return (
     <div className="space-y-3">
@@ -138,6 +147,25 @@ export function MetadataTab() {
               />
             </>
           )}
+      </SettingsSection>
+
+      {/* ================================================================
+          Section 4: Links on Other Music Services (opt-in)
+          ================================================================ */}
+      <SettingsSection title="Links on Other Music Services">
+        <Toggle
+          label="Look up where else each album is available"
+          description="After a download finishes, MeedyaDL sends the album's Apple Music link to song.link (a service run by Odesli) and asks where else that album can be found: Spotify, YouTube Music, Tidal, Deezer, Amazon Music and others. The links it finds are saved into each track's tags and into the album's manifest file, so tools like MusicBrainz Picard and beets can see them. Only the album link is sent — nothing about you or the rest of your library goes with it."
+          checked={odesliLookupEnabled.value}
+          onChange={odesliLookupEnabled.set}
+        />
+        {odesliLookupEnabled.value && (
+          <p className="text-xs text-content-tertiary leading-relaxed">
+            {(odesliApiKey.value ?? '').trim()
+              ? 'An access key is set. song.link allows roughly one lookup a second with a key, so a long queue pauses briefly between albums. Answers are remembered for 30 days, so re-downloading an album does not ask again.'
+              : 'Odesli closed free public access to song.link in 2026, so this needs an access key to do anything at all. Add one in Settings > Advanced > API Credentials. Without a key, song.link turns the request away and the activity log will tell you so.'}
+          </p>
+        )}
       </SettingsSection>
 
     </div>

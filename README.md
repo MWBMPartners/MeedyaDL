@@ -51,6 +51,7 @@
 - **WebVTT subtitles** (opt-in) — generates `.vtt` subtitle files from lyrics sidecars (TTML, SRT, or LRC)
 - **Subtitle embedding** (opt-in) — embeds SRT and WebVTT content directly in MP4 containers as freeform atoms
 - **MusicBrainz video discovery** (opt-in) — discovers music videos via the MusicBrainz database using a 3-tier identifier lookup (Apple Music URL → ISRC → AcoustID recording ID; the ISRC tier is the live path today, the other two are latent groundwork), with an optional guarded text-search fallback (`musicbrainz_search_fallback` setting, default on, nested under the toggle above) for tracks the identifier tiers miss. No credentials required. Also discovers cross-platform URLs (YouTube, Spotify, etc., logged for diagnostics today). Search fallback improves after MusicBrainz's November 2026 service upgrade.
+- **Links on other music services** (opt-in) — asks [song.link](https://song.link) where else each downloaded album is available: Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and others. The links it finds are saved into each track's tags and into the album's manifest file. Needs an access key from Odesli, who closed free public access to song.link in 2026 and now grant keys by application
 - **API field audit tool** — developer diagnostic in Settings > Metadata that compares real API responses against known tag definitions, surfacing new fields for review
 
 ### 🔐 Authentication & Security
@@ -477,7 +478,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Animated cover art via MusicKit API with OS-level file hiding
 - ✅ Configurable companion downloads (5 preset modes + Custom multi-select)
 - ✅ Multi-select artist auto-select (download multiple content types from artist URLs)
-- ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcoustID, ReplayGain)
+- ✅ Metadata enrichment (codec/source/channel tags, Apple Music API, AcoustID, ReplayGain, song.link cross-platform links)
 - ✅ Enhanced LRC with word-by-word synchronized lyrics (TTML → Enhanced LRC conversion)
 - ✅ Lyrics embed + sidecar (LRC, SRT, TTML)
 - ✅ WebVTT subtitle generation from lyrics sidecars (TTML, SRT, LRC)

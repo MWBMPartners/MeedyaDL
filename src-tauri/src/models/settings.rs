@@ -967,31 +967,30 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub musicbrainz_search_fallback: bool,
 
-    /// **Odesli (song.link) cross-platform URL lookup** (#295 Phase A).
+    /// Look up links to the same album on other music services using
+    /// song.link (#295). When this is on, the enrichment step sends the
+    /// album's link to song.link and writes whatever comes back into
+    /// each track as `MeedyaMeta:<Service>Url` tags, and into the
+    /// album's manifest file.
     ///
-    /// When enabled, after the primary download MeedyaDL queries
-    /// Odesli's API (`api.song.link/v1-alpha.1/links?url=…`) with
-    /// the album URL and stores the returned per-platform URLs
-    /// (Spotify / YouTube / Tidal / Deezer / Amazon Music /
-    /// SoundCloud / Bandcamp / Pandora / …) in the manifest's
-    /// `ManifestSource.cross_platform_urls` field.
+    /// Odesli closed free public access to song.link in 2026, so this
+    /// does nothing useful unless [`AppSettings::odesli_api_key`] is
+    /// set. Without a key the activity log says so once per album and
+    /// no further requests are sent for the rest of the session.
     ///
-    /// **Rate limit**: free tier is 10 req/min (one album = one
-    /// request). Set [`odesli_api_key`] for the 60 req/min tier if
-    /// you regularly download many albums in a short window. Without
-    /// a key, MeedyaDL's per-process limiter throttles to ~54
-    /// req/min so a free-tier user can't burst-trip the cap.
+    /// Off by default, because it sends the album's link to a company
+    /// that has nothing else to do with the download.
     #[serde(default)]
     pub odesli_lookup_enabled: bool,
 
-    /// **Odesli API key** (#295 Phase A — optional).
+    /// Access key for song.link (the API is run by Odesli). Required
+    /// since 2026, when Odesli stopped answering requests that carry no
+    /// key; they now grant keys by application through their help pages
+    /// at <https://odesli.co/help>.
     ///
-    /// Free-tier requests have no auth requirement. Setting this
-    /// field bumps your account to the 60 req/min tier — useful for
-    /// power users with large libraries. Get a key at
-    /// <https://songlink.notion.site/API-d0ebe08a5e304a55928405eb682f6741>.
-    ///
-    /// Empty string ⇒ free tier (default).
+    /// An empty string means "no key". Kept in `settings.json` the same
+    /// way the AcoustID key is: left out of exported settings, ignored
+    /// when settings are imported, and only ever sent to song.link.
     #[serde(default)]
     pub odesli_api_key: String,
 

@@ -693,6 +693,10 @@ export interface AppSettings {
   acoustid_enabled: boolean;
   /** Application API key for AcoustID lookups (register at acoustid.org/new-application) */
   acoustid_api_key: string;
+  /** Ask song.link where else each album is available, and save the links into the files (opt-in, #295). Mirrors Rust `odesli_lookup_enabled`. */
+  odesli_lookup_enabled: boolean;
+  /** Access key for song.link. Needed since Odesli stopped answering requests that carry no key. Mirrors Rust `odesli_api_key`. */
+  odesli_api_key: string;
   /** Enable ReplayGain loudness analysis for downloaded tracks (opt-in) */
   replaygain_enabled: boolean;
   /** ReplayGain reference loudness level in LUFS (default: -18.0) */

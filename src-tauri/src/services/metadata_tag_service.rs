@@ -79,7 +79,7 @@ const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 /// MeedyaDL-branded freeform atom namespace. Provides a dedicated namespace
 /// for MeedyaDL-specific tags, preventing collisions with any current or
 /// future Apple-defined atoms.
-const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
+pub(crate) const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 
 /// Applies codec-specific custom metadata tags to all M4A files in the
 /// given output directory.
@@ -1974,7 +1974,11 @@ pub fn apply_itunes_supplementary_tags(
 /// Handles both single-file (single-track download) and directory
 /// (album download) cases. For directories, walks recursively to
 /// find M4A files in disc subfolders.
-fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
+///
+/// Also used by `odesli_service::write_url_atoms`, so the links to
+/// other music services land in exactly the same files this module's
+/// own tag writing touches — no more, no less.
+pub(crate) fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
     let path = Path::new(output_path);
     let mut files = Vec::new();
 

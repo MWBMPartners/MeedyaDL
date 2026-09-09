@@ -66,6 +66,9 @@
  *     in the OS keychain via `storeCredential` / `getCredential` IPC.
  *   - **AcoustID** -- Optional API key override. Release builds ship with
  *     a built-in key; users can provide their own if desired.
+ *   - **song.link (Odesli)** -- Access key for the "Links on Other Music
+ *     Services" option in Settings &gt; Metadata. Required since Odesli
+ *     closed free public access to song.link in 2026.
  *   - **API Field Audit** -- Developer tool: fetch an album from the
  *     Apple Music API and compare its fields against tags.toml.
  *
@@ -239,6 +242,7 @@ export function AdvancedTab() {
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
   const acoustidApiKey = useSettingsField('acoustid_api_key');
+  const odesliApiKey = useSettingsField('odesli_api_key');
   const setupCompleted = useSettingsField('setup_completed');
   const devAccessEnabled = useSettingsField('dev_access_enabled');
   /** Persist settings to disk (needed for setup wizard reset) */
@@ -760,7 +764,7 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── API Credentials ── */}
-      <SettingsSection title="API Credentials" description="MusicKit, AcoustID, and developer tools." defaultOpen={false}>
+      <SettingsSection title="API Credentials" description="MusicKit, AcoustID, song.link, and developer tools." defaultOpen={false}>
         {/* MusicKit */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
@@ -901,6 +905,38 @@ export function AdvancedTab() {
             value={acoustidApiKey.value ?? ''}
             placeholder={hasBuiltInKey ? 'Using built-in key' : 'Your AcoustID application API key'}
             onChange={(e) => acoustidApiKey.set(e.target.value)}
+          />
+        </div>
+
+        <div className="border-t border-border" />
+
+        {/* song.link (Odesli) */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-content-secondary">song.link (Odesli)</h4>
+          <Input
+            label="song.link Access Key"
+            description={
+              <>
+                Needed for &quot;Look up where else each album is available&quot; in Settings &gt;
+                Metadata. Odesli closed free public access to song.link in 2026 and now grant keys
+                by application through their{' '}
+                <button
+                  type="button"
+                  className="text-accent hover:text-accent-hover underline transition-colors"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openExternal('https://odesli.co/help');
+                  }}
+                >
+                  help pages
+                </button>
+                . The key is kept in your settings file, left out of exported settings, and only
+                ever sent to song.link.
+              </>
+            }
+            value={odesliApiKey.value ?? ''}
+            placeholder="Paste your song.link access key"
+            onChange={(e) => odesliApiKey.set(e.target.value)}
           />
         </div>
 

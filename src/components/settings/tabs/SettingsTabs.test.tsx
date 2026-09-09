@@ -30,6 +30,7 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { GeneralTab } from './GeneralTab';
 import { QualityTab } from './QualityTab';
 import { AdvancedTab } from './AdvancedTab';
+import { MetadataTab } from './MetadataTab';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
@@ -571,5 +572,30 @@ describe('AdvancedTab', () => {
 
     const toggle = screen.getByRole('switch', { name: /send anonymous crash reports/i });
     expect(toggle).toHaveAttribute('aria-checked', 'false');
+  });
+});
+
+// =============================================================================
+// MetadataTab
+// =============================================================================
+describe('MetadataTab', () => {
+  // ===========================================================================
+  // Toggle -- song.link lookup
+  // ===========================================================================
+
+  /**
+   * Verifies that clicking the "Look up where else each album is
+   * available" toggle updates the store's `odesli_lookup_enabled` field.
+   */
+  it('updates settings store when song.link lookup toggle is clicked', () => {
+    render(<MetadataTab />);
+
+    const toggle = screen.getByRole('switch', {
+      name: /look up where else each album is available/i,
+    });
+    fireEvent.click(toggle);
+
+    const { settings } = useSettingsStore.getState();
+    expect(settings.odesli_lookup_enabled).toBe(true);
   });
 });
