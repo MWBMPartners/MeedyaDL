@@ -404,9 +404,15 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     ));
 
     // Final hard truncation if body is still too long after backtrace
-    // truncation (e.g., very long error messages or context sections)
+    // truncation (e.g., very long error messages or context sections).
+    // Must cut at a whole character, not a fixed byte count — the error
+    // message and backtrace this body is built from can contain anything,
+    // including multi-byte punctuation, and a plain `body.truncate(N)`
+    // panics if `N` lands mid-character. This runs inside a synchronous
+    // command, so that panic would fire at the exact moment someone
+    // clicks "Report to GitHub".
     if body.len() > MAX_BODY_CHARS {
-        body.truncate(MAX_BODY_CHARS - 100);
+        crate::utils::text::truncate_string_in_place(&mut body, MAX_BODY_CHARS - 100);
         body.push_str("\n\n... [body truncated for URL length limits] ...");
     }
 

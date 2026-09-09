@@ -1192,9 +1192,14 @@ fn parse_release_from_response(
         .map(std::string::ToString::to_string);
     // Extract and truncate the release notes for display in the update card.
     // Long release notes are cut to 200 characters to keep the UI compact.
+    // The cut has to land on a whole character: this project's own release
+    // notes use long dashes heavily, and a fixed `&s[..200]` cut can land
+    // mid-character and crash the program — which, run at startup and on
+    // every periodic check, would break update checking until the next
+    // release fixed the wording.
     let body = release["body"].as_str().map(|s| {
         if s.len() > 200 {
-            format!("{}...", &s[..200])
+            format!("{}...", crate::utils::text::truncate_str(s, 200))
         } else {
             s.to_string()
         }

@@ -210,10 +210,17 @@ pub enum OdesliError {
     /// Any other non-2xx HTTP status.
     Http(u16),
     /// We couldn't reach song.link at all — DNS failure, timeout,
-    /// connection refused, and so on. Carries `reqwest`'s `Display`
-    /// text, which — unlike its `Debug` text — never includes the
-    /// request URL, so the access key riding along in the query
-    /// string can't end up leaking into a log line.
+    /// connection refused, and so on.
+    ///
+    /// **This is not reqwest's plain `Display` text.** In the reqwest
+    /// version this app is pinned to (0.12.28), `Display` for its error
+    /// type DOES print the address it was trying to reach, whenever it
+    /// knows one — it ends with `" for url (...)"`. Our song.link
+    /// address always carries the access key as `&key=...`, so printing
+    /// that text as-is would put the key straight into a log line. The
+    /// string stored here has already had `.without_url()` called on
+    /// the underlying error first, which drops that trailing address
+    /// while keeping the useful "what went wrong" part.
     Network(String),
     /// song.link answered, but the body wasn't the JSON shape we
     /// expected.
@@ -588,9 +595,13 @@ async fn paced_attempt(
         .await
     {
         Ok(r) => r,
-        // Display, never Debug. Debug would print the whole request
-        // address, and the access key is part of it.
-        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(format!("{e}"))),
+        // `.without_url()` first — NOT just "use Display, not Debug".
+        // reqwest's own `Display` text for this error ends with " for
+        // url (...)" whenever it knows the address, and our address
+        // carries the access key as `&key=...`. `without_url()` removes
+        // that address before we turn the error into text, so the key
+        // can't end up in a log line.
+        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(format!("{}", e.without_url()))),
     };
 
     let status = response.status();
@@ -636,7 +647,9 @@ async fn paced_attempt(
 
     match response.json::<serde_json::Value>().await {
         Ok(json) => AttemptOutcome::Links(extract_links_by_platform(&json)),
-        Err(e) => AttemptOutcome::Failed(OdesliError::Parse(format!("{e}"))),
+        // Same reasoning as the send() error above: strip the address
+        // out first, in case this error also carries it.
+        Err(e) => AttemptOutcome::Failed(OdesliError::Parse(format!("{}", e.without_url()))),
     }
     // The turn is given up here, where this function ends.
 }

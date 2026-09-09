@@ -283,19 +283,24 @@ pub async fn run_engine_with_queue(
     // 250 ms cancellation poll. Mirrors the loop in
     // `download_queue::run_download_with_events` — periodically
     // check is_cancelled; on positive hit, kill + drain + return.
+    //
+    // The cancelled flag is read inside its own tiny block so the queue
+    // lock is dropped before we kill the process and wait for the reader
+    // tasks. Those readers take this same lock on every line they read,
+    // so holding the lock here while waiting for them would leave both
+    // sides waiting on each other forever — the queue slot would never
+    // free up and the whole queue would stop responding.
     let status = loop {
-        {
-            let q = queue.lock().await;
-            if q.is_cancelled(download_id) {
-                log::info!(
-                    "{engine_id} download {download_id} cancelled — killing process"
-                );
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                let _ = stdout_task.await;
-                let _ = stderr_task.await;
-                return Err("Download cancelled by user".to_string());
-            }
+        let cancelled = { queue.lock().await.is_cancelled(download_id) };
+        if cancelled {
+            log::info!(
+                "{engine_id} download {download_id} cancelled — killing process"
+            );
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let _ = stdout_task.await;
+            let _ = stderr_task.await;
+            return Err("Download cancelled by user".to_string());
         }
         match child.try_wait() {
             Ok(Some(status)) => break status,

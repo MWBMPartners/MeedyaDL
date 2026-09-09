@@ -887,7 +887,13 @@ fn setup_linux_rendering_env() {
     // some ARM GPUs. Falls back to shared-memory rendering. Available in
     // WebKitGTK 2.42+.
     if std::env::var("WEBKIT_DISABLE_DMABUF_RENDERER").is_err() {
-        // SAFETY: Called before any threads are spawned (before tauri::Builder).
+        // SAFETY: setting an environment variable races against any other
+        // thread that might be reading one at the same moment — that race
+        // is exactly why this call is `unsafe`. This function is called as
+        // the very first line of `run()`, before the panic handler, the
+        // logging system, or Sentry are set up, so no other thread exists
+        // yet: this is the one point in the whole program where that is
+        // actually true, not just assumed.
         unsafe {
             std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
@@ -898,7 +904,10 @@ fn setup_linux_rendering_env() {
     // forcing CPU-based rendering. Increases CPU usage but eliminates all
     // GPU-related rendering artifacts on Raspberry Pi.
     if std::env::var("WEBKIT_DISABLE_COMPOSITING_MODE").is_err() {
-        // SAFETY: Called before any threads are spawned (before tauri::Builder).
+        // SAFETY: same reasoning as WEBKIT_DISABLE_DMABUF_RENDERER above —
+        // this function runs before anything else in `run()`, so there is
+        // no other thread yet that could be reading this variable at the
+        // same time we write it.
         unsafe {
             std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
         }
@@ -919,15 +928,22 @@ fn setup_linux_rendering_env() {}
 /// under normal operation.
 ///
 /// # Execution flow
-/// 1. Install the panic handler and initialise `tracing` with dual-output
+/// 1. On Linux, set the WebKitGTK rendering environment variables (#150).
+///    This happens FIRST, before anything else below, because it changes
+///    an environment variable — something that is only safe to do while
+///    this is still the only thread running. Every step after this one
+///    can start a background thread of its own (the logging system's
+///    file writer, Sentry's transport), so this is the one point in the
+///    whole function where "no other thread exists yet" is actually true.
+/// 2. Install the panic handler and initialise `tracing` with dual-output
 ///    logging (stderr + rotating file in `{app_data_dir}/logs/`). If Sentry
 ///    is enabled in settings, the Sentry SDK is also initialised.
-/// 2. Create a `tauri::Builder` and chain configuration calls:
+/// 3. Create a `tauri::Builder` and chain configuration calls:
 ///    - `.manage()` -- inject shared state accessible from any command handler.
 ///    - `.plugin()` -- register Tauri plugins that bridge native OS APIs.
 ///    - `.invoke_handler()` -- register `#[tauri::command]` functions for IPC.
 ///    - `.setup()` -- run one-time initialisation after the webview is ready.
-/// 3. `.run(tauri::generate_context!())` starts the event loop. The macro
+/// 4. `.run(tauri::generate_context!())` starts the event loop. The macro
 ///    reads `tauri.conf.json` at **compile time** to embed window config,
 ///    bundle identifiers, and other metadata into the binary.
 ///
@@ -945,6 +961,13 @@ fn setup_linux_rendering_env() {}
 // boxing the entire context, which Tauri's API does not support.
 #[allow(clippy::large_stack_frames, clippy::too_many_lines)]
 pub fn run() {
+    // Must be the very first thing this function does. It sets environment
+    // variables, which is only safe while this is still the only thread in
+    // the process — the panic handler, tracing's background file writer,
+    // and (if enabled) Sentry's transport thread all start below this
+    // line, so this is the one place left where that claim actually holds.
+    setup_linux_rendering_env();
+
     // Install the custom panic handler FIRST (before any other initialisation)
     // so that if anything panics during startup, we still get a crash report.
     setup_panic_handler();
@@ -990,11 +1013,6 @@ pub fn run() {
     // verbose output from all modules, or `RUST_LOG=meedyadl=debug` to
     // restrict output to this crate only.
     let _tracing_guard = setup_tracing(sentry_enabled);
-
-    // On Linux, configure WebKitGTK environment variables before the WebView
-    // is created. Fixes rendering corruption on Raspberry Pi and remote
-    // desktop environments (VNC, Raspberry Pi Connect). See #150.
-    setup_linux_rendering_env();
 
     // Build and run the Tauri application using the Builder pattern.
     // `Builder::default()` creates a new builder with sensible defaults.

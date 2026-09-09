@@ -170,3 +170,14 @@ pub mod damaged_file;
 pub mod lyric_time;
 
 pub mod bounded_log;
+
+/// Cutting text short without crashing on ordinary punctuation.
+///
+/// Rust strings are stored as bytes; cutting one at a fixed byte position
+/// can land in the middle of a multi-byte character (a curly quote, a
+/// long dash, an accented letter) and Rust stops the program rather than
+/// produce a broken half-character. `truncate_str` / `truncate_string_in_place`
+/// walk back to the nearest whole-character boundary first, so shortening
+/// ordinary human-written text — album notes, release notes, error
+/// messages — can never crash the app.
+pub mod text;

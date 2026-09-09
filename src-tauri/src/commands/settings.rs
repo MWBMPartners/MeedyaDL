@@ -817,12 +817,19 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
 pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: &AppSettings) {
     imported.cookies_path = current.cookies_path.clone();
     imported.wrapper_account_url = current.wrapper_account_url.clone();
-    // Security: `wrapper_url` / `wrapper_decrypt_ip` must never be
-    // settable via an imported settings file — otherwise a crafted
-    // import could redirect where wrapper-v2 sign-in POSTs the user's
-    // Apple ID + password (credential exfiltration).
+    // Security: `wrapper_url` / `wrapper_decrypt_ip` / `wrapper_m3u8_ip`
+    // must never be settable via an imported settings file — otherwise a
+    // crafted import could redirect where wrapper-v2 sign-in POSTs the
+    // user's Apple ID + password (credential exfiltration).
+    //
+    // `wrapper_m3u8_ip` used to be missing from this list. It decides
+    // where GAMDL opens a TCP connection to ask for the HLS playlist URL
+    // for every track it downloads (GAMDL v3.1+) — an imported file could
+    // point that at any host it liked, and the download tool would then
+    // connect there and use whatever it was handed back.
     imported.wrapper_url = current.wrapper_url.clone();
     imported.wrapper_decrypt_ip = current.wrapper_decrypt_ip.clone();
+    imported.wrapper_m3u8_ip = current.wrapper_m3u8_ip.clone();
     imported.musickit_team_id = current.musickit_team_id.clone();
     imported.musickit_key_id = current.musickit_key_id.clone();
     imported.acoustid_api_key = current.acoustid_api_key.clone();
@@ -845,6 +852,13 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.mp4box_path = current.mp4box_path.clone();
     imported.nm3u8dlre_path = current.nm3u8dlre_path.clone();
     imported.mediainfo_path = current.mediainfo_path.clone();
+    // Security: where the persistent activity log is written is also a
+    // path on THIS machine, which is exactly what this whole function
+    // exists to protect. Left un-preserved, an imported file could point
+    // it anywhere on disk, and on the next app start the log writer
+    // (`resolve_activity_log_dir` in `lib.rs`) would create that folder
+    // and start writing files into it.
+    imported.activity_log_path_override = current.activity_log_path_override.clone();
     // Security: dev-access gating must only change via the dedicated
     // activate/deactivate commands, never via a settings import.
     imported.dev_access_enabled = current.dev_access_enabled;
@@ -931,6 +945,7 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     truncate_opt(&mut settings.mp4decrypt_path, MAX_PATH);
     truncate_opt(&mut settings.mp4box_path, MAX_PATH);
     truncate_opt(&mut settings.nm3u8dlre_path, MAX_PATH);
+    truncate(&mut settings.activity_log_path_override, MAX_PATH);
 
     // URLs / addresses
     truncate(&mut settings.wrapper_account_url, MAX_URL);
@@ -1153,5 +1168,44 @@ mod tests {
         assert_eq!(imported.odesli_api_key, "this-machines-real-key");
     }
 
+    #[test]
+    fn an_imported_file_cannot_redirect_the_m3u8_wrapper_socket() {
+        // `wrapper_m3u8_ip` decides which host GAMDL (v3.1+) connects to
+        // for the HLS playlist address of every track it downloads. It
+        // sits alongside `wrapper_account_url` and `wrapper_decrypt_ip` —
+        // both already preserved above — but had been missed, so an
+        // imported settings file could point this one socket at any
+        // host it liked and the download tool would connect there for
+        // every track.
+        let current = crate::models::settings::AppSettings {
+            wrapper_m3u8_ip: "127.0.0.1:20020".to_string(),
+            ..Default::default()
+        };
+        let mut imported = crate::models::settings::AppSettings {
+            wrapper_m3u8_ip: "attacker.example:20020".to_string(),
+            ..Default::default()
+        };
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.wrapper_m3u8_ip, "127.0.0.1:20020");
+    }
+
+    #[test]
+    fn an_imported_file_cannot_choose_where_the_activity_log_is_written() {
+        // `activity_log_path_override` is a path on THIS machine — the
+        // exact thing this whole function exists to protect. Left
+        // un-preserved, an imported file could point it anywhere on
+        // disk, and the log writer would create that folder and start
+        // writing files there on the next app start.
+        let current = crate::models::settings::AppSettings {
+            activity_log_path_override: "/Users/them/logs".to_string(),
+            ..Default::default()
+        };
+        let mut imported = crate::models::settings::AppSettings {
+            activity_log_path_override: "/tmp/attacker-controlled".to_string(),
+            ..Default::default()
+        };
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.activity_log_path_override, "/Users/them/logs");
+    }
 }
 
