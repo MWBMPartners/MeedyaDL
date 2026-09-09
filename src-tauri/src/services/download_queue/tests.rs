@@ -4312,3 +4312,70 @@
         let source = read_back_manifest_source(dir.path());
         assert_eq!(source.storefront, None);
     }
+    // ── The after-queue action must need a real drain (#1169) ───────────
+    //
+    // That action is what happens when downloads finish, and the user can set
+    // it to shut down or restart their computer. It used to fire whenever the
+    // queue was found idle — including when it had never been busy — so
+    // pressing Start Queue on an empty queue could shut the machine down.
+
+    #[test]
+    fn an_empty_queue_has_not_run_anything() {
+        // The exact case: nothing was ever queued, so nothing drained, so the
+        // after-queue action must not fire.
+        let mut queue = DownloadQueue::new();
+        assert!(
+            !queue.take_ran_since_drain(),
+            "an untouched queue must not claim to have run anything"
+        );
+    }
+
+    #[test]
+    fn handing_out_a_download_records_that_the_queue_ran() {
+        let mut queue = DownloadQueue::new();
+        queue.enqueue(test_request(), &test_settings());
+        assert!(queue.next_pending().is_some(), "an item should be handed out");
+        assert!(
+            queue.take_ran_since_drain(),
+            "handing out a download means the queue genuinely ran"
+        );
+    }
+
+    #[test]
+    fn the_record_is_cleared_when_read_so_one_drain_acts_once() {
+        let mut queue = DownloadQueue::new();
+        queue.enqueue(test_request(), &test_settings());
+        queue.next_pending();
+        assert!(queue.take_ran_since_drain(), "first read reports it ran");
+        assert!(
+            !queue.take_ran_since_drain(),
+            "a second read must not report it again — one drain, one action"
+        );
+    }
+
+    #[test]
+    fn asking_an_empty_queue_repeatedly_never_looks_like_a_drain() {
+        // Pressing Start Queue on an empty queue, several times.
+        let mut queue = DownloadQueue::new();
+        for _ in 0..5 {
+            assert!(queue.next_pending().is_none(), "nothing to hand out");
+            assert!(
+                !queue.take_ran_since_drain(),
+                "an empty queue must never look like it drained"
+            );
+        }
+    }
+
+    #[test]
+    fn a_paused_queue_that_hands_out_nothing_has_not_run() {
+        // Paused means nothing starts, so nothing drains either.
+        let mut queue = DownloadQueue::new();
+        queue.enqueue(test_request(), &test_settings());
+        queue.pause();
+        assert!(queue.next_pending().is_none(), "paused queues hand out nothing");
+        assert!(
+            !queue.take_ran_since_drain(),
+            "a paused queue must not look like it drained"
+        );
+    }
+
