@@ -116,3 +116,11 @@ ProjectBrief_Chat.gpt
 
 # Scratch space for drafts and briefs that should never reach GitHub.
 _temp/
+
+# Python leaves compiled copies of a script beside it the first time it runs.
+# They are machine- and version-specific (the file name carries the Python
+# version), so committing one means shipping a stale artefact that nothing
+# reads. The audit checks under tools/ and the helper scripts under .github/
+# are plain Python, so this catches both.
+__pycache__/
+*.py[cod]
