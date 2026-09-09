@@ -1871,6 +1871,19 @@ jobs:
       # Tauri's bundler uses Debian's 'armhf' naming convention for 32-bit ARM.
       # This step renames the files to use 'armv7' for clarity and uploads them
       # to the draft release.
+      #
+      # #1166: this used to upload only the .deb/.rpm and never their .sig
+      # siblings, even though the "Build ARMv7" step above already has the
+      # Tauri signing key in its env and was producing them the whole time.
+      # A .sig is what the in-app updater checks before it will install
+      # anything, so a package published without one can be downloaded by
+      # hand but can never be offered as an automatic update — which is
+      # exactly what was happening to every ARMv7 install. The signature is
+      # renamed and uploaded ALONGSIDE its package, before the package's own
+      # rename, because Tauri names a .sig after the exact file it signed:
+      # once the .deb/.rpm is renamed to the armv7 form, nothing on disk is
+      # still called "*_armhf.deb.sig" any more, so the sig has to move
+      # first or it would be silently skipped.
       - name: Upload ARMv7 artifacts
         if: matrix.settings.cross_arch == 'armhf'
         env:
@@ -1885,17 +1898,36 @@ jobs:
           # `gh release create` that previously planted the
           # "Release in progress…" placeholder.
 
-          # Upload .deb: rename armhf → armv7 for clarity
+          # Upload .deb (+ its .sig, if the build produced one): rename
+          # armhf → armv7 for clarity. The .sig is handled first, using the
+          # pre-rename filename it actually has on disk right now.
           for f in "$BUNDLE_DIR"/deb/*_armhf.deb; do
             [ -f "$f" ] || continue
+            sig="${f}.sig"
+            if [ -f "$sig" ]; then
+              new_sig="${sig/_armhf.deb.sig/_armv7.deb.sig}"
+              mv "$sig" "$new_sig"
+              gh release upload "$TAG" "$new_sig" --clobber
+            else
+              echo "::warning::No .sig found next to $f — this .deb cannot be offered as an in-app update until it is signed."
+            fi
             new="${f/_armhf.deb/_armv7.deb}"
             mv "$f" "$new"
             gh release upload "$TAG" "$new" --clobber
           done
 
-          # Upload .rpm: rename armhfp → armv7 for clarity
+          # Upload .rpm (+ its .sig, if the build produced one): rename
+          # armhfp → armv7 for clarity. Same ordering reason as above.
           for f in "$BUNDLE_DIR"/rpm/*.armhfp.rpm; do
             [ -f "$f" ] || continue
+            sig="${f}.sig"
+            if [ -f "$sig" ]; then
+              new_sig="${sig/.armhfp.rpm.sig/.armv7.rpm.sig}"
+              mv "$sig" "$new_sig"
+              gh release upload "$TAG" "$new_sig" --clobber
+            else
+              echo "::warning::No .sig found next to $f — this .rpm cannot be offered as an in-app update until it is signed."
+            fi
             new=$(echo "$f" | sed 's/\.armhfp\.rpm/.armv7.rpm/')
             mv "$f" "$new"
             gh release upload "$TAG" "$new" --clobber
@@ -2081,6 +2113,91 @@ jobs:
             echo "Added linux-x86_64 to latest.json"
           fi
 
+          # ---- Linux .deb / .rpm keys (#1166) -------------------------------
+          #
+          # Before this, a Linux user who installed the .deb or .rpm was
+          # never given their own manifest key at all — only the bare
+          # "linux-x86_64" key above existed, which points at the AppImage.
+          # The updater plugin asks for "{os}-{arch}-{installer}" first
+          # (e.g. "linux-x86_64-deb") and only falls back to the bare
+          # "{os}-{arch}" key if that specific one is missing. So a .deb
+          # user fell back to the AppImage entry, downloaded AppImage
+          # bytes, and then the plugin tried to install them with dpkg —
+          # which cannot work, because a .deb and an .AppImage are not the
+          # same kind of file. That is a worse outcome than "no update
+          # offered": it is an update offered and then failing.
+          #
+          # Every package FORMAT needs its own key because it is installed
+          # by a different tool (dpkg for .deb, rpm for .rpm) and carries
+          # its own independent signature — handing a .deb user an .rpm (or
+          # vice versa) fails exactly the same way as handing them the
+          # AppImage.
+
+          # Linux x64 — .deb and .rpm. Built by the same Tier-1 "Linux
+          # (x64)" job as the AppImage above, so these are signed and
+          # published on every successful release; they simply never had a
+          # manifest key of their own until now.
+          LINUX_X64_DEB_SIG_FILE="MeedyaDL_${VERSION}_amd64.deb.sig"
+          LINUX_X64_DEB_URL="${BASE}/MeedyaDL_${VERSION}_amd64.deb"
+          if SIG=$(download_sig "$LINUX_X64_DEB_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_DEB_URL" \
+              '. + {"linux-x86_64-deb": {"signature": $sig, "url": $url}}')
+            echo "Added linux-x86_64-deb to latest.json"
+          fi
+
+          LINUX_X64_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.x86_64.rpm.sig"
+          LINUX_X64_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.x86_64.rpm"
+          if SIG=$(download_sig "$LINUX_X64_RPM_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_RPM_URL" \
+              '. + {"linux-x86_64-rpm": {"signature": $sig, "url": $url}}')
+            echo "Added linux-x86_64-rpm to latest.json"
+          fi
+
+          # Linux ARM64 (Raspberry Pi 4/5, ARM servers) — .deb and .rpm.
+          # Built by the experimental Tier-2 "Linux (ARM64)" job via
+          # tauri-action, which already has the signing key in its env —
+          # these have been signed and published on every release for a
+          # while. The only thing that was ever missing was telling the
+          # updater about them.
+          LINUX_ARM64_DEB_SIG_FILE="MeedyaDL_${VERSION}_arm64.deb.sig"
+          LINUX_ARM64_DEB_URL="${BASE}/MeedyaDL_${VERSION}_arm64.deb"
+          if SIG=$(download_sig "$LINUX_ARM64_DEB_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARM64_DEB_URL" \
+              '. + {"linux-aarch64-deb": {"signature": $sig, "url": $url}}')
+            echo "Added linux-aarch64-deb to latest.json"
+          fi
+
+          LINUX_ARM64_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.aarch64.rpm.sig"
+          LINUX_ARM64_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.aarch64.rpm"
+          if SIG=$(download_sig "$LINUX_ARM64_RPM_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARM64_RPM_URL" \
+              '. + {"linux-aarch64-rpm": {"signature": $sig, "url": $url}}')
+            echo "Added linux-aarch64-rpm to latest.json"
+          fi
+
+          # Linux ARMv7 (32-bit Raspberry Pi) — .deb and .rpm. Unlike ARM64
+          # above, these had NO signature published at all until the
+          # "Upload ARMv7 artifacts" step was fixed (#1166) to upload the
+          # .sig files sitting next to the packages it was already
+          # building. On a release built before that fix, download_sig
+          # correctly finds nothing here — that is an accurate "not signed
+          # yet", not a bug in this step.
+          LINUX_ARMV7_DEB_SIG_FILE="MeedyaDL_${VERSION}_armv7.deb.sig"
+          LINUX_ARMV7_DEB_URL="${BASE}/MeedyaDL_${VERSION}_armv7.deb"
+          if SIG=$(download_sig "$LINUX_ARMV7_DEB_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARMV7_DEB_URL" \
+              '. + {"linux-armv7-deb": {"signature": $sig, "url": $url}}')
+            echo "Added linux-armv7-deb to latest.json"
+          fi
+
+          LINUX_ARMV7_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.armv7.rpm.sig"
+          LINUX_ARMV7_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.armv7.rpm"
+          if SIG=$(download_sig "$LINUX_ARMV7_RPM_SIG_FILE"); then
+            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARMV7_RPM_URL" \
+              '. + {"linux-armv7-rpm": {"signature": $sig, "url": $url}}')
+            echo "Added linux-armv7-rpm to latest.json"
+          fi
+
           # Build the final latest.json
           jq -n \
             --arg version "$VERSION" \
@@ -2095,19 +2212,83 @@ jobs:
           echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s)"
           jq '.platforms | keys' /tmp/updater/latest.json
 
-          # Warn (never fail the step over this alone) about any of the
-          # four updater-producing platforms missing from the finished
-          # manifest, so a gap is visible in the log the moment it happens
-          # rather than only once a user notices they got no update offer.
-          # Linux ARM64 and ARMv7 build `--bundles deb rpm` only and never
-          # produce an updater signature on any release — they are
+          # Check every installer this release actually built against what
+          # ended up in the manifest — instead of trusting a fixed list of
+          # platform names written down by hand.
+          #
+          # #1166: this loop used to walk a fixed list of exactly four
+          # platforms, with a comment claiming Linux ARM64 and ARMv7
+          # "never produce an updater signature on any release... they are
           # deliberately excluded from this list, or every run would warn
-          # about them.
-          for plat in darwin-aarch64 windows-x86_64 windows-aarch64 linux-x86_64; do
-            if ! jq -e --arg p "$plat" '.platforms | has($p)' /tmp/updater/latest.json > /dev/null; then
-              echo "::warning::latest.json is missing the '${plat}' platform entry for ${TAG} — in-app updates will not be offered for it"
+          # about them." That was false for ARM64 from the day its build
+          # started signing its output, and it is the whole reason nobody
+          # noticed: the comment told this check to stop looking at ARM
+          # entirely, so the check went on agreeing with the comment for
+          # the entire life of the project instead of ever contradicting
+          # it. A belief written into a comment and never re-checked
+          # against the real assets is exactly how this bug survived.
+          #
+          # So this version looks at $ASSETS — the real file listing for
+          # this release, already fetched above — rather than a list of
+          # names someone has to remember to extend. INSTALLER_KEYS pairs
+          # every installer's .sig filename (reusing the *_SIG_FILE
+          # variables already set above, so there is only one place that
+          # spells out each filename) with the manifest key(s) that
+          # signature should have produced.
+          declare -A INSTALLER_KEYS=(
+            ["$MAC_SIG_FILE"]="darwin-aarch64"
+            ["$WIN_X64_SIG_FILE"]="windows-x86_64 windows-x86_64-nsis"
+            ["$WIN_ARM_SIG_FILE"]="windows-aarch64 windows-aarch64-nsis"
+            ["$LINUX_X64_SIG_FILE"]="linux-x86_64"
+            ["$LINUX_X64_DEB_SIG_FILE"]="linux-x86_64-deb"
+            ["$LINUX_X64_RPM_SIG_FILE"]="linux-x86_64-rpm"
+            ["$LINUX_ARM64_DEB_SIG_FILE"]="linux-aarch64-deb"
+            ["$LINUX_ARM64_RPM_SIG_FILE"]="linux-aarch64-rpm"
+            ["$LINUX_ARMV7_DEB_SIG_FILE"]="linux-armv7-deb"
+            ["$LINUX_ARMV7_RPM_SIG_FILE"]="linux-armv7-rpm"
+          )
+
+          GUARD_FAILED=0
+          for sig_name in "${!INSTALLER_KEYS[@]}"; do
+            # The installer's own filename is just the .sig name with the
+            # suffix removed.
+            asset_name="${sig_name%.sig}"
+
+            if ! echo "$ASSETS" | grep -qF "$asset_name"; then
+              # This installer was never built or never uploaded this run
+              # (e.g. the experimental ARM Linux jobs are allowed to fail
+              # outright). Nothing to check — there is no package to be
+              # missing an update path for.
+              continue
             fi
+
+            if ! echo "$ASSETS" | grep -qF "$sig_name"; then
+              # The installer exists but was never signed. This is a real,
+              # known state during the ARMv7 rollout (and would be for any
+              # future installer added without wiring up signing first),
+              # so it is a warning, not a failure: the package can still
+              # be downloaded and installed by hand, it just can't be
+              # offered as an automatic update yet.
+              echo "::warning::${asset_name} was published for ${TAG} with no matching .sig — it cannot be offered as an in-app update until it is signed."
+              continue
+            fi
+
+            # The installer is signed. There is now no excuse for the
+            # manifest not to carry its key(s) — if it doesn't, that is
+            # exactly the class of bug this whole step exists to catch,
+            # so it fails the run rather than warning into a log nobody
+            # is watching.
+            for key in ${INSTALLER_KEYS[$sig_name]}; do
+              if ! jq -e --arg p "$key" '.platforms | has($p)' /tmp/updater/latest.json > /dev/null; then
+                echo "::error::${asset_name} was published with a signature for ${TAG}, but latest.json has no '${key}' entry — in-app updates will not be offered for it."
+                GUARD_FAILED=1
+              fi
+            done
           done
+
+          if [ "$GUARD_FAILED" -eq 1 ]; then
+            exit 1
+          fi
 
           # Guard against publishing an empty manifest. Before this step
           # added `mkdir -p /tmp/updater` above, a zero-platform result
@@ -2494,18 +2675,27 @@ jobs:
       # matrix's own "Produces:" comments confirm).
       #
       # ARM Linux (Raspberry Pi 4/5 .deb/.rpm and the 32-bit ARMv7 .deb/
-      # .rpm) is WARNING ONLY and must never fail this job. Two reasons,
-      # both decided after watching this happen for real: (1) the Linux
-      # ARM build job above is already marked 'continue-on-error' because
-      # it is experimental, so a missing ARM Linux asset is an already-
-      # known, already-tolerated outcome, not a new problem to alarm on;
-      # (2) the in-app updater's latest.json (built two steps up) has no
-      # 'linux-arm64' or 'linux-armv7' entry at all — Linux ARM never had
-      # an auto-update path to begin with, so those users are unaffected
-      # either way. Turning the whole run red for a platform whose users
-      # were never going to auto-update from it happened twice in the
-      # last fifteen releases for no benefit, which is why this is a
-      # warning, not an error.
+      # .rpm) is WARNING ONLY and must never fail this job. The reason is
+      # that the Linux ARM build job above is already marked
+      # 'continue-on-error' because it is experimental, so a missing ARM
+      # Linux asset is an already-known, already-tolerated outcome, not a
+      # new problem to alarm on. Turning the whole run red for an
+      # experimental build that flaked happened twice in the last fifteen
+      # releases for no benefit, which is why this is a warning, not an
+      # error.
+      #
+      # This comment used to give a second reason: that latest.json had no
+      # 'linux-arm64' or 'linux-armv7' entry at all, so a missing asset
+      # here couldn't affect anyone either way. That was true when it was
+      # written and is not true any more (#1166) — ARM64's .deb/.rpm have
+      # been signed and published on every release for a while, they just
+      # never had a manifest key; ARMv7 gets its first signatures from the
+      # same fix. A missing ARM Linux asset can now mean a real gap in
+      # someone's update path, same as any other platform. It stays a
+      # warning here regardless, for the experimental-build reason above —
+      # the step that actually enforces "a signed package must have a
+      # manifest key, or fail the run" is the dedicated check inside
+      # "Rebuild updater manifest" earlier in this job.
       #
       # Every other asset is something a user has no other way to get
       # this release from, so a missing one is a real error and fails
