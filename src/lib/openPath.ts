@@ -16,6 +16,20 @@
  * No message, no cursor change, nothing to search for. The most likely
  * conclusion is that the app is broken.
  *
+ * There was a second, bigger reason nothing happened, found later: these
+ * calls used to go through `@tauri-apps/plugin-shell`'s `open()`, and
+ * that function checks every path against an address pattern meant for
+ * things like `https://example.com` before it asks the operating system
+ * to do anything. A folder path such as `/Users/name/Music/Album` never
+ * matches that pattern, so the plugin refused every single call here,
+ * silently, before macOS/Windows/Linux ever saw the request. That
+ * pattern is deliberately kept for the handful of places in the app that
+ * really do open a web address — widening it so a folder path could pass
+ * too would also let through a URL scheme nobody has reviewed. Instead,
+ * opening and revealing a path on disk now goes through a separate
+ * plugin, `@tauri-apps/plugin-opener`, whose own permission is granted
+ * in `capabilities/default.json` and scoped to exactly that job.
+ *
  * These helpers do the same job and explain themselves when they fail.
  * They read the toast function from the store directly rather than
  * through a React hook, so a presentational component can call them
@@ -55,20 +69,34 @@ function parentFolderOf(path: string): string {
 }
 
 /**
- * Opens a path with whatever the operating system uses for it.
+ * Opens a path with whatever the operating system uses for it, or shows
+ * it selected inside its containing folder.
  *
- * @param path -- What to open.
+ * @param path -- What to open or reveal.
  * @param whatFailed -- How to describe it if it does not work. Written
  *                      into the message the user reads, so it should be
  *                      ordinary words: "folder", "file".
+ * @param mode -- `'open'` opens the path itself (a file with its usual
+ *                app, or a folder as its own window showing what is
+ *                inside it). `'reveal'` opens the path's *containing*
+ *                folder with the path itself selected -- what "Reveal in
+ *                Finder/Explorer" means everywhere else on the system.
  * @returns `true` if it opened, `false` if it did not (a message has
  *          already been shown to the user in that case).
  */
-async function openOrExplain(path: string, whatFailed: 'folder' | 'file'): Promise<boolean> {
+async function openOrExplain(
+  path: string,
+  whatFailed: 'folder' | 'file',
+  mode: 'open' | 'reveal'
+): Promise<boolean> {
   const addToast = useUiStore.getState().addToast;
   try {
-    const { open } = await import('@tauri-apps/plugin-shell');
-    await open(path);
+    const { openPath, revealItemInDir } = await import('@tauri-apps/plugin-opener');
+    if (mode === 'reveal') {
+      await revealItemInDir(path);
+    } else {
+      await openPath(path);
+    }
     return true;
   } catch (err) {
     // Deliberately does not try to guess WHY it failed. The likely
@@ -90,7 +118,9 @@ async function openOrExplain(path: string, whatFailed: 'folder' | 'file'): Promi
 }
 
 /**
- * Opens the folder containing a downloaded item.
+ * Reveals the folder containing a downloaded item -- opens the file
+ * manager on its parent with the folder itself selected, the same thing
+ * "Show in Finder" / "Show in Explorer" means in every other app.
  *
  * @param path -- Either the folder itself, or a file inside it.
  * @param pathIsDirectory -- `true` when `path` is already the folder,
@@ -104,7 +134,7 @@ export async function openContainingFolder(
   pathIsDirectory: boolean
 ): Promise<boolean> {
   const target = pathIsDirectory ? path : parentFolderOf(path);
-  return openOrExplain(target, 'folder');
+  return openOrExplain(target, 'folder', 'reveal');
 }
 
 /**
@@ -115,5 +145,5 @@ export async function openContainingFolder(
  *          already told why.
  */
 export async function openDownloadedFile(path: string): Promise<boolean> {
-  return openOrExplain(path, 'file');
+  return openOrExplain(path, 'file', 'open');
 }

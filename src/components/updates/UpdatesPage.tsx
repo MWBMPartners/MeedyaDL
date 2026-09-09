@@ -539,19 +539,42 @@ export function UpdatesPage() {
                     </h4>
                     <div className="prose prose-sm max-w-none text-content-primary">
                       <ReactMarkdown
+                        // Release notes come from a GitHub release body, not
+                        // a file we wrote ourselves, so a link in them
+                        // should never be trusted with the window. This
+                        // page has no router, so an ordinary relative link
+                        // such as `[Full changelog](CHANGELOG.md)` -- which
+                        // react-markdown's own default leaves untouched,
+                        // since it looks like a normal in-page link rather
+                        // than a dangerous one -- would navigate the whole
+                        // WebView to a page that does not exist, with no
+                        // "back" to return from. `urlTransform` blanks out
+                        // the `href` itself for anything that is not
+                        // `http(s)://`, and the `onClick` below is a second,
+                        // independent line of defence that stops the
+                        // default navigation for the same reason. See
+                        // `HelpViewer.tsx`'s link handler for the same idea
+                        // applied to this app's own help pages.
+                        urlTransform={(url) =>
+                          url.startsWith('http://') || url.startsWith('https://') ? url : ''
+                        }
                         components={{
                           a: ({ href, children, ...props }) => (
                             <a
                               {...props}
                               href={href}
                               onClick={(e) => {
-                                if (!href) return;
-                                if (href.startsWith('http://') || href.startsWith('https://')) {
+                                if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
                                   e.preventDefault();
                                   import('@tauri-apps/plugin-shell')
                                     .then(({ open }) => open(href))
                                     .catch(() => {});
+                                  return;
                                 }
+                                // Catch-all: anything that is not a web
+                                // address is inert rather than left to
+                                // navigate the WebView away from the app.
+                                e.preventDefault();
                               }}
                             >
                               {children}

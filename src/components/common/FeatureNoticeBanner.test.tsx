@@ -172,6 +172,40 @@ describe('FeatureNoticeBanner', () => {
     expect(container.innerHTML).toBe('');
   });
 
+  it('caps how many banners it draws, and says how many are hidden', () => {
+    // The notice list comes from a remote service with no expiry on the
+    // on-disk cache of it (see MAX_FEATURE_NOTICES' own comment) -- a bad
+    // answer must not be able to stack an unbounded wall of banners.
+    const verdicts: Record<string, ReturnType<typeof makeFlagVerdict>> = {};
+    for (let i = 0; i < 8; i++) {
+      verdicts[`service.fake-${i}`] = makeFlagVerdict({
+        enabled: false,
+        label: `Fake Service ${i}`,
+        notice: null,
+      });
+    }
+    setSnapshot({ verdicts });
+
+    render(<FeatureNoticeBanner />);
+
+    expect(screen.getAllByTestId('feature-notice-banner')).toHaveLength(5);
+    expect(screen.getByTestId('feature-notice-hidden-count')).toHaveTextContent(
+      '3 more notices not shown.'
+    );
+  });
+
+  it('does not show the hidden-count line when everything fits', () => {
+    setSnapshot({
+      verdicts: {
+        'service.spotify': makeFlagVerdict({ enabled: false, label: 'Spotify', notice: null }),
+      },
+    });
+
+    render(<FeatureNoticeBanner />);
+
+    expect(screen.queryByTestId('feature-notice-hidden-count')).not.toBeInTheDocument();
+  });
+
   it('clamps an overlong notice message to 500 characters', () => {
     const longMessage = 'x'.repeat(600);
     setSnapshot({

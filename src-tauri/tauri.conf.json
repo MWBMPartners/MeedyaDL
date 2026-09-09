@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://app.glitchtip.com https://sentry.mwbm.cloud; img-src 'self' https://is1-ssl.mzstatic.com https://is2-ssl.mzstatic.com https://is3-ssl.mzstatic.com https://is4-ssl.mzstatic.com https://is5-ssl.mzstatic.com asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://app.glitchtip.com https://sentry.mwbm.cloud; img-src 'self' https://is1-ssl.mzstatic.com https://is2-ssl.mzstatic.com https://is3-ssl.mzstatic.com https://is4-ssl.mzstatic.com https://is5-ssl.mzstatic.com asset: https://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; base-uri 'none'; form-action 'none'"
     },
     "trayIcon": {
       "iconPath": "icons/icon.png",
@@ -102,7 +102,7 @@
       }
     },
     "shell": {
-      "open": true
+      "open": "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(x-apple\\.systempreferences:\\S+)).+"
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFMDNBMUY3ODFGOUQ3NjEKUldSaDEvbUI5NkVEL3EwcU1nNUFiWWtLelA5WjNXVndHMDNBWGlWcytPTEM0bkhVbWJtQWhJR2MK",

@@ -53,7 +53,11 @@ import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 
-import { useFeatureFlagStore, selectNoticeEntries } from '@/stores/featureFlagStore';
+import {
+  useFeatureFlagStore,
+  selectNoticeEntries,
+  MAX_FEATURE_NOTICES,
+} from '@/stores/featureFlagStore';
 import type { FlagVerdict, NoticeSeverity } from '@/types/feature-flags';
 
 /**
@@ -190,9 +194,20 @@ export function FeatureNoticeBanner() {
 
   if (notices.length === 0) return null;
 
+  // This list comes from a remote service and the on-disk cache of it
+  // never expires (see `MAX_FEATURE_NOTICES`'s own comment), so a bad
+  // answer or a stale cache could otherwise mean dozens of banners
+  // stacked above the app's content forever. Showing only the first
+  // few, plus one line saying how many are hidden, keeps a single
+  // runaway response from burying the app -- the user still gets one
+  // plain sentence in the activity/help direction to act on if this
+  // ever actually happens.
+  const shownNotices = notices.slice(0, MAX_FEATURE_NOTICES);
+  const hiddenCount = notices.length - shownNotices.length;
+
   return (
     <div className="flex flex-col gap-2 mx-4 mt-3 mb-1" data-testid="feature-notice-banner-list">
-      {notices.map((notice) => {
+      {shownNotices.map((notice) => {
         const classes = TOKEN_CLASSES[notice.token];
         const Icon = TOKEN_ICONS[notice.token];
         return (
@@ -213,6 +228,11 @@ export function FeatureNoticeBanner() {
           </div>
         );
       })}
+      {hiddenCount > 0 && (
+        <p className="text-xs text-content-tertiary px-1" data-testid="feature-notice-hidden-count">
+          {t('featureFlags.moreNotShown', { count: hiddenCount })}
+        </p>
+      )}
     </div>
   );
 }

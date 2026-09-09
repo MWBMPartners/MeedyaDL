@@ -151,6 +151,17 @@ function FdaInstructionPanel({ onRetry, onCancel }: { onRetry: () => void; onCan
   /**
    * Opens macOS System Settings to the Full Disk Access privacy pane.
    * Uses the Tauri shell plugin to open the URL scheme.
+   *
+   * This is not a filesystem path, so it stays on the shell plugin
+   * (rather than moving to `@tauri-apps/plugin-opener` like the
+   * "Open Folder"/"Reveal" buttons elsewhere in the app) -- but the
+   * shell plugin's own address pattern used to refuse it anyway, since
+   * `x-apple.systempreferences:` is neither `https://` nor `mailto:`.
+   * This button never opened anything until `plugins.shell.open` in
+   * `tauri.conf.json` was widened to accept this one specific scheme
+   * by name, alongside the addresses it already accepted. That is a
+   * narrow, explicit addition -- not a wildcard -- so nothing else
+   * this button (or any other) could pass gets through it.
    */
   const handleOpenSettings = async () => {
     try {

@@ -1250,8 +1250,10 @@ export function exportDiskActivityLog(daysBack?: number): Promise<number> {
 /**
  * Returns the absolute path of the active on-disk activity log
  * directory, creating it if necessary. Pair with
- * `@tauri-apps/plugin-shell`'s `open()` to reveal the folder in the
- * OS file manager (Finder / Explorer / xdg-open).
+ * `@tauri-apps/plugin-opener`'s `revealItemInDir()` to reveal the
+ * folder in the OS file manager (Finder / Explorer / xdg-open) --
+ * NOT the shell plugin's `open()`, which only accepts things that
+ * look like a web address and always refuses a filesystem path.
  *
  * Rust handler: `get_logs_folder_path()` in
  * `src-tauri/src/commands/activity_log.rs`

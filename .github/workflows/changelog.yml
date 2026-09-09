@@ -139,15 +139,30 @@ jobs:
       # Bump GIT_CLIFF_VERSION when a new git-cliff release introduces
       # changelog formatting we want; otherwise leave pinned for stable
       # CHANGELOG.md output across runs.
+      # A GitHub release tag is not a fixed thing -- the file behind it can
+      # be swapped out later without the tag changing. This job matters
+      # more than most: it holds a token that can write to this repo, and
+      # it runs with that token while sitting in a checked-out working
+      # tree. So the downloaded binary is hashed and the hash is checked
+      # against a value fetched from this exact release before it is ever
+      # run, the same way `channel-security-audit.yml` already checks
+      # cargo-deny. If the file behind the tag ever changes, this stops
+      # instead of quietly running whatever showed up.
       - name: Install git-cliff
         run: |
           set -euo pipefail
           GIT_CLIFF_VERSION=2.10.1
           GIT_CLIFF_DIR="git-cliff-${GIT_CLIFF_VERSION}"
           GIT_CLIFF_TARBALL="${GIT_CLIFF_DIR}-x86_64-unknown-linux-gnu.tar.gz"
+          EXPECTED_SHA256="6abe8a3e112b266dd00abf9089a8052ddf7314f39e1c53e192edf0652abca4eb"
           curl --fail --silent --show-error --location \
             "https://github.com/orhun/git-cliff/releases/download/v${GIT_CLIFF_VERSION}/${GIT_CLIFF_TARBALL}" \
             -o /tmp/git-cliff.tar.gz
+          ACTUAL_SHA256=$(sha256sum /tmp/git-cliff.tar.gz | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::git-cliff download checksum mismatch — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to use it."
+            exit 1
+          fi
           tar -xzf /tmp/git-cliff.tar.gz -C /tmp
           sudo install -m 755 "/tmp/${GIT_CLIFF_DIR}/git-cliff" /usr/local/bin/git-cliff
           git-cliff --version
