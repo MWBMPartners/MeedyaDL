@@ -516,7 +516,7 @@ export function HelpViewer() {
   return (
     <div className="flex flex-col h-full">
       {/* Page header with title and description */}
-      <PageHeader title="Help" subtitle="Documentation and guides for using MeedyaDL" />
+      <PageHeader title={t('help.title')} subtitle={t('help.subtitle')} />
 
       <div className="flex flex-1 overflow-hidden">
         {/* ----------------------------------------------------------------
@@ -549,8 +549,8 @@ export function HelpViewer() {
                 type="text"
                 value={searchQuery}
                 onChange={handleSearchChange}
-                placeholder="Search topics..."
-                aria-label="Search help topics"
+                placeholder={t('help.searchPlaceholder')}
+                aria-label={t('help.searchAriaLabel')}
                 className="
                   w-full pl-8 pr-16 py-1.5
                   text-xs rounded-platform
@@ -579,8 +579,8 @@ export function HelpViewer() {
                       hover:bg-surface-tertiary
                       transition-colors
                     "
-                    aria-label="Clear search"
-                    title="Clear search"
+                    aria-label={t('help.clearSearch')}
+                    title={t('help.clearSearch')}
                   >
                     <X size={12} />
                   </button>
@@ -589,7 +589,11 @@ export function HelpViewer() {
                      Displays Cmd+K on macOS or Ctrl+K on other platforms.
                      This is a visual placeholder for future keyboard
                      shortcut support (the actual shortcut handler is not
-                     yet implemented). */
+                     yet implemented). The "Cmd"/"Ctrl" part of `modifierKey`
+                     is a key name, never translated -- it's passed into the
+                     translated sentence as `{{key}}` rather than baked into
+                     the English string, so a translator only ever touches
+                     the surrounding words. */
                   <kbd
                     className="
                       hidden sm:inline-flex items-center gap-0.5
@@ -600,8 +604,8 @@ export function HelpViewer() {
                       bg-surface-tertiary
                       border border-border-light
                     "
-                    title={`${modifierKey}+K to focus search (coming soon)`}
-                    aria-label={`Keyboard shortcut: ${modifierKey} plus K (coming soon)`}
+                    title={t('help.searchShortcutHint', { key: modifierKey })}
+                    aria-label={t('help.searchShortcutAriaLabel', { key: modifierKey })}
                   >
                     {modifierKey}+K
                   </kbd>
@@ -614,7 +618,7 @@ export function HelpViewer() {
                 topics to give immediate feedback on the search scope. */}
             {isSearchActive && (
               <div className="mt-1 px-1 text-[10px] text-content-tertiary">
-                {filteredTopics.length === 1 ? '1 result' : `${filteredTopics.length} results`}
+                {t('help.resultCount', { count: filteredTopics.length })}
               </div>
             )}
           </div>
@@ -659,7 +663,7 @@ export function HelpViewer() {
                  and encourages the user to modify their search. */
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Search size={24} className="text-content-tertiary mb-2 opacity-50" />
-                <p className="text-xs text-content-tertiary">No matching topics found.</p>
+                <p className="text-xs text-content-tertiary">{t('help.noResults')}</p>
                 <button
                   onClick={handleClearSearch}
                   className="
@@ -668,7 +672,7 @@ export function HelpViewer() {
                     transition-colors
                   "
                 >
-                  Clear search
+                  {t('help.clearSearch')}
                 </button>
               </div>
             )}

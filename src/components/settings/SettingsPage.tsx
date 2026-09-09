@@ -69,6 +69,11 @@
 // @see https://react.dev/reference/react/useEffect
 import { useEffect, useRef, useState } from 'react';
 
+// This page's tab list and page heading are on screen every time someone
+// opens Settings, so they go through i18next rather than staying as typed
+// English strings in the TABS/SETTINGS_GROUPS arrays below.
+import { useTranslation } from 'react-i18next';
+
 // Lucide icon components used for the tab sidebar and header action buttons.
 // Each tab has a corresponding icon for visual identification.
 // @see https://lucide.dev/icons/
@@ -117,9 +122,15 @@ import { SpotifyTab } from './tabs/SpotifyTab';
 /**
  * Shape of a single tab entry in the TABS configuration array.
  *
- * @property id        - Unique identifier used as the key for `activeTab` state
- *                       and the React `key` prop in the sidebar list.
- * @property label     - Human-readable label displayed in the sidebar button.
+ * @property id        - Unique identifier used as the key for `activeTab` state,
+ *                       the React `key` prop in the sidebar list, and (via
+ *                       {@link tabTranslationKey}) the lookup into
+ *                       `settings.tabs.*` in the locale files.
+ * @property label     - The English wording, used as a fallback if a
+ *                       translation for the current language is missing --
+ *                       see {@link tabLabel} below. Not shown directly to
+ *                       most users; it exists so the sidebar never renders
+ *                       a raw, un-translated key like "settings.tabs.tools".
  * @property icon      - Lucide icon component rendered next to the label.
  *                       Typed as `typeof SettingsIcon` (all Lucide icons share
  *                       the same component signature).
@@ -142,6 +153,11 @@ interface SettingsTab {
  * component that renders its settings form. All tab components follow the
  * same pattern: they read from `useSettingsStore` and call `updateSettings`
  * to mutate the shared settings state.
+ *
+ * The `label` here is the English fallback only -- what's actually shown on
+ * screen comes from `settings.tabs.*` in the locale files, via
+ * {@link tabLabel}. Keep the two in sync: if what a tab shows on screen
+ * changes, update the `en` locale file's value, not just this constant.
  */
 const TABS: SettingsTab[] = [
   { id: 'general', label: 'General', icon: SettingsIcon, component: GeneralTab },
@@ -158,24 +174,42 @@ const TABS: SettingsTab[] = [
 ];
 
 /**
+ * Turns a tab or group id into the key segment used to look it up under
+ * `settings.tabs.*` / `settings.groups.*` in the locale files -- e.g.
+ * `cover-art` -> `coverArt`. The ids here are kebab-case (they also serve
+ * as CSS-friendly identifiers and `activeTab` state values), but the rest
+ * of this project's translation keys are camelCase, so this is the one
+ * place that difference gets bridged rather than every id needing a
+ * hand-written translation key of its own.
+ */
+function tabTranslationKey(id: string): string {
+  return id.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+/**
  * Groups settings tabs into logical sections for the sidebar navigation.
- * Each group has a label (rendered as a section header) and a list of tab IDs
+ * Each group has an id (used to look up its translated heading under
+ * `settings.groups.*`), an English fallback label, and a list of tab IDs
  * that belong to that group. The tab IDs must match entries in the TABS array.
  *
  * Groups are rendered as static (non-collapsible) sections with visually
- * distinct headers -- with only 4 groups, collapsible behaviour would add
+ * distinct headers -- with only 5 groups, collapsible behaviour would add
  * UI complexity without meaningful benefit.
  */
-const SETTINGS_GROUPS: { label: string; tabs: string[] }[] = [
-  { label: 'General', tabs: ['general'] },
-  { label: 'Download', tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'] },
-  { label: 'Authentication', tabs: ['cookies'] },
+const SETTINGS_GROUPS: { id: string; label: string; tabs: string[] }[] = [
+  { id: 'general', label: 'General', tabs: ['general'] },
+  {
+    id: 'download',
+    label: 'Download',
+    tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'],
+  },
+  { id: 'authentication', label: 'Authentication', tabs: ['cookies'] },
   // M9-UI: Spotify tab joins a new 'Services' group between
   // Authentication and System. YouTube + BBC iPlayer placeholder
   // tabs will land in the same group as their integrations
   // (M10 / M8 respectively) ship.
-  { label: 'Services', tabs: ['spotify'] },
-  { label: 'System', tabs: ['tools', 'advanced'] },
+  { id: 'services', label: 'Services', tabs: ['spotify'] },
+  { id: 'system', label: 'System', tabs: ['tools', 'advanced'] },
 ];
 
 /**
@@ -205,6 +239,29 @@ export function SettingsPage() {
    * @see {@link https://react.dev/reference/react/useState}
    */
   const [activeTab, setActiveTab] = useState('general');
+
+  /** i18n translation function for the tab list and page heading. */
+  const { t } = useTranslation();
+
+  /**
+   * Translated label for a tab button. Falls back to the tab's English
+   * `label` when the current language has no `settings.tabs.*` entry for
+   * it yet -- the same missing-translation fallback pattern used by
+   * `Sidebar.tsx`'s `navLabel()`, kept identical on purpose so both places
+   * behave the same way when a translation hasn't landed.
+   */
+  const tabLabel = (tab: SettingsTab): string => {
+    const key = `settings.tabs.${tabTranslationKey(tab.id)}`;
+    const translated = t(key);
+    return translated === key ? tab.label : translated;
+  };
+
+  /** Same fallback pattern as {@link tabLabel}, for a group's section heading. */
+  const groupLabel = (group: (typeof SETTINGS_GROUPS)[number]): string => {
+    const key = `settings.groups.${group.id}`;
+    const translated = t(key);
+    return translated === key ? group.label : translated;
+  };
 
   // --- Zustand store selectors ---
   // Each selector extracts a single slice of state to minimize re-renders.
@@ -420,8 +477,8 @@ Please quit and reopen MeedyaDL manually.`,
       </Modal>
 
       <PageHeader
-        title="Settings"
-        subtitle="Configure download options, paths, and preferences"
+        title={t('settings.title')}
+        subtitle={t('settings.subtitle')}
         actions={
           <div className="flex gap-2">
             {/* Restart-pending pill (#833). Shown after the user picked
@@ -476,18 +533,18 @@ Please quit and reopen MeedyaDL manually.`,
             ---------------------------------------------------------------- */}
         <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
           {SETTINGS_GROUPS.map((group, groupIndex) => (
-            <div key={group.label} className={groupIndex > 0 ? 'mt-3' : ''}>
+            <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary select-none">
-                {group.label}
+                {groupLabel(group)}
               </div>
 
               {/* Tab items within this group */}
               <div className="space-y-0.5">
                 {group.tabs.map((tabId) => {
-                  const tab = TABS.find((t) => t.id === tabId);
+                  const tab = TABS.find((tabEntry) => tabEntry.id === tabId);
                   if (!tab) return null;
-                  const { id, label, icon: Icon } = tab;
+                  const { id, icon: Icon } = tab;
                   return (
                     <button
                       key={id}
@@ -505,7 +562,7 @@ Please quit and reopen MeedyaDL manually.`,
                       {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
                       <Icon size={16} className="flex-shrink-0" />
                       {/* Tab label text */}
-                      {label}
+                      {tabLabel(tab)}
                     </button>
                   );
                 })}

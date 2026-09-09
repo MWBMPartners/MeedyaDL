@@ -29,6 +29,11 @@
 
 import { useEffect, useCallback, useRef, type ReactNode } from 'react';
 
+// Every dialog in the app is built on this shared shell, so translating
+// its one piece of fixed text (the close button) here means every modal
+// inherits the right language automatically -- no per-dialog wiring needed.
+import { useTranslation } from 'react-i18next';
+
 /**
  * Lucide "X" icon used for the modal close button.
  * @see https://lucide.dev/guide/packages/lucide-react -- Lucide React usage
@@ -87,6 +92,9 @@ interface ModalProps {
  * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
  */
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
+  /** i18n translation function -- reuses the generic "common.close" word,
+   * since that's exactly what the close button says everywhere else. */
+  const { t } = useTranslation();
   /** Ref to the modal panel for focus management */
   const panelRef = useRef<HTMLDivElement>(null);
   /** Ref to the element that had focus before the modal opened */
@@ -207,7 +215,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
             <button
               onClick={onClose}
               className="p-1 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-secondary transition-colors"
-              aria-label="Close"
+              aria-label={t('common.close')}
             >
               <X size={18} />
             </button>

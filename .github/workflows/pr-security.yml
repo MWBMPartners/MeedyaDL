@@ -25,7 +25,8 @@
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
 #   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent,
-#                                                Tauri npm/Rust version sync, build-secret wiring, help docs)
+#                                                Tauri npm/Rust version sync, build-secret wiring, help docs,
+#                                                i18n translation catalogue)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -432,6 +433,22 @@ jobs:
           HELP_TOPICS=$(python3 tools/audit-checks/check_help_topics.py 2>&1 || true)
           if echo "$HELP_TOPICS" | grep -q '•'; then
             add_section "Help documentation drift (help/*.md vs. HELP_TOPIC_MANIFEST vs. in-app links)" "$(echo "$HELP_TOPICS" | grep -A100 '###')"
+          fi
+          # i18n translation catalogue: every language file in
+          # public/locales/ has to agree with English on which keys
+          # exist, carry a real (non-empty) value, and keep the same
+          # {{placeholder}} tokens — none of that is TypeScript-checked,
+          # so a translator's edit (or a new key added in English only)
+          # can silently leave a screen showing a raw key or a dangling
+          # "{{count}}" in every language but English. Whole-repo,
+          # because the drift can live in a locale file this PR never
+          # touched. The script's own "N keys not looked up anywhere"
+          # count is deliberately NOT part of this — see the script's
+          # docstring for why that's reported as plain informational
+          # lines rather than '•' findings.
+          I18N=$(python3 tools/audit-checks/check_i18n.py 2>&1 || true)
+          if echo "$I18N" | grep -q '•'; then
+            add_section "Translation catalogue drift (public/locales/*/translation.json vs. English vs. each other)" "$(echo "$I18N" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

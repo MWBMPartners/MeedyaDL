@@ -240,7 +240,7 @@ export function Sidebar() {
   const statusText = isReady
     ? t('sidebar.ready')
     : missing.length === 1
-      ? `${missing[0]} is missing`
+      ? t('sidebar.toolMissing', { tool: missing[0] })
       : t('sidebar.setupRequired');
 
   /** Map page IDs to translated nav labels (fallback to static label). */
@@ -300,7 +300,7 @@ export function Sidebar() {
          * See: https://github.com/MWBMPartners/MeedyaDL/issues/221 */}
         <img
           src={`/logo.svg${svgMode}`}
-          alt="MeedyaDL logo"
+          alt={t('sidebar.logoAlt')}
           className="w-16 h-16 rounded-platform flex-shrink-0 no-drag"
         />
         {/*
@@ -327,7 +327,7 @@ export function Sidebar() {
               <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
                 MeedyaDL
               </h1>
-              <p className="text-[11px] text-content-secondary leading-tight">Media Downloader</p>
+              <p className="text-[11px] text-content-secondary leading-tight">{t('app.subtitle')}</p>
             </div>
           </>
         )}
@@ -537,7 +537,7 @@ export function Sidebar() {
         <button
           onClick={toggleSidebar}
           className="no-drag w-full flex items-center justify-center mt-2 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover transition-colors"
-          aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
         >
           {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
         </button>
