@@ -56,6 +56,7 @@ import {
  * @see useUiStore in @/stores/uiStore.ts         -- current page & sidebar state
  * @see useDependencyStore in @/stores/dependencyStore.ts -- isReady() for status dot
  */
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUiStore } from '@/stores/uiStore';
 import { useDependencyStore } from '@/stores/dependencyStore';
@@ -181,8 +182,35 @@ export function Sidebar() {
    */
   const python = useDependencyStore((s) => s.python);
   const gamdl = useDependencyStore((s) => s.gamdl);
-  /** Derived readiness check: both Python and GAMDL must be installed. */
-  const isReady = !!(python?.installed && gamdl?.installed);
+  const tools = useDependencyStore((s) => s.tools);
+  /*
+   * Everything required that is not installed (#1156).
+   *
+   * This used to check Python and GAMDL only — two of the seven things a
+   * download actually needs. Remove FFmpeg with a package manager and the
+   * light stayed green; the first sign of trouble was a download failing with
+   * a message that did not obviously mean "a tool is missing".
+   *
+   * Optional tools are left out on purpose: rclone is only for uploading
+   * straight to cloud storage, and its absence should not make the whole app
+   * look broken.
+   *
+   * Worked out here rather than read from the store's own getter because this
+   * component has to subscribe to the individual values to re-render when they
+   * change — subscribing to the getter would subscribe to a function that
+   * never changes, and the light would never update. The store keeps a
+   * matching version for everywhere else.
+   */
+  const missing = useMemo(() => {
+    const names: string[] = [];
+    if (!python?.installed) names.push('Python');
+    if (!gamdl?.installed) names.push('GAMDL');
+    for (const tool of tools) {
+      if (tool.required && !tool.installed) names.push(tool.name);
+    }
+    return names;
+  }, [python, gamdl, tools]);
+  const isReady = missing.length === 0;
 
   /** Whether the update checker is currently running. */
   const isChecking = useUpdateStore((s) => s.isChecking);
@@ -201,6 +229,19 @@ export function Sidebar() {
 
   /** i18n translation function for nav labels and status text. */
   const { t } = useTranslation();
+
+  /**
+   * What the light says when something is missing.
+   *
+   * Names the thing, because "FFmpeg is missing" is an instruction and a
+   * yellow dot is a puzzle. Several missing at once is usually a first run,
+   * where the general wording is the more useful of the two.
+   */
+  const statusText = isReady
+    ? t('sidebar.ready')
+    : missing.length === 1
+      ? `${missing[0]} is missing`
+      : t('sidebar.setupRequired');
 
   /** Map page IDs to translated nav labels (fallback to static label). */
   const navLabel = (item: NavItem): string => {
@@ -399,10 +440,10 @@ export function Sidebar() {
                 isReady ? 'bg-status-success' : 'bg-status-warning'
               }`}
             />
-            {isReady ? t('sidebar.ready') : t('sidebar.setupRequired')}
+            {statusText}
           </div>
         ) : (
-          <Tooltip content={isReady ? t('sidebar.ready') : t('sidebar.setupRequired')} position="right">
+          <Tooltip content={statusText} position="right">
             <div className="flex justify-center">
               <span
                 className={`w-2 h-2 rounded-full ${

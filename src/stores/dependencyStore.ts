@@ -244,6 +244,17 @@ interface DependencyState {
    * or re-derive after `checkAll()` completes.
    */
   isReady: () => boolean;
+
+  /**
+   * Names everything required that is not currently installed.
+   *
+   * Exists so the interface can say WHICH thing is missing rather than only
+   * that something is (#1156). "FFmpeg is missing" is an instruction; a yellow
+   * light is a puzzle.
+   *
+   * Returns an empty list when everything needed is present.
+   */
+  missingRequirements: () => string[];
 }
 
 /**
@@ -542,7 +553,32 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
    * the setup wizard or the main download interface.
    */
   isReady: () => {
-    const { python, gamdl } = get();
-    return !!(python?.installed && gamdl?.installed);
+    const { python, gamdl, tools } = get();
+    if (!python?.installed || !gamdl?.installed) return false;
+    // Also require the tools MeedyaDL genuinely cannot download without
+    // (#1156). This used to check Python and GAMDL only, so if a package
+    // manager removed FFmpeg the light stayed green and the first sign of
+    // trouble was a download failing with a message that did not obviously
+    // mean "a tool is missing".
+    //
+    // Optional tools are excluded on purpose: rclone is only needed for
+    // uploading straight to cloud storage, and its absence should not make
+    // the whole app look broken.
+    //
+    // An empty list means the check has not run yet rather than that nothing
+    // is required, so it is not treated as a failure — the light simply
+    // reflects Python and GAMDL until the first check completes.
+    return tools.filter((t) => t.required).every((t) => t.installed);
+  },
+
+  missingRequirements: () => {
+    const { python, gamdl, tools } = get();
+    const missing: string[] = [];
+    if (!python?.installed) missing.push('Python');
+    if (!gamdl?.installed) missing.push('GAMDL');
+    for (const tool of tools) {
+      if (tool.required && !tool.installed) missing.push(tool.name);
+    }
+    return missing;
   },
 }));
