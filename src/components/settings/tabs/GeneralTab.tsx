@@ -44,6 +44,7 @@
  */
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
 // `loadSettings` action only (used by the import flow). All per-
@@ -78,7 +79,7 @@ import type {
 import { Toggle, FilePickerButton, Select, Button, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
-import { LOCALES } from '@/lib/i18n';
+import { LOCALES, isMachineAssisted } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
@@ -119,10 +120,22 @@ const THEME_OPTIONS = [
  *   actually ships translation files for. To add a new language: create
  *   the locale JSON file and add one entry to `LOCALES` — nothing here
  *   needs to change.
+ *
+ * For a language nobody has checked yet (`machineAssisted: true` in
+ * `LOCALES`), the row's own name is followed by a short qualifier written
+ * in that same language -- e.g. "Deutsch (automatische Übersetzung)" --
+ * so a German or French reader sees the caveat before they even pick it,
+ * not after. The qualifier text lives in `LOCALES.machineAssistedLabel`,
+ * not here, so this file never has to carry its own copy of it.
  */
 const UI_LANGUAGE_OPTIONS = [
   { value: 'auto', label: 'Auto (System)' },
-  ...LOCALES.map((locale) => ({ value: locale.code, label: locale.nativeName })),
+  ...LOCALES.map((locale) => ({
+    value: locale.code,
+    label: locale.machineAssisted
+      ? `${locale.nativeName} (${locale.machineAssistedLabel})`
+      : locale.nativeName,
+  })),
 ];
 
 /**
@@ -250,6 +263,15 @@ const LANGUAGE_OPTIONS = [
  * "controlled" form that reads from and writes to the Zustand store.
  */
 export function GeneralTab() {
+  // `i18n.language` is the language the app is ACTUALLY showing text in
+  // right now -- as opposed to `uiLanguage.value` below, which is just
+  // what the dropdown is set to and (per its own description text)
+  // "requires restart to take full effect". The machine-translation
+  // notice further down is about words the person is reading on THIS
+  // screen right now, so it has to follow the same live language, not
+  // the not-yet-applied dropdown choice.
+  const { t, i18n } = useTranslation();
+
   // Per-field Zustand bindings (audit v2 #6).
   const outputPath = useSettingsField('output_path');
   const themeOverride = useSettingsField('theme_override');
@@ -637,16 +659,35 @@ export function GeneralTab() {
           }
         />
 
-        <Select
-          label="Language"
-          description="Application display language (requires restart to take full effect)"
-          options={UI_LANGUAGE_OPTIONS}
-          value={uiLanguage.value || 'auto'}
-          onChange={(e) => {
-            const val = e.target.value;
-            uiLanguage.set(val === 'auto' ? '' : val);
-          }}
-        />
+        <div className="space-y-1.5">
+          <Select
+            label="Language"
+            description="Application display language (requires restart to take full effect)"
+            options={UI_LANGUAGE_OPTIONS}
+            value={uiLanguage.value || 'auto'}
+            onChange={(e) => {
+              const val = e.target.value;
+              uiLanguage.set(val === 'auto' ? '' : val);
+            }}
+          />
+
+          {/*
+           * German and French were translated by a machine and have not
+           * been read through by a person who speaks the language. Rather
+           * than let a translation nobody has checked quietly pass as
+           * equivalent to one a person reviewed, we say so plainly right
+           * here -- not to alarm anyone, just so a reader knows to treat
+           * odd-sounding wording as "not checked yet" rather than "the app
+           * is broken". Only shown while the app is actually displaying
+           * one of those languages (see the `i18n.language` comment on
+           * the hook above).
+           */}
+          {isMachineAssisted(i18n.language) && (
+            <p className="text-xs text-content-tertiary">
+              {t('settings.language.machineAssistedNote')}
+            </p>
+          )}
+        </div>
       </SettingsSection>
 
       {/* Section: Preferences */}
