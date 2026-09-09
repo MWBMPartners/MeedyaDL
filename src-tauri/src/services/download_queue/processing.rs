@@ -3535,19 +3535,22 @@ pub fn process_queue(
                                 drop(q);
                             }
 
-                            // Step 6c (#295 Phase A): Odesli cross-platform URL
-                            // lookup. Opt-in via `odesli_lookup_enabled`. The
-                            // call is rate-limited at ~1.1 s between requests
-                            // (well below the 10 req/min free-tier cap) by
-                            // `odesli_service`'s per-process limiter, so the
-                            // wait time is bounded regardless of how many
-                            // albums are enriching in parallel. Result is
-                            // threaded into `write_manifest` below.
+                            // Step 6c (#295): ask song.link where else this
+                            // album is available. Opt-in via
+                            // `odesli_lookup_enabled`. `lookup()` answers from
+                            // the saved answers on disk when it can; otherwise
+                            // it paces itself (6.5 seconds between requests
+                            // without a key, 1.1 seconds with one) so a long
+                            // queue never trips song.link's limit. Nothing here
+                            // can fail the download: every problem becomes a log
+                            // line and no links.
                             //
-                            // Skipped silently on:
-                            //   - feature toggle off
-                            //   - empty URL list (defensive)
-                            //   - API miss / network failure (logged at debug)
+                            // Two problems go to the activity log because only
+                            // the user can fix them — song.link turning away
+                            // requests that carry no key (Odesli closed free
+                            // public access in 2026), and song.link rejecting
+                            // the key. Everything else (no matches, network
+                            // trouble) stays in the debug log.
                             let cross_platform_urls = if enrich_settings.odesli_lookup_enabled
                                 && !enrich_shutdown.is_triggered()
                             {
@@ -3558,8 +3561,11 @@ pub fn process_queue(
                                 if source_url.is_empty() {
                                     None
                                 } else {
+                                    let odesli_cache_path =
+                                        crate::utils::platform::get_app_data_dir(&enrich_app)
+                                            .join(crate::services::odesli_service::CACHE_FILENAME);
                                     set_label(
-                                        "Odesli: looking up cross-platform URLs…",
+                                        "song.link: looking up links on other services…",
                                         ProgressStage::Finalising.weight(),
                                     );
                                     let key = if enrich_settings.odesli_api_key.is_empty() {
@@ -3567,9 +3573,10 @@ pub fn process_queue(
                                     } else {
                                         Some(enrich_settings.odesli_api_key.as_str())
                                     };
-                                    match crate::services::odesli_service::fetch_links(
+                                    match crate::services::odesli_service::lookup(
                                         &source_url,
                                         key,
+                                        Some(&odesli_cache_path),
                                     )
                                     .await
                                     {
@@ -3578,7 +3585,7 @@ pub fn process_queue(
                                                 &enrich_app,
                                                 &enrich_dl_id,
                                                 &format!(
-                                                    "Odesli: discovered {} cross-platform URL(s)",
+                                                    "song.link: found links on {} other service(s)",
                                                     urls.len()
                                                 ),
                                             );
@@ -3586,14 +3593,28 @@ pub fn process_queue(
                                         }
                                         Ok(_) => {
                                             log::debug!(
-                                                "Odesli: no cross-platform matches for {source_url}"
+                                                "song.link: no links found for {source_url}"
                                             );
                                             None
                                         }
                                         Err(e) => {
-                                            log::debug!(
-                                                "Odesli lookup failed for {source_url}: {e}"
-                                            );
+                                            // Only the user can add a key or
+                                            // correct a wrong one, so those two
+                                            // get said out loud in the activity
+                                            // log. Anything else would just be
+                                            // noise on a screen they cannot act
+                                            // on.
+                                            if e.is_user_actionable() {
+                                                emit_download_log(
+                                                    &enrich_app,
+                                                    &enrich_dl_id,
+                                                    &format!("song.link: {e}"),
+                                                );
+                                            } else {
+                                                log::debug!(
+                                                    "song.link lookup failed for {source_url}: {e}"
+                                                );
+                                            }
                                             None
                                         }
                                     }
@@ -3601,6 +3622,43 @@ pub fn process_queue(
                             } else {
                                 None
                             };
+
+                            // Step 6d (#295): write the links into the audio
+                            // files, one `MeedyaMeta:<Service>Url` tag per
+                            // service, so tag editors like MusicBrainz Picard
+                            // and beets can show them. Uses the same per-file
+                            // locks as the fingerprinting and loudness stages.
+                            // Both have finished by the time we get here, so
+                            // there is nothing to collide with today — but
+                            // taking the lock keeps this correct if a future
+                            // stage ever runs alongside it, and it costs
+                            // almost nothing. A file that cannot be written is
+                            // skipped; the download never fails here.
+                            if let Some(urls) = cross_platform_urls.as_ref() {
+                                if !enrich_shutdown.is_triggered() {
+                                    set_label(
+                                        "song.link: writing links into files…",
+                                        ProgressStage::Finalising.weight(),
+                                    );
+                                    let written =
+                                        crate::services::odesli_service::write_url_atoms(
+                                            &album_dir,
+                                            urls,
+                                            Some(&enrich_file_locks),
+                                            || enrich_shutdown.is_triggered(),
+                                        )
+                                        .await;
+                                    if written > 0 {
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!(
+                                                "song.link: wrote links to other services into {written} file(s)"
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
 
                             // Write/update manifest.meedyadl in the album folder.
                             // Records the source URL and per-track metadata so users
