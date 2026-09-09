@@ -2016,6 +2016,10 @@ pub fn process_queue(
                                             // link would be threaded in once Spotify downloads
                                             // reach the enrichment pipeline.
                                             spotify_url: None,
+                                            // The release barcode, when Apple Music supplied
+                                            // one. Lets other platforms be asked about this
+                                            // exact release rather than searched by name.
+                                            upc: metadata.upc.as_deref(),
                                         };
                                     if let Some(used) =
                                         crate::services::best_cover_art_service::upgrade_cover_if_better(
