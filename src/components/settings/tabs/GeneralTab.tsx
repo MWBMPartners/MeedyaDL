@@ -78,6 +78,7 @@ import type {
 import { Toggle, FilePickerButton, Select, Button, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
+import { LOCALES } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
@@ -113,15 +114,15 @@ const THEME_OPTIONS = [
  *
  * - 'auto': Detect from OS locale (default). Internally stored as `""`
  *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
- * - Other codes map to `public/locales/{code}/translation.json` files.
- *
- * To add a new language: create the locale JSON file, then add an entry here.
+ * - Every other row comes straight from `LOCALES` in `src/lib/i18n.ts`, so
+ *   this dropdown can never fall out of step with the languages the app
+ *   actually ships translation files for. To add a new language: create
+ *   the locale JSON file and add one entry to `LOCALES` — nothing here
+ *   needs to change.
  */
 const UI_LANGUAGE_OPTIONS = [
   { value: 'auto', label: 'Auto (System)' },
-  { value: 'en', label: 'English' },
-  { value: 'de', label: 'Deutsch' },
-  { value: 'fr', label: 'Français' },
+  ...LOCALES.map((locale) => ({ value: locale.code, label: locale.nativeName })),
 ];
 
 /**
