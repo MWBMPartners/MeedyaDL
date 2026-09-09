@@ -80,6 +80,16 @@ import { ProgressBar, ContextMenu, ErrorMessageDisplay, StatusPill } from '@/com
 import type { ContextMenuItem } from '@/components/common';
 
 /**
+ * Opening a folder or a file, with a message when it does not work.
+ *
+ * These are plain functions rather than a store hook on purpose: this
+ * component is presentational and does not read stores directly. The
+ * helpers reach the toast function themselves, the same way
+ * `withErrorToast` does.
+ */
+import { openContainingFolder, openDownloadedFile } from '@/lib/openPath';
+
+/**
  * Type imports for queue item data and download state.
  * @see QueueItemStatus in @/types/index.ts  -- full shape of a queue item.
  * @see DownloadState in @/types/index.ts    -- 'queued' | 'downloading' | ... union.
@@ -385,24 +395,11 @@ function QueueItemComponent({
    */
   const handleOpenFolder = async () => {
     if (!item.output_path) return;
-    try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      if (item.output_is_directory) {
-        // Path is already a directory (album/playlist) — open it directly
-        await open(item.output_path);
-      } else {
-        /*
-         * Extract the parent directory path from the full file path.
-         * Example: '/Users/me/Music/Artist/Album/01 Track.m4a'
-         *       -> '/Users/me/Music/Artist/Album'
-         */
-        const sep = item.output_path.includes('\\') ? '\\' : '/';
-        const parentDir = item.output_path.substring(0, item.output_path.lastIndexOf(sep));
-        await open(parentDir);
-      }
-    } catch {
-      /* Shell API unavailable (running outside Tauri) -- silently ignore */
-    }
+    // Album and playlist downloads record the folder itself; single files
+    // record the file, so the helper strips the last part for those. If it
+    // cannot open, it tells the user why rather than doing nothing — which
+    // is what used to happen whenever a folder had been moved or deleted.
+    await openContainingFolder(item.output_path, item.output_is_directory === true);
   };
 
   /**
@@ -414,12 +411,7 @@ function QueueItemComponent({
    */
   const handleOpenFile = async () => {
     if (!item.output_path) return;
-    try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      await open(item.output_path);
-    } catch {
-      /* Shell API unavailable (running outside Tauri) -- silently ignore */
-    }
+    await openDownloadedFile(item.output_path);
   };
 
   /**

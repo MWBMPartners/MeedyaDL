@@ -36,6 +36,7 @@ import {
   resolveRevealPath,
 } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { openContainingFolder } from '@/lib/openPath';
 
 import type { HistoryEntry } from '@/types';
 
@@ -153,19 +154,25 @@ export function HistoryPage() {
    * rather than leaving the button dead.
    */
   const handleOpenFolder = useCallback(async (filePath: string) => {
+    // Ask the backend which folder to show. It looks at the path on disk,
+    // so it gets this right for both shapes. If that call fails, fall back
+    // to stripping the last part of the path, which is what this did
+    // before the backend command existed — imperfect for album downloads,
+    // but better than giving up.
+    let target = filePath;
+    let targetIsFolder = true;
     try {
-      const { open } = await import('@tauri-apps/plugin-shell');
-      let path: string;
-      try {
-        path = await resolveRevealPath(filePath);
-      } catch (resolveErr) {
-        console.error('Failed to resolve reveal path, falling back to regex strip:', resolveErr);
-        path = filePath.replace(/[/\\][^/\\]+$/, '');
-      }
-      await open(path);
-    } catch (err) {
-      console.error('Failed to open folder:', err);
+      target = await resolveRevealPath(filePath);
+    } catch (resolveErr) {
+      // `target` already holds `filePath`, so only the flag changes: treat it
+      // as a file path so the helper strips the last part to get the folder.
+      console.error('Could not work out which folder to show, falling back:', resolveErr);
+      targetIsFolder = false;
     }
+    // Opens, and explains itself if it cannot — previously this failed in
+    // complete silence, so a folder the user had since moved or deleted
+    // produced a button that appeared to do nothing at all.
+    await openContainingFolder(target, targetIsFolder);
   }, []);
 
   /**
