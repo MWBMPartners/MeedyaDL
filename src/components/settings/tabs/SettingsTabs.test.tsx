@@ -33,6 +33,12 @@ import { AdvancedTab } from './AdvancedTab';
 import { MetadataTab } from './MetadataTab';
 import { useSettingsStore } from '@/stores/settingsStore';
 
+// Test-only helper that switches the shared i18next instance to German or
+// French without a real network fetch (see src/testing/i18n.ts). Used by
+// the "GeneralTab language notice" tests below to check what the screen
+// looks like once the app is actually displaying one of those languages.
+import { useTestLanguage } from '@/testing/i18n';
+
 /**
  * Mock lucide-react to avoid importing the full SVG icon library in tests.
  *
@@ -281,6 +287,79 @@ describe('GeneralTab', () => {
     render(<GeneralTab />);
 
     expect(screen.queryByLabelText(/check interval/i)).not.toBeInTheDocument();
+  });
+
+  // ===========================================================================
+  // Language dropdown -- machine-translation disclosure (#111)
+  // ===========================================================================
+
+  /**
+   * German and French were translated by a machine and have not been
+   * read through by a person who speaks the language. The dropdown says
+   * so directly on the option itself -- the option text comes straight
+   * from `LOCALES` in `src/lib/i18n.ts` (`nativeName` + the language's
+   * own `machineAssistedLabel`), so this test is really checking that
+   * GeneralTab builds its options from that data instead of a
+   * hand-written label that could drift out of sync with it.
+   */
+  it('shows the machine-translation qualifier on the German and French options, but not on English', () => {
+    render(<GeneralTab />);
+
+    const select = screen.getByLabelText('Language') as HTMLSelectElement;
+    const options = Array.from(select.options);
+
+    expect(options.find((o) => o.value === 'de')?.textContent).toBe(
+      'Deutsch (automatische Übersetzung)',
+    );
+    expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
+      'Français (traduction automatique)',
+    );
+    expect(options.find((o) => o.value === 'en')?.textContent).toBe('English');
+  });
+
+  /**
+   * The note below the dropdown is not shown at all while the app is
+   * displaying English -- there is nothing to disclaim about the
+   * original wording.
+   */
+  it('does not show the machine-assisted note while the app is displaying English', () => {
+    render(<GeneralTab />);
+
+    expect(
+      screen.queryByText(/was made by a machine/i),
+    ).not.toBeInTheDocument();
+  });
+
+  /**
+   * Once the app is actually showing German (not just "German is picked
+   * in the dropdown" -- see the comment on GeneralTab's `i18n.language`
+   * hook usage for why those are different moments), the note appears,
+   * written in German, telling the reader plainly that the translation
+   * hasn't been checked by a person yet.
+   */
+  it('shows the machine-assisted note, in German, once the app is displaying German', async () => {
+    await useTestLanguage('de');
+    try {
+      render(<GeneralTab />);
+      expect(
+        screen.getByText(/wurde maschinell erstellt/),
+      ).toBeInTheDocument();
+    } finally {
+      await useTestLanguage('en');
+    }
+  });
+
+  /** Same check, for French. */
+  it('shows the machine-assisted note, in French, once the app is displaying French', async () => {
+    await useTestLanguage('fr');
+    try {
+      render(<GeneralTab />);
+      expect(
+        screen.getByText(/réalisée par une machine/),
+      ).toBeInTheDocument();
+    } finally {
+      await useTestLanguage('en');
+    }
   });
 });
 

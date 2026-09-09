@@ -22,6 +22,7 @@ import {
   HELP_TOPICS,
   prepareHelpMarkdown,
   buildAboutBuildSection,
+  loadTranslatedHelpPages,
 } from './helpTopics';
 
 /**
@@ -261,6 +262,83 @@ describe('buildAboutBuildSection', () => {
     expect(result).toContain(parts.acknowledgementsMd);
     expect(result).toContain(parts.thirdPartyLicencesMd);
     expect(result).toContain(parts.componentVersionsTable);
+  });
+});
+
+describe('loadTranslatedHelpPages (#111)', () => {
+  /**
+   * English is not a translation of anything -- it's the original text
+   * every other language is a translation OF, and it's already sitting
+   * in `HELP_TOPICS` from the eager glob. Asking for "English's
+   * translated pages" should come back empty rather than re-reading the
+   * same files a second time or throwing.
+   */
+  it('returns nothing for English', async () => {
+    expect(await loadTranslatedHelpPages('en')).toEqual({});
+  });
+
+  /**
+   * `src/lib/i18n.ts` narrows a full locale tag like "de-DE" down to the
+   * bare "de" it keys its resource files by. This proves
+   * `loadTranslatedHelpPages` goes through that exact same rule (via
+   * `baseLanguageOf`) rather than a second, hand-rolled copy of it that
+   * could quietly disagree -- if it didn't, a German OS/browser
+   * reporting "de-DE" would silently get no translated help at all.
+   */
+  it('loads the German keyboard-shortcuts page for "de-DE", proving the de-DE -> de narrowing works', async () => {
+    const pages = await loadTranslatedHelpPages('de-DE');
+    expect(pages['keyboard-shortcuts']).toContain('# Tastaturkürzel');
+  });
+
+  it('loads the French keyboard-shortcuts page for "fr"', async () => {
+    const pages = await loadTranslatedHelpPages('fr');
+    expect(pages['keyboard-shortcuts']).toContain('# Raccourcis clavier');
+  });
+});
+
+describe('translated keyboard-shortcuts pages keep the same structure as English (#111)', () => {
+  /** Every `# `/`## `/etc. heading line in a Markdown string. */
+  function headingsIn(markdown: string): string[] {
+    return markdown.match(/^#{1,6} .+$/gm) ?? [];
+  }
+
+  /**
+   * Every real table row in a Markdown string -- i.e. every `| ... |`
+   * line EXCEPT the `|---|---|` separator row every Markdown table has
+   * directly under its header. Counting the separator row would make
+   * every table look like it has one extra row, and that count would be
+   * the same for every table regardless of how many real rows it has,
+   * which would hide exactly the kind of mistake this test exists to
+   * catch.
+   */
+  function tableRowsIn(markdown: string): string[] {
+    return (markdown.match(/^\|.+\|$/gm) ?? []).filter(
+      (row) => !/^\|[\s:-]+\|[\s:-]+\|$/.test(row)
+    );
+  }
+
+  /**
+   * This is the actual regression test the task description asks for:
+   * if a translator's pass over `keyboard-shortcuts.md` quietly dropped
+   * a heading or a table row -- a whole shortcut nobody meant to
+   * remove -- the wording would still look plausible on its own, but
+   * the shape of the page would no longer match the English original it
+   * claims to be a translation of. Comparing counts, not wording, is
+   * what catches that: a missing row changes the count regardless of
+   * what language the surrounding text is in.
+   */
+  it('has the same number of headings and table rows in German and French as in English', async () => {
+    const english = HELP_TOPICS.find((topic) => topic.id === 'keyboard-shortcuts')!.content;
+    const german = (await loadTranslatedHelpPages('de'))['keyboard-shortcuts'];
+    const french = (await loadTranslatedHelpPages('fr'))['keyboard-shortcuts'];
+
+    expect(german, 'German keyboard-shortcuts.md failed to load').toBeDefined();
+    expect(french, 'French keyboard-shortcuts.md failed to load').toBeDefined();
+
+    expect(headingsIn(german).length).toBe(headingsIn(english).length);
+    expect(headingsIn(french).length).toBe(headingsIn(english).length);
+    expect(tableRowsIn(german).length).toBe(tableRowsIn(english).length);
+    expect(tableRowsIn(french).length).toBe(tableRowsIn(english).length);
   });
 });
 
