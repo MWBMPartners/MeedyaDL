@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :book: MeedyaDL Help Center
+# MeedyaDL Help Center
 
 Welcome to the **MeedyaDL** help documentation. This guide covers everything you need to know about using MeedyaDL, a multiplatform media downloader.
 
@@ -14,33 +14,38 @@ Welcome to the **MeedyaDL** help documentation. This guide covers everything you
 
 ### Getting Up and Running
 
-- [:rocket: Getting Started](getting-started.md) -- First-time setup, system requirements, and initial configuration to get MeedyaDL running on your machine.
+- [Getting Started](getting-started.md) -- First-time setup, system requirements, and initial configuration to get MeedyaDL running on your machine.
 
 ### Core Features
 
-- [:musical_note: Downloading Music](downloading-music.md) -- How to download songs, albums, and playlists from Apple Music.
-- [:clapper: Downloading Videos](downloading-videos.md) -- How to download music videos and post videos, including quality options.
-- [:pencil2: Lyrics and Metadata](lyrics-and-metadata.md) -- Working with LRC, SRT, and TTML lyric formats, and embedding metadata into downloaded files.
-- [:bookmark_tabs: Metadata Mapping Reference](metadata-mapping.md) -- Canonical reference for every tag MeedyaDL writes: standard MP4 atoms, Apple proprietary IDs, iTunes freeform, MeedyaMeta freeform, per-format support, and API source mapping.
+- [Downloading Music](downloading-music.md) -- How to download songs, albums, and playlists from Apple Music.
+- [Downloading Videos](downloading-videos.md) -- How to download music videos and post videos, including quality options.
+- [Lyrics and Metadata](lyrics-and-metadata.md) -- Working with LRC, SRT, and TTML lyric formats, and embedding metadata into downloaded files.
+- [Metadata Mapping Reference](metadata-mapping.md) -- Canonical reference for every tag MeedyaDL writes: standard MP4 atoms, Apple proprietary IDs, iTunes freeform, MeedyaMeta freeform, per-format support, and API source mapping.
 
 ### Configuration and Quality
 
-- [:control_knobs: Quality Settings](quality-settings.md) -- Understanding audio codecs, video codecs, and format differences.
-- [:arrows_counterclockwise: Fallback Quality](fallback-quality.md) -- How fallback quality chains work and how to configure priority orders.
-- [:cookie: Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
-- [:package: Wrapper Authentication](wrapper.md) -- Optional wrapper-v1 (GAMDL ≤ 3.5.x) and wrapper-v2 (GAMDL 3.6+) for ALAC / Atmos / AC3 / spatial-audio downloads.
-- [:film_frames: Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
+- [Quality Settings](quality-settings.md) -- Understanding audio codecs, video codecs, and format differences.
+- [Fallback Quality](fallback-quality.md) -- How fallback quality chains work and how to configure priority orders.
+- [Cookie Management](cookie-management.md) -- Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
+- [Wrapper Authentication](wrapper.md) -- Optional wrapper-v1 (GAMDL ≤ 3.5.x) and wrapper-v2 (GAMDL 3.6+) for ALAC / Atmos / AC3 / spatial-audio downloads.
+- [Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
+- [Audio Codecs](audio-codecs.md) -- What ALAC, Dolby Atmos, AC3 and the AAC variants actually mean, and which one to pick.
+- [Settings](settings.md) -- What each tab in the Settings screen controls.
+- [Tools](tools.md) -- The external programs MeedyaDL installs for itself, and how to manage them.
 
 ### Reference
 
-- [:globe_with_meridians: Supported Services](supported-services.md) -- Apple Music, Spotify, YouTube, BBC iPlayer — what's available and what's coming.
-- [:twisted_rightwards_arrows: Release Channels](release-channels.md) -- Alpha, Beta, RC, and Stable channels, and how the in-app update guard keeps you on your selected tier.
-- [:keyboard: Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
+- [Supported Services](supported-services.md) -- Apple Music, Spotify, YouTube, BBC iPlayer — what's available and what's coming.
+- [Release Channels](release-channels.md) -- Alpha, Beta, RC, and Stable channels, and how the in-app update guard keeps you on your selected tier.
+- [Keyboard Shortcuts](keyboard-shortcuts.md) -- Navigation and action shortcuts for power users.
 
 ### Support
 
-- [:wrench: Troubleshooting](troubleshooting.md) -- Common errors, their solutions, and where to find log files.
-- [:question: FAQ](faq.md) -- Frequently asked questions about MeedyaDL.
+- [Troubleshooting](troubleshooting.md) -- Common errors, their solutions, and where to find log files.
+- [FAQ](faq.md) -- Frequently asked questions about MeedyaDL.
+- [Disclaimer](disclaimer.md) -- What MeedyaDL does and does not promise, and what is your responsibility.
+- [About](about.md) -- What MeedyaDL is, who made it, its licence, and where to find it.
 
 ---
 

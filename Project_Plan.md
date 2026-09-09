@@ -208,7 +208,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
 - ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
-- ✅ **In-App Help System** - Markdown renderer, search, help topics (16 help pages exist today, in `help/*.md`; the in-app viewer currently shows 15 of them as its own topics — see the note under Phase 6 about this drift)
+- ✅ **In-App Help System** - Markdown renderer, search, help topics (21 files in `help/*.md`; the in-app viewer reads and shows 20 of them — every one except `index.md`, the GitHub-only table of contents — with no separate hand-typed copy)
 - ✅ **System Tray** - Minimize to tray, download count badge
 - ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
@@ -222,7 +222,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ SVG icon set (app icon + UI icons)
 - ✅ Platform testing (macOS, Windows, Linux)
-- ✅ Complete help documentation (16 pages in `help/*.md`)
+- ✅ Complete help documentation (21 files in `help/*.md`)
 - ✅ Release workflow verification (release-please v4)
 - ✅ README with badges and project structure
 

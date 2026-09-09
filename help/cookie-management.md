@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :cookie: Cookie Management
+# Cookie Management
 
 This guide explains how to set up Apple Music authentication in MeedyaDL using cookies, including the built-in login window, browser auto-import, manual cookie export, and troubleshooting common cookie-related issues.
 

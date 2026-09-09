@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :question: Frequently Asked Questions
+# Frequently Asked Questions
 
 Answers to the most commonly asked questions about MeedyaDL.
 

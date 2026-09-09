@@ -75,7 +75,7 @@
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
 - **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
 - **First-run setup wizard** — installs Python and GAMDL automatically; reuses tools you already installed with a package manager (Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap) in place instead of downloading duplicates — and can update them through that same package manager from the Updates page. If a reused system Python is later removed or relocated (which a `brew upgrade python` can sometimes do) and that leaves MeedyaDL's Python environment unable to start, the wizard explains what happened and offers a one-click rebuild — MeedyaDL's own bundled Python is unaffected
-- **Built-in help documentation** — 15 topics with search, accessible in-app
+- **Built-in help documentation** — 20 topics with search, accessible in-app
 - **Feature availability notices** — if we ever have to temporarily pause a feature (for example while an upstream service change is investigated), the app shows a clear in-app notice explaining that the pause is deliberate and temporary — a feature never just silently disappears. If the paused feature is a whole download service, MeedyaDL declines new downloads for it with an explanation while it's paused — anything already downloading finishes normally, and other services are unaffected. If MeedyaDL can't check availability (for example, offline), it simply carries on with the last known state — being offline never turns anything off, and a fresh install with no internet runs with everything enabled.
 - **System tray support** for background operation
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
@@ -485,7 +485,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ MusicBrainz video discovery with 3-tier identifier lookup (URL → ISRC → AcoustID recording ID; ISRC is the live tier, the others are latent) plus a guarded text-search fallback tier for identifier misses
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
-- ✅ In-app help viewer with 15 topics and search
+- ✅ In-app help viewer with 20 topics and search
 - ✅ i18n infrastructure (i18next, OS language detection, English)
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
 - ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)

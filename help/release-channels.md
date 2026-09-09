@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :twisted_rightwards_arrows: Release Channels
+# Release Channels
 
 MeedyaDL publishes builds on four release channels, ordered from **least stable** to **most stable**. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
 

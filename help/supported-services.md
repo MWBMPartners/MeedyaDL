@@ -98,6 +98,16 @@ If you paste a URL for a service that isn't yet available, MeedyaDL will show a 
 
 ---
 
+## Engine Fallback System
+
+Some services support multiple download engines. When the primary engine fails with a tool error (binary missing, crash, or unsupported format), MeedyaDL automatically tries the next engine in the priority order.
+
+**Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
+
+The engine priority for each service is defined in `engines.toml` and can be customised in Settings.
+
+---
+
 ## When a Service or Feature Is Temporarily Paused
 
 Very occasionally we may need to pause a service or feature for all users at short notice — for example, while we investigate a change on the provider's side. When that happens, MeedyaDL shows an in-app notice so the change reads as what it is: deliberate and temporary, not a fault in your installation. A paused service won't accept new downloads until it returns — anything already downloading finishes normally, and other services are unaffected. The feature comes back automatically once it is re-enabled — there is nothing you need to do. See the Troubleshooting topic ("A Feature Says It Is Temporarily Unavailable") for details.

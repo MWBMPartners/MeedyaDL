@@ -4,7 +4,7 @@
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
-# :film_frames: Animated Artwork
+# Animated Artwork
 
 MeedyaDL can automatically download **animated cover art** (motion artwork) from Apple Music when it's available. These are short looping videos that Apple uses as album artwork in Apple Music's "Now Playing" screen.
 
@@ -79,7 +79,7 @@ This is the most critical step. Apple generates a private key file (`.p8` format
 3. Save the `.p8` file somewhere safe and memorable (e.g., a dedicated folder like `~/Documents/MeedyaDL Keys/`)
 4. Note the **Key ID** shown on this page -- it is a 10-character alphanumeric string (e.g., `ABC1234DEF`). You can also find it later on the Keys list page
 
-> :warning: **Apple only lets you download the `.p8` file once.** If you navigate away from this page without downloading, or if you lose the file, you cannot re-download it. You would need to revoke the key and create a new one (Step 2 again).
+> **Warning:** Apple only lets you download the `.p8` file once. If you navigate away from this page without downloading, or if you lose the file, you cannot re-download it. You would need to revoke the key and create a new one (Step 2 again).
 
 ### Step 4: Find Your Team ID
 
