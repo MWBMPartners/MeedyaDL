@@ -259,10 +259,20 @@ pub fn process_queue(
                         emit_app_log(&app, &format!("Pre-flight warning: {}", w.message));
                         let _ = app.emit("preflight-warning", &w);
                     } else {
-                        // Check passed — dismiss any stale toast for this check type
+                        // Check passed — dismiss any stale toast for this check.
+                        //
+                        // The name must be serialised, not printed. The warning
+                        // event serialises the same value, and the type asks
+                        // serde for lower_snake_case, so a warning arrives as
+                        // "internet" and the screen keys its message on that.
+                        // Printing the value instead gave "Internet", with a
+                        // capital letter, so the two never matched and NO
+                        // pre-flight warning has ever cleared itself. A message
+                        // saying there is no internet stayed on screen after
+                        // the connection came back, for every check, always.
                         let _ = app.emit(
                             "preflight-cleared",
-                            &serde_json::json!({ "check": format!("{check:?}") }),
+                            &serde_json::json!({ "check": check }),
                         );
                     }
                 }
