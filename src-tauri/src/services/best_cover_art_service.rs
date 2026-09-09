@@ -72,6 +72,11 @@ pub enum CoverArtSource {
     AppleMusic,
     /// Spotify public oEmbed endpoint (`open.spotify.com/oembed`).
     Spotify,
+    /// Deezer's public album lookup, matched on the release barcode.
+    ///
+    /// No account or key needed. Matched on the barcode ONLY, never on a
+    /// name search — see [`fetch_deezer_candidate`] for why that matters.
+    Deezer,
 }
 
 impl CoverArtSource {
@@ -85,6 +90,7 @@ impl CoverArtSource {
         match self {
             Self::AppleMusic => 0,
             Self::Spotify => 1,
+            Self::Deezer => 2,
         }
     }
 
@@ -94,6 +100,7 @@ impl CoverArtSource {
         match self {
             Self::AppleMusic => "apple-music",
             Self::Spotify => "spotify",
+            Self::Deezer => "deezer",
         }
     }
 }
@@ -143,6 +150,11 @@ pub struct BestCoverArtRequest<'a> {
     /// Spotify album URL (e.g. `https://open.spotify.com/album/ABC123`),
     /// if available.
     pub spotify_url: Option<&'a str>,
+    /// The release barcode, if the album metadata carried one.
+    ///
+    /// Used to look the album up on other platforms **exactly**, rather than
+    /// by searching for its name. See [`fetch_deezer_candidate`].
+    pub upc: Option<&'a str>,
 }
 
 // ============================================================
@@ -327,6 +339,93 @@ fn urlencode(s: &str) -> String {
 /// This function is the integration point the queue layer calls in
 /// M9-4. Today nothing in MeedyaDL calls it yet — that's deliberate
 /// (see module docs on the integration-point boundary).
+// ============================================================
+// Deezer adapter (public album lookup, by barcode)
+// ============================================================
+
+/// Ask Deezer for this album's cover, matched on the release barcode.
+///
+/// **Matched on the barcode only, never by searching for the album's name.**
+/// That restriction is the whole design. Searching by name finds
+/// *something* for almost any input — a live album, a tribute act, a
+/// compilation with the same title, a different pressing with different art.
+/// Silently embedding the wrong cover into somebody's music is far worse than
+/// leaving the one they already have, and they would have no reason to suspect
+/// it. A barcode either matches the same release or it does not.
+///
+/// Needs no account and no key, so it works for everyone with nothing to set
+/// up.
+///
+/// # Arguments
+///
+/// * `upc` -- The release barcode from the album metadata.
+///
+/// # Returns
+///
+/// A candidate, or `None` when Deezer does not know this barcode, answers
+/// unexpectedly, or offers no usable picture. Never an error the caller has to
+/// handle — a platform being unhelpful is normal and must not disturb a
+/// download that already succeeded.
+pub async fn fetch_deezer_candidate(upc: &str) -> Result<Option<CoverArtCandidate>, String> {
+    let trimmed = upc.trim();
+    // Barcodes are digits. Refusing anything else keeps arbitrary text out of
+    // a URL, and a barcode that is not digits would not match anything anyway.
+    if trimmed.is_empty() || !trimmed.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(None);
+    }
+
+    let client = http_client::build_simple(10)?;
+    let url = format!("https://api.deezer.com/album/upc:{trimmed}");
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Deezer request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("Deezer response wasn't JSON: {e}"))?;
+
+    Ok(parse_deezer_album_json(&json))
+}
+
+/// Reads Deezer's answer, kept separate from the network call so it can be
+/// tested against real response shapes without one.
+///
+/// # Arguments
+///
+/// * `json` -- Deezer's response body.
+fn parse_deezer_album_json(json: &serde_json::Value) -> Option<CoverArtCandidate> {
+    // Deezer answers a barcode it does not know with an error object rather
+    // than an HTTP failure, so success alone is not enough to go on.
+    if json.get("error").is_some() {
+        return None;
+    }
+
+    // `cover_xl` is the largest Deezer publishes, and is 1000x1000 for every
+    // album we have seen. The size is not stated in the response, so it is
+    // recorded as that known figure rather than guessed at from the picture —
+    // and the caller re-measures what actually arrives before keeping it, so a
+    // wrong assumption here cannot cause a downgrade.
+    let url = json.get("cover_xl")?.as_str()?;
+    if url.is_empty() {
+        return None;
+    }
+
+    Some(CoverArtCandidate {
+        source: CoverArtSource::Deezer,
+        url: url.to_string(),
+        width: 1000,
+        height: 1000,
+    })
+}
+
 pub async fn find_best_cover_art(
     req: &BestCoverArtRequest<'_>,
 ) -> Result<Option<CoverArtCandidate>, String> {
@@ -339,11 +438,20 @@ pub async fn find_best_cover_art(
         None => None,
     };
 
+    // Matched on the barcode, so it is either the same release or nothing.
+    let deezer = match req.upc {
+        Some(upc) => fetch_deezer_candidate(upc).await.unwrap_or(None),
+        None => None,
+    };
+
     let mut candidates = Vec::new();
     if let Some(c) = apple {
         candidates.push(c);
     }
     if let Some(c) = spotify {
+        candidates.push(c);
+    }
+    if let Some(c) = deezer {
         candidates.push(c);
     }
 
@@ -778,6 +886,74 @@ mod tests {
             crate::utils::image_info::read_image_info_from_file(&found).is_none(),
             "its size should not be readable, which is what makes us leave it alone"
         );
+    }
+
+    // ── Deezer, matched on the barcode only (#1159) ─────────────────────
+    //
+    // The barcode restriction is the whole design. Searching by name finds
+    // SOMETHING for almost any input — a live album, a tribute act, a
+    // compilation sharing a title. Silently embedding the wrong cover into
+    // somebody's music is far worse than leaving the one they have, and they
+    // would have no reason to suspect it.
+
+    #[test]
+    fn reads_a_deezer_album_answer() {
+        let json = serde_json::json!({
+            "id": 12345,
+            "title": "Some Album",
+            "cover_xl": "https://e-cdns-images.dzcdn.net/images/cover/abc/1000x1000-000000-80-0-0.jpg"
+        });
+        let c = parse_deezer_album_json(&json).expect("should read the answer");
+        assert_eq!(c.source, CoverArtSource::Deezer);
+        assert_eq!((c.width, c.height), (1000, 1000));
+        assert!(c.url.contains("1000x1000"));
+    }
+
+    #[test]
+    fn an_unknown_barcode_yields_nothing() {
+        // Deezer answers a barcode it does not know with an error object and
+        // an HTTP success, so the status alone is not enough to go on.
+        let json = serde_json::json!({
+            "error": { "type": "DataException", "message": "no data" }
+        });
+        assert!(parse_deezer_album_json(&json).is_none());
+    }
+
+    #[test]
+    fn an_answer_without_a_picture_yields_nothing() {
+        assert!(parse_deezer_album_json(&serde_json::json!({ "id": 1 })).is_none());
+        assert!(parse_deezer_album_json(&serde_json::json!({ "cover_xl": "" })).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_barcode_that_is_not_digits_is_refused_without_asking() {
+        // Keeps arbitrary text out of a URL, and such a barcode would not
+        // match anything anyway. No network call is made.
+        for bad in ["", "   ", "not-a-barcode", "0602445790098; DROP", "../../etc"] {
+            assert!(
+                fetch_deezer_candidate(bad).await.unwrap().is_none(),
+                "{bad:?} should be refused before any request"
+            );
+        }
+    }
+
+    #[test]
+    fn apple_music_still_wins_a_tie_against_the_newer_sources() {
+        // The order decides which file ends up embedded on a re-download, so
+        // it must stay stable as sources are added.
+        let apple = candidate(CoverArtSource::AppleMusic, 1000, 1000);
+        let deezer = candidate(CoverArtSource::Deezer, 1000, 1000);
+        let picked = pick_best(vec![deezer, apple.clone()]).unwrap();
+        assert_eq!(picked, apple);
+    }
+
+    #[test]
+    fn a_bigger_picture_still_beats_the_preferred_source() {
+        // Size decides first; the order only breaks ties.
+        let apple = candidate(CoverArtSource::AppleMusic, 600, 600);
+        let deezer = candidate(CoverArtSource::Deezer, 1000, 1000);
+        let picked = pick_best(vec![apple, deezer.clone()]).unwrap();
+        assert_eq!(picked, deezer);
     }
 
 }
