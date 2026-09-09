@@ -2443,6 +2443,38 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     // and everything else imports normally — the summary line tells the user
     // exactly how many were held back.
     //
+    // Refuse items whose links are not to a service we download from (#229).
+    //
+    // This was missing, and it mattered more than it looks. Pasting a link
+    // goes through `classify_batch_urls`, which checks the link is to a
+    // supported host AND drives two gates: the one that pauses a service
+    // across everybody, and the Spotify checks for permission, consent and
+    // the daily limit. Importing a queue file went straight past all of that
+    // and put the links in the queue.
+    //
+    // So a queue file — a plain JSON file somebody could be sent — could put
+    // any link into somebody's queue, and Spotify links could skip the checks
+    // that exist to stop an account being flagged.
+    //
+    // Items are skipped rather than the whole file refused, matching how the
+    // paused-service check just below behaves and for the same reason: an
+    // import is often somebody's archived queue from months ago, and losing
+    // all of it because one line is wrong helps nobody.
+    let before_host_check = items.len();
+    let items: Vec<_> = items
+        .into_iter()
+        .filter(|item| {
+            let ok = classify_batch_urls(&item.urls).is_ok();
+            if !ok {
+                log::info!(
+                    "Queue import: skipping an item — its link is not to a service we download from"
+                );
+            }
+            ok
+        })
+        .collect();
+    let unsupported_skipped = before_host_check - items.len();
+
     // Service is sniffed from each item's URLs (an `ExportedItem` carries
     // only URLs + option overrides); an unrecognised URL is left to the
     // existing downstream validation rather than being gated here.
@@ -2470,14 +2502,28 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     let paused_skipped = total_items - items.len();
 
     if items.is_empty() {
-        // Every item in the file belongs to a paused service. Returning an
-        // error (rather than Ok(0)) is what surfaces the reason to the user
-        // — an "imported 0 items" success would look like a corrupt file.
-        return Err(
+        // Nothing survived. Returning an error rather than a count of zero is
+        // what puts the reason in front of the user — an "imported 0 items"
+        // success reads as a broken file.
+        //
+        // Which reason matters: "wait and try again" and "this file is not
+        // for MeedyaDL" call for completely different things from the person
+        // reading it (#229).
+        return Err(if unsupported_skipped > 0 && paused_skipped == 0 {
+            "Nothing imported — none of the links in this file are to a service MeedyaDL \
+             downloads from. Check you picked the right file."
+                .to_string()
+        } else if paused_skipped > 0 && unsupported_skipped == 0 {
             "Nothing imported — every item in this file is for a download service that is \
              temporarily paused. It will come back automatically; try the import again then."
-                .to_string(),
-        );
+                .to_string()
+        } else {
+            format!(
+                "Nothing imported — {paused_skipped} item(s) are for a service that is \
+                 temporarily paused, and {unsupported_skipped} are not links to a service \
+                 MeedyaDL downloads from."
+            )
+        });
     }
 
     // Import items into the queue. The lock is acquired inline and
@@ -2504,9 +2550,18 @@ pub async fn import_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     } else {
         String::new()
     };
+    // Say so when links were refused, rather than letting the count quietly
+    // come up short and look like a broken file.
+    let unsupported_suffix = if unsupported_skipped > 0 {
+        format!(
+            " — {unsupported_skipped} item(s) skipped — not links to a service MeedyaDL downloads from"
+        )
+    } else {
+        String::new()
+    };
     emit_app_log(
         &app,
-        &format!("Imported {count} item(s) from {filename}{paused_suffix}"),
+        &format!("Imported {count} item(s) from {filename}{paused_suffix}{unsupported_suffix}"),
     );
 
     // Start processing the imported items if auto-start is enabled.
@@ -3655,4 +3710,51 @@ mod tests {
         assert!(!has_spotify);
         assert!(!has_apple_music);
     }
+    // ── A queue file cannot smuggle links past the checks (#229) ────────
+    //
+    // Pasting a link goes through `classify_batch_urls`, which checks the
+    // host AND drives two gates: pausing a service across everybody, and the
+    // Spotify checks for permission, consent and the daily limit. Importing a
+    // queue file went straight past all of it.
+    //
+    // These pin the classifier's behaviour on the shapes an import can carry,
+    // since that is now what the import relies on.
+
+    #[test]
+    fn an_imported_link_to_an_unsupported_host_is_refused() {
+        // A queue file is plain JSON that somebody could be sent.
+        assert!(classify_batch_urls(&["https://evil.example.com/x".to_string()]).is_err());
+    }
+
+    #[test]
+    fn an_imported_spotify_link_is_still_recognised_as_spotify() {
+        // It must reach the Spotify checks rather than slipping past them as
+        // something unclassified.
+        let (has_spotify, _) =
+            classify_batch_urls(&["https://open.spotify.com/album/abc".to_string()])
+                .expect("a Spotify link is a supported host");
+        assert!(has_spotify, "it must be recognised, or the Spotify checks never run");
+    }
+
+    #[test]
+    fn an_ordinary_imported_apple_music_link_is_accepted() {
+        // The common case must keep working — this is somebody's archived
+        // queue, and refusing it would be worse than the gap it closes.
+        let (_, has_apple) =
+            classify_batch_urls(&["https://music.apple.com/gb/album/x/1".to_string()])
+                .expect("Apple Music is a supported host");
+        assert!(has_apple);
+    }
+
+    #[test]
+    fn one_bad_link_in_an_item_refuses_that_item() {
+        // An item carries several links. If any is not to a supported
+        // service, the item is skipped rather than partly trusted.
+        let urls = vec![
+            "https://music.apple.com/gb/album/x/1".to_string(),
+            "https://evil.example.com/x".to_string(),
+        ];
+        assert!(classify_batch_urls(&urls).is_err());
+    }
+
 }
