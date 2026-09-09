@@ -37,6 +37,7 @@
  * @see src/types/index.ts for AppleMusicContentType and ParsedUrl definitions
  */
 import type { AppleMusicContentType, MediaServiceId, ParsedUrl } from '@/types';
+import { MEDIA_SERVICE_LABELS } from '@/types';
 
 /**
  * Parses an Apple Music URL and detects its content type.
@@ -405,4 +406,74 @@ export function parseSubmittableUrl(url: string): ParsedMediaUrl {
     return { ...parsed, isValid: false };
   }
   return parsed;
+}
+
+/**
+ * How a pasted line was judged, for the purpose of telling the user.
+ *
+ * Three outcomes, because two of them used to be reported as one and that
+ * was misleading (#1157). A link to YouTube is not "invalid" — it is a
+ * perfectly good link to a service MeedyaDL cannot download from yet. Saying
+ * "invalid" suggests the person made a mistake, and invites them to check a
+ * link that was fine all along.
+ *
+ * That has bitten this project before: Apple Music Classical links were
+ * rejected as invalid for a long time while being exactly the kind of link
+ * MeedyaDL was supposed to accept.
+ */
+export type SubmissionCheck =
+  /** MeedyaDL can download this now. */
+  | { kind: 'supported'; url: string; service: MediaServiceId }
+  /** A service we recognise, but cannot download from yet. */
+  | { kind: 'not-yet-supported'; url: string; service: MediaServiceId }
+  /** Not a link to anything we recognise. */
+  | { kind: 'unrecognised'; url: string };
+
+/**
+ * Decides what to tell the user about one pasted line.
+ *
+ * Separate from {@link parseSubmittableUrl}, which flattens the middle case
+ * into "not valid" and so cannot tell a recognised-but-unsupported service
+ * apart from a link to nowhere.
+ *
+ * @param url -- One line as the user typed or pasted it.
+ * @returns Which of the three cases it falls into.
+ */
+export function classifyForSubmission(url: string): SubmissionCheck {
+  const trimmed = url.trim();
+  const parsed = parseMediaUrl(trimmed);
+
+  if (parsed.isValid && parsed.service && SUBMITTABLE_SERVICES.includes(parsed.service)) {
+    return { kind: 'supported', url: parsed.url, service: parsed.service };
+  }
+
+  // A service we know the name of, even when the link itself did not parse
+  // fully — a YouTube link is still recognisably YouTube. Checked against the
+  // raw text so a link that fails our stricter per-service parsing still gets
+  // the more helpful message.
+  const service = parsed.service ?? detectService(trimmed);
+  if (service) {
+    return { kind: 'not-yet-supported', url: trimmed, service };
+  }
+
+  return { kind: 'unrecognised', url: trimmed };
+}
+
+/**
+ * A sentence explaining why a line cannot be downloaded.
+ *
+ * Deliberately does not use the word "invalid" for a service we recognise.
+ *
+ * @param check -- The result of {@link classifyForSubmission}.
+ * @returns Plain-English text, or `null` when the line is fine.
+ */
+export function explainSubmissionCheck(check: SubmissionCheck): string | null {
+  switch (check.kind) {
+    case 'supported':
+      return null;
+    case 'not-yet-supported':
+      return `MeedyaDL cannot download from ${MEDIA_SERVICE_LABELS[check.service]} yet. The link itself is fine — support for that service is planned.`;
+    case 'unrecognised':
+      return 'That does not look like a link MeedyaDL recognises. It supports Apple Music links, and Spotify links where they have been enabled.';
+  }
 }

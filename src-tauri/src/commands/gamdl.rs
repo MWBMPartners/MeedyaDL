@@ -137,6 +137,44 @@ const SUPPORTED_HOSTS: &[&str] = &[
     "open.spotify.com",
 ];
 
+/// Names a service we recognise but cannot download from yet.
+///
+/// Used only to word the refusal well (#1157). A link to one of these is a
+/// perfectly good link — MeedyaDL just has no engine wired up for it. Saying
+/// "unsupported URL" of such a link reads as "you got this wrong", which sends
+/// people off re-checking something that was never the problem.
+///
+/// Kept deliberately separate from [`SUPPORTED_HOSTS`]: that list decides what
+/// is allowed through, and must not grow by accident. This one only decides
+/// what to call something already refused, so a wrong entry here can change a
+/// sentence but can never let a download start.
+///
+/// Mirrors `SERVICE_DOMAINS` in `src/lib/url-parser.ts`. When a service moves
+/// from "planned" to "works", it leaves this list and joins the one above.
+///
+/// # Arguments
+///
+/// * `host` -- The lower-cased host from the link.
+///
+/// # Returns
+///
+/// The service's name as a person would write it, or `None` when the host is
+/// not one we recognise at all.
+fn recognised_but_unsupported_service(host: &str) -> Option<&'static str> {
+    // Longest first, so music.youtube.com is not reported as YouTube.
+    const RECOGNISED: &[(&str, &str)] = &[
+        ("music.youtube.com", "YouTube Music"),
+        ("youtube.com", "YouTube"),
+        ("youtu.be", "YouTube"),
+        ("bbc.co.uk", "BBC iPlayer"),
+        ("bbc.com", "BBC iPlayer"),
+    ];
+    RECOGNISED
+        .iter()
+        .find(|(domain, _)| host == *domain || host.ends_with(&format!(".{domain}")))
+        .map(|(_, name)| *name)
+}
+
 /// Validates and classifies a batch of submitted URLs by media service.
 ///
 /// This is the **sole classification seam** for `start_download`'s two
@@ -199,9 +237,29 @@ fn classify_batch_urls(urls: &[String]) -> Result<(bool, bool), String> {
                         .is_some_and(|prefix| prefix.ends_with('.'))
             });
             if !is_supported {
-                return Err(format!(
-                    "Unsupported URL domain: {url}. Only Apple Music, Apple Music Classical, iTunes, and Spotify URLs are supported."
-                ));
+                // Say WHICH kind of "no" this is (#1157).
+                //
+                // A link to YouTube or BBC iPlayer is not a mistake the person
+                // made — it is a good link to a service MeedyaDL cannot
+                // download from yet. Telling them it is unsupported invites
+                // them to check a link that was fine all along, and this
+                // project has form here: Apple Music Classical links were
+                // rejected for a long time while being exactly the kind of
+                // link MeedyaDL was meant to accept.
+                //
+                // The frontend says the same thing, but that only helps people
+                // who came through the form. Deep links, the clipboard watcher,
+                // dragging a link onto the window and importing a queue file
+                // all arrive here without passing through it, so the message
+                // has to be right in both places.
+                return Err(match recognised_but_unsupported_service(&host) {
+                    Some(service) => format!(
+                        "MeedyaDL cannot download from {service} yet. The link itself is fine — support for that service is planned. ({url})"
+                    ),
+                    None => format!(
+                        "That does not look like a link MeedyaDL recognises: {url}. It supports Apple Music, Apple Music Classical and iTunes links, and Spotify links where they have been enabled."
+                    ),
+                });
             }
             if host.ends_with("open.spotify.com") {
                 has_spotify = true;
@@ -3429,7 +3487,76 @@ mod tests {
     fn unsupported_http_host_still_rejected() {
         let urls = vec!["https://evil.example.com/steal".to_string()];
         let err = classify_batch_urls(&urls).expect_err("unsupported host must still error");
-        assert!(err.contains("Unsupported URL domain"), "got: {err}");
+        // Wording changed in #1157, but the refusal itself must not.
+        assert!(err.contains("does not look like a link MeedyaDL recognises"), "got: {err}");
+        assert!(err.contains("evil.example.com"), "the link should be quoted back: {err}");
+    }
+
+    // ── Telling apart "we cannot yet" from "that is not a link" (#1157) ──
+    //
+    // A link to YouTube is not a mistake the person made. It is a good link
+    // to a service MeedyaDL has no engine for yet, and saying "unsupported
+    // URL" of it sends them off checking something that was never wrong.
+    // This project has form: Apple Music Classical links were refused for a
+    // long time while being exactly what MeedyaDL was meant to accept.
+
+    #[test]
+    fn a_recognised_service_is_told_it_is_not_supported_yet() {
+        for link in [
+            "https://www.youtube.com/watch?v=abc123",
+            "https://youtu.be/abc123",
+            "https://music.youtube.com/watch?v=abc123",
+            "https://www.bbc.co.uk/iplayer/episode/abc",
+        ] {
+            let err = classify_batch_urls(&[link.to_string()])
+                .expect_err("still refused — only the wording changes");
+            assert!(
+                err.contains("yet"),
+                "should say we cannot do it YET, not that the link is wrong: {err}"
+            );
+            assert!(
+                err.contains("The link itself is fine"),
+                "should say the link is not the problem: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn each_recognised_service_is_named_correctly() {
+        let err = classify_batch_urls(&["https://music.youtube.com/watch?v=x".to_string()])
+            .expect_err("refused");
+        // Longest match wins, so this is YouTube Music and not plain YouTube.
+        assert!(err.contains("YouTube Music"), "got: {err}");
+
+        let err =
+            classify_batch_urls(&["https://www.bbc.co.uk/iplayer/x".to_string()]).expect_err("refused");
+        assert!(err.contains("BBC iPlayer"), "got: {err}");
+    }
+
+    #[test]
+    fn an_unknown_host_is_not_described_as_a_service_we_know() {
+        let err = classify_batch_urls(&["https://totally-unknown.example/x".to_string()])
+            .expect_err("refused");
+        assert!(
+            !err.contains("yet"),
+            "an unknown host must not be described as coming soon: {err}"
+        );
+    }
+
+    #[test]
+    fn naming_a_service_never_lets_a_link_through() {
+        // The naming list decides only what to CALL something already
+        // refused. If it ever started deciding what is allowed, this fails.
+        for link in [
+            "https://www.youtube.com/watch?v=x",
+            "https://www.bbc.co.uk/iplayer/x",
+            "https://evil.example.com/x",
+        ] {
+            assert!(
+                classify_batch_urls(&[link.to_string()]).is_err(),
+                "{link} must still be refused"
+            );
+        }
     }
 
     /// A non-Spotify, non-http(s) scheme that parses successfully (e.g.
