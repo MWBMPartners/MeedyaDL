@@ -107,6 +107,43 @@ impl std::fmt::Display for MediaServiceId {
 }
 
 impl MediaServiceId {
+    /// The service's name as it should appear in a folder or file name.
+    ///
+    /// This is what `{platform}` becomes when someone puts it in a folder or
+    /// file naming pattern (#829).
+    ///
+    /// **No spaces, capitals at the start of each word.** That shape was
+    /// chosen deliberately (maintainer decision, 2026-09-08):
+    ///
+    /// * It is what the code already produced before this was wired up, so
+    ///   nobody's existing folders move underneath them.
+    /// * Spaces in folder names cause trouble for scripts and older tools that
+    ///   people point at their music library.
+    /// * It still reads as a name in a file browser, which `apple-music` does
+    ///   not.
+    ///
+    /// Deliberately NOT the same as [`Display`], which produces the
+    /// lower-case-with-dashes form used for engine lookups and stored data,
+    /// nor [`display_name`], which has spaces and is for reading on screen.
+    /// Three similar-looking strings with three different jobs — changing one
+    /// to match another would break something.
+    ///
+    /// Changing any value here renames folders for anyone using `{platform}`,
+    /// so treat it as fixed.
+    ///
+    /// [`Display`]: std::fmt::Display
+    /// [`display_name`]: Self::display_name
+    #[must_use]
+    pub const fn folder_name(&self) -> &'static str {
+        match self {
+            Self::AppleMusic => "AppleMusic",
+            Self::YouTubeMusic => "YouTubeMusic",
+            Self::YouTube => "YouTube",
+            Self::Spotify => "Spotify",
+            Self::BBCiPlayer => "BbcIPlayer",
+        }
+    }
+
     /// Returns the human-readable display name for the service.
     ///
     /// Used in the React frontend's sidebar, status messages, and error
