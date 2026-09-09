@@ -4472,3 +4472,33 @@
         }
     }
 
+    #[test]
+    fn a_busy_queue_does_not_lose_the_record_that_it_ran() {
+        // Caught by review before it shipped. This function is also reached
+        // while a download is still running: another request arrives, the
+        // concurrency limit is already met, and nothing is handed out.
+        // Clearing the record then would wipe the fact that the queue HAD
+        // been busy, and the last item finishing would look like nothing ever
+        // ran — so "shut down when the downloads are done" would silently
+        // stop happening for anyone with more than one item queued.
+        let mut queue = DownloadQueue::new();
+        queue.enqueue(test_request(), &test_settings());
+        queue.enqueue(test_request(), &test_settings());
+
+        // One item starts; the queue is now busy.
+        assert!(queue.next_pending().is_some());
+        assert!(!queue.is_idle(), "a running download means the queue is busy");
+
+        // A second request arrives while it runs and is handed nothing.
+        assert!(
+            queue.next_pending().is_none(),
+            "the concurrency limit should refuse a second item"
+        );
+
+        // The record must survive, because the queue has not gone quiet yet.
+        assert!(
+            queue.take_ran_since_drain(),
+            "the queue ran, and that must still be true after a busy no-op call"
+        );
+    }
+
