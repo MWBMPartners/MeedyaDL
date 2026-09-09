@@ -1,0 +1,399 @@
+# Copyright (c) 2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Channel Security Audit
+# =======================
+#
+# WHY THIS EXISTS
+# ---------------
+# `forward-port-security.yml` only forward-ports a fix onto the channel
+# branches (`alpha`, `beta`, `release-candidate`) if it can identify that a
+# specific pull request on `main` WAS a security fix. That works most of
+# the time, but it has a hole no amount of cleverness in that identification
+# step can close: sometimes a fix reaches `main` with no pull request that
+# says "security fix" anywhere on it at all. It might be a Dependabot PR
+# that got folded into a bigger hand-written PR (this repo's own "combine
+# pull requests instead of stacking them" rule in CLAUDE.md makes that the
+# NORMAL, encouraged path, not a rare accident). It might be typed by hand
+# after `cargo deny check advisories` turned `main` red at 2am, with no
+# Dependabot alert involved anywhere — that really happened (the `h2`
+# 0.4.15 -> 0.4.18 fix, see issue #1165) and no per-PR heuristic could ever
+# have flagged it, because there was no Dependabot signal to key on.
+#
+# So instead of asking "how did this fix arrive", this workflow asks the
+# question we actually care about directly: right now, today, does each
+# channel branch have a known high/critical-severity vulnerable dependency
+# in it, full stop, regardless of how it got that way or how a fix for it
+# would need to arrive. That question doesn't care about pull request
+# authorship, labels, or history at all, which is exactly why it can catch
+# what the forward-porter structurally cannot.
+#
+# WHAT THIS DOES
+# ---------------
+# For each of the four long-lived branches (`main`, `alpha`, `beta`,
+# `release-candidate`), this checks out that branch and runs the exact two
+# commands CI itself runs to gate a pull request:
+#
+#   npm audit --audit-level=high --package-lock-only
+#   cargo deny check advisories
+#
+# Neither command installs a single package or compiles a single line of
+# this project's own code — the npm one reads package-lock.json directly,
+# and cargo-deny only needs `cargo metadata` (a dependency-graph read, not a
+# build) plus the RustSec advisory database. So checking all four branches
+# is a matter of minutes, not a matter of running four different CI builds.
+#
+# EACH BRANCH IS JUDGED ON ITS OWN — NEVER AGAINST `main`
+# ---------------------------------------------------------
+# It would be tempting (and simpler) to build this as "does this channel's
+# lockfile differ from main's in a way that matters", i.e. treat `main` as
+# the known-good baseline and only look for regressions relative to it.
+# That is deliberately NOT what this does, because `main` is not a safe
+# baseline — `main` can be vulnerable itself. On the night this issue
+# (#1165) was written, `main`, `alpha`, `beta`, AND `release-candidate` were
+# ALL sitting on the same vulnerable `js-yaml` at the same time. A
+# comparison against `main` would have looked at all four branches, seen
+# they agreed with each other, and reported every one of them as healthy —
+# which is precisely backwards. Every branch is checked against the actual
+# advisory databases (npm's registry, the RustSec advisory-db), independent
+# of what any other branch — `main` included — currently looks like.
+#
+# A TOOL THAT COULD NOT RUN IS NOT A CLEAN RESULT (the #1146 discipline)
+# ------------------------------------------------------------------------
+# `npm audit` and `cargo deny` can each fail for reasons that have nothing
+# to do with dependencies being safe — a network hiccup reaching the
+# registry or the advisory database, a lockfile that doesn't parse, a
+# missing file. If this workflow treated "the tool didn't report a
+# vulnerability" as "the branch is healthy" without checking WHY the tool
+# didn't report one, an infrastructure failure would look identical to a
+# clean bill of health, and the exact silent gap this workflow exists to
+# close would just move one level down, into the checker itself. So every
+# run of both tools is classified into one of three outcomes — clean,
+# vulnerable, or "the tool itself could not complete" — using the tools'
+# own machine-readable (JSON) output rather than trusting a bare exit code
+# (both tools can exit non-zero for "found something" AND for "something
+# about me broke", and those are not the same fact). Only the third
+# outcome makes this workflow run fail loudly (a red X in the Actions tab,
+# an `::error::` annotation) — reporting "nothing found" when nothing could
+# actually be looked for would be worse than reporting nothing at all.
+#
+# ISSUE-OPENING PATTERN
+# -----------------------
+# Reuses the same idempotent "search by a fixed title marker, then create,
+# update in place, or auto-close" pattern already used by
+# `.github/workflows/dependency-canary.yml` — one tracking issue that gets
+# refreshed on every run, never a new issue every week.
+
+name: Channel Security Audit
+
+on:
+  schedule:
+    # Monday 05:00 UTC — an hour before dependency-canary.yml's own Monday
+    # 06:00 UTC slot. There's no functional reason this needs to run before
+    # that workflow (unlike dependency-canary.yml, this isn't racing
+    # Dependabot's own weekly scan) — it's simply staggered so two
+    # unrelated scheduled workflows aren't both hitting the GitHub API and
+    # the npm/crates ecosystems at the exact same minute for no reason.
+    - cron: '0 5 * * 1'
+  # A fix landing on `main` should immediately ask "do the channels have
+  # this now", not wait up to a week for the scheduled run to notice.
+  push:
+    branches: [main]
+    paths:
+      - 'package-lock.json'
+      - 'src-tauri/Cargo.lock'
+  # Manual entry point. `dry_run` runs every check and prints exactly what
+  # would happen, but skips every step that would create, update, or close
+  # the tracking issue on GitHub — useful for testing this workflow itself
+  # without disturbing the real tracking issue.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report only — do not create, update, or close the tracking issue'
+        type: boolean
+        default: false
+
+# Issue creation/editing uses RELEASE_PAT (see the run step below), not the
+# workflow GITHUB_TOKEN, matching the convention already used by
+# dependency-canary.yml and forward-port-security.yml — so the default
+# token stays read-only here too. Checking out branches to read their
+# lockfiles needs no elevated token at all.
+permissions:
+  contents: read
+
+concurrency:
+  # Only one audit run needs to be in flight at a time. A scheduled run and
+  # a push-triggered run landing close together simply queue rather than
+  # racing each other over the same tracking issue.
+  group: channel-security-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Full history so every channel branch's ref is reachable locally
+      # after the fetch step below, regardless of which ref triggered this
+      # run (a schedule or workflow_dispatch run defaults to `main`).
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all channel branches
+        run: git fetch --no-tags origin main alpha beta release-candidate
+
+      # Needed for `npm audit --package-lock-only`, which reads
+      # package-lock.json directly and does not need `npm ci` to have run.
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: 'lts/*'
+
+      # `cargo-deny`'s advisories check runs `cargo metadata` under the hood
+      # to read the dependency graph, so a `cargo` binary needs to be on
+      # PATH even though nothing here compiles this project's own code.
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      # Install the `cargo-deny` CLI directly rather than using
+      # EmbarkStudios/cargo-deny-action (what ci.yml uses): the action is a
+      # black box that only reports pass/fail on the whole step, which is
+      # exactly the ambiguity the "tool could not run" reasoning above needs
+      # to avoid — running the binary ourselves lets this workflow read its
+      # structured JSON output and tell "found an advisory" apart from
+      # "the tool itself errored". Version 0.19.0 is the exact version
+      # baked into the Docker image ci.yml's pinned cargo-deny-action uses
+      # (EmbarkStudios/cargo-deny-action@3fd3802e, itself pinned to
+      # `deny_version="0.19.0"` in its own Dockerfile), so this reports the
+      # same thing CI would. The checksum below was fetched from the
+      # matching `.sha256` asset on this exact release and is checked
+      # before the binary is trusted with anything.
+      - name: Install cargo-deny 0.19.0
+        run: |
+          set -euo pipefail
+          ASSET="cargo-deny-0.19.0-x86_64-unknown-linux-musl.tar.gz"
+          EXPECTED_SHA256="0e8c2aa59128612c90d9e09c02204e912f29a5b8d9a64671b94608cbe09e064f"
+          curl --proto '=https' --tlsv1.2 -sSfL -o "/tmp/${ASSET}" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.0/${ASSET}"
+          ACTUAL_SHA256=$(sha256sum "/tmp/${ASSET}" | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::cargo-deny download checksum mismatch — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to use it."
+            exit 1
+          fi
+          mkdir -p "$HOME/.local/bin"
+          tar -xzf "/tmp/${ASSET}" --strip-components=1 -C "$HOME/.local/bin" \
+            "cargo-deny-0.19.0-x86_64-unknown-linux-musl/cargo-deny"
+          chmod +x "$HOME/.local/bin/cargo-deny"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Audit every channel branch and update the tracking issue
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -uo pipefail  # NOT -e: individual audit commands are expected to exit non-zero
+
+          git config --global --add safe.directory "$(pwd)"
+
+          # ----------------------------------------------------------------
+          # Classify one npm-audit JSON report as clean / vulnerable / error.
+          # Reads the actual JSON shape rather than the exit code, because
+          # npm audit exits non-zero both when it finds a high/critical
+          # advisory AND when the command itself fails (e.g. ENOLOCK, a
+          # network error) — those are not the same fact, and only the
+          # JSON body's shape ({"error": {...}} vs a real report) tells
+          # them apart. Verified against real output from both cases
+          # before this workflow was written.
+          # ----------------------------------------------------------------
+          classify_npm() {
+            local outfile="$1"
+            if [ ! -s "$outfile" ] || ! jq -e . "$outfile" >/dev/null 2>&1; then
+              echo "error|npm audit produced no parseable JSON output"
+              return
+            fi
+            local err
+            err=$(jq -r '.error.summary // empty' "$outfile")
+            if [ -n "$err" ]; then
+              echo "error|${err}"
+              return
+            fi
+            local high critical
+            high=$(jq -r '.metadata.vulnerabilities.high // 0' "$outfile")
+            critical=$(jq -r '.metadata.vulnerabilities.critical // 0' "$outfile")
+            if [ "$((high + critical))" -gt 0 ]; then
+              echo "vulnerable|${critical} critical, ${high} high severity advisory(s)"
+            else
+              echo "clean|"
+            fi
+          }
+
+          # ----------------------------------------------------------------
+          # Classify one `cargo deny --format json check advisories` run.
+          # With `--format json`, EVERY diagnostic and the final tally both
+          # go to stderr as one JSON object per line; stdout stays empty
+          # even on a totally clean run. The run's last line is always a
+          # `{"type":"summary", "fields":{"advisories":{"errors": N, ...}}}`
+          # object IF the check actually completed. If that line is
+          # missing entirely, cargo-deny did not finish a check (it logs a
+          # `{"type":"log","fields":{"level":"ERROR",...}}` line instead,
+          # e.g. for a missing Cargo.toml or a lockfile that won't parse) —
+          # that is a tool failure, not a clean result, and must never be
+          # read as "no vulnerabilities found". Verified against real
+          # output from both a clean run and a forced tool error before
+          # this workflow was written.
+          # ----------------------------------------------------------------
+          classify_cargo_deny() {
+            local errfile="$1"
+            local summary_line
+            summary_line=$(grep -F '"type":"summary"' "$errfile" | tail -n1 || true)
+            if [ -z "$summary_line" ]; then
+              local error_line detail
+              error_line=$(grep -F '"level":"ERROR"' "$errfile" | tail -n1 || true)
+              detail=""
+              if [ -n "$error_line" ]; then
+                detail=$(jq -r '.fields.message // empty' <<<"$error_line" 2>/dev/null || true)
+              fi
+              [ -n "$detail" ] || detail="cargo deny did not finish a check (no summary line was produced) — see the workflow log for the raw output"
+              echo "error|${detail}"
+              return
+            fi
+            local errors
+            errors=$(jq -r '.fields.advisories.errors // 0' <<<"$summary_line")
+            if [ "$errors" -gt 0 ]; then
+              local details
+              details=$(grep -F '"type":"diagnostic"' "$errfile" \
+                | jq -r 'select(.fields.severity=="error") | .fields.message' 2>/dev/null \
+                | sort -u | paste -sd ';' - || true)
+              echo "vulnerable|${errors} advisory error(s): ${details}"
+            else
+              echo "clean|"
+            fi
+          }
+
+          VULN_LINES=""
+          ERROR_LINES=""
+          HAD_TOOL_ERROR=0
+          CHECKED_COUNT=0
+
+          for BRANCH in main alpha beta release-candidate; do
+            if ! git rev-parse --verify "origin/${BRANCH}" >/dev/null 2>&1; then
+              echo "::notice::Branch '${BRANCH}' does not exist — skipping it deliberately."
+              continue
+            fi
+            CHECKED_COUNT=$((CHECKED_COUNT + 1))
+
+            git checkout --quiet -B "audit/${BRANCH}" "origin/${BRANCH}"
+
+            # --- npm audit -------------------------------------------------
+            NPM_OUT="$RUNNER_TEMP/npm-audit-${BRANCH}.json"
+            npm audit --audit-level=high --package-lock-only --json >"$NPM_OUT" 2>/dev/null || true
+            NPM_RESULT=$(classify_npm "$NPM_OUT")
+            NPM_STATUS="${NPM_RESULT%%|*}"
+            NPM_DETAIL="${NPM_RESULT#*|}"
+
+            case "$NPM_STATUS" in
+              clean)
+                echo "::notice::'${BRANCH}' — npm audit: clean."
+                ;;
+              vulnerable)
+                echo "::warning::'${BRANCH}' — npm audit found: ${NPM_DETAIL}"
+                VULN_LINES="${VULN_LINES}- **\`${BRANCH}\`** — \`npm audit\`: ${NPM_DETAIL}\n"
+                ;;
+              error)
+                echo "::error::'${BRANCH}' — npm audit could not complete: ${NPM_DETAIL}"
+                ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — \`npm audit\` **could not complete** (this is NOT the same as clean): ${NPM_DETAIL}\n"
+                HAD_TOOL_ERROR=1
+                ;;
+            esac
+
+            # --- cargo deny -------------------------------------------------
+            DENY_ERR="$RUNNER_TEMP/cargo-deny-${BRANCH}.stderr"
+            cargo deny --manifest-path src-tauri/Cargo.toml --format json check advisories \
+              >/dev/null 2>"$DENY_ERR" || true
+            DENY_RESULT=$(classify_cargo_deny "$DENY_ERR")
+            DENY_STATUS="${DENY_RESULT%%|*}"
+            DENY_DETAIL="${DENY_RESULT#*|}"
+
+            case "$DENY_STATUS" in
+              clean)
+                echo "::notice::'${BRANCH}' — cargo deny check advisories: clean."
+                ;;
+              vulnerable)
+                echo "::warning::'${BRANCH}' — cargo deny found: ${DENY_DETAIL}"
+                VULN_LINES="${VULN_LINES}- **\`${BRANCH}\`** — \`cargo deny check advisories\`: ${DENY_DETAIL}\n"
+                ;;
+              error)
+                echo "::error::'${BRANCH}' — cargo deny could not complete: ${DENY_DETAIL}"
+                ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — \`cargo deny check advisories\` **could not complete** (this is NOT the same as clean): ${DENY_DETAIL}\n"
+                HAD_TOOL_ERROR=1
+                ;;
+            esac
+          done
+
+          # Return to whatever the job originally had checked out so later
+          # steps (none currently, but future-proofing) see a normal state.
+          git checkout --quiet -
+
+          MARKER_TITLE="[channel-security-audit] known-vulnerable dependencies on one or more channel branches"
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::warning::RELEASE_PAT is not available to this run — cannot manage the tracking issue. The check results above still stand."
+          elif [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::dry_run is set — not creating, updating, or closing the tracking issue. Findings were reported above only."
+          else
+            EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER_TITLE\"" --json number --jq '.[0].number // empty')
+            CHECKED_AT="$(date -u +"%Y-%m-%d %H:%M UTC")"
+
+            if [ -n "$VULN_LINES" ] || [ -n "$ERROR_LINES" ]; then
+              gh label create dependencies --repo "$REPO" --color "0366d6" \
+                --description "Dependency updates" 2>/dev/null || true
+              gh label create security --repo "$REPO" --color "d73a4a" \
+                --description "Security-relevant change" 2>/dev/null || true
+
+              BODY=$(printf '%s\n' \
+                "Each of the four channel branches was checked directly against the npm and RustSec advisory databases — \`npm audit --audit-level=high --package-lock-only\` and \`cargo deny check advisories\`, the same two checks CI runs on every pull request. Branches are judged on their own, never against \`main\` (\`main\` can be vulnerable too — see the workflow file for why that matters)." \
+                "" \
+                "$( [ -n "$VULN_LINES" ] && printf '%s\n%b\n' "### Known-vulnerable dependencies" "$VULN_LINES" )" \
+                "$( [ -n "$ERROR_LINES" ] && printf '%s\n%b\n' "### Could not be checked (this run FAILED because of this — see the run log)" "$ERROR_LINES" )" \
+                "Checked: ${CHECKED_AT} (of ${CHECKED_COUNT} branch(es) that currently exist)." \
+                "" \
+                "**What to do about a known-vulnerable dependency:** bump it on that branch (\`npm audit fix\`, or bump the crate and run \`cargo update -p <crate> --precise <version>\` in \`src-tauri/\`) and let CI confirm. Dependabot may already have an open PR for it — check before doing it by hand." \
+                "" \
+                "**What to do about a check that could not complete:** re-run this workflow (\`workflow_dispatch\`) once whatever broke (network, a bad lockfile, a GitHub outage) is resolved. Do not assume the branch is safe just because this run couldn't confirm otherwise." \
+                "" \
+                "This issue is opened/updated automatically by \`.github/workflows/channel-security-audit.yml\` and closes itself automatically once every branch comes back clean." \
+                "" \
+                "---" \
+                "_Generated by [Claude Code](https://claude.ai/code)_")
+
+              if [ -n "$EXISTING" ]; then
+                gh issue edit "$EXISTING" --repo "$REPO" --body "$BODY"
+                gh issue comment "$EXISTING" --repo "$REPO" \
+                  --body "Updated as of ${CHECKED_AT} — see the refreshed status above."
+                echo "::warning::Updated existing channel-security-audit tracking issue #$EXISTING."
+              else
+                gh issue create --repo "$REPO" \
+                  --title "$MARKER_TITLE" \
+                  --label "dependencies" --label "security" \
+                  --body "$BODY"
+                echo "::warning::Opened channel-security-audit tracking issue."
+              fi
+            else
+              if [ -n "$EXISTING" ]; then
+                gh issue comment "$EXISTING" --repo "$REPO" \
+                  --body "Every channel branch came back clean against both advisory databases as of ${CHECKED_AT} — closing."
+                gh issue close "$EXISTING" --repo "$REPO" --reason completed
+                echo "::notice::All channels clean — closed tracking issue #$EXISTING."
+              else
+                echo "::notice::All channels clean — nothing to do."
+              fi
+            fi
+          fi
+
+          if [ "$HAD_TOOL_ERROR" -eq 1 ]; then
+            echo "::error::At least one check could not complete on at least one branch. Failing this run so that never quietly reads as 'nothing to report' — see the ::error:: lines above for which branch/tool."
+            exit 1
+          fi
