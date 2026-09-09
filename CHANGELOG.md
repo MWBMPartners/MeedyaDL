@@ -6,9 +6,40 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(deps)** Bump js-yaml to 4.3.2 for a high-severity advisory published on 8 September (#1167)
+
+A limit in `js-yaml` meant to stop a file tying up the processor did not
+  apply when the thing being merged was empty, so a crafted file could
+  still consume far more processor time than intended. Reported as
+  GHSA-2883-xcg3-v3hh, rated high, published 8 September at 21:24.
+
+  It is a build-time tool here rather than anything that ships inside the
+  app. But the check CI runs treats any high-severity report as a failure,
+  so **the next frontend check on `main` fails until this lands**,
+  whatever that change happens to be about.
+
+  **Every branch was on the vulnerable version when this was found** —
+  `main`, `alpha`, `beta` and `release-candidate` alike.
+  `release-candidate` got it as part of #1164, `alpha` on its working
+  branch, and `beta` in a companion to this pull request.
+
+  Lock file only. Nothing in `package.json` declares a version range for
+  js-yaml here, so there is no floor to raise.
+
+  One thing worth noting separately: `alpha` and `beta` both pin a floor
+  for js-yaml in their `overrides` and `main` does not. That inconsistency
+  is worth tidying, but not inside a security fix.
+
+  Verified locally: `npm audit --audit-level=high` reports no
+  vulnerabilities after the change.
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.6 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
