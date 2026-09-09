@@ -47,9 +47,32 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // never touched the in-app language dropdown -- this is the default,
     // most common case described in the bug report: `ui_language` starts
     // empty, which means "whatever the OS reports". i18next's detector
-    // order is ['localStorage', 'navigator'], so with nothing cached in
-    // localStorage it falls through to reading `navigator.language`,
-    // exactly like a real browser reporting the OS locale would.
+    // order is ['localStorage', 'navigator'], so with nothing remembered
+    // it falls through to reading `navigator.language`, exactly like a
+    // real browser reporting the OS locale would.
+    //
+    // The detector has two places to look, in this order: the language
+    // it remembered last time, then the browser. This test sets BOTH to
+    // German rather than picking one, because which of them is available
+    // is not the same everywhere.
+    //
+    // That is not caution for its own sake. This test passed here and
+    // failed on all three build machines. The reason turned out to be
+    // the version of Node: on this machine `localStorage` is not usable
+    // at all, so the detector fell through to the browser setting below
+    // and found German. On the build machines it works, so the detector
+    // answered from what it had remembered and never looked at the
+    // browser -- and the test was quietly checking nothing.
+    //
+    // Setting both means the answer is German whichever one it consults,
+    // on whatever version of Node it happens to be running.
+    try {
+      window.localStorage.setItem('meedyadl-ui-language', 'de-DE');
+    } catch {
+      // No usable localStorage here. The browser setting below is then
+      // the only source, and it says German too.
+    }
+
     vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
 
     // There is no real network in a test run, so stand in for the browser
@@ -75,6 +98,13 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // place.
     vi.unstubAllGlobals();
     await i18n.changeLanguage('en');
+    // Clear the remembered language too, so this test does not decide the
+    // language for anything that runs after it.
+    try {
+      window.localStorage.removeItem('meedyadl-ui-language');
+    } catch {
+      // No usable localStorage here; nothing was remembered to clear.
+    }
   });
 
   it('renders German text after startup for a German-OS user who never opened Settings', async () => {
@@ -105,6 +135,15 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     await act(async () => {
       await initI18n();
     });
+
+    // Before checking the screen, check that the setup actually took --
+    // that startup really did decide on German. If it did not, then this
+    // test is not testing the bug at all, and saying so plainly here is
+    // far more useful than the puzzle of "expected the German word, got
+    // the English one", which reads like the fix has broken when really
+    // the test never got as far as trying it. That exact confusion cost
+    // real time once already.
+    expect(i18n.language.split('-')[0]).toBe('de');
 
     // The real assertion: after startup finishes, the screen shows the
     // German word, not the English one. Without the `changeLanguage`
