@@ -15,8 +15,8 @@
  *
  * Adding a new language:
  *   1. Create `public/locales/{code}/translation.json`
- *   2. Add the code to `AVAILABLE_LOCALES` below
- *   3. Add the entry to `LANGUAGE_UI_OPTIONS` in GeneralTab.tsx
+ *   2. Add one entry to `LOCALES` below (this is the only list to edit —
+ *      the Settings dropdown, the tests, and the audit checks all read it)
  */
 
 import i18n from 'i18next';
@@ -30,10 +30,73 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import enTranslations from '../../public/locales/en/translation.json';
 
 /**
- * Available locale codes. When adding a new translation, add the code here
- * and create the corresponding `public/locales/{code}/translation.json` file.
+ * The one place a supported language is described.
+ *
+ * Adding a language to MeedyaDL means two things: one entry here, and one
+ * file at `public/locales/<code>/translation.json`. Nothing else needs
+ * editing — the Settings language dropdown, the locale-parity tests, and
+ * the audit checks all read this list rather than keeping their own copy.
+ *
+ * `machineAssisted` means the translation was produced by a machine and has
+ * not been read through by a person who speaks the language. We say so
+ * openly in the UI rather than letting a translation nobody has checked
+ * pass as equivalent to one a person has reviewed — a wrong or misleading
+ * translation is worse than an honest "this may not be quite right" label.
+ *
+ * `machineAssistedLabel` is the little disclaimer text itself, written in
+ * *that* language (e.g. the German entry's label is in German). It sits
+ * right next to the language's own native name, which is also written in
+ * that language, so the two read as one consistent line instead of an
+ * English sentence bolted onto a foreign word.
  */
-export const AVAILABLE_LOCALES = ['en', 'de', 'fr'] as const;
+export const LOCALES = [
+  { code: 'en', nativeName: 'English', machineAssisted: false, machineAssistedLabel: '' },
+  {
+    code: 'de',
+    nativeName: 'Deutsch',
+    machineAssisted: true,
+    machineAssistedLabel: 'automatische Übersetzung',
+  },
+  {
+    code: 'fr',
+    nativeName: 'Français',
+    machineAssisted: true,
+    machineAssistedLabel: 'traduction automatique',
+  },
+] as const;
+
+/** A supported locale code, derived from `LOCALES` so it can never drift from it. */
+export type LocaleCode = (typeof LOCALES)[number]['code'];
+
+/**
+ * Just the codes, in `LOCALES` order. Derived, never edited by hand — kept
+ * as its own export because other code and tests already refer to it by
+ * this name, and a flat list of codes is often all a caller needs.
+ */
+export const AVAILABLE_LOCALES: readonly LocaleCode[] = LOCALES.map((l) => l.code);
+
+/**
+ * Turn whatever the browser/OS reports (e.g. "de-DE", "en-US", "fr") into
+ * the base language code we key our locale files by (e.g. "de", "en",
+ * "fr"). Falls back to "en" when nothing usable was reported.
+ *
+ * This is the one rule for that conversion. `initI18n` uses it below, and
+ * the help screen will use it too, so the two can never disagree about
+ * which locale folder a given person's language setting actually means.
+ */
+export function baseLanguageOf(language: string | undefined): string {
+  return language?.split('-')[0] || 'en';
+}
+
+/**
+ * True when the given language resolves to a locale marked
+ * `machineAssisted` in `LOCALES` above. Used to decide whether the UI
+ * should show the "this translation was machine-made" notice.
+ */
+export function isMachineAssisted(language: string | undefined): boolean {
+  const base = baseLanguageOf(language);
+  return LOCALES.some((l) => l.code === base && l.machineAssisted);
+}
 
 /**
  * Load a locale's translation JSON from the public directory and add it
@@ -78,10 +141,28 @@ export async function initI18n(): Promise<void> {
       },
     });
 
-  // If detected language is not English, load it too
-  const detected = i18n.language?.split('-')[0];
-  if (detected && detected !== 'en') {
+  // If the detected language is not English, fetch and add its file too.
+  const detected = baseLanguageOf(i18n.language);
+  if (detected !== 'en') {
     await loadLocaleResources(detected);
+
+    // Adding a resource bundle above does NOT, by itself, tell React that
+    // anything changed. react-i18next only re-renders components when
+    // i18next fires its `languageChanged` event, and `addResourceBundle`
+    // does not fire that event — it just quietly puts the data in memory.
+    //
+    // Concretely, this used to mean: a German or French user who had
+    // never touched the language dropdown (the default state, since
+    // `ui_language` starts empty and just means "whatever the OS
+    // reports") would have the German file fetched and stored... and
+    // then every already-rendered component would go on showing English
+    // forever, because nothing ever told them to look again.
+    //
+    // Re-issuing the same language through `changeLanguage` forces that
+    // event to fire, which is what actually makes the screen update. It
+    // looks like a no-op (we're "changing" to the language we're already
+    // on) but the event is the whole point.
+    await i18n.changeLanguage(i18n.language);
   }
 }
 

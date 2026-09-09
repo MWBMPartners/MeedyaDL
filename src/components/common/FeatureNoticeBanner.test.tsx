@@ -22,13 +22,10 @@ import { render, screen } from '@testing-library/react';
 import { FeatureNoticeBanner } from '@/components/common/FeatureNoticeBanner';
 import { useFeatureFlagStore } from '@/stores/featureFlagStore';
 import { makeFeatureFlagsSnapshot, makeFlagVerdict } from '@/testing/fixtures';
-import { initI18n } from '@/lib/i18n';
 
-// English translations are bundled inline in i18n.ts, so this resolves
-// synchronously without a network fetch -- matching real app startup.
-beforeAll(async () => {
-  await initI18n();
-});
+// The translation system is started once for every test file by the global
+// setup in src/test/setup.ts, so this file doesn't need its own beforeAll
+// for it any more.
 
 function setSnapshot(overrides: Parameters<typeof makeFeatureFlagsSnapshot>[0]) {
   useFeatureFlagStore.setState({
