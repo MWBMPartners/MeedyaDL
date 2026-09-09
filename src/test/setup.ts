@@ -48,6 +48,12 @@
 import '@testing-library/jest-dom';
 
 /**
+ * `initI18n` starts the translation system -- see the `beforeAll` block at
+ * the bottom of this file for why every test file needs it running.
+ */
+import { initI18n } from '@/lib/i18n';
+
+/**
  * Mock the Tauri core `invoke()` API.
  *
  * `invoke()` is the primary IPC mechanism for calling Rust command handlers.
@@ -101,3 +107,32 @@ vi.mock('@tauri-apps/plugin-os', () => ({
   arch: vi.fn().mockResolvedValue('aarch64'), // Default to ARM64 (Apple Silicon)
   type: vi.fn().mockResolvedValue('macos'), // OS type string
 }));
+
+/**
+ * Start the translation system once, for every test file, before any test
+ * in it runs.
+ *
+ * Why this has to live here and not in each test file: a growing number of
+ * components call `useTranslation()` and render `t('some.key')`. If the
+ * translation system has never been started, `t()` has nothing to look
+ * up, so it prints the raw key back out (e.g. a button would literally
+ * say "queue.title" instead of "Queue"). Any test that then looks for the
+ * English words on screen fails -- not because the component is broken,
+ * but because nobody told it which language to speak. Doing this once
+ * here means every test file gets a working `t()` for free, whether or
+ * not that file has heard of i18n at all.
+ *
+ * This is cheap and needs no network: English is bundled straight into
+ * the i18n module (see `src/lib/i18n.ts`), so `initI18n()` resolves
+ * synchronously from memory rather than fetching a file. German and
+ * French are only fetched over HTTP on demand, which is why they are
+ * NOT loaded here -- a test that specifically wants to check German or
+ * French text should use `useTestLanguage()` from `src/testing/i18n.ts`
+ * instead, which imports those files directly.
+ *
+ * @see src/lib/i18n.ts - the translation system this starts
+ * @see src/testing/i18n.ts - the helper for testing non-English text
+ */
+beforeAll(async () => {
+  await initI18n();
+});
