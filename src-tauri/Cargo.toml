@@ -140,13 +140,6 @@ tauri-plugin-dialog = "2"
 # @see https://v2.tauri.app/plugin/file-system/
 tauri-plugin-fs = "2"
 
-# tauri-plugin-store -- Persistent key-value store for application settings.
-# Stores settings like download directory, quality preferences, and UI state
-# in a JSON file in the app data directory. Provides atomic writes and
-# type-safe access from both Rust and JavaScript.
-# @see https://v2.tauri.app/plugin/store/
-tauri-plugin-store = "2"
-
 # tauri-plugin-process -- Application process management.
 # Provides exit() and restart() commands accessible from the frontend.
 # Used for "Quit" menu items and self-update restart flows.
@@ -183,8 +176,9 @@ serde = { version = "1", features = ["derive"] }
 
 # serde_json -- JSON serialization/deserialization using serde.
 # Tauri's IPC protocol uses JSON for all command arguments and return values.
-# Also used for reading/writing the plugin-store JSON files and parsing
-# GAMDL's JSON output format.
+# Also used for reading/writing this app's own JSON files directly
+# (settings.json, queue.json -- see "Atomic file writes" in CLAUDE.md)
+# and for parsing GAMDL's JSON output format.
 # @see https://docs.rs/serde_json/ -- serde_json API reference
 serde_json = "1"
 
@@ -639,6 +633,22 @@ tauri-plugin-deep-link = "2"
 # @see https://docs.rs/roxmltree/ -- roxmltree API reference
 roxmltree = "0.21"
 fs2 = "0.4.3"
+
+# ---- Opening folders and files on the user's disk ----
+
+# tauri-plugin-opener -- Opens a real file or folder on the user's disk,
+# and can select ("reveal") one in Finder / Explorer / the Linux file
+# manager. Added because the shell plugin's `open()` cannot do this: its
+# `shell.open` setting in tauri.conf.json is a validation pattern for
+# addresses (`https://...`, `mailto:...`), and a filesystem path never
+# matches that pattern -- so every "Open Folder" / "Open File" / "Reveal"
+# button in the app was silently refused before the operating system was
+# ever asked (see the `shell:allow-open` comment in capabilities/default.json
+# for the full story). This plugin's permissions are granted separately
+# and scoped to just opening/revealing a path, so widening them can never
+# let the app open an unexpected web address.
+# @see https://v2.tauri.app/plugin/opener/
+tauri-plugin-opener = "2"
 
 # ============================================================
 # [dev-dependencies] -- Dependencies used only during testing

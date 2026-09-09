@@ -83,10 +83,10 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | tauri-plugin-dialog | MIT | Native file/folder pickers |
 | tauri-plugin-fs | MIT | File system access |
 | tauri-plugin-notification | MIT | Native OS notifications |
+| tauri-plugin-opener | MIT | Opening/revealing files and folders on disk |
 | tauri-plugin-os | MIT | OS detection |
 | tauri-plugin-process | MIT | Process management |
-| tauri-plugin-shell | MIT | External command execution |
-| tauri-plugin-store | MIT | Persistent key-value storage |
+| tauri-plugin-shell | MIT | External command execution (and opening web addresses) |
 | tauri-plugin-updater | MIT | In-app auto-updates |
 
 ---

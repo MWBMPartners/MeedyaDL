@@ -207,10 +207,30 @@ jobs:
             # Pinned versions (#988) — no `releases/latest` / unversioned
             # installs in a contents:write job that holds release secrets.
             # Bump these deliberately when upgrading the toolchain.
+            #
+            # A release tag on GitHub is not fixed -- the file behind it
+            # can be replaced later without the tag changing. So the
+            # download below is written to a file, hashed, and checked
+            # against a value fetched from this exact release BEFORE it
+            # is extracted and put on PATH -- the same pattern
+            # `channel-security-audit.yml` uses for cargo-deny. This
+            # release has no published checksums file, so the pinned
+            # hash was obtained by downloading this exact asset twice,
+            # from two separate connections, and confirming both
+            # downloads hashed the same.
             BINSTALL_VERSION="1.21.0"
             GITCLIFF_VERSION="2.13.1"
-            curl -fsSL "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz" \
-              | tar -xz -C /usr/local/bin/ 2>/dev/null || true
+            BINSTALL_ASSET="cargo-binstall-x86_64-unknown-linux-musl.tgz"
+            BINSTALL_SHA256="b1880b3631d1ff0fd1f286a0d20f82f373355651f9fbd7f4d0d7fbfe218bf562"
+            if curl -fsSL -o /tmp/cargo-binstall.tgz \
+              "https://github.com/cargo-bins/cargo-binstall/releases/download/v${BINSTALL_VERSION}/${BINSTALL_ASSET}"; then
+              ACTUAL_SHA256=$(sha256sum /tmp/cargo-binstall.tgz | cut -d' ' -f1)
+              if [ "$ACTUAL_SHA256" = "$BINSTALL_SHA256" ]; then
+                tar -xz -C /usr/local/bin/ -f /tmp/cargo-binstall.tgz 2>/dev/null || true
+              else
+                echo "::warning::cargo-binstall download checksum mismatch — expected ${BINSTALL_SHA256}, got ${ACTUAL_SHA256}. Refusing to use it; falling back to cargo install."
+              fi
+            fi
             if command -v cargo-binstall &>/dev/null; then
               cargo-binstall --no-confirm "git-cliff@${GITCLIFF_VERSION}" || true
             else

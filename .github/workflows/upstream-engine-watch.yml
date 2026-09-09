@@ -214,8 +214,20 @@ jobs:
 
       - name: Report no-breach status for ${{ matrix.engine.display_name }}
         if: steps.detect.outputs.breach == 'false'
+        # LATEST is a version string read straight from PyPI. Every other
+        # externally-sourced value in this repo's workflows is passed
+        # through `env:` before it is used in a shell command, rather
+        # than interpolated straight into `run:` via `${{ }}` -- this
+        # step was the one place that pattern wasn't followed. PyPI's
+        # own rules on what a version string can contain make a
+        # dangerous value here very unlikely, but there is no reason to
+        # be the exception.
+        env:
+          ENGINE_DISPLAY_NAME: ${{ matrix.engine.display_name }}
+          LATEST: ${{ steps.detect.outputs.latest }}
+          CEILING: ${{ steps.detect.outputs.ceiling }}
         run: |
-          echo "::notice::${{ matrix.engine.display_name }} ${{ steps.detect.outputs.latest }} is within the supported ceiling (${{ steps.detect.outputs.ceiling }}) — no action required."
+          echo "::notice::${ENGINE_DISPLAY_NAME} ${LATEST} is within the supported ceiling (${CEILING}) — no action required."
 
       - name: Open or update tracking issue for ${{ matrix.engine.display_name }}
         if: steps.detect.outputs.breach == 'true' && github.event.inputs.dry_run != 'true'

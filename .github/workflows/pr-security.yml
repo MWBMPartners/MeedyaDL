@@ -109,7 +109,18 @@ jobs:
           set -e
           VERSION="8.21.2"
           URL="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          # A release tag on GitHub is not fixed -- the file behind it can
+          # be replaced later without the tag changing. So the download is
+          # hashed and checked against gitleaks' own published checksums
+          # file for this exact release before it is ever run, the same
+          # pattern `channel-security-audit.yml` uses for cargo-deny.
+          EXPECTED_SHA256="5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
           curl -fsSL "$URL" -o /tmp/gitleaks.tgz
+          ACTUAL_SHA256=$(sha256sum /tmp/gitleaks.tgz | cut -d' ' -f1)
+          if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::gitleaks download checksum mismatch — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to use it."
+            exit 1
+          fi
           tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
           sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
           gitleaks version

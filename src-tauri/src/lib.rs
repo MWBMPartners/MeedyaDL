@@ -1070,6 +1070,17 @@ pub fn run() {
         // and `python_manager` to execute subprocess commands.
         // Reference: https://v2.tauri.app/plugin/shell/
         .plugin(tauri_plugin_shell::init())
+        // Opener plugin: opens a real file or folder on the user's disk, or
+        // selects ("reveals") one in Finder / Explorer / the Linux file
+        // manager. This is a DIFFERENT job from the shell plugin above --
+        // the shell plugin's `open()` is gated by an address pattern meant
+        // for things like `https://...`, so a filesystem path never passed
+        // it and every "Open Folder" / "Open File" / "Reveal" button in the
+        // app was silently refused. This plugin's own permission is scoped
+        // to just opening/revealing a path (see `capabilities/default.json`),
+        // so it can never be used to open an unexpected web address.
+        // Reference: https://v2.tauri.app/plugin/opener/
+        .plugin(tauri_plugin_opener::init())
         // Dialog plugin: native OS file/folder picker dialogs and message boxes.
         // Used in the frontend for selecting output directories and cookie files.
         // Reference: https://v2.tauri.app/plugin/dialog/
@@ -1079,12 +1090,6 @@ pub fn run() {
         // `tauri.conf.json` -- the plugin alone does not grant blanket access.
         // Reference: https://v2.tauri.app/plugin/file-system/
         .plugin(tauri_plugin_fs::init())
-        // Store plugin: persistent JSON key-value store backed by a file in
-        // the app data directory. Used by `config_service` to persist user
-        // settings between sessions. `Builder::default().build()` creates a
-        // store with default options (auto-save on change).
-        // Reference: https://v2.tauri.app/plugin/store/
-        .plugin(tauri_plugin_store::Builder::default().build())
         // Process plugin: provides `process.exit()` and `process.relaunch()`
         // APIs so the frontend can cleanly shut down or restart the app.
         // Reference: https://v2.tauri.app/plugin/process/

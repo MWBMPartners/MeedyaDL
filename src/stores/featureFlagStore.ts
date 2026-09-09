@@ -76,6 +76,22 @@ export interface FeatureNoticeEntry {
 }
 
 /**
+ * Ceiling on how many notice banners `FeatureNoticeBanner` will ever draw
+ * on screen at once. `verdict.notice.message` is clamped to a maximum
+ * length (see `MAX_NOTICE_LENGTH` in that component), but nothing capped
+ * how MANY of them could appear — and this whole list comes from a
+ * remote web service, kept on disk with no expiry (see the "no
+ * TTL/expiry" note on the disk cache elsewhere in this feature). One bad
+ * answer from that service, or a stale cache nobody catches, could
+ * otherwise stack an unbounded number of banners above the app's
+ * content on every screen, permanently, until the cache file is deleted
+ * by hand. This constant lives here (next to the selector that finds
+ * the notice-worthy entries) rather than in the component, so it stays
+ * the one number both look at.
+ */
+export const MAX_FEATURE_NOTICES = 5;
+
+/**
  * Pure selector: given a snapshot, returns the verdicts that should
  * surface a notice to the user — either the feature has been switched
  * off (`verdict.enabled === false`), or the server attached a notice to
