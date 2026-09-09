@@ -385,6 +385,22 @@ impl AbortSummary {
 
 /// Only `max_concurrent` downloads run simultaneously. When a download
 /// finishes, the queue automatically starts the next queued item.
+/// What the connection watcher needs to know about the queue (#1156).
+///
+/// Taken in one look under the lock, so every field describes the same moment.
+#[derive(Debug, Clone)]
+pub struct QueueWatchSnapshot {
+    /// How many downloads are waiting to start.
+    pub queued: usize,
+    /// Whether anything is running right now.
+    pub active: bool,
+    /// Whether the user has paused the queue.
+    pub paused: bool,
+    /// The link of the first waiting download, used to decide which service
+    /// needs to be reachable before starting. `None` when nothing is waiting.
+    pub first_queued_url: Option<String>,
+}
+
 #[derive(Debug)]
 pub struct DownloadQueue {
     /// The queue of download jobs (front = next to process).
@@ -1957,6 +1973,47 @@ impl DownloadQueue {
     /// 60-second cooldown to prevent duplicate warnings when `process_queue()`
     /// is called recursively for cascading items.
     #[must_use]
+    /// A small picture of the queue, for the connection watcher (#1156).
+    ///
+    /// Answers the only four questions the watcher asks, in one look under the
+    /// lock. Taking them separately would let the queue change between
+    /// questions and give an answer that was never true at any single moment.
+    ///
+    /// Deliberately cheap: it counts and copies one link, rather than cloning
+    /// every item the way `get_status` does. The watcher asks this often.
+    pub fn watch_snapshot(&self) -> QueueWatchSnapshot {
+        let queued = self
+            .items
+            .iter()
+            .filter(|i| i.status.state == DownloadState::Queued)
+            .count();
+        QueueWatchSnapshot {
+            queued,
+            // Anything at all in flight. The watcher must never start work
+            // while something is running — that is the rule the whole queue
+            // is built on.
+            active: self.active_count > 0,
+            paused: self.paused,
+            // Used to decide which service to check is reachable. The first
+            // waiting item is the one that would start.
+            first_queued_url: self
+                .items
+                .iter()
+                .find(|i| i.status.state == DownloadState::Queued)
+                .and_then(|i| i.request.urls.first().cloned()),
+        }
+    }
+
+    /// Forgets when the last set of pre-download checks ran.
+    ///
+    /// Those checks are skipped if they ran in the last minute, which is right
+    /// for ordinary use but wrong straight after an outage: the whole point is
+    /// that the situation has just changed. Called by the connection watcher
+    /// immediately before it starts the queue, so the checks genuinely re-run.
+    pub fn reset_preflight_cooldown(&mut self) {
+        self.last_preflight_at = None;
+    }
+
     pub fn should_run_preflight(&self) -> bool {
         match self.last_preflight_at {
             None => true,

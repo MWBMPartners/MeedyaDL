@@ -979,6 +979,7 @@ function App() {
     let unlistenQueueUpdated: (() => void) | undefined;
     let unlistenPreflight: (() => void) | undefined;
     let unlistenPreflightCleared: (() => void) | undefined;
+    let unlistenConnectivityRestored: (() => void) | undefined;
 
     const setupListeners = async () => {
       try {
@@ -1077,6 +1078,42 @@ function App() {
             console.error('Error in preflight-cleared handler:', err);
           }
         });
+
+        /* 7. The internet came back while downloads were waiting for it (#1156).
+         *
+         * Queue something with no connection and the app says it will start
+         * when the internet returns. Something now actually watches for that,
+         * and this is how the user finds out it happened.
+         *
+         * Two cases. Normally the queue has just been started, so this is good
+         * news and the message can fade on its own. If the user has switched
+         * automatic starting off, nothing has begun and the message has to
+         * wait for them — so it stays until dismissed and carries a button to
+         * start the queue.
+         *
+         * Either way the original "no internet" warning is taken away first,
+         * so the user is not left reading two contradictory messages. */
+        unlistenConnectivityRestored = await listen<{
+          queue_started: boolean;
+          waiting: number;
+        }>('connectivity-restored', (event) => {
+          try {
+            const ui = useUiStore.getState();
+            ui.removeToastsByKey('preflight:internet');
+            const { queue_started: started, waiting } = event.payload;
+            const plural = waiting === 1 ? '' : 's';
+            if (started) {
+              ui.addToast(`Back online — starting ${waiting} waiting download${plural}.`, 'success');
+            } else {
+              ui.addToast(
+                `Back online — ${waiting} download${plural} waiting. Press Start Queue to begin.`,
+                'warning'
+              );
+            }
+          } catch (err) {
+            console.error('Error in connectivity-restored handler:', err);
+          }
+        });
       } catch {
         /* Tauri API unavailable (running in browser dev mode) */
       }
@@ -1097,6 +1134,7 @@ function App() {
       unlistenQueueUpdated?.();
       unlistenPreflight?.();
       unlistenPreflightCleared?.();
+      unlistenConnectivityRestored?.();
     };
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
