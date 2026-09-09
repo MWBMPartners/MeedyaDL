@@ -1208,23 +1208,30 @@ pub struct AppSettings {
     #[serde(default = "default_animated_artwork_resolution")]
     pub animated_artwork_resolution: AnimatedArtworkResolution,
 
-    /// When enabled, MeedyaDL fetches the static cover art for an
-    /// album from every supported platform in parallel (Apple Music,
-    /// Spotify, future MusicBrainz / Tidal / Bandcamp) and embeds the
-    /// **highest-resolution** candidate into the audio file —
-    /// regardless of which platform the download itself came from.
+    /// When enabled, after a download finishes MeedyaDL checks other
+    /// supported platforms (today: Deezer, matched by the release
+    /// barcode; Spotify and others are wired in the same service but
+    /// not yet reachable from this call site — see
+    /// `services/best_cover_art_service.rs`) for a **higher-resolution**
+    /// static cover picture than the one already saved, one platform
+    /// at a time, not in parallel. If one is bigger, it replaces the
+    /// saved cover art file — never the artwork atom GAMDL already
+    /// embedded inside each track, which this feature does not touch.
+    /// A same-size or smaller candidate changes nothing.
     ///
     /// Tie-break (equal pixel area): Apple Music wins, since its
     /// maximum native artwork is consistently higher quality than
     /// the fall-back sources that match its dimensions in practice.
     ///
-    /// Off by default — the feature is opt-in because it issues an
-    /// extra HTTP call per platform, and most users are happy with
-    /// the cover art the originating engine already wrote. Surface
-    /// lives at Settings > Cover Art.
+    /// Off by default — the feature is opt-in because it means
+    /// contacting a third-party service (today, Deezer) for every
+    /// album, and most users are happy with the cover art the
+    /// originating engine already wrote. Surface lives at
+    /// Settings > Cover Art.
     ///
     /// See `services/best_cover_art_service.rs` for the comparator
-    /// + tie-break logic (M9-3).
+    /// + tie-break logic (M9-3), and `upgrade_cover_if_better()` for
+    /// where it connects to an actual download (#1159).
     #[serde(default)]
     pub best_cover_art_enabled: bool,
 

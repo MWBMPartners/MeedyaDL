@@ -46,12 +46,17 @@
 //!
 //! ## Integration point
 //!
-//! This module is pure infrastructure — it returns a `Best` value
-//! describing the winning candidate. Plumbing the winner into the
-//! post-download embed pass lives with the queue refactor in M9-4.
-//! Keeping the integration out of M9-3 means this PR is self-contained
-//! and ships zero user-visible behaviour change until M9-4 turns it
-//! on.
+//! This used to be pure infrastructure that returned a `Best` value
+//! and nothing called it — the comment here used to say the connecting
+//! work "lives with the queue refactor in M9-4" and that this shipped
+//! zero user-visible change until then. That is no longer true.
+//! `upgrade_cover_if_better()` below is called from the enrichment
+//! pipeline in `services/download_queue/processing.rs` (#1159), right
+//! after the existing cover-art fallback chain. It only replaces the
+//! cover art file already on disk, and only when the alternative is
+//! bigger — it never touches the artwork already embedded inside each
+//! track. The setting that turns it on, `best_cover_art_enabled`, is
+//! off by default and surfaced at Settings > Cover Art.
 
 use serde::{Deserialize, Serialize};
 
