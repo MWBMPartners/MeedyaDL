@@ -984,10 +984,17 @@ pub fn process_queue(
                                     if let Some((new_options, fb_idx, chain_len)) =
                                         q.try_fallback(&dl_id, &settings)
                                     {
+                                        // Read the field the fallback actually
+                                        // sets. It clears `song_codec` and
+                                        // writes the chosen format into
+                                        // `song_codec_priority`, so reading
+                                        // `song_codec` here always found
+                                        // nothing — and every message said
+                                        // "trying unknown", which told the
+                                        // person nothing at all.
                                         let fallback_codec = new_options
-                                            .song_codec
-                                            .as_ref()
-                                            .map(|c| c.to_cli_string().to_string())
+                                            .song_codec_priority
+                                            .clone()
                                             .unwrap_or_else(|| "unknown".to_string());
                                         let total_fallbacks = chain_len.saturating_sub(1);
                                         log::info!(
@@ -4166,10 +4173,12 @@ pub fn process_queue(
                             if let Some((new_options, fb_idx, chain_len)) =
                                 q.try_fallback(&dl_id, &settings)
                             {
+                                // Same as the other site above: the chosen
+                                // format lives in `song_codec_priority`, not
+                                // `song_codec`, which the fallback clears.
                                 let fallback_codec = new_options
-                                    .song_codec
-                                    .as_ref()
-                                    .map(|c| c.to_cli_string().to_string())
+                                    .song_codec_priority
+                                    .clone()
                                     .unwrap_or_else(|| "unknown".to_string());
                                 let total_fallbacks = chain_len.saturating_sub(1);
                                 log::info!(
@@ -4343,9 +4352,36 @@ pub fn process_queue(
                     // Persist queue state after error handling (whether retrying or terminal)
                     save_queue_to_disk(&app_clone, &queue_clone).await;
 
-                    // If no retry will occur, check auto-retry-without-wrapper
+                    // Start the queue again when a retry has been arranged.
+                    //
+                    // Without this, arranging a retry did nothing (#1155
+                    // investigation). The item is put back to Queued and its
+                    // slot is released — but the queue is not a loop, it is
+                    // started once per item, so something has to ask it to
+                    // pick the item up again. Every such request below sits
+                    // inside `if !should_retry`, so the one case that needed
+                    // it never got it.
+                    //
+                    // The effect: a download that hit a network problem, or
+                    // fell back to another format, sat in "Queued" doing
+                    // nothing. On a busy queue it was hidden, because
+                    // finishing another item starts the queue anyway, and the
+                    // connection watcher does too. On a one-item queue it
+                    // simply stopped, which makes the documented "retries four
+                    // times" quietly untrue.
+                    //
+                    // The rule from here on: the slot was released above, so
+                    // nothing may return without either starting the queue or
+                    // leaving the item in a terminal state and starting the
+                    // queue.
+                    if should_retry {
+                        process_queue(app_clone, queue_clone).await;
+                        return;
+                    }
+
+                    // No retry will occur — check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
-                    if !should_retry {
+                    {
                         // Storefront fallback (#666). Try BEFORE wrapper auto-
                         // retry because (a) wrong-storefront and wrapper
                         // failure are different root causes, (b) if the album
