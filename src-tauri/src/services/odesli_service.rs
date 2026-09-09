@@ -934,6 +934,27 @@ mod tests {
     }
 
     #[test]
+    fn a_link_for_one_song_is_recognised_as_such() {
+        // The pipeline uses this shape of test to decide whether the links it
+        // found describe a whole album or just one song. It matters because
+        // the links get written into every audio file in the folder, which is
+        // right for an album and wrong for a single song: the other songs
+        // would each be told they are available elsewhere at an address that
+        // is actually a different song. Found in review.
+        let is_one_song = |u: &str| u.contains("?i=") || u.contains("&i=") || u.contains("/song/");
+
+        // One song, in both the shapes Apple Music uses.
+        assert!(is_one_song("https://music.apple.com/gb/album/abbey-road/401186200?i=401186286"));
+        assert!(is_one_song("https://music.apple.com/gb/song/come-together/401186286"));
+        assert!(is_one_song("https://music.apple.com/gb/album/x/1?l=en&i=2"));
+
+        // Whole albums, playlists and artists are not one song.
+        assert!(!is_one_song("https://music.apple.com/gb/album/abbey-road/401186200"));
+        assert!(!is_one_song("https://music.apple.com/gb/playlist/x/pl.abc"));
+        assert!(!is_one_song("https://music.apple.com/gb/artist/the-beatles/136975"));
+    }
+
+    #[test]
     fn urlencoded_escapes_specials() {
         assert_eq!(urlencoded("https://music.apple.com/gb/album/foo/123"),
             "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Ffoo%2F123");
