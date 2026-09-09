@@ -108,6 +108,55 @@ def _find_reads() -> dict[str, list[str]]:
     return reads
 
 
+# Where crash reports can be sent to.
+#
+# The app's own security rules list which addresses the page is allowed to
+# contact. A reporting address that is not on that list is refused by the
+# WebView, silently — the report never leaves, nothing appears in the log, and
+# the person who switched reporting on has no way to tell (#998).
+#
+# So the two have to agree: if the app can be built with a reporting address,
+# the security rules must permit reaching it.
+#
+# Keeping the list short is a feature, not an inconvenience. It means a
+# reporting address that arrives from anywhere else — a mistake, or a tampered
+# lookup — is refused rather than quietly sending crash reports, which contain
+# stack traces, somewhere nobody chose.
+CRASH_REPORT_HOSTS = (
+    "app.glitchtip.com",  # the hosted service we use
+    "sentry.mwbm.cloud",  # reserved for running it ourselves later
+)
+
+TAURI_CONF = ROOT / "src-tauri" / "tauri.conf.json"
+
+
+def check_crash_report_hosts_are_reachable() -> list[str]:
+    """Confirms the security rules permit reaching the crash-report addresses.
+
+    Returns:
+        One finding per address the rules would block, empty if all are fine.
+    """
+    if not TAURI_CONF.exists():
+        return [f"{TAURI_CONF.relative_to(ROOT).as_posix()} — not found"]
+
+    import json
+
+    try:
+        config = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"{TAURI_CONF.relative_to(ROOT).as_posix()} — could not be read: {exc}"]
+
+    rules = config.get("app", {}).get("security", {}).get("csp") or ""
+    rel = TAURI_CONF.relative_to(ROOT).as_posix()
+    return [
+        f"{rel} — crash reports can be sent to {host}, but the app's security rules "
+        f"do not allow the page to contact it, so reports would be refused with no "
+        f"sign to the user"
+        for host in CRASH_REPORT_HOSTS
+        if host not in rules
+    ]
+
+
 def check() -> int:
     if not RELEASE_WORKFLOW.exists():
         print(f"  • {RELEASE_WORKFLOW.relative_to(ROOT)} — release workflow not found")
@@ -153,6 +202,16 @@ def check() -> int:
         print("  Each of these makes a feature silently inert in every shipped build.")
         print("  Either pass it through release.yml, or add it to INTENTIONALLY_UNSET")
         print("  in this script with the reason it is not needed.")
+        print()
+        if "--strict" in sys.argv:
+            return 1
+        return 0
+
+    blocked_hosts = check_crash_report_hosts_are_reachable()
+    if blocked_hosts:
+        print("### Crash reports could not be delivered — the security rules block the address\n")
+        for finding in blocked_hosts:
+            print(f"  • {finding}")
         print()
         if "--strict" in sys.argv:
             return 1
