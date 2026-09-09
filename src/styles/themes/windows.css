@@ -89,6 +89,18 @@
   --accent-hover: #1975ca;
 
   /*
+   * Windows' accent is darker than macOS's or Linux's, so it needs the
+   * OPPOSITE text colour from them: R=0/255=0->linear 0,
+   * G=103/255=0.4039->linear 0.1353, B=192/255=0.7529->linear 0.5271.
+   * L = 0.7152*0.1353 + 0.0722*0.5271 = 0.1351.
+   *   White (L=1) vs #0067c0: (1+0.05)/(0.1351+0.05) = 5.67:1. Passes.
+   *   Black (L=0) vs #0067c0: (0.1351+0.05)/(0+0.05) = 3.70:1. Fails.
+   * White wins on Windows -- see base.css for why this can't just be
+   * one shared token across every platform.
+   */
+  --text-on-accent: #ffffff;
+
+  /*
    * Surface colors: Windows uses a warm off-white for the main background
    * (not pure white) and pure white for elevated content (cards, panels).
    * This inverted relationship (elevated = brighter) is the opposite of macOS
@@ -143,8 +155,18 @@
     --surface-secondary: #202020; /* Grouped sections */
     --surface-elevated: #2a2a2a; /* Cards/modals: slightly lighter for depth */
 
-    /* Inverse text: Dark text on bright accent buttons */
-    --text-inverse: #1a1a1a;
+    /*
+     * Text on the accent fill, dark mode. The dark-mode accent
+     * (#4cc2ff) is much brighter than the light-mode one, so it needs
+     * dark text again (like macOS/Linux do in dark mode -- see
+     * base.css's dark-mode block): L(#4cc2ff) = 0.2126*0.0723 +
+     * 0.7152*0.5395 + 0.0722*1 = 0.4734. Using the near-black
+     * #1a1a1a (matching this theme's own dark surface colour, rather
+     * than pure black, purely for visual consistency -- the numbers
+     * work out almost identically either way) at L=0.0103:
+     *   (0.4734+0.05)/(0.0103+0.05) = 8.68:1. Passes comfortably.
+     */
+    --text-on-accent: #1a1a1a;
 
     /* Stronger shadows in dark mode for visibility */
     --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -163,7 +185,8 @@
   --surface-primary: #1a1a1a;
   --surface-secondary: #202020;
   --surface-elevated: #2a2a2a;
-  --text-inverse: #1a1a1a;
+  /* See the matching @media block above for the contrast arithmetic. */
+  --text-on-accent: #1a1a1a;
   --shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

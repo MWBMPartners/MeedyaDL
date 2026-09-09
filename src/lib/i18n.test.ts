@@ -98,6 +98,10 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // place.
     vi.unstubAllGlobals();
     await i18n.changeLanguage('en');
+    // Also put the <html> tag back to English -- initI18n's language
+    // listener will have moved it, and it is shared, real jsdom state
+    // for the rest of this file's tests.
+    document.documentElement.lang = 'en';
     // Clear the remembered language too, so this test does not decide the
     // language for anything that runs after it.
     try {
@@ -150,6 +154,61 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // fix in `initI18n()`, this line is the one that fails -- the probe
     // keeps showing "Queue" even though the German file was fetched.
     expect(screen.getByTestId('probe')).toHaveTextContent('Warteschlange');
+  });
+
+  it('sets <html lang> to the detected language at startup (#WCAG 3.1.1)', async () => {
+    // `index.html` hard-codes lang="en" and nothing used to update it.
+    // A screen reader picks its pronunciation rules from this attribute,
+    // so a German-OS user who never opens Settings would have every
+    // German word on screen read aloud with English pronunciation rules
+    // -- the text was correct, the announced LANGUAGE of that text was
+    // not. Sanity check first: jsdom's default is "en" before anything
+    // runs, so a pass here has to come from the fix, not the starting
+    // state.
+    expect(document.documentElement.lang).toBe('en');
+    await act(async () => {
+      await initI18n();
+    });
+    expect(document.documentElement.lang).toBe('de');
+  });
+});
+
+describe('document.documentElement.lang tracks every later language change too', () => {
+  beforeEach(async () => {
+    // Deliberately does not depend on a previous test having already
+    // called `initI18n()` -- that would make this test's result depend
+    // on file-wide execution order, which is exactly the "passed here,
+    // failed on the build machine" trap the big comment earlier in this
+    // file already burned time on once. `initI18n()` is what registers
+    // the listener under test (see i18n.ts), and it is idempotent to
+    // call again, so calling it explicitly here makes the precondition
+    // this test needs true regardless of what ran before it.
+    await act(async () => {
+      await initI18n();
+    });
+  });
+
+  afterEach(async () => {
+    await i18n.changeLanguage('en');
+    document.documentElement.lang = 'en';
+  });
+
+  it('updates when the language changes after startup, not only at startup', async () => {
+    // Settings > General calls `i18next.changeLanguage(...)` directly
+    // (see App.tsx) whenever the user picks a language from the
+    // dropdown -- long after `initI18n()` has already finished. If the
+    // <html> tag were only set once, at startup, switching languages in
+    // Settings would leave it wrong for the rest of the session.
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    expect(document.documentElement.lang).toBe('fr');
+
+    // And back, proving this isn't a one-way/one-shot listener either.
+    await act(async () => {
+      await i18n.changeLanguage('de');
+    });
+    expect(document.documentElement.lang).toBe('de');
   });
 });
 

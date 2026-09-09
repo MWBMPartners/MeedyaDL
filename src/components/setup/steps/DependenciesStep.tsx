@@ -194,7 +194,7 @@ export function DependenciesStep() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-content-primary">{tool.name}</span>
                     {tool.required && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error">
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
                         Required
                       </span>
                     )}
@@ -205,7 +205,11 @@ export function DependenciesStep() {
                     )}
                     {tool.installed && tool.source && tool.source !== 'managed' && (
                       <span
-                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary"
+                        /* `bg-accent-primary` / `text-accent-primary`
+                         * were never defined colours (same defect as the
+                         * matching badge in ToolsTab.tsx) -- this badge
+                         * had no background and unstyled text. */
+                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover"
                         title="Using your existing install — no duplicate download"
                       >
                         {sourceLabel(tool.source)}
@@ -277,7 +281,7 @@ export function DependenciesStep() {
 
       {/* Error display */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error">
+        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
           {error}
         </div>
       )}

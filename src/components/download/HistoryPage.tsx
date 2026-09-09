@@ -358,7 +358,9 @@ export function HistoryPage() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by title, artist, album, or URL..."
-            className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-input-bg border border-input-border text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+            /* `bg-input-bg` / `border-input-border` were never defined
+             * colours -- see the matching fix in DownloadQueue.tsx. */
+            className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
           />
           {searchQuery && (
             <button

@@ -539,16 +539,16 @@ export function AdvancedTab() {
         />
         {verboseActivityLog.value && (
           <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
-            <p className="text-xs font-semibold text-status-warning mb-1">
+            <p className="text-xs font-semibold text-status-warning-text mb-1">
               Sensitive Data Warning
             </p>
-            <p className="text-xs text-status-warning">
+            <p className="text-xs text-status-warning-text">
               Verbose logging includes detailed information that may contain sensitive data such as
               cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API responses,
               MusicKit credentials, and full download URLs. Disable this setting before sharing
               activity logs with others.
             </p>
-            <p className="text-xs text-status-warning mt-2">
+            <p className="text-xs text-status-warning-text mt-2">
               In pre-release versions (v0.x.x), this setting is preserved across restarts to aid
               debugging. In full releases, it automatically resets to off on restart. You may need
               to re-enable it each session in full release builds.
@@ -753,12 +753,12 @@ export function AdvancedTab() {
                 {testState === 'testing' ? 'Testing...' : 'Test Connection'}
               </Button>
               {testState === 'success' && testResult && (
-                <span className="text-xs text-status-success">
+                <span className="text-xs text-status-success-text">
                   Connected ({testResult.response_time_ms}ms)
                 </span>
               )}
               {testState === 'error' && (
-                <span className="text-xs text-status-error">
+                <span className="text-xs text-status-error-text">
                   {testResult?.error || 'Connection failed'}
                 </span>
               )}
@@ -830,13 +830,13 @@ export function AdvancedTab() {
                 {keyStatus === 'saving' ? 'Saving...' : 'Save to Keychain'}
               </Button>
               {keyStatus === 'saved' && (
-                <span className="text-xs text-status-success">Saved to keychain</span>
+                <span className="text-xs text-status-success-text">Saved to keychain</span>
               )}
               {keyStatus === 'error' && (
-                <span className="text-xs text-status-error">Failed to save</span>
+                <span className="text-xs text-status-error-text">Failed to save</span>
               )}
               {keyStored && keyStatus === 'idle' && (
-                <span className="text-xs text-status-success">Key stored in keychain</span>
+                <span className="text-xs text-status-success-text">Key stored in keychain</span>
               )}
             </div>
           </div>
@@ -857,7 +857,7 @@ export function AdvancedTab() {
             </Button>
             {validationResult && (
               <span
-                className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error' : 'text-status-success'}`}
+                className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error-text' : 'text-status-success-text'}`}
               >
                 {validationResult}
               </span>
@@ -973,7 +973,7 @@ export function AdvancedTab() {
                 />
                 <button
                   type="button"
-                  className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-white hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
+                  className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-content-on-accent hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
                   onClick={handleAudit}
                   disabled={auditLoading || !auditUrl.trim() || !hasMusicKitCredentials}
                 >
@@ -981,12 +981,12 @@ export function AdvancedTab() {
                 </button>
               </div>
               {!hasMusicKitCredentials && (
-                <p className="text-sm text-status-warning">
+                <p className="text-sm text-status-warning-text">
                   MusicKit credentials required. Configure Team ID and Key ID above.
                 </p>
               )}
               {auditError && (
-                <p className="text-sm text-status-error">{auditError}</p>
+                <p className="text-sm text-status-error-text">{auditError}</p>
               )}
               {auditResult && (
                 <div className="space-y-3 text-sm">
@@ -1116,7 +1116,7 @@ function NotificationDiagnosticsRow() {
   if (error) {
     return (
       <div className="p-3 rounded-lg bg-status-error-bg border border-status-error">
-        <p className="text-xs text-status-error">{error}</p>
+        <p className="text-xs text-status-error-text">{error}</p>
       </div>
     );
   }
@@ -1139,7 +1139,10 @@ function NotificationDiagnosticsRow() {
   const styleLabel = styleLabels[diag.notification_style] ?? diag.notification_style;
 
   return (
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+    /* `border-border-default` was never a defined colour -- Tailwind's
+       generated class for the `border.DEFAULT` token has no "-default"
+       suffix, it is simply `border-border`. This box had no border. */
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
       <p className="text-xs font-semibold text-content-primary mb-2">
         Native notification diagnostics (#834)
       </p>
@@ -1156,9 +1159,9 @@ function NotificationDiagnosticsRow() {
         <span
           className={
             osPermission === 'granted'
-              ? 'text-status-success'
+              ? 'text-status-success-text'
               : osPermission === 'not granted'
-                ? 'text-status-warning'
+                ? 'text-status-warning-text'
                 : 'text-content-primary'
           }
         >
@@ -1227,7 +1230,10 @@ function IntegrityScanSection() {
   };
 
   return (
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border-default">
+    /* `border-border-default` was never a defined colour -- Tailwind's
+       generated class for the `border.DEFAULT` token has no "-default"
+       suffix, it is simply `border-border`. This box had no border. */
+    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-content-primary">
           Integrity scan (#537)
@@ -1249,7 +1255,7 @@ function IntegrityScanSection() {
         Quarantine action lands in a future update.
       </p>
       {error && (
-        <p className="text-xs text-status-error mb-2">{error}</p>
+        <p className="text-xs text-status-error-text mb-2">{error}</p>
       )}
       {report && (
         <div className="mt-2">
@@ -1257,22 +1263,22 @@ function IntegrityScanSection() {
             Scanned: <code>{report.scanned_path}</code> — {report.files_walked} file(s) walked.
           </p>
           {report.issues.length === 0 ? (
-            <p className="text-xs text-status-success">
+            <p className="text-xs text-status-success-text">
               ✓ No issues found — your library is clean.
             </p>
           ) : (
             <>
-              <p className="text-xs font-semibold text-status-warning mb-1">
+              <p className="text-xs font-semibold text-status-warning-text mb-1">
                 {report.issues.length} issue(s) found:
               </p>
-              <div className="max-h-48 overflow-y-auto border border-border-default rounded p-2 bg-surface-primary">
+              <div className="max-h-48 overflow-y-auto border border-border rounded p-2 bg-surface-primary">
                 {report.issues.map((issue, idx) => (
                   <div key={idx} className="text-xs font-mono text-content-primary py-0.5">
                     <span
                       className={
                         issue.kind === 'zero_byte_cover'
-                          ? 'text-status-warning'
-                          : 'text-status-error'
+                          ? 'text-status-warning-text'
+                          : 'text-status-error-text'
                       }
                     >
                       [{issue.kind === 'zero_byte_cover' ? 'zero-byte cover' : 'degenerate name'}]
@@ -1631,9 +1637,9 @@ function WrapperSignInSection() {
 
   const statusClass =
     status === 'authenticated'
-      ? 'text-status-success'
+      ? 'text-status-success-text'
       : status === 'unreachable'
-        ? 'text-status-error'
+        ? 'text-status-error-text'
         : 'text-content-tertiary';
 
   return (
@@ -1811,7 +1817,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
               under Sign-In and Security &gt; App-Specific Passwords.
             </p>
           </div>
-          {errorMessage && <p className="text-xs text-status-error">{errorMessage}</p>}
+          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel
@@ -1843,7 +1849,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             placeholder="123456"
             required
           />
-          {errorMessage && <p className="text-xs text-status-error">{errorMessage}</p>}
+          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel
@@ -1885,7 +1891,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
 function WrapperUrlSecurityHint({ kind }: { kind: WrapperUrlClass }) {
   const isPublic = kind === 'public';
   const wrapperClasses = isPublic
-    ? 'mt-2 p-3 rounded-platform border border-status-error/40 bg-status-error/5 text-xs text-status-error'
+    ? 'mt-2 p-3 rounded-platform border border-status-error/40 bg-status-error/5 text-xs text-status-error-text'
     : 'mt-2 p-3 rounded-platform border border-status-warning/40 bg-status-warning/5 text-xs text-content-secondary';
 
   const lead = isPublic

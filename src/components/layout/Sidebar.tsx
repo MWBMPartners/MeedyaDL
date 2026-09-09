@@ -494,7 +494,7 @@ export function Sidebar() {
                 ${sidebarCollapsed ? 'justify-center' : ''}
                 ${
                   hasUpdates
-                    ? 'text-accent hover:bg-sidebar-hover'
+                    ? 'text-accent-hover hover:bg-sidebar-hover'
                     : 'text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover'
                 }
               `}

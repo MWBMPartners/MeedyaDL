@@ -15,6 +15,7 @@
  * @see src/components/common/Modal.tsx - The component under test
  */
 
+import { useState } from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { Modal } from '@/components/common/Modal';
 
@@ -231,5 +232,134 @@ describe('Modal', () => {
     expect(panel).toBeTruthy();
     /* The default maxWidth 'max-w-lg' should be present in the panel's classes */
     expect(panel!.className).toContain('max-w-lg');
+  });
+
+  // ===========================================================================
+  // Focus stability across parent re-renders (regression test)
+  // ===========================================================================
+
+  /**
+   * Regression test for a bug where a field inside the dialog lost focus
+   * after every keystroke.
+   *
+   * The real cause: almost every caller passes a brand new inline function
+   * as `onClose` on every render (`onClose={() => setOpen(false)}`). That
+   * used to flow into the dependency list of the effect that manages
+   * focus, so any re-render of the component that opened the dialog --
+   * even one that has nothing to do with the dialog itself, like typing a
+   * character into a field -- tore the focus-management effect down
+   * (moving focus back out to whatever opened the dialog) and immediately
+   * rebuilt it (moving focus back onto the dialog's first control). A field
+   * inside the dialog could only ever receive one character before losing
+   * focus this way.
+   *
+   * This test reproduces the exact shape of the bug: a wrapper component
+   * whose own state changes on every keystroke (so it re-renders, and its
+   * inline `onClose` is a new function reference each time), with a real
+   * "opener" element for focus to wrongly snap back to. Typing several
+   * characters into a field inside the dialog must not move focus away
+   * from that field at any point.
+   */
+  it('keeps focus on a field inside the dialog through several keystrokes, even though the parent creates a new onClose function every render', () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [value, setValue] = useState('');
+      return (
+        <div>
+          <button onClick={() => setOpen(true)}>Opener</button>
+          {/* onClose is a fresh arrow function on every render, exactly like
+              every real caller in this codebase (DownloadQueue, GeneralTab,
+              App.tsx, HistoryPage, SettingsPage, LibraryScanPage, etc). */}
+          <Modal open={open} onClose={() => setOpen(false)}>
+            <input
+              aria-label="secret"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </Modal>
+        </div>
+      );
+    }
+
+    render(<Harness />);
+
+    /* Focus the element that opens the dialog -- this is what a broken
+     * focus-management effect would wrongly snap focus back to. */
+    const opener = screen.getByText('Opener');
+    opener.focus();
+    expect(opener).toHaveFocus();
+
+    /* Open the dialog while the opener still has focus, matching the real
+     * sequence: click a button, a dialog appears, focus moves inside it. */
+    fireEvent.click(opener);
+
+    /* Move focus into the field inside the dialog by hand -- this test is
+     * about whether focus STAYS there across re-renders, not about the
+     * (asynchronous, requestAnimationFrame-based) auto-focus-on-open. */
+    const input = screen.getByLabelText('secret');
+    input.focus();
+    expect(input).toHaveFocus();
+
+    /* Type several characters one at a time. Each one changes the
+     * Harness's `value` state, which re-renders Harness, which creates a
+     * brand new `onClose` closure and passes it to Modal. */
+    for (const nextValue of ['a', 'ab', 'abc']) {
+      fireEvent.change(input, { target: { value: nextValue } });
+      expect(input).toHaveFocus();
+    }
+  });
+
+  // ===========================================================================
+  // Focus trap excludes disabled elements (regression test)
+  // ===========================================================================
+
+  /**
+   * Regression test for a bug where the keyboard could escape the dialog
+   * entirely.
+   *
+   * The focus trap works out which element is "last" by querying
+   * `panel.querySelectorAll('button, [href], input, ...')` with no
+   * `:not([disabled])` exclusion. When the actual last element in the
+   * dialog's markup is disabled (a "Continue" button greyed out while a
+   * download is in progress, for example), that disabled button was still
+   * counted as "last" -- even though a disabled button can never actually
+   * receive focus. Tab pressed from the REAL last usable control then
+   * failed to match the trap's "you're at the end, wrap around" check
+   * (because the browser's current focus was never going to equal a
+   * disabled element), so the trap did nothing and focus was free to leave
+   * the dialog for whatever the browser's native tab order finds next.
+   *
+   * This test does not attempt to model a real browser's native Tab
+   * traversal (jsdom does not implement it -- that is exactly why this
+   * component has to do the job itself in JavaScript). Instead it checks
+   * the component's own logic directly: with `:not([disabled])` excluding
+   * the disabled trailing button, pressing Tab while focus is on the real
+   * last enabled control must be recognised as "at the end" and wrap
+   * focus back to the first focusable element in the dialog.
+   */
+  it('excludes a disabled trailing element from the Tab focus trap', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()} title="Test">
+        <button>First body button</button>
+        <button disabled>Last button (disabled)</button>
+      </Modal>
+    );
+
+    /* The header's Close button is the true first focusable element. */
+    const closeButton = screen.getByLabelText('Close');
+    const lastEnabledButton = screen.getByText('First body button');
+    const disabledButton = screen.getByText('Last button (disabled)');
+
+    /* Focus the real last ENABLED control in the dialog. */
+    lastEnabledButton.focus();
+    expect(lastEnabledButton).toHaveFocus();
+
+    /* Tab forward. The disabled button must be excluded from the trap's
+     * idea of "last", so this must be treated as tabbing off the end of
+     * the dialog and wrap focus back to the first focusable element. */
+    fireEvent.keyDown(document, { key: 'Tab' });
+
+    expect(document.activeElement).toBe(closeButton);
+    expect(disabledButton).not.toHaveFocus();
   });
 });

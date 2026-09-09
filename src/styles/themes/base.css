@@ -108,6 +108,18 @@
   --surface-primary: #ffffff; /* Main content background: pure white */
   --surface-secondary: #fafafa; /* Grouped/alternate content sections: off-white */
   --surface-elevated: #f8f8f8; /* Cards, modals, raised panels: slightly gray */
+  /*
+   * --surface-tertiary did not exist, but `bg-surface-tertiary` (and one
+   * `hover:bg-surface-quaternary`) were already being written in six
+   * different files by different authors, all reaching for the same
+   * missing thing: a background one step more emphasised than
+   * `elevated` for a hover state or a nested "box" (a code preview, a
+   * kbd hint, a delete-icon hover). Since Tailwind v4 silently drops a
+   * utility for a colour it doesn't know, every one of those was
+   * rendering with NO background at all. This adds the level that was
+   * clearly intended, one step past elevated in the same direction.
+   */
+  --surface-tertiary: #eeeeee; /* Nested boxes / hover states one step past "elevated" */
   --surface-overlay: rgba(0, 0, 0, 0.5); /* Semi-transparent backdrop behind modals (50% black) */
 
   /* ---- Colors: Accent ---- */
@@ -127,16 +139,75 @@
 
   /* ---- Colors: Text ---- */
   /*
-   * Text colors at three emphasis levels plus an inverse variant.
+   * Text colors at three emphasis levels plus a token for text sitting
+   * on top of the accent colour.
    * Using a hierarchy of emphasis avoids the "wall of black text" effect and
    * guides the user's eye to the most important information.
    *
-   * Referenced by: text-content-primary, text-content-secondary, text-content-tertiary, text-content-inverse
+   * Referenced by: text-content-primary, text-content-secondary, text-content-tertiary, text-content-on-accent
    */
   --text-primary: #1a1a1a; /* Highest emphasis: headings, body text, labels */
   --text-secondary: #666666; /* Medium emphasis: descriptions, metadata, supporting text */
-  --text-tertiary: #999999; /* Low emphasis: placeholders, hints, disabled text */
-  --text-inverse: #ffffff; /* Text on colored backgrounds (e.g., white text on accent buttons) */
+  /*
+   * --text-tertiary was #999999, which reads at 2.85:1 against white --
+   * well under the 4.5:1 a screen needs for ordinary-sized text (WCAG
+   * 2 AA). It is the colour used for every settings field's description,
+   * every placeholder, every timestamp and every small hint across the
+   * app, so that shortfall showed up almost everywhere.
+   *
+   * #767676 on white: sRGB 0.4627 -> linear 0.1809 (each channel equal,
+   * since this is a grey) -> relative luminance 0.1809 -> contrast
+   * (1.0 + 0.05) / (0.1809 + 0.05) = 4.55:1. Passes.
+   */
+  --text-tertiary: #767676; /* Low emphasis: placeholders, hints, disabled text */
+  /*
+   * There used to be ONE token here, --text-inverse, used for both
+   * "the text on a button filled with the accent colour" AND "the text
+   * on a button filled with a status colour" (success/warning/error).
+   * Those are two different jobs. The accent colour is a different hex
+   * value on every platform theme, and Windows' accent (#0067c0) is
+   * dark enough that it needs the OPPOSITE answer (white text) from
+   * what macOS and Linux need (black text) for their own, lighter
+   * accents. One token cannot be right for both at once, so light mode
+   * was previously stuck picking a winner and living with a loser --
+   * black text read well on macOS/Linux's accent but failed on
+   * Windows'. Splitting the token in two means each can be set
+   * correctly, per platform, with no trade-off:
+   *   --text-on-accent      -- text sitting on THIS THEME'S accent fill.
+   *   --text-on-status-*    -- text sitting on a status fill (one token
+   *                            per status colour; see below, and see
+   *                            the "one job each" note there for why a
+   *                            single shared status token was not
+   *                            enough either).
+   *
+   * Arithmetic for this token, base/default values (used whenever a
+   * platform file does not override it -- i.e. macOS, whose accent
+   * equals this default, and the initial fallback before a platform is
+   * detected):
+   *   sRGB->linear conversion: for each channel value c in [0,255],
+   *   let s = c/255. If s <= 0.03928, linear = s/12.92, else
+   *   linear = ((s+0.055)/1.055)^2.4. Luminance L = 0.2126*R + 0.7152*G
+   *   + 0.0722*B. Contrast between two luminances = (lighter+0.05) /
+   *   (darker+0.05).
+   *
+   *   Accent #007aff (macOS/base, light mode):
+   *     R=0/255=0 -> linear 0. G=122/255=0.4784 -> linear 0.1946.
+   *     B=255/255=1 -> linear 1. L = 0.7152*0.1946 + 0.0722*1 = 0.2114.
+   *     Black (L=0) vs #007aff (L=0.2114): (0.2114+0.05)/(0+0.05) =
+   *     5.23:1. Passes.
+   *     White (L=1) vs #007aff: (1+0.05)/(0.2114+0.05) = 4.02:1 --
+   *     fails the 4.5:1 text threshold.
+   *   Black wins on macOS/base. This 14px, normal-weight text (buttons,
+   *   step-circle digits) needs the full 4.5:1 rule, not the 3:1 large
+   *   -text rule, so black is required here, not merely preferred.
+   *
+   * Windows and Linux each redeclare this token with their OWN accent's
+   * arithmetic shown in windows.css / linux.css; dark mode's arithmetic
+   * is shown in the dark-mode block below (every theme's dark accent is
+   * bright enough that black passes everywhere, so dark mode needs no
+   * per-platform split).
+   */
+  --text-on-accent: #000000; /* Text on THIS theme's accent fill */
 
   /* ---- Colors: Status ---- */
   /*
@@ -152,6 +223,76 @@
   --status-warning: #ff9500; /* Warnings, pending actions (orange) */
   --status-error: #ff3b30; /* Failed downloads, validation errors (red) */
   --status-info: #007aff; /* Informational messages, active downloads (blue, matches accent) */
+
+  /* ---- Colors: Status, darkened for use AS TEXT ----
+   * The four colours above are tuned to read well as small fills --
+   * icons, pill backgrounds, borders -- which only need to clear a 3:1
+   * "UI component" contrast floor. Used as actual readable TEXT (a
+   * status pill's label, an inline error message) they need the much
+   * stricter 4.5:1 that ordinary-sized text requires, and at that bar
+   * every one of them fails against a white/near-white background:
+   *   #34c759 (success) as text on white: 2.22:1
+   *   #ff9500 (warning) as text on white: 2.20:1
+   *   #ff3b30 (error)   as text on white: 3.55:1
+   *   #007aff (info)    as text on white: 4.02:1
+   * These four give the SAME colour a darker shade to use specifically
+   * for text, while the four above stay untouched for icons/fills/pill
+   * backgrounds (which is why both sets exist side by side). Computed
+   * against white:
+   *   #1a7f37 (success-text): sRGB->linear 0.01035/0.2124/0.03823,
+   *     luminance 0.1569, contrast 5.08:1. Passes.
+   *   #9a5b00 (warning-text): luminance 0.1436, contrast 5.42:1. Passes.
+   *   #d32f2f (error-text):   luminance 0.1610, contrast 4.98:1. Passes.
+   *   #0058b3 (info-text):    luminance 0.1024, contrast 6.89:1. Passes.
+   */
+  --status-success-text: #1a7f37;
+  --status-warning-text: #9a5b00;
+  --status-error-text: #d32f2f;
+  --status-info-text: #0058b3;
+
+  /* ---- Colors: Status fills, text/icon SITTING ON TOP of them ----
+   * Different job again from the pair above: `--status-*-text` is for
+   * when a status colour is READ AS the text (a red error sentence on
+   * an ordinary background). This group is for a button or pill that
+   * is FILLED with a status colour, and needs to know what colour its
+   * own label should be -- e.g. a green "Continue" button, not green
+   * text on a plain background.
+   *
+   * This used to share a single token (--text-inverse) with the accent
+   * case above, always set to black in light mode. That is correct for
+   * the ordinary theme's four status fills:
+   *   Black on #34c759 (success): luminance 0.4230, contrast
+   *     (0.4230+0.05)/(0+0.05) = 9.46:1. Passes.
+   *   Black on #ff9500 (warning): luminance 0.4275, contrast 9.55:1. Passes.
+   *   Black on #ff3b30 (error):   luminance 0.2460, contrast 5.92:1. Passes.
+   *   Black on #007aff (info):    luminance 0.2114, contrast 5.23:1. Passes.
+   * But it stopped being correct the moment a THEME remaps what
+   * "success" even looks like: the deuteranopia/protanopia colour-
+   * blind palette (a11y-colour-blind.css) recolours success to a much
+   * darker, more saturated blue (#0077b6) for discriminability. Against
+   * THAT fill, black is a near-miss failure (4.31:1, under 4.5) while
+   * white passes (4.87:1) -- but white FAILS on that same theme's
+   * warning (#d4a017, white=2.38:1) and error (#e76f51, white=3.09:1)
+   * fills, which still want black. No single colour is correct for all
+   * four status fills within that one theme at once, so this has to be
+   * four separate tokens -- one per status colour -- not one shared
+   * "on-status" token the way accent gets away with being singular
+   * (accent only ever has one fill active at a time; status has four,
+   * and a colour-blind remap can push them in different directions).
+   *
+   * The base/default values below (used by every theme that doesn't
+   * remap a status colour -- i.e. every platform in both light and
+   * dark mode, and colour-blind tritanopia) are simply black, using the
+   * arithmetic already shown above for the light-mode fills, and shown
+   * again in the dark-mode block below for the dark-mode fills.
+   * a11y-high-contrast.css and the deuteranopia/protanopia blocks in
+   * a11y-colour-blind.css override individual entries here with their
+   * own worked arithmetic where black would not be the right answer.
+   */
+  --text-on-status-success: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-info: #000000;
 
   /* ---- Colors: Status Backgrounds ---- */
   /*
@@ -326,6 +467,7 @@
     --surface-primary: #000000; /* True black main background */
     --surface-secondary: #1c1c1e; /* Slightly elevated content sections */
     --surface-elevated: #2c2c2e; /* Cards and modals: lighter for perceived depth */
+    --surface-tertiary: #38383a; /* One step past elevated -- see the light-mode comment above */
     --surface-overlay: rgba(0, 0, 0, 0.7); /* Darker overlay in dark mode for contrast */
 
     /* Accent -- Brighter blue in dark mode for visibility against dark backgrounds */
@@ -336,8 +478,33 @@
     /* Text -- Inverted from light mode (white primary, gray secondary) */
     --text-primary: #ffffff; /* White text on dark backgrounds */
     --text-secondary: #a0a0a0; /* Medium gray for secondary content */
-    --text-tertiary: #666666; /* Dark gray for hints and placeholders */
-    --text-inverse: #000000; /* Black text on colored (accent) backgrounds */
+    /*
+     * --text-tertiary was #666666, which reads at only 2.43:1 against
+     * --surface-elevated #2c2c2e -- the card/modal background it sits
+     * on most often in dark mode. #999999 (a lighter grey -- text needs
+     * to get BRIGHTER, not darker, to stand out against a dark
+     * background): sRGB 0.6 -> linear 0.3186 -> contrast against
+     * #2c2c2e (linear luminance 0.0253) = (0.3186 + 0.05) / (0.0253 +
+     * 0.05) = 4.90:1. Passes (and 7.37:1 against pure black
+     * --surface-primary, so this also covers the more common case of
+     * text sitting directly on the page background).
+     */
+    --text-tertiary: #999999; /* Dark gray for hints and placeholders */
+    /*
+     * --text-on-accent, dark mode. Dark mode's accent brightens to
+     * #0a84ff (a lighter, higher-luminance blue than the light-mode
+     * #007aff): R=10/255=0.0392->linear 0.0030, G=132/255=0.5176->
+     * linear 0.2168, B=255/255=1->linear 1. L = 0.2126*0.0030 +
+     * 0.7152*0.2168 + 0.0722*1 = 0.2377.
+     *   Black (L=0) vs #0a84ff: (0.2377+0.05)/(0+0.05) = 5.75:1. Passes.
+     *   White (L=1) vs #0a84ff: (1+0.05)/(0.2377+0.05) = 3.65:1. Fails.
+     * Black wins here too -- every platform's dark-mode accent turns
+     * out bright enough that black passes (Windows and Linux redeclare
+     * their own brighter dark accents with the same arithmetic in
+     * windows.css / linux.css), so dark mode needs no per-platform
+     * split the way light mode did.
+     */
+    --text-on-accent: #000000;
 
     /* Borders -- Lighter borders for visibility against dark backgrounds */
     --border: #3a3a3c; /* Standard border: visible but subtle */
@@ -348,11 +515,59 @@
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.3); /* 30% opacity (vs 10% in light mode) */
     --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4); /* 40% opacity (vs 15% in light mode) */
 
+    /*
+     * Restated even though they are unchanged from light mode -- dark
+     * mode never darkens the plain --status-* fills, and keeping the
+     * value written down here (rather than depending on inheritance
+     * from :root above) means this block's --text-on-status-* pairing
+     * below can be checked against the fill it actually applies to,
+     * without having to trace back up to the light-mode block.
+     */
+    --status-success: #34c759;
+    --status-warning: #ff9500;
+    --status-error: #ff3b30;
+    --status-info: #007aff;
+
     /* Status backgrounds -- Darker tints for dark mode */
     --status-success-bg: #052e16; /* Tailwind green-950 */
     --status-error-bg: #450a0a; /* Tailwind red-950 */
     --status-warning-bg: #422006; /* Tailwind yellow-950 */
     --status-info-bg: #172554; /* Tailwind blue-950 */
+
+    /*
+     * Status colours as TEXT, dark mode. Dark mode never darkens the
+     * plain --status-* colours above (same #34c759/#ff9500/#ff3b30/
+     * #007aff as light mode), and unlike light mode those same values
+     * already read well as text against a dark background -- a bright
+     * green/orange/red/blue naturally stands out against black:
+     *   #34c759 on black: 9.45:1.  #ff9500 on black: 9.55:1.
+     *   #ff3b30 on black: 5.92:1.  #007aff on black: 5.22:1.
+     * So the dark-mode "text" variants are simply the same colours --
+     * this block exists only so a component can always read
+     * `--status-*-text` and get the right answer without checking which
+     * mode is active.
+     */
+    --status-success-text: #34c759;
+    --status-warning-text: #ff9500;
+    --status-error-text: #ff3b30;
+    --status-info-text: #007aff;
+
+    /*
+     * Text/icon sitting ON TOP of a status fill, dark mode. Contrast is
+     * symmetric (it only depends on the two luminances involved, not
+     * which one is called "foreground"), so the four ratios just above
+     * -- "status colour on black" -- are the exact same numbers as
+     * "black on status colour", meaning black passes as the label
+     * colour for a status-filled button in dark mode too, for all four
+     * colours at once. No colour-blind remap changes this in dark mode
+     * (checked in a11y-colour-blind.css: every dark-mode CVD variant's
+     * fills are bright enough that black passes there as well), so
+     * dark mode never needs the light-mode per-colour split.
+     */
+    --text-on-status-success: #000000;
+    --text-on-status-warning: #000000;
+    --text-on-status-error: #000000;
+    --text-on-status-info: #000000;
 
     /* Service brand colours (#911-7) — bright values for dark surfaces.
      * On `--surface-primary` #000000 / `--surface-secondary` #1c1c1e the
@@ -430,6 +645,7 @@ html.theme-dark {
   --surface-primary: #000000;
   --surface-secondary: #1c1c1e;
   --surface-elevated: #2c2c2e;
+  --surface-tertiary: #38383a;
   --surface-overlay: rgba(0, 0, 0, 0.7);
 
   --accent: #0a84ff;
@@ -438,8 +654,9 @@ html.theme-dark {
 
   --text-primary: #ffffff;
   --text-secondary: #a0a0a0;
-  --text-tertiary: #666666;
-  --text-inverse: #000000;
+  /* See the matching @media block above for the contrast arithmetic. */
+  --text-tertiary: #999999;
+  --text-on-accent: #000000;
 
   --border: #3a3a3c;
   --border-light: #2c2c2e;
@@ -448,10 +665,31 @@ html.theme-dark {
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.4);
 
+  /* Restated even though unchanged from light mode -- see the matching
+   * @media block above for why. */
+  --status-success: #34c759;
+  --status-warning: #ff9500;
+  --status-error: #ff3b30;
+  --status-info: #007aff;
+
   --status-success-bg: #052e16;
   --status-error-bg: #450a0a;
   --status-warning-bg: #422006;
   --status-info-bg: #172554;
+
+  /* See the matching @media block above for the contrast arithmetic --
+   * dark mode never darkens the plain status colours, so the "text"
+   * variant is the same colour in both places. */
+  --status-success-text: #34c759;
+  --status-warning-text: #ff9500;
+  --status-error-text: #ff3b30;
+  --status-info-text: #007aff;
+
+  /* See the matching @media block above for the contrast arithmetic. */
+  --text-on-status-success: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-info: #000000;
 
   /* Service brand colours (#911-7) — duplicated from the dark @media
    * block above so a class-based `theme-dark` override applies even

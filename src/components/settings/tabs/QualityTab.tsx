@@ -378,10 +378,10 @@ export function QualityTab() {
 
         {musicVideoCompanion.value && (
           <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
-            <p className="text-xs font-semibold text-status-warning mb-1">
+            <p className="text-xs font-semibold text-status-warning-text mb-1">
               Experimental Feature
             </p>
-            <p className="text-xs text-status-warning">
+            <p className="text-xs text-status-warning-text">
               Music video discovery uses two sources: the Apple Music API (if MusicKit credentials are
               configured in Settings &gt; Advanced &gt; API Credentials) and MusicBrainz ISRC lookups
               (no credentials needed). Results may vary — not all tracks have music videos, and

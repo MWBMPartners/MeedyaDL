@@ -399,7 +399,7 @@ export function SpotifyTab() {
               <span className="text-sm text-content-secondary">Tracks counted</span>
               <span
                 className={`text-sm font-medium ${
-                  capStatus.at_cap ? 'text-status-error' : 'text-content-primary'
+                  capStatus.at_cap ? 'text-status-error-text' : 'text-content-primary'
                 }`}
               >
                 {capStatus.count} /{' '}
@@ -407,7 +407,7 @@ export function SpotifyTab() {
               </span>
             </div>
             {capStatus.at_cap && (
-              <div className="flex gap-2 rounded-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error">
+              <div className="flex gap-2 rounded-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
                 <AlertCircle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span>
                   Daily cap reached — new Spotify downloads will be blocked

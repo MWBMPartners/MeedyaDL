@@ -210,7 +210,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
        * Takes visual priority over the description: when both error and
        * description are set, only the error is shown.
        */}
-      {error && <p className="text-xs text-status-error">{error}</p>}
+      {error && <p className="text-xs text-status-error-text">{error}</p>}
 
       {/*
        * Description / helper text -- rendered only when there is no error.

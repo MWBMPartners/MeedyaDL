@@ -208,9 +208,9 @@ export function SetupWizard() {
                       transition-colors
                       ${
                         isCurrent
-                          ? 'bg-accent text-content-inverse' /* Active step: accent colour */
+                          ? 'bg-accent text-content-on-accent' /* Active step: accent colour */
                           : isCompleted || isPast
-                            ? 'bg-status-success text-white' /* Done/past step: green */
+                            ? 'bg-status-success text-content-on-status-success' /* Done/past step: green */
                             : 'bg-surface-elevated text-content-tertiary border border-border-light' /* Future step: muted */
                       }
                     `}
@@ -222,7 +222,7 @@ export function SetupWizard() {
                   <span
                     className={`
                       text-[11px] mt-1.5
-                      ${isCurrent ? 'text-accent font-medium' : 'text-content-tertiary'}
+                      ${isCurrent ? 'text-accent-hover font-medium' : 'text-content-tertiary'}
                     `}
                   >
                     {STEP_LABELS[step]}

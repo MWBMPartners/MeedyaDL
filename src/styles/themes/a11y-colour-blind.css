@@ -49,6 +49,42 @@ html.cvd-deuteranopia {
   --status-warning: #d4a017;
   --status-info: #007aff;
 
+  /*
+   * Status colours as TEXT (light mode). The fills above are tuned for
+   * discriminability, not text contrast, and two of them fail 4.5:1 as
+   * text on white:
+   *   #0077b6 (success) on white: 4.87:1 -- already passes, kept as-is.
+   *   #d4a017 (warning) on white: 2.38:1 -- fails; darkened below.
+   *   #e76f51 (error)   on white: 3.09:1 -- fails; darkened below.
+   *   #007aff (info) -- not overridden by this theme, inherits
+   *   base.css's --status-info-text (#0058b3, 6.89:1).
+   * Darkened, same-hue replacements:
+   *   #8a6b00 (warning-text): luminance 0.1591, contrast 5.02:1. Passes.
+   *   #b8452c (error-text):   luminance 0.1464, contrast 5.35:1. Passes.
+   */
+  --status-success-text: #0077b6;
+  --status-warning-text: #8a6b00;
+  --status-error-text: #b8452c;
+
+  /*
+   * ---- Status fills, text/icon SITTING ON TOP of them ----
+   * This is the one theme where the ordinary "black works on every
+   * status fill" rule (see base.css) breaks: this theme's success fill
+   * is a much darker, more saturated blue than the ordinary green, and
+   * black is a near-miss FAIL against it, while white passes:
+   *   #0077b6 (success): black 4.31:1 (fails), white 4.87:1 (passes).
+   * The other two fills this theme remaps still want black, same as
+   * the default theme (the numbers are the "on white" ratios from the
+   * comment above, reused -- contrast is symmetric):
+   *   #d4a017 (warning): black 8.84:1 (passes), white 2.38:1 (fails).
+   *   #e76f51 (error):   black 6.79:1 (passes), white 3.09:1 (fails).
+   * (info is not remapped by this theme -- see above -- so its pairing
+   * is base.css's unchanged #007aff/black, already correct.)
+   */
+  --text-on-status-success: #ffffff;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+
   --status-success-bg: #d0ecf7;
   --status-error-bg: #fce4dc;
   --status-warning-bg: #fff5cc;
@@ -86,6 +122,24 @@ html.cvd-deuteranopia.theme-dark {
   --status-warning: #ffd166;
   --status-info: #64b5f6;
 
+  /* Bright colours on a dark background already read well as text
+   * (e.g. #48b9e6 on black is 9.4:1) -- see base.css's dark-mode
+   * comment for the general reasoning. No darkening needed. */
+  --status-success-text: #48b9e6;
+  --status-error-text: #f4a261;
+  --status-warning-text: #ffd166;
+  --status-info-text: #64b5f6;
+
+  /* Same reasoning as the text-on-fill just above: these fills are
+   * bright, so black passes as the label colour too (black on #48b9e6
+   * 9.36:1, on #f4a261 10.19:1, on #ffd166 14.56:1, on #64b5f6 9.48:1).
+   * Unlike the light-mode deuteranopia/protanopia palette, nothing here
+   * needs the white flip -- dark mode's fills are uniformly bright. */
+  --text-on-status-success: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-info: #000000;
+
   --status-success-bg: #0a2a3d;
   --status-error-bg: #3d1f0a;
   --status-warning-bg: #3d3000;
@@ -113,6 +167,18 @@ html.cvd-deuteranopia.theme-dark {
     --status-error: #f4a261;
     --status-warning: #ffd166;
     --status-info: #64b5f6;
+
+    /* See the matching .theme-dark block for the reasoning. */
+    --status-success-text: #48b9e6;
+    --status-error-text: #f4a261;
+    --status-warning-text: #ffd166;
+    --status-info-text: #64b5f6;
+
+    /* See the matching .theme-dark block for the arithmetic. */
+    --text-on-status-success: #000000;
+    --text-on-status-error: #000000;
+    --text-on-status-warning: #000000;
+    --text-on-status-info: #000000;
 
     --status-success-bg: #0a2a3d;
     --status-error-bg: #3d1f0a;
@@ -147,6 +213,20 @@ html.cvd-protanopia {
   --status-warning: #d4a017;
   --status-info: #007aff;
 
+  /* Same colours, same failing/passing text-contrast numbers, and same
+   * fix as the deuteranopia light block above (both variants share this
+   * palette). */
+  --status-success-text: #0077b6;
+  --status-warning-text: #8a6b00;
+  --status-error-text: #b8452c;
+
+  /* Same fills, same "black is a near-miss fail on success, passes on
+   * warning/error" problem, and same fix as the deuteranopia light
+   * block above -- see there for the worked arithmetic. */
+  --text-on-status-success: #ffffff;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+
   --status-success-bg: #d0ecf7;
   --status-error-bg: #fce4dc;
   --status-warning-bg: #fff5cc;
@@ -176,6 +256,21 @@ html.cvd-protanopia.theme-dark {
   --status-warning: #ffd166;
   --status-info: #64b5f6;
 
+  /* Bright colours on a dark background already read well as text
+   * (e.g. #48b9e6 on black is 9.4:1) -- see base.css's dark-mode
+   * comment for the general reasoning. No darkening needed. */
+  --status-success-text: #48b9e6;
+  --status-error-text: #f4a261;
+  --status-warning-text: #ffd166;
+  --status-info-text: #64b5f6;
+
+  /* Same fills, same "already bright enough for black" reasoning as
+   * the deuteranopia dark block above. */
+  --text-on-status-success: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-info: #000000;
+
   --status-success-bg: #0a2a3d;
   --status-error-bg: #3d1f0a;
   --status-warning-bg: #3d3000;
@@ -201,6 +296,18 @@ html.cvd-protanopia.theme-dark {
     --status-error: #f4a261;
     --status-warning: #ffd166;
     --status-info: #64b5f6;
+
+    /* See the matching .theme-dark block for the reasoning. */
+    --status-success-text: #48b9e6;
+    --status-error-text: #f4a261;
+    --status-warning-text: #ffd166;
+    --status-info-text: #64b5f6;
+
+    /* See the matching .theme-dark block for the arithmetic. */
+    --text-on-status-success: #000000;
+    --text-on-status-error: #000000;
+    --text-on-status-warning: #000000;
+    --text-on-status-info: #000000;
 
     --status-success-bg: #0a2a3d;
     --status-error-bg: #3d1f0a;
@@ -236,6 +343,38 @@ html.cvd-tritanopia {
   --status-warning: #e63946;
   --status-info: #2a9d8f;
 
+  /*
+   * Status colours as TEXT (light mode). Success and error here are
+   * the same colours as the ordinary theme, so they reuse base.css's
+   * already-darkened text variants. Warning and info are unique to
+   * this theme and both fail 4.5:1 as text on white:
+   *   #e63946 (warning) on white: 4.16:1 -- fails; darkened below.
+   *   #2a9d8f (info)     on white: 3.33:1 -- fails; darkened below.
+   * Darkened, same-hue replacements:
+   *   #b82030 (warning-text): luminance 0.1145, contrast 6.39:1. Passes.
+   *   #1c6b60 (info-text):    luminance 0.1159, contrast 6.33:1. Passes.
+   */
+  --status-success-text: #1a7f37;
+  --status-warning-text: #b82030;
+  --status-error-text: #d32f2f;
+  --status-info-text: #1c6b60;
+
+  /*
+   * ---- Status fills, text/icon SITTING ON TOP of them ----
+   * Unlike the deuteranopia/protanopia palette, black passes on every
+   * fill this theme uses -- success and error are unchanged from the
+   * ordinary theme (already shown in base.css), and this theme's own
+   * warning/info still favour black:
+   *   #e63946 (warning): black 5.04:1 (passes), white 4.17:1 (fails).
+   *   #2a9d8f (info):    black 6.32:1 (passes), white 3.32:1 (fails).
+   * So, unlike deuteranopia/protanopia, this theme needs no white flip
+   * anywhere.
+   */
+  --text-on-status-success: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-info: #000000;
+
   --status-success-bg: #d4edda;
   --status-error-bg: #f8d7da;
   --status-warning-bg: #fce4e6;
@@ -266,6 +405,23 @@ html.cvd-tritanopia.theme-dark {
   --status-warning: #f07080;
   --status-info: #5ec4b6;
 
+  /* Bright colours on a dark background read well as text already
+   * (e.g. #5ec4b6 on black is 10.1:1); kept as the same hue (rather
+   * than reusing base.css's dark "text" values) so a status label's
+   * text colour matches its own icon's colour in this CVD theme. */
+  --status-success-text: #4cdf6b;
+  --status-error-text: #ff6b6b;
+  --status-warning-text: #f07080;
+  --status-info-text: #5ec4b6;
+
+  /* Same fills, same "bright enough for black" reasoning as every other
+   * dark CVD block (black on #4cdf6b 12.07:1, on #ff6b6b 7.57:1, on
+   * #f07080 7.33:1, on #5ec4b6 10.05:1). */
+  --text-on-status-success: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-info: #000000;
+
   --status-success-bg: #0a3d1a;
   --status-error-bg: #3d0a0a;
   --status-warning-bg: #3d0a12;
@@ -291,6 +447,18 @@ html.cvd-tritanopia.theme-dark {
     --status-error: #ff6b6b;
     --status-warning: #f07080;
     --status-info: #5ec4b6;
+
+    /* See the matching .theme-dark block for the reasoning. */
+    --status-success-text: #4cdf6b;
+    --status-error-text: #ff6b6b;
+    --status-warning-text: #f07080;
+    --status-info-text: #5ec4b6;
+
+    /* See the matching .theme-dark block for the arithmetic. */
+    --text-on-status-success: #000000;
+    --text-on-status-error: #000000;
+    --text-on-status-warning: #000000;
+    --text-on-status-info: #000000;
 
     --status-success-bg: #0a3d1a;
     --status-error-bg: #3d0a0a;

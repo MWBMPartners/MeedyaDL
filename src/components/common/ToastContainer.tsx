@@ -144,7 +144,14 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
               toast.action!.onClick();
               onDismiss(toast.id);
             }}
-            className="mt-1.5 text-xs font-medium text-accent-primary hover:text-accent-hover transition-colors"
+            /* `text-accent-primary` was never a defined colour, so this
+             * action link rendered as plain, unstyled text -- nothing
+             * marked it as clickable. `text-accent-hover` (not the plain
+             * `text-accent`) is used deliberately: it is the same accent
+             * hue but dark enough to clear 4.5:1 as small text on every
+             * platform's light theme -- see base.css / tailwind.config.js
+             * for the contrast arithmetic. */
+            className="mt-1.5 text-xs font-medium text-accent-hover hover:underline transition-colors"
           >
             {toast.action.label}
           </button>

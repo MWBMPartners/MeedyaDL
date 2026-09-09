@@ -109,16 +109,19 @@ export function StatisticsPanel() {
               stats.successRate === null
                 ? 'text-content-tertiary'
                 : stats.successRate >= 90
-                  ? 'text-status-success'
+                  ? 'text-status-success-text'
                   : stats.successRate >= 50
-                    ? 'text-status-warning'
-                    : 'text-status-error'
+                    ? 'text-status-warning-text'
+                    : 'text-status-error-text'
             }
           />
           <StatCard
             value={stats.topCodec ? codecDisplayName(stats.topCodec) : '--'}
             label="Top Codec"
-            colour="text-accent-primary"
+            // `text-accent-primary` was never a defined colour (a no-op
+            // Tailwind class); `text-accent-hover` is the real accent
+            // token, darkened enough to clear 4.5:1 as text.
+            colour="text-accent-hover"
           />
         </div>
 
@@ -127,7 +130,7 @@ export function StatisticsPanel() {
           <StatCard
             value={String(stats.active)}
             label="Active"
-            colour="text-status-info"
+            colour="text-status-info-text"
           />
           <StatCard
             value={String(stats.queued)}
@@ -137,12 +140,12 @@ export function StatisticsPanel() {
           <StatCard
             value={String(stats.completed)}
             label="Done"
-            colour="text-status-success"
+            colour="text-status-success-text"
           />
           <StatCard
             value={String(stats.failed)}
             label="Failed"
-            colour="text-status-error"
+            colour="text-status-error-text"
           />
         </div>
 
@@ -202,7 +205,7 @@ function LifetimeStatsSection() {
   if (error) {
     return (
       <SettingsSection title="Lifetime Statistics" defaultOpen={false}>
-        <p className="text-xs text-status-error">{error}</p>
+        <p className="text-xs text-status-error-text">{error}</p>
       </SettingsSection>
     );
   }
@@ -227,16 +230,16 @@ function LifetimeStatsSection() {
           label="Success rate"
           colour={
             stats.success_rate >= 90
-              ? 'text-status-success'
+              ? 'text-status-success-text'
               : stats.success_rate >= 50
-                ? 'text-status-warning'
-                : 'text-status-error'
+                ? 'text-status-warning-text'
+                : 'text-status-error-text'
           }
         />
         <StatCard
           value={lastDay ? String(lastDay.count) : '0'}
           label="Today"
-          colour="text-accent-primary"
+          colour="text-accent-hover"
         />
       </div>
 
@@ -318,7 +321,10 @@ function SpeedSparkline() {
         <polyline
           points={points}
           fill="none"
-          stroke="var(--color-accent)"
+          /* The CSS custom property is named `--accent`, not
+           * `--color-accent` -- that name was never defined anywhere,
+           * so this line drew with no colour at all (never visible). */
+          stroke="var(--accent)"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"

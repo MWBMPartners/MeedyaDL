@@ -94,6 +94,18 @@
   --accent-hover: #1c71d8;
 
   /*
+   * L(#3584e4): R=53/255=0.2078->linear 0.0356, G=132/255=0.5176->
+   * linear 0.2307, B=228/255=0.8941->linear 0.7758.
+   * L = 0.2126*0.0356 + 0.7152*0.2307 + 0.0722*0.7758 = 0.2286.
+   *   Black (L=0) vs #3584e4: (0.2286+0.05)/(0+0.05) = 5.57:1. Passes.
+   *   White (L=1) vs #3584e4: (1+0.05)/(0.2286+0.05) = 3.77:1. Fails.
+   * Black wins on Linux, the same as macOS/base -- see base.css for
+   * why this can't just be one shared token across every platform
+   * (Windows' darker accent needs the opposite answer).
+   */
+  --text-on-accent: #000000;
+
+  /*
    * Surface colors: Simple hierarchy without warm/cool tinting.
    * Linux follows the most straightforward light/elevation pattern:
    *   primary (#fafafa) < secondary (#f0f0f0 = sidebar) < elevated (#ffffff = cards)
@@ -144,8 +156,15 @@
     --surface-secondary: #242424; /* Grouped sections */
     --surface-elevated: #303030; /* Cards and dialogs: lighter for elevation */
 
-    /* Inverse text for buttons on accent backgrounds */
-    --text-inverse: #1e1e1e;
+    /*
+     * Text on the accent fill, dark mode. L(#62a0ea) = 0.3368 (bright,
+     * the same "dark accents turn out bright enough that black wins"
+     * pattern as macOS/Windows in dark mode -- see base.css). Using
+     * this theme's own near-black #1e1e1e (matching the dark surface
+     * colour, rather than pure black) at L=0.0130:
+     *   (0.3368+0.05)/(0.0130+0.05) = 6.14:1. Passes.
+     */
+    --text-on-accent: #1e1e1e;
   }
 }
 
@@ -160,7 +179,8 @@
   --surface-primary: #1e1e1e;
   --surface-secondary: #242424;
   --surface-elevated: #303030;
-  --text-inverse: #1e1e1e;
+  /* See the matching @media block above for the contrast arithmetic. */
+  --text-on-accent: #1e1e1e;
 }
 
 /* ============================================================

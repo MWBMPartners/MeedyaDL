@@ -44,7 +44,7 @@ const MAX_DISPLAY_COUNT = 5;
 const SOURCE_BADGES: Record<string, { label: string; className: string }> = {
   rust_panic: {
     label: 'Rust Panic',
-    className: 'bg-status-error/15 text-status-error',
+    className: 'bg-status-error/15 text-status-error-text',
   },
   frontend_error: {
     label: 'Frontend Error',
@@ -145,7 +145,7 @@ export function CrashReportSection() {
           <button
             type="button"
             onClick={handleDeleteAll}
-            className="text-[10px] text-content-tertiary hover:text-status-error transition-colors"
+            className="text-[10px] text-content-tertiary hover:text-status-error-text transition-colors"
           >
             Clear All
           </button>
