@@ -324,22 +324,6 @@ fn urlencode(s: &str) -> String {
 }
 
 // ============================================================
-// Orchestrator
-// ============================================================
-
-/// Fan out to every platform in `req`, collect candidates in parallel,
-/// and return the winner per [`pick_best`].
-///
-/// Failure modes are folded silently into "no candidate from this
-/// platform" — see the per-adapter doc — so the orchestrator only
-/// returns `Err` on programmer errors (e.g. malformed request that
-/// doesn't even allow a fetch). Today there are no such error paths,
-/// hence the consistently-`Ok` signature.
-///
-/// This function is the integration point the queue layer calls in
-/// M9-4. Today nothing in MeedyaDL calls it yet — that's deliberate
-/// (see module docs on the integration-point boundary).
-// ============================================================
 // Deezer adapter (public album lookup, by barcode)
 // ============================================================
 
@@ -426,6 +410,19 @@ fn parse_deezer_album_json(json: &serde_json::Value) -> Option<CoverArtCandidate
     })
 }
 
+// ============================================================
+// Orchestrator
+// ============================================================
+
+/// Asks every platform in `req` and returns the best cover any of them offers.
+///
+/// A platform being unreachable, answering oddly, or having nothing for this
+/// album is normal and is folded into "no candidate from that one" — see each
+/// adapter. So this only returns an error for something the caller got wrong,
+/// and today there are no such paths, which is why the answer is always `Ok`.
+///
+/// Called during enrichment when the user has switched the setting on. It went
+/// a long time written but never called; that is no longer true (#1159).
 pub async fn find_best_cover_art(
     req: &BestCoverArtRequest<'_>,
 ) -> Result<Option<CoverArtCandidate>, String> {
