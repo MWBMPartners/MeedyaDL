@@ -31,7 +31,7 @@ You are solely responsible for:
 
 MeedyaDL does **not** collect personal data by default. Optional features:
 
-- **Crash reporting (Sentry)**: opt-in only. Sends anonymous crash data to help fix bugs. No personal data, download history, or music library information is collected. Toggle in Settings > Advanced.
+- **Crash reporting**: off unless you switch it on. Sends anonymous crash data to help fix bugs. No personal data, download history, or music library information is collected. Toggle in Settings > Advanced.
 - **Clipboard monitoring**: when enabled, checks clipboard text for URL patterns only. Clipboard contents are never stored or transmitted.
 - **Update and feature-availability checks**: from time to time the app asks our servers whether a newer version is available and whether any feature has been temporarily switched off. In these requests the app identifies its own version, operating system and processor type — the same class of information sent with an update check — and **no install identifier, account, locale or settings data is ever sent**. These checks cannot identify you, your device, or your library. If a check fails (for example, you are offline), the app simply continues with its last known state.
 

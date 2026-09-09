@@ -47,7 +47,7 @@
  *
  * ## Section 4: Error Reporting
  *
- *   - **Send Anonymous Crash Reports** -- Toggle for opt-in Sentry
+ *   - **Send Anonymous Crash Reports** -- Toggle for opt-in crash
  *     telemetry. Maps to `settings.sentry_enabled`.
  *   - **Recent Crash Reports** -- List of locally saved crash reports
  *     with "Report" (opens GitHub Issue) and "Delete" actions.

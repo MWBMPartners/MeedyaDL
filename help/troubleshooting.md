@@ -589,7 +589,7 @@ You can optionally help improve MeedyaDL by enabling anonymous crash reporting i
 You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser -- no API tokens or server accounts needed, just a GitHub account.
 
 1. Go to **Settings > Advanced > Crash Reporting**.
-2. Recent crash reports are listed below the Sentry toggle. Each entry shows the date, time, and error summary.
+2. Recent crash reports are listed below the crash reporting switch. Each entry shows the date, time, and error summary.
 3. Click **Report** next to the crash report you want to submit.
 4. A preview dialog appears showing exactly what data will be included: error message, backtrace, app version, operating system, and timestamp. Review the information to ensure you are comfortable sharing it.
 5. Click **Open GitHub Issue** to open a pre-filled issue in your default web browser.
