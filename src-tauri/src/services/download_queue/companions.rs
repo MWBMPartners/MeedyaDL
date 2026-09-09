@@ -1518,6 +1518,36 @@ pub(crate) async fn download_music_video_by_url(
 
     match status {
         Ok(s) if s.success() => {
+            // Finishing without an error is not the same as having downloaded
+            // something (#1155).
+            //
+            // When Apple Music does not offer a video in any format the user
+            // allows, the download tool says so as a warning, moves on, and
+            // finishes successfully. This used to report "Music video
+            // downloaded" on the strength of that success, so the activity log
+            // claimed a file that was never written.
+            //
+            // Checked by looking for a new file rather than by reading the
+            // tool's message, because the message is worded identically for
+            // songs and videos and only the format list inside it differs.
+            let new_videos = snapshot_video_files(&settings.output_path)
+                .difference(&pre_existing_videos)
+                .count();
+            if new_videos == 0 {
+                log::info!(
+                    "Music video produced no file for {dl_id}: {video_label} \
+                     (finished without error, but nothing was written)"
+                );
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "Music video not available in any of your video formats — \
+                         skipped: {video_label}"
+                    ),
+                );
+                return false;
+            }
             log::info!("Music video downloaded for {dl_id}: {video_label}");
             emit_download_log(
                 app,
