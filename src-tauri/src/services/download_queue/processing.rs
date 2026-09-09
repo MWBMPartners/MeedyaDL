@@ -3634,7 +3634,36 @@ pub fn process_queue(
                             // stage ever runs alongside it, and it costs
                             // almost nothing. A file that cannot be written is
                             // skipped; the download never fails here.
-                            if let Some(urls) = cross_platform_urls.as_ref() {
+                            //
+                            // Only for an ALBUM lookup, never a single track.
+                            // Found in review: `write_url_atoms` writes into
+                            // every audio file in the folder, which is right
+                            // when the links describe the whole album. When
+                            // somebody downloads one song into a folder that
+                            // already holds others, the links describe that one
+                            // song — and writing them into all of them would
+                            // tell every other song it is available on Spotify
+                            // at an address that is actually a different song,
+                            // overwriting whatever correct links they already
+                            // had. Wrong metadata written over right metadata
+                            // is worse than none, so a track lookup keeps its
+                            // links in the manifest and writes no tags.
+                            //
+                            // A track link is the one carrying a specific song,
+                            // either as `?i=<id>` on an album address or as a
+                            // `/song/` address.
+                            let lookup_was_for_one_track = enrich_urls
+                                .first()
+                                .map(|u| u.contains("?i=") || u.contains("&i=") || u.contains("/song/"))
+                                .unwrap_or(false);
+                            if lookup_was_for_one_track && cross_platform_urls.is_some() {
+                                log::debug!(
+                                    "song.link: the lookup was for a single song, so its links are \
+                                     kept in the manifest only — writing them into every file in the \
+                                     folder would label the other songs wrongly"
+                                );
+                            }
+                            if let Some(urls) = cross_platform_urls.as_ref().filter(|_| !lookup_was_for_one_track) {
                                 if !enrich_shutdown.is_triggered() {
                                     set_label(
                                         "song.link: writing links into files…",

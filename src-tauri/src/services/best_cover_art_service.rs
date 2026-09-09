@@ -506,11 +506,18 @@ pub async fn upgrade_cover_if_better(
     //
     // And a cover of exactly the same size was downloaded and rewritten for no
     // gain, risking a good file to a failed write in exchange for nothing.
-    let existing = find_existing_cover(album_dir, cover_stem);
+    // Judge against the BIGGEST cover already there, not the first one found.
+    // A folder can hold more than one — saving a new cover in a different
+    // format leaves the old one alone — and measuring only the first meant a
+    // small JPEG could stand in for a large PNG sitting right beside it. A
+    // middling picture then counted as an improvement and overwrote the large
+    // one, which is the opposite of the point. Found in review.
+    let existing = find_existing_covers(album_dir, cover_stem);
     let existing_pixels = existing
-        .as_ref()
-        .and_then(|p| crate::utils::image_info::read_image_info_from_file(p))
-        .map(|info| info.pixels());
+        .iter()
+        .filter_map(|p| crate::utils::image_info::read_image_info_from_file(p))
+        .map(|info| info.pixels())
+        .max();
 
     let candidate_pixels = u64::from(best.width) * u64::from(best.height);
     match existing_pixels {
@@ -523,7 +530,7 @@ pub async fn upgrade_cover_if_better(
             );
             return None;
         }
-        None if existing.is_some() => {
+        None if !existing.is_empty() => {
             // There is a cover, but its size could not be read. Leaving it
             // alone is the safe choice: replacing something we cannot measure
             // could easily be a downgrade, and the cover already there is at
@@ -583,21 +590,32 @@ pub async fn upgrade_cover_if_better(
     })
 }
 
-/// Finds the cover already saved for an album, whatever picture format it is in.
+/// Finds every cover already saved for an album, whatever picture format each
+/// one is in.
 ///
 /// The setting says what format to ASK for, which is not always what is on
 /// disk — the download tool falls back between formats, and "raw" means
-/// whatever the source supplied.
+/// whatever the source supplied. On top of that, saving a new cover in a
+/// different format leaves the old one where it is, so a folder can genuinely
+/// end up holding more than one.
+///
+/// **This returns all of them, not the first one found, and that matters.**
+/// It used to return the first, in a fixed order, which meant a folder holding
+/// a small `Cover.jpg` beside a large `Cover.png` was judged on the small one.
+/// A middling picture then looked like an improvement, and overwrote the large
+/// one. That is the exact opposite of what this feature is for, and it
+/// destroyed the best picture the person had. Found in review.
 ///
 /// # Arguments
 ///
 /// * `album_dir` -- Where the album's files are.
 /// * `cover_stem` -- The cover's name without its extension.
-fn find_existing_cover(album_dir: &std::path::Path, cover_stem: &str) -> Option<std::path::PathBuf> {
+fn find_existing_covers(album_dir: &std::path::Path, cover_stem: &str) -> Vec<std::path::PathBuf> {
     ["jpg", "jpeg", "png"]
         .iter()
         .map(|ext| album_dir.join(format!("{cover_stem}.{ext}")))
-        .find(|path| path.is_file())
+        .filter(|path| path.is_file())
+        .collect()
 }
 
 // ============================================================
@@ -848,10 +866,37 @@ mod tests {
         // disk: the download tool falls back between formats, and "raw" means
         // whatever the source supplied.
         let dir = tempfile::tempdir().unwrap();
-        assert!(find_existing_cover(dir.path(), "Cover").is_none());
+        assert!(find_existing_covers(dir.path(), "Cover").is_empty());
 
         std::fs::write(dir.path().join("Cover.png"), png_of(10, 10)).unwrap();
-        assert!(find_existing_cover(dir.path(), "Cover").is_some());
+        assert_eq!(find_existing_covers(dir.path(), "Cover").len(), 1);
+    }
+
+    #[test]
+    fn measures_the_biggest_saved_cover_not_the_first_one_found() {
+        // The defect this guards against, found in review. A folder can hold
+        // more than one cover, because saving a new one in a different format
+        // leaves the old alone. Looking at only the first, in a fixed order,
+        // meant a small JPEG stood in for a large PNG sitting beside it — so a
+        // middling picture counted as an improvement and destroyed the best
+        // picture the person had.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cover.jpg"), png_of(600, 600)).unwrap();
+        std::fs::write(dir.path().join("Cover.png"), png_of(3000, 3000)).unwrap();
+
+        let found = find_existing_covers(dir.path(), "Cover");
+        assert_eq!(found.len(), 2, "both covers should be seen, not just the first");
+
+        let biggest = found
+            .iter()
+            .filter_map(|p| crate::utils::image_info::read_image_info_from_file(p))
+            .map(|i| i.pixels())
+            .max()
+            .expect("both are readable");
+        assert_eq!(
+            biggest, 9_000_000,
+            "the comparison must use the 3000x3000 picture, not the 600x600 one"
+        );
     }
 
     #[test]
@@ -859,7 +904,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Folder.jpg"), png_of(10, 10)).unwrap();
         // The user's chosen name is FrontCover; Folder.jpg is somebody else's.
-        assert!(find_existing_cover(dir.path(), "FrontCover").is_none());
+        assert!(find_existing_covers(dir.path(), "FrontCover").is_empty());
     }
 
     #[test]
@@ -869,7 +914,7 @@ mod tests {
         let path = dir.path().join("Cover.png");
         std::fs::write(&path, png_of(3000, 3000)).unwrap();
 
-        let found = find_existing_cover(dir.path(), "Cover").expect("should find it");
+        let found = find_existing_covers(dir.path(), "Cover").into_iter().next().expect("should find it");
         let info = crate::utils::image_info::read_image_info_from_file(&found)
             .expect("should read its size");
         assert_eq!(info.pixels(), 9_000_000);
@@ -883,7 +928,7 @@ mod tests {
         let path = dir.path().join("Cover.jpg");
         std::fs::write(&path, b"this is not really a picture").unwrap();
 
-        let found = find_existing_cover(dir.path(), "Cover").expect("the file exists");
+        let found = find_existing_covers(dir.path(), "Cover").into_iter().next().expect("the file exists");
         assert!(
             crate::utils::image_info::read_image_info_from_file(&found).is_none(),
             "its size should not be readable, which is what makes us leave it alone"
