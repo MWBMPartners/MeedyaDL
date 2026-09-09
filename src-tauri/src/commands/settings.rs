@@ -761,38 +761,7 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     // See: https://github.com/MWBMPartners/MeedyaDL/issues/229
     let mut merged = export_file.settings;
     sanitize_imported_settings(&mut merged);
-    merged.cookies_path = current.cookies_path;
-    merged.wrapper_account_url = current.wrapper_account_url;
-    // Security: `wrapper_url` / `wrapper_decrypt_ip` must never be
-    // settable via an imported settings file — otherwise a crafted
-    // import could redirect where wrapper-v2 sign-in POSTs the user's
-    // Apple ID + password (credential exfiltration).
-    merged.wrapper_url = current.wrapper_url;
-    merged.wrapper_decrypt_ip = current.wrapper_decrypt_ip;
-    merged.musickit_team_id = current.musickit_team_id;
-    merged.musickit_key_id = current.musickit_key_id;
-    merged.acoustid_api_key = current.acoustid_api_key;
-    // Security: the paths to the helper programs must never come from an
-    // imported file (#229).
-    //
-    // Each of these is a path to a program that MeedyaDL runs. FFmpeg and the
-    // others are passed to the download tool, which starts them; MediaInfo is
-    // started directly. So a settings file that set one of them to any program
-    // on the machine would have that program run during an ordinary download.
-    // That is a settings file someone was sent and opened — exactly the case
-    // this issue exists to guard.
-    //
-    // Nothing is lost by refusing them. A path is where a program sits on ONE
-    // machine; it means nothing on anybody else's, so carrying these across in
-    // an exported file was never useful even when it was safe.
-    merged.ffmpeg_path = current.ffmpeg_path;
-    merged.mp4decrypt_path = current.mp4decrypt_path;
-    merged.mp4box_path = current.mp4box_path;
-    merged.nm3u8dlre_path = current.nm3u8dlre_path;
-    merged.mediainfo_path = current.mediainfo_path;
-    // Security: dev-access gating must only change via the dedicated
-    // activate/deactivate commands, never via a settings import.
-    merged.dev_access_enabled = current.dev_access_enabled;
+    preserve_local_only_settings(&mut merged, &current);
 
     // Save the merged settings (also syncs to GAMDL config.ini)
     config_service::save_settings(&app, &merged)?;
@@ -813,6 +782,95 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
 ///
 /// `pub(crate)` so `commands::profile_bundle::import_profile` can reuse the
 /// same sanitisation for `.meedyabundle` settings sections.
+/// Keeps the settings that must not travel in an exported file.
+///
+/// Three kinds of thing are put back to whatever this machine already had
+/// (#229), and the difference between them and everything else is the point:
+///
+/// * **Things that point at this machine** — where the helper programs live,
+///   where the cookies are. A path is meaningless on somebody else's computer,
+///   and four of them are programs MeedyaDL runs, so accepting them would let
+///   an imported file choose what gets executed.
+/// * **Credentials and addresses** — the wrapper's address decides where a
+///   sign-in is sent, so an imported file could otherwise redirect somebody's
+///   Apple ID and password.
+/// * **Records that a person agreed to something** — not preferences, but
+///   evidence they were shown a warning and accepted it. A file somebody was
+///   sent could otherwise arrive with the Spotify warning pre-acknowledged,
+///   and they would never see it.
+///
+/// Ordinary preferences are deliberately NOT touched. Codecs, output folders,
+/// naming patterns and the rest are exactly what somebody wants to carry
+/// between their own machines, and none of them speaks for the person or
+/// points at anything that runs.
+///
+/// Split out from the import command so it can be tested directly — the
+/// command itself needs a running app and a file dialogue.
+///
+/// # Arguments
+///
+/// * `imported` -- The settings read from the file, changed in place.
+/// * `current` -- What this machine already had.
+pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: &AppSettings) {
+    imported.cookies_path = current.cookies_path.clone();
+    imported.wrapper_account_url = current.wrapper_account_url.clone();
+    // Security: `wrapper_url` / `wrapper_decrypt_ip` must never be
+    // settable via an imported settings file — otherwise a crafted
+    // import could redirect where wrapper-v2 sign-in POSTs the user's
+    // Apple ID + password (credential exfiltration).
+    imported.wrapper_url = current.wrapper_url.clone();
+    imported.wrapper_decrypt_ip = current.wrapper_decrypt_ip.clone();
+    imported.musickit_team_id = current.musickit_team_id.clone();
+    imported.musickit_key_id = current.musickit_key_id.clone();
+    imported.acoustid_api_key = current.acoustid_api_key.clone();
+    // Security: the paths to the helper programs must never come from an
+    // imported file (#229).
+    //
+    // Each of these is a path to a program that MeedyaDL runs. FFmpeg and the
+    // others are passed to the download tool, which starts them; MediaInfo is
+    // started directly. So a settings file that set one of them to any program
+    // on the machine would have that program run during an ordinary download.
+    // That is a settings file someone was sent and opened — exactly the case
+    // this issue exists to guard.
+    //
+    // Nothing is lost by refusing them. A path is where a program sits on ONE
+    // machine; it means nothing on anybody else's, so carrying these across in
+    // an exported file was never useful even when it was safe.
+    imported.ffmpeg_path = current.ffmpeg_path.clone();
+    imported.mp4decrypt_path = current.mp4decrypt_path.clone();
+    imported.mp4box_path = current.mp4box_path.clone();
+    imported.nm3u8dlre_path = current.nm3u8dlre_path.clone();
+    imported.mediainfo_path = current.mediainfo_path.clone();
+    // Security: dev-access gating must only change via the dedicated
+    // activate/deactivate commands, never via a settings import.
+    imported.dev_access_enabled = current.dev_access_enabled;
+    // Security: an imported file must not record agreement on somebody's
+    // behalf (#229).
+    //
+    // These are not preferences, they are records that a person was shown
+    // something and agreed to it. A settings file somebody was sent could
+    // otherwise arrive with the Spotify warning already acknowledged — the
+    // warning that exists to explain how downloading there can get an account
+    // flagged — and they would never see it. Crash reporting and usage
+    // reporting are the same shape: consent to send data, which has to be
+    // given rather than inherited.
+    //
+    // Preferences are deliberately still imported: codecs, paths, naming
+    // patterns and the rest are exactly what somebody wants to carry between
+    // their own machines, and none of them speaks for the person.
+    imported.terms_accepted = current.terms_accepted;
+    imported.spotify_consent_acknowledged = current.spotify_consent_acknowledged;
+    imported.sentry_enabled = current.sentry_enabled;
+    imported.analytics_enabled = current.analytics_enabled;
+    // Security: which build stream someone receives must not change under
+    // them. The unstable channels sit behind developer access, which is
+    // clamped just above — importing a channel would step around that gate,
+    // and would start delivering unfinished builds to somebody who never
+    // asked. Re-picking a channel is one dropdown; being moved onto one
+    // silently is not something they would think to check.
+    imported.update_channel = current.update_channel;
+}
+
 pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     const MAX_PATH: usize = 1024;
     const MAX_URL: usize = 2048;
@@ -982,5 +1040,95 @@ mod tests {
         sanitize_imported_settings(&mut settings);
         assert!(!settings.dev_access_enabled);
     }
+    // ── What an imported settings file must not be able to change (#229) ─
+    //
+    // The line is between preferences, which people legitimately carry
+    // between their own machines, and things that either point at THIS
+    // machine or speak FOR the person. The second kind must never travel.
+
+    fn settings_where_everything_is_set() -> crate::models::settings::AppSettings {
+        crate::models::settings::AppSettings {
+            // Points at a program that gets run.
+            ffmpeg_path: Some("/tmp/attacker/ffmpeg".to_string()),
+            mediainfo_path: Some("/tmp/attacker/mediainfo".to_string()),
+            // Decides where a sign-in is sent.
+            wrapper_url: "http://attacker.example/steal".to_string(),
+            // Records that a person agreed to something.
+            terms_accepted: true,
+            spotify_consent_acknowledged: true,
+            sentry_enabled: true,
+            analytics_enabled: true,
+            // An ordinary preference, which SHOULD travel.
+            output_path: "/Users/them/Music".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_imported_file_cannot_choose_which_programs_run() {
+        // Four of these are handed to the download tool, which starts them,
+        // and one is started directly.
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert_eq!(imported.ffmpeg_path, current.ffmpeg_path);
+        assert_eq!(imported.mediainfo_path, current.mediainfo_path);
+        assert_eq!(imported.mp4decrypt_path, current.mp4decrypt_path);
+        assert_eq!(imported.mp4box_path, current.mp4box_path);
+        assert_eq!(imported.nm3u8dlre_path, current.nm3u8dlre_path);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_redirect_a_sign_in() {
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.wrapper_url, current.wrapper_url);
+        assert_eq!(imported.wrapper_decrypt_ip, current.wrapper_decrypt_ip);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_agree_to_things_on_your_behalf() {
+        // The Spotify one matters most: it is the acknowledgement of a
+        // warning about how downloading there can get an account flagged.
+        // Arriving pre-acknowledged means the person never sees it.
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert!(!imported.spotify_consent_acknowledged);
+        assert!(!imported.terms_accepted);
+        assert!(!imported.sentry_enabled, "consent to send crash data must be given, not inherited");
+        assert!(!imported.analytics_enabled);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_move_you_onto_unfinished_builds() {
+        // The unstable channels sit behind developer access, which is also
+        // preserved — importing a channel would step around that gate.
+        let mut imported = crate::models::settings::AppSettings {
+            update_channel: crate::models::settings::UpdateChannel::Alpha,
+            ..Default::default()
+        };
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.update_channel, current.update_channel);
+    }
+
+    #[test]
+    fn ordinary_preferences_still_travel_between_your_own_machines() {
+        // The other half of the rule, and the reason this is not simply
+        // "ignore the whole file". Someone moving to a new laptop should keep
+        // their choices.
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(
+            imported.output_path, "/Users/them/Music",
+            "a preference must not be reset — that would make importing pointless"
+        );
+    }
+
 }
 
