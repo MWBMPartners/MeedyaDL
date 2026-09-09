@@ -193,17 +193,17 @@ const STATUS_CONFIG: Record<CookieStatus, { label: string; colorClass: string; b
     },
     valid: {
       label: 'Valid',
-      colorClass: 'text-status-success',
+      colorClass: 'text-status-success-text',
       bgClass: 'bg-status-success-bg',
     },
     invalid: {
       label: 'Invalid',
-      colorClass: 'text-status-error',
+      colorClass: 'text-status-error-text',
       bgClass: 'bg-status-error-bg',
     },
     expired: {
       label: 'Expired',
-      colorClass: 'text-status-warning',
+      colorClass: 'text-status-warning-text',
       bgClass: 'bg-status-warning-bg',
     },
   };
@@ -450,7 +450,7 @@ function DetectedDomains({ domains }: { domains: string[] }) {
               text-xs rounded-full border
               ${
                 domain === 'apple.com' || domain.endsWith('.apple.com')
-                  ? 'bg-status-success-bg border-status-success text-status-success'
+                  ? 'bg-status-success-bg border-status-success text-status-success-text'
                   : 'bg-surface-secondary border-border-light text-content-tertiary'
               }
             `}
@@ -499,8 +499,8 @@ function ExpiryWarning({ expired, warnings }: { expired: boolean; warnings: stri
         flex items-start gap-2.5 p-3 rounded-platform border text-xs
         ${
           isCritical
-            ? 'border-status-error bg-status-error-bg text-status-error'
-            : 'border-status-warning bg-status-warning-bg text-status-warning'
+            ? 'border-status-error bg-status-error-bg text-status-error-text'
+            : 'border-status-warning bg-status-warning-bg text-status-warning-text'
         }
       `}
       role="alert"
@@ -919,7 +919,7 @@ export function CookiesTab() {
         >
           <CheckCircle size={20} className="text-status-success flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-status-success">
+            <p className="text-sm font-medium text-status-success-text">
               Cookies are configured and valid
             </p>
             <p className="text-xs text-content-secondary mt-0.5">
@@ -1115,7 +1115,7 @@ export function CookiesTab() {
                     </p>
                   )}
                   {importResult.warnings.map((w, i) => (
-                    <p key={i} className="text-status-warning ml-5">
+                    <p key={i} className="text-status-warning-text ml-5">
                       {w}
                     </p>
                   ))}
@@ -1128,7 +1128,7 @@ export function CookiesTab() {
             <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
               <div className="flex items-center gap-1.5">
                 <XCircle size={14} className="text-status-error flex-shrink-0" />
-                <p className="text-status-error">{importError}</p>
+                <p className="text-status-error-text">{importError}</p>
               </div>
             </div>
           )}
@@ -1254,7 +1254,7 @@ export function CookiesTab() {
               {validation.warnings.map((warning, i) => (
                 <div key={i} className="flex items-start gap-1.5">
                   <AlertTriangle size={12} className="text-status-warning flex-shrink-0 mt-0.5" />
-                  <p className="text-status-warning">{warning}</p>
+                  <p className="text-status-warning-text">{warning}</p>
                 </div>
               ))}
             </div>

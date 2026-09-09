@@ -76,7 +76,16 @@ export function CompleteStep() {
     <div className="text-center space-y-6">
       {/* Success icon */}
       <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-status-success">
-        <CheckCircle size={40} className="text-white" />
+        {/* Same fix as Button.tsx's danger variant and the other
+            success/warning/accent-filled buttons: `text-white` bypassed
+            the theme's tokens for text sitting on a status fill, which
+            are tuned per-theme (and per-status-colour) for exactly this
+            pairing (see base.css). This is a graphic (an SVG icon), so
+            it only strictly needs 3:1 contrast, but the same
+            status-success text colour comfortably clears the stricter
+            4.5:1 text rule too, so there's no reason to use anything
+            else here. */}
+        <CheckCircle size={40} className="text-content-on-status-success" />
       </div>
 
       {/* Heading */}

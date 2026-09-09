@@ -978,7 +978,7 @@ export function GeneralTab() {
               <span className="text-xs text-content-secondary">{checkMessage}</span>
             )}
           </div>
-          {checkError && !isChecking && <p className="text-xs text-status-error">{checkError}</p>}
+          {checkError && !isChecking && <p className="text-xs text-status-error-text">{checkError}</p>}
         </div>
       </SettingsSection>
 
@@ -1135,7 +1135,7 @@ export function GeneralTab() {
                 </div>
               )}
               {!pendingImport.produced_by_this_app && (
-                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning">
+                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
                   ⚠ This bundle was produced by{' '}
                   <span className="font-mono">{pendingImport.producer}</span>,
                   not MeedyaDL. The <code>.meedyabundle</code> extension is
@@ -1198,7 +1198,7 @@ export function GeneralTab() {
                 </div>
               )}
 
-            <p className="text-xs text-status-warning border-t border-border pt-2">
+            <p className="text-xs text-status-warning-text border-t border-border pt-2">
               ⚠ Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
             </p>
 

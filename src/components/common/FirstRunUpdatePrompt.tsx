@@ -124,7 +124,7 @@ export default function FirstRunUpdatePrompt() {
 
         {downloadError && (
           <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3">
-            <p className="text-xs text-status-error">{downloadError}</p>
+            <p className="text-xs text-status-error-text">{downloadError}</p>
           </div>
         )}
 

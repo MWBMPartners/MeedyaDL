@@ -280,7 +280,13 @@ export function PythonStep() {
                   {reusable.map((p) => (
                     <div
                       key={p.path}
-                      className="flex items-center justify-between gap-3 p-2.5 rounded-platform border border-border-light bg-surface-base"
+                      /* `bg-surface-base` was never a defined colour --
+                       * the token for a bordered card row like this one
+                       * is `bg-surface-elevated` (the convention used by
+                       * every other "row per item" list in the app, e.g.
+                       * DependenciesStep.tsx). This row had no background
+                       * fill at all. */
+                      className="flex items-center justify-between gap-3 p-2.5 rounded-platform border border-border-light bg-surface-elevated"
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Terminal size={16} className="text-content-secondary shrink-0" />
@@ -348,7 +354,7 @@ export function PythonStep() {
 
       {/* Error display */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error">
+        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
           {error}
         </div>
       )}

@@ -81,18 +81,31 @@ function shortId(id: string): string {
  *     routes warnings there even without a level prefix)
  *   - `stdout`: default content colour
  *
- * All four candidate classes (`text-status-error`,
- * `text-status-warning`, `text-status-info`, `text-content-primary`)
- * are defined in the project's design-token CSS and adapt across
+ * Every candidate class this function can return (`text-status-error-text`,
+ * `text-status-warning-text`, `text-accent-hover`, `text-content-primary`)
+ * is defined in the project's design-token CSS and adapts across
  * light / dark / high-contrast / colour-blind themes — so the
  * coloured rendering stays readable in every accessibility mode
- * without per-theme overrides here.
+ * without per-theme overrides here. The `-text` suffix on the status
+ * colours matters: a log line is real, readable text (needs WCAG's
+ * 4.5:1), not an icon or a small pill fill (which only need 3:1) —
+ * see `textColourForEntry`'s own comment below for the full reasoning.
  */
 function textColourForEntry(entry: ActivityLogEntry): string {
-  if (entry.severity === 'error') return 'text-status-error';
-  if (entry.severity === 'warning') return 'text-status-warning';
-  if (entry.stream === 'internal') return 'text-accent-primary';
-  if (entry.stream === 'stderr') return 'text-status-warning';
+  // These are the *-text variants, not the plain status colours: the log
+  // line itself is real, readable text (WCAG needs 4.5:1 for that), and
+  // the plain `text-status-error` / `text-status-warning` colours only
+  // clear the lower 3:1 bar meant for icons and small UI fills. See
+  // base.css for the contrast arithmetic behind the two separate sets of
+  // tokens. `text-accent-primary` was never a defined colour at all (a
+  // Tailwind class Tailwind doesn't know renders as nothing), so
+  // "internal" stream lines were falling back to plain, unstyled text;
+  // `text-accent-hover` is the accent hue darkened enough to also clear
+  // 4.5:1 as text.
+  if (entry.severity === 'error') return 'text-status-error-text';
+  if (entry.severity === 'warning') return 'text-status-warning-text';
+  if (entry.stream === 'internal') return 'text-accent-hover';
+  if (entry.stream === 'stderr') return 'text-status-warning-text';
   return 'text-content-primary';
 }
 
@@ -717,7 +730,7 @@ export function ActivityLog() {
             className={`
               px-2.5 py-1 text-xs font-medium rounded-platform border transition-colors cursor-pointer
               ${showSystem
-                ? 'bg-status-info/15 text-status-info border-status-info/30'
+                ? 'bg-status-info/15 text-status-info-text border-status-info/30'
                 : 'bg-transparent text-content-tertiary border-border hover:text-content-secondary'}
             `}
             role="checkbox"
@@ -745,7 +758,7 @@ export function ActivityLog() {
             className={`
               px-2.5 py-1 text-xs font-medium rounded-platform border transition-colors cursor-pointer
               ${showVerbose
-                ? 'bg-status-warning/15 text-status-warning border-status-warning/30'
+                ? 'bg-status-warning/15 text-status-warning-text border-status-warning/30'
                 : 'bg-transparent text-content-tertiary border-border hover:text-content-secondary'}
             `}
             role="checkbox"
@@ -838,12 +851,12 @@ export function ActivityLog() {
                 >
                   <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
                   {entry.download_id === 'system' ? (
-                    <span className="text-status-info font-medium">[System] </span>
+                    <span className="text-status-info-text font-medium">[System] </span>
                   ) : (
                     <>
-                      <span className="text-accent">[{shortId(entry.download_id)}] </span>
+                      <span className="text-accent-hover">[{shortId(entry.download_id)}] </span>
                       {entry.stream === 'internal' && (
-                        <span className="text-accent-primary font-medium">[MeedyaDL] </span>
+                        <span className="text-accent-hover font-medium">[MeedyaDL] </span>
                       )}
                     </>
                   )}
@@ -874,7 +887,7 @@ export function ActivityLog() {
           <button
             type="button"
             onClick={resumeAutoScroll}
-            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-content-inverse text-xs font-medium shadow-md hover:bg-accent-hover transition-colors cursor-pointer"
+            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-content-on-accent text-xs font-medium shadow-md hover:bg-accent-hover transition-colors cursor-pointer"
             title="Scroll to the latest line and resume auto-scroll"
             aria-label="Jump to latest activity log line and resume auto-scroll"
           >

@@ -77,7 +77,7 @@ export default function AppRelocationModal() {
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity disabled:opacity-50"
             onClick={handleMove}
             disabled={isMoving}
           >

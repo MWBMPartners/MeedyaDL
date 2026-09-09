@@ -45,6 +45,7 @@ html.high-contrast {
   --surface-primary: #ffffff;
   --surface-secondary: #f0f0f0;
   --surface-elevated: #e8e8e8;
+  --surface-tertiary: #dcdcdc; /* One step further than elevated, matching the "greater luminance differentiation" principle above */
   --surface-overlay: rgba(0, 0, 0, 0.65);
 
   /* ---- Accent ---- */
@@ -56,13 +57,57 @@ html.high-contrast {
   --text-primary: #000000;
   --text-secondary: #333333;
   --text-tertiary: #555555;
-  --text-inverse: #ffffff;
+  /*
+   * Text on the accent fill, high-contrast light mode. This theme's
+   * accent (#0050a0) is deliberately darkened for maximum contrast, so
+   * unlike the ordinary theme it wants WHITE text, not black:
+   * L(#0050a0) = 0.0828.
+   *   White (L=1) vs #0050a0: (1+0.05)/(0.0828+0.05) = 7.91:1. Passes.
+   *   Black (L=0) vs #0050a0: (0.0828+0.05)/(0+0.05) = 2.66:1. Fails.
+   */
+  --text-on-accent: #ffffff;
 
   /* ---- Status ---- */
   --status-success: #006b1f;
   --status-warning: #8a4d00;
   --status-error: #c00000;
   --status-info: #0050a0;
+
+  /*
+   * ---- Status, as TEXT ----
+   * Unlike the ordinary theme, high-contrast mode's status colours
+   * above are already deliberately darkened for maximum contrast, so
+   * they already clear 4.5:1 as text against white with no further
+   * darkening needed:
+   *   #006b1f (success) on white: 6.72:1.  #8a4d00 (warning) on white: 6.68:1.
+   *   #c00000 (error) on white:   6.48:1.  #0050a0 (info) on white:    7.91:1.
+   * These exist only so a component reading `--status-*-text` gets a
+   * consistent answer regardless of which theme is active.
+   */
+  --status-success-text: #006b1f;
+  --status-warning-text: #8a4d00;
+  --status-error-text: #c00000;
+  --status-info-text: #0050a0;
+
+  /*
+   * ---- Status fills, text/icon SITTING ON TOP of them ----
+   * The SAME darkening that makes the status colours above pass as
+   * text (just above) also means they need WHITE, not black, as the
+   * label colour when they are used as a FILL instead -- these are
+   * dark colours, and dark-on-dark fails. The numbers are the ratios
+   * just above, reused (contrast is symmetric: "colour on white" and
+   * "white on colour" are the same calculation):
+   *   White vs success #006b1f: 6.72:1.  White vs warning #8a4d00: 6.68:1.
+   *   White vs error   #c00000: 6.48:1.  White vs info    #0050a0: 7.91:1.
+   * All four want white here, unlike the ordinary theme's four fills
+   * (which all want black) -- see base.css for the general shape of
+   * this problem and why it needs one token per status colour rather
+   * than a single shared one.
+   */
+  --text-on-status-success: #ffffff;
+  --text-on-status-warning: #ffffff;
+  --text-on-status-error: #ffffff;
+  --text-on-status-info: #ffffff;
 
   /* ---- Status Backgrounds ---- */
   --status-success-bg: #d4edda;
@@ -122,6 +167,7 @@ html.high-contrast.theme-dark {
   --surface-primary: #000000;
   --surface-secondary: #0a0a0a;
   --surface-elevated: #1a1a1a;
+  --surface-tertiary: #262626; /* One step further than elevated */
   --surface-overlay: rgba(0, 0, 0, 0.8);
 
   /* ---- Accent ---- */
@@ -133,13 +179,44 @@ html.high-contrast.theme-dark {
   --text-primary: #ffffff;
   --text-secondary: #cccccc;
   --text-tertiary: #999999;
-  --text-inverse: #000000;
+  /*
+   * Text on the accent fill, high-contrast dark mode. This accent
+   * (#4da6ff) is bright, so it flips back to wanting black text, the
+   * opposite of high-contrast light mode above: L(#4da6ff) = 0.3607.
+   *   Black (L=0) vs #4da6ff: (0.3607+0.05)/(0+0.05) = 8.21:1. Passes.
+   *   White (L=1) vs #4da6ff: (1+0.05)/(0.3607+0.05) = 2.56:1. Fails.
+   */
+  --text-on-accent: #000000;
 
   /* ---- Status ---- */
   --status-success: #4cdf6b;
   --status-warning: #ffb833;
   --status-error: #ff5555;
   --status-info: #4da6ff;
+
+  /* ---- Status, as TEXT ----
+   * Bright saturated colours on a near-black background already read
+   * well as text (e.g. #4cdf6b on black is 12.1:1); see base.css's
+   * matching comment for the general reasoning. Exists so a component
+   * reading `--status-*-text` gets a consistent answer in every theme. */
+  --status-success-text: #4cdf6b;
+  --status-warning-text: #ffb833;
+  --status-error-text: #ff5555;
+  --status-info-text: #4da6ff;
+
+  /*
+   * ---- Status fills, text/icon SITTING ON TOP of them ----
+   * Same bright-on-dark reasoning as the accent above: these fills are
+   * bright enough that black passes as the label colour (the numbers
+   * are the same ratios as "colour on black" just above, since
+   * contrast is symmetric):
+   *   Black vs success #4cdf6b: 12.07:1.  Black vs warning #ffb833: 12.16:1.
+   *   Black vs error   #ff5555: 6.68:1.   Black vs info    #4da6ff: 8.21:1.
+   */
+  --text-on-status-success: #000000;
+  --text-on-status-warning: #000000;
+  --text-on-status-error: #000000;
+  --text-on-status-info: #000000;
 
   /* ---- Status Backgrounds ---- */
   --status-success-bg: #0a3d1a;
@@ -196,6 +273,7 @@ html.high-contrast.theme-dark {
     --surface-primary: #000000;
     --surface-secondary: #0a0a0a;
     --surface-elevated: #1a1a1a;
+    --surface-tertiary: #262626;
     --surface-overlay: rgba(0, 0, 0, 0.8);
 
     --accent: #4da6ff;
@@ -205,12 +283,25 @@ html.high-contrast.theme-dark {
     --text-primary: #ffffff;
     --text-secondary: #cccccc;
     --text-tertiary: #999999;
-    --text-inverse: #000000;
+    /* See the matching .theme-dark block above for the arithmetic. */
+    --text-on-accent: #000000;
 
     --status-success: #4cdf6b;
     --status-warning: #ffb833;
     --status-error: #ff5555;
     --status-info: #4da6ff;
+
+    /* See the matching .theme-dark block above for the reasoning. */
+    --status-success-text: #4cdf6b;
+    --status-warning-text: #ffb833;
+    --status-error-text: #ff5555;
+    --status-info-text: #4da6ff;
+
+    /* See the matching .theme-dark block above for the arithmetic. */
+    --text-on-status-success: #000000;
+    --text-on-status-warning: #000000;
+    --text-on-status-error: #000000;
+    --text-on-status-info: #000000;
 
     --status-success-bg: #0a3d1a;
     --status-error-bg: #3d0a0a;
@@ -278,6 +369,7 @@ html.high-contrast *:focus-visible {
 
     --surface-secondary: #f0f0f0;
     --surface-elevated: #e8e8e8;
+    --surface-tertiary: #dcdcdc;
     --surface-overlay: rgba(0, 0, 0, 0.65);
 
     --accent: #0050a0;
@@ -287,11 +379,35 @@ html.high-contrast *:focus-visible {
     --text-primary: #000000;
     --text-secondary: #333333;
     --text-tertiary: #555555;
+    /*
+     * This block used to set no --text-inverse at all -- an honest gap,
+     * not a deliberate choice. It meant the brief CSS-only fallback
+     * window (before the useTheme hook's JS adds the `high-contrast`
+     * class and the fully-covered block above takes over) rendered
+     * whatever text colour happened to be inherited from elsewhere,
+     * against this block's own dark accent (#0050a0) -- exactly the
+     * pairing that needs white, not whatever was inherited. See the
+     * light-mode `html.high-contrast` block above for the arithmetic;
+     * it is the same accent colour, so the same answer applies.
+     */
+    --text-on-accent: #ffffff;
 
     --status-success: #006b1f;
     --status-warning: #8a4d00;
     --status-error: #c00000;
     --status-info: #0050a0;
+
+    /* See the light-mode `html.high-contrast` block above for the reasoning. */
+    --status-success-text: #006b1f;
+    --status-warning-text: #8a4d00;
+    --status-error-text: #c00000;
+    --status-info-text: #0050a0;
+
+    /* Same gap, same fix, same reasoning as --text-on-accent above. */
+    --text-on-status-success: #ffffff;
+    --text-on-status-warning: #ffffff;
+    --text-on-status-error: #ffffff;
+    --text-on-status-info: #ffffff;
 
     --status-success-bg: #d4edda;
     --status-error-bg: #f8d7da;

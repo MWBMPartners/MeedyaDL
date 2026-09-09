@@ -338,7 +338,7 @@ export function ToolsTab() {
                           {tool.name}
                         </span>
                         {tool.required ? (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error">
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
                             Required
                           </span>
                         ) : (
@@ -347,7 +347,13 @@ export function ToolsTab() {
                           </span>
                         )}
                         {tool.source === 'system' && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary">
+                          /* `bg-accent-primary` / `text-accent-primary`
+                           * were never defined colours -- this badge had
+                           * no background and unstyled text. `bg-accent`
+                           * is the real token; `text-accent-hover` is its
+                           * darkened-for-text sibling (plain `text-accent`
+                           * falls short of 4.5:1 as small text). */
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover">
                             System
                           </span>
                         )}
@@ -447,7 +453,7 @@ export function ToolsTab() {
       {/* Error display                                                 */}
       {/* ============================================================ */}
       {depError && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error">
+        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
           {depError}
         </div>
       )}
@@ -547,11 +553,11 @@ function GamdlVersionManagement({ installedVersion }: { installedVersion: string
 
   const badgeClass =
     status.tone === 'success'
-      ? 'bg-status-success-bg text-status-success border-status-success'
+      ? 'bg-status-success-bg text-status-success-text border-status-success'
       : status.tone === 'warning'
-        ? 'bg-status-warning-bg text-status-warning border-status-warning'
+        ? 'bg-status-warning-bg text-status-warning-text border-status-warning'
         : status.tone === 'error'
-          ? 'bg-status-error-bg text-status-error border-status-error'
+          ? 'bg-status-error-bg text-status-error-text border-status-error'
           : 'bg-surface-elevated text-content-secondary border-border-light';
 
   const anyBusy = isInstallingRecommended || isInstallingSpecific;
@@ -609,7 +615,11 @@ function GamdlVersionManagement({ installedVersion }: { installedVersion: string
               onChange={(e) => setVersionInput(e.target.value)}
               placeholder="e.g. 2.9.3"
               disabled={anyBusy}
-              className="flex-1 px-3 py-1.5 text-sm rounded-platform border border-border-light bg-surface-elevated text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent-primary"
+              /* `focus:ring-accent-primary` was never a defined colour,
+               * so this field had no visible focus ring at all beyond
+               * whatever the browser drew by default. `focus:ring-accent`
+               * is the real token. */
+              className="flex-1 px-3 py-1.5 text-sm rounded-platform border border-border-light bg-surface-elevated text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
               aria-describedby="gamdl-version-help"
             />
             <Button

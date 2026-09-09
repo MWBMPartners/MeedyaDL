@@ -98,16 +98,23 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * Tailwind utility class strings for each button variant.
  *
  * These classes reference the project's custom design-token colours
- * (bg-accent, text-content-inverse, etc.) defined in tailwind.config.ts.
+ * (bg-accent, text-content-on-accent, etc.) defined in tailwind.config.ts.
  * Hover and active states are handled via Tailwind state modifiers.
+ *
+ * Each variant's label colour uses the token for the SPECIFIC fill it
+ * sits on (text-content-on-accent for the accent fill,
+ * text-content-on-status-error for the status-error fill) rather than
+ * one shared "inverse" colour -- see base.css for why a single shared
+ * token cannot be correct on every platform theme and colour-blind
+ * variant at once.
  *
  * @see https://tailwindcss.com/docs/hover-focus-and-other-states -- state modifiers
  * @see https://tailwindcss.com/docs/customizing-colors -- custom colour tokens
  */
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  /** Solid accent background, inverse (white) text; lightens on hover */
+  /** Solid accent background, text coloured to read on that fill; lightens on hover */
   primary:
-    'bg-accent text-content-inverse hover:bg-accent-hover active:opacity-90 border-transparent',
+    'bg-accent text-content-on-accent hover:bg-accent-hover active:opacity-90 border-transparent',
   /** Transparent with a visible border; subtle surface colour on hover */
   secondary:
     'bg-transparent text-content-primary border-border hover:bg-surface-secondary active:bg-surface-elevated',
@@ -115,7 +122,8 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   ghost:
     'bg-transparent text-content-secondary hover:text-content-primary hover:bg-surface-secondary border-transparent',
   /** Red/error background for destructive actions; slightly fades on hover/active */
-  danger: 'bg-status-error text-white hover:opacity-90 active:opacity-80 border-transparent',
+  danger:
+    'bg-status-error text-content-on-status-error hover:opacity-90 active:opacity-80 border-transparent',
 };
 
 /**
@@ -146,6 +154,19 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
  *   disabled by screen readers.
  * - All remaining HTML button attributes (aria-label, type, etc.) are
  *   forwarded via the rest-spread.
+ * - `focus-visible:outline-2 focus-visible:outline-accent` gives the button
+ *   a visible ring when reached by keyboard (Tab), matching the shared
+ *   `button:focus-visible` rule in globals.css. It is written out here too,
+ *   directly on the component, so anyone reading this file can see it is
+ *   accessible without having to go and check a separate CSS file. A mouse
+ *   click never shows the ring -- that is handled globally by the
+ *   `*:focus:not(:focus-visible)` rule in globals.css, so this component
+ *   deliberately does NOT add its own `outline-none`: Tailwind's outline
+ *   utilities all share one underlying `--tw-outline-style` variable, and
+ *   an unconditional `outline-none` on the element would set that variable
+ *   to "none" all the time -- including while `:focus-visible` is true --
+ *   which would silently cancel the ring these classes are trying to draw.
+ *   WCAG 2.4.7 "Focus Visible" fix.
  *
  * @example
  * ```tsx
@@ -190,6 +211,7 @@ export function Button({
       className={`
         inline-flex items-center justify-center font-medium
         rounded-platform border transition-colors
+        focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2
         ${VARIANT_CLASSES[variant]}
         ${SIZE_CLASSES[size]}
         ${fullWidth ? 'w-full' : ''}

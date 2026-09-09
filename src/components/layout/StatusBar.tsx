@@ -88,7 +88,7 @@ function AfterQueueIndicator() {
     : t('statusBar.afterQueue', { label });
 
   return (
-    <span className="text-status-warning" title={text}>
+    <span className="text-status-warning-text" title={text}>
       {text}
     </span>
   );
@@ -260,7 +260,7 @@ export function StatusBar() {
             onClick={triggerAbort}
             aria-label={t('statusBar.abortAriaLabel')}
             title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
-            className="flex items-center gap-1 text-status-error hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
+            className="flex items-center gap-1 text-status-error-text hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
           >
             <Square size={12} />
             <span className="text-xs">{t('statusBar.abort')}</span>

@@ -101,40 +101,93 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   /*
+   * Why `onClose` is kept in a ref instead of being read directly.
+   * ------------------------------------------------------------------
+   * Almost every caller of `<Modal>` passes a brand new inline function
+   * as `onClose` on every single render, e.g. `onClose={() => setOpen(false)}`.
+   * A new function means a new value, and a new value used to feed straight
+   * into `useCallback`/`useEffect` dependency arrays below, which meant the
+   * effect that manages focus tore itself down and rebuilt itself on every
+   * re-render of whatever opened the dialog -- not just when the dialog
+   * actually opened or closed.
+   *
+   * Tearing the effect down moved focus back to the element that opened
+   * the dialog (the "restore focus on close" cleanup step), and rebuilding
+   * it immediately moved focus back onto the dialog's first focusable
+   * element. In other words: every re-render silently punted focus out of
+   * the dialog and back in again.
+   *
+   * That is exactly what was happening while typing into a text field
+   * inside a dialog whose parent re-renders on every keystroke (the
+   * MusicKit credentials password field in GeneralTab, the developer
+   * passphrase box in App.tsx): each keystroke re-rendered the parent,
+   * which created a new `onClose`, which reset focus away from the field
+   * the user was actively typing in -- so a field inside a dialog could
+   * only ever receive one character before losing focus. With
+   * `DownloadQueue` re-rendering roughly ten times a second while
+   * downloads are active, the effect fired that often too, meaning the
+   * abort-queue confirmation dialog's own button could never be reached
+   * by keyboard or even reliably by mouse.
+   *
+   * The fix: read the *current* `onClose` through a ref instead of taking
+   * it as a dependency. The ref's value is kept up to date by the small
+   * effect immediately below, but updating the ref does not, by itself,
+   * cause anything to re-run -- so the focus-management effect further
+   * down can depend on `open` alone and stops caring how often `onClose`'s
+   * identity changes.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  /*
    * Focus trap and keyboard handling.
-   * - Escape closes the modal.
+   * - Escape closes the modal (via the ref above, so this function's own
+   *   identity never needs to change when `onClose` changes).
    * - Tab/Shift+Tab cycle between focusable elements inside the panel.
    * See: https://github.com/MWBMPartners/MeedyaDL/issues/218
    */
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onCloseRef.current();
+      return;
+    }
+    // Focus trap: cycle Tab within the modal.
+    // `:not([disabled])` is required here -- without it, Tab from the
+    // real last *enabled* control could land on a trailing disabled
+    // button (e.g. a "Continue" button disabled while a download is in
+    // progress) and treat that as the end of the trap, which then let
+    // focus escape the dialog entirely. See the sibling fix that added
+    // this exclusion for the full explanation.
+    if (e.key === 'Tab' && panelRef.current) {
+      const focusable = panelRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
       }
-      // Focus trap: cycle Tab within the modal
-      if (e.key === 'Tab' && panelRef.current) {
-        const focusable = panelRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusable.length === 0) return;
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-        if (e.shiftKey && document.activeElement === first) {
-          e.preventDefault();
-          last.focus();
-        } else if (!e.shiftKey && document.activeElement === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    },
-    [onClose]
-  );
+    }
+  }, []); // Stable for the component's whole lifetime -- reads onCloseRef.current, never onClose directly.
 
   /*
    * Manage focus: move into modal on open, restore on close.
    * Attach keydown listener for Escape + Tab trap.
+   *
+   * Deliberately depends on `open` ONLY. `handleKeyDown` is intentionally
+   * left out of the dependency list: its identity never changes (see the
+   * `useCallback` above), so including it would be a no-op for behaviour,
+   * but naming it here as a reminder that this effect must re-run ONLY
+   * when the dialog actually opens or closes -- never on an unrelated
+   * parent re-render -- is the entire point of this fix (see the long
+   * comment above `onCloseRef`).
    */
   useEffect(() => {
     if (open) {
@@ -145,18 +198,21 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       requestAnimationFrame(() => {
         if (panelRef.current) {
           const firstFocusable = panelRef.current.querySelector<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
           );
           (firstFocusable ?? panelRef.current).focus();
         }
       });
       return () => {
         document.removeEventListener('keydown', handleKeyDown);
-        // Restore focus to the element that opened the modal
+        // Restore focus to the element that opened the modal -- this now
+        // only runs when `open` actually flips back to false (or the
+        // component unmounts), not on every unrelated re-render.
         previousFocusRef.current?.focus();
       };
     }
-  }, [open, handleKeyDown]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above: `handleKeyDown` is stable by construction and must not be allowed to retrigger this effect.
+  }, [open]);
 
   /* Early return -- render nothing when the modal is closed */
   if (!open) return null;

@@ -161,6 +161,7 @@ export default {
           primary: 'var(--surface-primary)',    /* Main content area background */
           secondary: 'var(--surface-secondary)', /* Alternate/grouped content background */
           elevated: 'var(--surface-elevated)',  /* Cards, modals, and raised surfaces */
+          tertiary: 'var(--surface-tertiary)',  /* One step past elevated -- nested boxes, hover states */
           overlay: 'var(--surface-overlay)',    /* Semi-transparent backdrop behind modals */
         },
         /**
@@ -177,12 +178,26 @@ export default {
          * content -- Text colors at varying emphasis levels.
          * Usage: text-content-primary, text-content-secondary, text-content-tertiary
          * Named 'content' instead of 'text' to avoid collision with Tailwind's built-in text colors.
+         *
+         * `on-accent` and `on-status-*` used to be ONE token (`inverse`).
+         * That broke on Windows: the same colour that read fine on
+         * macOS/Linux's accent blue failed on Windows' darker accent,
+         * and on the colour-blind success colour, because a single
+         * colour cannot be correct against every different fill it
+         * might sit on. Each of these is now set correctly, per theme,
+         * for the ONE fill it actually pairs with -- see base.css for
+         * the full worked contrast arithmetic and why status needed
+         * four separate tokens instead of one shared one.
          */
         content: {
           primary: 'var(--text-primary)',       /* Headings, body text, most prominent text */
           secondary: 'var(--text-secondary)',   /* Descriptions, labels, less prominent text */
           tertiary: 'var(--text-tertiary)',     /* Placeholders, hints, least prominent text */
-          inverse: 'var(--text-inverse)',       /* Text on colored backgrounds (e.g., white on accent) */
+          'on-accent': 'var(--text-on-accent)', /* Text/icon sitting on the accent fill */
+          'on-status-success': 'var(--text-on-status-success)', /* Text/icon on a bg-status-success fill */
+          'on-status-warning': 'var(--text-on-status-warning)', /* Text/icon on a bg-status-warning fill */
+          'on-status-error': 'var(--text-on-status-error)',     /* Text/icon on a bg-status-error fill */
+          'on-status-info': 'var(--text-on-status-info)',       /* Text/icon on a bg-status-info fill */
         },
         /**
          * status -- Semantic colors for feedback states in the download queue.
@@ -192,18 +207,27 @@ export default {
           success: {
             DEFAULT: 'var(--status-success)',     /* Completed downloads, positive actions */
             bg: 'var(--status-success-bg)',       /* Pale green tint for success backgrounds */
+            /* Darker shade of the same colour, for when it is READ as text
+             * rather than shown as a small icon or pill fill -- text needs
+             * to clear 4.5:1, which the DEFAULT shade does not everywhere.
+             * Usage: text-status-success-text. See base.css for the
+             * contrast arithmetic behind this pair of tokens. */
+            text: 'var(--status-success-text)',
           },
           warning: {
             DEFAULT: 'var(--status-warning)',     /* Warnings, pending states */
             bg: 'var(--status-warning-bg)',       /* Pale yellow tint for warning backgrounds */
+            text: 'var(--status-warning-text)',   /* Darker shade for text use -- see base.css */
           },
           error: {
             DEFAULT: 'var(--status-error)',       /* Failed downloads, validation errors */
             bg: 'var(--status-error-bg)',         /* Pale red tint for error backgrounds */
+            text: 'var(--status-error-text)',     /* Darker shade for text use -- see base.css */
           },
           info: {
             DEFAULT: 'var(--status-info)',        /* Informational messages, active downloads */
             bg: 'var(--status-info-bg)',          /* Pale blue tint for info backgrounds */
+            text: 'var(--status-info-text)',      /* Darker shade for text use -- see base.css */
           },
         },
         /**

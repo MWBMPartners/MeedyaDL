@@ -490,7 +490,7 @@ Please quit and reopen MeedyaDL manually.`,
                 size="sm"
                 onClick={() => setRestartPromptOpen(true)}
                 title="Template changes won't apply until MeedyaDL restarts"
-                className="text-status-warning"
+                className="text-status-warning-text"
               >
                 Restart pending
               </Button>
@@ -554,7 +554,7 @@ Please quit and reopen MeedyaDL manually.`,
                         rounded-platform text-sm transition-colors
                         ${
                           activeTab === id
-                            ? 'bg-accent-light text-accent font-medium' /* Active tab styling */
+                            ? 'bg-accent-light text-accent-hover font-medium' /* Active tab styling -- text-accent-hover, not the plain accent, clears 4.5:1 as small text (see base.css) */
                             : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
                         }
                       `}

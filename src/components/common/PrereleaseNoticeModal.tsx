@@ -91,7 +91,7 @@ export default function PrereleaseNoticeModal() {
       <div className="space-y-4 text-sm text-content-secondary">
         {/* Version badge */}
         <div className="flex items-center gap-2">
-          <span className="inline-flex items-center rounded-full bg-status-warning-bg px-3 py-1 text-xs font-semibold text-status-warning border border-status-warning">
+          <span className="inline-flex items-center rounded-full bg-status-warning-bg px-3 py-1 text-xs font-semibold text-status-warning-text border border-status-warning">
             v{appVersion} — Pre-Release
           </span>
         </div>
@@ -127,7 +127,7 @@ export default function PrereleaseNoticeModal() {
         {/* Stable release offer (only if available) */}
         {latestUpdate && (
           <div className="p-3 rounded-lg bg-status-success-bg border border-status-success">
-            <p className="text-xs font-semibold text-status-success mb-1">
+            <p className="text-xs font-semibold text-status-success-text mb-1">
               Stable Release Available
             </p>
             <p className="text-xs text-content-secondary">
@@ -146,7 +146,7 @@ export default function PrereleaseNoticeModal() {
             View the full release notes on the{' '}
             <button
               type="button"
-              className="text-accent-primary hover:underline"
+              className="text-accent-hover hover:underline"
               onClick={() => {
                 setShowPrereleaseNotice(false);
                 useUiStore.getState().setPage('updates');
@@ -163,7 +163,7 @@ export default function PrereleaseNoticeModal() {
           {latestUpdate && (
             <button
               type="button"
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-status-success text-white hover:opacity-90 transition-opacity"
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-status-success text-content-on-status-success hover:opacity-90 transition-opacity"
               onClick={handleInstallStable}
             >
               Install Stable Release
@@ -171,7 +171,13 @@ export default function PrereleaseNoticeModal() {
           )}
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-interactive-accent text-white hover:opacity-90 transition-opacity"
+            /* `bg-interactive-accent` was never a defined colour anywhere
+             * in the theme -- Tailwind silently drops a utility it does
+             * not recognise, so this button rendered white text on the
+             * white/near-white dialog background: invisible in light
+             * mode. `bg-accent` is the real token for "the button that
+             * confirms/accepts". */
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleDismiss}
           >
             I Understand

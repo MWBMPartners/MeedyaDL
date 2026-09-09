@@ -991,12 +991,12 @@ export function DownloadForm() {
                     download from yet is not the user getting it wrong.
                   */}
                   {multiUrlInfo.notYetSupportedCount > 0 && (
-                    <span className="text-status-warning ml-1">
+                    <span className="text-status-warning-text ml-1">
                       ({multiUrlInfo.notYetSupportedCount} not supported yet)
                     </span>
                   )}
                   {multiUrlInfo.unrecognisedCount > 0 && (
-                    <span className="text-status-warning ml-1">
+                    <span className="text-status-warning-text ml-1">
                       ({multiUrlInfo.unrecognisedCount} not recognised)
                     </span>
                   )}
@@ -1071,10 +1071,10 @@ export function DownloadForm() {
            *  - Grey helper text when the input is empty (shows supported types).
            */}
           {urlInput && !canSubmit && !isMultiUrl && (
-            <p className="text-xs text-status-error">Please enter a valid Apple Music or Spotify URL</p>
+            <p className="text-xs text-status-error-text">Please enter a valid Apple Music or Spotify URL</p>
           )}
           {urlInput && !canSubmit && isMultiUrl && (
-            <p className="text-xs text-status-error">No valid Apple Music or Spotify URLs found</p>
+            <p className="text-xs text-status-error-text">No valid Apple Music or Spotify URLs found</p>
           )}
           {!urlInput && (
             <p className="text-xs text-content-tertiary">
@@ -1109,12 +1109,12 @@ export function DownloadForm() {
               missing, or invalid. Blocks downloads until cookies are fixed. */}
           {cookieError && (
             <div className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
-              <span className="text-status-warning text-sm mt-0.5">&#9888;</span>
+              <span className="text-status-warning-text text-sm mt-0.5">&#9888;</span>
               <div className="flex-1 text-xs text-content-primary">
                 <p>{cookieError}</p>
                 <button
                   type="button"
-                  className="mt-1 text-accent hover:text-accent-hover underline transition-colors"
+                  className="mt-1 text-accent-hover underline transition-colors"
                   onClick={() => setPage('settings')}
                 >
                   Go to Settings

@@ -288,7 +288,7 @@ export function TemplateBuilder({
                     onClick={() => addLiteral(customText)}
                     disabled={!customText}
                     className="px-2 py-1 text-xs rounded-md font-medium
-                      bg-accent text-white hover:bg-accent-hover
+                      bg-accent text-content-on-accent hover:bg-accent-hover
                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Add

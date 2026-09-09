@@ -875,11 +875,11 @@ export function DownloadQueue() {
      * state icon colours from QueueItem's STATE_CONFIG.
      */
     const segments: { label: string; colorClass: string }[] = [];
-    if (active > 0) segments.push({ label: `${active} active`, colorClass: 'text-status-info' });
+    if (active > 0) segments.push({ label: `${active} active`, colorClass: 'text-status-info-text' });
     if (queued > 0) segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
     if (completed > 0)
-      segments.push({ label: `${completed} completed`, colorClass: 'text-status-success' });
-    if (failed > 0) segments.push({ label: `${failed} failed`, colorClass: 'text-status-error' });
+      segments.push({ label: `${completed} completed`, colorClass: 'text-status-success-text' });
+    if (failed > 0) segments.push({ label: `${failed} failed`, colorClass: 'text-status-error-text' });
 
     return { total, completed, overallProgress, segments };
   }, [queueItems]);
@@ -1081,7 +1081,7 @@ export function DownloadQueue() {
                 size="sm"
                 icon={<Square size={14} />}
                 onClick={triggerAbort}
-                className="text-status-error hover:bg-status-error/10"
+                className="text-status-error-text hover:bg-status-error/10"
                 title="Stop every active and queued download immediately (Cmd/Ctrl+Shift+.)"
               >
                 Abort Queue
@@ -1120,7 +1120,11 @@ export function DownloadQueue() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by artist, album, track, or URL..."
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-input-bg border border-input-border text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+              /* `bg-input-bg` / `border-input-border` were never defined
+               * colours -- the real tokens for a search field, matching
+               * every other text input in the app, are
+               * `bg-surface-elevated` / `border-border-light`. */
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
               aria-label="Search queue"
             />
             {searchQuery && (
@@ -1148,7 +1152,7 @@ export function DownloadQueue() {
                     onClick={() => toggleStatusFilter(state)}
                     className={`px-2 py-0.5 rounded-full border transition-colors ${
                       active
-                        ? 'bg-accent text-white border-accent'
+                        ? 'bg-accent text-content-on-accent border-accent'
                         : 'bg-surface-elevated text-content-secondary border-border-light hover:border-accent'
                     }`}
                     aria-pressed={active}

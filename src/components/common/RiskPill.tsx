@@ -66,19 +66,19 @@ const TIER_CONFIG: Record<RiskTier, TierConfig> = {
   lower: {
     Icon: <ShieldCheck size={12} aria-hidden="true" />,
     label: 'Lower risk',
-    className: 'bg-status-success/10 text-status-success ring-status-success/30',
+    className: 'bg-status-success/10 text-status-success-text ring-status-success/30',
     ariaLabel: 'Lower risk to change',
   },
   higher: {
     Icon: <Shield size={12} aria-hidden="true" />,
     label: 'Higher risk',
-    className: 'bg-status-warning/10 text-status-warning ring-status-warning/30',
+    className: 'bg-status-warning/10 text-status-warning-text ring-status-warning/30',
     ariaLabel: 'Higher risk to change — pause before adjusting',
   },
   highest: {
     Icon: <AlertTriangle size={12} aria-hidden="true" />,
     label: 'Highest risk',
-    className: 'bg-status-error/10 text-status-error ring-status-error/30',
+    className: 'bg-status-error/10 text-status-error-text ring-status-error/30',
     ariaLabel: 'Highest risk to change — disabling this materially increases account-ban exposure',
   },
 };

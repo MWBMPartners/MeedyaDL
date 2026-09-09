@@ -126,7 +126,7 @@ function BrowserRow({
         <div>
           <span className="text-sm font-medium text-content-primary">{browser.name}</span>
           {browser.requires_fda && (
-            <span className="ml-2 text-xs text-status-warning">(Full Disk Access required)</span>
+            <span className="ml-2 text-xs text-status-warning-text">(Full Disk Access required)</span>
           )}
         </div>
       </div>
@@ -277,7 +277,7 @@ function ImportResultPanel({ result }: { result: CookieImportResult }) {
           <p>{result.warnings.length > 0 ? result.warnings[0] : 'Cookie extraction failed.'}</p>
         )}
         {result.warnings.map((w, i) => (
-          <p key={i} className="text-status-warning">
+          <p key={i} className="text-status-warning-text">
             {w}
           </p>
         ))}
@@ -798,7 +798,7 @@ export function CookiesStep() {
               <div className="text-xs text-content-secondary space-y-1 ml-6">
                 <p>{validation.apple_music_cookies} Apple Music cookies found</p>
                 {validation.warnings.map((w, i) => (
-                  <p key={i} className="text-status-warning">
+                  <p key={i} className="text-status-warning-text">
                     {w}
                   </p>
                 ))}

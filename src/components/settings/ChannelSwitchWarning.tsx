@@ -103,7 +103,7 @@ export default function ChannelSwitchWarning({
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-status-warning text-white hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-status-warning text-content-on-status-warning hover:opacity-90 transition-opacity"
             onClick={onConfirm}
           >
             Continue on {channelLabel}

@@ -35,7 +35,7 @@ export function YouTubeTab() {
           Download videos, playlists, channels, and live streams from YouTube in up to 8K resolution
           with audio-only extraction, subtitle embedding, and SponsorBlock integration.
         </p>
-        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning text-xs font-medium">
+        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-status-warning/10 text-status-warning-text text-xs font-medium">
           Coming Soon
         </div>
       </div>

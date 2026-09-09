@@ -111,7 +111,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
   }
   if (diff.kind === 'plan') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text">
         <AlertCircle size={12} />
         {diff.missing_tracks} of {diff.total_tracks} missing
       </span>
@@ -121,7 +121,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
     const codecLabels = diff.missing_codecs.map(displayCodecName).join(', ');
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text"
         title={`Every track is present, but the manifest's companion-codec plan still expected: ${codecLabels}. Re-download will fill the codec gaps without re-downloading the primary files.`}
       >
         <Layers size={12} />
@@ -132,7 +132,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
   }
   if (diff.kind === 'all_present') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success-text">
         <CheckCircle2 size={12} />
         All present
       </span>
@@ -199,7 +199,7 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
   if (isComplete) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success-text"
         title={`All ${total} enrichment stages complete.`}
       >
         <CheckCircle2 size={12} />
@@ -226,7 +226,7 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
     .join('\n\n');
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning"
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text"
       title={tooltip}
     >
       <AlertCircle size={12} />
@@ -452,7 +452,7 @@ export function LibraryScanPage() {
           type="button"
           onClick={handleScan}
           disabled={scanning}
-          className="px-4 py-2 rounded-md bg-accent text-white text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
+          className="px-4 py-2 rounded-md bg-accent text-content-on-accent text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
           aria-label="Choose a folder and scan for manifest files"
         >
           {scanning ? (
@@ -561,7 +561,7 @@ export function LibraryScanPage() {
                       <button
                         type="button"
                         onClick={() => setPendingGapFill(m)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-accent text-white hover:bg-accent-hover"
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-accent text-content-on-accent hover:bg-accent-hover"
                         aria-label={`Re-download ${m.album ?? 'this album'}`}
                       >
                         <Download size={12} />

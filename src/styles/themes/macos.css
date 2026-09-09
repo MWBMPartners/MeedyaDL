@@ -86,6 +86,17 @@
   --accent-hover: #0062cc;
 
   /*
+   * Same accent as base.css's default (macOS IS the default), so the
+   * same arithmetic applies: L(#007aff) = 0.2114, black passes at
+   * 5.23:1, white fails at 4.02:1. Restated here explicitly (matching
+   * this theme's own style of restating --accent above, even though it
+   * equals the default) so this file is self-documenting and doesn't
+   * silently depend on base.css. See base.css for the full working and
+   * for why Windows needs the opposite answer.
+   */
+  --text-on-accent: #000000;
+
+  /*
    * macOS Liquid Glass shadow style: Soft, multi-layer shadows.
    * The first shadow provides the main depth effect (very subtle blur).
    * The second shadow (0 0 0 0.5px) creates a thin "border" effect using
@@ -115,6 +126,14 @@
     --accent: #0a84ff; /* NSColor.systemBlue in dark mode (higher luminance) */
     --accent-hover: #409cff; /* Even brighter hover state */
 
+    /*
+     * L(#0a84ff) = 0.2379. Black (L=0) vs #0a84ff: (0.2379+0.05)/
+     * (0+0.05) = 5.76:1. Passes. White (L=1) vs #0a84ff: (1+0.05)/
+     * (0.2379+0.05) = 3.65:1. Fails. Black wins, same as every other
+     * platform's dark-mode accent (see base.css).
+     */
+    --text-on-accent: #000000;
+
     /* Dark mode shadows: Higher opacity because shadows are harder to see on dark surfaces */
     --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
     --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
@@ -129,6 +148,8 @@
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --accent: #0a84ff;
   --accent-hover: #409cff;
+  /* See the matching @media block above for the contrast arithmetic. */
+  --text-on-accent: #000000;
   --shadow: 0 0.5px 2px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.12);
   --shadow-lg: 0 2px 8px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 }
