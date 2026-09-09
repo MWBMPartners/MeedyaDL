@@ -45,6 +45,8 @@ A limit in `js-yaml` meant to stop a file tying up the processor did not
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.7 [skip ci]
 
 ### 🔄 CI/CD
 
