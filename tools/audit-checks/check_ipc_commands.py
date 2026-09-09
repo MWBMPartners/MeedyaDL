@@ -166,6 +166,71 @@ def collect_frontend_invokes() -> dict[str, tuple[str, int]]:
     return invokes
 
 
+# Commands the app registers but no screen ever calls, each with the reason
+# it is kept (#1160).
+#
+# Registering a command the app never calls is not a bug in itself, but a list
+# of them that nobody maintains rots into a puzzle: every audit and every
+# search has to step around them, and nobody can tell which are waiting for a
+# screen to be built and which are simply forgotten.
+#
+# Keeping the reasons HERE rather than in a document means they cannot drift
+# out of date without someone noticing: a new unreachable command that is not
+# listed becomes a finding at review time, and a listed command that gets
+# wired up or deleted shows up as a stale entry.
+#
+# The rule for adding one: say why it is staying, in a sentence someone else
+# could act on. "Not used yet" is not a reason. "Waiting for the Library page,
+# tracked in #NNN" is.
+UNREACHABLE_BY_DESIGN: dict[str, str] = {
+    "check_cross_platform": (
+        "Groundwork for finding the same album on another service. Needs the "
+        "other services to work first — see the multi-service milestones."
+    ),
+    "check_service_status": (
+        "Reads the interim service-status file, which #1069 is replacing with "
+        "the remote feature-availability system. Superseded rather than unused."
+    ),
+    "detect_service": (
+        "The frontend works out the service itself, in url-parser.ts, because "
+        "it needs the answer while the user is still typing. This is the same "
+        "answer from the backend, kept for anything that cannot do it locally."
+    ),
+    "fetch_syllable_lyrics": (
+        "Already tracked as its own decision in #1012: wire it up or remove it."
+    ),
+    "get_crash_report": (
+        "Fetches one report by name. The screen lists them all in one call and "
+        "shows the detail from that, so this has never been needed."
+    ),
+    "list_library_gaps_cmd": (
+        "Part of the download index groundwork. Waiting on the Library page "
+        "that would show the gaps."
+    ),
+    "search_activity_log_db": (
+        "Searches the activity log through the database rather than the "
+        "in-memory copy. The screen searches what it already holds, which is "
+        "faster; this exists for when the log outgrows that."
+    ),
+    "upsert_known_track_cmd": (
+        "Part of the download index groundwork, same as the gaps command above."
+    ),
+}
+
+
+def collect_unreachable(defined, invokes) -> list[str]:
+    """Registered commands that no frontend screen ever calls.
+
+    Args:
+        defined: Every command the backend defines.
+        invokes: Every command name the frontend calls.
+
+    Returns:
+        Their names, sorted, so the report reads the same way every time.
+    """
+    return sorted(set(defined) - set(invokes))
+
+
 def check() -> int:
     defined = collect_defined_commands()
     registered = collect_registered_commands()
@@ -208,8 +273,45 @@ def check() -> int:
             print(f"  • lib.rs — `{name}` is registered but this checker found no defining function (parser gap?)")
         print()
 
-    if not (frontend_unregistered or defined_not_registered or registered_not_defined):
-        print("OK — frontend, backend definitions, and registration are consistent.")
+    # Commands no screen calls. Not a fault by itself — but one that nobody
+    # has written a reason for is a question waiting to be asked again by the
+    # next person, so an unlisted one is reported (#1160).
+    unreachable = collect_unreachable(defined, invokes)
+    undocumented = [n for n in unreachable if n not in UNREACHABLE_BY_DESIGN]
+    stale = sorted(n for n in UNREACHABLE_BY_DESIGN if n not in unreachable)
+
+    if undocumented:
+        print("### Registered command that no screen calls, and no reason recorded\n")
+        for name in undocumented:
+            rel, ln = defined[name]
+            print(
+                f"  • {rel}:{ln} — `{name}` is registered but nothing in the app calls it. "
+                f"Add it to UNREACHABLE_BY_DESIGN in this script with the reason it is staying, "
+                f"or wire it up, or remove it."
+            )
+        print()
+        high_severity += len(undocumented)
+
+    if stale:
+        print("### Recorded as unreachable, but that is no longer true\n")
+        for name in stale:
+            print(
+                f"  • tools/audit-checks/check_ipc_commands.py — `{name}` is listed as having no "
+                f"caller, but it now has one or no longer exists. Remove the entry."
+            )
+        print()
+
+    if not (
+        frontend_unregistered
+        or defined_not_registered
+        or registered_not_defined
+        or undocumented
+        or stale
+    ):
+        print(
+            f"OK — frontend, backend definitions, and registration are consistent. "
+            f"{len(unreachable)} command(s) have no caller, each with a recorded reason."
+        )
 
     if high_severity and "--strict" in sys.argv:
         return 1
