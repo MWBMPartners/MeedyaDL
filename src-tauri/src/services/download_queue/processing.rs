@@ -307,11 +307,30 @@ pub fn process_queue(
         // case `take_recently_aborted` returns `true` and we suppress the
         // post-queue action this time around.
         let Some((download_id, urls, mut options, item_service)) = pending else {
-            let (is_idle, was_aborted) = {
+            let (is_idle, was_aborted, ran) = {
                 let mut q = queue.lock().await;
-                (q.is_idle(), q.take_recently_aborted())
+                (
+                    q.is_idle(),
+                    q.take_recently_aborted(),
+                    // Did the queue actually do anything this time round?
+                    q.take_ran_since_drain(),
+                )
             };
-            if is_idle {
+            if is_idle && !ran {
+                // Nothing ran, so nothing drained (#1169).
+                //
+                // The after-queue action is what happens when downloads
+                // finish, and the user can set it to shut down or restart
+                // their computer. It used to fire whenever the queue was
+                // found idle — including when it had never been busy. So
+                // pressing Start Queue on an empty queue could shut the
+                // machine down, which reads as the app crashing it.
+                //
+                // The people at risk are exactly those who chose "shut down
+                // when the downloads are done" for an unattended overnight
+                // run, with nobody watching to see it go wrong.
+                log::debug!("Queue idle but nothing ran — not firing the post-queue action");
+            } else if is_idle {
                 if was_aborted {
                     log::info!(
                         "Queue idle after abort — suppressing post-queue action (#620)"

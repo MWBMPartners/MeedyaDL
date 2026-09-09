@@ -434,6 +434,20 @@ pub struct DownloadQueue {
     /// cleared on consumption so the next legitimate queue-drain still runs
     /// the configured post-queue action.
     recently_aborted: bool,
+
+    /// Whether any download has actually started since the last time the queue
+    /// went quiet (#1169).
+    ///
+    /// Guards the after-queue action, which is meant to run when the queue
+    /// *drains* — and which the user can set to shut down or restart their
+    /// computer. Without this it also ran when the queue was never busy in the
+    /// first place, so pressing Start Queue on an empty queue could shut the
+    /// machine down.
+    ///
+    /// Set when an item is handed out to be downloaded, and read-and-cleared
+    /// by [`Self::take_ran_since_drain`], the same shape as
+    /// [`Self::recently_aborted`] above.
+    ran_since_drain: bool,
     /// **Non-destructive pause flag** (#889). When `true`, [`Self::next_pending`]
     /// returns `None` even if there are items in `Queued` state and a slot
     /// is free — effectively freezing the scheduler. Currently
@@ -540,6 +554,7 @@ impl DownloadQueue {
             gamdl_version: None,
             last_preflight_at: None,
             recently_aborted: false,
+            ran_since_drain: false,
             paused: false,
         }
     }
@@ -975,6 +990,20 @@ impl DownloadQueue {
     /// queue was aborted since the last drain; returns `false`
     /// otherwise. The post-queue-action dispatch path calls this to
     /// decide whether to suppress the configured action (#620).
+    /// Whether any download has run since the queue last went quiet, clearing
+    /// the record as it answers.
+    ///
+    /// Used to decide whether the after-queue action should fire. It should
+    /// run when the queue has finished doing something, not when it was asked
+    /// to start with nothing to do (#1169).
+    ///
+    /// Cleared on read so one drain fires the action once.
+    pub fn take_ran_since_drain(&mut self) -> bool {
+        let ran = self.ran_since_drain;
+        self.ran_since_drain = false;
+        ran
+    }
+
     pub fn take_recently_aborted(&mut self) -> bool {
         let was_aborted = self.recently_aborted;
         self.recently_aborted = false;
@@ -1719,6 +1748,10 @@ impl DownloadQueue {
         // Transition to Downloading and increment active count
         item.status.state = DownloadState::Downloading;
         self.active_count += 1;
+        // Record that the queue has genuinely done something, so the
+        // after-queue action fires on a real drain and not merely because the
+        // queue was asked to start with nothing in it (#1169).
+        self.ran_since_drain = true;
 
         // Return the data needed to start the download, including the
         // detected service ID for service-aware routing (#318).
