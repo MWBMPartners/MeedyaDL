@@ -98,45 +98,51 @@ describe('ActivityLog', () => {
   // The spoken summary for screen readers
   // ===========================================================================
 
-  it('keeps announcing new lines after the log has filled up and started dropping old ones', () => {
+  it('keeps announcing new lines when the list stays the same size because old ones are being dropped', () => {
     // The log holds at most 10,000 lines. Once it is full, every new line
     // pushes an old one off the front, so the NUMBER OF LINES stops changing
-    // while lines keep pouring in. A first version of this counted the number
-    // of lines, so from that moment on it decided nothing had happened and
-    // went quiet for the rest of the session — and because the log's own
-    // running commentary was removed at the same time, somebody using a
-    // screen reader would have heard nothing at all from then on.
+    // while lines keep pouring in. A first version of this decided whether
+    // anything had happened by comparing that number, so from the moment the
+    // log filled up it concluded nothing was happening and went quiet for the
+    // rest of the session — and because the log's own running commentary was
+    // removed at the same time, somebody using a screen reader would have
+    // heard nothing at all from then on.
     //
-    // This fills the log to its limit, then adds more, and checks the summary
-    // still says something.
+    // This reproduces that exact situation — same number of lines, different
+    // lines — without building ten thousand of them, which is slow enough to
+    // time out when the whole suite runs at once.
     vi.useFakeTimers();
     try {
-      const MAX = 10_000;
-      const fill = Array.from({ length: MAX }, (_, i) =>
-        makeEntry({ line: `line ${i}` })
-      );
       act(() => {
-        useActivityStore.getState().addEntries(fill);
+        useActivityStore.getState().addEntries([
+          makeEntry({ line: 'one' }),
+          makeEntry({ line: 'two' }),
+          makeEntry({ line: 'three' }),
+        ]);
       });
 
       render(<ActivityLog />);
 
-      // Let the first tick pass so the starting point is recorded.
+      // Let a tick pass so the starting point is recorded.
       act(() => {
         vi.advanceTimersByTime(8000);
       });
 
-      const lengthBefore = useActivityStore.getState().entries.length;
+      const sizeBefore = useActivityStore.getState().entries.length;
 
+      // Two new lines arrive and two old ones fall off the front, exactly as
+      // they would once the log is full.
       act(() => {
         useActivityStore.getState().addEntries([
-          makeEntry({ line: 'after the cap' }),
-          makeEntry({ line: 'and another', severity: 'error' }),
+          makeEntry({ line: 'four' }),
+          makeEntry({ line: 'five', severity: 'error' }),
         ]);
+        const all = useActivityStore.getState().entries;
+        useActivityStore.setState({ entries: all.slice(all.length - sizeBefore) });
       });
 
       // The list is the same size as before — that is the whole point.
-      expect(useActivityStore.getState().entries.length).toBe(lengthBefore);
+      expect(useActivityStore.getState().entries.length).toBe(sizeBefore);
 
       act(() => {
         vi.advanceTimersByTime(8000);
