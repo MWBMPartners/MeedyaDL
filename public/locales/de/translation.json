@@ -190,7 +190,9 @@
     "save": "Speichern",
     "delete": "Löschen",
     "retry": "Wiederholen",
-    "clear": "Leeren"
+    "clear": "Leeren",
+    "actionsMenu": "Aktionsmenü",
+    "skipToMainContent": "Zum Hauptinhalt springen"
   },
   "toast": {
     "dismiss": "Ausblenden",

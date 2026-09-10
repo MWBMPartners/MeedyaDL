@@ -22,6 +22,27 @@
  * #911-7) and are only consumed by `PlatformIcon`, never by status
  * indicators. This separation is what lets deuteranopia users tell
  * "Spotify queued" from "Spotify failed."
+ *
+ * **Not a live region (a11y audit Fix 3).** This component used to
+ * carry `role="status"`, which makes an element its own ARIA live
+ * region — every status pill on screen became a separate thing a
+ * screen reader would announce the instant its text changed. With up
+ * to ~150 rows on screen in a big batch, that meant up to 150
+ * simultaneous live regions, each one only ever saying a bare word
+ * ("Downloading", "Complete") with no idea which album it was about.
+ * The pill is now an ordinary piece of UI — its visible label is
+ * exposed to assistive tech the normal way (as plain text content, no
+ * ARIA needed), and the icon next to it is `aria-hidden` since the
+ * label already says the same thing in words. When `showLabel` is
+ * false (compact, icon-only pills), a visually-hidden span carries the
+ * label instead of an `aria-label` on the wrapping `<div>` — a plain
+ * `<div>` has ARIA role "generic", and the ARIA spec prohibits
+ * "generic" elements from taking their accessible name from
+ * `aria-label` at all, so that attribute was doing nothing.
+ * Queue-level state-change announcements — the actual useful signal
+ * ("Taylor Swift — 1989: complete") — now come from ONE shared live
+ * region owned by the page that renders the rows (`DownloadQueue.tsx`,
+ * via `useQueueStatusAnnouncer`), not from each row announcing itself.
  */
 
 import { AlertTriangle, CheckCircle, Clock, Download, Loader2, XCircle } from 'lucide-react';
@@ -157,6 +178,18 @@ export interface StatusPillProps {
 }
 
 /**
+ * Looks up the plain-English label for a state, the same word this
+ * component renders visually. Exported so `useQueueStatusAnnouncer`
+ * (in `DownloadQueue.tsx`) can build sentences like "Taylor Swift —
+ * 1989: complete" using the exact same wording a sighted user sees on
+ * the pill, instead of a second, hand-maintained copy of this table.
+ */
+export function getStatusLabel(state: DownloadState, hasWarnings = false): string {
+  const effectiveState = state === 'complete' && hasWarnings ? 'complete-with-warnings' : state;
+  return STATE_CONFIG[effectiveState].label;
+}
+
+/**
  * Render a coloured status pill (#911-4) for a single download.
  *
  * @example
@@ -178,8 +211,6 @@ export function StatusPill({
       className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium transition-colors ${config.colorClasses}${
         className ? ` ${className}` : ''
       }`}
-      role="status"
-      aria-label={config.label}
       title={config.label}
     >
       <Icon
@@ -187,7 +218,15 @@ export function StatusPill({
         className={`${config.iconColorClass}${config.spinIcon ? ' animate-spin' : ''}`}
         aria-hidden="true"
       />
-      {showLabel && <span>{config.label}</span>}
+      {showLabel ? (
+        <span>{config.label}</span>
+      ) : (
+        // Compact icon-only pills (dropdown row indicators etc.) still
+        // need a text alternative -- a visually-hidden span works
+        // everywhere, unlike `aria-label` on a plain <div> (see the
+        // file-level comment above).
+        <span className="sr-only">{config.label}</span>
+      )}
     </div>
   );
 }

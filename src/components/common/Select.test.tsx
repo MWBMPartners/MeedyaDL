@@ -202,4 +202,37 @@ describe('Select', () => {
     const flacOption = screen.getByText('FLAC');
     expect(flacOption).not.toBeDisabled();
   });
+
+  // ===========================================================================
+  // Error / description announcement wiring (a11y audit Fix 8)
+  // ===========================================================================
+  // Same defect and same fix as Input.test.tsx's equivalent tests --
+  // see the comment there for the full reasoning.
+
+  it('wires aria-describedby from the select to the error paragraph, and marks aria-invalid', () => {
+    render(<Select options={testOptions} label="Codec" error="Choose a codec" />);
+
+    const select = screen.getByRole('combobox');
+    const describedBy = select.getAttribute('aria-describedby');
+
+    expect(describedBy).toBeTruthy();
+    const describedElement = document.getElementById(describedBy!);
+    expect(describedElement).not.toBeNull();
+    expect(describedElement).toHaveTextContent('Choose a codec');
+    expect(describedElement).toHaveAttribute('role', 'alert');
+    expect(select).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('wires aria-describedby from the select to the description paragraph when there is no error', () => {
+    render(<Select options={testOptions} label="Codec" description="Preferred audio codec" />);
+
+    const select = screen.getByRole('combobox');
+    const describedBy = select.getAttribute('aria-describedby');
+
+    expect(describedBy).toBeTruthy();
+    const describedElement = document.getElementById(describedBy!);
+    expect(describedElement).not.toBeNull();
+    expect(describedElement).toHaveTextContent('Preferred audio codec');
+    expect(select).not.toHaveAttribute('aria-invalid');
+  });
 });

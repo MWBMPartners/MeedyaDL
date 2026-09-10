@@ -99,7 +99,15 @@ export function PlatformIcon({
 
   if (svgHtml) {
     return (
+      // Fix 7 (a11y audit): `aria-label` on a plain <span> is silently
+      // ignored -- ARIA gives a <span> the "generic" role, and the spec
+      // says a generic element must never take its accessible name from
+      // aria-label. `role="img"` changes the element's role to one
+      // whose whole purpose is carrying a name for something with no
+      // text of its own, so the label actually reaches a screen reader
+      // instead of leaving the icon completely silent.
       <span
+        role="img"
         className="flex-shrink-0 inline-flex items-center justify-center text-content-secondary [&>svg]:w-full [&>svg]:h-full"
         style={{ width: size, height: size }}
         aria-label={platform.name}

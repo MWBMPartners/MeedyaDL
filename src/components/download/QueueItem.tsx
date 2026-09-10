@@ -60,6 +60,7 @@ import {
   ChevronDown,
   ChevronsUp,
   ChevronsDown,
+  MoreVertical,
 } from 'lucide-react';
 
 import { QueueItemExpandPanel } from './QueueItemExpandPanel';
@@ -208,8 +209,13 @@ interface QueueItemProps {
  *
  * Returns `null` when called with neither metadata nor URLs (caller
  * should never hit this — every queue item has at least one URL).
+ *
+ * Exported (not just used internally) so `DownloadQueue.tsx`'s queue-
+ * level status announcer (a11y audit Fix 3) can build the same
+ * "Artist — Album" label a sighted user sees on the row, instead of
+ * reading out a raw URL.
  */
-function formatPrimaryIdentifier(item: QueueItemStatus): string {
+export function formatPrimaryIdentifier(item: QueueItemStatus): string {
   const artist = item.artist_name?.trim() || null;
   const album = item.album_name?.trim() || null;
   const segments: string[] = [];
@@ -427,6 +433,19 @@ function QueueItemComponent({
   };
 
   /**
+   * Opens the same menu from the visible "⋯" overflow button (a11y
+   * audit fix — moving up/down the queue, deleting a row, and retrying
+   * without the wrapper used to be reachable ONLY by right-clicking,
+   * which a keyboard-only person cannot do at all). Positions the menu
+   * just under the button that opened it, rather than at a cursor
+   * position that may not exist for a keyboard activation.
+   */
+  const handleOverflowClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom, visible: true });
+  };
+
+  /**
    * Build context menu items dynamically based on the item's current
    * state and available data. Items are conditionally included so the
    * menu only shows actions that are relevant.
@@ -542,7 +561,7 @@ function QueueItemComponent({
         isSelected ? 'bg-accent/5 hover:bg-accent/10' : 'hover:bg-surface-secondary'
       }`}
       role="listitem"
-      aria-label={`Download: ${item.urls?.[0] ?? 'unknown'}`}
+      aria-label={`Download: ${primaryIdentifier || item.urls?.[0] || 'unknown'}`}
       onContextMenu={handleContextMenu}
     >
       {/*
@@ -566,7 +585,11 @@ function QueueItemComponent({
             className="accent-accent cursor-pointer flex-shrink-0"
             checked={isSelected}
             onChange={() => onToggleSelect(item.id)}
-            aria-label={isSelected ? 'Deselect queue item' : 'Select queue item'}
+            aria-label={
+              isSelected
+                ? `Deselect ${primaryIdentifier || 'this download'}`
+                : `Select ${primaryIdentifier || 'this download'}`
+            }
           />
         )}
 
@@ -629,12 +652,28 @@ function QueueItemComponent({
          * the row; this column surfaces the headline number compactly
          * for at-a-glance monitoring on wide windows. */}
         {isActive && item.speed && (
-          <div
-            className="hidden lg:flex flex-shrink-0 text-xs text-content-tertiary whitespace-nowrap tabular-nums"
-            aria-label={item.eta ? `${item.speed}, ETA ${item.eta}` : item.speed}
-          >
+          // Fix 7 (a11y audit): a plain <div> has role "generic", which
+          // ARIA says must never take its name from aria-label -- so the
+          // old `aria-label` here was silently ignored by screen readers
+          // (the exact "silent icon" shape flagged elsewhere in this
+          // file's sibling components, just with text instead of an
+          // icon). Rather than reach for a role whose naming behaviour
+          // isn't reliably supported everywhere, the fix is simpler:
+          // the visible text already says everything a sighted user
+          // sees, so make it say the same to a screen reader too by
+          // adding a visually-hidden "ETA" word in the same place a
+          // sighted person sees the separator dot.
+          <div className="hidden lg:flex flex-shrink-0 text-xs text-content-tertiary whitespace-nowrap tabular-nums">
             {item.speed}
-            {item.eta ? ` · ${item.eta}` : ''}
+            {item.eta ? (
+              <>
+                {' · '}
+                <span className="sr-only">ETA </span>
+                {item.eta}
+              </>
+            ) : (
+              ''
+            )}
           </div>
         )}
 
@@ -743,6 +782,26 @@ function QueueItemComponent({
             aria-hidden="true"
           />
         </button>
+
+        {/*
+         * Overflow ("⋯") button — a11y audit fix. Right-clicking a row
+         * was the ONLY way to reorder the queue, delete a single item,
+         * or retry without the wrapper; a keyboard-only person cannot
+         * right-click at all. This button opens the identical menu
+         * (built above as `contextMenuItems`) at its own position, and
+         * carries the row's name in its accessible name so a screen
+         * reader user tabbing through many rows knows which row's menu
+         * they are about to open.
+         */}
+        <button
+          type="button"
+          onClick={handleOverflowClick}
+          aria-label={`More actions for ${primaryIdentifier || 'this download'}`}
+          className="flex-shrink-0 ml-0.5 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
+          title="More actions"
+        >
+          <MoreVertical size={14} aria-hidden="true" />
+        </button>
       </div>
 
       {/*
@@ -781,7 +840,10 @@ function QueueItemComponent({
        */}
       {isActive && (
         <div className="mt-2 pl-[60px]">
-          <ProgressBar value={item.state === 'downloading' ? item.progress : null} />
+          <ProgressBar
+            value={item.state === 'downloading' ? item.progress : null}
+            itemLabel={primaryIdentifier}
+          />
           {/*
            * Speed and ETA information -- shown when `item.speed` is
            * available (set by `downloadStore.handleProgressEvent()`
@@ -879,9 +941,13 @@ function QueueItemComponent({
               onClick={handleOpenFile}
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
               title="Open in default application"
-              // #945: screen readers announce what this icon-plus-label
-              // button actually does.
-              aria-label="Open downloaded file in default application"
+              // Fix 5 (a11y audit): a voice-control user says the words
+              // they can see. The accessible name has to start with
+              // those exact words ("Open File") for the command to
+              // match -- the old name ("Open downloaded file in default
+              // application") described the action but never said the
+              // two words actually printed on the button.
+              aria-label="Open File — opens in the default application"
             >
               <FileOutput size={12} />
               Open File
@@ -892,9 +958,9 @@ function QueueItemComponent({
             onClick={handleOpenFolder}
             className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
             title="Reveal in file manager"
-            // #945: screen readers announce what this icon-plus-label
-            // button actually does.
-            aria-label="Reveal downloaded file's folder in file manager"
+            // Fix 5 (a11y audit): same reasoning as "Open File" above --
+            // the name must start with the visible words "Open Folder".
+            aria-label="Open Folder — reveals it in the file manager"
           >
             <FolderOpen size={12} />
             Open Folder

@@ -1079,7 +1079,12 @@ export function CookiesTab() {
               const hasAppleCookies = importResult.success && importResult.apple_music_cookies > 0;
               const isEmptyImport = importResult.success && importResult.apple_music_cookies === 0;
               return (
+                // Fix 13 (a11y audit): plain text/result after a button
+                // press, with nothing announcing it. `alert` for the
+                // failure case since that one needs attention; `status`
+                // for the two non-failure outcomes.
                 <div
+                  role={hasAppleCookies || isEmptyImport ? 'status' : 'alert'}
                   className={`p-3 rounded-platform border text-xs ${
                     hasAppleCookies
                       ? 'border-status-success bg-status-success-bg'
@@ -1089,12 +1094,17 @@ export function CookiesTab() {
                   }`}
                 >
                   <div className="flex items-center gap-1.5 mb-1">
+                    {/* Fix 7 (a11y audit): unlike the bare status icons
+                        elsewhere in this fix, the word right next to
+                        this one ("Cookies Imported" / "Import Failed"
+                        etc.) already says the same thing out loud, so
+                        the icon itself is decorative here. */}
                     {hasAppleCookies ? (
-                      <CheckCircle size={14} className="text-status-success" />
+                      <CheckCircle size={14} className="text-status-success" aria-hidden="true" />
                     ) : isEmptyImport ? (
-                      <AlertTriangle size={14} className="text-status-warning" />
+                      <AlertTriangle size={14} className="text-status-warning" aria-hidden="true" />
                     ) : (
-                      <XCircle size={14} className="text-status-error" />
+                      <XCircle size={14} className="text-status-error" aria-hidden="true" />
                     )}
                     <span className="font-medium text-content-primary">
                       {hasAppleCookies

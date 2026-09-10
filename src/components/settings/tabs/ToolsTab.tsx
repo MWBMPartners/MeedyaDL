@@ -77,7 +77,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsField } from '@/hooks/useSettingsField';
 
-import { Button, LoadingSpinner, FilePickerButton, SettingsSection } from '@/components/common';
+import { Button, LoadingSpinner, FilePickerButton, SettingsSection, Modal } from '@/components/common';
 
 import { useState } from 'react';
 
@@ -203,13 +203,22 @@ export function ToolsTab() {
           <LoadingSpinner label="Checking dependencies..." />
         ) : (
           <div className="space-y-2">
-            {/* Python status */}
+            {/* Python status. Fix 7 (a11y audit): colour alone used to
+                carry the installed/missing signal -- add a
+                visually-hidden word so it's not silent to a screen
+                reader. */}
             {python && (
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {python.installed ? (
-                  <CheckCircle size={18} className="text-status-success flex-shrink-0" />
+                  <>
+                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Installed: </span>
+                  </>
                 ) : (
-                  <XCircle size={18} className="text-status-error flex-shrink-0" />
+                  <>
+                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Not installed: </span>
+                  </>
                 )}
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-content-primary">Python</span>
@@ -232,13 +241,19 @@ export function ToolsTab() {
               </div>
             )}
 
-            {/* GAMDL status */}
+            {/* GAMDL status. Fix 7 (a11y audit): same fix as Python above. */}
             {gamdl && (
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {gamdl.installed ? (
-                  <CheckCircle size={18} className="text-status-success flex-shrink-0" />
+                  <>
+                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Installed: </span>
+                  </>
                 ) : (
-                  <XCircle size={18} className="text-status-error flex-shrink-0" />
+                  <>
+                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Not installed: </span>
+                  </>
                 )}
                 <div className="flex-1 min-w-0">
                   <span className="text-sm font-medium text-content-primary">GAMDL</span>
@@ -322,13 +337,24 @@ export function ToolsTab() {
                 >
                   {/* Tool row */}
                   <div className="flex items-center gap-3 p-3">
-                    {/* Status icon */}
+                    {/* Status icon. Fix 7 (a11y audit): same fix as
+                        Python/GAMDL above -- colour alone used to
+                        carry installed/missing/optional. */}
                     {tool.installed ? (
-                      <CheckCircle size={18} className="text-status-success flex-shrink-0" />
+                      <>
+                        <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                        <span className="sr-only">Installed: </span>
+                      </>
                     ) : tool.required ? (
-                      <XCircle size={18} className="text-status-error flex-shrink-0" />
+                      <>
+                        <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                        <span className="sr-only">Missing (required): </span>
+                      </>
                     ) : (
-                      <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" />
+                      <>
+                        <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" aria-hidden="true" />
+                        <span className="sr-only">Missing (optional): </span>
+                      </>
                     )}
 
                     {/* Tool info */}
@@ -397,15 +423,21 @@ export function ToolsTab() {
                       </Button>
                     )}
 
-                    {/* Expand/collapse for custom path */}
+                    {/* Expand/collapse for custom path.
+                        Fix 6 (a11y audit): aria-expanded says whether
+                        the panel below is open; aria-label mirrors the
+                        title since the button has no visible text of
+                        its own for its accessible name to fall back on. */}
                     {pathKey && (
                       <button
                         type="button"
                         className="p-1 rounded text-content-tertiary hover:text-content-secondary transition-colors"
                         onClick={() => togglePathExpanded(tool.name)}
                         title="Configure custom binary path"
+                        aria-label="Configure custom binary path"
+                        aria-expanded={isExpanded}
                       >
-                        {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        {isExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
                       </button>
                     )}
                   </div>
@@ -815,21 +847,22 @@ function BackupManagement() {
         )}
       </div>
 
-      {/* Restore confirmation modal */}
-      {restoreTarget && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
-          onClick={() => setRestoreTarget(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="bg-surface-primary border border-border-light rounded-platform p-5 max-w-md mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-semibold text-content-primary mb-2">
-              Restore from snapshot?
-            </h3>
+      {/* Restore confirmation modal.
+          a11y audit Fix 2: this used to be a hand-built `role="dialog"`
+          div with no accessible name, no focus moved into it, no Tab
+          trap, and no Escape handling -- `aria-modal="true"` told
+          assistive tech to treat everything else on the page as hidden
+          while the keyboard was still stuck on whatever was behind the
+          overlay. The shared `<Modal>` component already handles all of
+          that (focus-in on open, Tab trap, Escape, focus restored on
+          close, a real accessible name via its title). */}
+      <Modal
+        open={restoreTarget !== null}
+        onClose={() => setRestoreTarget(null)}
+        title="Restore from snapshot?"
+      >
+        {restoreTarget && (
+          <>
             <p className="text-sm text-content-secondary mb-4">
               This will overwrite your current settings, queue, and history with the contents of{' '}
               <span className="font-mono">{formatSnapshotName(restoreTarget.name)}</span>. Your
@@ -844,9 +877,9 @@ function BackupManagement() {
                 Restore
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </SettingsSection>
   );
 }

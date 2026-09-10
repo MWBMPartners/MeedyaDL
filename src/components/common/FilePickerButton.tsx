@@ -174,8 +174,16 @@ export function FilePickerButton({
   return (
     /* Outer wrapper -- space-y-1.5 for consistent vertical spacing */
     <div className="space-y-1.5">
-      {/* Label -- same styling as Input and Select labels for consistency */}
-      {label && <label className="block text-sm font-medium text-content-primary">{label}</label>}
+      {/* Label -- same styling as Input and Select labels for consistency.
+          Fix 4 (a11y audit): unlike Input/Select, there is no native
+          form control here to attach this label to via `htmlFor` --
+          the "field" is a read-only path display plus a Browse button,
+          not an <input>. So the label stays visual-only, and the
+          Browse button below carries the actual accessible name
+          instead (see its `aria-label`), naming which field it
+          browses for. Without that, six of these on one settings tab
+          (ToolsTab) all read as the identical "Browse, button". */}
+      {label && <span className="block text-sm font-medium text-content-primary">{label}</span>}
 
       {/*
        * Horizontal layout: path display area (flex-1) + Browse button.
@@ -215,7 +223,13 @@ export function FilePickerButton({
          * variant so it visually complements rather than competes with
          * the primary CTA elsewhere on the page.
          */}
-        <Button variant="secondary" size="md" onClick={handleBrowse} disabled={disabled}>
+        <Button
+          variant="secondary"
+          size="md"
+          onClick={handleBrowse}
+          disabled={disabled}
+          aria-label={label ? `Browse for ${label}` : 'Browse'}
+        >
           Browse
         </Button>
       </div>
