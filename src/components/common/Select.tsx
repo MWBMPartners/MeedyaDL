@@ -24,7 +24,7 @@
  *      Tailwind CSS docs -- focus state modifiers.
  */
 
-import type { SelectHTMLAttributes } from 'react';
+import { useId, type SelectHTMLAttributes } from 'react';
 import { HelpButton } from './HelpButton';
 import type { HelpTopicId } from '@/components/help';
 
@@ -146,6 +146,11 @@ export function Select({
    */
   const selectId = id || (label ? `select-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
 
+  /** Fix 8 (a11y audit): same wiring as `Input.tsx` -- see the comment there. */
+  const descriptionId = useId();
+  const errorId = useId();
+  const describedBy = error ? errorId : description ? descriptionId : undefined;
+
   return (
     /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between children */
     <div className="space-y-1.5">
@@ -176,6 +181,8 @@ export function Select({
        */}
       <select
         id={selectId}
+        aria-describedby={describedBy}
+        aria-invalid={error ? true : undefined}
         className={`
           w-full px-3 py-2 text-sm
           rounded-platform border
@@ -213,10 +220,18 @@ export function Select({
       </select>
 
       {/* Error message -- takes priority over description */}
-      {error && <p className="text-xs text-status-error-text">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="text-xs text-status-error-text">
+          {error}
+        </p>
+      )}
 
       {/* Helper description text -- only shown when there is no error */}
-      {!error && description && <p className="text-xs text-content-tertiary">{description}</p>}
+      {!error && description && (
+        <p id={descriptionId} className="text-xs text-content-tertiary">
+          {description}
+        </p>
+      )}
     </div>
   );
 }

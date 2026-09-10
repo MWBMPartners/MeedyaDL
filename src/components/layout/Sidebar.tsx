@@ -264,6 +264,11 @@ export function Sidebar() {
      * @see https://tailwindcss.com/docs/transition-property
      */
     <aside
+      // Fix 14 (a11y audit): an unnamed landmark shows up in a screen
+      // reader's landmark list as just "complementary" -- with several
+      // landmarks on the page, that's indistinguishable from any other
+      // unnamed one.
+      aria-label="Sidebar"
       className={`
         flex flex-col bg-sidebar-bg border-r border-sidebar-border
         transition-all duration-200

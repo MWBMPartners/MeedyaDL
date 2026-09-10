@@ -67,12 +67,17 @@ export function CheckboxGroup<T extends string>({
         : 'grid-cols-1 sm:grid-cols-2';
 
   return (
-    <div className={disabled ? 'opacity-50' : ''}>
+    // Fix 10 (a11y audit): a <fieldset>/<legend> pair is the one
+    // native way to say "these checkboxes are one group named X" --
+    // a plain <span> above a grid of checkboxes carries none of that
+    // relationship to assistive tech, which just hears a list of
+    // unrelated checkboxes with no idea they belong together.
+    <fieldset className={disabled ? 'opacity-50 border-0 m-0 p-0' : 'border-0 m-0 p-0'}>
       {label && (
-        <span className="flex items-center gap-1.5 text-sm font-medium text-content-primary mb-1">
+        <legend className="flex items-center gap-1.5 text-sm font-medium text-content-primary mb-1 p-0">
           {label}
           {helpTopic && <HelpButton topic={helpTopic} />}
-        </span>
+        </legend>
       )}
       {description && (
         <p className="text-xs text-content-tertiary mb-2">{description}</p>
@@ -98,6 +103,6 @@ export function CheckboxGroup<T extends string>({
           </label>
         ))}
       </div>
-    </div>
+    </fieldset>
   );
 }

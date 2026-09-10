@@ -165,7 +165,11 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
        */}
       <button
         onClick={() => onDismiss(toast.id)}
-        className="flex-shrink-0 p-0.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
+        // Fix 14 (a11y audit): `p-0.5` + a 14px icon made the actual
+        // target ~18px square, under the 24x24 CSS-pixel minimum
+        // (WCAG 2.5.8). `p-1.5` brings it to 26px without changing how
+        // large the icon itself looks.
+        className="flex-shrink-0 p-1.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
         aria-label={t('toast.dismiss')}
       >
         <X size={14} />
@@ -210,7 +214,16 @@ export function ToastContainer() {
      * region before it changes to announce updates.
      */
     <div
-      className="fixed top-4 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      // Fix 14 (a11y audit): `top-4` (16px from the window's top edge)
+      // put toasts directly over most pages' PageHeader action-button
+      // row -- e.g. the Queue page's "Export"/"Clear" buttons sit
+      // right there, so an incoming toast could cover a button the
+      // user had just focused. `top-20` clears the header row on
+      // every page this app has; there's no per-page header-height
+      // value to measure against at runtime without a larger layout
+      // change, so this is a fixed offset chosen generously rather
+      // than a pixel-exact one.
+      className="fixed top-20 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
       role="status"
       aria-live="polite"
       aria-label={t('toast.ariaLabel')}

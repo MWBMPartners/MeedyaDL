@@ -136,14 +136,20 @@ export function MvGapFillModal({
           >
             Cancel
           </button>
+          {/* Fix 5 (a11y audit): both accessible names now start with
+              the exact words printed on the button, so a voice-control
+              user saying what they see actually matches something --
+              the previous names described the outcome instead and
+              shared none of their opening words with the visible
+              label. */}
           <button
             type="button"
             onClick={handleNo}
             className="px-3 py-1.5 rounded-md text-sm border border-border flex items-center gap-1.5 hover:bg-surface-secondary"
             aria-label={
               mvCompanionEnabledInSettings
-                ? 'Audio only for this re-download'
-                : 'Audio only (inherits your disabled setting)'
+                ? 'No — audio only for this re-download'
+                : 'No — audio only (inherits your disabled setting)'
             }
           >
             <Music size={14} />
@@ -155,8 +161,8 @@ export function MvGapFillModal({
             className="px-3 py-1.5 rounded-md text-sm bg-accent text-content-on-accent flex items-center gap-1.5 hover:bg-accent-hover"
             aria-label={
               mvCompanionEnabledInSettings
-                ? 'Yes, inherit your enabled setting (audio + music videos)'
-                : 'Yes, include music videos for this re-download only'
+                ? 'Yes — include videos (inherits your enabled setting)'
+                : 'Yes — include videos (for this re-download only)'
             }
           >
             <Video size={14} />

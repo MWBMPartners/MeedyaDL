@@ -701,4 +701,72 @@ describe('CoverArtTab', () => {
     const { settings } = useSettingsStore.getState();
     expect(settings.best_cover_art_enabled).toBe(true);
   });
+
+  // ===========================================================================
+  // Cover Size field -- validated on blur, not on every keystroke (a11y audit Fix 11)
+  // ===========================================================================
+  //
+  // This field used to be wired straight to the stored setting: the
+  // <input>'s `value` came directly from `coverSize.value`, and
+  // `onChange` only called `coverSize.set()` when the typed text was
+  // ALREADY a whole number between 100 and 10000. Since a controlled
+  // input's displayed value is whatever `value` says it is, and "1"
+  // (the first character of typing "1000" from an empty box) is not a
+  // valid size, `set()` never ran -- so the box just showed the OLD
+  // stored number again on the very next render, as if the "1" had
+  // been rejected. Typing a new multi-digit value from scratch was
+  // impossible, and nothing on screen explained why.
+
+  it('keeps exactly what was typed while typing, even before it becomes a valid number', () => {
+    render(<CoverArtTab />);
+    const input = screen.getByLabelText(/cover size/i);
+
+    // Simulates typing "1000" one character at a time into an empty
+    // field. "1", "10", and "100" are all below the 100-pixel minimum
+    // and so, under the old implementation, would each have been
+    // silently rejected -- the box would show the previous stored
+    // value (10000, the default) instead of what was actually typed.
+    fireEvent.change(input, { target: { value: '1' } });
+    expect(input).toHaveValue(1);
+
+    fireEvent.change(input, { target: { value: '10' } });
+    expect(input).toHaveValue(10);
+
+    fireEvent.change(input, { target: { value: '100' } });
+    expect(input).toHaveValue(100);
+
+    fireEvent.change(input, { target: { value: '1000' } });
+    expect(input).toHaveValue(1000);
+
+    // Leaving the field with a valid number commits it, and shows no error.
+    fireEvent.blur(input);
+    expect(useSettingsStore.getState().settings.cover_size).toBe(1000);
+    expect(
+      screen.queryByText(/enter a whole number between 100 and 10000/i)
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows a message and does not save an out-of-range value when the field is left', () => {
+    // Set an explicit, known baseline rather than relying on whatever
+    // default `cover_size` happens to carry -- the previous test in
+    // this file legitimately changes it via the settings store, which
+    // is a real cross-test singleton, not a per-test isolate.
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, cover_size: 5000 },
+    });
+    render(<CoverArtTab />);
+    const input = screen.getByLabelText(/cover size/i);
+
+    fireEvent.change(input, { target: { value: '50' } }); // below the 100-pixel minimum
+    fireEvent.blur(input);
+
+    /* Says what is allowed, instead of silently doing nothing. */
+    expect(
+      screen.getByText(/enter a whole number between 100 and 10000/i)
+    ).toBeInTheDocument();
+    /* What was typed is still visible -- not silently reverted. */
+    expect(input).toHaveValue(50);
+    /* The invalid value never reached the stored setting. */
+    expect(useSettingsStore.getState().settings.cover_size).toBe(5000);
+  });
 });

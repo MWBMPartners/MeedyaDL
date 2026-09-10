@@ -190,7 +190,9 @@
     "save": "Enregistrer",
     "delete": "Supprimer",
     "retry": "Réessayer",
-    "clear": "Effacer"
+    "clear": "Effacer",
+    "actionsMenu": "Menu d'actions",
+    "skipToMainContent": "Passer au contenu principal"
   },
   "toast": {
     "dismiss": "Ignorer",

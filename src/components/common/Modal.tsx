@@ -27,7 +27,7 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useCallback, useRef, type ReactNode } from 'react';
+import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -95,6 +95,16 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
   /** i18n translation function -- reuses the generic "common.close" word,
    * since that's exactly what the close button says everywhere else. */
   const { t } = useTranslation();
+  /**
+   * Fix 14 (a11y audit): the title heading's id was hard-coded to the
+   * literal string "modal-title", so two `<Modal>`s open at the same
+   * time (e.g. a confirmation dialog opened from inside another
+   * dialog) would collide -- `aria-labelledby` on the second one would
+   * resolve to whichever element with that id the browser finds
+   * first, which could be the WRONG modal's title. `useId()` gives
+   * every `<Modal>` instance its own unique id.
+   */
+  const titleId = useId();
   /** Ref to the modal panel for focus management */
   const panelRef = useRef<HTMLDivElement>(null);
   /** Ref to the element that had focus before the modal opened */
@@ -245,7 +255,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={title ? 'modal-title' : undefined}
+        aria-labelledby={title ? titleId : undefined}
         tabIndex={-1}
         className={`
           ${maxWidth} w-full mx-4
@@ -262,7 +272,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h3 id="modal-title" className="text-base font-semibold text-content-primary">{title}</h3>
+            <h3 id={titleId} className="text-base font-semibold text-content-primary">{title}</h3>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.
@@ -278,8 +288,14 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
           </div>
         )}
 
-        {/* Modal body -- renders the consumer's children with consistent padding */}
-        <div className="px-5 py-4">{children}</div>
+        {/* Modal body -- renders the consumer's children with consistent
+            padding. `select-text` (Fix 14, a11y audit) opts back into
+            selection -- the app-wide `user-select: none` in
+            globals.css otherwise makes dialog text (explanations,
+            confirmation copy, error details) impossible to select or
+            copy, even though it's ordinary text a user might want to
+            quote in a bug report. */}
+        <div className="px-5 py-4 select-text">{children}</div>
       </div>
     </div>
   );

@@ -51,6 +51,11 @@
  */
 import { type ReactNode, useState, useRef, useCallback } from 'react';
 
+// The skip link's own visible text is the one fixed English string in
+// this file -- translating it here means it's correct in every
+// supported language automatically.
+import { useTranslation } from 'react-i18next';
+
 /** Sibling layout components assembled into the shell. */
 import { GlobalProgressBar } from './GlobalProgressBar';
 import { Sidebar } from './Sidebar';
@@ -123,6 +128,16 @@ interface MainLayoutProps {
  * @see https://tailwindcss.com/docs/height#screen  -- h-screen
  */
 export function MainLayout({ children }: MainLayoutProps) {
+  const { t } = useTranslation();
+
+  /**
+   * Ref to the scrollable main content region, used to move real
+   * keyboard focus there when the skip link is activated (Fix 14, a11y
+   * audit -- see the long comment on the skip link below for why this
+   * is needed at all).
+   */
+  const mainRef = useRef<HTMLElement>(null);
+
   // ---------------------------------------------------------------------------
   // Drag-and-drop state
   // ---------------------------------------------------------------------------
@@ -300,9 +315,23 @@ export function MainLayout({ children }: MainLayoutProps) {
        */}
       <a
         href="#main-content"
+        // Fix 14 (a11y audit): following a plain fragment link (`#id`)
+        // moves the PAGE's scroll position but does not reliably move
+        // actual keyboard focus unless the target itself is
+        // focusable -- a bare `<main>` isn't. So the link used to
+        // "work" visually (the page jumped) while Tab afterwards
+        // picked up wherever focus already was, which for a
+        // keyboard-only user defeats the entire point of a skip link.
+        // `tabIndex={-1}` on the `<main>` below makes it a valid focus
+        // target; this handler focuses it directly rather than relying
+        // on inconsistent cross-browser fragment-focus behaviour.
+        onClick={(e) => {
+          e.preventDefault();
+          mainRef.current?.focus();
+        }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:bg-accent focus:text-content-on-accent focus:rounded-platform focus:text-sm focus:font-medium focus:shadow-platform focus:outline-none"
       >
-        Skip to main content
+        {t('common.skipToMainContent')}
       </a>
 
       {/*
@@ -375,7 +404,17 @@ export function MainLayout({ children }: MainLayoutProps) {
            * active page component (e.g., DownloadForm, DownloadQueue).
            * @see https://react.dev/learn/passing-props-to-a-component#passing-jsx-as-children
            */}
-          <main id="main-content" className="flex-1 overflow-y-auto">{children}</main>
+          <main
+            id="main-content"
+            ref={mainRef}
+            // tabIndex={-1}: focusable via script (the skip link
+            // above), but not part of the normal Tab order -- Tab
+            // moves on into the page's own content immediately after.
+            tabIndex={-1}
+            className="flex-1 overflow-y-auto"
+          >
+            {children}
+          </main>
 
           {/*
            * Global progress bars -- always visible when downloads are active.

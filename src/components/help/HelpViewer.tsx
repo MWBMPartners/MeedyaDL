@@ -537,7 +537,10 @@ export function HelpViewer() {
          * The sidebar has a fixed width and does not shrink when the
          * content area needs more space.
          * ---------------------------------------------------------------- */}
-        <nav className="w-56 flex-shrink-0 border-r border-border-light overflow-y-auto flex flex-col">
+        {/* Fix 14 (a11y audit): same fix as SettingsPage.tsx's tab
+            <nav> -- an unnamed second navigation landmark reads as a
+            duplicate of the sidebar's "Main navigation" one. */}
+        <nav aria-label="Help topics" className="w-56 flex-shrink-0 border-r border-border-light overflow-y-auto flex flex-col">
           {/* --------------------------------------------------------------
            * Search bar section
            * Positioned at the top of the sidebar with sticky behavior so
@@ -648,6 +651,8 @@ export function HelpViewer() {
                 <button
                   key={id}
                   onClick={() => handleTopicSelect(id)}
+                  // Fix 6 (a11y audit): names which topic is currently open.
+                  aria-current={activeTopic === id ? 'page' : undefined}
                   className={`
                     w-full flex items-center gap-2.5 px-3 py-2
                     rounded-platform text-sm transition-colors

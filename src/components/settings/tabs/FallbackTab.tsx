@@ -117,12 +117,15 @@ export function FallbackTab() {
         title="Fallback Chain"
         description="When the preferred codec or resolution is unavailable, GAMDL will automatically try the next option in the chain. Use the up/down arrows to reorder priority (top = highest), the × button to remove a codec from the chain, and the + button under Available to put a removed codec back. Note: codecs marked (Experimental) may fail intermittently without the Wrapper service — only AAC Legacy and AAC-HE Legacy are reliably downloadable with cookies alone."
       >
-        {/* Chain selector tabs */}
+        {/* Chain selector tabs. Fix 6 (a11y audit): aria-pressed says
+            which of the two is currently selected -- these behave like
+            a two-way toggle, not a pair of ordinary buttons. */}
         <div className="flex gap-2 border-b border-border-light pb-2">
         <Button
           variant={activeChain === 'music' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveChain('music')}
+          aria-pressed={activeChain === 'music'}
         >
           Audio Fallback
         </Button>
@@ -130,6 +133,7 @@ export function FallbackTab() {
           variant={activeChain === 'video' ? 'primary' : 'ghost'}
           size="sm"
           onClick={() => setActiveChain('video')}
+          aria-pressed={activeChain === 'video'}
         >
           Video Fallback
         </Button>

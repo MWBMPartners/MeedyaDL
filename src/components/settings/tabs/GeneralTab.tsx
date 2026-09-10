@@ -43,7 +43,7 @@
  * @see {@link https://v2.tauri.app/}      -- Tauri 2.0 framework
  */
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
@@ -271,6 +271,18 @@ export function GeneralTab() {
   // screen right now, so it has to follow the same live language, not
   // the not-yet-applied dropdown choice.
   const { t, i18n } = useTranslation();
+
+  /**
+   * Fix 9 (a11y audit): ids for three fields whose <label> was never
+   * tied to its control -- the Storefront <select> (a hand-rolled
+   * field, not the shared <Select> component, so it didn't get that
+   * wiring automatically) and the two "Credentials password" fields in
+   * the export/import bundle flows (plain <label>/<input> siblings
+   * with no htmlFor/id pair at all).
+   */
+  const storefrontId = useId();
+  const exportCredentialsPasswordId = useId();
+  const importCredentialsPasswordId = useId();
 
   // Per-field Zustand bindings (audit v2 #6).
   const outputPath = useSettingsField('output_path');
@@ -704,10 +716,11 @@ export function GeneralTab() {
 
         {/* Apple Music storefront region */}
         <div>
-          <label className="block text-sm font-medium text-content-primary mb-1">
+          <label htmlFor={storefrontId} className="block text-sm font-medium text-content-primary mb-1">
             Storefront
           </label>
           <select
+            id={storefrontId}
             className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
             value={storefront.value}
             onChange={(e) => storefront.set(e.target.value)}
@@ -974,11 +987,15 @@ export function GeneralTab() {
             >
               {isChecking ? 'Checking...' : 'Check for Updates'}
             </Button>
+            {/* Fix 13 (a11y audit): plain text after a button press,
+                with nothing announcing it -- a screen reader user
+                clicking "Check for Updates" heard nothing at all once
+                it finished. */}
             {checkMessage && !isChecking && (
-              <span className="text-xs text-content-secondary">{checkMessage}</span>
+              <span role="status" className="text-xs text-content-secondary">{checkMessage}</span>
             )}
           </div>
-          {checkError && !isChecking && <p className="text-xs text-status-error-text">{checkError}</p>}
+          {checkError && !isChecking && <p role="alert" className="text-xs text-status-error-text">{checkError}</p>}
         </div>
       </SettingsSection>
 
@@ -1015,7 +1032,12 @@ export function GeneralTab() {
         <p className="text-xs text-content-secondary mb-2">
           Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it via the Import button (P3, coming next) or from the first-launch wizard.
         </p>
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3">
+        {/* Fix 10 (a11y audit): fieldset/legend say these checkboxes
+            are one group ("which sections to include"), not a list of
+            unrelated controls -- a plain <div> gave assistive tech no
+            such relationship. */}
+        <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3 border-0 m-0 p-0">
+          <legend className="sr-only">Sections to include in the exported bundle</legend>
           {[
             { key: 'include_queue', label: 'Queue (queue.json)' },
             { key: 'include_history', label: 'History (history.json)' },
@@ -1046,11 +1068,12 @@ export function GeneralTab() {
               <span>{label}</span>
             </label>
           ))}
-        </div>
+        </fieldset>
         {bundleOptions.include_credentials && (
           <div className="mb-3 p-2 border border-border rounded bg-surface-secondary/40">
-            <label className="text-xs font-medium">Credentials password</label>
+            <label htmlFor={exportCredentialsPasswordId} className="text-xs font-medium">Credentials password</label>
             <input
+              id={exportCredentialsPasswordId}
               type="password"
               value={credentialsPassword}
               onChange={(e) => setCredentialsPassword(e.target.value)}
@@ -1136,7 +1159,11 @@ export function GeneralTab() {
               )}
               {!pendingImport.produced_by_this_app && (
                 <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
-                  ⚠ This bundle was produced by{' '}
+                  {/* Fix 7 (a11y audit): the warning triangle is
+                      decorative -- the sentence itself already says
+                      "not MeedyaDL", so a screen reader doesn't need
+                      the symbol read out loud first. */}
+                  <span aria-hidden="true">⚠</span> This bundle was produced by{' '}
                   <span className="font-mono">{pendingImport.producer}</span>,
                   not MeedyaDL. The <code>.meedyabundle</code> extension is
                   shared across MeedyaSuite apps — sections from another
@@ -1154,7 +1181,10 @@ export function GeneralTab() {
                   This bundle contains settings only — no optional sections to choose from.
                 </p>
               ) : (
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                // Fix 10 (a11y audit): same fieldset/legend fix as the
+                // export-side checkbox grid above.
+                <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs border-0 m-0 p-0">
+                  <legend className="sr-only">Sections to overwrite on import</legend>
                   {pendingImport.sections.map((section) => (
                     <label
                       key={section}
@@ -1175,17 +1205,18 @@ export function GeneralTab() {
                       </span>
                     </label>
                   ))}
-                </div>
+                </fieldset>
               )}
             </div>
 
             {pendingImport.sections.includes('credentials') &&
               importPicks.credentials && (
                 <div className="p-2 border border-border rounded bg-surface-secondary/40">
-                  <label className="text-xs font-medium">
+                  <label htmlFor={importCredentialsPasswordId} className="text-xs font-medium">
                     Credentials password
                   </label>
                   <input
+                    id={importCredentialsPasswordId}
                     type="password"
                     value={importPassword}
                     onChange={(e) => setImportPassword(e.target.value)}
@@ -1199,7 +1230,7 @@ export function GeneralTab() {
               )}
 
             <p className="text-xs text-status-warning-text border-t border-border pt-2">
-              ⚠ Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
+              <span aria-hidden="true">⚠</span> Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
             </p>
 
             <div className="flex justify-end gap-2 pt-2">

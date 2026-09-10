@@ -198,7 +198,13 @@ export function SetupWizard() {
             const isPast = index < currentStepIndex; // User has moved past this step
 
             return (
-              <div key={step} className="flex items-center flex-1 last:flex-initial">
+              <div
+                key={step}
+                className="flex items-center flex-1 last:flex-initial"
+                // Fix 6 (a11y audit): says which step is current, the
+                // same way the accent colour says it visually.
+                aria-current={isCurrent ? 'step' : undefined}
+              >
                 {/* Step circle and label column */}
                 <div className="flex flex-col items-center">
                   {/* Numbered/checkmark circle */}
@@ -215,8 +221,16 @@ export function SetupWizard() {
                       }
                     `}
                   >
-                    {/* Show checkmark (Unicode \u2713) for completed/past, number for others */}
-                    {isCompleted || isPast ? '\u2713' : index + 1}
+                    {/* Show checkmark (Unicode \u2713) for completed/past, number for others.
+                        Fix 7 (a11y audit): a screen reader used to read
+                        this checkmark out as "check mark" with no context
+                        -- it's hidden here and a visually-hidden phrase
+                        says the same thing the colour tells a sighted
+                        user ("completed" / "current step"). */}
+                    <span aria-hidden="true">{isCompleted || isPast ? '\u2713' : index + 1}</span>
+                    <span className="sr-only">
+                      {isCurrent ? ' (current step)' : isCompleted || isPast ? ' (completed)' : ''}
+                    </span>
                   </div>
                   {/* Step label text beneath the circle */}
                   <span
