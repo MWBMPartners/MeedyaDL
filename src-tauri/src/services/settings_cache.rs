@@ -137,6 +137,52 @@ impl Default for SettingsCache {
 mod tests {
     use super::*;
 
+    /// Clearing the one-shot action in the cache must leave every other
+    /// cached setting exactly as it was.
+    ///
+    /// This is the failure path of a one-shot after-queue action. When the
+    /// queue empties and the "just this once" action has run, the flag has
+    /// to be cleared or it fires again next time — and these actions
+    /// include shutting the computer down, so firing one twice is not a
+    /// small annoyance. Normally clearing it on disk refreshes this cache
+    /// as a side effect. When that write fails (a full disk, a folder that
+    /// has become read-only) the cache has to be cleared here instead, and
+    /// it must clear ONLY that field: the cached settings are what the
+    /// rest of the app reads until something reloads them, so overwriting
+    /// them with anything else would spread the damage.
+    #[test]
+    fn clearing_the_one_shot_action_leaves_every_other_setting_alone() {
+        let cache = SettingsCache::new();
+
+        let mut before = AppSettings::default();
+        before.after_queue_once = Some(crate::models::settings::AfterQueueAction::ShutdownComputer);
+        before.output_path = "/somewhere/the/person/chose".to_string();
+        before.verbose_activity_log = true;
+        cache.refresh(before.clone());
+
+        let after = cache
+            .mutate(|s| s.after_queue_once = None)
+            .expect("the cache was populated, so mutate should return the new value");
+
+        assert_eq!(
+            after.after_queue_once, None,
+            "the one-shot must be gone, or it fires again when the queue next empties"
+        );
+
+        // Everything else must be untouched. Compared as JSON because
+        // AppSettings has no equality of its own — and comparing the whole
+        // serialised form means a field added to AppSettings in future is
+        // covered here automatically, without anyone remembering to come
+        // back and extend this test.
+        let mut expected = before;
+        expected.after_queue_once = None;
+        assert_eq!(
+            serde_json::to_value(&after).expect("serialise the changed settings"),
+            serde_json::to_value(&expected).expect("serialise the expected settings"),
+            "clearing the one-shot must not disturb any other cached setting"
+        );
+    }
+
     /// A fresh cache starts empty.
     #[test]
     fn new_cache_is_empty() {
