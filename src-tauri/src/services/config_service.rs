@@ -312,31 +312,34 @@ fn migrate_settings(settings: &mut AppSettings) {
     }
 }
 
-/// Loads the application settings from the JSON settings file.
+/// Reads the stored settings, and does nothing else.
 ///
-/// If the settings file doesn't exist (first run), returns default settings.
-/// If the file exists but contains invalid JSON, returns an error.
-/// If the file is missing some fields (e.g., after an app update added new
-/// settings), serde's default values fill in the gaps.
+/// This is the plain read: open the file, warn if the checksum does not
+/// match, parse it, run any schema migrations, and hand back what was
+/// there. On a first run — or a file too damaged to parse — it hands back
+/// the standard settings.
 ///
-/// # Arguments
-/// * `app` - The Tauri app handle (for path resolution)
+/// It deliberately has NO side effects. `load_settings` below is this plus
+/// the things that only make sense when the app is starting up: resetting
+/// verbose logging, recording the version just seen, rewriting GAMDL's
+/// config file, and setting the live logging flag.
 ///
-/// # Errors
-///
-/// Returns `Err(String)` if the settings file exists but cannot be parsed.
-///
-/// # Returns
-/// * `Ok(settings)` - The loaded or default settings
-/// * `Err(message)` - If the settings file exists but couldn't be parsed
-pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+/// **Why the separation is load-bearing.** `update_settings_field` changes
+/// one field and writes the file straight back. If it read through
+/// `load_settings`, it would quietly carry every one of those startup
+/// actions with it — so somebody with verbose logging switched on would
+/// have had it switched off *and saved* simply by collapsing the sidebar,
+/// because the read did that on the way past. That is precisely the class
+/// of "this write touched something I never asked it to" the narrow write
+/// exists to prevent. Caught in review, before it shipped.
+fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
     // Resolve the settings file path: {app_data_dir}/settings.json
     // On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/settings.json
     // On Windows: %APPDATA%\com.meedyasuite.meedyadl\settings.json
     // On Linux: ~/.local/share/com.meedyasuite.meedyadl/settings.json
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
-    let mut settings = if settings_path.exists() {
+    let settings = if settings_path.exists() {
         // Read the entire file into a string. This is synchronous (blocking I/O)
         // since settings are loaded during Tauri command handlers which run on
         // the Tokio thread pool and can tolerate brief blocking.
@@ -421,6 +424,44 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         log::info!("No settings file found, using defaults");
         AppSettings::default()
     };
+
+    Ok(settings)
+}
+
+/// Loads the application settings for app startup.
+///
+/// This is `read_settings_from_disk` — the plain read — plus the actions
+/// that only make sense when the app is starting up:
+///
+/// * verbose activity logging is switched back off on a full release, so a
+///   session that had it on cannot leak sensitive lines into the next one;
+/// * the version just seen is recorded, so the frontend can tell a first
+///   launch after an update;
+/// * GAMDL's `config.ini` is rewritten to match;
+/// * the live verbose-logging flag is set.
+///
+/// **Anything that just wants to read or change a stored value must NOT
+/// call this.** Use `read_settings_from_disk` to read, or
+/// `update_settings_field` to change one field. Those startup actions are
+/// changes in their own right, and carrying them into an ordinary write
+/// means the write alters things nobody asked it to.
+///
+/// # Arguments
+/// * `app` - The Tauri app handle (for path resolution)
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file exists but cannot be read.
+///
+/// # Returns
+/// * `Ok(settings)` - The loaded or default settings, after startup actions
+pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    // The plain read first — see `read_settings_from_disk`. Everything
+    // below this line is a startup action, and is exactly what a
+    // single-field write must NOT inherit.
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    let mut settings = read_settings_from_disk(app)?;
+
 
     // Version-aware verbose logging reset.
     //
@@ -727,7 +768,13 @@ where
     // Read what is actually on disk, not what the frontend thinks is
     // there. `load_settings` is the app's own reader, so this gets the
     // schema migrations and the damaged-file handling for free.
-    let mut settings = load_settings(app)?;
+    // The PLAIN read — deliberately not `load_settings`, which also
+    // performs startup actions (resetting verbose logging, recording the
+    // version, rewriting GAMDL's config file). Reading through that would
+    // mean a sidebar click silently switched off someone's verbose logging
+    // and saved it, which is the exact thing this function exists to make
+    // impossible. See `read_settings_from_disk`.
+    let mut settings = read_settings_from_disk(app)?;
     apply(&mut settings);
     write_settings_to_path(&settings_path, &settings)?;
 
@@ -2518,6 +2565,52 @@ mod tests {
             mode & 0o777,
             0o600,
             "settings.json must be readable and writable by its owner only"
+        );
+    }
+
+    #[test]
+    fn a_single_field_write_reads_without_startup_side_effects() {
+        // `load_settings` is not just a read. On a full release it switches
+        // verbose activity logging back OFF, records the version just seen,
+        // rewrites GAMDL's config file, and sets a global logging flag.
+        // Those are all correct things to do when the app starts, and all
+        // wrong things to do when somebody collapses the sidebar.
+        //
+        // This was real, not hypothetical: the first version of
+        // `update_settings_field` read through `load_settings`, so a person
+        // running with verbose logging switched on would have had it
+        // switched off AND SAVED simply by collapsing the sidebar. A code
+        // review caught it before it shipped. The whole promise of the
+        // narrow write — "this changes the one field you named and nothing
+        // else" — was broken by the read, not by the write.
+        //
+        // WHY THIS TEST LOOKS LIKE THIS. `update_settings_field` needs a
+        // running Tauri app to work out where the settings file lives, so a
+        // unit test cannot call it. What a unit test CAN do is check the
+        // one thing that actually went wrong: which reader it uses. The
+        // source is embedded at compile time, so this cannot drift away
+        // from the file it is describing.
+        let source = include_str!("config_service.rs");
+
+        let start = source
+            .find("pub fn update_settings_field")
+            .expect("update_settings_field should exist");
+        // Everything up to the next top-level `pub fn` is its body.
+        let rest = &source[start + 10..];
+        let end = rest.find("\npub fn ").map(|i| start + 10 + i).unwrap_or(source.len());
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("read_settings_from_disk(app)?"),
+            "update_settings_field must read through read_settings_from_disk, \
+             which is the plain read with no startup side effects"
+        );
+        assert!(
+            !body.contains("load_settings(app)?"),
+            "update_settings_field must NOT read through load_settings: that \
+             call also switches verbose logging off, records the version and \
+             rewrites GAMDL's config file, so a one-field write would quietly \
+             change things nobody asked it to"
         );
     }
 
