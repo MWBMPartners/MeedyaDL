@@ -6,8 +6,8 @@ Thank you for your interest in contributing to MeedyaDL! This guide will help yo
 
 ### Prerequisites
 
-- **Node.js** 20+ and npm
-- **Rust** (stable toolchain) via [rustup](https://rustup.rs/)
+- **Node.js** -- whatever the current long-term-support (LTS) release is. CI installs `lts/*`, not a fixed version number, so there's no single number to pin to here.
+- **Rust** -- a specific version pinned in [`src-tauri/rust-toolchain.toml`](src-tauri/rust-toolchain.toml), not "whatever stable is". `rustup` picks this up automatically once you're inside `src-tauri/`.
 - **Platform dependencies** for Tauri: see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 ### Getting Started
@@ -30,13 +30,20 @@ npm run dev
 ### Useful Commands
 
 ```bash
-npm run type-check    # TypeScript type checking
-npm run test          # Run Vitest tests
-npm run lint          # ESLint
-npm run format:check  # Prettier formatting check
-cargo check           # Rust compilation check (in src-tauri/)
-cargo test            # Rust tests (in src-tauri/)
+npm run type-check           # TypeScript type checking
+npm run test                 # Run Vitest tests
+npm run lint                 # ESLint
+npm run format:check         # Prettier formatting check
+npm run check:legal          # Licence-acknowledgement + upstream-licence checks (in src-tauri/deny.toml's spirit, but for Node deps too)
+cargo check                  # Rust compilation check (in src-tauri/)
+cargo test                   # Rust tests (in src-tauri/)
+cargo clippy -- -D warnings  # Rust lints, treated as errors (what CI actually gates on)
+python3 tools/audit-checks/check_help_topics.py     # every help page has a manifest line, every link resolves
+python3 tools/audit-checks/check_ipc_commands.py    # every IPC command is registered and called correctly
+python3 tools/audit-checks/check_codec_registry.py  # codec registry cross-references are consistent
 ```
+
+There are more scripts under `tools/audit-checks/` than the three above -- they're the cross-source consistency checks that also run in CI's `pr-security.yml`. Each one exits 0 on a clean tree and prints `path:line — message` bullets when something's wrong.
 
 ### Disk-space hygiene (recommended)
 
@@ -72,6 +79,17 @@ See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture ov
 - Key directories and their purpose
 - Service/command/model relationships
 - Feature implementation details
+
+## Adding or Translating a Help Page
+
+Help pages live in `help/*.md` and nowhere else -- the in-app Help screen is built from those same files, so there is no second, hand-typed copy to keep in sync.
+
+- **To change what a page says**: edit the file directly.
+- **To add a new page**: add the Markdown file **and** one line to `HELP_TOPIC_MANIFEST` in `src/components/help/helpTopics.ts` (that line gives the page its label, icon, and place in the sidebar order). A page with a file but no manifest line, or a manifest line with no file, is caught by `python3 tools/audit-checks/check_help_topics.py`.
+- **To translate a page**: add a file at `help/<language>/<same file name>.md` (for example, a German translation of `getting-started.md` is `help/de/getting-started.md`). No manifest change is needed for a translation -- the app looks up a translated file by name automatically. A page with no translation yet falls back to the English original with a note saying so.
+- A few rules apply only to help pages, not the rest of this repo's Markdown: no GitHub-only syntax (an emoji shortcode like `:rocket:` shows up as literal text in the app, which has no emoji renderer -- use the real character or leave it out); a link to another help page is an ordinary relative link (`[Cookie Management](cookie-management.md)`) and becomes real in-app navigation, so the filename has to be exact; and the copyright comment at the top of every file is stripped before display, so it never needs updating for wording changes.
+- `index.md` is the one file the app doesn't show -- it's the table of contents for someone reading the files on GitHub; the app's own sidebar already does that job.
+- `check_help_topics.py` also catches a stray emoji shortcode, a broken deep link from the app's code to a page that doesn't exist, and a broken link from one help page to another.
 
 ## Coding Conventions
 

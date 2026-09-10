@@ -83,12 +83,12 @@
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
 - **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaSuite` GitHub orgs — see `src-tauri/deny.toml`). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
-- **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
+- **Translations** — the app runs in English, German, or French, chosen automatically from your OS language or manually in Settings > General. German and French are complete, machine-made translations (the language picker and an in-app note both say so); help pages can also be translated, one Markdown file per page under `help/<language>/`, and a page with no translation yet falls back to the English original with a note explaining why
 - **Pre-release version handling** — verbose activity logging persists across restarts during pre-release versions (v0.x.x) for easier debugging; first-load notice modal warns users when a new pre-release version is launched
 - **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
 - **CodeQL workflow** — GitHub CodeQL static analysis for Actions YAML and JavaScript/TypeScript. Rust is intentionally excluded (build hangs indefinitely) since Rust code quality is covered by clippy and cargo test in CI
-- **Brand assets** — vinyl/reel icon design with animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + wordtype via `<object>` tags with static PNG/text fallbacks
+- **Brand assets** — a "Graphite levels" design: a downward play-triangle with media-equaliser levels on a save bar, as an animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + wordtype via `<object>` tags with static PNG/text fallbacks
 
 ---
 
@@ -99,11 +99,11 @@
 | 🍎 **macOS** | Apple Silicon (ARM64) | `.dmg` | ✅ Yes | Requires macOS 13.3 (Ventura) or later |
 | 🪟 **Windows** | x64 (64-bit) | `.exe` (NSIS) | ✅ Yes | Also works on ARM64 via emulation |
 | 🪟 **Windows** | ARM64 | `.exe` (NSIS) | ✅ Yes | Native ARM64 build |
-| 🐧 **Linux** | x64 | `.deb`, `.AppImage` | ✅ Yes | Also works on ChromeOS via Crostini |
-| 🐧 **Linux** | ARM64 | `.deb` | ✅ Yes¹ | Raspberry Pi 4/5, ARM servers |
-| 🐧 **Linux** | ARMv7 | `.deb` | ✅ Yes¹ | Raspberry Pi 32-bit (experimental) |
+| 🐧 **Linux** | x64 | `.deb`, `.AppImage`, `.rpm` | ✅ Yes¹ | Also works on ChromeOS via Crostini |
+| 🐧 **Linux** | ARM64 | `.deb`, `.rpm` | ✅ Yes¹ | Raspberry Pi 4/5, ARM servers |
+| 🐧 **Linux** | ARMv7 | `.deb`, `.rpm` | ✅ Yes¹ | Raspberry Pi 32-bit (experimental) |
 
-¹ Releases published before September 2026 never told the in-app updater about Linux ARM builds at all — it simply had no way to know a newer version existed, so an older ARM install on one of those releases was never offered one. Nothing needs reinstalling to get this working: the first release built after the fix is offered normally, the same as every other platform.
+¹ Until a fix that shipped in September 2026, the in-app updater didn't know how to offer a new version to anyone who had installed from a `.deb` or `.rpm` package — on an ordinary 64-bit machine as much as on ARM. It would silently try to hand over `.AppImage` bytes instead, which `dpkg`/`rpm` can't install. The `.AppImage` format itself was never affected. Linux ARM additionally had no update signature published at all until the same fix, on top of the missing update record. None of this needs anything from you: the first release built after the fix updates normally, on every install method, the same as macOS and Windows.
 
 ---
 
@@ -121,6 +121,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | **MP4Box** ([GPAC](https://github.com/gpac/gpac)) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
 | **[MediaInfo](https://github.com/MediaArea/MediaInfo)** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
 | **[rclone](https://rclone.org/)** | OPTIONAL — direct-to-cloud upload (Settings → Cloud Destinations). Subprocess-invoked; bundled like FFmpeg / N_m3u8DL-RE. Only installed on-demand when the user enables a cloud destination. | 1.60.0+ | 1.66+ | `src-tauri/tool-versions.toml` → `[rclone]` |
+| **[votify](https://github.com/glomatico/votify)** | The program that would download from Spotify. In development and hidden behind a developer-only preview, so it does nothing in an ordinary build. Run as a separate program, the same way GAMDL is. | 1.9.0 | 1.9.9 | `src-tauri/tool-versions.toml` → `[votify]` |
 
 ### How the support window is enforced
 
@@ -161,7 +162,7 @@ Most users should stick with **cookie-based authentication** (the default — wo
 
 ### Setup (wrapper-v1, GAMDL ≤ 3.5.x)
 
-1. **Obtain and run the wrapper service** — [wrapper-v1](https://github.com/WorldObservationLog/wrapper) is a separate native binary (Windows / macOS / Linux ports exist via [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) that listens on `http://127.0.0.1:30020` by default
+1. **Obtain and run the wrapper service** — [wrapper-v1](https://github.com/WorldObservationLog/wrapper) is a separate native program. Which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours. Once running, it listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
 3. **Configure the URLs** — update the **Wrapper Account URL** (default `http://127.0.0.1:30020`), **Wrapper m3u8 Address** (`127.0.0.1:20020`), and **Wrapper Decryption Address** (`127.0.0.1:10020`) if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
 
@@ -241,7 +242,7 @@ For the full step-by-step troubleshooting guide, see the in-app help (**Help > W
 
 ### Platform Support
 
-The Wrapper service only provides native binaries for **Linux x86_64**. On other platforms, you can run the wrapper remotely on a Linux server or in a Docker container and point MeedyaDL to it via a custom URL. See the in-app help (**Help > Wrapper**) for detailed remote setup instructions.
+MeedyaDL shows the wrapper settings on every platform it runs on — it just talks to whatever address you give it, and that address can be this machine or another one. What varies is whether a wrapper you can run **on this machine** exists for your platform: **wrapper-v1** is a native program, so whether it has a build for your OS is a question for that project (check its releases page); **wrapper-v2** runs natively on Linux, while macOS and Windows need Docker Desktop. If there's no wrapper you can run locally, you can still point MeedyaDL at one running elsewhere — on another machine, in a container, or via a remote/Docker setup. See the in-app help (**Help > Wrapper**) for detailed remote setup instructions.
 
 ---
 
@@ -326,9 +327,9 @@ On first launch, the setup wizard will guide you through:
 
 | Tool | Version | Notes |
 | ---- | ------- | ----- |
-| **[Node.js](https://nodejs.org)** | LTS (20+) | Frontend build toolchain |
-| **[npm](https://www.npmjs.com/)** | 10+ | Comes with Node.js |
-| **[Rust](https://github.com/rust-lang)** | Stable (1.77+) | Backend compilation |
+| **[Node.js](https://nodejs.org)** | Current LTS release | Frontend build toolchain — CI installs whatever Node's current long-term-support release is (`node-version: 'lts/*'`), not a fixed version number, so pin to whatever LTS is current when you set up |
+| **[npm](https://www.npmjs.com/)** | Comes with Node.js | — |
+| **[Rust](https://github.com/rust-lang)** | Pinned — see [`src-tauri/rust-toolchain.toml`](src-tauri/rust-toolchain.toml) | Backend compilation. The exact version is pinned there (not "whatever stable is"), so CI and local builds always use the same compiler; `rustup` picks it up automatically inside `src-tauri/` |
 | **[Tauri CLI](https://tauri.app/)** | 2.x | `npm install` handles this |
 
 #### Linux Additional Dependencies
@@ -473,7 +474,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
 - ✅ CI/CD pipeline with release-please, a four-tier channel ladder (Alpha → Beta → RC → Stable), automated tag-and-release per channel, and bundled dependencies
-- ✅ Settings UI with 10 configuration tabs
+- ✅ Settings UI with 11 configuration tabs (General, Codec & Resolution, Codec Fallback Order, Tools, Cookies, Lyrics, Cover Art, Metadata, Templates, Spotify, Advanced)
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download, install, and rollback
 - ✅ System tray integration
@@ -488,7 +489,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 20 topics and search
-- ✅ i18n infrastructure (i18next, OS language detection, English)
+- ✅ i18n (i18next, OS language detection, complete English/German/French translations, translatable help pages)
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
 - ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
 - ✅ Per-track activity log separators with codec and auth info
@@ -521,7 +522,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 
 - 🔮 **Smart Download** ([#110](https://github.com/MWBMPartners/MeedyaDL/issues/110)) — cross-platform quality optimisation (search all services for the same content, download the best quality)
 - 🔮 **YouTube Music** ([#103](https://github.com/MWBMPartners/MeedyaDL/issues/103)) via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
-- 🔮 **Full i18n** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — complete translations for German, French, and additional languages
+- 🔮 **More languages** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — German and French are already complete; this tracks adding further languages beyond those two
 - 🔮 **Enhanced MusicKit Integration** ([#108](https://github.com/MWBMPartners/MeedyaDL/issues/108)) — server-side token generation to remove Apple Developer credential requirement
 - 🔮 **Stable rollback** ([#267](https://github.com/MWBMPartners/MeedyaDL/issues/267)) — option to roll back from pre-release to latest stable version
 

@@ -15,7 +15,7 @@
 
 ## Supported Components
 
-MeedyaDL ships with a validated **component support matrix** — a pinned range of versions for every external dependency (Python runtime, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo). We only verify the security and functional behaviour of these components within those ranges.
+MeedyaDL ships with a validated **component support matrix** — a pinned range of versions for every external dependency (Python runtime, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo, rclone, votify). We only verify the security and functional behaviour of these components within those ranges.
 
 - The current support matrix lives in [README.md](./README.md#-component-support-matrix) and is the canonical, user-facing reference.
 - The machine-readable source of truth is [`src-tauri/tool-versions.toml`](./src-tauri/tool-versions.toml). Bumping a component's range requires a code change, review, and a new MeedyaDL release.
@@ -27,7 +27,7 @@ Running MeedyaDL with components **outside** the listed ranges (e.g. a manually 
 
 The Apple Music wrapper used for FairPlay-protected codecs is **not bundled with MeedyaDL** and is deployed independently by the user. MeedyaDL supports two upstream wrapper projects depending on the installed GAMDL release:
 
-- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 3.0 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). Native binaries available for Windows / macOS / Linux.
+- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 3.0 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). It's a native program; which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours.
 - **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) — required by GAMDL 3.6+. C++ daemon built with the Android NDK, running inside a Linux chroot. Exposes one HTTP REST API. Requires Docker on macOS/Windows; requires `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges on native Linux. **The user is responsible for extracting Apple Music for Android's `.so` libraries** and staging them into the wrapper's `rootfs/system/lib64/` — these `.so` files are Apple's proprietary code and are not redistributed by the wrapper-v2 upstream OR by MeedyaDL.
 
 **Threat surface introduced by the wrapper:**
@@ -70,6 +70,8 @@ MeedyaDL implements the following security measures:
 - **Dependabot version updates** — weekly PRs for npm and cargo ecosystems (security updates are delivered immediately out-of-schedule)
 - **Activity log memory bounds** — capped at 10,000 entries to prevent unbounded WebView memory growth
 - **Updater artifact signing** — `.app.tar.gz.sig` signature files verified by Tauri updater before installation
+- **macOS builds are signed and notarised** — every macOS release is signed with an Apple Developer ID and notarised by Apple, so macOS opens it without a Gatekeeper warning
+- **Windows builds are not code-signed** — Windows SmartScreen will show an "unrecognised publisher" warning on every install until code signing is added
 
 - **IPC command rate limiting** — sliding-window rate limiter on sensitive commands (downloads, updates, cookie imports)
 - **Settings file integrity** — SHA-256 checksum verification detects external modification

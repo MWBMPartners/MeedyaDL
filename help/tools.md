@@ -10,7 +10,7 @@ MeedyaDL relies on several external command-line tools for downloading, decrypti
 
 ## Required Tools
 
-All five tools below are required for full functionality.
+All five tools below are required for full functionality. On GAMDL **3.6 and newer**, GAMDL itself no longer needs MP4Box or mp4decrypt -- it mixes and decrypts music videos natively. FFmpeg, N_m3u8DL-RE, and MediaInfo remain necessary no matter which GAMDL version you're on: FFmpeg is used by MeedyaDL's own ReplayGain and BPM analysis (and by N_m3u8DL-RE itself when fetching HLS streams), N_m3u8DL-RE fetches the streams in the first place, and MediaInfo helps MeedyaDL detect the real codec of a finished file. MeedyaDL still asks the Setup Wizard to install all five, since it supports a wide range of GAMDL versions, including older ones that still need MP4Box and mp4decrypt.
 
 ### FFmpeg
 Used for audio/video processing and container remuxing. Required for most download operations.
@@ -26,6 +26,11 @@ Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 
 ### MediaInfo
 Used to accurately detect the codec of a downloaded file, so the app can tell what quality it actually got.
+
+## Optional Tools
+
+### rclone
+Powers direct-to-cloud upload. Unlike the five required tools above, rclone is **not** installed during first-time setup -- MeedyaDL only downloads and installs it the moment you turn on a cloud destination in Settings. If you never use that feature, rclone never lands on your machine.
 
 ## Installation & Management
 

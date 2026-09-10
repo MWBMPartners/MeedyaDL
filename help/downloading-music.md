@@ -42,7 +42,7 @@ URLs containing `/playlist/` download every track in the playlist. Playlists can
 
 URLs containing `/artist/` download the artist's catalog. This can be a very large operation depending on the artist's discography. Each album is processed as a separate batch within the queue.
 
-By default, GAMDL downloads the artist's full catalog. You can narrow the scope using the **Artist Auto-Select** setting in Settings > Quality, which lets you choose specific content types (Main Albums, Singles & EPs, Music Videos, etc.). When multiple content types are selected, MeedyaDL creates a separate queue item for each type. For example, selecting "Main Albums" and "Singles & EPs" creates two queue entries — one downloading main albums and one downloading singles — so each is processed independently.
+By default, GAMDL downloads the artist's full catalog. You can narrow the scope using the **Artist Auto-Select** setting in Settings > Codec & Resolution, which lets you choose specific content types (Main Albums, Singles & EPs, Music Videos, etc.). When multiple content types are selected, MeedyaDL creates a separate queue item for each type. For example, selecting "Main Albums" and "Singles & EPs" creates two queue entries — one downloading main albums and one downloading singles — so each is processed independently.
 
 **Example URL format:** `https://music.apple.com/us/artist/artist-name/1234567890`
 
@@ -81,7 +81,7 @@ If you do not select a codec, the default configured in [Quality Settings](quali
 
 ### Managing the Download Queue
 
-Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start -- items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The concurrency limit is also configurable in Settings if you want multiple simultaneous downloads.
+Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start -- items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The queue processes one item at a time by design -- there is no setting to run several downloads at once. Each item's whole pipeline (download, companion formats, metadata enrichment, lyrics) finishes before the next one starts, which is what makes retries and companion downloads reliable.
 
 Each item in the queue displays:
 
@@ -151,7 +151,7 @@ When a download completes successfully, the item is marked as finished in the qu
 | **network** | Connection timeout or server error | Network errors automatically retry 3 times with exponential backoff. If all retries fail, check your internet connection and use Retry. |
 | **codec** | Selected audio quality is unavailable for this track | The fallback chain runs automatically. If all codecs fail, the track may not be available in any downloadable format. |
 | **not_found** | Content has been removed from Apple Music | The song, album, or playlist no longer exists on Apple Music. No action can resolve this. |
-| **rate_limit** | Too many requests sent to Apple Music servers | Wait a few minutes before retrying. Reduce concurrency in Settings if this occurs frequently. |
+| **rate_limit** | Too many requests sent to Apple Music servers | Wait a few minutes before retrying. |
 
 ---
 
@@ -193,7 +193,7 @@ GAMDL automatically embeds full metadata into every downloaded file, including:
 - High-resolution album artwork
 - Copyright and label information
 
-Lyrics downloading is configurable in **Settings > Lyrics tab**. The default format is **LRC** (synced lyrics) for songs. Available lyrics formats are:
+Lyrics downloading is configurable in **Settings > Lyrics tab**. By default, MeedyaDL fetches Apple Music's TTML (word-level timed) lyrics and converts them to **Enhanced LRC** -- an LRC file with word-by-word, not just line-by-line, timing. Available lyrics formats are:
 
 - **LRC** -- timestamped lyrics for synced playback
 - **SRT** -- SubRip subtitle format
@@ -215,7 +215,7 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 
 ### Companion Downloads
 
-MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Quality controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
+MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Codec & Resolution controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
 
 Companion downloads include lyric sidecar files for every companion tier — each format version gets its own `.lrc`, `.srt`, `.vtt`, and `.ass` files (depending on your lyrics settings). You can track companion download progress in the **Activity Log**, which shows per-tier codec details, per-codec attempts, and completion status.
 
@@ -289,7 +289,7 @@ MeedyaDL can watch your system clipboard for supported URLs while the app is ope
 
 Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). Dismiss the notification if you do not want to download.
 
-When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Desktop Notifications** setting in **Settings > General**.
+When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Notification Style** setting in **Settings > General > Notifications** (a three-way choice: in-app toasts only, native OS notifications only, or both).
 
 ### Privacy
 
@@ -309,7 +309,6 @@ The same URL will not trigger a second prompt within the same app session, even 
 - **Use ALAC for archival, AAC for everyday listening.** ALAC provides lossless quality but produces larger files (typically 30--50 MB per track). AAC at 256 kbps is effectively transparent for most listeners and uses roughly 7--10 MB per track.
 - **Albums download all tracks as a batch.** Submitting an album URL is more efficient than submitting individual song URLs, because metadata is fetched once for the whole album rather than per-track.
 - **Monitor the fallback indicator.** If you see frequent fallbacks, the codec you selected may not be widely available. Consider switching your default codec in [Quality Settings](quality-settings.md).
-- **Reduce concurrency if you encounter rate limits.** Downloading many items simultaneously can trigger Apple Music's rate limiting. Lowering the concurrency limit in Settings helps avoid this.
 - **Your queue survives app restarts.** If you need to close the app while downloads are pending, they will automatically resume on the next launch. There is no need to manually save or re-enter URLs.
 - **Use export/import to transfer queues between devices.** If you set up downloads on one machine and want to continue on another, export the queue to a `.meedyadl` file and import it on the other device. The imported items will use the destination device's quality settings.
 - **Disable auto-start for batch queuing.** If you want to add multiple URLs before any downloads begin, turn off **Auto-Start Downloads** in Settings > General. Add all your URLs, then click **Start Queue** in the Queue page when ready.

@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated: 2026-07-27**
+**Last updated: 2026-09-10**
 
 By downloading, installing, or using MeedyaDL ("the Software"), you agree to the following terms.
 
@@ -36,6 +36,13 @@ MeedyaDL does **not** collect personal data by default. Optional features:
 - **Crash reporting**: off unless you switch it on. Sends anonymous crash data to help fix bugs. No personal data, download history, or music library information is collected. Toggle in Settings > Advanced.
 - **Clipboard monitoring**: when enabled, checks clipboard text for URL patterns only. Clipboard contents are never stored or transmitted.
 - **Update and feature-availability checks**: from time to time the app asks our servers whether a newer version is available and whether any feature has been temporarily switched off. In these requests the app identifies its own version, operating system and processor type — the same class of information sent with an update check — and **no install identifier, account, locale or settings data is ever sent**. These checks cannot identify you, your device, or your library. If a check fails (for example, you are offline), the app simply continues with its last known state.
+- **Opt-in features that contact other companies**: a small number of features are switched off by default because turning them on means MeedyaDL asks another company's service to do the one specific job you asked for. Each one sends only what that job needs — never your name, your Apple Music account, or anything about your library beyond the one item being looked up:
+  - **song.link (run by a company called Odesli)**: if you turn on "Links on Other Music Services", MeedyaDL sends the downloaded album's own Apple Music link, so song.link can tell you where else that album is available.
+  - **Deezer**: if you turn on the cover-art upgrade feature, MeedyaDL sends the album's release barcode, so Deezer can offer a bigger cover picture if it has one.
+  - **MusicBrainz**: if you turn on MusicBrainz video discovery, MeedyaDL sends track identifiers (such as an ISRC), so MusicBrainz can look up related videos and cross-platform links.
+  - **AcoustID**: if you turn on audio fingerprinting, MeedyaDL sends an audio fingerprint generated from the track (not the audio file itself), so AcoustID can identify the recording.
+
+  Every one of these features is off by default, and turning one on only affects requests for that feature — it never adds anything to any of the other checks described on this page.
 
 See [SECURITY.md](SECURITY.md) for a full list of security measures and data handling practices.
 
