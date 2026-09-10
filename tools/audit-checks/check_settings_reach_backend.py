@@ -151,6 +151,14 @@ FRONTEND_ONLY: dict[str, str] = {
         "this app at all, so there is nothing for the backend to do with "
         "the value."
     ),
+    "sidebar_collapsed": (
+        "Read by Sidebar.tsx to pick a CSS width class (narrow icon-only "
+        "vs. full width with labels) and by App.tsx's startup effect to "
+        "apply that choice to uiStore before first paint. Whether the "
+        "sidebar is drawn wide or narrow is a rendering decision the "
+        "backend has no part in -- there is no download-pipeline or "
+        "file-system behaviour this setting could plug into."
+    ),
 }
 
 
@@ -162,12 +170,22 @@ def _is_test_file(path: Path) -> bool:
     TypeScript: `.test.`/`.spec.` in the filename, or living under a
     `__tests__/` or `test/` directory -- the same convention every other
     script in this directory uses.
+
+    The directory check needs a path RELATIVE to the repo root, not the
+    absolute path `Path.rglob()` hands back. `"/test/" in rel` on an
+    absolute path checks the whole path from the filesystem root down --
+    including whatever the checkout itself happens to be sitting inside.
+    Clone this repo under, say, `~/test/MeedyaDL`, and every single
+    frontend file's absolute path contains `/test/` before the repo even
+    starts, so this would have excluded the entire frontend from the scan
+    and still printed "OK" as if it had checked something. Every sibling
+    script in this directory relativises first for exactly this reason.
     """
     name = path.name
     if path.suffix == ".rs":
         return bool(re.search(r"(^|_)tests?\.rs$", name))
     if path.suffix in (".ts", ".tsx"):
-        rel = path.as_posix()
+        rel = path.relative_to(REPO_ROOT).as_posix()
         return ".test." in name or ".spec." in name or "/__tests__/" in rel or "/test/" in rel
     return False
 
@@ -290,22 +308,120 @@ def collect_frontend_changeable() -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 
+CFG_TEST_RE = re.compile(r"#\[cfg\(test\)\]")
+
+
+def _matching_brace(text: str, open_idx: int) -> int:
+    """Index of the `}` that matches the `{` at `open_idx`, or `len(text)`
+    if the braces never balance (shouldn't happen in code that compiles,
+    but a truncated read or a stray brace inside a string literal
+    shouldn't crash the script -- it should just stop stripping there)."""
+    depth = 0
+    i = open_idx
+    while i < len(text):
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return len(text)
+
+
+def _strip_cfg_test_blocks(text: str) -> str:
+    """Remove every `#[cfg(test)]`-attributed item -- almost always a whole
+    `mod tests { ... }` block -- from `text` before it's scanned for field
+    reads.
+
+    Without this, a field only used inside a test's own assertion (for
+    example `assert_eq!(settings.video_codec_fallback_chain, ...)`) reads
+    as a genuine backend use, when all it proves is that the test file
+    compiles. That happened for real: `video_codec_fallback_chain` looked
+    "read by the backend" purely because of a line inside
+    `config_service.rs`'s `#[cfg(test)] mod tests { ... }`, while its
+    actual only production reader (`AppSettings::video_codec_priority_cli`)
+    sat in a file this script otherwise skips entirely (see
+    `_collect_impl_app_settings_self_reads` below). Both problems had to be
+    fixed together, or removing the test line alone would have made the
+    check wrongly report a live field as dead.
+
+    This finds each `#[cfg(test)]` attribute, brace-matches forward from
+    the next `{` (same trick `collect_app_settings_fields` uses for the
+    struct body) to find where that item ends, and drops everything from
+    the attribute through the closing brace. It does not care whether the
+    attributed item is a `mod`, a single `fn`, or anything else -- none of
+    it runs in a real build, so none of it should count as a real read.
+    """
+    out: list[str] = []
+    pos = 0
+    for m in CFG_TEST_RE.finditer(text):
+        if m.start() < pos:
+            continue  # already inside a block we've dropped
+        out.append(text[pos : m.start()])
+        brace = text.find("{", m.end())
+        if brace == -1:
+            # No block follows this attribute -- nothing sensible to strip;
+            # keep the rest of the file as-is rather than guessing.
+            pos = m.start()
+            break
+        end = _matching_brace(text, brace)
+        pos = end + 1
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def _collect_impl_app_settings_self_reads(field_names: list[str]) -> set[str]:
+    """Every AppSettings field referenced as `self.<field>` inside
+    `impl AppSettings { ... }` in settings.rs.
+
+    `collect_backend_reads` skips `models/settings.rs` entirely, and for
+    good reason: the struct DEFINITION in that file is nothing but
+    `pub name: Type,` lines, and every one of those would look like a
+    "read" to a naive `.name` scan even though it's only a declaration.
+
+    But that blanket skip throws out the one part of the file that IS a
+    genuine consumer: the inherent `impl AppSettings { ... }` block, where
+    methods such as `video_codec_priority_cli()` read fields off `self` to
+    build the values the backend actually sends onward (in that case, the
+    codec list GAMDL receives on the command line). A field whose only
+    real reader is a method like that was being reported as dead --
+    wrongly -- until this function let that one block back in, scanned on
+    its own rather than as part of the whole file.
+    """
+    if not SETTINGS_RS.exists():
+        return set()
+    text = SETTINGS_RS.read_text(encoding="utf-8", errors="ignore")
+    m = re.search(r"^impl\s+AppSettings\s*\{", text, re.MULTILINE)
+    if not m:
+        return set()
+    start = text.find("{", m.end() - 1)
+    end = _matching_brace(text, start)
+    block = text[start + 1 : end]
+    return {name for name in field_names if re.search(r"\bself\." + re.escape(name) + r"\b", block)}
+
+
 def collect_backend_reads(field_names: list[str]) -> set[str]:
     """Every AppSettings field name found as a `.name` token somewhere in
-    `src-tauri/src/**/*.rs`, outside `models/settings.rs` (which defines
-    every field but is not itself a consumer of any of them) and test
-    files."""
+    `src-tauri/src/**/*.rs`, outside `models/settings.rs`'s field
+    declarations and outside test code -- plus, as a deliberate carve-out
+    of that `models/settings.rs` exclusion, any field read as `self.name`
+    inside `impl AppSettings { ... }` in that same file. See
+    `_strip_cfg_test_blocks` and `_collect_impl_app_settings_self_reads`
+    for why each half exists."""
     reads: set[str] = set()
     patterns = {name: re.compile(r"\." + re.escape(name) + r"\b") for name in field_names}
     for path in _iter_source(RUST_SRC, (".rs",)):
         if path.resolve() == SETTINGS_RS.resolve():
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _strip_cfg_test_blocks(path.read_text(encoding="utf-8", errors="ignore"))
         for name, pattern in patterns.items():
             if name in reads:
                 continue
             if pattern.search(text):
                 reads.add(name)
+    reads |= _collect_impl_app_settings_self_reads(field_names)
     return reads
 
 

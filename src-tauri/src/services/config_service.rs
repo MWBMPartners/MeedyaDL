@@ -1211,37 +1211,61 @@ mod tests {
     // These tests fail if either write loses its sanitising again.
 
     #[test]
-    fn video_codec_priority_cannot_inject_an_extra_ini_setting() {
+    fn unrecognised_video_codec_priority_text_is_dropped_by_the_reader() {
         // This has to go through JSON now, not a struct literal: the
         // video codec chain is a real `Vec<VideoCodec>`, so there's no
         // longer a plain string field a hostile value could be typed
-        // straight into. What's being proved here is that a hand-edited
-        // (or maliciously crafted) settings.json carrying this text under
-        // the OLD field name can't reach the INI file either.
+        // straight into. What's being proved here is only the READER's
+        // half of the guard: a hand-edited (or maliciously crafted)
+        // settings.json carrying this text under the OLD field name
+        // doesn't survive being read back in as a settings object at
+        // all -- see the sibling test below for the WRITER's half.
         let json = r#"{"default_video_codec_priority": "h264\nffmpeg_path = /tmp/attacker"}"#;
         let settings: crate::models::settings::AppSettings = serde_json::from_str(json).unwrap();
 
         // "h264\nffmpeg_path = /tmp/attacker" isn't a real codec name, so
-        // the settings reader drops it entirely before it ever reaches
-        // the INI writer — nothing recognisable survives, so the chain
-        // falls back to the tool's own recommended order. This is the
-        // real fix: the hostile text never gets anywhere NEAR a place
-        // that writes it to a file.
+        // the settings reader drops it entirely -- nothing recognisable
+        // survives, so the chain falls back to the tool's own
+        // recommended order.
         assert_eq!(
             settings.video_codec_fallback_chain,
             crate::models::gamdl_options::VideoCodec::ALL.to_vec(),
             "an unrecognised codec entry should be dropped, leaving the default chain"
         );
+    }
 
-        let ini = super::settings_to_ini(&settings);
-        // Belt and braces: what matters is whether a NEW SETTING was
-        // created, and a setting is only a setting when it starts its own
-        // line. This should never trigger given the assertion above, but
-        // it's the same sanitize_ini_value guard every other text value
-        // in this file goes through, so it's proved here too.
+    #[test]
+    fn sanitize_ini_value_stops_a_hostile_codec_priority_string_from_injecting_an_ini_setting() {
+        // The test above proves the reader throws a hostile codec string
+        // away before it can ever become part of `video_codec_fallback_chain`.
+        // That's real, and it means a test that goes the WHOLE way round --
+        // JSON in, `AppSettings` out, `settings_to_ini()` on the result --
+        // can no longer prove anything about the WRITER's own guard: the
+        // codec chain is a closed set of enum values now
+        // (`VideoCodec::H264`, `::H265`, ...), and `video_codec_priority_cli()`
+        // can only ever turn that into a comma-joined list of fixed names
+        // like "h264" or "h265,h264". There is no longer any value that
+        // both (a) survives being read in, and (b) still contains a line
+        // break by the time it reaches the writer -- so the old
+        // round-trip version of this test kept passing for the wrong
+        // reason: the reader had already thrown the hostile text away, not
+        // because the writer would have defused it if it ever arrived.
+        //
+        // So this calls `sanitize_ini_value` directly -- the exact
+        // function `ini_video_section` passes the codec-priority string
+        // through -- with a hostile value built to actually reach it,
+        // the same way the sibling `video_remux_format_...` test below
+        // reaches it through a plain `String` field that isn't guarded by
+        // an enum. This is what "exercising the writer" has to mean now
+        // that the codec chain itself can't carry hostile text.
+        let hostile = "h264\nffmpeg_path = /tmp/attacker";
+        let line = format!("music_video_codec_priority = {}", sanitize_ini_value(hostile));
+
+        // What matters is whether a NEW SETTING was created, and a
+        // setting is only a setting when it starts its own line.
         assert!(
-            !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
-            "a line break in the codec priority started a new setting:\n{ini}"
+            !line.lines().skip(1).any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            "a line break in the codec priority value started a new setting:\n{line}"
         );
     }
 

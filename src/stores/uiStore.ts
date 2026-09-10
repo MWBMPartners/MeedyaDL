@@ -403,10 +403,21 @@ export const useUiStore = create<UiState>((set, get) => ({
       // Remember the choice. Without this the sidebar springs back open on
       // the next launch: the saved setting was read at startup and applied,
       // but nothing ever wrote the new value back, so collapsing it could
-      // never actually stick. Saving is deliberately not awaited — the
-      // sidebar should move the instant it is clicked, and if the save
-      // fails the only cost is that it opens again next time.
+      // never actually stick.
+      //
+      // `updateSettings()` only changes the copy of settings held in memory
+      // -- it does not write anything to disk, and its own doc comment says
+      // so. Something has to actually save afterwards, or this is exactly
+      // as broken as before. `debouncedSave()` is that something: it is the
+      // settings store's existing "save shortly after a change" helper,
+      // built for exactly this kind of toggle. It waits 300ms in case more
+      // clicks are coming, then writes the whole settings object to disk
+      // and clears the "unsaved changes" flag on success. It is
+      // deliberately not awaited here -- the sidebar should move the
+      // instant it is clicked, and the save happening a fraction of a
+      // second later is invisible to the user.
       void useSettingsStore.getState().updateSettings({ sidebar_collapsed: sidebarCollapsed });
+      useSettingsStore.getState().debouncedSave();
       return { sidebarCollapsed };
     }),
 
