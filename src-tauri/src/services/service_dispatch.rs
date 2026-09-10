@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaDL
+// Copyright (c) 2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Service dispatch module.
@@ -19,7 +19,7 @@
 //   |     +-- AppleMusic  -> gamdl_service::build_gamdl_command_public()
 //   |     +-- YouTube     -> youtube_service::build_ytdlp_command() [stub]
 //   |     +-- BBCiPlayer  -> bbc_iplayer_service::build_get_iplayer_command() [stub]
-//   |     +-- Spotify     -> spotify_service::build_votify_command() [stub]
+//   |     +-- Spotify     -> spotify_service::build_votify_command() [real, M9]
 //   |
 //   +-- service_dispatch::parse_service_output(service_id, line)
 //         |
@@ -29,9 +29,22 @@
 //
 // ## Status
 //
-// Currently, only Apple Music (GAMDL) is fully implemented. Other services
-// return "not yet implemented" errors. As each service is implemented, the
-// dispatch functions will be updated to route to the real implementations.
+// Apple Music (GAMDL) is fully implemented, and so is Spotify
+// (`spotify_service`, M9) — though Spotify still sits behind a
+// dev-access-only preview flag until it's ready for regular users, so
+// it doesn't show up as a normal option yet. YouTube and BBC iPlayer
+// still return "not yet implemented" errors from every function in
+// this module's dispatch table. As each remaining service is
+// implemented, the dispatch functions will be updated to route to the
+// real implementation. (This module previously carried an
+// `is_service_implemented()` helper meant to answer "is this service
+// ready?" in one place — it was deleted because it had no caller
+// anywhere except its own test, and having gone stale unnoticed once
+// already — hardcoding only Apple Music as implemented well after
+// Spotify became real — it was a bigger risk left in than removed. If
+// a real caller needs this answer, prefer asking the engine registry
+// / feature-flag gate directly rather than re-adding a second,
+// hand-maintained source of truth.)
 //
 // ## Remote enable/disable does NOT live here
 //
@@ -155,20 +168,6 @@ impl From<crate::utils::process::GamdlOutputEvent> for ServiceOutputEvent {
     }
 }
 
-/// Checks whether a service is fully implemented and ready for downloads.
-///
-/// Currently only Apple Music is implemented. Other services will return
-/// `false` until their respective service modules are completed.
-///
-/// # Arguments
-/// * `service_id` - The service to check.
-///
-/// # Returns
-/// `true` if the service is ready for downloads, `false` otherwise.
-pub fn is_service_implemented(service_id: &MediaServiceId) -> bool {
-    matches!(service_id, MediaServiceId::AppleMusic)
-}
-
 /// Returns a user-friendly "not yet implemented" error message for a service.
 ///
 /// Used by the download queue and command handlers when a user tries to
@@ -189,14 +188,6 @@ pub fn not_implemented_error(service_id: &MediaServiceId) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_is_service_implemented() {
-        assert!(is_service_implemented(&MediaServiceId::AppleMusic));
-        assert!(!is_service_implemented(&MediaServiceId::YouTube));
-        assert!(!is_service_implemented(&MediaServiceId::BBCiPlayer));
-        assert!(!is_service_implemented(&MediaServiceId::Spotify));
-    }
 
     #[test]
     fn test_not_implemented_error() {

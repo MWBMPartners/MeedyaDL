@@ -443,9 +443,14 @@ pub fn emit_verbose_app_log(app: &tauri::AppHandle, message: &str) {
 /// place.
 ///
 /// `show_in_ui` lets callers suppress noisy lines (Python traceback
-/// frames in non-verbose mode, repetitive progress lines coalesced
-/// by `\r` handling) from the in-memory UI feed while still recording
-/// them on disk for forensic diagnosis.
+/// frames in non-verbose mode, and repetitive progress lines that were
+/// "coalesced by `\r` handling" — a program that redraws one progress
+/// line in place, like a percentage counter, sends a carriage return
+/// (`\r`) before each redraw instead of a newline; MeedyaDL watches for
+/// that and keeps only the final, most up-to-date form of that line
+/// rather than every intermediate redraw, the same way a terminal
+/// itself would only show the latest one) from the in-memory UI feed
+/// while still recording them on disk for forensic diagnosis.
 pub fn emit_subprocess_line(
     app: &tauri::AppHandle,
     download_id: &str,

@@ -69,7 +69,13 @@ pub struct CompanionRunResult {
     /// `NoneType.audio_track`). Prefer this over `last_stderr_line` for
     /// activity-log surfacing when present.
     pub friendly_error: Option<String>,
-    /// Last `\r`-coalesced stderr line, for fallback error display.
+    /// Last stderr line after `\r`-coalescing, for fallback error
+    /// display. "`\r`-coalescing" means: when a program redraws one
+    /// progress line in place (sending a carriage return, `\r`, before
+    /// each redraw instead of starting a new line), only the final,
+    /// most up-to-date form of that line is kept — the same thing a
+    /// real terminal would show you, rather than every intermediate
+    /// redraw along the way.
     pub last_stderr_line: String,
 }
 

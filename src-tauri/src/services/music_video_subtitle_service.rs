@@ -382,7 +382,7 @@ mod tests {
 
     // NOTE: coverage for `resolve_non_clobbering_path` and `same_file`
     // now lives alongside the helpers themselves in
-    // `src/utils/fs_safe.rs`.
+    // `src-tauri/src/utils/fs_safe.rs`.
 
     #[test]
     fn pair_skips_when_target_exists() {

@@ -259,6 +259,29 @@ const NEW_PROFILE = {
   slots: [{ yTopFrac: 320 / 1024, yBottomFrac: 384 / 1024, xLeftFrac: 352 / 1024, xRightFrac: 672 / 1024 }],
 };
 
+// Three brightness cut-offs used by the checks below (each channel or
+// average runs 0-255, black to white). What each one is FOR:
+//
+// - isWhite (>235): "is this pixel the white pill/background", not
+//   some other light colour. Set a little below the maximum (255)
+//   rather than requiring pure white, so a pixel that's very slightly
+//   off-white from icon-scaling anti-aliasing still counts.
+// - isDark (<170): "is this pixel dark enough to read as part of a
+//   filled equaliser slot" rather than background.
+// - isMidtone (100-170): the grey zone in between dark and light. A
+//   pixel landing here is neither clearly a slot nor clearly
+//   background — a high fraction of these is exactly the "downscale
+//   turned the equaliser slots to grey mush" defect this script exists
+//   to catch (see the icon generator notes in CLAUDE.md).
+//
+// None of the three numbers themselves (235, 170, 100) are derived
+// from a colour-contrast standard or measured off a reference image —
+// they were picked by eye against this icon's own artwork when this
+// script was written, and no record of that process was kept. Treat
+// them as "known to work for this icon today", not as generally
+// meaningful values — if a future icon redesign starts failing these
+// checks for reasons that look like measurement error rather than a
+// real legibility problem, these are the numbers to re-examine first.
 function isWhite(r, g, b, thresh = 235) {
   return r > thresh && g > thresh && b > thresh;
 }

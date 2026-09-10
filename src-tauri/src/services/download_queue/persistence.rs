@@ -276,6 +276,26 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
     )
 }
 
+/// Removes repeated entries from the saved queue (`queue.json`), keeping
+/// only the newest copy of each address.
+///
+/// Run once when the queue is loaded back in on startup. If the same
+/// download address ended up saved more than once — the same album
+/// queued twice in different sessions, for example — the newest entry
+/// is the one that wins, because it carries whatever the person most
+/// recently chose for that download (codec, output path, and so on);
+/// keeping an older, possibly stale copy instead would silently bring
+/// back settings the person had already moved past.
+///
+/// "Newest" is found by walking the list backwards (`.rev()`), since a
+/// later position in the saved list means it was added more recently.
+/// The first time an address is seen during that backwards walk is
+/// therefore always its newest copy, so anything seen again after that
+/// is an older duplicate and gets dropped. Walking backwards and
+/// collecting into `deduped` does put everything in reverse order, which
+/// is why the very last step reverses it back — so the surviving items
+/// keep the same relative order they had in the original saved queue,
+/// just with the duplicates missing.
 pub(crate) fn dedupe_persisted_queue_items(items: Vec<PersistedQueueItem>) -> Vec<PersistedQueueItem> {
     let mut seen = HashSet::new();
     let mut deduped = Vec::with_capacity(items.len());

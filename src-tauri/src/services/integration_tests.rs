@@ -860,9 +860,15 @@ mod tests {
     // ============================================================
 
     #[test]
-    /// Test that all four subtitle services can process the same directory
-    /// concurrently (simulating the enrichment pipeline running steps in
-    /// sequence). Verifies no file conflicts between .srt, .vtt, .ass, .lrc.
+    /// Runs all four subtitle services against the same directory, one
+    /// after another (this test makes no async calls and starts no extra
+    /// threads or tasks — it is not testing concurrency at all, despite
+    /// what an earlier version of this comment said). What it IS testing
+    /// is whether one service's output file gets in another's way: each
+    /// service reads the same source `.ttml` and writes its own sidecar
+    /// (`.srt`, `.vtt`, `.ass`), and this confirms running all three in
+    /// the real enrichment order leaves all three files intact side by
+    /// side rather than one clobbering another.
     fn all_services_same_directory() {
         let tmp = tempdir().expect("Failed to create temp dir");
         let dir = tmp.path();

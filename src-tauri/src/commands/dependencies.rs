@@ -600,11 +600,15 @@ pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
 /// Returns a list of all external tool dependencies (`FFmpeg`, mp4decrypt,
 /// N_m3u8DL-RE, `MP4Box`) with their current installation status. Each tool
 /// is checked by verifying whether a binary exists at its expected path
-/// inside the app data directory.
+/// inside the app data directory, then, if it exists, actually run with its
+/// version flag to confirm it's not a corrupted or non-executable file (#391).
 ///
-/// Version detection is intentionally skipped in this batch check because
-/// running each tool with `--version` is slow and unnecessary for the
-/// setup wizard's "installed/not installed" display.
+/// Tools are checked one after another, not at the same time. Each
+/// individual version check is capped at 2 seconds
+/// (`tokio::time::timeout`), so one broken binary can add at most 2
+/// seconds to the whole batch instead of hanging it — but with nothing
+/// running the checks in parallel, that cap is what keeps the loop
+/// bounded, not the loop itself.
 ///
 /// # Arguments
 /// * `app` - Tauri `AppHandle` for resolving tool binary paths.

@@ -234,7 +234,7 @@ export function getEngineConfig(): Promise<EngineConfig> {
 /**
  * Checks if the portable Python runtime is installed and accessible.
  *
- * Rust handler: `check_python_status()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `check_python_status()` in `src-tauri/src/commands/dependencies.rs`
  * Returns: `DependencyStatus { name: "Python", installed, version, path }`
  *
  * The Rust backend checks for the bundled portable Python in the app
@@ -251,7 +251,7 @@ export function checkPythonStatus(): Promise<DependencyStatus> {
 /**
  * Downloads and installs the portable Python runtime.
  *
- * Rust handler: `install_python()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `install_python()` in `src-tauri/src/commands/dependencies.rs`
  * Returns: string message indicating success (e.g., "Python 3.12.1 installed")
  *
  * This is a long-running operation that downloads a platform-specific
@@ -329,7 +329,7 @@ export function diagnosePythonVenv(): Promise<PythonVenvHealthDto> {
 /**
  * Checks if GAMDL is installed in the Python environment.
  *
- * Rust handler: `check_gamdl_status()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `check_gamdl_status()` in `src-tauri/src/commands/dependencies.rs`
  * Returns: `DependencyStatus { name: "GAMDL", installed, version, path }`
  *
  * Runs `pip show gamdl` in the portable Python environment to detect
@@ -346,7 +346,7 @@ export function checkGamdlStatus(): Promise<DependencyStatus> {
 /**
  * Installs GAMDL via pip into the portable Python environment.
  *
- * Rust handler: `install_gamdl()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `install_gamdl()` in `src-tauri/src/commands/dependencies.rs`
  * Returns: string message indicating success (e.g., "GAMDL 1.5.0 installed")
  *
  * Runs `pip install gamdl` in the portable Python. May take a minute
@@ -598,11 +598,13 @@ export function installOfscraper(): Promise<string> {
 /**
  * Returns the installation status of all external tool dependencies.
  *
- * Rust handler: `check_all_dependencies()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `check_all_dependencies()` in `src-tauri/src/commands/dependencies.rs`
  * Returns: `DependencyStatus[]` for FFmpeg, mp4decrypt, MP4Box, N_m3u8DL-RE, etc.
  *
  * Checks each tool binary by running its version command and parsing the output.
- * The checks run in parallel on the Rust side for faster results.
+ * The Rust side checks tools one after another, not in parallel — each
+ * individual check is capped at 2 seconds so a single broken binary
+ * can't stall the whole batch for longer than that.
  *
  * Called by: dependencyStore.checkAll(), SetupWizard dependencies step
  *
@@ -633,7 +635,7 @@ export function detectExternalGamdl(): Promise<ExternalGamdlInfo | null> {
 /**
  * Downloads and installs a specific tool dependency by name.
  *
- * Rust handler: `install_dependency()` in `src-tauri/src/commands/dependency.rs`
+ * Rust handler: `install_dependency()` in `src-tauri/src/commands/dependencies.rs`
  * Argument: `name` - the dependency name (e.g., "ffmpeg", "mp4decrypt")
  * Returns: string message indicating success
  *
@@ -851,7 +853,7 @@ export function startDownload(
 /**
  * Cancels an active or queued download.
  *
- * Rust handler: `cancel_download()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `cancel_download()` in `src-tauri/src/commands/gamdl.rs`
  * Argument: `downloadId` - UUID of the download to cancel
  *
  * If the download is actively running, the Rust backend kills the GAMDL
@@ -955,7 +957,7 @@ export function isQueuePaused(): Promise<boolean> {
 /**
  * Retries a failed or cancelled download.
  *
- * Rust handler: `retry_download()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `retry_download()` in `src-tauri/src/commands/gamdl.rs`
  * Argument: `downloadId` - UUID of the download to retry
  *
  * Resets the queue item state to 'queued' and re-queues it for execution
@@ -1092,7 +1094,7 @@ export function retryDownloadWithoutWrapper(downloadId: string): Promise<void> {
 /**
  * Clears all completed, failed, and cancelled items from the queue.
  *
- * Rust handler: `clear_queue()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `clear_queue()` in `src-tauri/src/commands/gamdl.rs`
  * Returns: number of items removed
  *
  * Only removes items in terminal states (complete, error, cancelled).
@@ -1137,7 +1139,7 @@ export function deleteQueueItem(downloadId: string): Promise<void> {
 /**
  * Returns the current status of the entire download queue.
  *
- * Rust handler: `get_queue_status()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `get_queue_status()` in `src-tauri/src/commands/gamdl.rs`
  * Returns: `QueueStatus { total, active, queued, completed, failed, items }`
  *
  * This is the primary data-fetching command for the DownloadQueue component.
@@ -1154,7 +1156,7 @@ export function getQueueStatus(): Promise<QueueStatus> {
 /**
  * Checks the latest GAMDL version available on PyPI.
  *
- * Rust handler: `check_gamdl_update()` in `src-tauri/src/commands/download.rs`
+ * Rust handler: `check_gamdl_update()` in `src-tauri/src/commands/gamdl.rs`
  * Returns: string version (e.g., "1.5.2")
  *
  * Makes an HTTP request to the PyPI JSON API to fetch the latest version.
@@ -1837,7 +1839,7 @@ export function scanForBundles(): Promise<DiscoveredBundle[]> {
  * Stores a credential securely in the OS keychain (Keychain on macOS,
  * Credential Manager on Windows, Secret Service on Linux).
  *
- * Rust handler: `store_credential()` in `src-tauri/src/commands/credential.rs`
+ * Rust handler: `store_credential()` in `src-tauri/src/commands/credentials.rs`
  * Arguments: `key` - credential identifier, `value` - secret value
  *
  * Used for securely storing API wrapper tokens and other secrets that
@@ -1854,7 +1856,7 @@ export function storeCredential(key: string, value: string): Promise<void> {
 /**
  * Retrieves a credential from the OS keychain.
  *
- * Rust handler: `get_credential()` in `src-tauri/src/commands/credential.rs`
+ * Rust handler: `get_credential()` in `src-tauri/src/commands/credentials.rs`
  * Argument: `key` - credential identifier to look up
  * Returns: the secret value string, or null if not found
  *
@@ -1868,7 +1870,7 @@ export function getCredential(key: string): Promise<string | null> {
 /**
  * Deletes a credential from the OS keychain.
  *
- * Rust handler: `delete_credential()` in `src-tauri/src/commands/credential.rs`
+ * Rust handler: `delete_credential()` in `src-tauri/src/commands/credentials.rs`
  * Argument: `key` - credential identifier to delete
  *
  * @param key - Credential identifier to delete
@@ -1974,15 +1976,21 @@ export function deactivateDevAccess(): Promise<void> {
 // ============================================================
 
 /**
- * Checks for updates to all application components (GAMDL, the GUI app, Python).
+ * Checks for updates to all application components.
  *
- * Rust handler: `check_all_updates()` in `src-tauri/src/commands/update.rs`
+ * Rust handler: `check_all_updates()` in `src-tauri/src/commands/updates.rs`
  * Returns: `UpdateCheckResult { checked_at, has_updates, components, errors }`
  *
- * The Rust backend checks each component in parallel:
+ * The Rust backend checks each component ONE AFTER ANOTHER, not in
+ * parallel — GAMDL, then the GUI app, then Python, then votify and
+ * every other enabled pip engine, then each external tool with a
+ * known GitHub repo. That matters because a slow check delays every
+ * check queued behind it:
  * - GAMDL: queries PyPI JSON API for latest version
  * - GUI app: queries GitHub Releases API for latest release
  * - Python: checks the portable Python version against latest stable
+ * - votify + other pip engines: same PyPI-style version comparison as GAMDL
+ * - External tools (FFmpeg, N_m3u8DL-RE): queried against their GitHub repos
  *
  * Non-fatal errors (e.g., network timeout for one component) are captured
  * in the `errors` array; other components still report their status.
@@ -2064,7 +2072,7 @@ export function upgradePipEngine(packageName: string): Promise<string> {
 /**
  * Checks the update status of a specific component by name.
  *
- * Rust handler: `check_component_update()` in `src-tauri/src/commands/update.rs`
+ * Rust handler: `check_component_update()` in `src-tauri/src/commands/updates.rs`
  * Argument: `name` - component name (e.g., "gamdl", "meedyadl", "python")
  * Returns: `ComponentUpdate` with version comparison and release info
  *

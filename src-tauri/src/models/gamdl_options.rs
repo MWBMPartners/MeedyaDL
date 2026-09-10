@@ -284,7 +284,7 @@ impl SongCodec {
     /// Human-readable display name for the UI dropdown/selector.
     ///
     /// These labels are shown in the React frontend's codec selection
-    /// dropdown (see `src/components/settings/AudioQuality.tsx`).
+    /// dropdown (see `src/components/settings/tabs/QualityTab.tsx`).
     /// They include the bitrate and sample-rate characteristics so the
     /// user can make an informed choice without needing to look up the
     /// codec specifications.

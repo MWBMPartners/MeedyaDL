@@ -2,7 +2,7 @@
  * Copyright (c) 2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file help/index.ts -- Barrel export for help components.
+ * @file Barrel export for help components.
  *
  * Re-exports the top-level {@link HelpViewer} component so that other parts
  * of the application can import it from `@/components/help` without reaching

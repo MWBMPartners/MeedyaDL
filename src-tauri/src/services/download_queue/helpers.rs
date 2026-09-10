@@ -106,6 +106,33 @@ pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
         .unwrap_or_else(|| "unknown content".to_string())
 }
 
+/// Turns a URL into the identity used to answer "is this already queued,
+/// or already downloaded?"
+///
+/// Two URLs for the same thing don't always look the same — one might be
+/// uppercase where the other is lowercase, one might have a trailing
+/// slash, one might carry extra query parameters a browser or share
+/// sheet tacked on (`?ls=1&app=music`), one might have a `#section`
+/// fragment. None of that changes what's being downloaded, so this
+/// function strips all of it away to leave just the part that actually
+/// identifies the content: the domain (lowercased, since domains are
+/// case-insensitive) and the path.
+///
+/// The one query parameter this deliberately keeps is `i=`. On Apple
+/// Music, a URL like `album/123?i=456` means "just track 456 inside
+/// album 123", not the whole album — so if `i=` were thrown away like
+/// every other query parameter, a link to one song and a link to its
+/// entire album would normalise to the identical string and look like
+/// duplicates of each other, even though downloading them does two very
+/// different things.
+///
+/// This function is the shared definition of "the same URL" for both the
+/// download queue (so it doesn't queue a URL twice) and the download
+/// history (`history_service.rs`, so it can tell you "you already
+/// downloaded this"). Both call this same function rather than each
+/// writing their own comparison — if they disagreed on what counts as a
+/// duplicate, the queue and the history could give the user two
+/// different answers to the same question.
 pub(crate) fn normalize_url_for_dedup(url: &str) -> String {
     // Split scheme + authority from path+query.
     // URL structure: scheme://authority/path?query#fragment

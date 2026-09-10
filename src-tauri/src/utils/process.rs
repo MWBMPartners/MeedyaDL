@@ -850,32 +850,6 @@ pub fn is_codec_skip_message(message: &str) -> bool {
     is_codec_skip_line(message)
 }
 
-/// Humanises a GAMDL "codec skip" line for the activity log UI.
-///
-/// GAMDL emits these as:
-///
-/// ```text
-/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
-///     Requested format is not available (media ID: 1578734917):
-///     [<SongCodec.AC3: 'ac3'>]
-/// ```
-///
-/// The track title is already in quotes earlier on the line, so the
-/// `(media ID: <numeric_id>)` portion is informational noise — it
-/// gives a downstream debugger a way to look up the song in Apple's
-/// catalog but provides no signal to a regular user reading the log.
-/// The `[<SongCodec.AC3: 'ac3'>]` list is also Python's repr format
-/// rather than a friendly codec name.
-///
-/// Transformation (Phase 3.5h, 2026-05-08 user request):
-/// ```text
-/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
-///     ac3 not available
-/// ```
-///
-/// Idempotent: running this on an already-humanised line is a no-op.
-/// Returns the unchanged input when the line doesn't match the codec-
-/// skip shape, so callers can apply it unconditionally.
 /// Maps a GAMDL codec CLI identifier (lowercase `atmos`, `aac-legacy`, etc.)
 /// to a user-facing display label (`Atmos`, `AAC Legacy`, etc.) for use in
 /// the activity log.
@@ -921,6 +895,32 @@ fn pretty_codec_label(cli_id: &str) -> String {
     }
 }
 
+/// Humanises a GAMDL "codec skip" line for the activity log UI.
+///
+/// GAMDL emits these as:
+///
+/// ```text
+/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
+///     Requested format is not available (media ID: 1578734917):
+///     [<SongCodec.AC3: 'ac3'>]
+/// ```
+///
+/// The track title is already in quotes earlier on the line, so the
+/// `(media ID: <numeric_id>)` portion is informational noise — it
+/// gives a downstream debugger a way to look up the song in Apple's
+/// catalog but provides no signal to a regular user reading the log.
+/// The `[<SongCodec.AC3: 'ac3'>]` list is also Python's repr format
+/// rather than a friendly codec name.
+///
+/// Transformation (Phase 3.5h, 2026-05-08 user request):
+/// ```text
+/// [WARNING 13:21:56] [Track 1/1] Skipping "Pickle (3ballMTY Remix)":
+///     ac3 not available
+/// ```
+///
+/// Idempotent: running this on an already-humanised line is a no-op.
+/// Returns the unchanged input when the line doesn't match the codec-
+/// skip shape, so callers can apply it unconditionally.
 #[must_use]
 pub fn humanise_codec_skip_line(line: &str) -> String {
     if !is_codec_skip_line(line) {
@@ -1024,6 +1024,16 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     out.trim_end_matches([':', ' ']).to_string()
 }
 
+/// Says whether an error/warning line means "the format the user asked
+/// for isn't available for this track" rather than some other kind of
+/// failure (network, cookies, filesystem, and so on).
+///
+/// This is the test both `classify_error` (which labels an error `"codec"`
+/// for display) and the fallback-quality chain rely on to decide "should
+/// we retry this track with the next codec down the user's priority
+/// list, or is this a different problem that retrying with a different
+/// codec won't fix?" Matches on wording from both GAMDL and yt-dlp, since
+/// the two engines phrase the same situation differently.
 #[must_use]
 pub fn is_codec_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();

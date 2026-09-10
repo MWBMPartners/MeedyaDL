@@ -1702,7 +1702,17 @@ pub fn run() {
             });
 
             // Emit a startup activity log event after a short delay so the
-            // frontend event listeners are registered before we send it.
+            // frontend event listeners are registered before we send it —
+            // otherwise this line would fire into the void before the
+            // Activity Log page has anything listening for it, and the
+            // user's first log entry would just be missing.
+            //
+            // Three seconds isn't measured from anything specific — it's a
+            // generous round number, not a tuned value. This line is purely
+            // cosmetic (nothing depends on it arriving at a particular
+            // moment), so there's no cost to waiting longer than strictly
+            // necessary, only a cost to being too eager and firing before
+            // the frontend is listening.
             let startup_handle = app.handle().clone();
             let version = app.package_info().version.to_string();
             tauri::async_runtime::spawn(async move {

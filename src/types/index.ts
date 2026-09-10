@@ -678,11 +678,15 @@ export interface AppSettings {
   /** Resolution ceiling for animated artwork HLS downloads (#972). Default: 'fhd' (~1080p) */
   animated_artwork_resolution: AnimatedArtworkResolution;
   /**
-   * Cross-platform best-cover-art picker (M9-3). When enabled,
-   * MeedyaDL queries every supported platform's artwork endpoint
-   * in parallel, picks the highest-resolution candidate, and embeds
-   * it (Apple Music wins equal-pixel tie-breaks). Off by default
-   * since it issues an extra HTTP call per non-Apple platform.
+   * Cross-platform best-cover-art picker (#1159). When enabled,
+   * MeedyaDL asks each platform in turn, not at the same time —
+   * today that's only Deezer's public album lookup (matched by
+   * release barcode); Apple Music's artwork is reused from metadata
+   * already fetched elsewhere, so it costs no extra request. Picks
+   * the highest-resolution candidate and embeds it only when it's
+   * strictly bigger than what's already saved (Apple Music wins an
+   * equal-pixel tie). Off by default since it sends the album's
+   * barcode to a third party (Deezer) for every download.
    */
   best_cover_art_enabled: boolean;
   /** Apple MusicKit Team ID for API authentication (10-char, e.g. "ABCDE12345") */
@@ -1189,7 +1193,7 @@ export interface QueueStatus {
 /**
  * Top-level schema for a `.meedyadl` queue export file.
  *
- * Mirrors: Rust struct `QueueExportFile` in `src-tauri/src/services/download_queue.rs`
+ * Mirrors: Rust struct `QueueExportFile` in `src-tauri/src/services/download_queue/mod.rs`
  *
  * Used for cross-device queue transfer: export on one machine, import on another.
  * The `version` field enables forward-compatible schema evolution.
@@ -1208,7 +1212,7 @@ export interface QueueExportFile {
 /**
  * A single item within a `.meedyadl` export file.
  *
- * Mirrors: Rust struct `ExportedItem` in `src-tauri/src/services/download_queue.rs`
+ * Mirrors: Rust struct `ExportedItem` in `src-tauri/src/services/download_queue/mod.rs`
  *
  * Contains only URLs and per-download overrides; the importing device
  * merges these with its own global settings on import.
@@ -1354,7 +1358,7 @@ export interface ComponentVersion {
 /**
  * Platform information returned by the Rust backend.
  *
- * Mirrors: Rust struct `PlatformInfo` in `src-tauri/src/models/system.rs`
+ * Mirrors: Rust struct `PlatformInfo` in `src-tauri/src/commands/system.rs`
  *
  * Used for platform detection, download URL selection (choosing the
  * correct binary architecture), and UI theme selection.
@@ -1371,7 +1375,7 @@ export interface PlatformInfo {
 /**
  * Result of validating a Netscape-format cookies file.
  *
- * Mirrors: Rust struct `CookieValidation` in `src-tauri/src/models/system.rs`
+ * Mirrors: Rust struct `CookieValidation` in `src-tauri/src/commands/settings.rs`
  *
  * Returned by the `validate_cookies_file` IPC command. The setup wizard
  * and settings page use this to show the user whether their cookies file
@@ -1461,7 +1465,7 @@ export interface CookieImportResult {
 /**
  * Structured event parsed from GAMDL's stdout/stderr output.
  *
- * Mirrors: Rust enum `GamdlOutputEvent` in `src-tauri/src/services/gamdl_parser.rs`
+ * Mirrors: Rust enum `GamdlOutputEvent` in `src-tauri/src/utils/process.rs`
  *
  * This is a discriminated union type -- the `type` field acts as the
  * discriminant, allowing TypeScript to narrow the type in switch/if blocks.
@@ -1898,9 +1902,12 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
 /**
  * Identifies which music service a download targets.
  *
- * Currently only Apple Music is fully implemented. YouTube Music and
- * Spotify are defined here for future extensibility -- the architecture
- * supports multiple service backends with different capabilities.
+ * Apple Music is fully implemented, and so is Spotify's backend
+ * (votify, M9) -- though Spotify still sits behind a dev-access-only
+ * preview flag until it's ready for regular users, so it isn't a
+ * normal option yet. YouTube Music, YouTube, and BBC iPlayer are
+ * defined here for future extensibility -- the architecture supports
+ * multiple service backends with different capabilities.
  *
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
@@ -2011,7 +2018,7 @@ export interface ServiceCapabilities {
 /**
  * Update status for a single application component.
  *
- * Mirrors: Rust struct `ComponentUpdate` in `src-tauri/src/models/update.rs`
+ * Mirrors: Rust struct `ComponentUpdate` in `src-tauri/src/services/update_checker.rs`
  *
  * Returned as part of `UpdateCheckResult`. Each component (GAMDL, the GUI
  * app itself, Python runtime) has its own update status. The UpdateBanner
@@ -2093,7 +2100,7 @@ export interface ComponentUpdate {
 /**
  * Combined update check result for all application components.
  *
- * Mirrors: Rust struct `UpdateCheckResult` in `src-tauri/src/models/update.rs`
+ * Mirrors: Rust struct `UpdateCheckResult` in `src-tauri/src/services/update_checker.rs`
  *
  * Returned by the `check_all_updates` IPC command. The `has_updates` flag
  * is a convenience field that is true if any component has an update.

@@ -56,7 +56,7 @@ use super::gamdl_options::GamdlOptions;
 ///
 /// ## Frontend origin
 ///
-/// Created by the download form component (`src/components/DownloadForm.tsx`)
+/// Created by the download form component (`src/components/download/DownloadForm.tsx`)
 /// when the user clicks "Download". The frontend serializes this as JSON
 /// and sends it via `invoke("start_download", { request: ... })`.
 ///

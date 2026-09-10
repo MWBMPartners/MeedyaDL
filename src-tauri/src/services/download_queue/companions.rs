@@ -22,22 +22,6 @@ pub(crate) struct CompanionTier {
     pub(crate) apply_suffix: bool,
 }
 
-/// Plans the companion downloads to perform after a primary download
-/// succeeds, based on the companion mode and the primary codec used.
-///
-/// Returns an ordered list of `CompanionTier` structs. Each tier is
-/// processed sequentially (to avoid concurrent GAMDL processes writing to
-/// the same directory). Within a tier, codecs are tried in order until one
-/// succeeds.
-///
-/// # Examples
-///
-/// `AtmosToLossless` with primary `"atmos"`:
-/// → `[CompanionTier { codecs: [ALAC], suffix: false }]`
-///
-/// `AtmosToLosslessAndLossy` with primary `"atmos"`:
-/// → `[CompanionTier { codecs: [ALAC], suffix: true },
-///     CompanionTier { codecs: [AAC, AacLegacy], suffix: false }]`
 /// Epoch-milliseconds helper used by `run_download_with_events` for
 /// the primary GAMDL idle watchdog (#508). Local copy rather than
 /// importing from `companion_supervisor` to avoid a tight coupling
@@ -173,6 +157,36 @@ pub(crate) fn lossy_chain_for_runtime() -> Vec<SongCodec> {
 }
 
 
+/// Works out which extra copies of an album to download alongside the
+/// primary one, and in what order to try them.
+///
+/// A "companion" is a second (or third, or fourth) copy of the same
+/// album downloaded in a different audio format — for example, when the
+/// primary download is Dolby Atmos, a companion download can fetch the
+/// same album again in plain ALAC (lossless stereo) so the user has a
+/// version that plays on ordinary headphones too, without them having to
+/// ask for it separately every time.
+///
+/// The result is an ordered list of tiers (`CompanionTier`). Tiers run
+/// one after another — never at the same time, since two GAMDL
+/// processes writing into the same album folder at once would step on
+/// each other's files. Within a single tier, `codecs_to_try` is also an
+/// ordered list: the first codec that actually succeeds wins and the
+/// rest of that tier's list is skipped; if every codec in the tier
+/// fails, that whole tier is quietly skipped rather than failing the
+/// download.
+///
+/// **Filename tagging rule:** a companion whose codec is not the only
+/// other format the user will end up with gets a tag in its filename —
+/// like `[Lossless]` — so the two copies sitting in the same folder can
+/// be told apart at a glance. The exception is whichever companion ends
+/// up being the *most* universally compatible one for the chosen mode
+/// (for example, plain AAC when both Atmos and lossless copies also
+/// exist): that one is treated as the "default" copy a music player
+/// would reach for, so it keeps a clean, untagged filename instead —
+/// see each `CompanionTier`'s `apply_suffix` field, and
+/// `needs_primary_suffix` (in `options.rs`) for the matching rule
+/// applied to the primary download itself.
 pub(crate) fn plan_companions(
     mode: &CompanionMode,
     primary_codec: &str,

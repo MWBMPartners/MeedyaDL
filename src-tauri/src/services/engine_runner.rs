@@ -284,6 +284,12 @@ pub async fn run_engine_with_queue(
     // `download_queue::run_download_with_events` — periodically
     // check is_cancelled; on positive hit, kill + drain + return.
     //
+    // 250 ms is fast enough that clicking "Cancel" feels close to
+    // instant, but slow enough that this loop isn't spinning and
+    // burning CPU while it waits — same trade-off as the 200 ms idle
+    // watchdog poll in `companion_supervisor.rs`, just applied to
+    // cancellation instead of idle detection.
+    //
     // The cancelled flag is read inside its own tiny block so the queue
     // lock is dropped before we kill the process and wait for the reader
     // tasks. Those readers take this same lock on every line they read,

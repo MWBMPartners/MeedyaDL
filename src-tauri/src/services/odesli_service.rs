@@ -654,6 +654,38 @@ async fn paced_attempt(
     // The turn is given up here, where this function ends.
 }
 
+/// Asks song.link where else a given Apple Music URL is available, and
+/// returns the cross-platform links it found.
+///
+/// Callers should normally reach for [`lookup`] instead — this is the
+/// uncached function it calls on a cache miss, and calling it directly
+/// skips the 30-day on-disk cache that keeps this module within the
+/// request quota described in the module docs.
+///
+/// # Return value by situation
+///
+/// * **No API key supplied**: song.link closed free, keyless access to
+///   this API at some point in 2026 (see the module docs), so the
+///   first call in a session with no key actually goes to the network
+///   and comes back `Err(OdesliError::PublicAccessClosed)`. Every call
+///   after that in the same session skips the network entirely and
+///   returns that same error immediately, because there's nothing to
+///   gain by asking again — song.link already told us the answer.
+/// * **Access already known to be closed this session**: same error,
+///   `Err(OdesliError::PublicAccessClosed)`, returned without making a
+///   network request at all (the session-scoped latch described above).
+/// * **A key that song.link already rejected this session**: if the
+///   key passed in is byte-for-byte the same one song.link most
+///   recently turned down, this returns `Err(OdesliError::KeyRejected)`
+///   immediately, no network call — but a *different* key (the user
+///   fixing a typo, say) is still tried for real, since it hasn't been
+///   rejected.
+/// * **A working key, and a match found**: `Ok(Some(CrossPlatformUrls))`.
+/// * **A working key, but song.link has nothing for this URL**:
+///   `Ok(None)` — this is a normal, cacheable answer, not an error.
+/// * **Rate-limited twice in a row**: `Err(OdesliError::RateLimited)`
+///   after one retry that waited out whatever `Retry-After` (or a
+///   one-minute default) song.link asked for.
 pub async fn fetch_links(
     source_url: &str,
     api_key: Option<&str>,
