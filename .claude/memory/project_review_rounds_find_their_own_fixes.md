@@ -1,6 +1,6 @@
 ---
 name: project-review-rounds-find-their-own-fixes
-description: Every round of adversarial review on this project has found faults in the previous round's fixes — including one fix that was worse than the bug it fixed
+description: Each of the first three rounds of adversarial review found faults in the previous round's fixes — including one fix worse than the bug it fixed; the fourth found nothing, which is what finished work looks like
 metadata:
   type: project
 ---
@@ -8,7 +8,10 @@ metadata:
 # A fix needs reviewing as much as the thing it fixed
 
 On the music video work (#1176) there were four rounds of adversarial review.
-**Every round found faults in the previous round's fixes.** That is not a sign
+**Each of the first three rounds found faults in the previous round's fixes.** The fourth
+found nothing at all — which is the point at which you can believe the work is
+actually finished, and is why you keep going until a round comes back empty
+rather than stopping at a fixed number. That is not a sign
 the reviews were bad. It is what reviewing fixes actually turns up, and it is
 why one round is not enough.
 
