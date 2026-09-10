@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-09-10 (later) — see ★★★★ below
-**Working branch:** `work/video-quality-fallback`, rooted on `alpha`, and now **pull request #1177 into `alpha`**, being rebase-merged. The previous branch (`work/alpha-resilience-and-docs`) was merged as PR #1174 and is finished with.
+**Working branch:** none. Everything below is on `alpha`. PR #1177 was rebase-merged and its branch deleted; the branch before that (`work/alpha-resilience-and-docs`) went in as PR #1174.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.64**, becoming **alpha.65** the moment #1177 lands, because a push to `alpha` cuts the next tag by itself · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.65** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
 
 (The beta number was wrong here until now — it said beta.5, and beta.6 had been tagged the day before. Worth knowing that this line rots quietly: nothing checks it.)
 
@@ -134,10 +134,34 @@ idea this whole issue existed to correct), and the memory folder's own README st
 "personal memory is never committed" — that the folder it describes visibly breaks, with a good
 reason that was simply never written down.
 
+### The release, and the platform that nearly vanished from it
+
+`v1.13.0-alpha.65` is published: 22 files, and all **twelve** entries in `latest.json`, every one
+signed. It took an intervention to get there, and the reason is worth reading.
+
+**The Linux ARMv7 build failed, and the release still reported success.** The ARM cross-compile
+jobs are deliberately marked "carry on if this fails" because they are experimental — a fair
+choice, since one flaky target should not sink a whole release. The cost is that a platform can
+drop out of a release that looks completely green, with nothing saying so. Only opening the run
+and reading the job list shows it. That is the same shape as #1166: the manifest looked fine and
+simply had no entry for a platform whose files were sitting right there.
+
+The failure itself was temporary — Ubuntu's armhf archive was briefly in a state where `libc6`
+could not be installed for that architecture, and every other package depends on it. ARMv7 had
+succeeded in the six previous releases, so re-running the one job was the right first move, and it
+passed. What it did **not** do is rebuild `latest.json`, which had been assembled before the
+retry — so the files existed and the updater still could not see them.
+
+**The obvious tool for that cannot do it.** `fix-updater-manifest.yml` exists to repair a
+manifest for a tag after the fact, and it has no ARMv7 handling at all. So the recovery tool
+silently omits the platform most likely to need recovering — ARMv7 is both the only experimental
+build and the only one with no prebuilt wheel for its download engine. Raised as **#1178**. The
+fix used here instead was to re-run the release's own finalise job, which does know about ARMv7.
+That only worked because the original run still existed to re-run.
+
 ### Still to do
 
-1. Watch the Alpha Release workflow this merge triggers, and the build, packaging and deploy
-   actions after it.
+Nothing on this work. #1178 is open for the manifest repair tool.
 
 ### Not code — these need a person
 
