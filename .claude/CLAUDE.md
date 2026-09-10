@@ -133,7 +133,7 @@ assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG
 
 ## Conventions
 
-- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaSuite` + MIT license reference
+- **Copyright header**: Every source file starts with `// Copyright (c) 2024-2026 MeedyaSuite` + MIT license reference
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation (release-please)
 - **`Release-Note:` trailers apply to direct-pushed commits too (#1046)**: This project's "push `fix:`/`feat:` commits directly to main" convention (see Release Workflow below) bypasses the PR-only `release-note-gate.yml` trailer check entirely. Direct-pushed `feat`/`fix`/`perf` commits MUST end their body with `Release-Note: <plain English line>` trailer line(s) (or `Release-Note: none` when nothing is user-visible), exactly like PR bodies — see `.github/release-notes/STYLE_GUIDE.md`. `release-note-gate.yml`'s `push-trailer-advisory` job scans every push to `main`/`alpha`/`beta`/`release-candidate` and posts a `::warning` (non-blocking — a push can't be un-pushed) for any feat/fix/perf commit missing one, but the habit matters more than the warning: a missing trailer means that commit's user-facing change is silently absent from every ELI5 release body it lands in.

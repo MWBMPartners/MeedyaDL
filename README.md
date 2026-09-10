@@ -81,7 +81,7 @@
 - **Smart notifications** — toast notifications deduplicate automatically (no more stacking identical messages) and auto-dismiss when their condition resolves (e.g., wrapper warning clears when wrapper becomes reachable)
 - **Crash reporting** — crash reports saved on your own machine, optional anonymous reporting you can switch on, and one-click reporting to GitHub Issues (a pre-filled issue opened in your browser, with a preview of exactly what would be sent)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
-- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaDL` GitHub orgs). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
+- **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaSuite` GitHub orgs — see `src-tauri/deny.toml`). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
 - **i18n groundwork** — translation infrastructure with OS language detection and manual language selection (English, German, French)
 - **Pre-release version handling** — verbose activity logging persists across restarts during pre-release versions (v0.x.x) for easier debugging; first-load notice modal warns users when a new pre-release version is launched
@@ -538,12 +538,14 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 ```text
 MIT License
 
-Copyright (c) 2026 MeedyaSuite
+Copyright (c) 2024-2026 MeedyaSuite
 ```
 
 This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for full details.
 
 The verbatim upstream copyright notices and licence text for the third-party engines and tools that MeedyaDL invokes or bundles (GAMDL, FFmpeg, MP4Box, MediaInfo, mp4decrypt, N_m3u8DL-RE, Python, etc.) are reproduced in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), which also carries MeedyaDL's written offer for the complete corresponding source code of the LGPL/GPL components shipped in the offline-installer build. The [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) file lists the full dependency inventory with versions and one-line purposes.
+
+**The MeedyaDL name, logo, wordmark, and icons are not covered by this MIT licence.** They are copyright MeedyaSuite, all rights reserved, and may not be reused outside this project without written permission — see [assets/brand/LICENSE](assets/brand/LICENSE). Everything else in this repository — all of the application's own source code — is MIT as above.
 
 ---
 

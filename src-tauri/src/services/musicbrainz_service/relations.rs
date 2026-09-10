@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // MusicBrainz relation parsing — the single home of the 2026-11-30

@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 MeedyaSuite. Licensed under the MIT License. -->
+<!-- Copyright (c) 2024-2026 MeedyaSuite. Licensed under the MIT License. -->
 
 # Audit checks
 

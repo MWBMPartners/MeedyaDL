@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaSuite
+# Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Release Build Workflow for MeedyaDL
@@ -1011,6 +1011,67 @@ jobs:
           DEPS_DIR="src-tauri/bundled-deps"
           mkdir -p "$DEPS_DIR/tools"
 
+          # Where we record the ACTUAL version of each bundled tool, so the
+          # manifest.json written at the end of this step names a real
+          # version instead of just a tool name. THIRD_PARTY_LICENSES.md's
+          # written offer for source points a reader at this manifest for
+          # "the exact version shipped" — that promise only means something
+          # if a version is actually recorded here.
+          export TOOL_VERSIONS_TSV="$RUNNER_TEMP/meedyadl-tool-versions.tsv"
+          : > "$TOOL_VERSIONS_TSV"
+
+          # Runs a bundled tool's own version command and prints one line
+          # of raw output. Mirrors the technique `get_tool_version()`
+          # (src-tauri/src/services/dependency_manager.rs) uses at runtime:
+          # FFmpeg/MP4Box use the single-dash "-version" flag; mp4decrypt
+          # has no version flag at all (its usage banner, printed to
+          # stderr when it's run with no arguments, names the Bento4 SDK
+          # version); everything else uses "--version". The `|| true`
+          # guards stop a tool's normal non-zero exit (routine for a
+          # "--version"/usage banner) from tripping this step's `set -e`.
+          detect_tool_version() {
+            local tool="$1" dir="$2"
+            local exe_ext=""
+            [ "$RUNNER_OS" = "Windows" ] && exe_ext=".exe"
+
+            local binary_name
+            case "$tool" in
+              ffmpeg)     binary_name="ffmpeg${exe_ext}" ;;
+              mp4decrypt) binary_name="mp4decrypt${exe_ext}" ;;
+              nm3u8dlre)  binary_name="N_m3u8DL-RE${exe_ext}" ;;
+              mp4box)     binary_name="MP4Box${exe_ext}" ;;
+              mediainfo)  binary_name="mediainfo${exe_ext}" ;;
+              *)          binary_name="${tool}${exe_ext}" ;;
+            esac
+
+            local bin_path
+            bin_path=$(find "$dir" -type f -iname "$binary_name" 2>/dev/null | head -n1) || true
+            if [ -z "$bin_path" ]; then
+              echo "unknown (no $binary_name binary found inside the bundled archive)"
+              return
+            fi
+            chmod +x "$bin_path" 2>/dev/null || true
+
+            local raw=""
+            case "$tool" in
+              ffmpeg|mp4box)
+                raw=$("$bin_path" -version 2>&1 | head -n1) || true
+                ;;
+              mp4decrypt)
+                raw=$("$bin_path" 2>&1 | grep -i version | head -n1) || true
+                ;;
+              *)
+                raw=$("$bin_path" --version 2>&1 | head -n1) || true
+                ;;
+            esac
+            raw=$(printf '%s' "$raw" | tr -d '\r\t' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            if [ -z "$raw" ]; then
+              echo "unknown ($binary_name ran but reported no recognisable version string)"
+            else
+              printf '%s' "$raw"
+            fi
+          }
+
           # --- Determine platform ---
           case "$RUNNER_OS" in
             macOS)   MIRROR_OS="macos"; MIRROR_ARCH="aarch64"; EXT="tar.gz" ;;
@@ -1072,6 +1133,23 @@ jobs:
             # are placed so the setup wizard can detect them.
             python3 -m pip install --target="$DEPS_DIR/pip-packages" $PIP_PACKAGES
             echo "Pip engines installed to $DEPS_DIR/pip-packages/"
+          fi
+
+          # Record the ACTUAL installed version of each pip-installed
+          # engine, read from the wheel's own dist-info metadata rather
+          # than the install-spec string above — that string is sometimes
+          # just a bare, unpinned name (e.g. "votify"), which names no
+          # version at all.
+          export PIP_VERSIONS_TSV="$RUNNER_TEMP/meedyadl-pip-versions.tsv"
+          : > "$PIP_VERSIONS_TSV"
+          if [ -d "$DEPS_DIR/pip-packages" ]; then
+            find "$DEPS_DIR/pip-packages" -maxdepth 1 -type d -iname '*.dist-info' | while read -r distinfo; do
+              meta="$distinfo/METADATA"
+              [ -f "$meta" ] || continue
+              name=$(grep -m1 '^Name:' "$meta" | sed 's/^Name:[[:space:]]*//' | tr -d '\r')
+              ver=$(grep -m1 '^Version:' "$meta" | sed 's/^Version:[[:space:]]*//' | tr -d '\r')
+              [ -n "$name" ] && printf '%s\t%s\n' "$name" "$ver" >> "$PIP_VERSIONS_TSV"
+            done
           fi
 
           # --- Download binary tools from MeedyaDL-Tools mirror ---
@@ -1207,20 +1285,69 @@ jobs:
               fi
               rm -f "/tmp/${tool}.${EXT}"
               echo "  → $tool extracted to $TOOL_DIR"
+
+              TOOL_VERSION=$(detect_tool_version "$tool" "$TOOL_DIR")
+              printf '%s\t%s\n' "$tool" "$TOOL_VERSION" >> "$TOOL_VERSIONS_TSV"
+              echo "  → $tool version: $TOOL_VERSION"
             else
               echo "::warning::No mirror asset found for ${ASSET_PREFIX} — will download at runtime"
+              printf '%s\t%s\n' "$tool" "not bundled on this platform — downloaded at first run instead" >> "$TOOL_VERSIONS_TSV"
             fi
           done
 
           # --- Write manifest ---
+          #
+          # Each tool gets its ACTUAL detected version (from
+          # detect_tool_version() above, recorded to TOOL_VERSIONS_TSV as
+          # the loop ran), not just its name. This is what lets
+          # THIRD_PARTY_LICENSES.md's written offer for source truthfully
+          # say "the version is named in the bundled manifest.json" — a
+          # version-less manifest couldn't back that claim up.
           python3 -c "
-          import json, datetime
+          import json, datetime, os
+
+          # Read the two TSV paths from the environment rather than
+          # interpolating them as bash-substituted string literals below —
+          # on Windows, \$RUNNER_TEMP is a backslash path (e.g.
+          # 'D:\a\_temp'), and splicing that straight into a Python
+          # single-quoted literal would let escape sequences like '\a'
+          # (bell) or '\t' (tab) corrupt the path. Environment variables
+          # carry the raw bytes with no such re-interpretation.
+          def read_tsv(path):
+              rows = []
+              try:
+                  with open(path, 'r', encoding='utf-8') as fh:
+                      for line in fh:
+                          line = line.rstrip('\n')
+                          if not line:
+                              continue
+                          parts = line.split('\t', 1)
+                          if len(parts) == 2:
+                              rows.append(parts)
+              except FileNotFoundError:
+                  pass
+              return rows
+
+          tool_versions = dict(read_tsv(os.environ['TOOL_VERSIONS_TSV']))
+          pip_versions = read_tsv(os.environ['PIP_VERSIONS_TSV'])
+
+          tools = []
+          for t in '${TOOLS[*]}'.split():
+              version = tool_versions.get(t)
+              if version is None:
+                  version = 'unknown (no data recorded for this tool)'
+                  bundled = False
+              else:
+                  bundled = not version.startswith('not bundled')
+              tools.append({'name': t, 'version': version, 'bundled': bundled})
+
           manifest = {
               'bundled_at': datetime.datetime.utcnow().isoformat() + 'Z',
               'target_os': '${MIRROR_OS}',
               'target_arch': '${MIRROR_ARCH}',
               'pip_packages': '${PIP_PACKAGES}'.split(),
-              'tools': [t for t in '${TOOLS[*]}'.split() if t],
+              'pip_package_versions': [{'name': n, 'version': v} for n, v in pip_versions],
+              'tools': tools,
               'offline_installer': True
           }
           with open('src-tauri/bundled-deps/manifest.json', 'w') as f:
@@ -1329,15 +1456,27 @@ jobs:
             echo ""
             echo "--- Components covered ---"
             echo ""
-            if [ -f tool-versions.toml ]; then
-              echo "FFmpeg   - LGPL-2.1+  - https://ffmpeg.org/releases/"
-              echo "MP4Box   - LGPL-2.1   - https://github.com/gpac/gpac/releases"
-              echo "mp4decrypt (Bento4) - GPL-2.0 w/ linking exception"
-              echo "         - https://github.com/axiomatic-systems/Bento4/releases"
-              echo ""
-              echo "Exact shipped versions for this build:"
-              grep -E '^\s*(minimum_version|recommended_version|maximum_tested_version)\s*=' \
-                tool-versions.toml || true
+            echo "FFmpeg   - treat as GPL for this build (see the FFmpeg entry"
+            echo "           in THIRD_PARTY_LICENSES.md) - https://ffmpeg.org/releases/"
+            echo "MP4Box   - LGPL-2.1   - https://github.com/gpac/gpac/releases"
+            echo "mp4decrypt (Bento4) - GPL-2.0 w/ linking exception"
+            echo "         - https://github.com/axiomatic-systems/Bento4/releases"
+            echo ""
+            echo "Exact shipped versions for THIS build (read from manifest.json,"
+            echo "which records the real version this workflow run actually"
+            echo "bundled — not a minimum/recommended/tested threshold):"
+            if [ -f "$DEPS_DIR/manifest.json" ]; then
+              python3 -c "
+          import json
+          with open('$DEPS_DIR/manifest.json') as f:
+              manifest = json.load(f)
+          wanted = ('ffmpeg', 'mp4box', 'mp4decrypt')
+          for t in manifest.get('tools', []):
+              if t.get('name') in wanted:
+                  print('  ' + t.get('name', '?') + ': ' + str(t.get('version', 'unknown')))
+          "
+            else
+              echo "  (manifest.json not found for this build — versions unavailable)"
             fi
             echo ""
             echo "--- Issued by ---"
