@@ -2114,6 +2114,12 @@ jobs:
       contents: write
 
     steps:
+      # The manifest rebuild and check below run a script kept in this
+      # repository, so this job needs the repository on disk. It had no
+      # checkout at all before, because every step was self-contained shell.
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -2140,332 +2146,20 @@ jobs:
       # Each platform build uploads its own latest.json with only its entry,
       # and the last build to finish wins — losing all other platforms.
       # This step reconstructs the complete manifest after all builds finish.
+      #
+      # The work itself lives in scripts/release/updater-manifest.sh, because
+      # fix-updater-manifest.yml needs exactly the same logic and used to
+      # carry its own copy of it. The two copies drifted, and the copy that
+      # fell behind would have DELETED six working update paths from any
+      # release it was pointed at. There is now one list of platforms, in
+      # that script, read by the rebuild, its guard and the check alike.
       - name: Rebuild updater manifest (latest.json)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.name }}
         shell: bash
-        run: |
-          TAG="${{ steps.tag.outputs.name }}"
-          REPO="${{ github.repository }}"
-          VERSION="${TAG#v}"
-          BASE="https://github.com/${REPO}/releases/download/${TAG}"
-
-          # Create the working directory up front. Previously this only
-          # existed by accident, as a side effect of the "download
-          # latest.json" call below finding something to fetch — which
-          # meant a zero-platform run could fail (or not) in a way nobody
-          # actually decided on. Creating it explicitly here means every
-          # write below always has somewhere to land, including
-          # download_sig's retries. The zero-platform safety net this
-          # accident used to provide is restored on purpose, explicitly,
-          # right before the upload further down.
-          mkdir -p /tmp/updater
-
-          # Download the current latest.json to preserve notes and pub_date
-          gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir /tmp/updater --clobber 2>/dev/null || true
-
-          # Extract existing notes and pub_date (fall back to now if missing)
-          if [ -f /tmp/updater/latest.json ]; then
-            NOTES=$(jq -r '.notes // ""' /tmp/updater/latest.json)
-            PUB_DATE=$(jq -r '.pub_date // ""' /tmp/updater/latest.json)
-          fi
-          : "${NOTES:=See CHANGELOG.md for details.}"
-          : "${PUB_DATE:=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")}"
-
-          # List all release assets to determine which platforms built successfully
-          ASSETS=$(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name')
-
-          # Diagnostic: dump the full asset listing to the log now, before
-          # any download is attempted. If a platform goes missing from
-          # latest.json again, this line tells us in one glance whether the
-          # asset was actually there (a download problem, like alpha.58)
-          # or never got uploaded in the first place (a build problem).
-          echo "Release asset listing for ${TAG}:" >&2
-          echo "$ASSETS" >&2
-
-          # Start building the platforms JSON object
-          PLATFORMS="{}"
-
-          # Helper: download a .sig file content from the release.
-          #
-          # Hardened after the v1.13.0-alpha.58 incident: windows-x86_64
-          # and windows-x86_64-nsis silently vanished from latest.json even
-          # though every signature had been uploaded to the release 30
-          # minutes earlier. The cause was two transient `gh release
-          # download` failures inside a ~2 second window — invisible
-          # because `2>/dev/null` threw away gh's own error text and the
-          # function had no retry, so one hiccup was treated the same as
-          # "this platform never built".
-          #
-          # STDOUT DISCIPLINE: this function's stdout is captured by the
-          # caller as `SIG=$(download_sig ...)`, so only the signature
-          # bytes may ever reach stdout. Every diagnostic line below is
-          # explicitly redirected to stderr (`>&2` / `1>&2`) so it can
-          # never contaminate a signature and corrupt latest.json.
-          download_sig() {
-            local sig_name="$1"
-            if ! echo "$ASSETS" | grep -qF "$sig_name"; then
-              return 1
-            fi
-
-            local attempt
-            for attempt in 1 2 3; do
-              # gh's stdout AND stderr both go to our stderr here — the
-              # download writes the file to disk, it doesn't need to print
-              # anything to our stdout, and dropping "2>/dev/null" means a
-              # real failure now shows up in the log instead of vanishing.
-              gh release download "$TAG" --repo "$REPO" --pattern "$sig_name" --dir /tmp/updater --clobber 1>&2
-
-              # -s (has content), not -f (merely exists): a zero-byte file
-              # left behind by a truncated download must count as a
-              # failure, not a false "success" with an empty signature.
-              if [ -s "/tmp/updater/$sig_name" ]; then
-                cat "/tmp/updater/$sig_name"
-                return 0
-              fi
-
-              echo "::warning::download_sig: attempt ${attempt}/3 for ${sig_name} produced no usable file" >&2
-              if [ "$attempt" -eq 1 ]; then
-                sleep 5
-              elif [ "$attempt" -eq 2 ]; then
-                sleep 10
-              fi
-            done
-            return 1
-          }
-
-          # macOS ARM64 (darwin-aarch64)
-          # Tauri 2.x names the updater bundle after the .app (no version/arch
-          # suffix): MeedyaDL.app.tar.gz. This matches the upload step above.
-          MAC_SIG_FILE="MeedyaDL.app.tar.gz.sig"
-          MAC_URL="${BASE}/MeedyaDL.app.tar.gz"
-          if SIG=$(download_sig "$MAC_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$MAC_URL" \
-              '. + {"darwin-aarch64": {"signature": $sig, "url": $url}}')
-            echo "Added darwin-aarch64 to latest.json"
-          fi
-
-          # Windows x64 (windows-x86_64 + windows-x86_64-nsis)
-          WIN_X64_SIG_FILE="MeedyaDL_${VERSION}_x64-setup.exe.sig"
-          WIN_X64_URL="${BASE}/MeedyaDL_${VERSION}_x64-setup.exe"
-          if SIG=$(download_sig "$WIN_X64_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_X64_URL" \
-              '. + {"windows-x86_64": {"signature": $sig, "url": $url}, "windows-x86_64-nsis": {"signature": $sig, "url": $url}}')
-            echo "Added windows-x86_64 to latest.json"
-          fi
-
-          # Windows ARM64 (windows-aarch64 + windows-aarch64-nsis)
-          WIN_ARM_SIG_FILE="MeedyaDL_${VERSION}_arm64-setup.exe.sig"
-          WIN_ARM_URL="${BASE}/MeedyaDL_${VERSION}_arm64-setup.exe"
-          if SIG=$(download_sig "$WIN_ARM_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$WIN_ARM_URL" \
-              '. + {"windows-aarch64": {"signature": $sig, "url": $url}, "windows-aarch64-nsis": {"signature": $sig, "url": $url}}')
-            echo "Added windows-aarch64 to latest.json"
-          fi
-
-          # Linux x64 (linux-x86_64) — uses AppImage for updater
-          LINUX_X64_SIG_FILE="MeedyaDL_${VERSION}_amd64.AppImage.sig"
-          LINUX_X64_URL="${BASE}/MeedyaDL_${VERSION}_amd64.AppImage"
-          if SIG=$(download_sig "$LINUX_X64_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_URL" \
-              '. + {"linux-x86_64": {"signature": $sig, "url": $url}}')
-            echo "Added linux-x86_64 to latest.json"
-          fi
-
-          # ---- Linux .deb / .rpm keys (#1166) -------------------------------
-          #
-          # Before this, a Linux user who installed the .deb or .rpm was
-          # never given their own manifest key at all — only the bare
-          # "linux-x86_64" key above existed, which points at the AppImage.
-          # The updater plugin asks for "{os}-{arch}-{installer}" first
-          # (e.g. "linux-x86_64-deb") and only falls back to the bare
-          # "{os}-{arch}" key if that specific one is missing. So a .deb
-          # user fell back to the AppImage entry, downloaded AppImage
-          # bytes, and then the plugin tried to install them with dpkg —
-          # which cannot work, because a .deb and an .AppImage are not the
-          # same kind of file. That is a worse outcome than "no update
-          # offered": it is an update offered and then failing.
-          #
-          # Every package FORMAT needs its own key because it is installed
-          # by a different tool (dpkg for .deb, rpm for .rpm) and carries
-          # its own independent signature — handing a .deb user an .rpm (or
-          # vice versa) fails exactly the same way as handing them the
-          # AppImage.
-
-          # Linux x64 — .deb and .rpm. Built by the same Tier-1 "Linux
-          # (x64)" job as the AppImage above, so these are signed and
-          # published on every successful release; they simply never had a
-          # manifest key of their own until now.
-          LINUX_X64_DEB_SIG_FILE="MeedyaDL_${VERSION}_amd64.deb.sig"
-          LINUX_X64_DEB_URL="${BASE}/MeedyaDL_${VERSION}_amd64.deb"
-          if SIG=$(download_sig "$LINUX_X64_DEB_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_DEB_URL" \
-              '. + {"linux-x86_64-deb": {"signature": $sig, "url": $url}}')
-            echo "Added linux-x86_64-deb to latest.json"
-          fi
-
-          LINUX_X64_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.x86_64.rpm.sig"
-          LINUX_X64_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.x86_64.rpm"
-          if SIG=$(download_sig "$LINUX_X64_RPM_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_X64_RPM_URL" \
-              '. + {"linux-x86_64-rpm": {"signature": $sig, "url": $url}}')
-            echo "Added linux-x86_64-rpm to latest.json"
-          fi
-
-          # Linux ARM64 (Raspberry Pi 4/5, ARM servers) — .deb and .rpm.
-          # Built by the experimental Tier-2 "Linux (ARM64)" job via
-          # tauri-action, which already has the signing key in its env —
-          # these have been signed and published on every release for a
-          # while. The only thing that was ever missing was telling the
-          # updater about them.
-          LINUX_ARM64_DEB_SIG_FILE="MeedyaDL_${VERSION}_arm64.deb.sig"
-          LINUX_ARM64_DEB_URL="${BASE}/MeedyaDL_${VERSION}_arm64.deb"
-          if SIG=$(download_sig "$LINUX_ARM64_DEB_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARM64_DEB_URL" \
-              '. + {"linux-aarch64-deb": {"signature": $sig, "url": $url}}')
-            echo "Added linux-aarch64-deb to latest.json"
-          fi
-
-          LINUX_ARM64_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.aarch64.rpm.sig"
-          LINUX_ARM64_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.aarch64.rpm"
-          if SIG=$(download_sig "$LINUX_ARM64_RPM_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARM64_RPM_URL" \
-              '. + {"linux-aarch64-rpm": {"signature": $sig, "url": $url}}')
-            echo "Added linux-aarch64-rpm to latest.json"
-          fi
-
-          # Linux ARMv7 (32-bit Raspberry Pi) — .deb and .rpm. Unlike ARM64
-          # above, these had NO signature published at all until the
-          # "Upload ARMv7 artifacts" step was fixed (#1166) to upload the
-          # .sig files sitting next to the packages it was already
-          # building. On a release built before that fix, download_sig
-          # correctly finds nothing here — that is an accurate "not signed
-          # yet", not a bug in this step.
-          LINUX_ARMV7_DEB_SIG_FILE="MeedyaDL_${VERSION}_armv7.deb.sig"
-          LINUX_ARMV7_DEB_URL="${BASE}/MeedyaDL_${VERSION}_armv7.deb"
-          if SIG=$(download_sig "$LINUX_ARMV7_DEB_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARMV7_DEB_URL" \
-              '. + {"linux-armv7-deb": {"signature": $sig, "url": $url}}')
-            echo "Added linux-armv7-deb to latest.json"
-          fi
-
-          LINUX_ARMV7_RPM_SIG_FILE="MeedyaDL-${VERSION}-1.armv7.rpm.sig"
-          LINUX_ARMV7_RPM_URL="${BASE}/MeedyaDL-${VERSION}-1.armv7.rpm"
-          if SIG=$(download_sig "$LINUX_ARMV7_RPM_SIG_FILE"); then
-            PLATFORMS=$(echo "$PLATFORMS" | jq --arg sig "$SIG" --arg url "$LINUX_ARMV7_RPM_URL" \
-              '. + {"linux-armv7-rpm": {"signature": $sig, "url": $url}}')
-            echo "Added linux-armv7-rpm to latest.json"
-          fi
-
-          # Build the final latest.json
-          jq -n \
-            --arg version "$VERSION" \
-            --arg notes "$NOTES" \
-            --arg pub_date "$PUB_DATE" \
-            --argjson platforms "$PLATFORMS" \
-            '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' \
-            > /tmp/updater/latest.json
-
-          # Count platforms for logging
-          PLATFORM_COUNT=$(jq '.platforms | length' /tmp/updater/latest.json)
-          echo "Rebuilt latest.json with ${PLATFORM_COUNT} platform(s)"
-          jq '.platforms | keys' /tmp/updater/latest.json
-
-          # Check every installer this release actually built against what
-          # ended up in the manifest — instead of trusting a fixed list of
-          # platform names written down by hand.
-          #
-          # #1166: this loop used to walk a fixed list of exactly four
-          # platforms, with a comment claiming Linux ARM64 and ARMv7
-          # "never produce an updater signature on any release... they are
-          # deliberately excluded from this list, or every run would warn
-          # about them." That was false for ARM64 from the day its build
-          # started signing its output, and it is the whole reason nobody
-          # noticed: the comment told this check to stop looking at ARM
-          # entirely, so the check went on agreeing with the comment for
-          # the entire life of the project instead of ever contradicting
-          # it. A belief written into a comment and never re-checked
-          # against the real assets is exactly how this bug survived.
-          #
-          # So this version looks at $ASSETS — the real file listing for
-          # this release, already fetched above — rather than a list of
-          # names someone has to remember to extend. INSTALLER_KEYS pairs
-          # every installer's .sig filename (reusing the *_SIG_FILE
-          # variables already set above, so there is only one place that
-          # spells out each filename) with the manifest key(s) that
-          # signature should have produced.
-          declare -A INSTALLER_KEYS=(
-            ["$MAC_SIG_FILE"]="darwin-aarch64"
-            ["$WIN_X64_SIG_FILE"]="windows-x86_64 windows-x86_64-nsis"
-            ["$WIN_ARM_SIG_FILE"]="windows-aarch64 windows-aarch64-nsis"
-            ["$LINUX_X64_SIG_FILE"]="linux-x86_64"
-            ["$LINUX_X64_DEB_SIG_FILE"]="linux-x86_64-deb"
-            ["$LINUX_X64_RPM_SIG_FILE"]="linux-x86_64-rpm"
-            ["$LINUX_ARM64_DEB_SIG_FILE"]="linux-aarch64-deb"
-            ["$LINUX_ARM64_RPM_SIG_FILE"]="linux-aarch64-rpm"
-            ["$LINUX_ARMV7_DEB_SIG_FILE"]="linux-armv7-deb"
-            ["$LINUX_ARMV7_RPM_SIG_FILE"]="linux-armv7-rpm"
-          )
-
-          GUARD_FAILED=0
-          for sig_name in "${!INSTALLER_KEYS[@]}"; do
-            # The installer's own filename is just the .sig name with the
-            # suffix removed.
-            asset_name="${sig_name%.sig}"
-
-            if ! echo "$ASSETS" | grep -qF "$asset_name"; then
-              # This installer was never built or never uploaded this run
-              # (e.g. the experimental ARM Linux jobs are allowed to fail
-              # outright). Nothing to check — there is no package to be
-              # missing an update path for.
-              continue
-            fi
-
-            if ! echo "$ASSETS" | grep -qF "$sig_name"; then
-              # The installer exists but was never signed. This is a real,
-              # known state during the ARMv7 rollout (and would be for any
-              # future installer added without wiring up signing first),
-              # so it is a warning, not a failure: the package can still
-              # be downloaded and installed by hand, it just can't be
-              # offered as an automatic update yet.
-              echo "::warning::${asset_name} was published for ${TAG} with no matching .sig — it cannot be offered as an in-app update until it is signed."
-              continue
-            fi
-
-            # The installer is signed. There is now no excuse for the
-            # manifest not to carry its key(s) — if it doesn't, that is
-            # exactly the class of bug this whole step exists to catch,
-            # so it fails the run rather than warning into a log nobody
-            # is watching.
-            for key in ${INSTALLER_KEYS[$sig_name]}; do
-              if ! jq -e --arg p "$key" '.platforms | has($p)' /tmp/updater/latest.json > /dev/null; then
-                echo "::error::${asset_name} was published with a signature for ${TAG}, but latest.json has no '${key}' entry — in-app updates will not be offered for it."
-                GUARD_FAILED=1
-              fi
-            done
-          done
-
-          if [ "$GUARD_FAILED" -eq 1 ]; then
-            exit 1
-          fi
-
-          # Guard against publishing an empty manifest. Before this step
-          # added `mkdir -p /tmp/updater` above, a zero-platform result
-          # failed by accident: the `jq -n ... > /tmp/updater/latest.json`
-          # write a few lines up would error because the directory didn't
-          # exist yet, and GitHub Actions runs bash with `-e`, so the step
-          # went red and nothing got uploaded. Creating the directory removes
-          # that accident, so the zero-platform case is now checked and
-          # failed on purpose here instead of by luck — a real, intentional
-          # guard rather than a side effect nobody could point to.
-          if [ "$PLATFORM_COUNT" -eq 0 ]; then
-            echo "::error::No platform signatures were found for ${TAG} — refusing to publish an empty latest.json (this would silently disable in-app updates for every platform)."
-            exit 1
-          fi
-
-          # Upload the rebuilt manifest (overwrite the incomplete one)
-          gh release upload "$TAG" /tmp/updater/latest.json --repo "$REPO" --clobber
-          echo "Uploaded rebuilt latest.json"
+        run: bash scripts/release/updater-manifest.sh build "$TAG"
 
       # If the manifest-rebuild step above failed partway through, we still
       # want the release notes cleaned up and the "Choose your download"
@@ -2724,7 +2418,7 @@ jobs:
           gh release edit "$TAG" --repo "$REPO" --draft=false
           echo "Published $TAG as a public prerelease"
 
-      # Verify the manifest that is now LIVE on the release actually has
+      # Check the manifest that is now LIVE on the release actually has
       # everything the in-app updater can ask for. This step runs LAST —
       # after the upload and after auto-publish — so a failure here never
       # withholds anything from users; it only turns this workflow run red
@@ -2732,100 +2426,35 @@ jobs:
       # manifest (the v1.13.0-alpha.58 class of bug, where two platform
       # entries silently vanished even though every asset had uploaded
       # successfully).
+      #
+      # What counts as complete is worked out from the signatures this
+      # release actually published, rather than from a list of platform
+      # names typed out here. The list that used to be typed out here named
+      # six, and so reported "6/6 ... looks complete" on a manifest that
+      # should by then have been carrying twelve.
       - name: Verify published updater manifest (latest.json)
         if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.name }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
         shell: bash
         run: |
-          TAG="${{ steps.tag.outputs.name }}"
-          REPO="${{ github.repository }}"
-          EXPECTED_VERSION="${TAG#v}"
-
-          # A separate directory from the rebuild step above, so this
-          # always re-fetches the file that is actually live on the
-          # release right now, rather than trusting a local copy this job
-          # already has lying around from earlier.
-          rm -rf /tmp/updater-verify
-          mkdir -p /tmp/updater-verify
-
-          DOWNLOAD_OK=0
-          for attempt in 1 2 3; do
-            if gh release download "$TAG" --repo "$REPO" --pattern "latest.json" --dir /tmp/updater-verify --clobber 1>&2; then
-              DOWNLOAD_OK=1
-              break
-            fi
-            echo "::warning::Verify step: attempt ${attempt}/3 to download the published latest.json failed" >&2
-            if [ "$attempt" -eq 1 ]; then
-              sleep 5
-            elif [ "$attempt" -eq 2 ]; then
-              sleep 10
-            fi
-          done
-
-          # Strictness depends on whether every platform build actually
-          # succeeded this run. If `publish` reports success, all six
-          # updater keys are mandatory and a gap here is a real
-          # regression worth failing the run over. If a build genuinely
-          # failed, the run is already red because of that job — a gap in
-          # the manifest is then expected, not news, so this step only
+          # How loudly to complain depends on whether every platform build
+          # actually succeeded this run. If `publish` reports success, every
+          # key a signed package should have produced is mandatory, and a
+          # gap is a real regression worth failing the run over. If a build
+          # genuinely failed, the run is already red because of that job —
+          # a gap in the manifest is then expected, not news, so this only
           # warns rather than piling a second, redundant red X onto an
           # already-known failure.
-          STRICT="false"
-          if [ "${{ needs.publish.result }}" = "success" ]; then
-            STRICT="true"
+          MODE="warn"
+          if [ "$PUBLISH_RESULT" = "success" ]; then
+            MODE="strict"
           fi
 
-          report() {
-            if [ "$STRICT" = "true" ]; then
-              echo "::error::$1"
-            else
-              echo "::warning::$1"
-            fi
-          }
-
-          if [ "$DOWNLOAD_OK" -ne 1 ]; then
-            report "Could not download the published latest.json for ${TAG} after 3 attempts — unable to verify the updater manifest."
-            if [ "$STRICT" = "true" ]; then
-              exit 1
-            fi
-            echo "Skipping further checks (download failed, build already unsuccessful so this is non-strict)."
-            exit 0
-          fi
-
-          MANIFEST="/tmp/updater-verify/latest.json"
-
-          # latest.json stores the bare version, e.g. "1.13.0-alpha.58" —
-          # never the "v"-prefixed tag. Comparing against the raw tag
-          # would fail this check on every single release, so it is
-          # deliberately compared against ${TAG#v}.
-          ACTUAL_VERSION=$(jq -r '.version // ""' "$MANIFEST")
-          if [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; then
-            report "Published latest.json version mismatch for ${TAG}: expected '${EXPECTED_VERSION}', found '${ACTUAL_VERSION}'."
-          else
-            echo "latest.json version OK: ${ACTUAL_VERSION}"
-          fi
-
-          # The six keys the in-app updater (Tauri's updater plugin) can
-          # request. windows-x86_64-nsis / windows-aarch64-nsis are the
-          # NSIS-installer aliases the rebuild step above writes with the
-          # SAME signature as their non-nsis counterpart.
-          MISSING=0
-          for key in darwin-aarch64 windows-x86_64 windows-x86_64-nsis windows-aarch64 windows-aarch64-nsis linux-x86_64; do
-            SIG=$(jq -r --arg k "$key" '.platforms[$k].signature // ""' "$MANIFEST")
-            if [ -z "$SIG" ]; then
-              report "Published latest.json for ${TAG} is missing a non-empty signature for '${key}'."
-              MISSING=$((MISSING + 1))
-            fi
-          done
-
-          if [ "$MISSING" -eq 0 ] && [ "$ACTUAL_VERSION" = "$EXPECTED_VERSION" ]; then
-            echo "✓ Published latest.json for ${TAG} looks complete (6/6 platform keys, version matches)."
-          fi
-
-          if [ "$STRICT" = "true" ] && { [ "$MISSING" -gt 0 ] || [ "$ACTUAL_VERSION" != "$EXPECTED_VERSION" ]; }; then
-            exit 1
-          fi
+          bash scripts/release/updater-manifest.sh verify "$TAG" "$MODE"
 
       # Checks that every download this release is supposed to offer
       # actually made it onto the GitHub Release page, by listing the
