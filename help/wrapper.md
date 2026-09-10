@@ -15,8 +15,8 @@
 | GAMDL **3.0 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
 | GAMDL **3.6 and newer** | **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) | One HTTP endpoint: `http://127.0.0.1` (port 80) |
 
-You can check which GAMDL version MeedyaDL has installed in
-**Settings → System → Component Versions**.
+You can check which GAMDL version MeedyaDL has installed under
+**Help → About**, which lists the installed version of every component.
 
 ---
 
@@ -263,13 +263,18 @@ If you don't want to run either wrapper, MeedyaDL still works with
 - A valid Apple Music subscription
 - An exported cookies file (see
   [Cookie management](./cookie-management.md))
-- Acceptance of these limitations:
-  - **Lossy AAC only** (256 kbps `aac-web` on GAMDL 3.6+, or
-    `aac-legacy` on older releases)
-  - No ALAC / Atmos / AC3 / Spatial audio
-  - Music videos: hit-and-miss
 
-This is the recommended mode for casual users.
+What you get without a wrapper depends on your GAMDL version:
+
+- **GAMDL 3.8 and newer** — everything except **ALAC** works cookie-only,
+  including Atmos and AC3. The one limitation is: no ALAC (lossless).
+  Music videos: hit-and-miss on certain regional content.
+- **GAMDL 3.0 – 3.7.x** — only the lossy `aac-web` family (256 kbps, or
+  `aac-legacy` on some releases) is reliable cookie-only. No ALAC / Atmos
+  / AC3 / spatial audio. Music videos: hit-and-miss.
+
+This is the recommended mode for casual users, and on GAMDL 3.8+ it covers
+almost everyone except people who specifically want lossless ALAC.
 
 ---
 
@@ -369,7 +374,9 @@ file by hand.
 
 ---
 
-## Setting it up
+## Setting it up (wrapper-v1, GAMDL ≤ 3.5.x)
+
+This section walks through wrapper-v1's account-URL field specifically. If you're on GAMDL 3.6+, use wrapper-v2's setup outline further up this page instead — it uses a single "Wrapper URL" field, not the three wrapper-v1 addresses described here.
 
 ### How it works
 
@@ -391,7 +398,7 @@ If your wrapper runs on a different port or host, update the **Wrapper Account U
 
 ---
 
-## Checking it is working
+## Checking it is working (wrapper-v1)
 
 MeedyaDL checks whether the wrapper is reachable in two ways:
 
@@ -541,11 +548,14 @@ This is particularly useful if your wrapper service is intermittently unavailabl
 
 ## Settings reference
 
-| Setting | Location | Default |
-|---|---|---|
-| Use Wrapper | Settings > Advanced | Off |
-| Auto-Retry without Wrapper | Settings > Advanced | Off |
-| Wrapper Account URL | Settings > Advanced | `http://127.0.0.1:30020` |
+| Setting | Location | Default | Applies to |
+|---|---|---|---|
+| Use Wrapper | Settings > Advanced | Off | Both |
+| Auto-Retry without Wrapper | Settings > Advanced | Off | Both |
+| Wrapper Account URL | Settings > Advanced > Wrapper | `http://127.0.0.1:30020` | wrapper-v1 |
+| Wrapper m3u8 Address | Settings > Advanced > Wrapper | `127.0.0.1:20020` | wrapper-v1 (GAMDL 3.1+) |
+| Wrapper Decryption Address | Settings > Advanced > Wrapper | `127.0.0.1:10020` | wrapper-v1, and also wrapper-v2 0.0.2+ (GAMDL 3.8.2+), where decryption moved back to a raw TCP port |
+| Wrapper URL | Settings > Advanced > Wrapper | `http://127.0.0.1` | wrapper-v2 (GAMDL 3.6+) |
 
 ---
 

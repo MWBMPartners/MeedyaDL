@@ -24,8 +24,8 @@ GAMDL 3.8 added a new HLS asset endpoint that lets every codec except **ALAC (Lo
 All other codecs — including ALAC (Lossless), Dolby Atmos, AC3, AAC, and AAC Binaural — depend on DRM key exchange that cookies don't always handle correctly. If you experience download failures with experimental codecs, consider:
 
 1. **Retrying** — failures are intermittent, a retry may succeed
-2. **Enabling the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Using the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — provides more reliable access (Linux x86_64 only, see Help > Wrapper)
+2. **Enabling the fallback chain** — Settings > Codec Fallback Order lets MeedyaDL automatically try the next codec
+3. **Using the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — provides more reliable access. Platform support depends on which wrapper generation you're on: wrapper-v1 is a native program, so whether it has a build for your OS is a question for that project's own releases page; wrapper-v2 runs natively on Linux, while macOS and Windows need Docker Desktop. See the Wrapper Authentication page linked above for the full picture
 
 ---
 
@@ -113,7 +113,7 @@ There are two main goals when choosing a codec, and each has its own recommended
 
 ### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
 
-If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Quality.
+If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Codec & Resolution.
 
 ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain (e.g., AAC 256 kbps) so you always get a download.
 
@@ -125,7 +125,7 @@ If your priority is **immersive, three-dimensional audio** — hearing instrumen
 
 Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
 
-**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Quality) so you also get a lossless copy of every track alongside the Atmos version.
+**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Codec & Resolution) so you also get a lossless copy of every track alongside the Atmos version.
 
 ### Which One Is Right for Me?
 

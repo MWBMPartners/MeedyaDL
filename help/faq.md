@@ -14,7 +14,7 @@ Answers to the most commonly asked questions about MeedyaDL.
 
 ### What is MeedyaDL?
 
-MeedyaDL is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. MeedyaDL is open-source software developed by MeedyaDL and released under the MIT License.
+MeedyaDL is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. MeedyaDL is open-source software developed by MeedyaSuite and released under the MIT License.
 
 For more information, see [Getting Started](getting-started.md).
 
@@ -22,10 +22,10 @@ For more information, see [Getting Started](getting-started.md).
 
 MeedyaDL supports the following platforms:
 
-- **macOS** 13.3 (Ventura) or later -- Apple Silicon (M-series)
-- **Windows** -- x64 and ARM64
-- **Linux** -- x64
-- **Raspberry Pi** -- ARM64
+- **macOS** 13.3 (Ventura) or later -- Apple Silicon (M-series), `.dmg`
+- **Windows** -- x64 and ARM64, `.exe`
+- **Linux** -- x64, `.deb` / `.rpm` / `.AppImage`
+- **Linux ARM** -- ARM64 (Raspberry Pi 4/5, ARM servers) and ARMv7 (32-bit Raspberry Pi, experimental), `.deb` / `.rpm`
 
 See [Getting Started](getting-started.md) for installation instructions on each platform.
 
@@ -101,7 +101,7 @@ For full details on video quality options, see [Quality Settings](quality-settin
 
 ### Where are my downloaded files saved?
 
-The download location is configurable in **Settings > Paths** tab. By default, files are saved to your system's music directory. Downloaded files are organized using GAMDL's template system in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**. Intermediate files during download and processing are stored in a temporary directory (default: `{OS temp}/MeedyaDL`), also configurable in **Settings > Paths**.
+The download location is configurable on the **Settings > General** tab. By default, files are saved to an "Apple Music" folder inside your system's music directory. Downloaded files are organized using GAMDL's template system in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**. Intermediate files during download and processing are stored in a temporary directory (default: `{OS temp}/MeedyaDL`), configurable on the **Settings > Tools** tab.
 
 See [Getting Started](getting-started.md) for initial configuration.
 
@@ -267,7 +267,7 @@ Try these steps in order:
 
 ### Where can I get more help?
 
-If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MeedyaSuite/MeedyaDL/issues) page for support.
+If your question is not answered here, check the full [Troubleshooting](troubleshooting.md) guide. You can also open an issue on the project's [GitHub Issues](https://github.com/MWBMPartners/MeedyaDL/issues) page for support.
 
 ---
 
@@ -315,12 +315,12 @@ If you are on an older download and would rather not update yet, right-click (or
 
 ### Windows shows "Windows protected your PC" (SmartScreen)
 
-Windows SmartScreen shows this warning for software from unverified publishers. MeedyaDL's pre-release builds are not yet signed with a code signing certificate. To proceed:
+Windows SmartScreen shows this warning for software from unverified publishers. Windows builds of MeedyaDL are not code-signed at all today — this isn't specific to pre-release versions, it applies to every Windows build until code signing is added. To proceed:
 
 1. Click **More info** on the SmartScreen dialog
 2. Click **Run anyway**
 
-This only needs to be done once per version. The warning will not reappear for the same version after you choose "Run anyway". Windows EV code signing is planned for the v1 stable release.
+This only needs to be done once per version. The warning will not reappear for the same version after you choose "Run anyway".
 
 ---
 

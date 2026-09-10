@@ -104,7 +104,7 @@ Some services support multiple download engines. When the primary engine fails w
 
 **Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
 
-The engine priority for each service is defined in `engines.toml` and can be customised in Settings.
+The engine priority for each service is defined in `engines.toml`. There is no Settings screen for changing it yet — that's planned but not built.
 
 ---
 

@@ -137,7 +137,7 @@ Here are some recommendations for getting the best video download experience:
 - **Check your cookies before starting** -- Video downloads require valid Apple Music authentication. Verify that your cookies are current and not expired before beginning a video download session. See [Cookie Management](cookie-management.md) for instructions on refreshing cookies.
 - **Be mindful of bandwidth** -- Large video files take longer to download. A stable internet connection is recommended, especially for 4K content.
 - **Mix audio and video in the queue** -- The download queue handles both music and video items seamlessly. You can paste a mix of song and video URLs without needing to process them separately.
-- **Use MP4Box for remuxing (default)** -- MP4Box handles music videos with embedded subtitle/CC tracks better than FFmpeg. If you encounter "Invalid data found when processing input" errors during video downloads, check that your remux mode is set to MP4Box in **Settings > Advanced > Processing**.
+- **Use MP4Box for remuxing (default, GAMDL 3.5.x and earlier only)** -- MP4Box handles music videos with embedded subtitle/CC tracks better than FFmpeg. This setting only does anything on GAMDL 3.5.x and earlier -- GAMDL 3.6 introduced native muxing and no longer accepts a remux-mode choice at all, so on 3.6+ the setting is inert. If you're on an older GAMDL and encounter "Invalid data found when processing input" errors during video downloads, check that your remux mode is set to MP4Box in **Settings > Advanced > Processing**.
 
 ---
 
@@ -148,7 +148,7 @@ MeedyaDL can automatically download music videos as companions when downloading 
 ### Requirements
 
 - **MusicKit credentials required** -- This feature uses the Apple Music API to look up music video relationships. You must configure your MusicKit Team ID, Key ID, and private key in **Settings > Advanced > API Credentials** before enabling this feature.
-- **Enable the toggle** -- Go to **Settings > Quality > Video Quality** and turn on **Music Video Companions**. The toggle is only available when MusicKit credentials are configured.
+- **Enable the toggle** -- Go to **Settings > Codec & Resolution > Video Quality** and turn on **Music Video Companions**. The toggle is only available when MusicKit credentials are configured.
 
 ### How It Works
 
@@ -164,7 +164,7 @@ MeedyaDL can automatically download music videos as companions when downloading 
 - Desktop notifications for "download complete" are deferred until all companion downloads and enrichment stages finish.
 - If a track does not have a music video on Apple Music, it is silently skipped.
 - Duplicate music videos (e.g., the same video linked from multiple tracks) are automatically deduplicated.
-- The video quality settings in **Settings > Quality > Video Quality** (resolution, codec priority, remux format) apply to companion music videos.
+- The video quality settings in **Settings > Codec & Resolution > Video Quality** (resolution, codec priority, remux format) apply to companion music videos.
 
 ---
 

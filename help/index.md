@@ -8,6 +8,8 @@
 
 Welcome to the **MeedyaDL** help documentation. This guide covers everything you need to know about using MeedyaDL, a multiplatform media downloader.
 
+These pages can be translated: a translated page lives at `help/<language>/<same file name>.md` (for example, a German translation of this file would be `help/de/index.md`). If a page has no translation yet for your language, the app shows the English original with a note explaining that it isn't translated yet, rather than a blank page.
+
 ---
 
 ## Table of Contents
@@ -59,10 +61,10 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 ## About MeedyaDL
 
-MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL), with Spotify (via Votify), YouTube (via yt-dlp), and BBC iPlayer (via get_iplayer/yt-dlp) planned for future releases.
+MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL) is fully available today; Spotify (via votify) is largely built but sits behind a hidden developer-only preview switch until it's ready for everyone; YouTube (via yt-dlp) and BBC iPlayer (via get_iplayer/yt-dlp) are planned for future releases.
 
 - **License:** MIT
-- **Author:** MeedyaDL
+- **Author:** MeedyaSuite
 
 ---
 

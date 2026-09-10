@@ -247,7 +247,7 @@ Files downloaded after this change will remain visible. Previously hidden files 
 ### "FFmpeg not installed"
 
 - Animated artwork download requires FFmpeg to convert HLS streams to MP4
-- Run the Setup Wizard or install FFmpeg from the Settings > Paths tab
+- Run the Setup Wizard or install FFmpeg from the Settings > Tools tab
 
 ---
 

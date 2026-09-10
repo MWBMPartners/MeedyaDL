@@ -84,7 +84,10 @@
 #
 # Reorder the `engines` array in any [platforms.*] section.
 # First entry = primary, subsequent entries = fallback in order.
-# Users can also override priority per-platform in Settings > Engines.
+# A per-platform override is stored in the settings file as
+# `engine_priority_overrides`, but there is no screen for editing it yet —
+# an earlier note here promised a "Settings > Engines" tab that was never
+# built. Changing it today means editing settings.json by hand.
 
 # ============================================================
 # Engines (external download tools)

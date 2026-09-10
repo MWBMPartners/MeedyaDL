@@ -43,8 +43,8 @@ On GAMDL 3.6+, the codec.is_web property in upstream's source makes this routing
 ### Failure recovery options
 
 1. **Retry** — failures via cookie-only auth are intermittent for non-web codecs
-2. **Enable the fallback chain** — Settings > Fallback lets MeedyaDL automatically try the next codec
-3. **Use the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 has native Windows / macOS / Linux ports; wrapper-v2 (GAMDL 3.6+) requires Docker on macOS/Windows.
+2. **Enable the fallback chain** — Settings > Codec Fallback Order lets MeedyaDL automatically try the next codec
+3. **Use the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 is a native program, so whether it has a build for your OS is a question for that project's own releases page, not something MeedyaDL can promise; wrapper-v2 (GAMDL 3.6+) runs natively on Linux but requires Docker Desktop on macOS/Windows.
 
 ---
 
@@ -123,7 +123,7 @@ Dolby Atmos delivers immersive spatial audio using object-based mixing. Rather t
 
 ### Companion Downloads
 
-MeedyaDL can automatically download additional format versions alongside your primary download, so you have both high-fidelity files for quality hardware and universally compatible files for everything else. The **Companion Downloads** dropdown in **Settings > Quality** controls this behavior.
+MeedyaDL can automatically download additional format versions alongside your primary download, so you have both high-fidelity files for quality hardware and universally compatible files for everything else. The **Companion Downloads** dropdown in **Settings > Codec & Resolution** controls this behavior.
 
 #### Companion Modes
 
@@ -176,11 +176,11 @@ The format suffix appended to companion filenames (e.g., `[Lossless]`, `[Dolby A
 
 By basing the suffix on detected content rather than the requested format, filenames always accurately reflect what the file actually contains.
 
-#### MediaInfo (Optional)
+#### MediaInfo
 
-For more accurate codec detection -- particularly for identifying Dolby Atmos content -- you can install **MediaInfo** as an optional tool via the Setup Wizard. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. When MediaInfo is installed, MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
+For more accurate codec detection -- particularly for identifying Dolby Atmos content -- MeedyaDL installs **MediaInfo** alongside FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box during the Setup Wizard. It is one of the five tools every install needs, not an optional extra. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
 
-MediaInfo is not required for normal operation. ffprobe handles the majority of codec detection correctly. MediaInfo is most useful if you frequently download Dolby Atmos content and want the highest confidence that codec suffixes and metadata tags accurately reflect the spatial audio format.
+MediaInfo matters most if you frequently download Dolby Atmos content and want the highest confidence that codec suffixes and metadata tags accurately reflect the spatial audio format, but ffprobe alone still handles the majority of codec detection correctly.
 
 ### AC3 (Dolby Digital)
 
@@ -368,7 +368,7 @@ There are two main goals when choosing an audio codec, and each has its own idea
 
 #### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
 
-If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Quality.
+If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Codec & Resolution.
 
 ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain so you always get a download.
 
@@ -380,7 +380,7 @@ If your priority is **immersive, three-dimensional audio** — hearing instrumen
 
 Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
 
-**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Quality) so you also get a lossless copy of every track alongside the Atmos version.
+**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Codec & Resolution) so you also get a lossless copy of every track alongside the Atmos version.
 
 #### Want Both?
 

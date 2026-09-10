@@ -18,8 +18,9 @@ MeedyaDL is available on the following platforms:
 
 - **macOS 13.3+** (Ventura or later) -- Apple Silicon (.dmg)
 - **Windows x64 / ARM64** -- NSIS installer (.exe)
-- **Linux x64** -- Debian package (.deb) or AppImage (.AppImage)
-- **Raspberry Pi** -- ARM64 (64-bit Raspberry Pi OS)
+- **Linux x64** -- Debian package (.deb), RPM package (.rpm), or AppImage (.AppImage)
+- **Linux ARM64** -- Debian or RPM package (.deb / .rpm) -- Raspberry Pi 4/5, ARM servers
+- **Linux ARMv7** -- Debian or RPM package (.deb / .rpm) -- 32-bit Raspberry Pi (experimental)
 
 Additional requirements:
 
@@ -47,12 +48,17 @@ The only things you need before using MeedyaDL are:
 4. Eject the `.dmg` disk image.
 5. Open MeedyaDL from your Applications folder.
 
-**Gatekeeper warning:** Because MeedyaDL is not signed with an Apple Developer certificate, macOS may block the application the first time you open it. To bypass this:
+**About the Gatekeeper warning:** Official MeedyaDL releases are signed with an Apple Developer ID and notarised by Apple, so macOS should open them normally with no warning at all.
 
-- **Right-click** (or Control-click) the MeedyaDL application and select **Open** from the context menu, then click **Open** in the confirmation dialog.
-- Alternatively, go to **System Settings > Privacy & Security**, scroll down, and click **Allow** next to the message about MeedyaDL being blocked.
+If you do see a "can't be opened" or "cannot check it for malicious software" message anyway, it is almost certainly one of these:
 
-You only need to do this once. Subsequent launches will work normally.
+- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
+- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
+- **The download was interrupted or altered.** Download it again.
+
+If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
+
+**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
 
 ### Windows
 
@@ -60,7 +66,7 @@ You only need to do this once. Subsequent launches will work normally.
 2. Run the installer and follow the on-screen prompts.
 3. Launch MeedyaDL from the Start Menu or desktop shortcut.
 
-**SmartScreen warning:** Windows may display a SmartScreen warning because the application is not signed with an Extended Validation certificate. To proceed:
+**SmartScreen warning:** Windows builds are not code-signed at all today, so Windows SmartScreen will show a warning every time you install a new version. This is not specific to pre-release builds — it applies to every Windows build until code signing is added. To proceed:
 
 - Click **"More info"** in the SmartScreen dialog.
 - Click **"Run anyway"** to continue with the installation.
@@ -114,12 +120,12 @@ For detailed instructions on all three methods, supported browsers, and troubles
 
 ### Choosing an Output Directory
 
-By default, MeedyaDL saves downloaded files to your system's default music directory (e.g., `~/Music` on macOS and Linux, or the Music folder on Windows).
+By default, MeedyaDL saves downloaded files to an **"Apple Music" folder inside** your system's music directory (e.g., `~/Music/Apple Music` on macOS and Linux, or `Music\Apple Music` on Windows) -- not directly into the music folder itself.
 
 To change the output directory:
 
 1. Open **Settings** from the application menu or toolbar.
-2. Navigate to the **Paths** tab.
+2. Navigate to the **General** tab.
 3. Set your preferred output directory using the folder picker or by entering a path directly.
 
 ### Configuring Default Quality

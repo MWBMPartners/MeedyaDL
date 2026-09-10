@@ -183,7 +183,7 @@ You can check multiple format boxes to download lyrics in more than one format. 
 
 ### Companion Lyrics
 
-When **companion downloads** are enabled in **Settings > Quality > Companion Downloads**, MeedyaDL automatically generates lyric sidecar files for every companion format version — not just the primary download. For example, if your primary download is Dolby Atmos with ALAC as a companion, both the Atmos and ALAC audio files will get their own `.lrc`, `.srt`, `.vtt`, and `.ass` sidecar files (depending on your lyric format settings). Each companion's lyric files use the same base filename as their corresponding audio file (e.g., `01 Song Title [Lossless].lrc` alongside `01 Song Title [Lossless].m4a`), making it easy to match lyrics to each format variant.
+When **companion downloads** are enabled in **Settings > Codec & Resolution > Companion Downloads**, MeedyaDL automatically generates lyric sidecar files for every companion format version — not just the primary download. For example, if your primary download is Dolby Atmos with ALAC as a companion, both the Atmos and ALAC audio files will get their own `.lrc`, `.srt`, `.vtt`, and `.ass` sidecar files (depending on your lyric format settings). Each companion's lyric files use the same base filename as their corresponding audio file (e.g., `01 Song Title [Lossless].lrc` alongside `01 Song Title [Lossless].m4a`), making it easy to match lyrics to each format variant.
 
 For example, if you check both LRC and SRT:
 
@@ -287,7 +287,7 @@ MP4 and M4V video files use the same MP4 atom tagging system as M4A audio files.
 
 ### MeedyaDL Metadata Enrichment
 
-In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive 12-stage metadata enrichment pipeline after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, subtitle files, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
+In addition to the standard Apple Music metadata written by GAMDL, MeedyaDL runs a comprehensive metadata enrichment pipeline — a series of steps, not a fixed count, since new ones (lyrics formats, cover-art upgrades, cross-platform links) keep being added — after each download. This writes custom freeform atoms into M4A files to identify codec quality, source information, channel configuration, and optionally Enhanced LRC lyrics, subtitle files, audio fingerprints, and loudness data. All tags are non-destructive — existing metadata is never modified or removed.
 
 Tag definitions are driven by `tags.toml` — a config file that maps Apple Music API JSON fields to MP4 freeform atoms. All tags are written in dual namespaces: `com.apple.iTunes` (player-compatible) and `MeedyaMeta` (MeedyaDL-branded). Industry-standard alternative names are used where recognised by tools like MusicBrainz Picard, Mp3tag, and foobar2000 (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`). The complete tag-by-tag reference — including standard MP4 atoms, Apple proprietary IDs, per-format support matrix, and API source mapping — lives in the [Metadata Mapping Reference](metadata-mapping.md).
 
@@ -422,7 +422,7 @@ The generated `.vtt` file is saved alongside the downloaded media. Only one sour
 
 #### MusicBrainz Video Discovery (Opt-In)
 
-Enable in **Settings > Quality > Video Quality**. When the Apple Music API doesn't find music videos for your downloaded tracks (Step 6), MusicBrainz provides a fallback discovery mechanism. No Apple Developer credentials or MusicKit configuration required — the MusicBrainz API is free and public.
+Enable in **Settings > Codec & Resolution > Video Quality**. When the Apple Music API doesn't find music videos for your downloaded tracks (Step 6), MusicBrainz provides a fallback discovery mechanism. No Apple Developer credentials or MusicKit configuration required — the MusicBrainz API is free and public.
 
 MusicBrainz discovery uses a 3-tier identifier priority chain for maximum coverage, tried first:
 
