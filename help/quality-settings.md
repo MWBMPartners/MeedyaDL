@@ -267,7 +267,7 @@ MeedyaDL supports the following video resolutions, listed from highest to lowest
 - **1080p (Full HD)** -- The recommended resolution for most users (1920x1080). Excellent quality on screens up to approximately 27 inches. The best balance between visual quality and file size
 - **720p (HD)** -- Standard HD resolution (1280x720). Good quality on smaller screens such as tablets and phones. Significantly smaller files than 1080p
 - **540p (qHD)** -- A step below standard HD (960x540). A middle ground between 720p and 480p when you want smaller files without dropping all the way to standard definition
-- **480p (NTSC SD)** -- Standard definition at the NTSC broadcast standard (720x480). Suitable for content originally produced in NTSC regions
+- **480p (NTSC SD)** -- Standard definition at the NTSC broadcast standard (854x480). Suitable for content originally produced in NTSC regions
 - **360p** -- Low resolution. Very small file sizes. Suitable only for previewing content or extremely limited storage situations
 - **240p** -- Minimum resolution. Smallest possible file sizes. Suitable only for thumbnail previews or extremely constrained bandwidth/storage
 
@@ -300,20 +300,20 @@ The table below summarizes typical file sizes for common resolution and codec co
 You can set your preferred default audio codec and video resolution so that every new download uses your chosen quality settings automatically.
 
 1. Open **Settings** from the application menu or toolbar
-2. Navigate to the **Quality** tab
+2. Navigate to the **Codec & Resolution** tab
 3. Under **Audio Quality**, select your preferred audio codec from the dropdown (AAC, ALAC, Atmos, etc.)
 4. Under **Video Quality**, select your preferred video resolution from the dropdown (1080p, 720p, 4K, etc.)
-5. Click **Save** or **Apply** to store your defaults
+5. Click **Save Changes** to store your defaults
 
 These defaults will be used for all subsequent downloads unless you override them on a per-download basis (see below).
 
 ### Companion Downloads
 
-The Quality tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other preset modes offer more or fewer companion tiers. Selecting **Custom...** reveals multi-select checkboxes for all 11 audio codecs, letting you choose exactly which formats to download as companions. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
+The Codec & Resolution tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other preset modes offer more or fewer companion tiers. Selecting **Custom...** reveals multi-select checkboxes for all 11 audio codecs, letting you choose exactly which formats to download as companions. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
 
 ### Artist Auto-Select
 
-When downloading from an **artist URL**, MeedyaDL can automatically select which content types to download. The **Artist Auto-Select** setting in the Quality tab lets you choose from:
+When downloading from an **artist URL**, MeedyaDL can automatically select which content types to download. The **Artist Auto-Select** setting in the Codec & Resolution tab lets you choose from:
 
 - **Main Albums** — Studio albums and standard releases
 - **Compilation Albums** — Greatest hits, anthologies, and collections

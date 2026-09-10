@@ -152,12 +152,20 @@ FRONTEND_ONLY: dict[str, str] = {
         "the value."
     ),
     "sidebar_collapsed": (
-        "Read by Sidebar.tsx to pick a CSS width class (narrow icon-only "
-        "vs. full width with labels) and by App.tsx's startup effect to "
-        "apply that choice to uiStore before first paint. Whether the "
-        "sidebar is drawn wide or narrow is a rendering decision the "
-        "backend has no part in -- there is no download-pipeline or "
-        "file-system behaviour this setting could plug into."
+        "Applied at startup: App.tsx reads this setting and calls "
+        "uiStore's setSidebarCollapsed() with it before first paint. "
+        "Sidebar.tsx itself never reads the setting -- it reads the "
+        "in-memory uiStore value that startup step copied it into. "
+        "Whether the sidebar is drawn wide or narrow is a rendering "
+        "decision the backend has no part in, so being read only once, "
+        "at startup, isn't itself the problem. What IS a known gap: "
+        "toggling the sidebar changes only that in-memory value and is "
+        "deliberately never written back to this setting (see the "
+        "comment on toggleSidebar() in uiStore.ts for why -- the only "
+        "save available there would silently commit whatever unsaved "
+        "edits happened to be sitting on the Settings screen). That "
+        "means the collapsed state does not survive a restart. Tracked "
+        "in #1175, not left here by accident."
     ),
 }
 
@@ -308,17 +316,88 @@ def collect_frontend_changeable() -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-CFG_TEST_RE = re.compile(r"#\[cfg\(test\)\]")
+# Anchored to the START of a line (allowing only leading whitespace) so a
+# `//` comment that merely TALKS about `#[cfg(test)]` -- and this file's own
+# comments do, more than once -- can never match. A real attribute is always
+# the first thing on its line; a comment always has `//` (or `/*`) before it
+# on that same line, so requiring "start of line" is enough to tell the two
+# apart without needing to understand Rust comment syntax at the regex level.
+CFG_TEST_RE = re.compile(r"^[ \t]*#\[cfg\(test\)\]", re.MULTILINE)
+
+
+def _skip_non_code(text: str, i: int) -> int | None:
+    """If position `i` starts a `//` comment, a `/* */` comment, an
+    ordinary `"..."` string, or a raw `r"..."` / `r#"..."#` string, return
+    the index just past the end of that construct. Otherwise return
+    `None`, meaning `text[i]` should be read as ordinary code.
+
+    Brace-counting used to walk every character as if it were code, so a
+    `{` or `}` sitting inside a JSON test fixture (this file's own scan
+    target, `config_service.rs`, has plenty of
+    `r#"{"key": "value"}"#`-shaped strings in its tests) or inside a
+    comment describing the syntax could shift the depth count by one and
+    throw off every match after it -- an unmatched `{` then strips to the
+    end of the file, and an unmatched `}` lets test code back into the
+    scan, the exact silent false pass this stripping exists to prevent.
+    This doesn't need to be a full Rust lexer, just enough not to be
+    fooled by the shapes this codebase's own source actually uses.
+    """
+    n = len(text)
+    c = text[i]
+
+    if c == "/" and i + 1 < n and text[i + 1] == "/":
+        j = text.find("\n", i)
+        return j if j != -1 else n
+
+    if c == "/" and i + 1 < n and text[i + 1] == "*":
+        j = text.find("*/", i + 2)
+        return (j + 2) if j != -1 else n
+
+    # Raw string: r"...", r#"...."#, r##"...."##, and so on -- the number
+    # of `#` after the closing quote must match the number before the
+    # opening one.
+    if c == "r" and i + 1 < n and (text[i + 1] == '"' or text[i + 1] == "#"):
+        j = i + 1
+        hashes = 0
+        while j < n and text[j] == "#":
+            hashes += 1
+            j += 1
+        if j < n and text[j] == '"':
+            closer = '"' + ("#" * hashes)
+            end = text.find(closer, j + 1)
+            return (end + len(closer)) if end != -1 else n
+        # `r` followed by `#`/`"` but not actually a raw-string opener
+        # (e.g. a plain identifier starting with `r`) -- fall through and
+        # let the caller treat `r` as an ordinary character.
+
+    if c == '"':
+        j = i + 1
+        while j < n and text[j] != '"':
+            if text[j] == "\\":
+                j += 1
+            j += 1
+        return (j + 1) if j < n else n
+
+    return None
 
 
 def _matching_brace(text: str, open_idx: int) -> int:
     """Index of the `}` that matches the `{` at `open_idx`, or `len(text)`
     if the braces never balance (shouldn't happen in code that compiles,
-    but a truncated read or a stray brace inside a string literal
-    shouldn't crash the script -- it should just stop stripping there)."""
+    but a truncated read shouldn't crash the script -- it should just stop
+    stripping there).
+
+    Skips over comments and string literals (`_skip_non_code`) while
+    counting, so a `{`/`}` that is only text inside a JSON fixture or a
+    doc comment can't be mistaken for a real brace."""
     depth = 0
     i = open_idx
-    while i < len(text):
+    n = len(text)
+    while i < n:
+        skip_to = _skip_non_code(text, i)
+        if skip_to is not None:
+            i = skip_to
+            continue
         c = text[i]
         if c == "{":
             depth += 1
@@ -327,13 +406,56 @@ def _matching_brace(text: str, open_idx: int) -> int:
             if depth == 0:
                 return i
         i += 1
-    return len(text)
+    return n
+
+
+def _find_item_end(text: str, start: int) -> tuple[str, int]:
+    """Starting just after a `#[cfg(test)]` attribute, find where the
+    attributed item itself ends: either the `{` that opens a body
+    (`mod tests { ... }`, `fn foo() { ... }`) or the `;` that closes a
+    body-less item (`mod tests;`, `use foo;`). Returns `("brace", idx)` or
+    `("semi", idx)` -- or `("eof", len(text))` if neither is ever found.
+
+    The previous version of this search did `text.find("{", m.end())` --
+    the next `{` ANYWHERE later in the file, not necessarily belonging to
+    this item at all. For a body-less item like `#[cfg(test)] use
+    relations::classify_url;` (a real line in
+    `musicbrainz_service/mod.rs`), that walked past the item's own `;` and
+    grabbed whatever `{` happened to come next -- possibly a real function
+    body many lines away -- and stripped everything in between as if it
+    were test code. This instead scans forward looking for `{` or `;`
+    directly, skipping comments/strings (`_skip_non_code`) so text inside
+    either can't supply a false `{`/`;`, and tracking `(...)`/`[...]`
+    nesting depth so a further attribute (`#[allow(dead_code)]`) or a
+    generic bound between the first attribute and the real item can't end
+    the search early either.
+    """
+    i = start
+    n = len(text)
+    bracket_depth = 0
+    while i < n:
+        skip_to = _skip_non_code(text, i)
+        if skip_to is not None:
+            i = skip_to
+            continue
+        c = text[i]
+        if c in "([":
+            bracket_depth += 1
+        elif c in ")]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif bracket_depth == 0:
+            if c == "{":
+                return ("brace", i)
+            if c == ";":
+                return ("semi", i)
+        i += 1
+    return ("eof", n)
 
 
 def _strip_cfg_test_blocks(text: str) -> str:
     """Remove every `#[cfg(test)]`-attributed item -- almost always a whole
-    `mod tests { ... }` block -- from `text` before it's scanned for field
-    reads.
+    `mod tests { ... }` block, occasionally a body-less `use`/`mod`
+    declaration -- from `text` before it's scanned for field reads.
 
     Without this, a field only used inside a test's own assertion (for
     example `assert_eq!(settings.video_codec_fallback_chain, ...)`) reads
@@ -347,12 +469,16 @@ def _strip_cfg_test_blocks(text: str) -> str:
     fixed together, or removing the test line alone would have made the
     check wrongly report a live field as dead.
 
-    This finds each `#[cfg(test)]` attribute, brace-matches forward from
-    the next `{` (same trick `collect_app_settings_fields` uses for the
-    struct body) to find where that item ends, and drops everything from
-    the attribute through the closing brace. It does not care whether the
-    attributed item is a `mod`, a single `fn`, or anything else -- none of
-    it runs in a real build, so none of it should count as a real read.
+    This finds each REAL `#[cfg(test)]` attribute (`CFG_TEST_RE` is
+    anchored to the start of a line, so a comment that merely mentions the
+    attribute in prose -- two real ones sit in
+    `services/download_queue/mod.rs` -- can never match), finds where that
+    attributed item ends (`_find_item_end`: a brace-delimited body or a
+    bare `;`), and for a braced item brace-matches the body
+    (`_matching_brace`, itself comment/string-aware) to find the real
+    closing `}`. It does not care whether the attributed item is a `mod`,
+    a single `fn`, or anything else -- none of it runs in a real build, so
+    none of it should count as a real read.
     """
     out: list[str] = []
     pos = 0
@@ -360,21 +486,21 @@ def _strip_cfg_test_blocks(text: str) -> str:
         if m.start() < pos:
             continue  # already inside a block we've dropped
         out.append(text[pos : m.start()])
-        brace = text.find("{", m.end())
-        if brace == -1:
-            # No block follows this attribute -- nothing sensible to strip;
-            # keep the rest of the file as-is rather than guessing.
-            pos = m.start()
-            break
-        end = _matching_brace(text, brace)
-        pos = end + 1
+        kind, idx = _find_item_end(text, m.end())
+        if kind == "brace":
+            idx = _matching_brace(text, idx)
+        # "semi" and "eof" already point at (or past) the item's own end;
+        # only "brace" needs the extra hop to its matching close.
+        pos = idx + 1
     out.append(text[pos:])
     return "".join(out)
 
 
 def _collect_impl_app_settings_self_reads(field_names: list[str]) -> set[str]:
-    """Every AppSettings field referenced as `self.<field>` inside
-    `impl AppSettings { ... }` in settings.rs.
+    """Every AppSettings field referenced as `self.<field>` inside a method
+    of `impl AppSettings { ... }` in settings.rs -- but ONLY when that
+    method's own name is called from somewhere else in the backend (see
+    `_method_names_called_outside_settings_rs`).
 
     `collect_backend_reads` skips `models/settings.rs` entirely, and for
     good reason: the struct DEFINITION in that file is nothing but
@@ -389,6 +515,15 @@ def _collect_impl_app_settings_self_reads(field_names: list[str]) -> set[str]:
     real reader is a method like that was being reported as dead --
     wrongly -- until this function let that one block back in, scanned on
     its own rather than as part of the whole file.
+
+    The requirement that the method itself be called somewhere is what
+    stops this carve-out being used to launder a genuinely dead field: a
+    method nobody calls, reading a field nobody else reads either, proves
+    nothing about the backend actually using that field -- it's just two
+    pieces of dead code standing next to each other. Each method's own
+    body is isolated first (`_iter_impl_methods`), so a field read inside
+    method A can't be credited through method B just because they live in
+    the same `impl` block.
     """
     if not SETTINGS_RS.exists():
         return set()
@@ -399,7 +534,65 @@ def _collect_impl_app_settings_self_reads(field_names: list[str]) -> set[str]:
     start = text.find("{", m.end() - 1)
     end = _matching_brace(text, start)
     block = text[start + 1 : end]
-    return {name for name in field_names if re.search(r"\bself\." + re.escape(name) + r"\b", block)}
+
+    field_by_method: dict[str, set[str]] = {}
+    for method_name, body in _iter_impl_methods(block):
+        found = {f for f in field_names if re.search(r"\bself\." + re.escape(f) + r"\b", body)}
+        if found:
+            field_by_method[method_name] = found
+
+    called = _method_names_called_outside_settings_rs(set(field_by_method))
+    reads: set[str] = set()
+    for method_name, fields in field_by_method.items():
+        if method_name in called:
+            reads |= fields
+    return reads
+
+
+FN_RE = re.compile(r"\bfn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[(<]")
+
+
+def _iter_impl_methods(block: str) -> list[tuple[str, str]]:
+    """Yield `(method_name, method_body)` for each `fn` found in `block`
+    (the contents of `impl AppSettings { ... }`), brace-matching each
+    one's own body (`_matching_brace`) so a field read in one method can't
+    bleed into another method just because they share the same `impl`."""
+    methods: list[tuple[str, str]] = []
+    for fm in FN_RE.finditer(block):
+        name = fm.group(1)
+        brace = block.find("{", fm.end())
+        if brace == -1:
+            continue  # a signature with no body -- not expected here
+        end = _matching_brace(block, brace)
+        methods.append((name, block[brace : end + 1]))
+    return methods
+
+
+def _method_names_called_outside_settings_rs(method_names: set[str]) -> set[str]:
+    """Which of `method_names` (each an `impl AppSettings` method name,
+    e.g. `video_codec_priority_cli`) is called anywhere in
+    `src-tauri/src/**/*.rs` OTHER than `models/settings.rs` itself, in
+    non-test code.
+
+    A method existing, and reading a field, is not proof the backend does
+    anything with that field -- the method itself has to be reachable
+    from somewhere real. Same "no test-only credit" rule as everywhere
+    else in this script: a method called only from a test proves the test
+    compiles, not that the backend uses the field."""
+    if not method_names:
+        return set()
+    called: set[str] = set()
+    patterns = {name: re.compile(r"\b" + re.escape(name) + r"\s*\(") for name in method_names}
+    for path in _iter_source(RUST_SRC, (".rs",)):
+        if path.resolve() == SETTINGS_RS.resolve():
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        for name, pattern in patterns.items():
+            if name in called:
+                continue
+            if pattern.search(text):
+                called.add(name)
+    return called
 
 
 def collect_backend_reads(field_names: list[str]) -> set[str]:
