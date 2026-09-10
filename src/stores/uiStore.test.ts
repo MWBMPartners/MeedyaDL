@@ -62,7 +62,6 @@ beforeEach(() => {
   // tests aren't affected by a prior test's `useSettingsStore.setState()`.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, notification_style: 'native_and_in_app' },
-    isDirty: false,
   }));
 });
 

@@ -194,7 +194,7 @@ export function FallbackTab() {
             </h4>
             <p className="text-xs text-content-tertiary mb-3">
               Music video resolution is a ceiling, not a request: whatever
-              maximum resolution is set in Quality, the download tool always
+              maximum resolution is set in Codec &amp; Resolution, the download tool always
               finds the closest quality at or below it, so resolution can
               never be unavailable and there is nothing to step down through
               — which is why there is no resolution list here. Codec is

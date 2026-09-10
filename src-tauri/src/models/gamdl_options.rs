@@ -311,7 +311,7 @@ impl SongCodec {
 /// This is a **ceiling**, not a request. GAMDL looks at every quality the
 /// video actually comes in and picks the one closest to this value without
 /// going over it. If the video was never offered at this resolution or
-/// higher, GAMDL falls back to the lowest quality that IS above the
+/// below, GAMDL falls back to the lowest quality that IS above the
 /// ceiling. Either way, GAMDL always finds *something* — the resolution
 /// setting on its own can never make a video unavailable. Only the codec
 /// list (see [`VideoCodec`]) can do that, because a codec a video simply

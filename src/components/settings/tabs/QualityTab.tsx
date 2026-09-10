@@ -205,7 +205,7 @@ export function QualityTab() {
         {/* Fallback toggle */}
         <Toggle
           label="Enable Fallback Chain"
-          description="Covers both songs and music videos. When the preferred codec is unavailable, automatically try the next one in the fallback chain (configured in the Fallback tab). Turning this off means only the first choice of each is ever tried."
+          description="Covers both songs and music videos. When the preferred codec is unavailable, automatically try the next one in the fallback chain (configured in Codec Fallback Order). Turning this off means only your preferred codec is tried, and nothing steps down further."
           checked={fallbackEnabled.value}
           onChange={fallbackEnabled.set}
         />
@@ -318,7 +318,7 @@ export function QualityTab() {
         {/* Maximum video resolution */}
         <Select
           label="Maximum Video Resolution"
-          description="The highest resolution to accept for music video downloads. This is a ceiling, not a request — the download tool always finds the closest quality at or below it, so this setting can never make a video unavailable. See Codec Fallback Order (in the Fallback tab) for the setting that controls which codec is tried first, which is what actually can make a video unavailable."
+          description="The highest resolution to accept for music video downloads. This is a ceiling, not a request — the download tool always finds the closest quality at or below it, so this setting can never make a video unavailable. See the Codec Fallback Order tab for the setting that controls which codec is tried first, which is what actually can make a video unavailable."
           options={resolutionOptions}
           value={videoResolution.value}
           onChange={(e) => videoResolution.set(e.target.value as VideoResolution)}

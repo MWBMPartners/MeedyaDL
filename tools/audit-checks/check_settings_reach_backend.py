@@ -318,18 +318,38 @@ def collect_frontend_changeable() -> dict[str, list[str]]:
 
 # Anchored to the START of a line (allowing only leading whitespace) so a
 # `//` comment that merely TALKS about `#[cfg(test)]` -- and this file's own
-# comments do, more than once -- can never match. A real attribute is always
-# the first thing on its line; a comment always has `//` (or `/*`) before it
-# on that same line, so requiring "start of line" is enough to tell the two
-# apart without needing to understand Rust comment syntax at the regex level.
-CFG_TEST_RE = re.compile(r"^[ \t]*#\[cfg\(test\)\]", re.MULTILINE)
+# comments do, more than once -- can never match: a `//` comment always has
+# `//` before it on that same line, so "start of line, then the attribute"
+# rules a same-line `//` mention out. It does NOT, on its own, rule out a
+# `/* ... */` BLOCK comment -- a multi-line block comment can easily contain
+# a line that starts at column zero with nothing but the attribute text, and
+# `^` in MULTILINE mode only knows about line boundaries, not comment
+# boundaries. `_strip_cfg_test_blocks` below checks each match against
+# `_position_is_in_comment_or_string` before trusting it, which is what
+# actually closes that gap -- this regex only narrows candidates down to
+# "looks like a cfg(test)-shaped attribute at the start of a line", it does
+# not by itself prove the line is real code.
+#
+# Matches three shapes: the plain `#[cfg(test)]`, and `#[cfg(all(test, ...))]`
+# / `#[cfg(any(test, ...))]` with `test` as the first condition (the only
+# shapes this codebase actually uses). It deliberately matches only the
+# START of the attribute -- up through the bare word `test` -- because
+# `all(...)`/`any(...)` predicates can nest further parens arbitrarily
+# (`all(test, not(feature = "x"))`), which a fixed-shape regex can't reliably
+# follow to a specific closing `)]`. Finding the attribute's real end is
+# `_attr_close_bracket`'s job, by counting `[`/`]` depth instead.
+CFG_TEST_RE = re.compile(
+    r'^[ \t]*#\[cfg\(\s*(?:test\s*\)|(?:all|any)\(\s*test\b)',
+    re.MULTILINE,
+)
 
 
 def _skip_non_code(text: str, i: int) -> int | None:
     """If position `i` starts a `//` comment, a `/* */` comment, an
-    ordinary `"..."` string, or a raw `r"..."` / `r#"..."#` string, return
-    the index just past the end of that construct. Otherwise return
-    `None`, meaning `text[i]` should be read as ordinary code.
+    ordinary `"..."` string, a raw `r"..."` / `r#"..."#` string, or a
+    `'x'` char literal, return the index just past the end of that
+    construct. Otherwise return `None`, meaning `text[i]` should be read
+    as ordinary code.
 
     Brace-counting used to walk every character as if it were code, so a
     `{` or `}` sitting inside a JSON test fixture (this file's own scan
@@ -339,8 +359,11 @@ def _skip_non_code(text: str, i: int) -> int | None:
     throw off every match after it -- an unmatched `{` then strips to the
     end of the file, and an unmatched `}` lets test code back into the
     scan, the exact silent false pass this stripping exists to prevent.
-    This doesn't need to be a full Rust lexer, just enough not to be
-    fooled by the shapes this codebase's own source actually uses.
+    A char literal like `'{'` or `'"'` is the same trap in miniature: a
+    single brace or quote character, sitting between two `'`, that isn't
+    a real string delimiter or a real code brace at all. This doesn't
+    need to be a full Rust lexer, just enough not to be fooled by the
+    shapes this codebase's own source actually uses.
     """
     n = len(text)
     c = text[i]
@@ -377,6 +400,35 @@ def _skip_non_code(text: str, i: int) -> int | None:
                 j += 1
             j += 1
         return (j + 1) if j < n else n
+
+    # Char literal: `'x'`, or an escaped form like `'\''`, `'\\'`, `'\n'`,
+    # `'\x41'`, `'\u{1F600}'`. Rust also uses a leading `'` for lifetimes
+    # (`'a`, `'static`), which this does NOT try to consume -- a lifetime
+    # is never itself closed by another `'`, so the checks below simply
+    # never match one, and an un-consumed `'` is harmless here anyway
+    # (lifetimes never contain `{`, `}`, or `"` for the brace-counting
+    # above to trip over). What actually matters is not missing a char
+    # literal that DOES contain one of those: `'{'`, `'}'`, `'"'` are all
+    # real, valid Rust and would otherwise be read as a real brace or the
+    # start of a real string.
+    if c == "'" and i + 1 < n:
+        j = i + 1
+        if text[j] == "\\":
+            k = j + 1
+            if k < n and text[k] == "u" and k + 1 < n and text[k + 1] == "{":
+                end_brace = text.find("}", k)
+                k = (end_brace + 1) if end_brace != -1 else n
+            elif k < n:
+                k += 1  # skip the escaped character itself
+                if text[j + 1] == "x" and k + 1 < n:
+                    k += 2  # `\xNN` -- two hex digits
+            if k < n and text[k] == "'":
+                return k + 1
+            # Not a recognised escape shape closed by `'` -- fall through
+            # and treat the opening `'` as an ordinary character.
+        elif j + 1 < n and text[j] != "'" and text[j + 1] == "'":
+            # `'x'` -- exactly one (non-quote) character between quotes.
+            return j + 2
 
     return None
 
@@ -452,10 +504,70 @@ def _find_item_end(text: str, start: int) -> tuple[str, int]:
     return ("eof", n)
 
 
+def _position_is_in_comment_or_string(text: str, pos: int) -> bool:
+    """Whether index `pos` in `text` falls inside a comment or a
+    string/char literal, as `_skip_non_code` would classify it -- found
+    by replaying the scan from the start of `text` up to `pos`.
+
+    Used to check a regex match that's anchored to the start of a LINE
+    (like `CFG_TEST_RE`): `^` in MULTILINE mode only knows about line
+    boundaries, not comment boundaries, so a `#[cfg(test)]`-shaped line
+    sitting inside a `/* ... */` block comment (a doc example showing the
+    syntax as prose, not real code) would otherwise be indistinguishable
+    from a real attribute at the start of a real line.
+    """
+    i = 0
+    while i < pos:
+        skip_to = _skip_non_code(text, i)
+        if skip_to is not None:
+            if skip_to > pos:
+                return True
+            i = skip_to
+            continue
+        i += 1
+    return False
+
+
+def _attr_close_bracket(text: str, open_bracket_idx: int) -> int:
+    """Index just past the `]` that closes the `#[...]` attribute whose
+    `[` sits at `open_bracket_idx`.
+
+    A fixed-shape regex can find the end of `#[cfg(test)]` just by
+    including the literal `)]` in its pattern, but `#[cfg(all(test, ...))]`
+    and `#[cfg(any(test, ...))]` nest an extra pair of parens -- and that
+    inner predicate can nest further still (`all(test, not(feature = "x"))`)
+    -- so there's no fixed number of `)` characters to look for. This
+    instead counts `[`/`]` depth directly (an attribute is always exactly
+    one `[...]`, however much `(...)` nesting lives inside it), skipping
+    comments/strings via `_skip_non_code` along the way so a `]` sitting
+    inside a string value (`#[cfg(feature = "a]b")]`) can't be mistaken
+    for the real close.
+    """
+    depth = 0
+    i = open_bracket_idx
+    n = len(text)
+    while i < n:
+        skip_to = _skip_non_code(text, i)
+        if skip_to is not None:
+            i = skip_to
+            continue
+        c = text[i]
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
 def _strip_cfg_test_blocks(text: str) -> str:
-    """Remove every `#[cfg(test)]`-attributed item -- almost always a whole
-    `mod tests { ... }` block, occasionally a body-less `use`/`mod`
-    declaration -- from `text` before it's scanned for field reads.
+    """Remove every `#[cfg(test)]`-attributed item (also `#[cfg(all(test,
+    ...))]` and `#[cfg(any(test, ...))]`, `test` as the first condition)
+    -- almost always a whole `mod tests { ... }` block, occasionally a
+    body-less `use`/`mod` declaration -- from `text` before it's scanned
+    for field reads.
 
     Without this, a field only used inside a test's own assertion (for
     example `assert_eq!(settings.video_codec_fallback_chain, ...)`) reads
@@ -469,29 +581,73 @@ def _strip_cfg_test_blocks(text: str) -> str:
     fixed together, or removing the test line alone would have made the
     check wrongly report a live field as dead.
 
-    This finds each REAL `#[cfg(test)]` attribute (`CFG_TEST_RE` is
-    anchored to the start of a line, so a comment that merely mentions the
-    attribute in prose -- two real ones sit in
-    `services/download_queue/mod.rs` -- can never match), finds where that
-    attributed item ends (`_find_item_end`: a brace-delimited body or a
-    bare `;`), and for a braced item brace-matches the body
-    (`_matching_brace`, itself comment/string-aware) to find the real
-    closing `}`. It does not care whether the attributed item is a `mod`,
-    a single `fn`, or anything else -- none of it runs in a real build, so
-    none of it should count as a real read.
+    This finds each candidate `#[cfg(test)]`-shaped attribute (`CFG_TEST_RE`
+    is anchored to the start of a line, so a `//` comment that merely
+    mentions the attribute in prose -- two real ones sit in
+    `services/download_queue/mod.rs` -- can never match on the same line),
+    confirms the match is actually real code and not text sitting inside a
+    `/* ... */` block comment (`_position_is_in_comment_or_string` --
+    "start of line" alone doesn't rule that out, see the comment on
+    `CFG_TEST_RE`), finds the attribute's own closing `]`
+    (`_attr_close_bracket`, so `all(...)`/`any(...)` nesting doesn't throw
+    it off), finds where the attributed item itself ends (`_find_item_end`:
+    a brace-delimited body or a bare `;`), and for a braced item
+    brace-matches the body (`_matching_brace`, itself comment/string-aware)
+    to find the real closing `}`. It does not care whether the attributed
+    item is a `mod`, a single `fn`, or anything else -- none of it runs in
+    a real build, so none of it should count as a real read.
     """
     out: list[str] = []
     pos = 0
     for m in CFG_TEST_RE.finditer(text):
         if m.start() < pos:
             continue  # already inside a block we've dropped
+        hash_idx = text.find("#", m.start(), m.end())
+        if _position_is_in_comment_or_string(text, hash_idx):
+            continue  # a doc example inside a comment, not a real attribute
+        open_bracket_idx = text.index("[", hash_idx)
+        attr_end = _attr_close_bracket(text, open_bracket_idx)
         out.append(text[pos : m.start()])
-        kind, idx = _find_item_end(text, m.end())
+        kind, idx = _find_item_end(text, attr_end)
         if kind == "brace":
             idx = _matching_brace(text, idx)
         # "semi" and "eof" already point at (or past) the item's own end;
         # only "brace" needs the extra hop to its matching close.
         pos = idx + 1
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def _strip_comments_and_strings(text: str) -> str:
+    """Blank out every comment and string/char literal in `text` (as
+    `_skip_non_code` finds them), replacing each with spaces -- keeping
+    any newlines inside the stripped span so line numbers in the result
+    still line up with the original -- so a regex search run against the
+    result can only ever match real code.
+
+    Without this, a mention of a method or field name sitting in a
+    comment, a doc example, or a string constant is indistinguishable
+    from a genuine reference to a naive `pattern.search(text)` call. That
+    is exactly the gap `_method_names_called_outside_settings_rs` and
+    `collect_backend_reads` had: a comment in `config_service.rs`
+    mentioning `video_codec_priority_cli` by name was enough, on its own,
+    to make that method (and every field it reads) count as "called by
+    the backend" even with every real call site deleted.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    pos = 0
+    while i < n:
+        skip_to = _skip_non_code(text, i)
+        if skip_to is not None:
+            out.append(text[pos:i])
+            span = text[i:skip_to]
+            out.append("".join(ch if ch == "\n" else " " for ch in span))
+            i = skip_to
+            pos = i
+            continue
+        i += 1
     out.append(text[pos:])
     return "".join(out)
 
@@ -568,17 +724,41 @@ def _iter_impl_methods(block: str) -> list[tuple[str, str]]:
     return methods
 
 
+def _prepare_for_scan(text: str) -> str:
+    """The standard "make this file safe to regex-search for a real code
+    reference" pipeline: drop every `#[cfg(test)]`-attributed item
+    (`_strip_cfg_test_blocks`), then blank every remaining comment and
+    string/char literal (`_strip_comments_and_strings`).
+
+    Both steps matter, and in this order. Without the first, a field or
+    method used only inside a test's own assertion counts as a real
+    backend use. Without the second, a mention of a field or method name
+    sitting in a comment -- `// still calls video_codec_priority_cli()
+    somewhere` -- or inside a string counts as a real call too, which is
+    exactly as misleading: proof that someone wrote a sentence, not that
+    the backend does anything. Stripping test blocks first means a
+    comment INSIDE a test module doesn't need separate handling -- it
+    leaves with the rest of the block before the comment-blanking pass
+    ever runs.
+    """
+    return _strip_comments_and_strings(_strip_cfg_test_blocks(text))
+
+
 def _method_names_called_outside_settings_rs(method_names: set[str]) -> set[str]:
     """Which of `method_names` (each an `impl AppSettings` method name,
     e.g. `video_codec_priority_cli`) is called anywhere in
     `src-tauri/src/**/*.rs` OTHER than `models/settings.rs` itself, in
-    non-test code.
+    real, non-test, non-comment, non-string code.
 
     A method existing, and reading a field, is not proof the backend does
     anything with that field -- the method itself has to be reachable
     from somewhere real. Same "no test-only credit" rule as everywhere
     else in this script: a method called only from a test proves the test
-    compiles, not that the backend uses the field."""
+    compiles, not that the backend uses the field. And the same applies
+    to a mention inside a comment or a string literal -- `text.search()`
+    on raw source can't tell "this is a real call expression" apart from
+    "someone wrote this method's name in a sentence", so `_prepare_for_scan`
+    removes both possibilities before the pattern ever runs."""
     if not method_names:
         return set()
     called: set[str] = set()
@@ -586,7 +766,7 @@ def _method_names_called_outside_settings_rs(method_names: set[str]) -> set[str]
     for path in _iter_source(RUST_SRC, (".rs",)):
         if path.resolve() == SETTINGS_RS.resolve():
             continue
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = _prepare_for_scan(path.read_text(encoding="utf-8", errors="ignore"))
         for name, pattern in patterns.items():
             if name in called:
                 continue
@@ -598,17 +778,17 @@ def _method_names_called_outside_settings_rs(method_names: set[str]) -> set[str]
 def collect_backend_reads(field_names: list[str]) -> set[str]:
     """Every AppSettings field name found as a `.name` token somewhere in
     `src-tauri/src/**/*.rs`, outside `models/settings.rs`'s field
-    declarations and outside test code -- plus, as a deliberate carve-out
-    of that `models/settings.rs` exclusion, any field read as `self.name`
-    inside `impl AppSettings { ... }` in that same file. See
-    `_strip_cfg_test_blocks` and `_collect_impl_app_settings_self_reads`
+    declarations, outside test code, and outside comments/strings -- plus,
+    as a deliberate carve-out of that `models/settings.rs` exclusion, any
+    field read as `self.name` inside `impl AppSettings { ... }` in that
+    same file. See `_prepare_for_scan` and `_collect_impl_app_settings_self_reads`
     for why each half exists."""
     reads: set[str] = set()
     patterns = {name: re.compile(r"\." + re.escape(name) + r"\b") for name in field_names}
     for path in _iter_source(RUST_SRC, (".rs",)):
         if path.resolve() == SETTINGS_RS.resolve():
             continue
-        text = _strip_cfg_test_blocks(path.read_text(encoding="utf-8", errors="ignore"))
+        text = _prepare_for_scan(path.read_text(encoding="utf-8", errors="ignore"))
         for name, pattern in patterns.items():
             if name in reads:
                 continue
