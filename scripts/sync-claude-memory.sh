@@ -39,6 +39,28 @@ if [ ! -d "$SHARED_DIR" ]; then
 fi
 
 # ----------------------------------------------------------------
+# Keep .OpenAI/CONTEXT.md in sync with .claude/CLAUDE.md
+# ----------------------------------------------------------------
+# .OpenAI/CONTEXT.md exists so a different AI coding tool sees the same
+# project instructions Claude Code does. It is meant to be a straight copy
+# of .claude/CLAUDE.md, but nothing enforced that, and the two drifted
+# badly out of sync in practice (including .OpenAI/CONTEXT.md telling
+# people to run `xattr -cr`, which this project explicitly says not to
+# do). This step re-copies CLAUDE.md over CONTEXT.md every time this
+# script runs (i.e. after every `git pull`, per the convention above) so
+# the two files cannot drift apart again. This is a within-repo copy
+# (unlike the home-directory sync below) — if you want to change what
+# either tool sees, edit .claude/CLAUDE.md and commit; do not hand-edit
+# .OpenAI/CONTEXT.md, it will just be overwritten next run.
+CLAUDE_MD="$REPO_ROOT/.claude/CLAUDE.md"
+OPENAI_CONTEXT="$REPO_ROOT/.OpenAI/CONTEXT.md"
+if [ -f "$CLAUDE_MD" ]; then
+    mkdir -p "$(dirname "$OPENAI_CONTEXT")"
+    cp "$CLAUDE_MD" "$OPENAI_CONTEXT"
+    printf 'Refreshed %s from .claude/CLAUDE.md\n' ".OpenAI/CONTEXT.md"
+fi
+
+# ----------------------------------------------------------------
 # Compute the sanitised path Claude Code uses for this repo
 # ----------------------------------------------------------------
 # Rule observed in Claude Code: take the absolute repo path and replace

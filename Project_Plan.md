@@ -36,9 +36,9 @@
 | macOS | Apple Silicon (ARM64) | ✅ Complete | `.dmg` |
 | Windows | x64 (64-bit) | ✅ Complete | `.exe` (NSIS) |
 | Windows | ARM64 | ✅ Complete | `.exe` (NSIS) |
-| Linux | x64 | ✅ Complete | `.deb`, `.AppImage` |
-| Linux | ARM64 | ✅ Complete | `.deb` |
-| Linux | ARMv7 | ✅ Complete | `.deb` |
+| Linux | x64 | ✅ Complete | `.deb`, `.AppImage`, `.rpm` |
+| Linux | ARM64 | ✅ Complete | `.deb`, `.rpm` |
+| Linux | ARMv7 | ✅ Complete | `.deb`, `.rpm` |
 
 ---
 
@@ -134,18 +134,23 @@ Build the React frontend with platform-adaptive styling, navigation, download fo
 - ✅ Quality selector with per-download override capability
 - ✅ Support for multiple URLs (batch downloads)
 
-#### 3.3 Settings Pages (10 tabs)
+#### 3.3 Settings Pages (11 tabs)
+
+There is no "Paths" tab — the output folder lives on the General tab, and tool binary paths plus the temp directory live on the Tools tab. The 11 tabs actually registered in `src/components/settings/SettingsPage.tsx`, in on-screen order, are:
 
 1. ✅ **General** - Output path, language, overwrite, auto-start queue, updates
-2. ✅ **Quality** - Default audio codec, video resolution, format
-3. ✅ **Fallback** - Drag-to-reorder fallback chains for music and video
-4. ✅ **Paths** - Temp directory, tool binary paths (FFmpeg, mp4decrypt, etc.)
+2. ✅ **Codec & Resolution** - Default audio codec, video resolution, format
+3. ✅ **Codec Fallback Order** - Drag-to-reorder fallback chains for music and video
+4. ✅ **Tools** - Tool status/install, custom tool binary paths, temp directory
 5. ✅ **Cookies** - Cookie file import, validation, expiry warnings
 6. ✅ **Lyrics** - Synced lyrics format (LRC/SRT/TTML)
-7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size, animated artwork
-8. ✅ **Metadata** - AcoustID fingerprinting, ReplayGain analysis
+7. ✅ **Cover Art** - Format (JPG/PNG/Raw), size, animated artwork, cross-service cover art upgrade
+8. ✅ **Metadata** - AcoustID fingerprinting, ReplayGain analysis, song.link links
 9. ✅ **Templates** - Folder and file naming templates
-10. ✅ **Advanced** - Wrapper, WVD, download/remux modes
+10. ✅ **Spotify** - Session/sign-in and the M9 anti-ban safeguards (hidden behind the developer-only preview switch for regular users)
+11. ✅ **Advanced** - Wrapper, WVD, download/remux modes, API credentials, crash reporting, diagnostics
+
+Two more tab components exist in the codebase (`BBCiPlayerTab.tsx`, `YouTubeTab.tsx`) but are not wired into the tab list yet — they'll join once M8/M10 ship.
 
 #### 3.4 First-Run Setup Wizard
 
@@ -297,7 +302,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Fix --cover-size parameter** - Was passing `"10000x10000"` (WxH) instead of `"10000"` (single integer) to GAMDL in both CLI args and config.ini
 - ✅ **Expanded MusicKit documentation** - 6-step setup guide with detailed Apple Developer portal navigation, platform-specific instructions for extracting the `.p8` private key
 - ✅ **Updates page** - Dedicated sidebar page (`Updates`) showing full release notes rendered as markdown via `react-markdown`. Strips "Choose your download" section from release bodies (irrelevant for in-app auto-update). Connected to update banner "View Details" link and sidebar footer update button. Shows "You're up to date" state with current version when no updates are available. External links in release notes and "View on GitHub" buttons open in the system default browser via `@tauri-apps/plugin-shell`.
-- ✅ **i18n groundwork** - Translation infrastructure using `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (en, de, fr). `ui_language` setting in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General. Dynamic locale loading at startup. Provides migration path for translating remaining components.
+- ✅ **i18n groundwork** - Translation infrastructure using `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (en, de, fr). `ui_language` setting in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General. Dynamic locale loading at startup. Provides migration path for translating remaining components. **Later update:** German and French are now complete, machine-made translations, not a stub — the language picker and an in-app note both say so. Help pages can also be translated (one file per page under `help/<language>/`, one page done so far), falling back to the English original with a note when a translation is missing.
 - ✅ **Crash reporting system** - Three-layer diagnostics: local file logging (`tracing` ecosystem with daily-rotating log files), local JSON crash reports (`{app_data_dir}/crashes/`), and opt-in Sentry cloud reporting. Custom panic handler captures Rust panics; frontend errors (ErrorBoundary, window.onerror, unhandledrejection) persisted via `log_frontend_error` IPC command.
 - ✅ **GitHub Issues crash reporting** - One-click crash reporting to GitHub Issues from Settings > Advanced > Crash Reporting. Pre-filled GitHub Issue URL opened in the user's browser (no tokens, no server needed). Privacy-first: user reviews all data in a `CrashReportDialog` consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `crash-report` label and `.github/ISSUE_TEMPLATE/crash-report.yml` issue template. `build_github_issue_url()` in `crash_report_service.rs`, `get_github_issue_url` IPC command, `CrashReportSection` and `CrashReportDialog` frontend components.
 - ✅ **GitHub branch protection** - Repository Ruleset on `main` preventing force pushes and branch deletion, requiring CI status checks for PRs
@@ -345,7 +350,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Companion lyrics recursive directory discovery** (v0.32.0) - `run_companion_lyrics_conversion()` now uses `find_dirs_with_ttml()` to recursively find album directories containing `.ttml` files, fixing missing LRC/SRT/VTT/ASS for companion tiers (#439).
 - ✅ **Persistent on-disk activity log** (#541) - Every `ActivityLogEvent` is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered Tokio background task (unbounded channel + `BufWriter` + 500 ms flush tick + UTC date rollover + graceful shutdown drain). All four `emit_*` helpers in `utils::activity_log` and the four direct-emit sites in `services::download_queue` fan out to the writer after emitting the Tauri event, so every event reaches disk regardless of the 10K in-memory cap or the Verbose UI filter. New `export_disk_activity_log` and `get_logs_folder_path` IPC commands back the "Export Disk" and "Reveal" buttons in the Activity Log toolbar. User-configurable storage location via `activity_log_path_override` setting in Settings > Advanced > Diagnostics (Browse + Reset buttons; empty = default). Pruned alongside tracing logs in `clear_old_logs()` at startup (7-day retention). Zero hot-path disk I/O, no change to WebView memory footprint — complete forensic record for bug hunting without reintroducing the 14 GB WebView RAM leak.
 - ✅ **Release channel ladder** — seven-tier channel hierarchy `feat/* → nightly → weekly → monthly → alpha → beta → release-candidate → main (stable)` with protected long-lived branches. Three cron-driven channels: `nightly-release.yml` (daily 00:00 UTC), `weekly-release.yml` (Sundays 00:00 UTC, #628 / PR #652), `monthly-release.yml` (1st of month 00:00 UTC, #628 / PR #652) — each merges `feat/*` into its branch, bumps version to `-{channel}.YYYYMMDD`, and pushes a tag to trigger `release.yml`. Three push-driven channels: `alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml` (#631) — each fires on push to its branch, computes a monotonic `-{channel}.N` counter that never resets across base-version bumps, and pushes the tag. `UpdateChannel` enum (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) plus `update_channel` AppSetting with channel-aware update checker (uses `>=` for promotion, so a Beta user also sees RC + Stable) and install guard (`download_and_install_app_update` refuses tags from a less-stable channel — #630). Channel selector in Settings > General > Updates with `ChannelSwitchWarning.tsx` modal on switch to a pre-release channel; the four most-experimental tiers (Nightly / Weekly / Monthly / Alpha) are gated behind `dev_access_enabled` so they only appear after the Konami unlock (#632). Branch protection split into `.github/rulesets/protected-stable-branches.json` (main / release-candidate / beta / alpha — no bypass actor, fast-forward only) and `protected-cron-channels.json` (nightly / weekly / monthly with admin-bypass for cron force-pushes — #629). `auto-delete-merged-branches.yml` exempts the channel branches from PR-merge cleanup. `release.yml` derives the `prerelease` flag dynamically from the tag suffix, auto-publishes prerelease drafts at the end of `finalize-release` (#646), and is fed by `version-bump.yml`'s pre-created GitHub Release object on the manual stable path (#645) so platform jobs can't race to fragment installers across multiple drafts. `update-security-policy.yml` rewrites SECURITY.md's "Supported Versions" table on every main push and tag push (#633). One-shot `realign-alpha.yml` helper for fast-forwarding `alpha` after a stable cut (#634). **Later update:** the three cron-driven channels (Nightly, Weekly, Monthly) described above were removed in the v1.11.0 cleanup (#879) — `nightly-release.yml`, `weekly-release.yml`, `monthly-release.yml`, and the `protected-cron-channels.json` ruleset no longer exist. Alpha now covers the "latest work-in-progress" need on its own. The channel ladder today is four tiers: Alpha → Beta → RC → Stable, with only Alpha gated behind `dev_access_enabled`. See the "Release Channels (current state)" note in `.claude/CLAUDE.md` for the up-to-date picture.
-- 🔲 **Library folder scan for re-download** (#380) - Scan existing music folder to find quality upgrade and re-download opportunities.
+- ✅ **Library folder scan for re-download** (#380, shipped as the Library Scan page, #717) - Scan existing music folder to find quality upgrade and re-download opportunities. Point MeedyaDL at an existing library, and it finds every album it has previously downloaded (via `manifest.meedyadl` files), showing artist/album/track-count/codec in a sortable table with a smart-retry diff, Apple Music freshness check, and a Re-download action.
 - ✅ **Multi-service groundwork** (#430, #431, #432, #433, #424, #425, #426, #288) - All service modules registered and compiling, frontend types/IPC ready, Settings Services group, DownloadForm service detection, shared deps, enrichment routing, per-service auth.
 - ✅ **Shared `meedya-fingerprint` crate adoption** (#353) - AcoustID HTTP lookup (Phase 1), ReplayGain EBU R128 analyser (Phase 2), and Chromaprint fingerprint generation (Phase 3) all routed through `meedya_fingerprint::*` from `MWBMPartners/MeedyaSuite-core`. Phase 3 is gated behind an opt-in `chromaprint` cargo feature flag (`MeedyaSuite-core#10`, [PR #35](https://github.com/MWBMPartners/MeedyaSuite-core/pull/35)) so future consumer crates that only want the HTTP client or the loudness analyser don't pay the compile-time cost of `rusty-chromaprint` + `symphonia`. Three pure adapter functions (`map_shared_acoustid_result` / `map_shared_replaygain_result` / `map_shared_chromaprint_result`) project the shared `FingerprintError` variants back to MeedyaDL's historical `String` error surface so log scrapers and `classify_error()` stay aligned. ARM Linux property preserved (pure Rust, no fpcalc binary). Net win: ~200 LOC removed from MeedyaDL.
 - ✅ **Lyricsfile (.lyrics) YAML sidecars** (#596) - New enrichment Step 2g converts the TTML sidecar emitted by GAMDL into a Lyricsfile YAML sidecar via the new `meedya-lyrics::Lyricsfile` upstream module (`MeedyaSuite-core#34`, [PR #36](https://github.com/MWBMPartners/MeedyaSuite-core/pull/36)). Lyricsfile is the open, extensible format endorsed by LRCGET v2.0 and LRCLIB — preserves word-level timing in a plain-text-editable YAML document. New `generate_lyricsfile` setting (default off, experimental per upstream's own release notes). Service in `lyricsfile_service.rs`. Idempotent (won't overwrite existing `.lyrics` files — preserves user edits made in LRCGET). New `ManifestTrack.has_lyricsfile: bool` field at album-level granularity. Help doc section added to `help/lyrics-and-metadata.md`.
@@ -377,7 +382,7 @@ The architecture is designed with a `MediaService` trait pattern (`src-tauri/src
 
 ---
 
-### Milestone 8 — Spotify Support (v2.0.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
+### Milestone 9 — Spotify Support (v2.1.0) — [#101](https://github.com/MWBMPartners/MeedyaDL/issues/101)
 
 **Status:** 🚧 Most of the plan below has already been built, but it sits behind a hidden developer-only preview switch. A regular user cannot turn Spotify downloading on yet, and pasting a Spotify link today is only accepted as far as the safety checks below — it does not produce a finished download for a normal user. Treat every "done" item here as "built, not yet released", not as "shipped."
 
@@ -423,7 +428,7 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 ---
 
-### Milestone 9 — YouTube Support (v2.1.0) — [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104)
+### Milestone 10 — YouTube Support (v2.2.0) — [#104](https://github.com/MWBMPartners/MeedyaDL/issues/104)
 
 **Status:** 🔲 Planned
 
@@ -472,7 +477,7 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 ---
 
-### Milestone 10 — BBC iPlayer Support (v2.2.0) — [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102)
+### Milestone 8 — BBC iPlayer Support (v2.0.0) — [#102](https://github.com/MWBMPartners/MeedyaDL/issues/102)
 
 **Status:** 🔲 Planned
 
@@ -543,7 +548,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 | --- | --- | --- |
 | **Smart Download** | Cross-platform quality optimisation — search all enabled services for the same content and download the best available quality | 🔮 Future |
 | **YouTube Music** | Dedicated YouTube Music support via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features (albums, playlists, lyrics) beyond what yt-dlp provides | 🔮 Future |
-| **Full i18n** | Complete translations for German, French, and additional languages (groundwork done: i18next + react-i18next, OS auto-detection, English locale) | 🔮 Future |
+| **More languages** | German and French are already complete, machine-made translations; this tracks adding further languages beyond those two | 🔮 Future |
 | ~~**Download history**~~ | ~~Persistent download history and statistics dashboard~~ | ✅ Complete (v0.32.0) — `history_service.rs` persists download history as JSON (max 1000 entries), `HistoryPage.tsx` with search, status icons, codec badges |
 
 ### Future (Beyond v3.x)

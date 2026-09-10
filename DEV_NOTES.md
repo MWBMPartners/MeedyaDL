@@ -500,7 +500,7 @@ The legacy `check_pre_releases: bool` setting still exists and is implicitly ena
 ### macOS "The signature does not include a secure timestamp"
 
 **Cause**: Tauri's `tauri-macos-sign` crate omits `--timestamp` from the `codesign` command. Without it, macOS uses a non-deterministic default that may or may not produce timestamps. Apple's notarization service requires secure timestamps on all code signatures, so builds can randomly fail.
-**Fix**: Both `release.yml` and `pre-release.yml` include a `codesign` wrapper step (Step 8.9) that injects `--timestamp` into every codesign invocation. The wrapper is installed to `$HOME/bin` and prepended to `$GITHUB_PATH` so it intercepts all calls before delegating to `/usr/bin/codesign`. This is a workaround for [tauri-apps/tauri#11992](https://github.com/tauri-apps/tauri/issues/11992) and can be removed once Tauri adds `--timestamp` natively. See also: [Apple: Resolving Common Notarization Issues](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).
+**Fix**: `release.yml` includes a `codesign` wrapper step (Step 8.9) that injects `--timestamp` into every codesign invocation. The wrapper is installed to `$HOME/bin` and prepended to `$GITHUB_PATH` so it intercepts all calls before delegating to `/usr/bin/codesign`. This is a workaround for [tauri-apps/tauri#11992](https://github.com/tauri-apps/tauri/issues/11992) and can be removed once Tauri adds `--timestamp` natively. (There is no separate `pre-release.yml` — every build, prerelease or stable, goes through `release.yml`.) See also: [Apple: Resolving Common Notarization Issues](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).
 
 ### macOS "Validate macOS signing secrets" failure
 
@@ -571,22 +571,25 @@ Where to find and edit user-facing text in the application. All labels, descript
 
 ### Settings Tabs
 
-Each settings tab is a self-contained React component. Labels, descriptions, and option arrays are defined inline.
+Each settings tab is a self-contained React component. Labels, descriptions, and option arrays are defined inline. There is no "Paths" tab — that was an earlier plan; the output folder ended up on General, and tool binary paths plus the temp directory ended up on Tools. The 11 tabs actually registered (on-screen label, then component file):
 
-| Tab | File |
+| Tab (on-screen label) | File |
 | --- | --- |
 | General | `src/components/settings/tabs/GeneralTab.tsx` |
-| Quality | `src/components/settings/tabs/QualityTab.tsx` |
-| Fallback | `src/components/settings/tabs/FallbackTab.tsx` |
-| Paths | `src/components/settings/tabs/PathsTab.tsx` |
+| Codec & Resolution | `src/components/settings/tabs/QualityTab.tsx` |
+| Codec Fallback Order | `src/components/settings/tabs/FallbackTab.tsx` |
+| Tools | `src/components/settings/tabs/ToolsTab.tsx` |
 | Cookies | `src/components/settings/tabs/CookiesTab.tsx` |
 | Lyrics | `src/components/settings/tabs/LyricsTab.tsx` |
 | Cover Art | `src/components/settings/tabs/CoverArtTab.tsx` |
 | Metadata | `src/components/settings/tabs/MetadataTab.tsx` |
 | Templates | `src/components/settings/tabs/TemplatesTab.tsx` |
+| Spotify | `src/components/settings/tabs/SpotifyTab.tsx` |
 | Advanced | `src/components/settings/tabs/AdvancedTab.tsx` |
 
-The tab list itself (names, icons, order) is the `TABS` array in `src/components/settings/SettingsPage.tsx`.
+Two more tab component files exist (`BBCiPlayerTab.tsx`, `YouTubeTab.tsx`) but have no entry in the tab list below, so they render nothing today — they're staged for M8/M10.
+
+The tab list itself (names, icons, order, and the grouping into General/Download/Authentication/Services/System sections) is the `TABS` and `SETTINGS_GROUPS` arrays in `src/components/settings/SettingsPage.tsx`.
 
 ### Help Topics
 
@@ -612,19 +615,22 @@ Help content lives in real Markdown files and is loaded into the app at build ti
 
 ### i18n Translation Files
 
-When i18n is fully adopted, translatable strings live in:
+The UI text lives here. German (`de`) and French (`fr`) are complete, machine-made translations — not a stub, not groundwork — and the language picker plus an in-app note both say so:
 
 | File | Description |
 | --- | --- |
 | `public/locales/en/translation.json` | English (default/fallback) |
-| `public/locales/{lang}/translation.json` | Additional languages (e.g., `de`, `fr`) |
+| `public/locales/de/translation.json` | German (complete, machine-made) |
+| `public/locales/fr/translation.json` | French (complete, machine-made) |
 | `src/lib/i18n.ts` | i18next initialization and locale loading |
 
 To translate a component: use `const { t } = useTranslation()` from `react-i18next` and replace string literals with `t('key')` calls. See the i18n section below for details.
 
+Help pages can be translated too, one Markdown file per page at `help/<language>/<same file name>.md` (one page done so far — `keyboard-shortcuts.md`, in both `de` and `fr`). `HelpViewer.tsx` loads whichever translated pages exist for the current language and shows them instead of the English original; a page with no translation yet falls back to the English original with a "not translated yet" note rather than a blank page.
+
 ### Capturing Screenshots
 
-To update the README screenshots:
+`assets/screenshots/` currently holds nothing but a `.gitkeep` — no screenshots have been captured yet. When someone does this:
 
 1. Build and run the app: `npm run tauri dev`
 2. Navigate to each page and capture with your OS screenshot tool
@@ -680,31 +686,34 @@ MeedyaDL has a three-layer crash reporting system:
    - Frontend errors (ErrorBoundary, window.onerror, unhandledrejection) are sent to Rust via the `log_frontend_error` IPC command
    - Each report includes: error message, stack trace, app version, OS, architecture, timestamp, source
 
-3. **Sentry cloud reporting** (opt-in) -- Anonymous crash telemetry:
-   - Disabled by default (`sentry_enabled: false` in settings)
+3. **Cloud crash reporting** (opt-in) -- Anonymous crash telemetry:
+   - Disabled by default (`sentry_enabled: false` in settings — the field keeps its old name to avoid a settings migration for no visible benefit; it does not mean the destination is Sentry)
    - Toggle in Settings > Advanced > Crash Reporting
-   - Rust SDK (`sentry` crate) + JS SDK (`@sentry/browser`)
+   - Rust SDK (`sentry` crate) + JS SDK (`@sentry/browser`) — these are Sentry's own client libraries, but **reports actually go to GlitchTip**, not to Sentry. GlitchTip accepts Sentry's client SDKs unchanged, so the code is identical either way and the destination is decided purely by which DSN (the endpoint URL baked in at build time) the client is given. See `.claude/memory/project_crash_reporting_backend.md` for the full reasoning (cost, self-hosting limits, etc.) — do NOT add a second SDK if the destination ever needs to change again; just change the DSN.
    - Captures panics, `tracing::error!()` events, unhandled JS exceptions
    - No personal data, download history, or account info is ever sent
+   - No user-facing text (README, TERMS, help) names the destination service — the wording stays "crash reporting"
 
 ### Key Crash Reporting Files
 
 | File | Role |
 | ---- | ---- |
-| `src-tauri/src/lib.rs` | `setup_tracing()`, `setup_panic_handler()`, Sentry init |
+| `src-tauri/src/lib.rs` | `setup_tracing()`, `setup_panic_handler()`, Sentry-SDK init (destination decided by the configured DSN) |
 | `src-tauri/src/models/crash_report.rs` | `CrashReport` struct |
 | `src-tauri/src/services/crash_report_service.rs` | CRUD operations for crash report files |
 | `src-tauri/src/commands/crash_reports.rs` | IPC commands (list, get, delete, export, log_frontend_error) |
-| `src/main.tsx` | Frontend error handlers + `persistFrontendError()` + Sentry JS init |
-| `src/components/settings/tabs/AdvancedTab.tsx` | Sentry opt-in toggle UI |
+| `src/main.tsx` | Frontend error handlers + `persistFrontendError()` + Sentry-SDK JS init |
+| `src/components/settings/tabs/AdvancedTab.tsx` | Crash-reporting opt-in toggle UI |
 
 ### File Locations
 
 | Platform | Logs | Crash Reports |
 | -------- | ---- | ------------- |
-| macOS | `~/Library/Application Support/io.github.meedyadl/logs/` | `~/Library/Application Support/io.github.meedyadl/crashes/` |
-| Windows | `%APPDATA%/io.github.meedyadl/logs/` | `%APPDATA%/io.github.meedyadl/crashes/` |
-| Linux | `~/.local/share/io.github.meedyadl/logs/` | `~/.local/share/io.github.meedyadl/crashes/` |
+| macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/logs/` | `~/Library/Application Support/com.meedyasuite.meedyadl/crashes/` |
+| Windows | `%APPDATA%/com.meedyasuite.meedyadl/logs/` | `%APPDATA%/com.meedyasuite.meedyadl/crashes/` |
+| Linux | `~/.local/share/com.meedyasuite.meedyadl/logs/` | `~/.local/share/com.meedyasuite.meedyadl/crashes/` |
+
+(An older bundle identifier, `io.github.meedyadl`, was used before the app was renamed to its current identifier, `com.meedyasuite.meedyadl`; `bundle_migration.rs` moves an existing install's data across automatically on first launch after the rename. If you see `io.github.meedyadl` elsewhere in this repo, that's describing the old identifier, not the current one.)
 
 ### Tracing Configuration
 
@@ -789,7 +798,7 @@ MeedyaDL/
 
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog, QueueItem, HistoryPage, GlobalProgressBar
 
-│   │   ├── settings/           #    SettingsPage + 10 tab components + CrashReportSection, CrashReportDialog, DevToolsSection
+│   │   ├── settings/           #    SettingsPage + 11 registered tab components (+ 2 unregistered: BBCiPlayerTab, YouTubeTab) + CrashReportSection, CrashReportDialog, DevToolsSection
 
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
 
@@ -858,7 +867,7 @@ MeedyaDL/
 
 │       ├── lib.rs              #    Plugin, state & command registration
 
-│       ├── commands/           #    IPC command handlers
+│       ├── commands/           #    IPC command handlers (26 files)
 
 │       │   ├── system.rs       #    Platform info
 
@@ -884,9 +893,33 @@ MeedyaDL/
 
 │       │   ├── history.rs      #    Download history queries
 
-│       │   └── clipboard.rs    #    System clipboard reading
+│       │   ├── clipboard.rs    #    System clipboard reading
 
-│       ├── models/             #    Data structures (15 files)
+│       │   ├── activity_log.rs #    Export/reveal the on-disk activity log
+
+│       │   ├── app_relocation.rs#   macOS self-relocation into /Applications/MeedyaSuite (#1057)
+
+│       │   ├── backup.rs       #    Snapshot + restore of app state (#466)
+
+│       │   ├── download_index.rs#   SQLite-backed download history index queries
+
+│       │   ├── feature_flags.rs#    Remote feature-availability read/refresh
+
+│       │   ├── legal.rs        #    Bundled licence text + legal document lookups
+
+│       │   ├── lyrics.rs       #    Lyrics-related IPC helpers
+
+│       │   ├── profile_bundle.rs#   Diagnostic bundle export (#572)
+
+│       │   ├── service_status.rs#   Remote service status polling
+
+│       │   ├── smart_download.rs#   Cross-platform (song.link) smart download check
+
+│       │   ├── spotify_anti_ban.rs# M9 Spotify anti-ban dispatch gate IPC
+
+│       │   └── wrapper.rs      #    Wrapper health-check commands
+
+│       ├── models/             #    Data structures (17 files)
 
 │       │   ├── download.rs     #    Download request, state, queue status
 
@@ -910,13 +943,17 @@ MeedyaDL/
 
 │       │   ├── service_status.rs#   Service health/status state
 
-│       │   ├── votify_options.rs#   Spotify (votify) CLI options stub
+│       │   ├── feature_flags.rs#    Remote feature-flag snapshot + verdicts
+
+│       │   ├── spotify_anti_ban.rs# Anti-ban state model (M9-4)
+
+│       │   ├── votify_options.rs#   Spotify (votify) CLI options
 
 │       │   ├── ytdlp_options.rs#    yt-dlp CLI options stub
 
 │       │   └── get_iplayer_options.rs# BBC iPlayer CLI options stub
 
-│       ├── services/           #    Business logic (32 files)
+│       ├── services/           #    Business logic (68 modules: 64 files + 4 directory submodules)
 
 │       │   ├── python_manager.rs    # Portable Python download/install
 
@@ -926,7 +963,7 @@ MeedyaDL/
 
 │       │   ├── config_service.rs    # JSON settings + INI sync
 
-│       │   ├── download_queue.rs    # Queue manager with fallback/retry
+│       │   ├── download_queue/      # Queue manager module (companions.rs, helpers.rs, notifications.rs, options.rs, persistence.rs, processing.rs, tests.rs)
 
 │       │   ├── update_checker.rs    # Version update checker
 
@@ -954,6 +991,8 @@ MeedyaDL/
 
 │       │   ├── ass_subtitle_service.rs # ASS subtitle generation
 
+│       │   ├── lyricsfile_service.rs # Lyricsfile (.lyrics) YAML sidecar generation (#596)
+
 │       │   ├── musicbrainz_service/ # MusicBrainz video discovery (directory module)
 
 │       │   │   ├── mod.rs          # Identifier chain (T1 URL/T2 ISRC/T3 MBID) + rate limiter
@@ -980,13 +1019,83 @@ MeedyaDL/
 
 │       │   ├── bpm_service.rs       # BPM/tempo detection
 
-│       │   ├── smart_download.rs    # Intelligent download orchestration
+│       │   ├── smart_download.rs    # Cross-platform smart-download orchestration
 
-│       │   ├── service_status.rs    # Service operational status
+│       │   ├── service_status.rs    # Remote service operational status
 
-│       │   └── integration_tests.rs # Backend integration tests
+│       │   ├── integration_tests.rs # Backend integration tests
 
-│       └── utils/              #    Utility modules
+│       │   ├── activity_log_writer.rs # Persistent on-disk activity log writer (#541)
+
+│       │   ├── app_relocation.rs    # macOS self-relocation into /Applications/MeedyaSuite (#1057)
+
+│       │   ├── backup_service.rs    # Snapshot + restore of app state (#466)
+
+│       │   ├── bbc_iplayer_service.rs # get_iplayer version checks (M8 stub)
+
+│       │   ├── best_cover_art_service.rs # Cross-service cover art upgrade (#1159)
+
+│       │   ├── bundle_migration.rs  # io.github.meedyadl → com.meedyasuite.meedyadl data migration
+
+│       │   ├── companion_supervisor.rs # Supervises a single GAMDL companion invocation
+
+│       │   ├── connectivity_watcher.rs # Waits for the internet, then starts the queue (#1156)
+
+│       │   ├── cover_art_fallback.rs # Cover-art fallback chain (#756)
+
+│       │   ├── diagnostic_bundle.rs # Diagnostic bundle composer (#572)
+
+│       │   ├── download_index/      # SQLite download history index (ingest.rs, queries.rs, schema_v1.sql, schema_v2.sql)
+
+│       │   ├── duplicate_detector.rs # Pre-queue track-level duplicate detection (#510)
+
+│       │   ├── enrichment_gaps.rs   # Enrichment gap detection for downloaded albums (#759)
+
+│       │   ├── feature_flag_service.rs # Remote feature-availability resolution
+
+│       │   ├── filename_safety.rs   # Engine filename-safety contract (#551)
+
+│       │   ├── gamdl_capabilities.rs # Version-aware capability flags for the installed GAMDL CLI
+
+│       │   ├── integrity_scan.rs    # Output-directory integrity scan (#537)
+
+│       │   ├── legacy_folder_merge.rs # Legacy sibling-folder merge for pre-#528 downloads (#789)
+
+│       │   ├── metadata_provider.rs # Service-agnostic MetadataProvider trait (#351)
+
+│       │   ├── music_video_cover_embed.rs # Embeds sidecar cover thumbnails into music videos
+
+│       │   ├── music_video_subtitle_service.rs # Subtitle/caption stream handling for music videos
+
+│       │   ├── odesli_service.rs    # song.link (Odesli) cross-platform lookup (#295)
+
+│       │   ├── package_manager.rs   # Multi-package-manager attribution/update routing
+
+│       │   ├── profile_bundle/      # Diagnostic profile bundle (mod.rs, credentials.rs)
+
+│       │   ├── progress_stages.rs   # Ordered per-item processing stages (single source of truth)
+
+│       │   ├── queue_watchdog.rs    # External queue watchdog (#818)
+
+│       │   ├── service_dispatch.rs  # Service-agnostic dispatch helpers
+
+│       │   ├── settings_cache.rs    # In-process AppSettings cache
+
+│       │   ├── smart_retry_planner.rs # Library-scan smart-retry diff planner
+
+│       │   ├── spotify_anti_ban.rs  # Anti-ban runtime for Spotify downloads (M9-4)
+
+│       │   ├── spotify_service.rs   # votify (Spotify) CLI wrapper
+
+│       │   ├── stats_service.rs     # Lifetime download analytics (#464)
+
+│       │   ├── traceback_diagnostic.rs # Python traceback diagnostic capture (#758)
+
+│       │   ├── votify_capabilities.rs # Version-aware capability flags for the installed votify CLI
+
+│       │   └── youtube_service.rs   # yt-dlp version checks (M10 stub)
+
+│       └── utils/              #    Utility modules (18 files)
 
 │           ├── platform.rs     #    OS detection & paths
 
@@ -996,40 +1105,70 @@ MeedyaDL/
 
 │           ├── activity_log.rs #    Shared activity log emission helpers
 
-│           └── rate_limiter.rs #    Sliding-window IPC rate limiter
+│           ├── rate_limiter.rs #    Sliding-window IPC rate limiter
+
+│           ├── atomic_write.rs #    Durable, crash-safe JSON writes
+
+│           ├── bounded_log.rs  #    Capped in-memory log buffer
+
+│           ├── damaged_file.rs #    Detects corrupted/truncated media files
+
+│           ├── error_context.rs#    `context_err!` macro for consistent error wrapping
+
+│           ├── file_locks.rs   #    Per-file write locks (FileWriteLocks) for enrichment races
+
+│           ├── fs_safe.rs      #    Safe filesystem helpers (path-traversal guards, etc.)
+
+│           ├── fs_walk.rs      #    Depth-bounded recursive directory walks
+
+│           ├── http_client.rs  #    Shared `reqwest::Client` builders + the four-way User-Agent policy
+
+│           ├── image_info.rs   #    Image dimension probing (cover-art pixel comparisons)
+
+│           ├── lyric_time.rs   #    Lyric timestamp parsing/formatting
+
+│           └── subprocess_reader.rs #    Shared `BufReader → next_line` subprocess line-reading shell
 
 ├── public/locales/             # i18n translation files
 
 │   ├── en/translation.json     #    English (default/fallback)
 
-│   ├── de/translation.json     #    German (stub)
+│   ├── de/translation.json     #    German (complete, machine-made)
 
-│   └── fr/translation.json     #    French (stub)
+│   └── fr/translation.json     #    French (complete, machine-made)
 
-├── help/                       # Markdown help documentation (16 pages)
+├── help/                       # Markdown help documentation (21 files: 20 in-app pages + index.md, a GitHub-only table of contents; translations under help/de/ and help/fr/)
 
-├── assets/screenshots/         # App screenshots for README
+├── assets/screenshots/         # App screenshots for README (currently empty — no screenshots captured yet)
 
 ├── .github/
 │   ├── ISSUE_TEMPLATE/         # GitHub issue templates
 
 │   │   └── crash-report.yml    #    Crash report issue form
 
-│   └── workflows/              # CI/CD (7 workflows)
+│   └── workflows/              # 30 workflow files — a representative sample:
 
 │       ├── ci.yml              #    Test & lint on push/PR
 
-│       ├── release.yml         #    Build & publish releases
+│       ├── release.yml         #    Build & publish releases (every tag, prerelease or stable)
 
-│       ├── release-please.yml  #    Automated version bumps & release PRs
+│       ├── release-please.yml  #    Automated version bumps & release PRs (stable channel)
+
+│       ├── alpha-release.yml, beta-release.yml, release-candidate-release.yml # Push-driven per-channel version bump + tag
 
 │       ├── changelog.yml       #    Auto-generate changelogs
 
 │       ├── codeql.yml          #    CodeQL static analysis
 
+│       ├── pr-security.yml     #    Advisory security/consistency checks on every PR
+
+│       ├── licences.yml        #    Licence-compliance checks on every PR
+
 │       ├── dependency-report.yml#   Monthly dependency audit
 
 │       └── fix-updater-manifest.yml # Standalone updater manifest repair
+
+#       (see "Release Workflow" and "Release Channels" above for the full list and what each one does)
 
 ├── scripts/                    # Utility scripts
 
@@ -1518,7 +1657,7 @@ Requires MusicKit credentials (Team ID, Key ID, private key in keychain).
 
 ## Subtitle and Lyrics Generation
 
-MeedyaDL's enrichment pipeline includes 6 subtitle/lyrics processing steps (Steps 2-2f):
+MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g):
 
 ### Processing Pipeline
 
@@ -1530,6 +1669,7 @@ MeedyaDL's enrichment pipeline includes 6 subtitle/lyrics processing steps (Step
 | 2d | Rich SRT generation | `generate_rich_srt` | ON | `rich_srt_service.rs` |
 | 2e | Subtitle embedding | `embed_subtitles` | OFF | `rich_srt_service.rs` |
 | 2f | ASS generation | `generate_ass` | OFF | `ass_subtitle_service.rs` |
+| 2g | Lyricsfile (`.lyrics`) YAML sidecar generation | `generate_lyricsfile` | OFF (experimental format) | `lyricsfile_service.rs` |
 
 ### Subtitle Formats
 
@@ -1557,95 +1697,15 @@ Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` 
 - `resolve_element_style(node, named_styles)` — Merge named + inline styles
 - `TtmlStyle { bold, italic, underline, color }` — Shared style struct
 
-### Sidecar Overwrite Behaviour (#550)
+### Sidecar Overwrite Behaviour
 
-All sidecar writers (`.lrc`, `.srt`, `.vtt`, `.ass`) unconditionally overwrite their target path on every enrichment run. This is **intentional, not a bug**:
-
-- `enhanced_lyrics_service.rs` writes `.lrc` via `std::fs::write()` (no existence check).
-- `rich_srt_service.rs` writes `.srt` via `std::fs::write()` — deliberately replaces any plain SRT that GAMDL wrote natively, because the rich variant carries styling tags (`<b>`, `<i>`, colour) that the plain SRT lacks.
-- `webvtt_service.rs` writes `.vtt` via `std::fs::write()`.
-- `ass_subtitle_service.rs` writes `.ass` via `std::fs::write()`.
-- The syllable-lyrics upgrade path in `download_queue.rs` also overwrites GAMDL's TTML with the richer `/syllable-lyrics` API response.
-
-The design assumption is that these services are pure generators: same source TTML + same renderer version produces byte-identical output, so overwriting is a no-op in the common case. **Manual edits to any of these sidecar files WILL be silently clobbered** the next time the item is enriched (re-download, quality upgrade, manifest re-import). If you need to preserve hand-tweaked lyrics, copy the edited sidecar out of the output directory before re-running.
-
-Follow-up work (content-hash skip, opt-in preservation flag, `.bak` backups) tracked in the Option B/C/D discussion on #550 — deliberately out of scope for the current design contract.
+See "Lyric Sidecar Regeneration Policy" further down this file for the current, accurate write policy — it isn't the same for every generator (some overwrite, some skip an existing file), and an older, now-deleted version of this section used to claim they all behaved the same way. That older claim was wrong; the code has always matched the policy described later in this file.
 
 ---
 
-## Pre-Release vs Full Release Workflow
+## Pre-Release Handling Has Moved
 
-All versions before v1.0 are published as **pre-releases** on GitHub. This means:
-
-- Users with `check_pre_releases: false` (default) will NOT receive update notifications
-- Users who enable "Include Pre-Release Versions" in Settings > General will receive updates
-- The `release.yml` workflow sets `prerelease: true` on all builds
-
-### Publishing a Pre-Release (Current Default)
-
-No special action needed. The standard release pipeline produces pre-releases automatically:
-
-```bash
-
-# 1. Push conventional commits to main
-
-git push origin main
-
-# 2. Release Please creates a Release PR (automatic)
-
-# 3. Merge the Release PR on GitHub
-
-# 4. Release Please creates a tag (e.g., v0.7.0)
-
-# 5. release.yml builds all platforms → draft pre-release on GitHub
-
-# 6. Manually review and publish the draft release on GitHub
-
-```
-
-The published release will have the "Pre-release" badge on GitHub and will only be picked up by users who have opted into pre-release updates.
-
-### Publishing a Full (Stable) Release
-
-When ready for v1.0 or a stable milestone:
-
-**Option A: Edit release on GitHub (one-time)**
-
-1. Follow the normal release pipeline (push, merge Release PR, wait for builds)
-2. Go to the draft release on GitHub
-3. Uncheck the "Set as a pre-release" checkbox
-4. Click "Publish release"
-
-**Option B: Change the workflow (permanent)**
-
-1. Edit `.github/workflows/release.yml`
-2. Change `prerelease: true` to `prerelease: false` (line ~545)
-3. Also remove `--prerelease` from the ARMv7 `gh release create` command (line ~581)
-4. Commit and push
-
-**Option C: Via CLI after publishing**
-
-```bash
-
-# Mark a specific release as stable (removes pre-release flag)
-
-gh release edit v1.0.0 --prerelease=false
-
-# Mark a release back to pre-release
-
-gh release edit v1.0.0 --prerelease
-```
-
-### How the App Update Checker Works
-
-The update checker in `update_checker.rs` uses two different GitHub API endpoints:
-
-| Setting | API Endpoint | Behaviour |
-| ------- | ------------ | --------- |
-| `check_pre_releases: false` (default) | `releases/latest` | GitHub auto-filters to the newest non-pre-release |
-| `check_pre_releases: true` | `releases?per_page=5` | Returns newest releases including pre-releases |
-
-Since all current releases are pre-releases, users on the default setting will see "no updates available" until a full release is published.
+This file used to have a whole section here describing pre-release handling as a simple "everything before v1.0 is a pre-release" rule, with settings and code that no longer exist. That's not how it works any more — MeedyaDL now ships across four channels (Alpha, Beta, RC, Stable), each with its own update-eligible audience and its own in-app guard against downgrading. See "Release Channels" earlier in this file for the branch/tag mechanics, and the "Release Channels (current state)" note in `.claude/CLAUDE.md` for the full, current picture.
 
 ---
 
@@ -1653,23 +1713,31 @@ Since all current releases are pre-releases, users on the default setting will s
 
 ### Directory Layout
 
-All brand assets live in `assets/brand/`:
+All brand assets live in `assets/brand/`. The current design (replacing an earlier vinyl/reel concept) is "Graphite levels" — a downward play-triangle with media-equaliser levels on a save bar:
 
 ```text
 assets/brand/
-├── icon.svg               # Source SVG icon (vinyl/reel design with CSS colour modes)
-├── logo.svg               # Animated SVG logo (vinyl/reel crossfade animation)
+├── icon.svg               # Source SVG icon ("Graphite levels" play-triangle design, CSS colour modes)
+├── icon-doc.svg           # Document-type icon (for .meedyadl manifest files, #447)
+├── icon-tile-small.svg    # Hand-authored 16/32px tile (a naive downscale of icon.svg turns to mush below ~64px)
+├── icon-tile-medium.svg   # Hand-authored 48/64px tile (same reason)
+├── logo.svg               # Animated SVG logo
 ├── wordtype.svg           # Animated SVG wordtype (gradient shimmer wordmark)
+├── logo-liquidglass-light.svg / -dark.svg # Apple Icon Composer foregrounds
 ├── brandkit.html          # Self-contained brand kit page (previews all assets)
+├── README.txt             # Drop-in instructions for regenerating from the source kit
 ├── icon[-mode].png        # Rendered icon PNGs (1024x1024, 8 modes)
 ├── icon[-mode].ico        # Windows ICO files (16-256px, 8 modes)
 ├── icon[-mode].icns       # macOS ICNS files (16-1024px, 8 modes)
+├── icon-doc.png / .ico / .icns # Rendered document-type icon
 ├── icon[-mode]-liquidglass.png   # Liquid Glass variant PNGs (10% inset, 8 modes)
 ├── icon[-mode]-liquidglass.icns  # Liquid Glass variant ICNS (8 modes)
 ├── favicon[-mode].ico     # Favicon ICOs (16-48px, 8 modes)
 ├── logo[-mode].png        # Animated logo as APNG (8 modes)
 └── wordtype[-mode].png    # Animated wordtype as APNG (8 modes)
 ```
+
+(`src-tauri/icons/` is a separate, unrelated set — the actual bundled app icons, assembled by `scripts/generate-app-icons.mjs`. See the "Two separate icon generators" note in `.claude/CLAUDE.md`.)
 
 **Colour modes** (8 total): default (light), dark, cb-deutan, cb-protan, cb-tritan, cb-deutan-dark, cb-protan-dark, cb-tritan-dark.
 
@@ -1724,7 +1792,7 @@ Brand assets (logo, wordtype, icon) in `assets/brand/` are **proprietary** to Me
 
 ## MeedyaSuite Wordtype SVG — Customisation Guide
 
-The wordtype SVG at `assets/brand/new/wordtype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
+The wordtype SVG at `assets/brand/wordtype.svg` is a fully self-contained, animated wordmark designed for use across the MeedyaSuite product family (MeedyaDL, MeedyaManager, MeedyaDB).
 
 ### Changing Colours / Gradients
 
@@ -1883,7 +1951,7 @@ The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype f
 | i18n infrastructure | Reimplemented | #111 |
 | Update preferences (auto-check, pre-release toggles) | Reimplemented | update_check_interval_hours, checkPreReleases |
 | Bundled deps extraction on first launch | Superseded | Mirror-based tool management (MeedyaDL-Tools) |
-| Perl runtime + get_iplayer | Superseded | BBC iPlayer deferred to M10 (#102) |
+| Perl runtime + get_iplayer | Superseded | BBC iPlayer deferred to M8 (#102) |
 | aria2c / fpcalc bundling | Superseded | fpcalc replaced by embedded rusty-chromaprint |
 | Signed bundled deps for notarization | Not applicable | No bundled deps approach on main |
 
@@ -1893,7 +1961,7 @@ The `meedyadl-v2` branch (24 commits, Feb 20–25 2026) was an early prototype f
 2. **The v2 URL parser pattern is useful reference** — `9bcf848` has the multi-service detection logic (Apple Music, YouTube, BBC iPlayer, Spotify) with content type classification. Adapt the pattern, don't copy the code.
 3. **The v2 `bundled-deps` approach is obsolete** — main uses mirror-based tool management via MeedyaDL-Tools repo. New service engines (yt-dlp, votify) should be installed via pip (like GAMDL) or downloaded from mirrors, not bundled in the installer.
 4. **The `DownloadOptions` refactor in v2** (commit `96266e3`) has a useful `service_id` field pattern for routing downloads to the correct engine. Worth adapting when implementing #107.
-5. **Start each service milestone on a fresh branch** — `feat/spotify` from `main` for M8, `feat/youtube` for M9, etc. Keep PRs focused and mergeable.
+5. **Start each service milestone on a fresh branch** — `feat/bbc-iplayer` from `main` for M8, `feat/spotify` for M9, `feat/youtube` for M10. Keep PRs focused and mergeable.
 
 ---
 
@@ -1936,7 +2004,7 @@ The `engines` array in each platform section is an **ordered priority list**:
 
 Example: BBC iPlayer uses `get_iplayer` as primary because it's purpose-built for BBC content. If get_iplayer isn't installed, MeedyaDL falls back to `yt-dlp`.
 
-Users can override the default priority per-platform in Settings. User overrides are stored in `AppSettings.engine_priority_overrides` and take precedence over the TOML defaults.
+The settings model has a place for a per-platform override — `engine_priority: HashMap<String, Vec<String>>` on `AppSettings` (note the real field name is `engine_priority`, not `engine_priority_overrides`) — but there is no Settings screen yet that lets a user actually set it. Nothing in the frontend reads or writes that field today; it's data-model groundwork for a "Settings > Engines" UI that hasn't been built.
 
 ### Bundled vs External Engines
 
@@ -1957,12 +2025,14 @@ Each engine has a `bundled` field that determines how it's distributed:
 
 ### Current Registry
 
-| Engine | Bundled | Install | Platforms | Custom path |
-|--------|---------|---------|-----------|-------------|
-| GAMDL | Yes | pip | Apple Music | No |
-| votify | Yes | pip | Spotify | No |
-| yt-dlp | Yes | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No |
-| get_iplayer | Yes | binary (mirror) | BBC iPlayer (primary) | No |
+The columns below are what `engines.toml` declares. "Bundled" is a distribution plan, not proof the engine is actually reachable by a user today — `yt-dlp` and `get_iplayer` are both defined with `enabled = false` (and the YouTube / YouTube Music / BBC iPlayer platform entries that would use them are `enabled = false` too), because M8 and M10 haven't shipped yet:
+
+| Engine | Bundled | Install | Platforms | Custom path | Actually reachable today? |
+|--------|---------|---------|-----------|-------------|-----------|
+| GAMDL | Yes | pip | Apple Music | No | Yes — the only engine every user can use |
+| votify | Yes | pip | Spotify | No | Installed for every user during setup, but hidden behind the developer-only preview switch (M9) |
+| yt-dlp | Yes (planned) | pip | YouTube, YouTube Music, BBC iPlayer (fallback) | No | No — `enabled = false`, M10 not yet implemented |
+| get_iplayer | Yes (planned) | binary (mirror) | BBC iPlayer (primary) | No | No — `enabled = false`, M8 not yet implemented |
 
 ### CI Packaging — Tiny vs Offline Installers
 
@@ -2021,10 +2091,10 @@ Remove its ID from the `engines` array. The engine definition can stay in `[engi
 ### Implementation Status
 
 - `engines.toml` file: **Done** (commit `f20fe9b`)
-- Rust parser (`engine_registry.rs`): **Pending** (#270)
-- Engine selection/fallback logic: **Pending** (#270)
-- Frontend types + Settings UI: **Pending** (#270)
-- Per-engine adapters: **Pending** (one per milestone: #101, #102, #103, #104)
+- Rust parser (`engine_registry.rs`, runtime query layer with `resolve_engine()` / `resolve_engine_chain()` / `detect_platform()`): **Done** (#107/#270)
+- Engine selection/fallback logic (`EngineCommandBuilder` trait + `run_engine()` in `engine_runner.rs`, `try_engine_fallback()`): **Done** (#107/#270)
+- Frontend types + `get_engine_config` IPC: **Done** (#107/#270) — but there is still no Settings UI for editing per-platform engine priority (see the note above); that specific piece is still pending
+- Per-engine adapters: GAMDL (done) and votify (done, gated behind the developer-only preview switch) — yt-dlp and get_iplayer remain stub builders pending M8/M10 (#101, #102, #103, #104)
 
 ---
 
@@ -2288,7 +2358,6 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 
 **If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
-<<<<<<< HEAD
 
 ## GAMDL 3.6 — Wrapper-v2, Native Muxing, Codec Rename (#853)
 

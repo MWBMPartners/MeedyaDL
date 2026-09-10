@@ -45,7 +45,7 @@ MeedyaDL will never **auto-downgrade** your stability tier. Concretely:
 
 When reporting an issue for any pre-release channel, please include:
 
-- The **exact version** shown in _Settings > About_ (includes the channel suffix, e.g., `1.13.0-alpha.56`).
+- The **exact version** shown in _Help > About_ (includes the channel suffix, e.g., `1.13.0-alpha.56`).
 - Your selected **Update Channel**.
 - Reproduction steps and relevant log output (Settings > Advanced > Open Log Folder).
 

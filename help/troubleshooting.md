@@ -79,7 +79,7 @@ If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able
 Not all content on Apple Music is available in every codec and resolution. Some tracks may only be available in specific formats.
 
 - **Cause:** The specific codec or quality level you requested is not available for this particular content on Apple Music.
-- **Solution:** Enable fallback quality in **Settings > Fallback** tab so that MeedyaDL automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
+- **Solution:** Enable fallback quality in **Settings > Codec Fallback Order** tab so that MeedyaDL automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
 - **Note:** ALAC (lossless) has the widest availability.
 
 ---
@@ -210,7 +210,7 @@ Stale wrapper auth typically shows *every* track in a download skipping with the
 
 ##### Other possible causes
 
-- **You haven't enabled wrapper auth at all.** Atmos, AC-3 and other experimental codecs are wrapper-only — cookie-based auth alone can't decrypt them. Toggle **Use Wrapper** in Settings > Advanced if you haven't already.
+- **You haven't enabled wrapper auth at all.** On GAMDL versions before 3.8, Atmos, AC-3 and the other non-web codecs are wrapper-only — cookie-based auth alone can't decrypt them. On GAMDL 3.8 and newer, a new HLS asset endpoint means only **ALAC** still needs the wrapper — Atmos, AC-3, and the AAC variants all work cookie-only. If you're on 3.8+, this cause doesn't apply to Atmos/AC-3; check the other causes below instead, or toggle **Use Wrapper** in Settings > Advanced if you specifically need ALAC.
 - **The track genuinely isn't available in the requested codec.** Some Apple Music regions have different mastering catalogues; not every track has an Atmos mix. The fallback chain handles this automatically when configured.
 - **The track was withdrawn or replaced.** Apple periodically replaces individual tracks (e.g., a song migrated from one album release to another). Re-fetching the album page in your browser may reveal it's been re-listed under a different ID.
 
@@ -289,13 +289,19 @@ When you retry an item that previously produced a partial download (e.g. `GAMDL 
 
 ##### macOS
 
-macOS Gatekeeper blocks applications that are not signed with an Apple Developer certificate. Since MeedyaDL is not distributed through the Mac App Store, you may need to explicitly allow it.
+Official MeedyaDL releases are signed with an Apple Developer ID and notarised by Apple, so macOS should open them normally with no Gatekeeper warning at all. If you still see a "can't be opened" message, it is almost certainly one of these:
 
-- **Solution:**
+- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
+- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
+- **The download was interrupted or altered.** Download it again.
+
+- **Solution (if you're on an older download and don't want to update yet):**
   1. Right-click (or Control-click) the MeedyaDL app and select **Open** from the context menu.
   2. In the dialog that appears, click **Open** to confirm.
   3. If that does not work, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the MeedyaDL message.
   4. You may need to repeat this process twice on the first launch.
+
+Do not run `xattr -cr` to work around this. That command strips *every* extended attribute from the app, not just the one macOS uses for this check — right-clicking and choosing Open does the same job for one app, and nothing more.
 
 ##### Windows
 
@@ -353,7 +359,7 @@ The application crashes immediately on startup, and macOS shows a dialog asking 
 Downloads fail with a permission error related to the temp or working directory.
 
 - **Cause:** On macOS, apps launched from `/Applications` have a working directory of `/`, which is not writable. GAMDL's default temp path of `.` (current directory) fails in this scenario.
-- **Solution:** MeedyaDL automatically resolves the temp path to `{OS temp}/MeedyaDL` to avoid this issue. If you still see write errors, verify the temp directory in **Settings > Paths** points to a writable location, or clear it to use the default.
+- **Solution:** MeedyaDL automatically resolves the temp path to `{OS temp}/MeedyaDL` to avoid this issue. If you still see write errors, verify the temp directory on the **Settings > Tools** tab points to a writable location, or clear it to use the default.
 
 #### FUSE Mount / Cloud Mount Issues
 
@@ -424,7 +430,7 @@ After downloading, the file does not play in your media player.
 
 Only some tracks in an album were downloaded, with the rest showing "Requested format is not available" in the Activity Log.
 
-- **Cause:** When downloading with Dolby Atmos or AC-3 as the preferred codec *without* a wrapper, these experimental formats may not be available for every track on the album. GAMDL skips tracks where the format is unavailable instead of falling back per-track.
+- **Cause:** These experimental formats may not be available for every track on the album. GAMDL skips tracks where the format is unavailable instead of falling back per-track. On GAMDL versions before 3.8, downloading Dolby Atmos or AC-3 *without* a wrapper made this more likely, since those codecs needed the wrapper on those releases; on GAMDL 3.8 and newer only ALAC still needs the wrapper, so Atmos/AC-3 gaps there are usually just genuine per-track unavailability rather than a missing wrapper.
 - **What MeedyaDL does:** MeedyaDL automatically detects partial downloads and re-runs the download with non-experimental codecs (e.g., ALAC, AAC) and `overwrite` disabled. This fills in the missing tracks without overwriting the successfully downloaded Atmos/AC-3 files. You'll see "Gap-fill complete" in the Activity Log when this succeeds.
 - **If gap-fill also fails:** Enable a wrapper in **Settings > Advanced** to allow experimental codecs to fall back correctly for all tracks, or switch to a non-experimental preferred codec like **ALAC** or **AAC**.
 
@@ -622,7 +628,7 @@ You can report crashes directly to the developer from within MeedyaDL. This open
 
 If you encounter a problem that is not covered in this guide, or if the suggested solutions do not resolve your issue, please report it as a bug:
 
-1. **Note the app version.** You can find this in **Settings > About** or in the application title bar.
+1. **Note the app version.** You can find this in **Help > About** or in the application title bar.
 2. **Copy relevant log entries.** Open the log file (see [Log File Locations](#log-file-locations) above) and copy the ERROR entries along with the surrounding context lines. If possible, enable verbose logging, reproduce the issue, and include the debug-level log entries.
 3. **Note the steps to reproduce.** Write down exactly what you did that triggered the error, including the URL you were trying to download, the quality settings you had selected, and any other relevant configuration.
 4. **Open an issue on the GitHub repository.** Include the app version, your operating system and version, the log entries, and the reproduction steps. The more detail you provide, the faster the issue can be diagnosed and resolved.

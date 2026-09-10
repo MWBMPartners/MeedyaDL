@@ -2,7 +2,8 @@
  * Copyright (c) 2024-2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
- * @file SettingsPage.tsx -- Settings page container with 10-tab grouped navigation.
+ * @file SettingsPage.tsx -- Settings page container. Holds the eleven tabs
+ * listed in TABS below, arranged into the groups in SETTINGS_GROUPS.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:

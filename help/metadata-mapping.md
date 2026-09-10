@@ -29,7 +29,7 @@ Last updated: 2026-05-17 (v1.7 bundle).
 
 ## How metadata gets written
 
-After GAMDL writes the standard iTunes tags, MeedyaDL runs a **12-stage enrichment pipeline** in [`services/metadata_tag_service.rs`](../src-tauri/src/services/metadata_tag_service.rs). The pipeline fetches data from two APIs and merges results, then writes ~30 freeform atoms per file using the `mp4ameta` crate's `set_data()` + `write_to_path()` (preserves existing tags — never destructive).
+After GAMDL writes the standard iTunes tags, MeedyaDL runs a **multi-step enrichment pipeline** in [`services/metadata_tag_service.rs`](../src-tauri/src/services/metadata_tag_service.rs) and several sibling services. New steps have been added over time (lyrics formats, cover-art upgrades, cross-platform links), so there isn't a fixed step count worth quoting here — see the "Metadata enrichment" entry in `.claude/CLAUDE.md` for the full, current list of steps. The pipeline fetches data from two APIs and merges results, then writes freeform atoms per file using the `mp4ameta` crate's `set_data()` + `write_to_path()` (preserves existing tags — never destructive).
 
 Tag definitions are declarative — they live in [`src-tauri/tags.toml`](../src-tauri/tags.toml) as a registry that maps Apple Music API JSON paths to MP4 atom targets. The Rust module that loads and queries the registry is [`models/tag_registry.rs`](../src-tauri/src/models/tag_registry.rs).
 
@@ -171,16 +171,21 @@ These have no `com.apple.iTunes:*` counterpart — they're MeedyaDL-attributed o
 | Atom | What it records | Set by |
 |---|---|---|
 | `MeedyaMeta:AppleAudioTraits` | The track's `audioTraits` array — e.g., `["atmos","lossless","lossy-stereo"]` | Apple Music Catalog API |
-| `MeedyaMeta:SourceStore` | Where the file came from (`AppleMusic`, `Spotify`, etc.) | Hardcoded per service |
-| `MeedyaMeta:EncodeSource` | Which engine produced the audio (`gamdl`, `votify`, …) | Hardcoded per engine |
+| `MeedyaMeta:SourceStore` | Where the file came from — currently always the literal value `"Apple Music"` (this atom is also written under `com.apple.iTunes:SourceStore`, so it isn't MeedyaDL-only in the same way the others here are) | Hardcoded |
 | `MeedyaMeta:SpatialAudioCodec` | Atmos / Spatial encoding variant | ffprobe detection |
-| `MeedyaMeta:ChannelConfig` | `5.1.4`, `7.1`, etc. | ffprobe detection |
-| `MeedyaMeta:ReplayGainTrack` / `ReplayGainAlbum` | EBU R128 loudness values | Internal analysis (opt-in) |
-| `MeedyaMeta:AcoustIDFingerprint` + `AcoustIDID` | Chromaprint fingerprint + canonical recording ID | Internal fingerprinting (opt-in) |
 | `MeedyaMeta:MusicBrainzRecordingID` | MB recording UUID | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
 | `MeedyaMeta:MusicBrainzExternalUrls` | Cross-platform URLs (Spotify, YouTube, Tidal, Deezer…) | MusicBrainz lookup (opt-in; planned — not yet written by current releases) |
 | `MeedyaMeta:AppleLastModifiedDate` | When the album was last updated on Apple Music (drives smart re-download detection) | Apple Music Catalog API |
 | `MeedyaMeta:<Service>Url` (e.g. `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:YoutubeMusicUrl`) | Where the album can be found on another music service, one tag per service song.link reports a match for | song.link (Odesli) lookup (opt-in; needs an access key) |
+
+A few other hardcoded/locally-detected tags exist too, but — unlike the ones above — they live **only** under the `com.apple.iTunes:*` namespace, with no `MeedyaMeta:*` counterpart at all:
+
+| Atom | What it records | Set by |
+|---|---|---|
+| `com.apple.iTunes:EncodeSource` | Currently always the literal value `"Web"` (all Apple Music downloads go through the web API) | Hardcoded |
+| `com.apple.iTunes:ChannelConfig` | e.g. `5.1.4`, `7.1` | ffprobe detection |
+| `com.apple.iTunes:replaygain_track_gain` / `replaygain_track_peak` / `replaygain_album_gain` / `replaygain_album_peak` | EBU R128 loudness values | Internal analysis (opt-in) |
+| `com.apple.iTunes:Acoustid Fingerprint` / `Acoustid Id` | Chromaprint fingerprint + canonical AcoustID recording ID | Internal fingerprinting (opt-in) |
 
 ---
 
@@ -210,7 +215,7 @@ Which API contributes each field. Enrichment fetches both APIs and merges result
 | **Apple Music Catalog API** (`amp-api.music.apple.com/v1/catalog/...`) | MusicKit JWT | `editorialNotes`, `audioTraits`, animated artwork URLs, `contentRating`, `lastModifiedDate`, `isAppleDigitalMaster`, `recordLabel`, `copyright`, `releaseDate`, `composerName`, `durationInMillis`, `hasLyrics`, `playParams.id`, `previews[].url`, `genreNames`, plus all album-scope tags. Runs second and supersedes iTunes Lookup for shared fields. |
 | **MusicKit `/syllable-lyrics`** | MusicKit JWT + Music-User-Token from cookies | Word-level TTML for Enhanced LRC upgrade (fallback when GAMDL's TTML lacks word timing). |
 | **GAMDL / Apple CDN** | Cookies or wrapper | All standard 4-char atoms (`©nam`, `©ART`, …), proprietary IDs (`cnID`, `atID`, …), `covr` artwork. |
-| **MusicBrainz API** (`musicbrainz.org/ws/2/`) | None (public, rate-limited 1 req/sec) | Cross-platform external URLs (Spotify, YouTube, Tidal, Deezer, Bandcamp, SoundCloud), MB recording ID. Opt-in via Settings > Quality > Video Quality. |
+| **MusicBrainz API** (`musicbrainz.org/ws/2/`) | None (public, rate-limited 1 req/sec) | Cross-platform external URLs (Spotify, YouTube, Tidal, Deezer, Bandcamp, SoundCloud), MB recording ID. Opt-in via Settings > Codec & Resolution > Video Quality. |
 | **song.link** (`api.song.link`) | Access key, granted by application through [Odesli's help pages](https://odesli.co/help) — free public access closed in 2026, so a request with no key or a rejected key is refused | Cross-platform links for the album (Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and others). Opt-in via Settings > Metadata. |
 | **AcoustID** (`api.acoustid.org`) | Embedded API key | Chromaprint fingerprint + AcoustID recording ID. Opt-in via Settings > Metadata. |
 | **ffprobe** (local binary) | None | `SpatialAudioCodec`, `ChannelConfig`, codec confirmation when native priority is active. |
@@ -275,5 +280,5 @@ Look for keys starting with `----:com.apple.iTunes:` (iTunes freeform) and `----
 
 - [Lyrics and Metadata](lyrics-and-metadata.md) — narrative overview of the enrichment pipeline and per-format lyrics support
 - [Quality Settings](quality-settings.md) — codec choices that affect which `MeedyaMeta:*` audio-trait tags get written
-- [`src-tauri/tags.toml`](../src-tauri/tags.toml) — the canonical declarative registry (this page is generated from it)
+- [`src-tauri/tags.toml`](../src-tauri/tags.toml) — the canonical declarative registry for the API-driven tags described above. This page is written and maintained by hand, not generated from it — if you change the registry, update this page too.
 - [`src-tauri/src/services/metadata_tag_service.rs`](../src-tauri/src/services/metadata_tag_service.rs) — the hardcoded-tag implementations
