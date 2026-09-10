@@ -319,10 +319,13 @@ pub struct QueueItemStatus {
     /// in the queue UI so the user knows what quality they received.
     pub codec_used: Option<String>,
 
-    /// Whether the fallback quality system was activated for this
+    /// Whether the audio codec fallback chain was used for this
     /// download. When `true`, the download succeeded but with a
-    /// different codec or resolution than the user's first preference.
-    /// The frontend uses this to show a warning indicator.
+    /// different codec than the user's first preference. The frontend
+    /// uses this to show a warning indicator. Only ever set by
+    /// `try_fallback()`, which refuses to run for a music video — a
+    /// video's codec order is walked by GAMDL inside a single run, and
+    /// its resolution is a ceiling that cannot fail.
     pub fallback_occurred: bool,
 
     /// Whether this download was attempted using the wrapper authentication

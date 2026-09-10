@@ -16,8 +16,10 @@
  *     is displayed, consumed by `<SetupWizard>` and `<App>`.
  *
  * This store is intentionally **not** persisted -- UI layout state resets on each
- * application launch. Sidebar collapse preference, however, is persisted separately
- * in `settingsStore.ts` (as `sidebar_collapsed`) and applied on startup.
+ * application launch. The sidebar's collapsed state is read from
+ * `sidebar_collapsed` in `settingsStore.ts` at startup, but toggling the sidebar
+ * does not write it back, so it does not yet survive a restart -- see the note on
+ * `toggleSidebar()` below, and #1175.
  *
  * @see {@link https://zustand.docs.pmnd.rs/getting-started/introduction} -- Zustand overview
  * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state} -- How `set()` merges state

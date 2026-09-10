@@ -247,7 +247,7 @@ No manual intervention is needed -- simply follow the prompts when the update ba
 
 If MeedyaDL crashes, a crash report is automatically saved to your local app data directory. You can report it directly to the developer from within the app:
 
-1. Go to **Settings > Advanced > Crash Reporting**.
+1. Go to **Settings > Advanced > Error Reporting**.
 2. Find the crash report in the list and click **Report**.
 3. Review the data that will be shared in the preview dialog.
 4. Click **Open GitHub Issue** to open a pre-filled issue in your browser.

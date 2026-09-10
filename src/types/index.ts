@@ -1132,7 +1132,10 @@ export interface QueueItemStatus {
   output_path: string | null;
   /** Actual codec used (may differ from requested if fallback occurred) */
   codec_used: string | null;
-  /** Whether a codec/resolution fallback was used for this download */
+  /** Whether the audio codec fallback chain was used — the file was made
+   * with a different codec than the user's first preference. Music videos
+   * never set this: their codec order is walked by GAMDL in one run, and the
+   * resolution is a ceiling that cannot fail. */
   fallback_occurred: boolean;
   /** Whether this download was attempted using wrapper authentication.
    * Used to conditionally show the "Retry without Wrapper" button. */

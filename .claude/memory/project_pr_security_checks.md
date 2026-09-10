@@ -8,29 +8,29 @@ Landed 2026-06-03 on PR #905 (`ci: add PR security heuristics workflow + cross-s
 ## What exists
 
 - **`.github/workflows/pr-security.yml`** — runs on PRs to `main` / `release-candidate` / `beta` / `alpha` + `workflow_dispatch`. **Every check is non-blocking (`continue-on-error`)** — the merge gate stays with `ci.yml` (clippy `-D warnings`, cargo test, cargo-deny, tsc, eslint, CodeQL). This adds only the heuristic layer those gates don't cover.
-- **`tools/audit-checks/check_ipc_commands.py`** + **`check_codec_registry.py`** + **`README.md`** — zero-dependency Python cross-source validators, runnable locally.
+- **`tools/audit-checks/check_ipc_commands.py`** + **`check_codec_registry.py`** + **`README.md`** — zero-dependency Python cross-source validators, runnable locally. (Two when this landed; ten as of 2026-09-10 — see [[project-audit-checks-inventory]].)
 - **`.github/pull_request_template.md`** — manual security-review checklist mapped to MeedyaDL invariants.
 - **`.claude/CLAUDE.md`** — convention bullet under the "Licence compliance is enforced per-PR" neighbour.
 
 ## The 8 workflow checks
 
-1. gitleaks CLI secrets scan (working tree + commits since base, `--redact`); findings surfaced in the PR comment, **no SARIF upload** (keeps perms at `contents:read` + `pull-requests:write`). 2. Rust subprocess shell-interpolation (`Command::new("sh")` / `.arg("-c")` — the "no `sh -c`" rule). 3. `unsafe` Rust in non-test changed code. 4. Dangerous frontend sinks (`eval` / `new Function` / `dangerouslySetInnerHTML` / `innerHTML=`). 5. Hardcoded absolute paths (`/Users/`, `/home/<user>/`, `C:\`). 6. Unpinned GitHub Actions (`uses: org/repo@<tag>` not a 40-hex SHA — handles both `- uses:` and bare `uses:` forms; exempts `./local` and `docker://`). 7. Sensitive/proprietary path touches (`assets/brand/` is PROPRIETARY, `src-tauri/capabilities/`, `tauri.conf.json`, `.github/workflows/`, signing/entitlements). 8. The two consistency scripts.
+1. gitleaks CLI secrets scan (working tree + commits since base, `--redact`); findings surfaced in the PR comment, **no SARIF upload** (keeps perms at `contents:read` + `pull-requests:write`). 2. Rust subprocess shell-interpolation (`Command::new("sh")` / `.arg("-c")` — the "no `sh -c`" rule). 3. `unsafe` Rust in non-test changed code. 4. Dangerous frontend sinks (`eval` / `new Function` / `dangerouslySetInnerHTML` / `innerHTML=`). 5. Hardcoded absolute paths (`/Users/`, `/home/<user>/`, `C:\`). 6. Unpinned GitHub Actions (`uses: org/repo@<tag>` not a 40-hex SHA — handles both `- uses:` and bare `uses:` forms; exempts `./local` and `docker://`). 7. Sensitive/proprietary path touches (`assets/brand/` is PROPRIETARY, `src-tauri/capabilities/`, `tauri.conf.json`, `.github/workflows/`, signing/entitlements). 8. The cross-source consistency scripts in `tools/audit-checks/` (two when this landed; ten as of 2026-09-10 — see [[project-audit-checks-inventory]]).
 
 Checks 2–7 scan only PR-changed files; check 8 validates whole-repo state.
 
-## The two consistency scripts (the WebMS checks-9-11 analog)
+## The two original consistency scripts (the WebMS checks-9-11 analog)
 
 Both follow the WebMS pattern: validate that two sources which must agree have no compiler link between them ("code references something that doesn't exist in another source").
 
 - **`check_ipc_commands.py`** — every `#[tauri::command]` under `src-tauri/src/` is registered in `lib.rs`'s `generate_handler![]`, AND every frontend `invoke('x')` literal targets a registered command. Catches the runtime "command not found" class (defined-but-unregistered compiles fine; a typo'd invoke target only fails when a user clicks the button).
-- **`check_codec_registry.py`** — every `codecs.toml` meta-codec `resolves_to` target is a real concrete codec section, AND every audio `services.gamdl` flag is a kebab-case `SongCodec` variant. TOML is parsed with **targeted regex, not `tomllib`** (so the script is Python-version-agnostic and venv-free).
+- **`check_codec_registry.py`** — every `codecs.toml` meta-codec `resolves_to` target is a real concrete codec section, AND every audio `services.gamdl` flag is a kebab-case `SongCodec` variant (and, since #1176, every video `services.gamdl` flag is a `VideoCodec` variant). TOML is parsed with **targeted regex, not `tomllib`** (so the script is Python-version-agnostic and venv-free).
 
 **Conventions to preserve:**
 - Findings print as `  • path:line — message` bullets; the workflow greps for the `•` bullet to decide whether to surface a section. Keep that prefix.
 - **Zero findings on a clean tree is mandatory.** Both were verified clean on the current tree and negative-tested (inject a bad `invoke()`, a dangling `resolves_to`, a bogus `gamdl=` → all caught). Add a negative test when you change a check — a check that cries wolf on day one gets ignored.
 - Default exit 0; `--strict` exits 1 on a high-severity finding (for local pre-push hooks).
 
-The README lists good next candidates: `engines.toml` ↔ `EngineCommandBuilder` impls, `tool-versions.toml` ↔ installed tools, i18n `t('key')` ↔ locale JSON. (A Rust↔TS `AppSettings` drift check is tempting but high-false-positive because of serde renames — validate carefully before adding.)
+The README lists good next candidates: `engines.toml` ↔ `EngineCommandBuilder` impls, `tool-versions.toml` ↔ installed tools. (The i18n idea listed here originally has since been built as `check_i18n.py`.) (A Rust↔TS `AppSettings` drift check is tempting but high-false-positive because of serde renames — validate carefully before adding.)
 
 ## Design choices worth remembering
 

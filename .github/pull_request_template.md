@@ -75,6 +75,7 @@ heuristically, but a clean bot comment is not a substitute for this pass.
 ### Settings / registry consistency
 
 - [ ] If `AppSettings` changed: `settings_version` bumped + `migrate_settings()` updated, and the TypeScript type mirror updated
+- [ ] If `AppSettings` gained a field someone can change: `python3 tools/audit-checks/check_settings_reach_backend.py` is clean (a setting nothing in the backend reads is a control that silently does nothing)
 - [ ] If `codecs.toml` changed: `python3 tools/audit-checks/check_codec_registry.py` is clean
 
 ### Dependencies / licensing

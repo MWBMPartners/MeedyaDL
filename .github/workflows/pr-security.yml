@@ -407,7 +407,7 @@ jobs:
           fi
           CODECS=$(python3 tools/audit-checks/check_codec_registry.py 2>&1 || true)
           if echo "$CODECS" | grep -q '•'; then
-            add_section "Codec registry drift (codecs.toml vs SongCodec / meta resolution)" "$(echo "$CODECS" | grep -A100 '###')"
+            add_section "Codec registry drift (codecs.toml vs SongCodec / VideoCodec / meta resolution)" "$(echo "$CODECS" | grep -A100 '###')"
           fi
           UA=$(python3 tools/audit-checks/check_user_agent.py 2>&1 || true)
           if echo "$UA" | grep -q '•'; then

@@ -4,7 +4,8 @@
  *
  * @file QualityTab.tsx -- Audio and video quality defaults settings tab.
  *
- * Renders the "Quality" tab within the {@link SettingsPage} component.
+ * Renders the "Codec & Resolution" tab (tab id `quality`) within the
+ * {@link SettingsPage} component.
  * This tab lets the user configure the default quality preferences for
  * both audio (song) and video (music video) downloads:
  *
@@ -94,7 +95,7 @@ const DEDUP_KEY_LABELS: Record<DedupKeyStrategy, string> = {
 };
 
 /**
- * QualityTab -- Renders the Quality settings tab.
+ * QualityTab -- Renders the "Codec & Resolution" settings tab (id `quality`).
  *
  * Organised into two visual sections:
  *   1. "Audio Quality" -- codec selection, fallback toggle, companion mode

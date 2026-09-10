@@ -444,7 +444,7 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
 ///
 /// Reports are stored in `{app_data_dir}/crashes/` as JSON files and can
 /// be listed, viewed, exported, or reported to GitHub Issues via the
-/// Settings > Advanced > Crash Reporting section.
+/// Settings > Advanced > Error Reporting section.
 pub fn save_error_report(app: &AppHandle, report: CrashReport) -> Result<(), String> {
     let dir = crashes_dir(app);
     let filename = format!("crash-{}.json", report.timestamp.replace(':', "-"));

@@ -79,7 +79,7 @@ in the way that comment assumed could not happen.
   the comment's block merely invokes).
 
 Both are wired into `pr-security.yml` and are covered in more detail,
-alongside the other seven audit scripts, in
+alongside the other eight audit scripts, in
 [[project-audit-checks-inventory]].
 
 Related: [[project-never-worked-pattern]], [[project-codebase-sweeps-2026-09]],

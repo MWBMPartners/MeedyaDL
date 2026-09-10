@@ -80,8 +80,8 @@ import { useTranslation } from 'react-i18next';
 // @see https://lucide.dev/icons/
 import {
   Settings as SettingsIcon, // General tab icon (aliased to avoid clash with component name)
-  Music, // Quality tab icon
-  ArrowDownUp, // Fallback tab icon (up/down arrows representing reordering)
+  Music, // "Codec & Resolution" tab (id 'quality') icon
+  ArrowDownUp, // "Codec Fallback Order" tab (id 'fallback') icon (up/down arrows representing reordering)
   Package, // Tools tab icon
   Cookie, // Cookies tab icon
   FileText, // Lyrics tab icon
