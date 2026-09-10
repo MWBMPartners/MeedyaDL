@@ -282,8 +282,24 @@ export function ActivityLog() {
     entriesRef.current = entries;
   }, [entries]);
 
-  /** How many entries were already accounted for in the last announcement. */
-  const lastAnnouncedCountRef = useRef(0);
+  /**
+   * The `_id` of the newest entry we have already spoken about.
+   *
+   * This deliberately tracks an entry's own number rather than how many
+   * entries are in the list, and that distinction is the whole point.
+   * The list is capped at 10,000: once it is full, every new line pushes
+   * an old one off the front, so the LENGTH stops changing while lines
+   * keep arriving. A first version of this counted length, which meant
+   * that after a long session the announcements went silent for good —
+   * and because the log's own live region was removed at the same time,
+   * somebody using a screen reader would have been told nothing at all
+   * from that point on. Found in review.
+   *
+   * Every entry gets a number that only ever counts upward and is never
+   * reused (see `activityStore`), so comparing against the highest one
+   * seen keeps working no matter how many old entries have been dropped.
+   */
+  const lastAnnouncedIdRef = useRef(-1);
   /** Text for the summary live region below; empty until the first announcement. */
   const [logAnnouncement, setLogAnnouncement] = useState('');
 
@@ -291,24 +307,41 @@ export function ActivityLog() {
     const ANNOUNCE_INTERVAL_MS = 8000;
     const timer = setInterval(() => {
       const current = entriesRef.current;
-      const delta = current.length - lastAnnouncedCountRef.current;
-      if (delta === 0) return; // Nothing changed since last tick -- stay quiet.
-      if (delta > 0) {
-        // New lines arrived. Count how many of them are errors so the
-        // summary can flag the thing a user is most likely to care
-        // about, the same way a build's CI summary would.
-        const newSlice = current.slice(lastAnnouncedCountRef.current);
-        const errorCount = newSlice.filter((e) => e.severity === 'error').length;
-        const parts = [`${delta} new line${delta !== 1 ? 's' : ''}`];
-        if (errorCount > 0) {
-          parts.push(`${errorCount} error${errorCount !== 1 ? 's' : ''}`);
-        }
-        setLogAnnouncement(parts.join(', '));
+      if (current.length === 0) {
+        // The log was cleared. Start again from scratch, so the first
+        // line after a clear is announced rather than being compared
+        // against a number from before it.
+        lastAnnouncedIdRef.current = -1;
+        return;
       }
-      // `delta < 0` means entries were cleared or the 10,000-entry cap
-      // trimmed the front -- resync silently rather than announcing a
-      // confusing negative count.
-      lastAnnouncedCountRef.current = current.length;
+
+      // `_id` is optional in the type because the Rust side does not send
+      // one — the store adds it as each entry arrives. So in practice every
+      // entry here has one, and an entry without one can only mean something
+      // reached this list by another route. Such an entry is skipped rather
+      // than guessed about: announcing it every tick forever would be worse
+      // than staying quiet about it once.
+      const previousId = lastAnnouncedIdRef.current;
+      const fresh = current.filter((e) => e._id !== undefined && e._id > previousId);
+      if (fresh.length === 0) return; // Nothing new since last time -- stay quiet.
+
+      // Count how many of the new lines are errors, so the summary can
+      // flag the thing somebody is most likely to care about rather than
+      // just saying how much scrolled past.
+      const errorCount = fresh.filter((e) => e.severity === 'error').length;
+      const parts = [`${fresh.length} new line${fresh.length !== 1 ? 's' : ''}`];
+      if (errorCount > 0) {
+        parts.push(`${errorCount} error${errorCount !== 1 ? 's' : ''}`);
+      }
+      setLogAnnouncement(parts.join(', '));
+
+      // Move the mark to the highest number we just spoke about. Taking the
+      // highest of the new ones, rather than the last entry in the list,
+      // means an entry with no number cannot drag the mark backwards.
+      lastAnnouncedIdRef.current = fresh.reduce(
+        (highest, e) => (e._id !== undefined && e._id > highest ? e._id : highest),
+        previousId
+      );
     }, ANNOUNCE_INTERVAL_MS);
     return () => clearInterval(timer);
   }, []);
@@ -690,7 +723,12 @@ export function ActivityLog() {
           `logAnnouncement` effect above. This is the ONLY thing in
           this page that gets announced automatically; the log content
           itself is no longer a live region. */}
-      <div role="status" aria-live="polite" className="sr-only">
+      <div
+        role="status"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="activity-log-announcement"
+      >
         {logAnnouncement}
       </div>
 
