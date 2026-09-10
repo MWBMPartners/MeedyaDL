@@ -578,6 +578,45 @@ pub fn process_queue(
             stored
         };
 
+        // === Video codec priority line: always sent, so always logged ===
+        // `--music-video-codec-priority` is set unconditionally, for every
+        // download, back in `merge_options()` (see options.rs) -- it has
+        // never depended on GAMDL's version, or on the fallback switch, or
+        // on how many audio codecs are configured. This line used to live
+        // inside the `if let Some(ref ver) = gamdl_version` block below,
+        // which meant a one-off failure to detect GAMDL's version (a slow
+        // machine, a flaky first probe) silenced the line even though the
+        // exact same video codec order was still being sent to GAMDL as
+        // always -- the comment here used to claim independence from the
+        // version while the code was structurally dependent on it. Moved
+        // out to where that claim is actually true.
+        //
+        // It also used to print `settings_for_priority.video_codec_priority_cli()`
+        // -- the SETTINGS AS THEY ARE NOW -- instead of
+        // `options.music_video_codec_priority`, which is the exact string
+        // this download's options were fixed to back when it was queued.
+        // If the user changes the video codec chain between queueing and
+        // the download actually starting (or flips "Step down" off and
+        // back on), those two can disagree, and the log would describe an
+        // order that was never sent. Reading from `options` -- and
+        // deciding whether to print at all from that same value having
+        // more than one codec in it -- fixes both problems at once.
+        let is_music_video_batch = super::helpers::urls_are_all_music_videos(&urls);
+        if is_music_video_batch {
+            if let Some(ref sent_priority) = options.music_video_codec_priority {
+                if sent_priority.split(',').count() > 1 {
+                    emit_download_log(
+                        &app,
+                        &download_id,
+                        &format!(
+                            "Using GAMDL video codec priority: {}",
+                            sent_priority.replace(',', " → ")
+                        ),
+                    );
+                }
+            }
+        }
+
         // === Native codec priority (GAMDL >= 2.9.1) ===
         // When GAMDL supports `--song-codec-priority`, build the priority string
         // from the user's preferred codec + fallback chain. GAMDL tries each codec
@@ -588,36 +627,6 @@ pub fn process_queue(
         // with a single codec (see `try_fallback()` and the "codec" error handler).
         let uses_native_priority = if let Some(ref ver) = gamdl_version {
             let settings_for_priority = load_settings_for_queue(&app);
-            let is_music_video_batch = super::helpers::urls_are_all_music_videos(&urls);
-
-            // The "Using GAMDL video codec priority" line used to be decided
-            // by the AUDIO gate just below -- GAMDL's version, the fallback
-            // switch, and whether there are at least two distinct AUDIO
-            // codecs. That's the wrong gate for a video: `--music-video-codec-priority`
-            // is set unconditionally, for every download, back in
-            // `merge_options()` (see options.rs) -- it has never depended on
-            // GAMDL's version or on how many audio codecs are configured.
-            // So someone who trims their audio chain down to a single codec
-            // got no log line for a music video at all, even though the
-            // exact same video codec order was still being sent to GAMDL as
-            // always. This decides the video line from video facts only --
-            // fallback being on, and there being more than one video codec
-            // to actually have an order among -- independently of the audio
-            // gate below. It changes nothing about what is sent, only what
-            // gets said about it.
-            if is_music_video_batch
-                && settings_for_priority.fallback_enabled
-                && settings_for_priority.video_codec_fallback_chain.len() > 1
-            {
-                emit_download_log(
-                    &app,
-                    &download_id,
-                    &format!(
-                        "Using GAMDL video codec priority: {}",
-                        settings_for_priority.video_codec_priority_cli().replace(',', " → ")
-                    ),
-                );
-            }
 
             if gamdl_service::is_version_at_least(ver, "2.9.1")
                 && settings_for_priority.fallback_enabled
@@ -1102,14 +1111,20 @@ pub fn process_queue(
                                     // the first place — `try_fallback()` refuses one for
                                     // a music video (see `mod.rs`), because this chain
                                     // (`music_fallback_chain`) is the AUDIO codec chain.
-                                    // So a music video that ran out of allowed video
-                                    // codecs always lands in this branch, having already
-                                    // had GAMDL try every video codec it was allowed to
-                                    // use, by itself, in the one run it already made. Say
-                                    // the right thing for what was actually being
-                                    // downloaded (#1155's lesson, applied here too) — the
-                                    // "audio formats" wording names a setting with no
-                                    // bearing on why a music video failed.
+                                    // So a music video that hit a codec-shaped warning
+                                    // always lands in this branch — but that does NOT
+                                    // mean GAMDL tried every codec on the user's list and
+                                    // struck out on all of them. `process::is_codec_error()`
+                                    // (the check that set `has_codec_error` above) also
+                                    // matches the word "drm", so a decryption failure on
+                                    // a video that WAS available in the first codec the
+                                    // user allows reads as a "codec" problem too, and we
+                                    // cannot tell the two apart from the warning text
+                                    // alone. Say the right thing for what was actually
+                                    // being downloaded (#1155's lesson, applied here too)
+                                    // — the "audio formats" wording names a setting with
+                                    // no bearing on why a music video failed — and say
+                                    // only what is actually known to have happened.
                                     let content_label = q
                                         .items
                                         .iter()
@@ -1127,8 +1142,11 @@ pub fn process_queue(
                                         });
                                     let exhausted_msg = if is_music_video {
                                         format!(
-                                            "This music video is not available in any \
-                                             of the video codecs you allow — \
+                                            "This music video could not be downloaded — \
+                                             GAMDL may not have found it in a codec you \
+                                             allow, or run into a different problem (such \
+                                             as a DRM or decryption failure) that reads \
+                                             the same as a missing codec from here — \
                                              {content_label}"
                                         )
                                     } else {
@@ -4573,11 +4591,25 @@ pub fn process_queue(
                                 // Same reasoning as the other "chain exhausted" site
                                 // above: a music video never gets a real fallback out
                                 // of `try_fallback()` — that chain is the AUDIO codec
-                                // chain — so a music video landing here already had
-                                // GAMDL try every video codec it was allowed to use,
-                                // by itself, in the one run it made. Name the actual
-                                // setting (#1155's lesson): "audio formats" points
-                                // nowhere useful for a video.
+                                // chain — so a music video landing here always hit
+                                // SOME codec-shaped problem. That does NOT mean GAMDL
+                                // tried every codec on the user's list and struck out
+                                // on all of them: `process::is_codec_error()` (which
+                                // decided `error_category == "codec"` for this whole
+                                // match arm) also matches the word "drm", so a
+                                // decryption failure on a video that WAS available in
+                                // the first codec the user allows reads as a "codec"
+                                // problem too, and the two cannot be told apart from
+                                // the error text alone. Name the actual setting
+                                // (#1155's lesson): "audio formats" points nowhere
+                                // useful for a video.
+                                //
+                                // When `uses_native_priority` is true, the hedged
+                                // `failure_log_line` above has already told the user
+                                // about this exact failure, in these exact same words
+                                // of doubt. Printing a second, more confident-sounding
+                                // line here for the same event would contradict the
+                                // first one instead of adding anything — so skip it.
                                 let content_label = q
                                     .items
                                     .iter()
@@ -4592,18 +4624,24 @@ pub fn process_queue(
                                         super::helpers::urls_are_all_music_videos(&i.status.urls)
                                     });
                                 drop(q);
-                                let exhausted_msg = if is_music_video {
-                                    format!(
-                                        "This music video is not available in any of \
-                                         the video codecs you allow — {content_label}"
-                                    )
-                                } else {
-                                    format!(
-                                        "All audio formats exhausted for {content_label} \
-                                         — download failed"
-                                    )
-                                };
-                                emit_download_log(&app_clone, &dl_id, &exhausted_msg);
+                                if !(is_music_video && uses_native_priority) {
+                                    let exhausted_msg = if is_music_video {
+                                        format!(
+                                            "This music video could not be downloaded — \
+                                             GAMDL may not have found it in a codec you \
+                                             allow, or run into a different problem (such \
+                                             as a DRM or decryption failure) that reads \
+                                             the same as a missing codec from here — \
+                                             {content_label}"
+                                        )
+                                    } else {
+                                        format!(
+                                            "All audio formats exhausted for {content_label} \
+                                             — download failed"
+                                        )
+                                    };
+                                    emit_download_log(&app_clone, &dl_id, &exhausted_msg);
+                                }
                                 false
                             }
                         }
