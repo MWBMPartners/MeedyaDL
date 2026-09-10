@@ -23,7 +23,9 @@
 #   4. Dangerous frontend sinks               — eval / new Function / dangerouslySetInnerHTML / innerHTML=
 #   5. Hardcoded absolute paths               — /Users//home/<user>/ C:\ literals
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
-#   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
+#   7. Sensitive path touches                — assets/brand (proprietary), capabilities, tauri.conf.json,
+#                                                workflows, rulesets, signing/entitlements. Each match is
+#                                                reported with its own reason, not one fixed reason for all.
 #   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry [now covers
 #                                                video codecs too], User-Agent, Tauri npm/Rust version sync,
 #                                                build-secret wiring, help docs, i18n translation catalogue,
@@ -390,12 +392,44 @@ jobs:
             add_section "Unpinned GitHub Actions (pin to a 40-char commit SHA, not a tag)" "$UNPINNED"
           fi
 
-          # ---- 7) Sensitive / proprietary path touches -------------------
-          # assets/brand is PROPRIETARY (not MIT — never change its license
-          # headers). capabilities/signing/tauri.conf.json/workflows are
-          # security-relevant surfaces. Advisory: confirm intentional.
-          SENSITIVE=$(echo "$CHANGED_ALL" | grep -E '^(assets/brand/|src-tauri/capabilities/|src-tauri/tauri\.conf\.json$|\.github/workflows/|\.github/rulesets/)|\.entitlements$|(^|/)(signing|codesign)' || true)
-          add_section "PR touches a sensitive / proprietary path (assets/brand is PROPRIETARY; confirm intentional)" "$SENSITIVE"
+          # ---- 7) Sensitive path touches ---------------------------------
+          # Six different kinds of file match here, and they are sensitive for
+          # six different reasons. This used to print one fixed heading saying
+          # "assets/brand is PROPRIETARY" no matter which one actually matched,
+          # so a pull request touching only a workflow file was told about a
+          # licensing concern that had nothing to do with it. That is worse
+          # than unhelpful: a reviewer who is shown an irrelevant reason learns
+          # to skim the section, which is exactly how a real brand-asset change
+          # later gets waved through. So each path now carries its own reason.
+          # Advisory only — the point is for a person to confirm the change was
+          # meant, not to block it.
+          SENSITIVE_RAW=$(echo "$CHANGED_ALL" | grep -E '^(assets/brand/|src-tauri/capabilities/|src-tauri/tauri\.conf\.json$|\.github/workflows/|\.github/rulesets/)|\.entitlements$|(^|/)(signing|codesign)' || true)
+          if [[ -n "$SENSITIVE_RAW" ]]; then
+            SENSITIVE=""
+            while IFS= read -r sens_path; do
+              if [[ -z "$sens_path" ]]; then
+                continue
+              fi
+              case "$sens_path" in
+                assets/brand/*)
+                  sens_why="Brand assets are PROPRIETARY, not MIT. Never change their licence headers." ;;
+                src-tauri/capabilities/*)
+                  sens_why="Tauri permissions. Widening one of these hands the web layer a power it did not have before." ;;
+                src-tauri/tauri.conf.json)
+                  sens_why="App configuration, including the list of addresses the app is allowed to contact. A new entry means data can go somewhere it could not go before." ;;
+                .github/workflows/*)
+                  sens_why="How the build, the checks and the release actually run. A change here can switch off the very thing meant to catch a mistake." ;;
+                .github/rulesets/*)
+                  sens_why="Branch protection. This decides what may be pushed or merged, and by whom." ;;
+                *.entitlements)
+                  sens_why="Code-signing entitlements. These decide what the signed app is permitted to do on someone's machine." ;;
+                *)
+                  sens_why="Code signing. Changes here affect whether the builds people download are trusted." ;;
+              esac
+              SENSITIVE="${SENSITIVE}${sens_path}"$'\n'"    why: ${sens_why}"$'\n'
+            done <<< "$SENSITIVE_RAW"
+            add_section "PR touches a sensitive path — confirm each of these changes is deliberate" "$SENSITIVE"
+          fi
 
           # ---- 8) Cross-source consistency scripts -----------------------
           # Run whole-repo (not changed-file-scoped) — a drift can live in an
