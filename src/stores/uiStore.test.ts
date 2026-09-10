@@ -15,9 +15,29 @@
  * @see {@link https://zustand.docs.pmnd.rs/guides/testing} - Zustand testing patterns
  */
 
-import { useUiStore, __resetToastWorkerForTests } from '@/stores/uiStore';
+import {
+  useUiStore,
+  __resetToastWorkerForTests,
+  __resetSidebarSaveForTests,
+} from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import * as commands from '@/lib/tauri-commands';
 import * as notificationPlugin from '@tauri-apps/plugin-notification';
+
+/**
+ * Mock the backend command wrappers (#1175).
+ *
+ * Toggling the sidebar now writes the new position to disk. There is no
+ * backend in a unit test, so every wrapper the store might reach for is
+ * replaced with a spy. `saveSettings` is mocked as well as the one the
+ * sidebar actually uses, precisely so a test can assert it was NEVER
+ * called -- see "saves only the new boolean" below.
+ */
+vi.mock('@/lib/tauri-commands', () => ({
+  getSettings: vi.fn(),
+  saveSettings: vi.fn().mockResolvedValue(undefined),
+  saveSidebarCollapsed: vi.fn().mockResolvedValue(undefined),
+}));
 
 /**
  * Mock the Tauri notification plugin (#993).
@@ -52,6 +72,13 @@ beforeEach(() => {
   // #894: the centralised dismissal worker is module-scoped state;
   // reset it between tests so each starts from a clean baseline.
   __resetToastWorkerForTests();
+  // #1175: the pending sidebar write is module-scoped in the same way.
+  // Throw it away so a toggle in one test cannot fire during the next.
+  __resetSidebarSaveForTests();
+  // #1175: forget which backend calls the previous test made, so the
+  // "was never called" assertions mean this test and not the whole file.
+  vi.mocked(commands.saveSidebarCollapsed).mockClear();
+  vi.mocked(commands.saveSettings).mockClear();
   // #993: clear notification-plugin spy call history (but keep the
   // mockResolvedValue/mockReturnValue implementations above intact --
   // mockClear() only resets .mock.calls/.mock.results, not the implementation).
@@ -126,6 +153,95 @@ describe('uiStore', () => {
       useUiStore.getState().toggleSidebar();
       useUiStore.getState().toggleSidebar();
       expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+    });
+
+    /*
+     * The four tests below exist because remembering the sidebar has been
+     * tried twice before and backed out twice, both times for the same
+     * reason: the save was wider than the click. They are written to go
+     * red against those two specific mistakes, not just against "the
+     * feature is missing".
+     */
+
+    it('never marks the settings screen as having unsaved edits', () => {
+      // The first backed-out attempt called updateSettings(), which sets
+      // isDirty. That tells the person they have unsaved work and arms
+      // the "Save Changes" button -- over a change they did not make on
+      // that screen, and which is already saved by another route.
+      vi.useFakeTimers();
+      try {
+        useSettingsStore.setState({ isDirty: false });
+
+        useUiStore.getState().toggleSidebar();
+        vi.advanceTimersByTime(1000);
+
+        expect(useSettingsStore.getState().isDirty).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('changes no setting other than the sidebar position', () => {
+      vi.useFakeTimers();
+      try {
+        const before = { ...useSettingsStore.getState().settings };
+
+        useUiStore.getState().toggleSidebar();
+        vi.advanceTimersByTime(1000);
+
+        const after = useSettingsStore.getState().settings;
+
+        // The sidebar's own field is expected to move; nothing else is.
+        expect(after.sidebar_collapsed).toBe(true);
+        const strip = (s: Record<string, unknown>) => {
+          const copy = { ...s };
+          delete copy.sidebar_collapsed;
+          return copy;
+        };
+        expect(strip(after as unknown as Record<string, unknown>)).toEqual(
+          strip(before as unknown as Record<string, unknown>),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('saves only the new boolean, never the whole settings object', () => {
+      // The second backed-out attempt called the settings store's
+      // debouncedSave(), which writes ALL of the settings from memory --
+      // so one click on the arrow could commit half-finished Settings
+      // edits over the file. That method has since been deleted; this
+      // checks the write that replaced it stays narrow.
+      vi.useFakeTimers();
+      try {
+        useUiStore.getState().toggleSidebar();
+        vi.advanceTimersByTime(1000);
+
+        expect(commands.saveSidebarCollapsed).toHaveBeenCalledTimes(1);
+        expect(commands.saveSidebarCollapsed).toHaveBeenCalledWith(true);
+        expect(commands.saveSettings).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('turns a burst of clicks into one save carrying the final position', () => {
+      // Five clicks from expanded ends collapsed: true, false, true,
+      // false, true. One write, and it must carry the value from the
+      // last click -- not whatever some store held when the timer fired.
+      vi.useFakeTimers();
+      try {
+        for (let i = 0; i < 5; i += 1) {
+          useUiStore.getState().toggleSidebar();
+        }
+        vi.advanceTimersByTime(1000);
+
+        expect(commands.saveSidebarCollapsed).toHaveBeenCalledTimes(1);
+        expect(commands.saveSidebarCollapsed).toHaveBeenCalledWith(true);
+        expect(useUiStore.getState().sidebarCollapsed).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

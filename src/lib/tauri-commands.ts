@@ -711,6 +711,33 @@ export function saveSettings(settings: AppSettings): Promise<void> {
 }
 
 /**
+ * Remembers whether the sidebar is collapsed.
+ *
+ * Rust handler: `set_sidebar_collapsed()` in `src-tauri/src/commands/settings.rs`
+ * Argument: `collapsed` - `true` for the narrow, icon-only sidebar.
+ *
+ * This sends ONE boolean, never the whole settings object. That is the
+ * entire point of it existing. The sidebar's collapse button is on every
+ * screen, including the Settings screen while it is holding edits nobody
+ * has clicked "Save Changes" on yet. Sending the frontend's settings copy
+ * from here would commit those edits, which is how the two previous
+ * attempts at remembering this went wrong (#1175). The backend reads the
+ * file, changes this one field, and writes the file back.
+ *
+ * Named `saveSidebarCollapsed`, not `setSidebarCollapsed`, so it is never
+ * mistaken for the uiStore action of that name, which only changes what is
+ * on screen.
+ *
+ * Called by: uiStore's `toggleSidebar()`, through a short debounce.
+ *
+ * @param collapsed - `true` to remember the sidebar as collapsed
+ * @returns Promise resolving when the one field has been written
+ */
+export function saveSidebarCollapsed(collapsed: boolean): Promise<void> {
+  return invoke<void>('set_sidebar_collapsed', { collapsed });
+}
+
+/**
  * Checks whether a built-in AcoustID API key was embedded at compile time.
  *
  * Rust handler: `has_embedded_acoustid_key()` in `src-tauri/src/commands/settings.rs`

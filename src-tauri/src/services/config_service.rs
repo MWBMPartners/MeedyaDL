@@ -472,7 +472,22 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         settings.last_seen_version = current_version.to_string();
         // Persist the updated last_seen_version immediately so subsequent
         // loads (e.g., from load_settings_from_default_path) see the new value.
-        if let Err(e) = save_settings(app, &settings) {
+        //
+        // This writes the file directly rather than going through
+        // `save_settings`, and that matters. `update_settings_field` holds
+        // the settings write lock while it calls this function, and that
+        // lock is not reentrant — so calling `save_settings` here, which
+        // takes the same lock, would freeze the app solid the first time a
+        // single-field save ran after a version change. Writing the file
+        // directly skips the lock, and skips the config.ini regeneration,
+        // which the lines just below this block do anyway.
+        //
+        // Honest limitation: when `load_settings` is called by an ordinary
+        // reader rather than from inside a locked write, this one write is
+        // unserialised. Accepted, because it happens at most once per app
+        // version — on the first load after an upgrade — and it writes a
+        // value that no other writer ever changes.
+        if let Err(e) = write_settings_to_path(&settings_path, &settings) {
             log::warn!("Failed to persist last_seen_version update: {e}");
         }
     }
@@ -516,23 +531,44 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     }
 }
 
-/// Saves the application settings to the JSON settings file.
+/// Serialises every write to `settings.json`.
 ///
-/// Writes the settings as pretty-printed JSON for human readability.
-/// Also syncs relevant settings to GAMDL's config.ini file so that
-/// CLI commands launched by the app use the same configuration.
+/// Changing one field is three steps — read the file, change the field,
+/// write it back. Nothing stops a full "Save Changes" from the Settings
+/// screen landing between step one and step three. If that happened, the
+/// narrow write would put the pre-save file back and the person's edits
+/// would be gone. The window is only milliseconds wide, but a lock costs
+/// nothing and closes it completely.
 ///
-/// # Arguments
-/// * `app` - The Tauri app handle (for path resolution)
-/// * `settings` - The settings to save
+/// Both writers have to take this lock for it to mean anything. A lock
+/// only one writer takes is decoration.
 ///
-/// # Errors
+/// A plain `std::sync::Mutex` is the right choice here because both
+/// writers are ordinary blocking functions — the lock is never held
+/// across an `.await`, so it cannot stall the async runtime.
 ///
-/// Returns `Err(String)` if directory creation, JSON serialization, or
-/// file write fails.
-pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+/// It is NOT reentrant, so nothing called while holding it may take it
+/// again. That is why `load_settings` writes `last_seen_version` through
+/// `write_settings_to_path` rather than `save_settings`; see the comment
+/// at that call site.
+static SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Writes the settings JSON to a specific path: atomic replace, 0600
+/// permissions on Unix, and the matching `.sha256` companion file.
+///
+/// This is split out of `save_settings` for one reason. `save_settings`
+/// needs a Tauri `AppHandle` only to work out where the file lives, and
+/// that requirement is what kept the actual write — the atomic rename,
+/// the permissions, the checksum — untested. With the path passed in, a
+/// test can point it at a temporary folder and check all three.
+///
+/// It deliberately does NOT take `SETTINGS_WRITE_LOCK`. Callers take the
+/// lock around the whole read-change-write sequence they are performing;
+/// taking it here as well would deadlock them.
+pub(crate) fn write_settings_to_path(
+    settings_path: &std::path::Path,
+    settings: &AppSettings,
+) -> Result<(), String> {
     // Ensure the parent directory exists (important on first run or after data dir deletion)
     if let Some(parent) = settings_path.parent() {
         std::fs::create_dir_all(parent)
@@ -584,7 +620,7 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
         std::fs::write(&temp_path, &json)
             .map_err(|e| format!("Failed to write temp settings file: {e}"))?;
     }
-    std::fs::rename(&temp_path, &settings_path)
+    std::fs::rename(&temp_path, settings_path)
         .map_err(|e| format!("Failed to rename temp settings file: {e}"))?;
 
     // Belt-and-braces: re-assert 0600 on the final path (#459). Redundant
@@ -595,16 +631,53 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     {
         use std::os::unix::fs::PermissionsExt;
         let perms = std::fs::Permissions::from_mode(0o600);
-        if let Err(e) = std::fs::set_permissions(&settings_path, perms) {
+        if let Err(e) = std::fs::set_permissions(settings_path, perms) {
             log::debug!("Failed to set settings.json permissions: {e}");
         }
     }
 
     // Write integrity checksum alongside the settings file.
     // Used by load_settings() to detect tampering or corruption.
-    write_settings_checksum(&settings_path, &json);
+    write_settings_checksum(settings_path, &json);
 
     log::info!("Settings saved to {}", settings_path.display());
+
+    Ok(())
+}
+
+/// Saves the application settings to the JSON settings file.
+///
+/// Writes the settings as pretty-printed JSON for human readability.
+/// Also syncs relevant settings to GAMDL's config.ini file so that
+/// CLI commands launched by the app use the same configuration.
+///
+/// This takes the whole settings object, so it is the right call only
+/// when the caller genuinely means to commit every field — in practice,
+/// the Settings screen's "Save Changes" button. To change one field
+/// without touching the rest, use [`update_settings_field`] instead;
+/// sending a whole object for a one-field change is how a half-finished
+/// edit gets committed by accident (#1175).
+///
+/// # Arguments
+/// * `app` - The Tauri app handle (for path resolution)
+/// * `settings` - The settings to save
+///
+/// # Errors
+///
+/// Returns `Err(String)` if directory creation, JSON serialization, or
+/// file write fails.
+pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
+    // Hold the write lock for the whole save so a narrow single-field
+    // write cannot slip in between this read of the path and the rename.
+    // A poisoned lock (a previous holder panicked) is recovered rather
+    // than propagated: the data it guards is a file on disk, not an
+    // in-memory structure that could have been left half-updated.
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    write_settings_to_path(&settings_path, settings)?;
 
     // Sync relevant settings to GAMDL's config.ini (the derived config).
     // This is a best-effort operation: if it fails, the JSON save still succeeds.
@@ -619,6 +692,69 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     crate::utils::activity_log::set_verbose_logging(settings.verbose_activity_log);
 
     Ok(())
+}
+
+/// Changes one field of the stored settings, leaving every other stored
+/// field exactly as it was.
+///
+/// WHY THIS EXISTS: the frontend's copy of the settings is not a safe
+/// basis for a write triggered by anything outside the Settings screen.
+/// It may be half-edited, or freshly reset and not yet saved. Sending it
+/// back would commit changes the person never chose to commit — which is
+/// exactly what happened the last two times the sidebar's collapsed state
+/// was persisted, and why both attempts were backed out (#1175).
+///
+/// This helper never sees the frontend's copy at all. It reads the file,
+/// applies `apply` to the one field, and writes the file back. There is
+/// no parameter a whole settings object could arrive through, so the
+/// mistake is not available to make.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file cannot be read or written.
+pub fn update_settings_field<F>(app: &AppHandle, apply: F) -> Result<AppSettings, String>
+where
+    F: FnOnce(&mut AppSettings),
+{
+    // See `save_settings` for why a poisoned lock is recovered instead of
+    // propagated.
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+
+    // Read what is actually on disk, not what the frontend thinks is
+    // there. `load_settings` is the app's own reader, so this gets the
+    // schema migrations and the damaged-file handling for free.
+    let mut settings = load_settings(app)?;
+    apply(&mut settings);
+    write_settings_to_path(&settings_path, &settings)?;
+
+    // Deliberately NOT calling `save_settings` here. It takes this same
+    // lock, and the lock is not reentrant, so calling it would freeze the
+    // app on the spot.
+    //
+    // (To be accurate about GAMDL's config.ini: `load_settings` above
+    // already regenerates it, so skipping `save_settings` does not skip
+    // that. It is a small waste on a sidebar click and nothing more.)
+
+    // Refresh the in-process cache of the settings.
+    //
+    // This is not merely a read shortcut that would sort itself out
+    // later. The after-queue one-shot path reads this cache and writes
+    // the WHOLE thing back to disk when a queue finishes. If the cache
+    // were left stale here, finishing a download queue would silently
+    // undo the write we just made.
+    //
+    // `try_state` comes from Tauri's `Manager` trait; imported here
+    // rather than at the top of the file because this is its only use.
+    use tauri::Manager as _;
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        cache.refresh(settings.clone());
+    }
+
+    Ok(settings)
 }
 
 /// Syncs relevant `AppSettings` fields to GAMDL's config.ini file.
@@ -2249,6 +2385,195 @@ mod tests {
         assert!(
             s.compilation_folder_template.contains("{album_id}"),
             "default compilation_folder_template must include {{album_id}} for uniqueness"
+        );
+    }
+
+    // ── Changing one setting must not disturb any of the others (#1175) ──
+    //
+    // The sidebar's collapse button is on every screen, including the
+    // Settings screen while somebody is halfway through editing it. Two
+    // earlier attempts at remembering the sidebar's position sent the whole
+    // settings object back to be saved, which committed those half-finished
+    // edits. Both were backed out. `update_settings_field` is the shape that
+    // makes the mistake unavailable: it reads the file, changes one field,
+    // and writes the file, so there is no whole object to send.
+    //
+    // These tests exercise the file half of that — `write_settings_to_path`,
+    // the real production write — because the other half needs a running
+    // Tauri app to resolve a path, which a unit test has no way to build.
+    // What they cannot catch is somebody bypassing this write entirely and
+    // hand-rolling a smaller one somewhere else; that is what code review
+    // and the "no raw settings writes" rule are for.
+
+    /// Builds a settings object with values nothing else would produce, so
+    /// that a test can tell "this field survived the write" apart from
+    /// "this field happens to equal the default".
+    fn distinctive_settings() -> AppSettings {
+        AppSettings {
+            output_path: "/somewhere/very/specific".to_string(),
+            cookies_path: Some("/somewhere/else/cookies.txt".to_string()),
+            single_disc_file_template: "{track:02d} — {title} (kept)".to_string(),
+            sidebar_collapsed: false,
+            ..AppSettings::default()
+        }
+    }
+
+    #[test]
+    fn changing_one_field_leaves_every_other_field_alone() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+
+        // Start from a file full of choices somebody made.
+        let before = distinctive_settings();
+        write_settings_to_path(&path, &before).expect("first write");
+
+        // Do exactly what `update_settings_field` does: read the file back,
+        // change the one field, write it out again.
+        let contents = std::fs::read_to_string(&path).expect("read back");
+        let mut after: AppSettings = serde_json::from_str(&contents).expect("parse");
+        after.sidebar_collapsed = true;
+        write_settings_to_path(&path, &after).expect("second write");
+
+        let reloaded: AppSettings =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("reload"))
+                .expect("parse reloaded");
+
+        assert!(reloaded.sidebar_collapsed, "the one field we changed must be changed");
+        assert_eq!(
+            reloaded.output_path, before.output_path,
+            "the output folder must be exactly as it was"
+        );
+        assert_eq!(
+            reloaded.cookies_path, before.cookies_path,
+            "the cookies path must be exactly as it was"
+        );
+        assert_eq!(
+            reloaded.single_disc_file_template, before.single_disc_file_template,
+            "the filename template must be exactly as it was"
+        );
+
+        // Strongest form of the same claim: everything except the one field
+        // must be byte-identical. Compare the two objects with that single
+        // field forced back to its old value.
+        let mut normalised = reloaded;
+        normalised.sidebar_collapsed = before.sidebar_collapsed;
+        assert_eq!(
+            serde_json::to_string(&normalised).unwrap(),
+            serde_json::to_string(&before).unwrap(),
+            "no field other than sidebar_collapsed may differ"
+        );
+    }
+
+    #[test]
+    fn a_narrow_write_leaves_the_checksum_valid() {
+        // The settings file has a companion `.sha256` file. If a write
+        // updates the settings and forgets the companion, the next startup
+        // compares the new file against the old checksum, decides the file
+        // was edited from outside, and says so — for no reason. That is not
+        // hypothetical: it is exactly what the after-queue one-shot clear
+        // used to do on every queue completion, because it wrote the file
+        // with a bare `std::fs::write`.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+
+        let mut settings = distinctive_settings();
+        write_settings_to_path(&path, &settings).expect("first write");
+
+        settings.sidebar_collapsed = true;
+        write_settings_to_path(&path, &settings).expect("second write");
+
+        // Two separate claims, and both matter. `verify_settings_checksum`
+        // on its own is not enough: it is deliberately forgiving of a
+        // MISSING companion file (older settings files predate the
+        // checksum), so a write that never wrote one at all would still
+        // pass it. Check the file is really there first.
+        let companion = path.with_extension("json.sha256");
+        assert!(
+            companion.exists(),
+            "the .sha256 companion file must exist after a write"
+        );
+
+        let contents = std::fs::read_to_string(&path).expect("read back");
+        assert!(
+            verify_settings_checksum(&path, &contents),
+            "the checksum companion must be rewritten alongside the settings"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_narrow_write_leaves_the_settings_file_private_to_its_owner() {
+        // The settings file can hold credentials, so only the account that
+        // owns it should be able to read it. Mode 0600 means "the owner may
+        // read and write, nobody else may do anything".
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+
+        write_settings_to_path(&path, &distinctive_settings()).expect("write");
+
+        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "settings.json must be readable and writable by its owner only"
+        );
+    }
+
+    #[test]
+    fn clearing_a_one_shot_after_queue_action_disturbs_nothing_else() {
+        // When the download queue empties, a "just this once" action (shut
+        // down the computer, say) has to be cleared so it does not fire
+        // again next time. That clear used to write the whole settings
+        // object from an in-memory snapshot that could be minutes old, with
+        // no checksum — so it could quietly put stale values back over
+        // anything changed while the queue was running.
+        //
+        // It now goes through the same narrow path as everything else. This
+        // test pins down what that path must guarantee.
+        use crate::models::settings::AfterQueueAction;
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("settings.json");
+
+        let mut before = distinctive_settings();
+        before.after_queue_once = Some(AfterQueueAction::ShutdownComputer);
+        write_settings_to_path(&path, &before).expect("first write");
+
+        // Re-read from disk, clear only the one-shot, write back.
+        let contents = std::fs::read_to_string(&path).expect("read back");
+        let mut after: AppSettings = serde_json::from_str(&contents).expect("parse");
+        after.after_queue_once = None;
+        write_settings_to_path(&path, &after).expect("second write");
+
+        let reloaded_json = std::fs::read_to_string(&path).expect("reload");
+        let reloaded: AppSettings = serde_json::from_str(&reloaded_json).expect("parse reloaded");
+
+        assert!(
+            reloaded.after_queue_once.is_none(),
+            "the one-shot must be cleared so it cannot fire twice"
+        );
+        assert_eq!(
+            reloaded.output_path, before.output_path,
+            "clearing the one-shot must not touch the output folder"
+        );
+
+        let mut normalised = reloaded;
+        normalised.after_queue_once = before.after_queue_once;
+        assert_eq!(
+            serde_json::to_string(&normalised).unwrap(),
+            serde_json::to_string(&before).unwrap(),
+            "no field other than after_queue_once may differ"
+        );
+        assert!(
+            path.with_extension("json.sha256").exists(),
+            "clearing the one-shot must still write the .sha256 companion"
+        );
+        assert!(
+            verify_settings_checksum(&path, &reloaded_json),
+            "clearing the one-shot must leave the checksum companion correct, \
+             or the next startup wrongly reports the file as edited from outside"
         );
     }
 }

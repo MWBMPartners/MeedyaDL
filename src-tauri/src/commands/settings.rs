@@ -25,6 +25,7 @@
 // |-------------------------------|----------------------------------|------|
 // | get_settings                  | getSettings()                    | ~75  |
 // | save_settings                 | saveSettings(settings)           | ~80  |
+// | set_sidebar_collapsed         | saveSidebarCollapsed(collapsed)  | ~82  |
 // | has_embedded_acoustid_key     | hasEmbeddedAcoustidKey()         | ~83  |
 // | validate_cookies_file         | validateCookiesFile(path)        | ~85  |
 // | check_cookies_before_download | checkCookiesBeforeDownload()     | ~88  |
@@ -209,6 +210,34 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
         }
     }
 
+    Ok(())
+}
+
+/// Remembers whether the sidebar is collapsed.
+///
+/// **Frontend caller:** `saveSidebarCollapsed(collapsed)` in
+/// `src/lib/tauri-commands.ts`.
+///
+/// The sidebar's collapse button sits on every screen, including the
+/// Settings screen while it has edits nobody has pressed "Save Changes"
+/// on yet. So this deliberately does NOT accept a settings object from
+/// the frontend. It takes one boolean and changes one field on disk, and
+/// there is no parameter anything else could ride along in. Two earlier
+/// attempts at remembering this preference did send the whole settings
+/// object, committed the person's half-finished edits by accident, and
+/// were both backed out — see #1175.
+///
+/// It also deliberately does not write "Settings saved" to the activity
+/// log. Clicking an arrow to make the sidebar narrower is not a settings
+/// change anyone wants a log line about, and one line per click would
+/// bury the real ones.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file cannot be read or written.
+#[tauri::command]
+pub async fn set_sidebar_collapsed(app: AppHandle, collapsed: bool) -> Result<(), String> {
+    config_service::update_settings_field(&app, |s| s.sidebar_collapsed = collapsed)?;
     Ok(())
 }
 

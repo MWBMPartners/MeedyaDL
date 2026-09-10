@@ -43,10 +43,6 @@ import type { AppSettings } from '@/types';
 // `getSettings` -> Rust `get_settings`, `saveSettings` -> Rust `save_settings`.
 import * as commands from '@/lib/tauri-commands';
 
-// Debounce timer for auto-save operations. Prevents concurrent writes when
-// multiple settings are toggled rapidly. Only the last save within 300ms fires.
-let _saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-
 /**
  * Default settings used as the initial store state and as a reset target.
  *
@@ -267,8 +263,22 @@ interface SettingsState {
    */
   saveSettings: () => Promise<void>;
 
-  /** Debounced save — batches rapid changes within 300ms into one write. */
-  debouncedSave: () => void;
+  /**
+   * Bring the in-memory copy of `sidebar_collapsed` into line with what
+   * has just been written to disk by the sidebar's own narrow save.
+   *
+   * There used to be a `debouncedSave()` here that wrote the WHOLE
+   * settings object after a short delay. It has been deleted on purpose.
+   * Nothing was calling it, and the one thing it was still good for was
+   * being the method the next person reached for when they wanted to
+   * remember a single small preference — which is exactly how clicking
+   * the sidebar arrow came to save half-finished Settings edits over the
+   * file, twice (#1175). A single field now gets its own narrow command;
+   * there is deliberately no way from this store to auto-save everything.
+   *
+   * @param collapsed -- the value that has just been written to disk
+   */
+  syncSidebarCollapsed: (collapsed: boolean) => void;
 
   /**
    * Merge partial changes into the current settings (in-memory only).
@@ -366,23 +376,24 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   /**
-   * Debounced save — batches rapid save calls into a single disk write.
-   * Use this for auto-save triggers (e.g., toggle switches that save immediately).
-   * The manual "Save" button should call `saveSettings()` directly for instant feedback.
+   * Match the in-memory `sidebar_collapsed` to the value the sidebar has
+   * just written to disk by itself.
+   *
+   * Deliberately does NOT set `isDirty`. `isDirty` means "this person has
+   * edits they have not committed yet", and it is what arms the "Save
+   * Changes" button. Clicking the sidebar's arrow is not an uncommitted
+   * edit — it is already saved, by a different route, before this runs.
+   * Arming the Save button over it would be telling the person they have
+   * unsaved work when they do not.
+   *
+   * Without this the store would keep whatever value it loaded at
+   * startup, so an open Settings screen would later write that stale
+   * value back over the sidebar's. No data would be lost, but the
+   * sidebar would appear to forget itself, which is worth two lines to
+   * avoid.
    */
-  debouncedSave: () => {
-    if (_saveDebounceTimer) clearTimeout(_saveDebounceTimer);
-    _saveDebounceTimer = setTimeout(async () => {
-      _saveDebounceTimer = null;
-      try {
-        await commands.saveSettings(get().settings);
-        set({ isDirty: false });
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        set({ error: message });
-      }
-    }, 300);
-  },
+  syncSidebarCollapsed: (collapsed) =>
+    set((state) => ({ settings: { ...state.settings, sidebar_collapsed: collapsed } })),
 
   /**
    * Merge a partial settings update into the current settings object.

@@ -16,10 +16,12 @@
  *     is displayed, consumed by `<SetupWizard>` and `<App>`.
  *
  * This store is intentionally **not** persisted -- UI layout state resets on each
- * application launch. The sidebar's collapsed state is read from
- * `sidebar_collapsed` in `settingsStore.ts` at startup, but toggling the sidebar
- * does not write it back, so it does not yet survive a restart -- see the note on
- * `toggleSidebar()` below, and #1175.
+ * application launch, with one exception. The sidebar's collapsed state is read
+ * from `sidebar_collapsed` in `settingsStore.ts` at startup and written back
+ * whenever it changes, so it survives a restart (#1175). That write goes through
+ * a command that changes only that one field on disk -- see the note on
+ * `toggleSidebar()` below for why nothing here may save the whole settings
+ * object.
  *
  * @see {@link https://zustand.docs.pmnd.rs/getting-started/introduction} -- Zustand overview
  * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state} -- How `set()` merges state
@@ -91,11 +93,85 @@ export function __resetToastWorkerForTests(): void {
   }
 }
 
+/**
+ * How long to wait after the last sidebar click before writing the new
+ * state to disk.
+ *
+ * Someone can click the arrow several times in a row, and each write is a
+ * file read, a serialise, a temp-file write, a rename and a checksum.
+ * Waiting a moment means a burst of clicks costs one write instead of one
+ * write per click.
+ *
+ * 400 ms is long enough to swallow a burst and short enough that nobody
+ * notices the wait.
+ */
+const SIDEBAR_SAVE_DEBOUNCE_MS = 400;
+
+/** The pending sidebar write, or `null` when there is nothing waiting. */
+let sidebarSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Remember the sidebar's collapsed state, after a short pause.
+ *
+ * Two details here are the whole reason this is a named function with a
+ * comment rather than three lines inside `toggleSidebar`:
+ *
+ * 1. **The value is captured, not re-read.** What gets written is the
+ *    boolean handed to this function when the timer was set, not whatever
+ *    some store happens to hold when the timer fires. Re-reading shared
+ *    state at fire time is precisely what made an earlier attempt at this
+ *    revert the person's own click: a save landing in the gap could put
+ *    the old value back.
+ *
+ * 2. **Only this one field is sent.** The command on the other side takes
+ *    a single boolean and changes a single field in the settings file.
+ *    Nothing else can ride along. See `toggleSidebar` below for why that
+ *    matters so much.
+ *
+ * Known and accepted: quitting the app within the pause loses that last
+ * click. That is a much smaller harm than the alternative, and a
+ * fire-and-forget call to the backend cannot be waited on during shutdown
+ * anyway.
+ */
+function persistSidebarCollapsed(collapsed: boolean): void {
+  if (sidebarSaveTimer !== null) clearTimeout(sidebarSaveTimer);
+  sidebarSaveTimer = setTimeout(() => {
+    sidebarSaveTimer = null;
+    // Keep the settings store's copy in step with the file, so an open
+    // Settings screen does not later write a stale value back over this.
+    // This does not mark the settings as having unsaved edits -- see
+    // `syncSidebarCollapsed` in settingsStore.ts.
+    useSettingsStore.getState().syncSidebarCollapsed(collapsed);
+    void commands.saveSidebarCollapsed(collapsed).catch((e: unknown) => {
+      // Failing to remember a display preference is not worth
+      // interrupting anyone over, so this is a console line and not a
+      // toast. The sidebar is already in the right position on screen;
+      // only the memory of it is lost.
+      console.warn('[sidebar] could not save collapsed state:', e);
+    });
+  }, SIDEBAR_SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * Test-only: throw away any pending sidebar write so one test cannot
+ * leak a timer into the next.
+ *
+ * @internal
+ */
+export function __resetSidebarSaveForTests(): void {
+  if (sidebarSaveTimer !== null) clearTimeout(sidebarSaveTimer);
+  sidebarSaveTimer = null;
+}
+
 // AppPage -- union literal type for sidebar navigation targets ('download' | 'queue' | ...)
 // Toast    -- shape of an individual toast notification (id, message, type, duration)
 // ToastType -- severity level union ('success' | 'error' | 'warning' | 'info')
 import type { AppPage, Toast, ToastType } from '@/types';
 import { useSettingsStore } from '@/stores/settingsStore';
+// Type-safe wrappers around the backend commands. Only one is used here:
+// `saveSidebarCollapsed`, which writes the single `sidebar_collapsed`
+// field and nothing else.
+import * as commands from '@/lib/tauri-commands';
 // HelpTopicId -- the real set of `help/*.md` page ids. Imported as a
 // type only (erased at compile time, so it adds no runtime dependency
 // on the help feature) purely so `helpActiveTopic` and `navigateToHelp`
@@ -273,8 +349,8 @@ interface UiState {
   setPage: (page: AppPage) => void;
 
   /**
-   * Toggle the sidebar between expanded and collapsed modes.
-   * Uses the updater-function form of `set()` to read the previous value.
+   * Toggle the sidebar between expanded and collapsed modes, and remember
+   * the answer so it is still that way next launch.
    * Called by the sidebar's chevron toggle button.
    */
   toggleSidebar: () => void;
@@ -394,35 +470,41 @@ export const useUiStore = create<UiState>((set, get) => ({
   setPage: (page) => set({ currentPage: page }),
 
   /**
-   * Toggle sidebar collapse. Uses the **updater-function** form of `set()`
-   * (`set((prev) => next)`) to derive the new value from the previous state,
-   * avoiding stale-closure issues.
+   * Toggle sidebar collapse, and remember the new position on disk.
    *
-   * This deliberately only changes the in-memory UI state and does NOT
-   * write `sidebar_collapsed` back to the settings store. A previous
-   * version of this function did that (via `updateSettings()` +
-   * `debouncedSave()`), and it was wrong: the Settings screen is
-   * explicit-save -- editing any field there only changes memory, and
-   * nothing reaches disk until the person clicks "Save Changes".
-   * `debouncedSave()` writes the WHOLE settings object, not just this one
-   * field. So clicking the sidebar's collapse button -- which is visible
-   * on every screen, not just Settings -- could silently write out
-   * whatever half-edited or just-reset settings happened to be sitting in
-   * memory at that moment, discarding real changes the person had not
-   * chosen to save. The collapsed state IS read from settings at startup
-   * (see `App.tsx`'s sidebar-sync effect, which calls
-   * `setSidebarCollapsed()` below) -- it just isn't written back from
-   * here, because the only save available to this action would have
-   * committed edits that were never the user's to commit. See #1175 for
-   * the follow-up to give the sidebar its own narrowly-scoped save.
+   * Uses the **updater-function** form of `set()` (`set((prev) => next)`)
+   * to derive the new value from the previous state, avoiding
+   * stale-closure issues.
+   *
+   * The one thing that must never come back here: this may not save the
+   * whole settings object. The Settings screen is explicit-save -- editing
+   * a field there only changes memory, and nothing reaches disk until the
+   * person clicks "Save Changes". The sidebar's collapse button, though,
+   * is on every screen including that one. Two earlier attempts at
+   * remembering the sidebar wrote all of the settings from memory, so a
+   * single click on the arrow committed whatever half-finished or
+   * just-reset edits happened to be sitting there, discarding work the
+   * person never chose to save. That is why the write goes through
+   * `persistSidebarCollapsed` above, into a command that changes one
+   * field, and why the settings store no longer offers any way to
+   * auto-save everything (#1175).
+   *
    * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state#using-updater-function}
    */
   toggleSidebar: () =>
-    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+    set((state) => {
+      const next = !state.sidebarCollapsed;
+      persistSidebarCollapsed(next);
+      return { sidebarCollapsed: next };
+    }),
 
   /**
    * Directly set sidebar collapsed state. Called on app startup from the
    * persisted `sidebar_collapsed` setting loaded by `settingsStore`.
+   *
+   * This one deliberately does not write anything back. Its only caller is
+   * startup, applying a value that has just been read from disk -- writing
+   * it straight back out would be a pointless round trip.
    */
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
 
