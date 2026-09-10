@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 /**
  * @file uiStore.ts -- UI State Management Store
  * @license MIT -- See LICENSE file in the project root.

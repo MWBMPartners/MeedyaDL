@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Drift check for ACKNOWLEDGEMENTS.md (#802).
@@ -84,17 +84,19 @@ function isTauriPlugin(name) {
   );
 }
 
-// Skip dev/build-time crates that don't ship inside the binary, and
-// MWBMPartners' own sibling crates / packages (covered by our own
-// LICENSE rather than a third-party acknowledgement).
+// Skip dev/build-time crates that don't ship inside the binary.
+//
+// meedya-core used to be skipped here on the theory that "our own
+// sibling crate from MeedyaSuite-core" doesn't need a third-party
+// acknowledgement — but that reasoning was never applied consistently
+// (meedya-fingerprint and meedya-lyrics, from the same repo, were never
+// skipped) and the practical effect was that meedya-core was simply
+// missing from ACKNOWLEDGEMENTS.md rather than deliberately omitted.
+// It's listed by name now, so no skip is needed.
 //
 // Adjust conservatively: over-skipping is safer than over-flagging,
 // but every entry here should have a documented rationale.
-const SKIP_RUST = new Set([
-  // MWBMPartners' own sibling crate from the MeedyaSuite-core project —
-  // governed by our own LICENSE, not third-party.
-  'meedya-core',
-]);
+const SKIP_RUST = new Set([]);
 const SKIP_NPM = new Set([
   // @testing-library/dom is mis-classified in `dependencies` but is
   // strictly a test utility — never reaches the production bundle.

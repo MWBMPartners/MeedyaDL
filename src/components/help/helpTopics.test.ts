@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2026 MeedyaSuite
+ * Copyright (c) 2024-2026 MeedyaSuite
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file src/components/help/helpTopics.test.ts - Unit tests for helpTopics.ts
@@ -192,7 +192,7 @@ describe('cross-page help links resolve to real pages', () => {
 
 describe('prepareHelpMarkdown', () => {
   it('strips the leading HTML licence-comment block', () => {
-    const raw = '<!--\nCopyright (c) 2026 MeedyaSuite\n-->\n\n# Getting Started\n\nSome text.';
+    const raw = '<!--\nCopyright (c) 2024-2026 MeedyaSuite\n-->\n\n# Getting Started\n\nSome text.';
     expect(prepareHelpMarkdown(raw)).toBe('# Getting Started\n\nSome text.');
   });
 

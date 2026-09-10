@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
 // Icon Contact Sheet + Regression Verification (issue #1058)

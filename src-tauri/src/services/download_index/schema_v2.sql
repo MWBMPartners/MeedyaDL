@@ -1,4 +1,4 @@
--- Copyright (c) 2026 MeedyaSuite
+-- Copyright (c) 2024-2026 MeedyaSuite
 -- Licensed under the MIT License.
 --
 -- MeedyaDL download index — schema v2 (#875 EPIC A M1b)
