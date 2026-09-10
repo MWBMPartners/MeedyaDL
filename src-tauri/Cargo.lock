@@ -3408,7 +3408,7 @@ dependencies = [
 
 [[package]]
 name = "meedyadl"
-version = "1.13.0-alpha.64"
+version = "1.13.0-alpha.65"
 dependencies = [
  "aes-gcm",
  "arboard",
