@@ -33,11 +33,11 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use super::gamdl_options::{
     ArtistAutoSelect, CoverFormat, DownloadMode, LogLevel, LyricsFormat, RemuxMode, SongCodec,
-    VideoResolution,
+    VideoCodec, VideoResolution,
 };
 
 /// Serde default helper that returns `true`. Used for boolean settings
@@ -671,6 +671,104 @@ pub struct PerServiceSettings {
     pub engine_priority: HashMap<String, Vec<String>>,
 }
 
+// ================================================================
+// Video codec fallback chain — reading both the old and new shape
+// ================================================================
+//
+// `video_codec_fallback_chain` used to be a single comma-separated
+// `String` called `default_video_codec_priority` (e.g. `"h265,h264"`).
+// It is now a real list of `VideoCodec` values, the same way the audio
+// fallback chain always has been.
+//
+// That is a genuine type change on a field that already exists in
+// people's saved settings files, and a type change like this is exactly
+// the kind of thing `config_service::migrate_settings` CANNOT fix.
+// `migrate_settings` only ever runs on a settings file that has already
+// been parsed successfully — serde does not parse a struct field by
+// field and keep the good ones; if ONE field's JSON shape doesn't match
+// its Rust type, the WHOLE file fails to parse, before `migrate_settings`
+// is ever called. And `load_settings` treats a file that fails to parse
+// as damaged: it gets moved aside and the app starts over on defaults.
+// That means every OTHER setting in the file — output folder, codec
+// choices, cookies path, all of it — would look "lost" to the person,
+// just because this one field changed shape. So the conversion from the
+// old text to the new list has to happen in this field's own reader
+// (`deserialize_video_codec_chain`, below), which can accept either
+// shape and therefore never fails the parse at all.
+
+/// Default video codec chain: H.265 first (better quality, and the only
+/// codec that unlocks resolutions above 1080p), then H.264 (plays on
+/// everything). Matches `VideoCodec::ALL`.
+fn default_video_codec_chain() -> Vec<VideoCodec> {
+    VideoCodec::ALL.to_vec()
+}
+
+/// Either shape the video codec chain can arrive in from a settings
+/// file. `#[serde(untagged)]` tries each variant in turn and keeps
+/// whichever one actually matches the JSON that was found.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum VideoCodecChainWire {
+    /// The old shape: one comma-separated string, e.g. `"h265,h264"`.
+    Text(String),
+    /// The new shape: a proper JSON list, e.g. `["h265", "h264"]`.
+    List(Vec<String>),
+}
+
+/// `deserialize_with` for [`AppSettings::video_codec_fallback_chain`].
+/// Accepts the old comma-separated text OR the new list, turns the old
+/// text into a list by splitting on commas, then hands the raw names —
+/// from either shape — to [`clean_video_codec_chain`] to become real
+/// [`VideoCodec`] values.
+fn deserialize_video_codec_chain<'de, D>(deserializer: D) -> Result<Vec<VideoCodec>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let wire = VideoCodecChainWire::deserialize(deserializer)?;
+    let raw: Vec<String> = match wire {
+        VideoCodecChainWire::Text(text) => {
+            text.split(',').map(|part| part.trim().to_string()).collect()
+        }
+        VideoCodecChainWire::List(list) => list,
+    };
+    Ok(clean_video_codec_chain(&raw))
+}
+
+/// Turns a list of raw codec names into real [`VideoCodec`] values:
+/// keeps only the names GAMDL actually recognises, in the order they
+/// were given, each one only once. A name that isn't a real codec —
+/// GAMDL's own `"ask"` (never valid here, see [`VideoCodec`]'s doc
+/// comment), a typo, an empty string from a trailing comma — is quietly
+/// dropped (with a log line, not an error), because a settings file
+/// with one bad entry should still load with the rest of it intact.
+///
+/// If NOTHING survives — an empty chain, or a chain that was entirely
+/// nonsense — the tool's own recommended order is used instead of
+/// leaving the person with no video codec at all.
+fn clean_video_codec_chain(raw: &[String]) -> Vec<VideoCodec> {
+    let mut cleaned: Vec<VideoCodec> = Vec::new();
+    for entry in raw {
+        match VideoCodec::from_cli_str(entry) {
+            Some(codec) => {
+                if !cleaned.contains(&codec) {
+                    cleaned.push(codec);
+                }
+            }
+            None => {
+                log::warn!(
+                    "Ignoring unrecognised video codec {entry:?} in the video \
+                     fallback chain — it will be skipped"
+                );
+            }
+        }
+    }
+    if cleaned.is_empty() {
+        default_video_codec_chain()
+    } else {
+        cleaned
+    }
+}
+
 /// Complete application settings, persisted as `{app_data}/settings.json`.
 ///
 /// This struct contains all user-configurable preferences, organized into
@@ -864,12 +962,27 @@ pub struct AppSettings {
     /// in `gamdl_options.rs` for available resolutions.
     pub default_video_resolution: VideoResolution,
 
-    /// Default video codec priority as a comma-separated string
-    /// (e.g., `"h265,h264"`). GAMDL tries codecs left-to-right.
-    /// H.265 (HEVC) offers better quality per bitrate but is not
-    /// available for all content. Maps to
-    /// `GamdlOptions::music_video_codec_priority`.
-    pub default_video_codec_priority: String,
+    /// Ordered list of video codecs to try for music videos. GAMDL walks
+    /// this list in one run and downloads the video using the first codec
+    /// it is actually offered in — see `VideoCodec` for why this is a
+    /// genuine step-down, not just a preference. Sent to GAMDL via
+    /// `AppSettings::video_codec_priority_cli()`, which turns this list
+    /// into the comma-separated string `GamdlOptions::music_video_codec_priority`
+    /// expects. Users can reorder and prune this list in the settings UI,
+    /// the same way `music_fallback_chain` works for audio.
+    ///
+    /// This field used to be a single comma-separated `String` called
+    /// `default_video_codec_priority`. `alias` still accepts JSON saved
+    /// under that old name, and `deserialize_with` reads either the old
+    /// text or the new list — see `deserialize_video_codec_chain` below
+    /// for why that conversion lives here instead of in
+    /// `config_service::migrate_settings`.
+    #[serde(
+        default = "default_video_codec_chain",
+        alias = "default_video_codec_priority",
+        deserialize_with = "deserialize_video_codec_chain"
+    )]
+    pub video_codec_fallback_chain: Vec<VideoCodec>,
 
     /// Default video container format. Either `"mp4"` (standard) or
     /// `"m4v"` (Apple's variant, which some players handle differently).
@@ -879,11 +992,21 @@ pub struct AppSettings {
     // ================================================================
     // Fallback Quality Chains
     // ================================================================
-    /// Whether the fallback quality system is enabled. When `true` and a
-    /// download fails with the preferred codec/resolution, the download
-    /// manager automatically retries with the next option in the fallback
-    /// chain. This is a GUI-only feature -- GAMDL itself does not have
-    /// built-in fallback logic.
+    /// Whether the fallback quality system is enabled. This one switch
+    /// covers both songs and music videos.
+    ///
+    /// For songs, "stepping down" is split between MeedyaDL and GAMDL:
+    /// GAMDL tries a whole codec chain itself in one run when it can
+    /// (`--song-codec-priority`), and MeedyaDL's own `try_fallback()`
+    /// restarts GAMDL one codec at a time as a safety net for whatever
+    /// that native attempt didn't catch.
+    ///
+    /// For music videos, GAMDL does the entire step-down itself in one
+    /// run — it walks `video_codec_fallback_chain` and uses the first
+    /// codec the video is actually offered in — so MeedyaDL never needs
+    /// to restart GAMDL for a music video. When this switch is off, only
+    /// the first codec in each chain is sent, so nothing steps down at
+    /// all.
     pub fallback_enabled: bool,
 
     /// Ordered list of audio codecs to try if the preferred codec fails.
@@ -891,11 +1014,6 @@ pub struct AppSettings {
     /// and so on until one succeeds or the chain is exhausted. Users can
     /// reorder and prune this list in the settings UI.
     pub music_fallback_chain: Vec<SongCodec>,
-
-    /// Ordered list of video resolutions to try if the preferred
-    /// resolution is not available for a given music video. Works the
-    /// same way as `music_fallback_chain`.
-    pub video_fallback_chain: Vec<VideoResolution>,
 
     // ================================================================
     // Companion Downloads
@@ -1878,7 +1996,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 9;
+pub const CURRENT_SETTINGS_VERSION: u32 = 10;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -1900,8 +2018,9 @@ impl Default for AppSettings {
     /// - **`music_fallback_chain`** -- ALAC -> Atmos -> AC3 -> AAC Binaural
     ///   -> AAC -> AAC Legacy. This descends from lossless through spatial
     ///   audio to standard lossy, matching the project brief's order.
-    /// - **`video_fallback_chain`** -- 2160p -> 1440p -> ... -> 240p.
-    ///   Every resolution Apple Music offers, in descending order.
+    /// - **`video_codec_fallback_chain`** -- H.265 first, then H.264.
+    ///   GAMDL steps through this whole list itself in one run for each
+    ///   music video, trying each codec in turn until one is offered.
     /// - **`synced_lyrics_format: Ttml`** -- TTML preserves Apple Music's
     ///   word-level timing data for Enhanced LRC conversion. For music
     ///   videos, the download manager also uses TTML.
@@ -1965,7 +2084,7 @@ impl Default for AppSettings {
             // --- Video quality ---
             // Default to 4K with H.265 preferred, H.264 as fallback codec.
             default_video_resolution: VideoResolution::P2160,
-            default_video_codec_priority: "h265,h264".to_string(),
+            video_codec_fallback_chain: default_video_codec_chain(),
             // m4v is Apple's preferred container on macOS; mp4 is more
             // universally compatible on Windows and Linux.
             default_video_remux_format: if cfg!(target_os = "macos") {
@@ -1984,16 +2103,6 @@ impl Default for AppSettings {
                 SongCodec::AacBinaural, // 4. AAC (256kbps) Binaural -- spatial stereo
                 SongCodec::Aac,         // 5. AAC (256kbps at up to 48kHz) -- standard lossy
                 SongCodec::AacLegacy, // 6. AAC Legacy (256kbps at up to 44.1kHz) -- broadest compat
-            ],
-            video_fallback_chain: vec![
-                VideoResolution::P2160, // 1. H.265 2160p (4K UHD)
-                VideoResolution::P1440, // 2. H.265 1440p (QHD)
-                VideoResolution::P1080, // 3. H.265/H.264 1080p (Full HD)
-                VideoResolution::P720,  // 4. H.264 720p (HD)
-                VideoResolution::P540,  // 5. H.264 540p (qHD)
-                VideoResolution::P480,  // 6. H.264 480p (SD)
-                VideoResolution::P360,  // 7. H.264 360p (low)
-                VideoResolution::P240,  // 8. H.264 240p (lowest)
             ],
 
             // --- Companion downloads ---
@@ -2256,6 +2365,43 @@ impl Default for AppSettings {
     }
 }
 
+impl AppSettings {
+    /// Builds the CLI string for GAMDL's `--music-video-codec-priority`
+    /// flag from `video_codec_fallback_chain`.
+    ///
+    /// GAMDL tries this whole list, in order, in one single run for each
+    /// music video, using the first codec the video is actually offered
+    /// in. If the stored chain is somehow empty, the tool's own
+    /// recommended order (`VideoCodec::ALL`) is used instead — a music
+    /// video download should never be sent an empty codec list.
+    ///
+    /// When `fallback_enabled` is off, only the FIRST codec in the chain
+    /// is sent, so nothing steps down. This matches how audio already
+    /// behaves: when stepping down is switched off, audio sends only the
+    /// person's preferred codec too (see the native-priority block in
+    /// `download_queue/processing.rs`).
+    #[must_use]
+    pub fn video_codec_priority_cli(&self) -> String {
+        let chain = if self.video_codec_fallback_chain.is_empty() {
+            default_video_codec_chain()
+        } else {
+            self.video_codec_fallback_chain.clone()
+        };
+
+        if self.fallback_enabled {
+            chain
+                .iter()
+                .map(VideoCodec::to_cli_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        } else {
+            // `chain` is never empty at this point (see above), so the
+            // first entry always exists.
+            chain[0].to_cli_string().to_string()
+        }
+    }
+}
+
 // ============================================================
 // Unit Tests
 // ============================================================
@@ -2330,35 +2476,106 @@ mod tests {
         assert_eq!(chain[5], SongCodec::AacLegacy);
     }
 
-    /// Verifies that the default video fallback chain contains exactly
-    /// 8 resolutions (2160p down to 240p), covering every resolution
-    /// Apple Music offers in descending order.
+    /// Verifies that the default video codec chain is H.265 first, then
+    /// H.264 — matching `VideoCodec::ALL`.
     #[test]
-    fn default_video_fallback_chain_has_correct_length() {
+    fn default_video_codec_fallback_chain_order() {
         let settings = AppSettings::default();
+        let chain = &settings.video_codec_fallback_chain;
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0], VideoCodec::H265);
+        assert_eq!(chain[1], VideoCodec::H264);
+    }
+
+    // ----------------------------------------------------------
+    // video_codec_fallback_chain -- reading old text and new list shapes
+    // ----------------------------------------------------------
+
+    /// The old shape (a single comma-separated string under the old
+    /// field name) must still load, in order.
+    #[test]
+    fn video_codec_chain_reads_old_comma_text() {
+        let json = r#"{"default_video_codec_priority": "h264,h265"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(
-            settings.video_fallback_chain.len(),
-            8,
-            "Video fallback chain should have 8 entries, got: {}",
-            settings.video_fallback_chain.len()
+            settings.video_codec_fallback_chain,
+            vec![VideoCodec::H264, VideoCodec::H265]
         );
     }
 
-    /// Verifies that the default video fallback chain is ordered from
-    /// highest resolution (2160p/4K) to lowest (240p), ensuring the
-    /// download manager tries the best quality first.
+    /// Unrecognised entries (GAMDL's own `"ask"`, a typo, mismatched
+    /// case that collapses into an earlier entry) are dropped quietly,
+    /// keeping only the entries that are both real and new.
     #[test]
-    fn default_video_fallback_chain_order() {
-        let settings = AppSettings::default();
-        let chain = &settings.video_fallback_chain;
-        assert_eq!(chain[0], VideoResolution::P2160);
-        assert_eq!(chain[1], VideoResolution::P1440);
-        assert_eq!(chain[2], VideoResolution::P1080);
-        assert_eq!(chain[3], VideoResolution::P720);
-        assert_eq!(chain[4], VideoResolution::P540);
-        assert_eq!(chain[5], VideoResolution::P480);
-        assert_eq!(chain[6], VideoResolution::P360);
-        assert_eq!(chain[7], VideoResolution::P240);
+    fn video_codec_chain_drops_unrecognised_entries() {
+        let json = r#"{"default_video_codec_priority": "h264, ask, vp9, H264"}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H264]);
+    }
+
+    /// An empty chain, and a chain that is entirely `"ask"` (never a
+    /// valid entry here — see `VideoCodec`'s doc comment), both fall
+    /// back to the tool's recommended order rather than leaving the
+    /// person with no video codec at all.
+    #[test]
+    fn video_codec_chain_falls_back_to_default_when_nothing_survives() {
+        let empty: AppSettings =
+            serde_json::from_str(r#"{"default_video_codec_priority": ""}"#).unwrap();
+        assert_eq!(empty.video_codec_fallback_chain, default_video_codec_chain());
+
+        let all_ask: AppSettings =
+            serde_json::from_str(r#"{"default_video_codec_priority": "ask"}"#).unwrap();
+        assert_eq!(all_ask.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// The new shape — a proper JSON list under the new field name —
+    /// loads directly.
+    #[test]
+    fn video_codec_chain_reads_new_list_shape() {
+        let json = r#"{"video_codec_fallback_chain": ["h264"]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H264]);
+    }
+
+    /// A settings file saved by a PRE-this-change build of MeedyaDL still
+    /// carries the old `video_fallback_chain` key (the resolution list
+    /// that was removed). Nothing reads that key any more, so it must be
+    /// ignored without causing a load error — same as any other unknown
+    /// JSON field in this file.
+    #[test]
+    fn stored_video_fallback_chain_key_is_ignored_without_error() {
+        let json = r#"{"video_fallback_chain": ["2160p", "1080p"]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        // Loaded fine, and the (now-unrelated) codec chain is still the default.
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    // ----------------------------------------------------------
+    // AppSettings::video_codec_priority_cli()
+    // ----------------------------------------------------------
+
+    /// When stepping down is on, the whole chain is sent, in the
+    /// person's chosen order.
+    #[test]
+    fn video_codec_priority_cli_sends_whole_chain_when_fallback_enabled() {
+        let settings = AppSettings {
+            fallback_enabled: true,
+            video_codec_fallback_chain: vec![VideoCodec::H264, VideoCodec::H265],
+            ..Default::default()
+        };
+        assert_eq!(settings.video_codec_priority_cli(), "h264,h265");
+    }
+
+    /// When stepping down is off, only the first codec in the chain is
+    /// sent — matching how audio already behaves with the same switch.
+    #[test]
+    fn video_codec_priority_cli_sends_only_first_when_fallback_disabled() {
+        let settings = AppSettings {
+            fallback_enabled: false,
+            video_codec_fallback_chain: vec![VideoCodec::H264, VideoCodec::H265],
+            ..Default::default()
+        };
+        assert_eq!(settings.video_codec_priority_cli(), "h264");
     }
 
     // ----------------------------------------------------------
@@ -2415,8 +2632,8 @@ mod tests {
             settings.default_video_resolution
         );
         assert_eq!(
-            deserialized.default_video_codec_priority,
-            settings.default_video_codec_priority
+            deserialized.video_codec_fallback_chain,
+            settings.video_codec_fallback_chain
         );
         assert_eq!(
             deserialized.default_video_remux_format,
@@ -2428,10 +2645,6 @@ mod tests {
         assert_eq!(
             deserialized.music_fallback_chain.len(),
             settings.music_fallback_chain.len()
-        );
-        assert_eq!(
-            deserialized.video_fallback_chain.len(),
-            settings.video_fallback_chain.len()
         );
 
         // Companion downloads

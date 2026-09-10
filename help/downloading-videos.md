@@ -47,7 +47,7 @@ Post videos are a sub-type of music video content on Apple Music. They are typic
 
 ### Available Resolutions
 
-MeedyaDL supports the following video resolutions, listed from highest to lowest:
+MeedyaDL lets you pick a resolution from the list below. This is not a preference order the way the codec list further down is -- the resolution you pick is a **ceiling**. Apple Music always hands back the best quality it has at or below whatever you chose, in a single attempt, so picking a high ceiling never causes a failure: if the video only exists at a lower resolution, that lower resolution is simply what you get.
 
 | Resolution | Label    | Typical Use Case                              |
 |------------|----------|-----------------------------------------------|
@@ -87,13 +87,11 @@ The audio track embedded within a downloaded video uses the same audio codec set
 
 ### Selecting Quality Before Download
 
-Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec, and MeedyaDL will use those settings for all subsequent video downloads.
+Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec priority, and MeedyaDL will use those settings for all subsequent video downloads.
 
-The resolution you choose is treated as a **maximum**. Apple Music gives you the closest quality it has at or below it, so asking for 4K for a video that only exists in 1080p simply gives you the 1080p version. The order below is stored in your settings but is not used for video downloads today:
+The resolution you choose is treated as a **maximum**, not a request. Apple Music gives you the closest quality it has at or below it, so asking for 4K for a video that only exists in 1080p simply gives you the 1080p version -- automatically, in the same download attempt, with no manual intervention needed and no failure along the way.
 
-> 2160p --> 1440p --> 1080p --> 720p --> 576p --> 480p --> 360p --> 240p
-
-For example, if you request 1440p but the video is only available up to 1080p, the app will automatically download at 1080p without requiring any manual intervention. See [Fallback Quality](fallback-quality.md) for full details on the fallback system.
+The video **codec** is a different matter: it genuinely can be unavailable, and it does step down through a configurable order (H.265 first, then H.264, by default) when your first choice isn't offered. That order lives in **Settings > Codec Fallback Order > Video Fallback**. See [Fallback Quality](fallback-quality.md) for the full explanation of how the codec chain works, and why resolution does not have a chain of its own.
 
 ---
 

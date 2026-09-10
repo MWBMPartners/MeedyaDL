@@ -5,18 +5,19 @@
  * @file FallbackChainList.tsx -- Generic reorderable priority list component.
  *
  * A shared UI component that renders a vertical list of items with numbered
- * priority indicators and up/down arrow buttons for reordering. Used for both
- * audio/video fallback chains (FallbackTab) and video codec priority (QualityTab).
+ * priority indicators and up/down arrow buttons for reordering. Used for the
+ * audio codec fallback chain and the video codec fallback chain (both in
+ * FallbackTab), and for the duplicate-detection preference order (QualityTab).
  *
  * The component is generic over `T extends string`, allowing it to work with
- * any string-literal union type (SongCodec, VideoResolution, VideoCodec, etc.).
+ * any string-literal union type (SongCodec, VideoCodec, ArtistAutoSelect, etc.).
  *
  * When the optional `allItems` prop is supplied, the component additionally
  * renders an "Available" panel listing items not currently in the chain so
- * the user can remove and re-add codecs/resolutions on demand (#659).
+ * the user can remove and re-add codecs on demand (#659).
  *
- * @see {@link ../settings/tabs/FallbackTab.tsx} -- Audio/video fallback chains
- * @see {@link ../settings/tabs/QualityTab.tsx}  -- Video codec priority
+ * @see {@link ../settings/tabs/FallbackTab.tsx} -- Audio/video codec fallback chains
+ * @see {@link ../settings/tabs/QualityTab.tsx}  -- Duplicate-detection preference order
  */
 
 // Lucide icons: GripVertical for the drag handle, ArrowUp/ArrowDown for reorder

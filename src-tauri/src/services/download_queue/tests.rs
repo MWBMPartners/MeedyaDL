@@ -2533,6 +2533,51 @@
         assert!(result2.is_none(), "Should return None when chain exhausted");
     }
 
+    /// A music video must never be handed an AUDIO codec fallback.
+    ///
+    /// `try_fallback()`'s chain is `settings.music_fallback_chain` — the
+    /// AUDIO chain. Before the fix, a music video item was allowed to
+    /// walk that chain the same as a song, so a music video that GAMDL
+    /// couldn't download in any allowed VIDEO codec would be retried
+    /// with a different AUDIO codec instead. The activity log would say
+    /// something like "trying atmos", but the retry changed nothing
+    /// about the video and downloaded nothing at all — GAMDL had
+    /// already, by itself, tried every video codec it was allowed to
+    /// use in the one run it already made.
+    #[test]
+    fn try_fallback_does_nothing_for_a_music_video() {
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let request = DownloadRequest {
+            urls: vec![
+                "https://music.apple.com/us/music-video/test-video/123456789".to_string(),
+            ],
+            options: None,
+            ..Default::default()
+        };
+        let id = queue.enqueue(request, &settings);
+
+        queue.set_error(&id, "codec error");
+        let result = queue.try_fallback(&id, &settings);
+        assert!(
+            result.is_none(),
+            "a music video must never be given an AUDIO codec fallback"
+        );
+
+        // The item must be left exactly as the error left it — no
+        // fallback silently recorded against it, no state change.
+        let statuses = queue.get_status();
+        assert_eq!(
+            statuses[0].state,
+            DownloadState::Error,
+            "a rejected fallback must not disturb the errored state"
+        );
+        assert!(
+            !statuses[0].fallback_occurred,
+            "no fallback should have been recorded"
+        );
+    }
+
     /// Verifies that try_fallback() returns None when fallback is disabled
     /// in settings, regardless of chain contents.
     #[test]
@@ -4470,6 +4515,49 @@
                 "{name} is built from the source file, so it must still be written"
             );
         }
+    }
+
+    // ----------------------------------------------------------
+    // merge_options: video codec fallback chain
+    // ----------------------------------------------------------
+    //
+    // `music_video_codec_priority` is built from
+    // `AppSettings::video_codec_priority_cli()`, which sends the whole
+    // chain when stepping down is on, and only the first codec when it's
+    // off — matching how the audio side already behaves.
+
+    #[test]
+    fn merge_options_sends_the_whole_video_codec_chain_when_fallback_enabled() {
+        let mut settings = test_settings();
+        settings.fallback_enabled = true;
+        settings.video_codec_fallback_chain = vec![
+            crate::models::gamdl_options::VideoCodec::H264,
+            crate::models::gamdl_options::VideoCodec::H265,
+        ];
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(
+            options.music_video_codec_priority,
+            Some("h264,h265".to_string()),
+            "the whole chain, in the person's order, should be sent"
+        );
+    }
+
+    #[test]
+    fn merge_options_sends_only_the_first_video_codec_when_fallback_disabled() {
+        let mut settings = test_settings();
+        settings.fallback_enabled = false;
+        settings.video_codec_fallback_chain = vec![
+            crate::models::gamdl_options::VideoCodec::H264,
+            crate::models::gamdl_options::VideoCodec::H265,
+        ];
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(
+            options.music_video_codec_priority,
+            Some("h264".to_string()),
+            "with stepping down switched off, only the preferred codec should be sent"
+        );
     }
 
     #[test]

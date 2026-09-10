@@ -7,25 +7,35 @@ Codec registry cross-source consistency check.
 `src-tauri/codecs.toml` is the universal codec registry — compiled into the
 binary via `include_str!()` and parsed at runtime by
 `models/codec_registry.rs`. It cross-references itself (meta codecs resolve
-to concrete codec IDs) and the Rust `SongCodec` enum in
-`models/gamdl_options.rs` (each concrete codec's `services.gamdl` value is a
-GAMDL CLI string that must be a real `SongCodec` variant). Neither link is
-checked by the compiler, so drift is silent until a download fails.
+to concrete codec IDs) and two Rust enums in `models/gamdl_options.rs`: each
+concrete AUDIO codec's `services.gamdl` value must be a real `SongCodec`
+variant, and each concrete VIDEO codec's `services.gamdl` value must be a
+real `VideoCodec` variant. Neither link is checked by the compiler, so drift
+is silent until a download fails.
 
-Two checks (both pure cross-source reference validation — the MeedyaDL
+Three checks (all pure cross-source reference validation — the MeedyaDL
 analog of WebMS-Intra's `check_sql_columns.py` / `check_route_targets.py`):
 
   1. META RESOLUTION — every `resolves_to = { <svc> = "<id>" }` target must
      be a concrete codec section that exists in codecs.toml. Catches a meta
      codec left pointing at a renamed/removed concrete codec.
 
-  2. GAMDL CLI VALIDITY — every concrete `[audio.<id>.services]` `gamdl`
-     value must be a kebab-case `SongCodec` enum variant. Catches a typo'd
-     flag or a `SongCodec` rename that didn't propagate to the registry.
+  2. AUDIO GAMDL CLI VALIDITY — every concrete `[audio.<id>.services]`
+     `gamdl` value must be a kebab-case `SongCodec` enum variant (the enum
+     carries `#[serde(rename_all = "kebab-case")]`). Catches a typo'd flag
+     or a `SongCodec` rename that didn't propagate to the registry.
 
-Video/lyrics `gamdl` values are intentionally NOT validated here: GAMDL's
-video-codec / lyrics CLI strings have no single canonical Rust enum to check
-against, and guessing would produce false positives.
+  3. VIDEO GAMDL CLI VALIDITY — every concrete `[video.<id>.services]`
+     `gamdl` value must be a `VideoCodec` enum variant. `VideoCodec` carries
+     `#[serde(rename_all = "lowercase")]` — NOT kebab-case like `SongCodec` —
+     so `H265`/`H264` serialise to `h265`/`h264`, no inserted dashes. Each
+     enum's own `#[serde(rename_all = ...)]` attribute is read to pick the
+     right transform, rather than assuming one mode for every enum in this
+     file.
+
+Lyrics `gamdl` values are intentionally NOT validated here: GAMDL's lyrics
+CLI strings (`lrc`/`srt`/`ttml`/...) have no single canonical Rust enum to
+check against, and guessing would produce false positives.
 
 The TOML is parsed with targeted regex (no `tomllib`/`tomli` dependency) so
 the script runs on any Python 3 without a venv — matching the audit-checks
@@ -61,6 +71,13 @@ GAMDL_KV_RE = re.compile(r"""^\s*gamdl\s*=\s*['"]([a-z0-9-]+)['"]""")
 # A `resolves_to = { svc = "id", ... }` inline table.
 RESOLVES_RE = re.compile(r"resolves_to\s*=\s*\{([^}]*)\}")
 INLINE_PAIR_RE = re.compile(r"""([a-z_][a-z0-9_]*)\s*=\s*['"]([a-z0-9-]+)['"]""")
+# The `#[serde(rename_all = "...")]` attribute immediately above a
+# `pub enum <Name> {` declaration — used to pick the right name -> CLI
+# string transform for that specific enum (see `collect_enum_cli_values`).
+ENUM_RENAME_ALL_RE_TEMPLATE = (
+    r"""#\[serde\(rename_all\s*=\s*['"]([a-zA-Z_-]+)['"]\)\]\s*\n"""
+    r"""pub\s+enum\s+{enum_name}\s*\{{(.*?)\n\}}"""
+)
 
 
 def variant_to_kebab(variant: str) -> str:
@@ -74,16 +91,39 @@ def variant_to_kebab(variant: str) -> str:
     return "".join(out)
 
 
-def collect_song_codec_cli_values() -> set[str]:
-    """Derive the set of valid GAMDL song-codec CLI strings from the
-    `SongCodec` enum. The enum carries `#[serde(rename_all = "kebab-case")]`;
-    any per-variant `#[serde(rename = "x")]` override takes precedence."""
+def _variant_to_rename_all(variant: str, mode: str) -> str:
+    """Apply one `#[serde(rename_all = "<mode>")]` transform to a Rust enum
+    variant name. Only the two modes actually used by the enums this script
+    reads (`SongCodec`: kebab-case, `VideoCodec`: lowercase) are handled;
+    an unrecognised mode falls back to kebab-case; kebab-case is what every
+    other enum in gamdl_options.rs used before VideoCodec introduced
+    lowercase, so it is the safer default rather than silently returning an
+    unmodified variant name that would never match anything."""
+    if mode == "lowercase":
+        return variant.lower()
+    return variant_to_kebab(variant)
+
+
+def collect_enum_cli_values(enum_name: str) -> set[str]:
+    """Derive the set of valid GAMDL CLI strings for one enum in
+    `gamdl_options.rs` (`SongCodec`, `VideoCodec`, ...), by reading that
+    enum's own `#[serde(rename_all = "...")]` attribute rather than
+    assuming every enum in the file uses the same one — `SongCodec` is
+    kebab-case, `VideoCodec` is lowercase with no dashes, and a script
+    that assumed kebab-case for both would report every real `VideoCodec`
+    CLI value (`h265`, `h264`) as invalid, since kebab-casing `H265` byte
+    for byte happens to also produce `h265` (no uppercase letter follows
+    the first), but that is a coincidence of this exact enum, not
+    something to rely on for a differently-named future variant. Any
+    per-variant `#[serde(rename = "x")]` override takes precedence over
+    the container-level transform, same as SongCodec's."""
     text = GAMDL_OPTIONS_RS.read_text(encoding="utf-8", errors="ignore")
-    m = re.search(r"pub\s+enum\s+SongCodec\s*\{(.*?)\n\}", text, re.DOTALL)
+    pattern = ENUM_RENAME_ALL_RE_TEMPLATE.format(enum_name=re.escape(enum_name))
+    m = re.search(pattern, text, re.DOTALL)
     if not m:
-        print("WARNING: SongCodec enum not found in gamdl_options.rs", file=sys.stderr)
+        print(f"WARNING: {enum_name} enum (with its rename_all attribute) not found in gamdl_options.rs", file=sys.stderr)
         return set()
-    body = m.group(1)
+    mode, body = m.group(1), m.group(2)
     values: set[str] = set()
     pending_rename: str | None = None
     for line in body.splitlines():
@@ -100,7 +140,7 @@ def collect_song_codec_cli_values() -> set[str]:
                 values.add(pending_rename)
                 pending_rename = None
             else:
-                values.add(variant_to_kebab(vm.group(1)))
+                values.add(_variant_to_rename_all(vm.group(1), mode))
     return values
 
 
@@ -151,12 +191,14 @@ def check() -> int:
         return 0
 
     concrete_ids, gamdl_by_id, resolves = parse_codecs_toml()
-    song_cli = collect_song_codec_cli_values()
+    song_cli = collect_enum_cli_values("SongCodec")
+    video_cli = collect_enum_cli_values("VideoCodec")
 
     print(f"Concrete codec sections          : {len(concrete_ids)}")
     print(f"Concrete codecs with gamdl flag  : {len(gamdl_by_id)}")
     print(f"Meta resolves_to references      : {len(resolves)}")
     print(f"SongCodec CLI values (from Rust) : {len(song_cli)}")
+    print(f"VideoCodec CLI values (from Rust): {len(video_cli)}")
     print()
 
     findings = 0
@@ -170,8 +212,8 @@ def check() -> int:
         print()
         findings += len(dangling)
 
-    # 2) GAMDL CLI value validity (audio only; see module docstring).
-    # We only validate against SongCodec when we successfully parsed it.
+    # 2) Audio GAMDL CLI value validity. We only validate against SongCodec
+    # when we successfully parsed it.
     if song_cli:
         bad_gamdl = [
             (cid, val)
@@ -187,8 +229,28 @@ def check() -> int:
             print()
             findings += len(bad_gamdl)
 
+    # 3) Video GAMDL CLI value validity — same shape as (2), but against
+    # `VideoCodec`, which is lowercase-with-no-dashes, not kebab-case (see
+    # `collect_enum_cli_values`'s docstring for why that distinction
+    # matters to get right rather than assumed).
+    if video_cli:
+        bad_video_gamdl = [
+            (cid, val)
+            for cid, val in sorted(gamdl_by_id.items())
+            if cid in concrete_ids and val not in video_cli and _is_video(cid)
+        ]
+        if bad_video_gamdl:
+            print("### Video codec gamdl flag is not a known VideoCodec CLI value\n")
+            for cid, val in bad_video_gamdl:
+                print(f"  • codecs.toml [video.{cid}.services] — gamdl = \"{val}\" is not a VideoCodec variant (lowercase, no dashes)")
+            print()
+            findings += len(bad_video_gamdl)
+
     if findings == 0:
-        print("OK — codecs.toml meta references resolve and audio gamdl flags match SongCodec.")
+        print(
+            "OK — codecs.toml meta references resolve, audio gamdl flags match "
+            "SongCodec, and video gamdl flags match VideoCodec."
+        )
 
     if findings and "--strict" in sys.argv:
         return 1
@@ -197,18 +259,35 @@ def check() -> int:
 
 # codecs.toml does not tag concrete sections audio-vs-video in a way the
 # regex parser retains per-id, so recover it by re-reading the header set.
+# Cached once per process since CODECS_TOML doesn't change mid-run.
 _AUDIO_IDS: set[str] | None = None
+_VIDEO_IDS: set[str] | None = None
+
+
+def _codec_section_ids(kind: str) -> set[str]:
+    """The set of concrete codec IDs under `[<kind>.<id>]` headers, where
+    `kind` is `"audio"` or `"video"`."""
+    ids: set[str] = set()
+    pattern = re.compile(rf"^\[{kind}\.([a-z0-9-]+)\]\s*$")
+    for line in CODECS_TOML.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = pattern.match(line)
+        if m:
+            ids.add(m.group(1))
+    return ids
 
 
 def _is_audio(codec_id: str) -> bool:
     global _AUDIO_IDS
     if _AUDIO_IDS is None:
-        _AUDIO_IDS = set()
-        for line in CODECS_TOML.read_text(encoding="utf-8", errors="ignore").splitlines():
-            m = re.match(r"^\[audio\.([a-z0-9-]+)\]\s*$", line)
-            if m:
-                _AUDIO_IDS.add(m.group(1))
+        _AUDIO_IDS = _codec_section_ids("audio")
     return codec_id in _AUDIO_IDS
+
+
+def _is_video(codec_id: str) -> bool:
+    global _VIDEO_IDS
+    if _VIDEO_IDS is None:
+        _VIDEO_IDS = _codec_section_ids("video")
+    return codec_id in _VIDEO_IDS
 
 
 if __name__ == "__main__":

@@ -260,7 +260,7 @@ H.265, also known as High Efficiency Video Coding (HEVC), is the successor to H.
 
 ## Video Resolution Options
 
-MeedyaDL supports the following video resolutions, listed from highest to lowest quality:
+MeedyaDL supports the following video resolutions, listed from highest to lowest quality. The resolution you pick is a **ceiling**, not a request -- Apple Music always returns the best quality it has at or below your choice, in a single attempt, so a video that doesn't reach your chosen resolution simply comes back at whatever it does have, rather than failing. See [Fallback Quality](fallback-quality.md#why-there-is-no-resolution-fallback-chain) for why resolution works this way and has no fallback order of its own -- unlike video codec, which does.
 
 - **2160p (4K Ultra HD)** -- The highest available resolution. Four times the pixel count of 1080p (3840x2160). Ideal for large screens and displays that support 4K. Produces the largest files
 - **1440p (2K QHD)** -- Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
@@ -352,9 +352,11 @@ The per-download override applies only to that specific download. Your global de
 
 ### Quality Fallback
 
-When your preferred quality is not available for a particular track or video, MeedyaDL automatically falls back to the next best available option. For example, if you request ALAC 24/192 but the content is only available at 24/96, MeedyaDL will download the 24/96 version rather than failing.
+When your preferred **codec** is not available for a particular track or video, MeedyaDL automatically falls back to the next codec in your configured chain -- this applies to both audio codecs and video codecs, each with its own chain in Settings.
 
-For full details on how fallback chains work and how to configure fallback behavior, see [Fallback Quality](fallback-quality.md).
+Video **resolution** works differently: it is a ceiling rather than a fallback chain. If you request 4K but a video only exists up to 1080p, Apple Music simply returns the 1080p version in the same attempt -- there is no separate resolution to "fall back" to, because nothing failed.
+
+For full details on how the codec fallback chains work, and why resolution doesn't have one, see [Fallback Quality](fallback-quality.md).
 
 ---
 

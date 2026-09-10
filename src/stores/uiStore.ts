@@ -397,7 +397,18 @@ export const useUiStore = create<UiState>((set, get) => ({
    * avoiding stale-closure issues.
    * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state#using-updater-function}
    */
-  toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+  toggleSidebar: () =>
+    set((state) => {
+      const sidebarCollapsed = !state.sidebarCollapsed;
+      // Remember the choice. Without this the sidebar springs back open on
+      // the next launch: the saved setting was read at startup and applied,
+      // but nothing ever wrote the new value back, so collapsing it could
+      // never actually stick. Saving is deliberately not awaited — the
+      // sidebar should move the instant it is clicked, and if the save
+      // fails the only cost is that it opens again next time.
+      void useSettingsStore.getState().updateSettings({ sidebar_collapsed: sidebarCollapsed });
+      return { sidebarCollapsed };
+    }),
 
   /**
    * Directly set sidebar collapsed state. Called on app startup from the

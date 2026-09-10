@@ -85,7 +85,7 @@ pub(crate) fn merge_options(
     // These come from the user's saved settings (settings.json).
     options.song_codec = Some(settings.default_song_codec.clone());
     options.music_video_resolution = Some(settings.default_video_resolution.clone());
-    options.music_video_codec_priority = Some(settings.default_video_codec_priority.clone());
+    options.music_video_codec_priority = Some(settings.video_codec_priority_cli());
     options.music_video_remux_format = Some(settings.default_video_remux_format.clone());
     options.synced_lyrics_format = Some(settings.synced_lyrics_format.clone());
     options.no_synced_lyrics = Some(settings.no_synced_lyrics);
