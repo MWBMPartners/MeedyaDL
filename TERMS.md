@@ -8,6 +8,8 @@ By downloading, installing, or using MeedyaDL ("the Software"), you agree to the
 
 MeedyaDL is open-source software licensed under the MIT Licence. See [LICENSE](LICENSE) for the full text.
 
+The one exception is the MeedyaDL name, logo, wordmark, and icons. Those are not open source — they are copyright MeedyaSuite, all rights reserved, and may not be reused outside MeedyaDL without written permission. See [assets/brand/LICENSE](assets/brand/LICENSE) for the full text of that separate notice.
+
 ## 2. Disclaimer of Warranty
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR DEALINGS IN THE SOFTWARE.

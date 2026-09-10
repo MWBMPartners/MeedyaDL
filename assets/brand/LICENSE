@@ -1,0 +1,22 @@
+MeedyaDL Brand Assets — Proprietary, All Rights Reserved
+==========================================================
+
+Everything in this folder (assets/brand/) is NOT covered by MeedyaDL's
+MIT licence. That includes the MeedyaDL name, logo, wordmark, and every
+icon, image, or design file here (SVG sources, rendered PNG/ICO/ICNS
+icons, favicons, and the brand kit page).
+
+Copyright (c) 2024-2026 MeedyaSuite. All rights reserved.
+
+These files may not be copied, modified, or reused outside of the
+MeedyaDL project without written permission from MeedyaSuite — even
+though the rest of the MeedyaDL codebase is open source under the MIT
+Licence (see the LICENSE file at the root of this repository). The
+application's code and its brand identity are covered by different
+terms; this file is what tells you that when this folder is copied on
+its own, since a raster image (PNG/ICO/ICNS) can't carry a header
+comment the way a source file can.
+
+For permission requests, open a discussion at
+<https://github.com/MWBMPartners/MeedyaDL/discussions> or contact the
+maintainers via the email listed on the GitHub organisation profile.

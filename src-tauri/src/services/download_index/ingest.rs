@@ -1,4 +1,4 @@
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License.
 //
 // Download Index — first-startup ingest (#875 EPIC A M1b).

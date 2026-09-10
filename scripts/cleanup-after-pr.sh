@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (c) 2026 MeedyaSuite. MIT-licensed (see LICENSE).
+# Copyright (c) 2024-2026 MeedyaSuite. MIT-licensed (see LICENSE).
 #
 # scripts/cleanup-after-pr.sh
 # ===========================

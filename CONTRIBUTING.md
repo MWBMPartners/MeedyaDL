@@ -75,7 +75,11 @@ See [`.claude/CLAUDE.md`](.claude/CLAUDE.md) for a comprehensive architecture ov
 
 ## Coding Conventions
 
-- **Copyright header**: Every source file starts with `// Copyright (c) 2026 MeedyaSuite` + MIT licence reference
+- **Copyright header**: Every source file starts with
+  `// Copyright (c) 2024-2026 MeedyaSuite` and a line pointing at the MIT
+  licence. The range starts at 2024 because that is when the first commit
+  was made; `scripts/update-copyright-year.sh` moves the end of the range
+  forward and can be run with `--dry-run` first to see what it would change.
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation
   - `feat:` — new feature

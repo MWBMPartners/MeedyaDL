@@ -1,6 +1,6 @@
 <!--
   MeedyaDL Help Documentation
-  Copyright (c) 2026 MeedyaSuite
+  Copyright (c) 2024-2026 MeedyaSuite
   Licensed under the MIT License. See LICENSE file in the project root for details.
 -->
 
@@ -25,7 +25,7 @@ A multiplatform media downloader desktop application. Currently supports Apple M
 <details>
 <summary><strong>License</strong></summary>
 
-Copyright (c) 2026 MeedyaSuite
+Copyright (c) 2024-2026 MeedyaSuite
 
 Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
 

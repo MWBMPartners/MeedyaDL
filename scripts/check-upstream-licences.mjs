@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Copyright (c) 2026 MeedyaSuite
+// Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 // Upstream-licence-string drift check for MeedyaDL's direct dependencies
@@ -38,7 +38,33 @@
 //     (the CI workflow does this before invoking the check).
 //
 // Skip rules mirror the companion script (#802) — see SKIP_RUST /
-// SKIP_NPM / isTauriPlugin below.
+// SKIP_NPM / isTauriNpmPackage below.
+//
+// SCOPE — read this before assuming a clean run means "all licences
+// verified". This script can only compare licence strings for the two
+// kinds of dependency that carry machine-readable licence metadata:
+//
+//   - direct Rust crates named in `src-tauri/Cargo.toml`'s
+//     `[dependencies]` (via `cargo metadata`), and
+//   - direct npm runtime deps named in `package.json`'s `dependencies`
+//     (via each package's own `node_modules/<pkg>/package.json`).
+//
+// It does NOT cover, and has no mechanism to cover:
+//   - transitive dependencies of either (that's `cargo-deny check
+//     licenses` / the licence allowlist in `src-tauri/deny.toml`);
+//   - the download engines and external tools listed in
+//     ACKNOWLEDGEMENTS.md's "Download Engines" / "External Tools"
+//     tables (GAMDL, votify, yt-dlp, get_iplayer, FFmpeg, mp4decrypt,
+//     N_m3u8DL-RE, MP4Box, MediaInfo, Python, rclone). None of those
+//     are Cargo or npm dependencies, so there is no `cargo
+//     metadata`/`package.json` entry for this script to read — their
+//     licence text is sourced from each project's own upstream LICENSE
+//     file and has to be verified and kept in sync BY HAND. This is
+//     exactly how ACKNOWLEDGEMENTS.md was able to say mp4decrypt /
+//     Bento4 was "MIT" for a stretch of time when it is actually
+//     GPL-2.0 with a linking exception — this script had no way to
+//     catch that, and still doesn't. Don't treat a clean run of this
+//     script as proof those rows are correct.
 
 import { execFileSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
@@ -53,20 +79,65 @@ const CARGO_TOML = join(ROOT, 'src-tauri', 'Cargo.toml');
 const PACKAGE_JSON = join(ROOT, 'package.json');
 
 // Read ACKNOWLEDGEMENTS.md once and parse out the licence column from
-// the markdown tables. We don't try to be clever — a simple regex that
-// matches "| <name> | <version> | <licence> | <description> |" rows
-// across the file gives a `{ name: licence }` map. Names that appear
-// in multiple sections (rare, but defensive) take the last value seen.
+// its markdown tables — by reading each table's own HEADER row to find
+// where the "Licence" column actually is, not by assuming every table
+// has the same shape. This matters because it doesn't: the main
+// dependency tables are 4 columns (Crate/Version/Licence/Description),
+// but "Tauri Plugins", "Download Engines", and "External Tools" are
+// only 3 (name/Licence/Purpose — no version column). An earlier version
+// of this function assumed column 3 was always the licence, which
+// silently misread every "Tauri Plugins" row's PURPOSE text as its
+// licence — invisible for as long as those rows were skipped entirely,
+// and would have produced false "mismatch" noise the moment that skip
+// was lifted (see isTauriNpmPackage above; this widened check is what
+// exposed it). Names that appear in more than one table (rare, but
+// defensive) take the last value seen.
 function parseAckLicences(path) {
-  const text = readFileSync(path, 'utf8');
+  const lines = readFileSync(path, 'utf8').split('\n');
   const map = new Map();
-  const rowRe = /^\|\s*([A-Za-z0-9_/@-]+(?:[A-Za-z0-9_.-]*[A-Za-z0-9_])?)\s*\|\s*([^|]*?)\s*\|\s*([^|]+?)\s*\|/gm;
-  for (const m of text.matchAll(rowRe)) {
-    const name = m[1].trim();
-    const lic = m[3].trim();
-    // Skip the table header rows ("Crate" / "Plugin" / "Package")
-    if (/^[A-Z][a-z]+$/.test(name) && /^Licen[cs]e$/i.test(lic)) continue;
-    map.set(name, lic);
+
+  const isTableRow = (line) => line.trim().startsWith('|');
+  const isSeparatorRow = (line) => /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(line.trim());
+  const splitRow = (line) =>
+    line
+      .trim()
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split('|')
+      .map((c) => c.trim());
+
+  let licenceCol = -1; // index of the "Licence" column in the CURRENT table; -1 = not in one
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!isTableRow(line)) {
+      licenceCol = -1; // left whatever table we were in
+      continue;
+    }
+    if (isSeparatorRow(line)) continue; // the "|---|---|" row itself
+
+    if (isSeparatorRow(lines[i + 1] ?? '')) {
+      // This row is a HEADER — the next line being a separator is what
+      // makes it one, not its position or content. Find the licence
+      // column for every row until the table ends.
+      const headers = splitRow(line).map((h) => h.toLowerCase());
+      licenceCol = headers.findIndex((h) => /^licen[cs]e$/.test(h));
+      continue;
+    }
+
+    if (licenceCol === -1) continue; // inside a table with no recognised licence column
+
+    const cells = splitRow(line);
+    if (cells.length <= licenceCol) continue;
+    // The name column is sometimes a markdown link (`[name](url)`) or
+    // an inline code span (`` `name` ``) rather than a bare word —
+    // strip that decoration so it can be matched against a plain
+    // Cargo/npm dependency name.
+    const name = cells[0]
+      .replace(/^\[([^\]]+)\]\([^)]*\)$/, '$1')
+      .replace(/^`([^`]+)`$/, '$1')
+      .trim();
+    map.set(name, cells[licenceCol].trim());
   }
   return map;
 }
@@ -98,16 +169,30 @@ function parseNpmRuntimeDeps(path) {
   return Object.keys(pkg.dependencies ?? {});
 }
 
-function isTauriPlugin(name) {
-  return (
-    name.startsWith('tauri-plugin-') ||
-    name === 'tauri' ||
-    name === '@tauri-apps/api' ||
-    name.startsWith('@tauri-apps/plugin-')
-  );
+// npm's half of the Tauri ecosystem (`@tauri-apps/api`,
+// `@tauri-apps/plugin-*`) is deliberately excluded from THIS script's
+// npm check. ACKNOWLEDGEMENTS.md documents Tauri's dual licence once,
+// against the Rust crate rows under "Tauri Plugins" (which this script
+// DOES now check — see below), and covers the matching npm packages
+// with a single cross-reference sentence rather than a full duplicate
+// row per package. Since there's no per-package ACK row to parse for
+// `@tauri-apps/plugin-dialog` etc., checking them here would only ever
+// produce a "missing from ACKNOWLEDGEMENTS.md" false alarm, not a real
+// licence-drift finding.
+function isTauriNpmPackage(name) {
+  return name === '@tauri-apps/api' || name.startsWith('@tauri-apps/plugin-');
 }
 
-const SKIP_RUST = new Set(['meedya-core']); // MWBMPartners sibling crate
+// meedya-core, meedya-fingerprint, and meedya-lyrics are all MWBMPartners'
+// own sibling crates from the MeedyaSuite-core repo, and all three are
+// listed by name in ACKNOWLEDGEMENTS.md's Rust dependency table with
+// their real (MIT) licence — so none of them need a skip here any more.
+// (meedya-core used to be skipped on the theory that "our own crate"
+// doesn't need a third-party acknowledgement, but that reasoning was
+// applied inconsistently — meedya-fingerprint/meedya-lyrics were never
+// skipped — and meedya-core was simply missing from ACK, not
+// deliberately omitted. It's tracked now.)
+const SKIP_RUST = new Set();
 const SKIP_NPM = new Set(['@testing-library/dom']); // mis-classified dev dep
 
 // Equivalence rules — patterns that mean the same thing in different
@@ -143,29 +228,83 @@ function licencesAgree(upstream, ack) {
   return null;
 }
 
+// Well-known licence boilerplate, matched against a crate's own
+// `license-file` content when Cargo.toml has no `license` string at
+// all (rookie is the current example: it declares `license-file =
+// "MIT-LICENSE.txt"` and nothing else, so `cargo metadata` reports an
+// empty licence — with no fallback, the old code treated that as "no
+// data, silently skip", which is how rookie's real MIT licence went
+// unchecked). This is deliberately just enough to recognise the small
+// set of permissive licences this project actually allows (see
+// `src-tauri/deny.toml`) — it is not a general SPDX detector. A file
+// that doesn't match anything here still isn't force-fitted into a
+// guess; the caller is left with no upstream signal, same as today.
+const LICENCE_FILE_SIGNATURES = [
+  ['MIT', (t) => t.includes('permission is hereby granted, free of charge')],
+  ['Apache-2.0', (t) => t.includes('apache license') && t.includes('version 2.0')],
+  ['BSD-3-Clause', (t) => t.includes('neither the name')],
+  ['BSD-2-Clause', (t) => t.includes('redistributions of source code must retain')],
+  ['ISC', (t) => t.includes('permission to use, copy, modify, and/or distribute this software')],
+  ['MPL-2.0', (t) => t.includes('mozilla public license')],
+  ['LGPL-2.1', (t) => t.includes('lesser general public license')],
+  ['GPL-2.0', (t) => t.includes('gnu general public license')],
+];
+
+function identifyLicenceFromFile(filePath) {
+  let text;
+  try {
+    text = readFileSync(filePath, 'utf8').toLowerCase();
+  } catch {
+    return '';
+  }
+  for (const [spdx, matches] of LICENCE_FILE_SIGNATURES) {
+    if (matches(text)) return spdx;
+  }
+  return '';
+}
+
 /** Read every Rust crate's declared licence from cargo-metadata. */
 function readRustUpstreamLicences() {
+  let rawAll;
   try {
     // `cargo metadata` (without `--no-deps`) returns every package in the
     // resolved tree with its declared SPDX licence string. The caller
     // looks up direct deps by name, so extra transitive entries are
     // harmless — and cheaper than a second `--no-deps` round-trip.
-    const rawAll = execFileSync(
+    rawAll = execFileSync(
       'cargo',
       ['metadata', '--format-version=1', '--manifest-path', join('src-tauri', 'Cargo.toml')],
       { cwd: ROOT, maxBuffer: 256 * 1024 * 1024, encoding: 'utf8' },
     );
-    const metaAll = JSON.parse(rawAll);
-    const byName = new Map();
-    for (const pkg of metaAll.packages) {
-      // Last seen wins; cargo deduplicates names already.
-      byName.set(pkg.name, pkg.license ?? '');
-    }
-    return byName;
   } catch (e) {
-    console.error('::warning::cargo metadata failed — Rust licence check skipped:', e.message);
-    return new Map();
+    // This must FAIL, not degrade to "Rust half skipped" plus a warning.
+    // A silent skip here used to mean every Rust dependency was exempted
+    // from the whole check — with an exit-0 tick printed at the end, as
+    // if everything had actually been verified. That is the exact
+    // "reported success after checking nothing" failure mode this
+    // project has already had to fix elsewhere (see channel-security-
+    // audit.yml and the #1146 discipline it names): a tool that could
+    // not run must never be reported as "checked and fine".
+    console.error('::error::cargo metadata failed — cannot verify ANY Rust dependency licence.');
+    console.error(`    ${e.message}`);
+    console.error('    Make sure `cargo` is on PATH (e.g. `export PATH="$HOME/.cargo/bin:$PATH"`)');
+    console.error('    and the dependency tree has been fetched, then re-run. This script exits');
+    console.error('    non-zero here on purpose — it must not report success for a half of the');
+    console.error('    check it never actually ran.');
+    process.exit(1);
   }
+  const metaAll = JSON.parse(rawAll);
+  const byName = new Map();
+  for (const pkg of metaAll.packages) {
+    let licence = pkg.license ?? '';
+    if (!licence && pkg.license_file) {
+      const filePath = join(dirname(pkg.manifest_path), pkg.license_file);
+      licence = identifyLicenceFromFile(filePath);
+    }
+    // Last seen wins; cargo deduplicates names already.
+    byName.set(pkg.name, licence);
+  }
+  return byName;
 }
 
 /** Read each direct npm dep's licence from node_modules. */
@@ -199,11 +338,9 @@ function hasNodeModules() {
   return existsSync(join(ROOT, 'node_modules'));
 }
 
-const rustDeps = parseCargoDirectDeps(CARGO_TOML).filter(
-  (n) => !SKIP_RUST.has(n) && !isTauriPlugin(n),
-);
+const rustDeps = parseCargoDirectDeps(CARGO_TOML).filter((n) => !SKIP_RUST.has(n));
 const npmDeps = parseNpmRuntimeDeps(PACKAGE_JSON).filter(
-  (n) => !SKIP_NPM.has(n) && !isTauriPlugin(n),
+  (n) => !SKIP_NPM.has(n) && !isTauriNpmPackage(n),
 );
 
 const rustLicences = readRustUpstreamLicences();
@@ -219,10 +356,34 @@ const mismatches = [];
 const advisories = [];
 const missingAck = [];
 
+// A cell that's blank, or just a typographic placeholder like an
+// em-dash, is treated the same as "not filled in" — see isEmptyAckValue
+// below.
+function isEmptyAckValue(v) {
+  if (!v) return true;
+  const t = v.trim();
+  return t === '' || t === '—' || t === '-' || /^n\/a$/i.test(t);
+}
+
 function compareOne(kind, name, upstream) {
-  if (!upstream) return; // No data — silent skip.
+  const hasAckRow = ackLicences.has(name);
   const ack = ackLicences.get(name);
-  if (!ack) {
+
+  // A row that names the dependency but leaves the licence blank (or a
+  // placeholder dash) is a documentation fault on its own — this must
+  // be reported even when upstream data is unavailable, never silently
+  // skipped because "we couldn't verify it either". This is exactly
+  // how rookie's ACKNOWLEDGEMENTS.md entry ("—") went unnoticed: the
+  // old code's `if (!upstream) return` skipped the row before this
+  // check ever ran.
+  if (hasAckRow && isEmptyAckValue(ack)) {
+    missingAck.push({ kind, name, upstream: upstream || '(unknown — see licence-file fallback)' });
+    return;
+  }
+
+  if (!upstream) return; // No upstream signal, and ACK has a real value — nothing to compare.
+
+  if (!hasAckRow) {
     missingAck.push({ kind, name, upstream });
     return;
   }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 MeedyaSuite
+# Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 """
 Check whether a channel branch already has a lockfile security fix.

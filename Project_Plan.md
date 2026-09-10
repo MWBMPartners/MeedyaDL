@@ -1,4 +1,4 @@
-<!-- Copyright (c) 2026 MeedyaSuite -->
+<!-- Copyright (c) 2024-2026 MeedyaSuite -->
 <!-- Licensed under the MIT License. See LICENSE file in the project root. -->
 
 # 📋 MeedyaDL - Project Plan & Status
@@ -330,7 +330,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **README corrections** - Fixed org URLs (`MeedyaDL/MeedyaDL` → `MWBMPartners/MeedyaDL`), removed screenshots placeholder, PNG logo with dark/light mode support.
 - ✅ **Activity log memory optimization** (#370) - Capped at 10,000 entries with amortised trimming. Virtualized rendering via `@tanstack/react-virtual` (~150 DOM nodes vs 37,500). RAF-batched event ingestion collapses 200+/s Zustand updates to ~60/s. Backend `\r` segment coalescing reduces event volume 5-10x. Download store uses `map()` pattern. Stable `_id` on entries for efficient React reconciliation. Fixes 14+ GB WebView RAM bloat during long download sessions.
 - ✅ **macOS in-app updater fix** (#368) - Corrected filename mismatch in `release.yml` upload step and `latest.json` rebuild: Tauri 2.x generates `MeedyaDL.app.tar.gz` (no arch suffix), not `MeedyaDL_aarch64.app.tar.gz`. Also fixed in standalone `fix-updater-manifest.yml`. `darwin-aarch64` platform now included in updater manifest.
-- ✅ **cargo-deny org-level source allowlist** (#365) - `deny.toml` uses `[sources.allow-org] github = ["MWBMPartners", "MeedyaDL"]` to allow git dependencies from both GitHub orgs without per-repo URL entries.
+- ✅ **cargo-deny org-level source allowlist** (#365) - `deny.toml` uses `[sources.allow-org] github = ["MWBMPartners", "MeedyaSuite"]` to allow git dependencies from both GitHub orgs without per-repo URL entries.
 - ✅ **Activity log formatting fix** (#374) - Restored `font-mono text-xs leading-relaxed` on virtualized rows after absolute positioning broke CSS inheritance.
 - ✅ **Clipboard direct queue** (#376) - Clicking "Download" on the clipboard toast adds directly to queue via `startDownload()` instead of navigating to Download page.
 - ✅ **Native OS notifications for clipboard** (#377) - `@tauri-apps/plugin-notification` sends native notifications when the window is not focused. Gated by `desktop_notifications` setting.
