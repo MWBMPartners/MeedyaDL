@@ -55,7 +55,7 @@ MeedyaDL lets you pick a resolution from the list below. This is not a preferenc
 | 1440p      | 2K       | High quality with smaller footprint than 4K   |
 | 1080p      | Full HD  | Recommended for most users; best balance      |
 | 720p       | HD       | Good quality at moderate file sizes           |
-| 576p       | --       | Standard PAL resolution                       |
+| 540p       | --       | A step below standard HD                      |
 | 480p       | SD       | Standard definition; small file sizes         |
 | 360p       | --       | Low quality; minimal storage usage            |
 | 240p       | --       | Lowest available quality                      |
@@ -141,7 +141,7 @@ Here are some recommendations for getting the best video download experience:
 
 ## Music Video Companions
 
-MeedyaDL can automatically download music videos as companions when downloading audio tracks. When you download an album or song, the app queries the Apple Music API to check whether a music video exists for each track. If one is found, it is downloaded alongside your audio files using your configured video quality settings (resolution, codec priority, remux format).
+MeedyaDL can automatically download music videos as companions when downloading audio tracks. When you download an album or song, the app queries the Apple Music API to check whether a music video exists for each track. If one is found, it is downloaded alongside your audio files using your configured video quality settings -- resolution and remux format from **Settings > Codec & Resolution > Video Quality**, codec order from **Settings > Codec Fallback Order > Video Fallback**.
 
 ### Requirements
 
@@ -162,7 +162,7 @@ MeedyaDL can automatically download music videos as companions when downloading 
 - Desktop notifications for "download complete" are deferred until all companion downloads and enrichment stages finish.
 - If a track does not have a music video on Apple Music, it is silently skipped.
 - Duplicate music videos (e.g., the same video linked from multiple tracks) are automatically deduplicated.
-- The video quality settings in **Settings > Codec & Resolution > Video Quality** (resolution, codec priority, remux format) apply to companion music videos.
+- Your video quality settings apply to companion music videos too -- resolution and remux format from **Settings > Codec & Resolution > Video Quality**, codec order from **Settings > Codec Fallback Order > Video Fallback**.
 
 ---
 

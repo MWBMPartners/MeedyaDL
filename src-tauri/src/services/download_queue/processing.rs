@@ -618,14 +618,29 @@ pub fn process_queue(
                     log::info!(
                         "Download {download_id} using native codec priority: {priority_str}"
                     );
-                    emit_download_log(
-                        &app,
-                        &download_id,
-                        &format!(
+                    // What GAMDL is actually SENT here never changes: it always
+                    // gets a value for `--song-codec-priority`, music video
+                    // included, because the tool wants the audio arguments
+                    // regardless of what's being downloaded. Only what we TELL
+                    // the person watching should change. For a music video,
+                    // this audio codec chain has nothing to do with whether the
+                    // video steps down -- that's `video_codec_fallback_chain`'s
+                    // job, walked entirely inside GAMDL's own single run (see
+                    // `AppSettings::video_codec_priority_cli`). Naming "alac"
+                    // or "atmos" while a video downloads would just be wrong,
+                    // so say what's actually controlling this download instead.
+                    let priority_log_line = if super::helpers::urls_are_all_music_videos(&urls) {
+                        format!(
+                            "Using GAMDL video codec priority: {}",
+                            settings_for_priority.video_codec_priority_cli().replace(',', " → ")
+                        )
+                    } else {
+                        format!(
                             "Using GAMDL native format priority: {}",
                             priority_str.replace(',', " → ")
-                        ),
-                    );
+                        )
+                    };
+                    emit_download_log(&app, &download_id, &priority_log_line);
                     options.song_codec_priority = Some(priority_str);
                     true
                 } else {
@@ -4408,20 +4423,63 @@ pub fn process_queue(
                             // AttributeError on None stream_info, DRM issues, or
                             // partial chain traversal). Per-codec retries via
                             // --song-codec are more reliable as a fallback path.
+                            //
+                            // Loaded here (rather than just below, where it used
+                            // to be) so the log line right after can name the
+                            // actual video codec chain when this is a music
+                            // video -- reading settings doesn't touch the queue
+                            // lock, so moving it earlier changes nothing else.
+                            let settings = load_settings_for_queue(&app_clone);
+
                             if uses_native_priority {
+                                // Same reasoning as the "Using GAMDL native
+                                // format priority" log at the start of the
+                                // download (see the big comment there): what
+                                // GAMDL was actually SENT doesn't depend on
+                                // whether this is a song or a music video --
+                                // it always gets the audio codec priority
+                                // flag. But `try_fallback()` right below this
+                                // block ONLY ever retries the AUDIO chain, and
+                                // now explicitly refuses to run at all for a
+                                // music video (see its own comment) -- so for
+                                // a video there is no "trying each format
+                                // individually" about to happen. Say what is
+                                // actually true instead: GAMDL already walked
+                                // this video's own codec order, by itself, in
+                                // the single run that just failed.
+                                let is_music_video = {
+                                    let q = queue_clone.lock().await;
+                                    q.items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .is_some_and(|i| {
+                                            super::helpers::urls_are_all_music_videos(
+                                                &i.status.urls,
+                                            )
+                                        })
+                                };
                                 log::warn!(
                                     "Download {dl_id} codec error despite native \
                                  priority — trying per-codec fallback as \
                                  safety net"
                                 );
-                                emit_download_log(
-                                &app_clone,
-                                &dl_id,
-                                "GAMDL native priority failed — trying each format individually",
-                            );
+                                let failure_log_line = if is_music_video {
+                                    format!(
+                                        "This music video was not available in any \
+                                         of the codecs in your video codec order \
+                                         ({}) — GAMDL already tried all of them in \
+                                         the one run it made",
+                                        settings
+                                            .video_codec_priority_cli()
+                                            .replace(',', " → ")
+                                    )
+                                } else {
+                                    "GAMDL native priority failed — trying each \
+                                     format individually"
+                                        .to_string()
+                                };
+                                emit_download_log(&app_clone, &dl_id, &failure_log_line);
                             }
-
-                            let settings = load_settings_for_queue(&app_clone);
                             let mut q = queue_clone.lock().await;
                             q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();

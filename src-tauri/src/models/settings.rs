@@ -693,8 +693,27 @@ pub struct PerServiceSettings {
 // choices, cookies path, all of it — would look "lost" to the person,
 // just because this one field changed shape. So the conversion from the
 // old text to the new list has to happen in this field's own reader
-// (`deserialize_video_codec_chain`, below), which can accept either
-// shape and therefore never fails the parse at all.
+// (`deserialize_video_codec_chain`, below).
+//
+// What that reader can and cannot save you from, precisely:
+//
+// - The old text (`"h265,h264"`) and the new list (`["h265", "h264"]`)
+//   both read correctly. So does a list that mixes in entries that
+//   aren't usable codec names — `[null]`, `[1]`, `["h265", 1]` — those
+//   entries are read and then quietly dropped rather than failing the
+//   file (see `VideoCodecChainWire::List` and `clean_video_codec_chain`
+//   below for exactly how).
+// - What it CANNOT save you from: a settings file with BOTH keys present
+//   at once — the old name (`default_video_codec_priority`) AND the new
+//   one (`video_codec_fallback_chain`) in the same JSON object. `alias`
+//   makes serde accept either NAME for this one field, but a value can
+//   still only be assigned to the field once; two keys that both resolve
+//   to it is a "duplicate field" error from serde itself, before this
+//   function is ever called, and that fails the whole file the same way
+//   any other malformed JSON would. There's no fix for that available at
+//   this level — a per-field reader only ever sees the value serde
+//   already decided to hand it, never the fact that a second key existed
+//   and lost the race.
 
 /// Default video codec chain: H.265 first (better quality, and the only
 /// codec that unlocks resolutions above 1080p), then H.264 (plays on
@@ -711,8 +730,17 @@ fn default_video_codec_chain() -> Vec<VideoCodec> {
 enum VideoCodecChainWire {
     /// The old shape: one comma-separated string, e.g. `"h265,h264"`.
     Text(String),
-    /// The new shape: a proper JSON list, e.g. `["h265", "h264"]`.
-    List(Vec<String>),
+    /// The new shape: a JSON list. Each entry is read as whatever JSON
+    /// value it actually is — `serde_json::Value`, not `String` — rather
+    /// than requiring every entry to already be a string. A settings
+    /// file someone hand-edited (or a future MeedyaDL version we don't
+    /// know about yet) could easily put `null`, a bare number, or
+    /// anything else in one slot of the list; requiring `Vec<String>`
+    /// here would mean a SINGLE bad entry fails this whole field, which
+    /// fails the whole file. Reading each entry as `Value` first and
+    /// sorting out which ones are usable happens next, in
+    /// `deserialize_video_codec_chain` below.
+    List(Vec<serde_json::Value>),
 }
 
 /// `deserialize_with` for [`AppSettings::video_codec_fallback_chain`].
@@ -720,6 +748,14 @@ enum VideoCodecChainWire {
 /// text into a list by splitting on commas, then hands the raw names —
 /// from either shape — to [`clean_video_codec_chain`] to become real
 /// [`VideoCodec`] values.
+///
+/// For the list shape, an entry that isn't a JSON string (`null`, a
+/// number, a nested object, ...) is dropped right here, before it even
+/// reaches `clean_video_codec_chain` — there's no "raw codec name" to
+/// pass on for something that was never text in the first place. This is
+/// the same "keep what's usable, drop what isn't, never fail the whole
+/// file over one bad entry" approach `clean_video_codec_chain` already
+/// takes for a string that doesn't name a real codec.
 fn deserialize_video_codec_chain<'de, D>(deserializer: D) -> Result<Vec<VideoCodec>, D::Error>
 where
     D: Deserializer<'de>,
@@ -729,7 +765,13 @@ where
         VideoCodecChainWire::Text(text) => {
             text.split(',').map(|part| part.trim().to_string()).collect()
         }
-        VideoCodecChainWire::List(list) => list,
+        VideoCodecChainWire::List(list) => list
+            .into_iter()
+            .filter_map(|value| match value {
+                serde_json::Value::String(s) => Some(s),
+                _ => None,
+            })
+            .collect(),
     };
     Ok(clean_video_codec_chain(&raw))
 }
@@ -2535,6 +2577,51 @@ mod tests {
         let json = r#"{"video_codec_fallback_chain": ["h264"]}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H264]);
+    }
+
+    /// A list entry that is `null` isn't text at all, so there's no name
+    /// to look up — it's dropped, not treated as an error. With nothing
+    /// else in the list, nothing survives, so this must fall back to the
+    /// default chain rather than failing the whole settings file.
+    #[test]
+    fn video_codec_chain_drops_a_null_entry() {
+        let json = r#"{"video_codec_fallback_chain": [null]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// Same as the `null` case, but for a bare number. A hand-edited (or
+    /// hand-typed) settings file could easily have a stray `1` where a
+    /// codec name was meant to be quoted — it must still load, with that
+    /// one entry dropped rather than the whole file rejected.
+    #[test]
+    fn video_codec_chain_drops_a_number_entry() {
+        let json = r#"{"video_codec_fallback_chain": [1]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// A list that mixes one real codec name with one non-string entry
+    /// keeps the real one and drops only the entry that isn't text —
+    /// this is the case that most directly proves "one bad entry doesn't
+    /// cost you the good ones", the same guarantee `clean_video_codec_chain`
+    /// already gives for a string that just isn't a recognised codec name.
+    #[test]
+    fn video_codec_chain_keeps_the_real_entry_and_drops_the_number() {
+        let json = r#"{"video_codec_fallback_chain": ["h265", 1]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H265]);
+    }
+
+    /// A list entry that IS a string, but not a real codec name (GAMDL's
+    /// own `"ask"`, never valid here), goes through the same path as
+    /// every other unrecognised-string case: dropped by
+    /// `clean_video_codec_chain`, not by the JSON-shape check above it.
+    #[test]
+    fn video_codec_chain_keeps_the_real_entry_and_drops_ask() {
+        let json = r#"{"video_codec_fallback_chain": ["h265", "ask"]}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H265]);
     }
 
     /// A settings file saved by a PRE-this-change build of MeedyaDL still

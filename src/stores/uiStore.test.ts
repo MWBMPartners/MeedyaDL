@@ -17,7 +17,20 @@
 
 import { useUiStore, __resetToastWorkerForTests } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import * as commands from '@/lib/tauri-commands';
 import * as notificationPlugin from '@tauri-apps/plugin-notification';
+
+/**
+ * `toggleSidebar` asks the settings store to save the new collapsed state
+ * to disk (see the comment on `toggleSidebar` in uiStore.ts). That save
+ * goes through `commands.saveSettings`, which is the real Tauri IPC call --
+ * mock it the same way settingsStore.test.ts does, so these tests run
+ * without a Rust backend.
+ */
+vi.mock('@/lib/tauri-commands', () => ({
+  getSettings: vi.fn(),
+  saveSettings: vi.fn(),
+}));
 
 /**
  * Mock the Tauri notification plugin (#993).
@@ -62,7 +75,12 @@ beforeEach(() => {
   // tests aren't affected by a prior test's `useSettingsStore.setState()`.
   useSettingsStore.setState((state) => ({
     settings: { ...state.settings, notification_style: 'native_and_in_app' },
+    isDirty: false,
   }));
+  // Clear the saveSettings spy's call history between tests, and give it a
+  // resolved-by-default implementation so a toggleSidebar() call in a test
+  // that isn't checking the save outcome doesn't leave an unhandled rejection.
+  vi.mocked(commands.saveSettings).mockReset().mockResolvedValue(undefined);
 });
 
 describe('uiStore', () => {
@@ -126,6 +144,36 @@ describe('uiStore', () => {
       useUiStore.getState().toggleSidebar();
       useUiStore.getState().toggleSidebar();
       expect(useUiStore.getState().sidebarCollapsed).toBe(false);
+    });
+
+    /**
+     * Collapsing the sidebar used to not survive a restart: the choice was
+     * only ever written into the in-memory settings copy, never saved to
+     * disk, so it sprang back open on the next launch. This proves the
+     * fix -- toggling actually reaches `commands.saveSettings`, i.e. the
+     * real disk-write IPC call, carrying the new collapsed state.
+     *
+     * `debouncedSave()` waits 300ms before writing, in case more toggles
+     * are coming, so the timer has to be advanced past that window before
+     * the save can have happened.
+     */
+    it('persists the new collapsed state to disk after toggling', async () => {
+      vi.useFakeTimers();
+
+      useUiStore.getState().toggleSidebar();
+      expect(commands.saveSettings).not.toHaveBeenCalled(); // not yet -- still debouncing
+
+      await vi.advanceTimersByTimeAsync(350);
+
+      expect(commands.saveSettings).toHaveBeenCalledTimes(1);
+      expect(commands.saveSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ sidebar_collapsed: true })
+      );
+      // A completed save leaves nothing "unsaved" -- the Settings page's
+      // own Save button should not light up because of this toggle.
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+
+      vi.useRealTimers();
     });
   });
 

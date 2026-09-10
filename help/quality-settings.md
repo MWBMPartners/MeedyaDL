@@ -266,7 +266,7 @@ MeedyaDL supports the following video resolutions, listed from highest to lowest
 - **1440p (2K QHD)** -- Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
 - **1080p (Full HD)** -- The recommended resolution for most users (1920x1080). Excellent quality on screens up to approximately 27 inches. The best balance between visual quality and file size
 - **720p (HD)** -- Standard HD resolution (1280x720). Good quality on smaller screens such as tablets and phones. Significantly smaller files than 1080p
-- **576p (PAL SD)** -- Standard definition at the PAL broadcast standard (720x576). Suitable for content originally produced in PAL regions
+- **540p (qHD)** -- A step below standard HD (960x540). A middle ground between 720p and 480p when you want smaller files without dropping all the way to standard definition
 - **480p (NTSC SD)** -- Standard definition at the NTSC broadcast standard (720x480). Suitable for content originally produced in NTSC regions
 - **360p** -- Low resolution. Very small file sizes. Suitable only for previewing content or extremely limited storage situations
 - **240p** -- Minimum resolution. Smallest possible file sizes. Suitable only for thumbnail previews or extremely constrained bandwidth/storage
