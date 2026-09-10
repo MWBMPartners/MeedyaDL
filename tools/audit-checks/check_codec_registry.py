@@ -203,6 +203,51 @@ def check() -> int:
 
     findings = 0
 
+    # 0) Can this script actually read what it's about to check against?
+    #
+    # `collect_enum_cli_values()` comes back empty in two situations that
+    # both mean the same thing: it could not read the enum, not that the
+    # enum has nothing in it. SongCodec and VideoCodec always have several
+    # variants, so an empty result means either the enum's `pub enum Name {`
+    # line couldn't be found at all, or its `#[serde(rename_all = "...")]`
+    # attribute isn't sitting directly above it any more -- for example
+    # because someone inserted another attribute (`#[allow(...)]`, a second
+    # derive, a doc comment) in between, which is exactly the kind of small,
+    # well-meaning edit nobody would expect to break an unrelated Python
+    # script.
+    #
+    # The old code treated that silence as "nothing to check" and skipped
+    # checks 2/3 below without a word -- so a real typo in codecs.toml's
+    # `gamdl` value (say, a misspelt codec name) would sail through with
+    # this script still printing "OK". An audit that goes quiet exactly
+    # when it stops being able to see is worse than no audit: it looks
+    # green while checking nothing. So this is reported as a finding of
+    # its own, and checks 2/3 are skipped only because there is nothing
+    # correct to compare against -- not silently, and not while still
+    # claiming a clean pass.
+    if not song_cli:
+        print("### Could not read SongCodec's CLI values from gamdl_options.rs\n")
+        print(
+            f"  • {GAMDL_OPTIONS_RS.relative_to(REPO_ROOT).as_posix()} — SongCodec's "
+            f"#[serde(rename_all = ...)] attribute and variant list could not be "
+            f"parsed (it may no longer sit directly above `pub enum SongCodec {{`). "
+            f"Audio codec gamdl flags in codecs.toml were NOT checked against it -- "
+            f"this is a failure to check, not a clean result."
+        )
+        print()
+        findings += 1
+    if not video_cli:
+        print("### Could not read VideoCodec's CLI values from gamdl_options.rs\n")
+        print(
+            f"  • {GAMDL_OPTIONS_RS.relative_to(REPO_ROOT).as_posix()} — VideoCodec's "
+            f"#[serde(rename_all = ...)] attribute and variant list could not be "
+            f"parsed (it may no longer sit directly above `pub enum VideoCodec {{`). "
+            f"Video codec gamdl flags in codecs.toml were NOT checked against it -- "
+            f"this is a failure to check, not a clean result."
+        )
+        print()
+        findings += 1
+
     # 1) Meta resolution integrity.
     dangling = [(ln, svc, tgt) for (ln, svc, tgt) in resolves if tgt not in concrete_ids]
     if dangling:
