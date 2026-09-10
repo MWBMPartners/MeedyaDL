@@ -105,9 +105,55 @@ which the script caught on first run) is a hard fail.
 
 Run all three checks locally via `npm run check:legal`.
 
+## Two files disagreed, and the wrong one was the summary people read (found + fixed 2026-09)
+
+A September 2026 sweep found that **`ACKNOWLEDGEMENTS.md` declared
+mp4decrypt / Bento4 as MIT**. It is not — Bento4 is **GPL-2.0 with a
+linking exception**, genuinely copyleft, and mp4decrypt is one of the
+tools the offline installer bundles onto a user's machine. This repo's own
+`THIRD_PARTY_LICENSES.md` already had the licence right. So two files in
+the same repository disagreed with each other about the licence of the
+same component, and the one most people would actually read first —
+`ACKNOWLEDGEMENTS.md`, the short summary table — was the one that was
+wrong. Fixed: `ACKNOWLEDGEMENTS.md` now states GPL-2.0-with-linking-
+exception and points at `THIRD_PARTY_LICENSES.md#mp4decrypt--bento4` for
+the full text.
+
+The same sweep found a second, related problem: the project's documentation
+used to describe shipping **"LGPL-only builds of FFmpeg"**. That claim was
+never actually supportable. The FFmpeg builds this project's own downloader
+fetches for Linux and Windows are pulled from the BtbN/FFmpeg-Builds
+project's `-gpl` release assets — the file names say so directly
+(`ffmpeg-master-latest-linux64-gpl.tar.xz`,
+`ffmpeg-master-latest-win64-gpl.zip`; see `get_ffmpeg_url()` in
+`src-tauri/src/services/dependency_manager.rs`) — and nothing in this
+project builds FFmpeg itself or checks which compile flags a given build
+used, so there was never an "LGPL-only" build in this pipeline for that
+claim to point to. `THIRD_PARTY_LICENSES.md` now says plainly: treat every
+copy MeedyaDL provides, including the one bundled into the offline
+installer, as GPL — not LGPL-only — and offers the FFmpeg path setting as
+the way for a user who specifically wants an LGPL-only build to substitute
+their own.
+
+Third: the three-year **written offer for source** this file describes
+above used to point a reader at "the exact version shipped" without the
+release workflow ever actually recording what that version was — the
+promise referenced a version record that did not exist. `release.yml`'s
+offline-bundle step now writes the real, actually-downloaded version of
+each bundled tool into `manifest.json` as it goes (`TOOL_VERSIONS_TSV` in
+the "Pre-bundle engines" step), and the generated `OFFER_FOR_SOURCE.txt`
+reads the real versions back out of that manifest instead of naming the
+tool with no version at all. All three of these were found and fixed in
+the same session; if you are reading an older description of this bundle
+elsewhere in the repo that still says MIT for Bento4 or "LGPL-only
+FFmpeg", that text is the thing that's now stale, not this file.
+
 ## Related
 
 - Tracked in #802 (bundling) + #806 (per-PR enforcement).
+- [[project-never-worked-pattern]], [[project-comment-accuracy-hazard]] — the
+  general pattern this "two files disagreed, the wrong one got read" defect
+  belongs to.
 - Audit reference: `ACKNOWLEDGEMENTS.md` (component table),
   `THIRD_PARTY_LICENSES.md` (verbatim notices + source offers),
   `src/components/help/HelpViewer.tsx` (in-app About → Open Source

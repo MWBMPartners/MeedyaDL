@@ -1,15 +1,135 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-08 (second session — see ★★★★ below)
-**Working branch:** `work/alpha-resilience-and-docs`, rooted on `alpha` at `v1.13.0-alpha.61`. Everything goes to `alpha` in one pull request; no PR stacking. **Session-end state 2026-09-02:** the #1120 MusicBrainz commit is **committed locally on `alpha` and NOT pushed** because the Rust CI gate (`cargo clippy -D warnings` / `cargo test`) never finished — see §★★★ LATEST "Resume checklist" before touching anything. **Channel versions:** `main` **1.10.3** · `alpha` **1.13.0-alpha.56** (next push cuts alpha.57) · `beta` **1.9.4-beta.3** · `release-candidate` **1.0.0-rc.35**.
+**Last updated:** 2026-09-10 — see ★★★★ below
+**Working branch:** none. Everything is **merged into `alpha`**. PR #1174 was rebase-merged on 2026-09-10, so all 87 commits landed individually and each kept its own `Release-Note:` trailer. `work/alpha-resilience-and-docs` is finished with; do not push to it again.
 
-**Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was **merged into `alpha`** (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — that was the last big single-PR-to-`alpha` feature drop (multi-PM tool detection + Phase 2a/2b, see §★★ below). It forked from `feat/alpha-consolidated` (30 commits on top of `alpha` @ `243e8a2a`, 1.12.0-alpha.42).
+**Channel versions at that merge:** `main` **1.10.7** · `alpha` **1.13.0-alpha.63** · `beta` **1.9.4-beta.5** · `release-candidate` **1.0.0-rc.37**.
 
-Read top-to-bottom before continuing. **This is the single canonical handoff.** Two stale dated duplicates (`.claude/memory/` + `.OpenAI/memory/project_session_handoff_2026_07_26.md`, alpha.38 era, byte-identical) were **removed in this push** to avoid confusion. Supersedes the earlier 2026-07-10 handoff.
+**Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was merged into `alpha` (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — the last big single-PR-to-`alpha` drop before this one.
+
+Read top-to-bottom before continuing. **This is the single canonical handoff.** Do not create a second one under `.claude/` — see `project_session_handoff_pointer` for why.
 
 ---
 
-## ★★★★ LATEST — Session 2026-09-08 (later): three finished features had never worked once
+## ★★★★ LATEST — Session 2026-09-09/10: the queue finished, then five whole-codebase sweeps → **MERGED to alpha (#1174)**
+
+> **PICK UP HERE.** There is no working branch. Everything below is on `alpha`.
+
+### Where things stand
+
+PR #1174 rebase-merged into `alpha` on 2026-09-10 (87 commits, 460 files). The Alpha Release
+workflow then cut `v1.13.0-alpha.63`. All twelve pull-request checks were green before the
+merge, on macOS, Ubuntu and Windows.
+
+Rebase-merge was used deliberately, and it took a local rebase first: GitHub's own rebase-merge
+would have failed, because it drops merge commits and replays the rest, which re-hit a
+`package.json` conflict. Tested in a throwaway worktree before touching the PR. Worth
+remembering — a branch that has had its base merged into it cannot be rebase-merged on GitHub
+without doing the rebase locally first.
+
+That local rebase also **restored a security pin the earlier merge had quietly weakened**:
+`js-yaml` was pinned to `^4.3.2`, the merge took alpha's `^4.3.1`, and `^4.3.1` still permits
+4.3.1 — which is inside the advisory. The protection was only holding because npm happened to
+pick a newer one. Rebasing replayed the original commit, so it is a rule again rather than a
+coincidence.
+
+### Part one: the queued issues
+
+Closed: **#295** (song.link), **#1075** (in-app help built from `help/*.md`), **#111** first pass
+(translations), **#1165** + **#1166** (security fixes stopping at main; Linux updater manifest),
+**#1159** (cover-art picker). Raised: **#1173** (the Spotify cover-art source is written but
+unreachable).
+
+### Part two: five sweeps of the whole codebase
+
+Run sequentially with Fable for the analysis and Sonnet for the fixes, per the standing rule.
+Roughly **eighty findings, all fixed**, regardless of severity or age.
+
+| Sweep | Scope | Worst thing found |
+| --- | --- | --- |
+| Rust backend security | 142 files, ~111k lines | Cancelling a download could freeze the whole queue for good |
+| Frontend, config, CI, dependencies | ~120 files, 30 workflows | "Open Folder" has never worked, in any release |
+| Accessibility (WCAG 2.2 AA) | whole frontend + 6 themes | No visible keyboard focus anywhere; dialogs stole focus mid-typing |
+| Comment accuracy | every checkable claim | 17 comments stated things that were untrue |
+| Documentation + licensing | 31 docs, 21 help pages | mp4decrypt declared MIT when it is GPL, and it ships in the offline installer |
+
+### The pattern that keeps recurring — read this bit
+
+**Fourteen finished, reviewed, shipped features turned out never to have worked once.** Not
+broken by a regression; never functional, several for the life of the project. Each looked
+completely healthy — builds passed, checks were green, nothing logged an error.
+
+They fail the same three ways every time:
+
+1. **Switched off with no switch.** The setting exists, defaults to off, and no interface ever
+   exposes it. Four separate features (#1155, #295, #1159, and the crash-reporting toggle).
+2. **A value that is never supplied.** `option_env!` / `import.meta.env` reads that the release
+   workflow never passes. Three features (#1161–#1163).
+3. **A guard reading from a note instead of from reality.** A comment asserts something untrue,
+   a check is narrowed on the strength of it, and the check then spends years agreeing with the
+   note. This is how the Linux updater bug survived the entire life of the project.
+
+**None of them could be seen from inside the app.** Every one needed something outside compared
+against something inside — which is why the fixes ship with checks that do exactly that.
+
+### Nine cross-source checks now run on every pull request
+
+Five are new here. In `tools/audit-checks/`:
+`check_build_secrets` · `check_help_topics` · `check_i18n` · `check_comment_paths` ·
+`check_concurrency_claims` · `check_ipc_commands` · `check_codec_registry` · `check_user_agent` ·
+`check_tauri_version_sync`. Plus two frontend guards as tests: colour names used in components
+must exist, and every theme's text-on-fill pair must pass its contrast threshold.
+
+Each was proved by introducing the fault it exists to catch and confirming the finding survives
+the workflow's `grep -A100 '###'` pipe — the trap that silently discarded a check's output once
+before.
+
+### On testing, honestly
+
+Several tests written during this work proved nothing — they passed with the bug put back. Each
+was replaced, or the code restructured so the compiler refuses the bug outright (the song.link
+limiter is the example: putting the race back now fails to compile). **Where a test is
+load-bearing here, the fault was put back and the test confirmed to go red.** Three commit
+messages call out that the first attempt was wrong.
+
+### Codex review
+
+Reviewed per-commit and then over the whole batch. It found **five real defects introduced by
+this work**: a race in the song.link limiter; help search not covering translated pages; three
+ways the new "already fixed" shortcut could skip a security fix a branch still needed; two ways
+the new enrichment steps could destroy data already on disk; and a log summary that went silent
+once the log filled. All fixed, all re-reviewed clean.
+
+A per-commit review with `--base HEAD~1` **misses the commit it is based on**. Four commits were
+only ever a review base and never actually read, which is why the whole-batch review at the end
+found two more. Review the range, not the tip.
+
+### Outstanding — needs a person
+
+1. **GitHub Secrets** for `SENTRY_DSN` / `VITE_SENTRY_DSN`, `INTAPPS_*` and `DEV_ACCESS_HASH`.
+   Wiring is done and verified by `check_build_secrets`; those three features stay inert until
+   the secrets exist. An absent secret resolves to an empty string, so creating them is safe at
+   any time and switches the feature on by itself.
+2. **One real `bundle_engines=true` run.** The offline installer now records each tool's version
+   so the three-year written source offer points at something real. Verified by simulation only.
+3. **The same error-text leak may exist in MeedyaSuite-core** — the shared fingerprinting crate
+   formats a web error with `{e}`, and that text ends with the address, which carries the key.
+   Cannot be fixed from this repository.
+4. **Whether Odesli will grant a song.link key.** Free public access closed in 2026 (verified
+   live: `401 PUBLIC_API_ACCESS_DEPRECATED`). Without a key the feature is honest but inert.
+5. **Port the Linux updater fix to `main`, `release-candidate` and `beta`.** `release.yml` is
+   per-branch. Separate sequential PRs, per the no-stacking rule.
+
+### Two follow-ups raised, not done
+
+- **#1173** — the Spotify cover-art source is fully written but the one call site never passes it
+  a URL, so it can never run. Thread it through or remove it.
+- Help pages still have no working `#anchor` links; the renderer gives headings no ids. Needs a
+  new dependency, so it is its own change.
+
+---
+
+## ★★★ Session 2026-09-08 (later): three finished features had never worked once
 
 > **PICK UP HERE.** Still one work branch: `work/alpha-resilience-and-docs`, rooted on
 > `alpha` at `v1.13.0-alpha.61`. Everything below is committed and pushed to it. The
