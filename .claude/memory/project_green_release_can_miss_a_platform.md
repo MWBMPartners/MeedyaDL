@@ -46,18 +46,27 @@ signature.
    assembled before the retry, so the files exist and the updater still cannot
    see them. Re-run the run's own **`Finalize Release Notes`** job, which
    rebuilds the manifest from whatever assets are actually on the release.
-3. **Do not reach for `fix-updater-manifest.yml`** for this. That standalone
-   repair tool has no ARMv7 handling at all, so it silently produces a manifest
-   missing the platform most likely to need repairing — see **#1178**. It only
-   works for the platforms it happens to know about.
+3. **`fix-updater-manifest.yml` is safe to reach for again — but only since
+   #1178 was fixed.** Before that it was not merely incomplete, it was
+   destructive. It built a fresh manifest from nothing and uploaded it over the
+   published one, so pointing it at a *healthy* release deleted every Linux
+   `.deb`/`.rpm` update path — all six, not just ARMv7 — and then reported
+   "looks complete (6/6)", because its own check was written from the same
+   six-name list as its builder and so was blind to what it had just removed.
+   Both workflows now call one shared script, and a rebuild seeds from what is
+   already published, so it can add or refresh a key but never remove one.
 
 ## Why this keeps happening in this shape
 
-Two separate copies of the same platform list exist, one in `release.yml` and
-one in `fix-updater-manifest.yml`. One was updated for ARMv7; the other was not;
-nothing compares them. That is the same failure as [[project-never-worked-pattern]]
-— two sources that must agree, with nothing that would ever notice they had
-stopped agreeing.
+There used to be two separate copies of the same platform list, one in
+`release.yml` and one in `fix-updater-manifest.yml`. #1166 added the six Linux
+package keys to the first and never opened the second; nothing compared them.
+That is the same failure as [[project-never-worked-pattern]] — two sources that
+must agree, with nothing that would ever notice they had stopped agreeing.
+
+There is now one list, in `manifest_rows()` in
+`scripts/release/updater-manifest.sh`, and `check_updater_manifest_keys.py`
+reports any platform key written into a workflow by hand.
 
 Related: [[project-release-pipeline-gotchas]], [[project-never-worked-pattern]],
 [[project-comment-accuracy-hazard]].

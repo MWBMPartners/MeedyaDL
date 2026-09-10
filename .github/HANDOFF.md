@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-09-10 (later) — see ★★★★ below
-**Working branch:** none. Everything below is on `alpha`. PR #1177 was rebase-merged and its branch deleted; the branch before that (`work/alpha-resilience-and-docs`) went in as PR #1174.
+**Working branch:** `work/manifest-parity-and-sidebar`, rooted on `alpha`. Before it, PR #1177 was rebase-merged (and its branch deleted), and before that PR #1174.
 
 **Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.65** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
 
@@ -11,7 +11,109 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — Session 2026-09-10 (later): music videos step down through codecs (#1176)
+## ★★★★ LATEST — Session 2026-09-10 (evening): the repair tool that broke things, and the sidebar (#1178, #1175)
+
+> **PICK UP HERE.** Branch `work/manifest-parity-and-sidebar`, five commits, rooted on `alpha`.
+> Two fixes, one pull request, no stacking.
+
+### #1178 — the tool for repairing a broken release would have broken a healthy one
+
+The issue as first written understates this badly, and the correction is the point.
+
+`latest.json` is what the in-app updater reads. Two workflows built it. The everyday one wrote
+twelve platform entries; the standalone repair tool wrote six. The six missing were **every Linux
+package format** — the `.deb` and `.rpm` for 64-bit, ARM64 and ARMv7 — not just ARMv7 as the issue
+says.
+
+That alone would be a gap. What made it dangerous is that the repair tool did not add to the
+published file. It started from nothing, built a fresh one, and uploaded it with `--clobber`. So
+pointing it at a **healthy** release deleted six working update paths.
+
+And it said so cheerfully. Its own check looked for exactly the six entries it knew how to write,
+found all six, and printed "looks complete (6/6 platform keys)". The check was written from the
+same list as the builder it was checking, so it could not see what it had just destroyed.
+
+For a 64-bit Linux user on the `.deb`, the result is worse than no update: the AppImage entry
+survives as a fallback, so the app offers the update, downloads about 100 MB, the signature
+verifies — and `dpkg` then refuses it, because AppImage bytes are not a `.deb`. Every time. On ARM
+there is no fallback entry at all, so it simply fails.
+
+That is #1166 restored key-for-key, inside the one tool somebody reaches for when a release is
+already half broken and they are in a hurry.
+
+**The drift was one commit wide.** #1166 added the six Linux entries the day before and never
+opened the other file. The two had been kept in step before.
+
+The fix is not "add six blocks":
+- **One list**, in `manifest_rows()` in `scripts/release/updater-manifest.sh`. The rebuild, the
+  guard and the check all read it. Adding a platform is adding a row.
+- **A rebuild seeds from what is already published** for that same version, so it can add or
+  refresh an entry but never remove one. That is what defuses the trap.
+- **The check works out what to expect from the signatures the release actually published**, so it
+  cannot be blind to a platform nobody thought of, and does not cry wolf when an experimental ARM
+  build did not run.
+- **`check_updater_manifest_keys.py`** (the eleventh) reports any platform key hand-written into a
+  workflow, *including correct ones* — a re-added list of the right names is exactly how this
+  happened — and shouts if it cannot read the canonical list rather than passing quietly.
+
+### #1175 — the sidebar, and why two previous fixes were backed out
+
+Collapsing the sidebar was forgotten on restart. Two attempts had been backed out because the only
+save available wrote the **whole** settings file from memory, and the Settings screen is
+explicit-save — so collapsing the sidebar could commit a half-typed field or an uncommitted Reset.
+
+The fix is a save that cannot carry anything else: one boolean in, read the file, change that one
+field, write it back. `update_settings_field` has **no parameter a whole settings object could
+arrive through**.
+
+**The real guard is a deletion.** The whole-file automatic save the second attempt used is gone
+from the settings store. Putting that attempt back is now a TypeScript error the build refuses,
+not a test somebody can quietly adjust. Verified by doing it, not assumed — as was the first
+attempt turning three tests red.
+
+### What review caught that the work itself did not
+
+Two rounds of Codex found two real bugs. Both are worth knowing.
+
+**A read broke the write's promise.** The one-field write read through `load_settings`, which is
+not a plain read — on a full release it also switches verbose logging off, records the version,
+and rewrites GAMDL's config file. So a person with verbose logging on had it switched off *and
+saved* by collapsing the sidebar. The write was flawless; the read was the problem. New memory
+note: [[project-a-read-can-break-a-writes-promise]]. **When you make an operation narrow, the read
+is part of the operation.**
+
+**A one-time action could repeat.** The old code refreshed the in-memory copy whether or not the
+save worked. Routing through the narrow write made that conditional on success — so a full disk
+meant "shut down when finished" would fire again next time, and again. The old comment warned
+"Shut down firing forever"; the change quietly undid the protection it described.
+
+### Two process notes, both mistakes of mine
+
+- **I committed on a failing test.** I piped `cargo test` into `grep`, which masked its exit code,
+  so the `&&` chain did not stop. The failure turned out to be a genuinely full disk (`cargo
+  clean` reclaimed **59.8 GB**), and the failing test was correctly reporting that the temp folder
+  was not writable. The test was right; the machine was wrong; I should have looked before
+  committing. **Do not pipe a check into `grep` and then rely on `&&`.**
+- **Fable 5 was unavailable** (monthly spend limit) so the deep analysis and planning ran on Opus,
+  per the standing fallback rule. Try Fable again next time; this was not a permanent move.
+
+### Verification
+
+1,901 Rust tests, 733 frontend tests, clippy clean with warnings denied, type-check clean, eslint
+clean, all **eleven** audit checks clean under `--strict`, and the new check's own negative test
+passing all four cases — including the one that inserts the exact six-key loop this work deletes.
+Codex rounds 3 and 4 both found nothing.
+
+### Still to do
+
+1. Push, open the pull request to `alpha`, watch it, merge, then watch the release actions the way
+   [[project-green-release-can-miss-a-platform]] describes — **read the job list, not the tick.**
+2. First release after this merges: check `latest.json` by hand. Expect twelve entries, and the
+   verify step naming twelve rather than "6/6".
+
+---
+
+## ★★★ Previous — Session 2026-09-10 (later): music videos step down through codecs (#1176)
 
 > **PICK UP HERE.** This landed on `alpha` as **pull request #1177**, rebase-merged with the
 > maintainer's explicit go-ahead. Nine commits. Rebase-merge, not squash, because every commit

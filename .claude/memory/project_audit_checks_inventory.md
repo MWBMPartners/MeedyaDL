@@ -1,11 +1,11 @@
 ---
 name: project-audit-checks-inventory
-description: The ten cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
+description: The eleven cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
 metadata:
   type: project
 ---
 
-# The ten scripts in `tools/audit-checks/`
+# The eleven scripts in `tools/audit-checks/`
 
 Each script checks that one part of the codebase still agrees with another
 part — the kind of thing that no compiler catches, because both sides are
@@ -60,6 +60,14 @@ and are runnable locally with nothing beyond Python 3's standard library.
   control that saves correctly and changes nothing, because nothing
   downstream ever reads it — the shape the old video "resolution fallback"
   list turned out to be (#1176).
+- **`check_updater_manifest_keys.py`** — no platform key for the updater
+  manifest (`darwin-aarch64`, `linux-armv7-deb`, and the rest) is written by
+  hand into a workflow; they all come from `manifest_rows()` in
+  `scripts/release/updater-manifest.sh`. It reports **every** such key it finds,
+  not only unrecognised ones, because a re-added list of the *right* names is
+  exactly how the two builders drifted apart in the first place (#1178). If it
+  cannot read the canonical list it reports that as a finding rather than
+  passing quietly.
 - **`check_tauri_version_sync.py`** — the Tauri npm package and the Tauri
   Rust crate agree on major.minor version, reproducing the exact check the
   Tauri CLI itself runs (and refuses to build past if it fails).
