@@ -26,7 +26,8 @@
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
 #   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent,
 #                                                Tauri npm/Rust version sync, build-secret wiring, help docs,
-#                                                i18n translation catalogue)
+#                                                i18n translation catalogue, comment-mentioned file paths,
+#                                                parallel/concurrent claims in comments)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -460,6 +461,36 @@ jobs:
           I18N=$(python3 tools/audit-checks/check_i18n.py 2>&1 || true)
           if echo "$I18N" | grep -q '•'; then
             add_section "Translation catalogue drift (public/locales/*/translation.json vs. English vs. each other)" "$(echo "$I18N" | grep -A100 '###')"
+          fi
+          # A comment naming a specific file is a claim nothing checks --
+          # renaming or moving the real file never touches the comment
+          # that still points at the old name. A 2026-09 audit found
+          # eleven of these at once (a comment saying "Linux ARM never
+          # produces an updater signature" was the reason a check was
+          # told to ignore ARM, and ARM had been signing for months --
+          # see the "Linux ARM never had an in-app update path" note in
+          # CLAUDE.md for the cost of trusting a wrong comment like that).
+          # Whole-repo, because a stale reference can live in a comment
+          # this PR never touched.
+          COMMENT_PATHS=$(python3 tools/audit-checks/check_comment_paths.py 2>&1 || true)
+          if echo "$COMMENT_PATHS" | grep -q '•'; then
+            add_section "Comment names a file path that does not exist (likely renamed/moved)" "$(echo "$COMMENT_PATHS" | grep -A100 '###')"
+          fi
+          # A comment claiming two things run "in parallel" or
+          # "concurrently" is a claim about HOW the code runs, not just
+          # what it does -- and in Rust especially, building two futures
+          # and awaiting them one at a time is sequential no matter what
+          # a comment says, since a future does nothing until it's
+          # polled. This is a rough heuristic (see the script's own
+          # docstring) with a documented exceptions list for the cases
+          # where the claim is true but the real mechanism sits in a
+          # different function, a different file, or outside this
+          # repository's own process entirely (cargo test's own
+          # parallelism, GitHub Actions' own job scheduler). Whole-repo,
+          # for the same reason as the path check above.
+          CONCURRENCY_CLAIMS=$(python3 tools/audit-checks/check_concurrency_claims.py 2>&1 || true)
+          if echo "$CONCURRENCY_CLAIMS" | grep -q '•'; then
+            add_section "Comment claims parallel/concurrent execution with no join!/spawn/Promise.all nearby" "$(echo "$CONCURRENCY_CLAIMS" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

@@ -431,18 +431,26 @@ pub mod profile_bundle;
 /// Multi-service engine scaffolding (#884, cherry-picked from
 /// `prep/expanded-services-groundwork`).
 ///
-/// Stub service modules + a dispatch layer for the planned M8 / M9
-/// / M10 milestones. None of them activate any new behaviour today
-/// — every public function returns a typed "not yet implemented"
-/// error — but the module tree is in place so the actual engine
-/// implementation work has somewhere to land.
+/// A dispatch layer plus one service module per planned M8 / M9 / M10
+/// service. **These are no longer all stubs** — `spotify_service` is
+/// real, working code (see below); only `bbc_iplayer_service` and
+/// `youtube_service` still return a typed "not yet implemented" error
+/// from every public function, because M8 (BBC iPlayer) and M10
+/// (YouTube) haven't started yet. Keep this list honest as each
+/// service moves from stub to real — a stale "still a stub" note here
+/// is exactly the kind of comment that survives past the point it
+/// stopped being true.
 ///
-/// * `service_dispatch` — `ServiceOutputEvent` enum + the
-///   per-service gate (`is_service_implemented`,
-///   `is_service_remotely_enabled`).
-/// * `bbc_iplayer_service` — M8 stub (get_iplayer + yt-dlp fallback).
-/// * `spotify_service` — M9 stub (votify).
-/// * `youtube_service` — M10 stub (yt-dlp).
+/// * `service_dispatch` — `ServiceOutputEvent` enum + the routing
+///   tables (`build_service_command`, `parse_service_output`) that
+///   point each `MediaServiceId` at its own service module.
+/// * `bbc_iplayer_service` — M8 stub (get_iplayer + yt-dlp fallback). Not started.
+/// * `spotify_service` — M9 (votify). **Real**: installs/upgrades votify,
+///   probes its version, builds the download command, and is what the
+///   queue actually runs for Spotify items (hidden behind the dev-access
+///   preview flag until M9 ships to regular users — see the M9 bullet
+///   in `.claude/CLAUDE.md`).
+/// * `youtube_service` — M10 stub (yt-dlp). Not started.
 pub mod service_dispatch;
 pub mod bbc_iplayer_service;
 pub mod spotify_service;

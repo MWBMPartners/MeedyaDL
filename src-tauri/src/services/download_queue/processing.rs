@@ -65,7 +65,16 @@ pub fn process_queue(
                     "Checking internet connection, output folder, and account...",
                 );
 
-                // Run internet + wrapper checks concurrently (both are HTTP GETs).
+                // Build every preflight check as a future first, then await
+                // them one at a time further down ("Await the async checks").
+                // In Rust, a future does nothing until it is awaited — building
+                // them all up front does NOT make them run at the same time,
+                // it's just where they're built. They still run one after
+                // another. The reason to build them all here first, rather
+                // than inline with each `.await`, is so every "does this
+                // check even apply?" decision (wrapper v1 vs v2, cookies vs
+                // wrapper, output path resolution) sits together in one
+                // place instead of being interleaved with the awaiting.
                 // This is a once-per-batch, queue-wide check (not tied to a
                 // single item), and a batch can mix services — so unlike the
                 // per-download `check_internet_before_download` IPC command
@@ -3065,29 +3074,40 @@ pub fn process_queue(
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
 
-                            // --- Steps 4 + 6b lookup: AcoustID + MusicBrainz lookup (parallel) ---
+                            // --- Steps 4 + 5 + 6b lookup: AcoustID + ReplayGain + MusicBrainz lookup (all three together) ---
                             //
-                            // These two stages have independent I/O domains:
+                            // These three stages have independent I/O domains:
                             //   - AcoustID:    chromaprint fingerprint (CPU/I/O) →
                             //                  acoustid.org HTTP lookup → freeform-atom
                             //                  write via mp4ameta.
+                            //   - ReplayGain:  FFmpeg ebur128 loudness analysis (CPU/I/O) →
+                            //                  freeform-atom write via mp4ameta.
                             //   - MusicBrainz: musicbrainz.org HTTP lookup, rate-limited
                             //                  at 1.1 sec/req. No audio file writes.
                             //
-                            // Running them concurrently saves up to one stage's worth of
-                            // wall-clock time on heavy albums where both are enabled
-                            // (#779 Option 1). For the user-reported 19-track live
-                            // album, the dominant per-track cost was ReplayGain +
-                            // AcoustID running serially; this fix overlaps AcoustID with
-                            // the rate-limited MusicBrainz HTTP lookup so neither has to
-                            // wait for the other.
+                            // All three are started together via `tokio::join!` below
+                            // (see `acoustid_task` / `musicbrainz_lookup_task` /
+                            // `replaygain_task`), which saves up to two stages' worth of
+                            // wall-clock time on heavy albums where all are enabled
+                            // (#779). For the user-reported 19-track live album, the
+                            // dominant per-track cost was ReplayGain + AcoustID running
+                            // one after the other; this fix overlaps them so neither has
+                            // to wait for the other.
                             //
-                            // ReplayGain (Step 5, below) deliberately stays sequential
-                            // because it ALSO writes to the same M4A files via mp4ameta,
-                            // and concurrent `Tag::write_to_path` calls would race
-                            // (different atoms, but the underlying read-modify-write of
-                            // the tag set conflicts). Tracked separately as Option 2/3
-                            // in #779 if Option 1 isn't enough.
+                            // AcoustID and ReplayGain both rewrite the SAME M4A files, so
+                            // running them at the same time on their own would race —
+                            // two `Tag::write_to_path` calls on one file can corrupt each
+                            // other's changes even though they're setting different
+                            // atoms. What actually makes this safe is a per-file lock
+                            // (`enrich_file_locks`, built a little further down and
+                            // explained where it's used) that makes each file's
+                            // read-modify-write a single uninterrupted step. So only the
+                            // slow analysis work (fingerprinting, loudness measurement)
+                            // truly overlaps — the moment either stage needs to write a
+                            // given file, it waits its turn for that one file's lock.
+                            // Do not "restore" a sequential ordering here to avoid the
+                            // race — the lock is what prevents it, and removing the lock
+                            // instead of the concurrency would bring the race back.
                             //
                             // The MusicBrainz video DOWNLOADS (separate GAMDL processes
                             // per video) are kept after Step 6 (MV companion via Apple

@@ -26,6 +26,8 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | `check_build_secrets.py` | Every build-time value the app reads — `option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the frontend — is either passed through by `release.yml` or listed in the script as deliberately not needed. | A finished feature shipping completely inert because its value was never wired into the release build. The app treats "absent" as "not configured" and says nothing, so nothing fails and nobody notices — three features were in exactly that state, none ever having worked once (#1161, #1162, #1163). |
 | `check_help_topics.py` | Help docs: every `help/<id>.md` file has a line in `HELP_TOPIC_MANIFEST` (`helpTopics.ts`) and vice versa; every in-app deep link (`helpTopic="..."`, `navigateToHelp('...')`) and every help-page-to-help-page link points at a real page; no GitHub-only emoji shortcode (`:rocket:`) that would show as literal text in the app; every translated page has an English original. | The in-app Help and the help files used to be two hand-typed copies of the same words, kept in sync by hand — and #949 was the moment they disagreed somewhere a user could see it (the two copies named different "coming soon" versions). The hand-typed copy is gone, but a file and the app's list of pages are still two sources that have to agree. |
 | `check_i18n.py` | Translation catalogue: every `public/locales/<lang>/translation.json` has exactly the same keys as `en`'s, no translated value is an empty string, and every `{{placeholder}}` in the English value is present in every translation. Also reports (informationally, not as a fault) how many keys nothing in `src/` looks up yet, and what fraction of `src/components/**/*.tsx` calls `useTranslation()`. | A key added in English only, or a translator's edit that drops a `{{count}}` or leaves a value blank, renders correctly in English and wrong (a raw key, a blank line, or a literal `{{count}}`) in every other language — the class of bug nobody on an English-language dev machine would ever see. |
+| `check_comment_paths.py` | Every file path mentioned in a Rust/TypeScript/JavaScript/Python comment (starting with a real top-level directory of this repo — `src/`, `src-tauri/`, etc.) actually exists on disk. | A file gets renamed or moved and every comment that used to point at it keeps pointing at the old name forever — nothing about renaming a file touches the text of a comment sitting in some other file. An audit found eleven of these at once, none caught until someone happened to re-read the comment. |
+| `check_concurrency_claims.py` | Every comment containing the word "parallel" or "concurrently" sits inside (or immediately above) a block of code that actually contains one of `join!`, `join_all`, `try_join`, `spawn`, `Promise.all`, `allSettled`. Deliberately a rough heuristic — see the script's own docstring — with a documented `EXCEPTIONS` list for claims that are true but whose mechanism lives elsewhere. | A comment claiming two things happen at the same time when the code actually awaits them one after another — in Rust, a future does nothing until it is polled, so building two futures and awaiting each in turn is sequential no matter what a comment says. An audit found five of these, including one where the futures actually were built together but then awaited one at a time immediately below. |
 
 ## Running locally
 
@@ -38,6 +40,8 @@ python3 tools/audit-checks/check_tauri_version_sync.py
 python3 tools/audit-checks/check_build_secrets.py
 python3 tools/audit-checks/check_help_topics.py
 python3 tools/audit-checks/check_i18n.py
+python3 tools/audit-checks/check_comment_paths.py
+python3 tools/audit-checks/check_concurrency_claims.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
 python3 tools/audit-checks/check_ipc_commands.py --strict
@@ -47,6 +51,8 @@ python3 tools/audit-checks/check_tauri_version_sync.py --strict
 python3 tools/audit-checks/check_build_secrets.py --strict
 python3 tools/audit-checks/check_help_topics.py --strict
 python3 tools/audit-checks/check_i18n.py --strict
+python3 tools/audit-checks/check_comment_paths.py --strict
+python3 tools/audit-checks/check_concurrency_claims.py --strict
 ```
 
 ## Conventions

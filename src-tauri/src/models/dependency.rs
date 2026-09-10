@@ -12,8 +12,14 @@
 // manages those dependencies automatically so the user does not need to
 // install them manually. The dependency system handles:
 //
-// - **Python 3.12+** -- runtime for GAMDL itself (installed via standalone
-//   Python builds or system Python).
+// - **Python** -- runtime for GAMDL itself (installed via standalone
+//   Python builds, or reused from an existing system Python). The
+//   lowest version MeedyaDL will accept is 3.10 (`MIN_SYSTEM_PYTHON`
+//   in `services/python_manager.rs` -- GAMDL 3.8.2+'s DRM-decrypt
+//   module needs at least 3.10). When MeedyaDL installs its own
+//   Python rather than reusing an existing one, it installs 3.12.8
+//   (`PYTHON_VERSION`) -- that number is just which version the app
+//   happens to bundle today, not the minimum a user's own Python must be.
 // - **GAMDL** -- the core Apple Music downloader, installed via pip into
 //   a managed virtual environment.
 // - **FFmpeg** -- required for audio/video remuxing and format conversion.
@@ -55,7 +61,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// | Dependency    | Required | Purpose                                      |
 /// |---------------|----------|----------------------------------------------|
-/// | Python 3.12+  | Yes      | Runtime for GAMDL CLI                        |
+/// | Python (3.10+)| Yes      | Runtime for GAMDL CLI -- 3.10 is the accepted floor; MeedyaDL installs 3.12.8 when it provisions its own |
 /// | GAMDL         | Yes      | Core Apple Music downloader                  |
 /// | `FFmpeg`        | Yes      | Audio/video remuxing and conversion          |
 /// | mp4decrypt    | No       | Widevine DRM content decryption              |
