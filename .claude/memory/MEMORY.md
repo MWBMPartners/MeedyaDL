@@ -27,5 +27,6 @@
 - [Audit checks inventory](project_audit_checks_inventory.md) — the 10 scripts in `tools/audit-checks/`, one line each on what each catches, the house rules (stdlib-only, `•` bullets under a `### ` heading, zero-finding-on-clean), and the "no `###` heading = findings silently discarded" trap every new check must be proven against
 - [Build-time secrets](project_build_time_secrets.md) — build-time values must be wired into release.yml or a feature ships inert and silent
 - [Crash reporting backend](project_crash_reporting_backend.md) — crash reports go to GlitchTip; same client libraries as Sentry, so never add a second one
+- [A green release can miss a platform](project_green_release_can_miss_a_platform.md) — the Release run says success even when a platform build failed; how to check, and why the standalone manifest repair tool cannot fix ARMv7 (#1178)
 - [Music video quality](project_video_codec_stepdown.md) — the codec steps down natively, the resolution is a ceiling that can never fail; where to check rather than trust
 - [Review rounds find their own fixes](project_review_rounds_find_their_own_fixes.md) — the first three rounds each found faults in the previous round's fixes, including one fix worse than the bug it fixed; the fourth found nothing, which is what a settled piece of work looks like
