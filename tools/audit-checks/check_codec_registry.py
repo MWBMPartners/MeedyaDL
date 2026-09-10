@@ -95,10 +95,15 @@ def _variant_to_rename_all(variant: str, mode: str) -> str:
     """Apply one `#[serde(rename_all = "<mode>")]` transform to a Rust enum
     variant name. Only the two modes actually used by the enums this script
     reads (`SongCodec`: kebab-case, `VideoCodec`: lowercase) are handled;
-    an unrecognised mode falls back to kebab-case; kebab-case is what every
-    other enum in gamdl_options.rs used before VideoCodec introduced
-    lowercase, so it is the safer default rather than silently returning an
-    unmodified variant name that would never match anything."""
+    an unrecognised mode falls back to kebab-case -- not because kebab-case
+    is what most enums in gamdl_options.rs use (it isn't: `VideoResolution`,
+    `LyricsFormat`, `CoverFormat`, `DownloadMode`, and `RemuxMode` all use
+    `lowercase` same as `VideoCodec`, and `LogLevel` uses `UPPERCASE`), but
+    because returning SOMETHING lets the rest of the comparison still run
+    and possibly still catch a real mismatch, rather than silently
+    returning the unmodified variant name, which would never match
+    anything and so would report every value in that enum as invalid no
+    matter what GAMDL actually expects."""
     if mode == "lowercase":
         return variant.lower()
     return variant_to_kebab(variant)
@@ -109,12 +114,19 @@ def collect_enum_cli_values(enum_name: str) -> set[str]:
     `gamdl_options.rs` (`SongCodec`, `VideoCodec`, ...), by reading that
     enum's own `#[serde(rename_all = "...")]` attribute rather than
     assuming every enum in the file uses the same one — `SongCodec` is
-    kebab-case, `VideoCodec` is lowercase with no dashes, and a script
-    that assumed kebab-case for both would report every real `VideoCodec`
-    CLI value (`h265`, `h264`) as invalid, since kebab-casing `H265` byte
-    for byte happens to also produce `h265` (no uppercase letter follows
-    the first), but that is a coincidence of this exact enum, not
-    something to rely on for a differently-named future variant. Any
+    kebab-case, `VideoCodec` is lowercase with no dashes. Assuming
+    kebab-case for both wouldn't even catch today's `VideoCodec` values as
+    wrong: kebab-casing `H265`/`H264` happens to produce `h265`/`h264`
+    anyway, because neither name has a second uppercase letter for the
+    kebab-case transform to insert a dash before. That match is a
+    coincidence of exactly how these two variants happen to be spelled,
+    not something to build on — a differently-spelled future variant (a
+    resolution or codec whose name has two capitalised words, the way
+    `AacBinaural` does over in `SongCodec`) would kebab-case to a
+    different string than it lowercases to, and a script that assumed one
+    mode for every enum would then disagree with GAMDL about which values
+    are valid. Reading each enum's own attribute avoids depending on
+    today's variant names staying coincidentally dash-free forever. Any
     per-variant `#[serde(rename = "x")]` override takes precedence over
     the container-level transform, same as SongCodec's."""
     text = GAMDL_OPTIONS_RS.read_text(encoding="utf-8", errors="ignore")

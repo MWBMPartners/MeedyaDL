@@ -21,7 +21,7 @@ MeedyaDL's Settings screen has 11 tabs, grouped into five sections in the sideba
 
 - **Audio Quality** -- Default audio codec (ALAC lossless by default), Companion Downloads mode (automatically download extra format versions alongside your primary download, e.g. Atmos + a lossless companion), and duplicate-detection preferences for artist downloads.
 - **Video Quality** -- Maximum Video Resolution (2160p/4K by default, treated as a ceiling -- Apple Music returns the closest quality at or below it), music video companion downloads (requires MusicKit credentials), and MusicBrainz video discovery as a fallback when Apple Music's own API doesn't find a music video.
-- **Enable Fallback Chain** -- One switch that covers both songs and music videos. When it's on, an unavailable codec steps down through your configured chain (see below); when it's off, only the first choice in each chain is ever tried.
+- **Enable Fallback Chain** -- One switch that covers both songs and music videos. When it's on, an unavailable codec steps down through your configured chain (see below); when it's off, only your preferred codec is tried, and nothing steps down further.
 
 ## Codec Fallback Order
 

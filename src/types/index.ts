@@ -71,7 +71,7 @@ export type SongCodec =
  * This is a **ceiling**, not a request. The download tool looks at every
  * quality the video actually comes in and picks the one closest to this
  * value without going over it. If the video was never offered at this
- * resolution or higher, it falls back to the lowest quality that IS above
+ * resolution or below, it falls back to the lowest quality that IS above
  * the ceiling. Either way, the tool always finds something to download —
  * a resolution on its own can never make a video unavailable. Only the
  * codec list (see {@link VideoCodec}) can do that, because a codec the
@@ -616,7 +616,8 @@ export interface AppSettings {
   /** Default container format for remuxed music videos */
   default_video_remux_format: string;
   /** Whether fallback chains are enabled. Covers both songs and music
-   * videos; when off, only the first choice in each chain is tried. */
+   * videos; when off, only your preferred codec is tried, and nothing
+   * steps down further. */
   fallback_enabled: boolean;
   /** Ordered list of codecs to try if the primary codec is unavailable */
   music_fallback_chain: SongCodec[];

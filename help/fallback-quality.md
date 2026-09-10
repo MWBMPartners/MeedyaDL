@@ -115,7 +115,7 @@ Your customized chains persist across application restarts once you click **Save
 
 ### Disabling Fallback
 
-The **Enable Fallback Chain** switch, in **Settings > Codec & Resolution**, covers songs and music videos together with a single toggle. Turning it off means only the first choice in each chain is ever tried:
+The **Enable Fallback Chain** switch, in **Settings > Codec & Resolution**, covers songs and music videos together with a single toggle. Turning it off means only your preferred codec is tried, and nothing steps down further:
 
 - For audio, if your preferred codec is available, the download proceeds normally; if it is unavailable, the download fails with a codec error and MeedyaDL does not try the rest of the chain.
 - For video, GAMDL is only given your single preferred codec, instead of the whole chain, so it cannot step down to a second choice on its own either.

@@ -703,6 +703,16 @@ pub struct PerServiceSettings {
 //   entries are read and then quietly dropped rather than failing the
 //   file (see `VideoCodecChainWire::List` and `clean_video_codec_chain`
 //   below for exactly how).
+// - So does a value that is neither text nor a list at all — `null`, a
+//   bare number, `true`/`false`, a JSON object. None of those can name
+//   any codecs, so there's nothing to clean up the way a bad list entry
+//   gets cleaned up; the reader logs what it saw and hands back the
+//   default chain instead (see `VideoCodecChainWire::Other`, the
+//   catch-all arm, below). Before this arm existed, a value in this
+//   shape matched neither `Text` nor `List`, `#[serde(untagged)]` had
+//   nowhere left to put it, and the WHOLE settings file failed to
+//   parse — `#[serde(default = ...)]` only helps when the KEY is
+//   missing, not when it's present with an unusable value.
 // - What it CANNOT save you from: a settings file with BOTH keys present
 //   at once — the old name (`default_video_codec_priority`) AND the new
 //   one (`video_codec_fallback_chain`) in the same JSON object. `alias`
@@ -741,6 +751,23 @@ enum VideoCodecChainWire {
     /// sorting out which ones are usable happens next, in
     /// `deserialize_video_codec_chain` below.
     List(Vec<serde_json::Value>),
+    /// Anything else: `null`, a bare number, `true`/`false`, a JSON
+    /// object. Neither `Text` nor `List` above can ever match a value in
+    /// one of these shapes — a `String` deserializer refuses `null`, a
+    /// number, a bool, or an object; a `Vec<Value>` deserializer refuses
+    /// anything that isn't a JSON array. Without this arm,
+    /// `#[serde(untagged)]` would have nowhere left to put a value like
+    /// that, deserialization would fail, and — because the field is
+    /// PRESENT, just unusable — `#[serde(default = ...)]` would not help
+    /// either: that only fills in a MISSING key, not a bad value for one
+    /// that's there. The failure would propagate up and fail the whole
+    /// settings file, moving it aside and losing every other setting in
+    /// it over this one field. `serde_json::Value`'s own `Deserialize`
+    /// impl accepts any JSON at all, so this arm always matches whatever
+    /// `Text` and `List` didn't — which is also why it has to be listed
+    /// last: `#[serde(untagged)]` tries each variant in the order
+    /// they're written and keeps the first one that matches.
+    Other(serde_json::Value),
 }
 
 /// `deserialize_with` for [`AppSettings::video_codec_fallback_chain`].
@@ -756,6 +783,14 @@ enum VideoCodecChainWire {
 /// the same "keep what's usable, drop what isn't, never fail the whole
 /// file over one bad entry" approach `clean_video_codec_chain` already
 /// takes for a string that doesn't name a real codec.
+///
+/// A value that is neither text nor a list at all (`VideoCodecChainWire::Other`
+/// — `null`, a bare number, `true`/`false`, a JSON object) has no raw
+/// codec names in it whatsoever, so there's nothing to hand to
+/// `clean_video_codec_chain` either. It's logged and the field falls
+/// back to [`default_video_codec_chain`] — the same chain
+/// `#[serde(default = ...)]` would have supplied if the key had been
+/// missing from the file entirely.
 fn deserialize_video_codec_chain<'de, D>(deserializer: D) -> Result<Vec<VideoCodec>, D::Error>
 where
     D: Deserializer<'de>,
@@ -772,6 +807,13 @@ where
                 _ => None,
             })
             .collect(),
+        VideoCodecChainWire::Other(value) => {
+            log::warn!(
+                "video_codec_fallback_chain in settings.json was neither text nor \
+                 a list (got: {value}) — using the default video codec chain instead"
+            );
+            return Ok(default_video_codec_chain());
+        }
     };
     Ok(clean_video_codec_chain(&raw))
 }
@@ -2622,6 +2664,46 @@ mod tests {
         let json = r#"{"video_codec_fallback_chain": ["h265", "ask"]}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
         assert_eq!(settings.video_codec_fallback_chain, vec![VideoCodec::H265]);
+    }
+
+    /// A whole-field value that is `null` — not a list containing `null`,
+    /// the field itself set to `null` — matches neither `Text` nor `List`
+    /// in `VideoCodecChainWire`. Before the `Other` catch-all arm existed,
+    /// this failed the WHOLE settings file to parse (see the doc comment
+    /// above `VideoCodecChainWire`), which meant every other setting the
+    /// person had — output folder, cookies, everything — looked "lost"
+    /// too. It must now load fine and fall back to the default chain.
+    #[test]
+    fn video_codec_chain_field_set_to_null_survives() {
+        let json = r#"{"video_codec_fallback_chain": null}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// Same failure mode, for the field being a bare number instead of
+    /// text or a list.
+    #[test]
+    fn video_codec_chain_field_set_to_a_number_survives() {
+        let json = r#"{"video_codec_fallback_chain": 42}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// Same failure mode, for the field being a bare boolean.
+    #[test]
+    fn video_codec_chain_field_set_to_a_bool_survives() {
+        let json = r#"{"video_codec_fallback_chain": true}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+    }
+
+    /// Same failure mode, for the field being a JSON object instead of
+    /// text or a list.
+    #[test]
+    fn video_codec_chain_field_set_to_an_object_survives() {
+        let json = r#"{"video_codec_fallback_chain": {"oops": "not a chain"}}"#;
+        let settings: AppSettings = serde_json::from_str(json).unwrap();
+        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
     }
 
     /// A settings file saved by a PRE-this-change build of MeedyaDL still
