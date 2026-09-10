@@ -688,7 +688,7 @@ MeedyaDL has a three-layer crash reporting system:
 
 3. **Cloud crash reporting** (opt-in) -- Anonymous crash telemetry:
    - Disabled by default (`sentry_enabled: false` in settings — the field keeps its old name to avoid a settings migration for no visible benefit; it does not mean the destination is Sentry)
-   - Toggle in Settings > Advanced > Crash Reporting
+   - Toggle in Settings > Advanced > Error Reporting
    - Rust SDK (`sentry` crate) + JS SDK (`@sentry/browser`) — these are Sentry's own client libraries, but **reports actually go to GlitchTip**, not to Sentry. GlitchTip accepts Sentry's client SDKs unchanged, so the code is identical either way and the destination is decided purely by which DSN (the endpoint URL baked in at build time) the client is given. See `.claude/memory/project_crash_reporting_backend.md` for the full reasoning (cost, self-hosting limits, etc.) — do NOT add a second SDK if the destination ever needs to change again; just change the DSN.
    - Captures panics, `tracing::error!()` events, unhandled JS exceptions
    - No personal data, download history, or account info is ever sent
@@ -732,7 +732,7 @@ On startup, crash reports older than 30 days are automatically deleted by `clear
 
 ### GitHub Issues Crash Reporting
 
-In addition to local crash reports and optional Sentry telemetry, users can report crashes directly to the developer via GitHub Issues from **Settings > Advanced > Crash Reporting**.
+In addition to local crash reports and optional Sentry telemetry, users can report crashes directly to the developer via GitHub Issues from **Settings > Advanced > Error Reporting**.
 
 #### How It Works
 
@@ -827,8 +827,6 @@ MeedyaDL/
 │   │   ├── tauri-commands.ts   #    Type-safe IPC wrappers
 
 │   │   ├── url-parser.ts       #    Apple Music URL detection
-
-│   │   ├── quality-chains.ts   #    Fallback codec/resolution chains
 
 │   │   └── i18n.ts             #    i18next initialization & locale loading
 
@@ -1205,7 +1203,7 @@ The `music_video_companion` setting (default: `false`) enables automatic downloa
 5. Deduplicated by music video ID (same video linked from multiple songs won't download twice)
 6. Fire-and-forget — failures logged but don't affect primary download status
 
-**Prerequisites:** Valid MusicKit credentials (`musickit_team_id`, `musickit_key_id`, private key in OS keychain). The UI toggle in Settings > Quality > Video Quality is disabled when credentials are not configured.
+**Prerequisites:** Valid MusicKit credentials (`musickit_team_id`, `musickit_key_id`, private key in OS keychain). The UI toggle in Settings > Codec & Resolution > Video Quality is disabled when credentials are not configured.
 
 **Key files:**
 

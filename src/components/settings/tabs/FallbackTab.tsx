@@ -4,7 +4,8 @@
  *
  * @file FallbackTab.tsx -- Drag-to-reorder fallback chain settings tab.
  *
- * Renders the "Fallback" tab within the {@link SettingsPage} component.
+ * Renders the "Codec Fallback Order" tab (tab id `fallback`) within the
+ * {@link SettingsPage} component.
  * It holds two ordered lists: which audio codec to try first for songs,
  * and which video codec to try first for music videos. This tab lets
  * users reorder each list, and remove/re-add entries from it.
@@ -89,7 +90,8 @@ const ALL_SONG_CODECS = Object.keys(SONG_CODEC_LABELS) as SongCodec[];
 import { Button, FallbackChainList, SettingsSection } from '@/components/common';
 
 /**
- * FallbackTab -- Main exported component for the Fallback settings tab.
+ * FallbackTab -- Main exported component for the "Codec Fallback Order"
+ * settings tab (id `fallback`).
  *
  * Contains two sub-sections accessible via toggle buttons:
  *   1. **Audio Fallback** -- Reorderable list of `SongCodec` values

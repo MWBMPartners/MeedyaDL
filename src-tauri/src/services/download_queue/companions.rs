@@ -509,7 +509,7 @@ pub(crate) async fn spawn_music_video_companion_inner(
             emit_download_log(
                 app,
                 dl_id,
-                "Music video lookup skipped — MusicKit credentials required (Settings > Quality > Video Quality)",
+                "Music video lookup skipped — MusicKit credentials required (Settings > Codec & Resolution > Video Quality)",
             );
             return;
         }

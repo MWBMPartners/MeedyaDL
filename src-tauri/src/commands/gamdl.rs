@@ -1164,7 +1164,7 @@ pub async fn start_download(
                             return Ok(StartDownloadResult {
                                 download_id: String::new(),
                                 duplicate_warning: Some(
-                                    "Every track in this album is already downloaded or queued. Change scope in Settings > Quality > Duplicate Detection to download anyway."
+                                    "Every track in this album is already downloaded or queued. Change scope in Settings > Codec & Resolution > Duplicate Detection to download anyway."
                                         .to_string(),
                                 ),
                             });

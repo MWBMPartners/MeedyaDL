@@ -460,7 +460,8 @@ describe('QualityTab', () => {
   /**
    * The video codec order used to live here as a hand-typed, comma-separated
    * string with its own reorderable list. It now lives only in the
-   * Fallback tab, exactly the way the audio codec order does -- this test
+   * "Codec Fallback Order" tab, exactly the way the audio codec order does
+   * -- this test
    * guards against it quietly reappearing here.
    */
   it('does not show a video codec list', () => {

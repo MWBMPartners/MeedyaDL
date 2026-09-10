@@ -602,13 +602,13 @@ Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically clean
 
 ### Anonymous Crash Reporting (Optional)
 
-You can optionally help improve MeedyaDL by enabling anonymous crash reporting in **Settings > Advanced > Crash Reporting**. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is disabled by default and requires explicit opt-in.
+You can optionally help improve MeedyaDL by enabling anonymous crash reporting in **Settings > Advanced > Error Reporting**. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is disabled by default and requires explicit opt-in.
 
 ### Reporting a Crash via GitHub Issues
 
 You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser -- no API tokens or server accounts needed, just a GitHub account.
 
-1. Go to **Settings > Advanced > Crash Reporting**.
+1. Go to **Settings > Advanced > Error Reporting**.
 2. Recent crash reports are listed below the crash reporting switch. Each entry shows the date, time, and error summary.
 3. Click **Report** next to the crash report you want to submit.
 4. A preview dialog appears showing exactly what data will be included: error message, backtrace, app version, operating system, and timestamp. Review the information to ensure you are comfortable sharing it.

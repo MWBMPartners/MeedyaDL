@@ -11,7 +11,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — Session 2026-09-10 (later): music videos step down through codecs (#1176)
 
-> **PICK UP HERE.** Branch `work/video-quality-fallback`, four commits, pushed. No pull request
+> **PICK UP HERE.** Branch `work/video-quality-fallback`, six commits, pushed. No pull request
 > yet — it joins `alpha` later, in one pull request with anything else queued behind it.
 
 ### What this is
@@ -57,20 +57,53 @@ Four rounds. **Every round found faults in the previous round's fixes.**
 - Round three: a sentence I had written said the opposite of the truth ("at this resolution or
   higher" where it must be "or below"), and careful wording added in round two had gone into one
   of three places that needed it.
-- Round four: pending — Codex, once its usage limit resets.
+- Round four: Codex, once its usage limit reset. It found nothing: "I found no actionable bugs
+  introduced by these changes." Type checking and both updated checks passed.
 
 Worth remembering: in round one I added a check whose whole job is finding settings nothing reads,
 and **in the same commit added a setting it flagged** — and did not read its output.
 
+### The documentation pass that followed
+
+A full documentation and licensing sweep had already run a few hours earlier, on the previous
+branch, so this pass looked only for what had drifted since — plus anything that sweep missed.
+
+**OpenAPI and Swagger do not apply to this repository, and this was re-checked rather than
+assumed.** There is no HTTP server here: nothing in either language binds a port, and neither
+`package.json` nor `Cargo.toml` carries a server framework. The only programmatic interface is
+the in-process command set the window calls, which OpenAPI cannot describe and which has no
+server to host a browsable page on. `project_api_surface_determination` records the same
+conclusion; it still holds.
+
+What the pass actually corrected:
+
+- **Counts that had moved on.** Ten check scripts now, not nine — corrected in both memory
+  indexes, the inventory note, and this file.
+- **A tab renamed nearly two months ago that eleven places still called by its old name.** The
+  Settings tab "Quality" became "Codec & Resolution" back in #946, and "Settings > Quality > …"
+  was still being printed **to users** — in a message about duplicate downloads, in the activity
+  log, and on two help pages. The Advanced section is titled "Error Reporting", not "Crash
+  Reporting", and four documents plus two help pages still said otherwise. Anyone following that
+  advice would have gone looking for a tab that no longer exists.
+- **A comment that contradicted the function forty lines below it.** The store's own header still
+  said the sidebar's collapsed state is saved and restored. The function itself explains at
+  length why it deliberately is not (see #1175). Both ends now say the same thing.
+- **A file named in two project structure diagrams that has never existed** in the history of the
+  repository (`src/lib/quality-chains.ts`).
+- **A description of what a "fallback happened" flag means that was wrong in a way that mattered**
+  — it said "codec or resolution", but it is only ever set for audio, and a resolution cannot
+  fall back at all.
+- **A memory file labelled as personal preference while being committed and shared.** By this
+  project's own convention a `feedback` file is never committed; this one was, in both places, and
+  is plainly project guidance. Relabelled rather than deleted.
+
+Also corrected: a commit hash written as if it were an issue number, a check description naming a
+constant that has since been renamed away, and the pull request checklist gained a line for the
+new settings check.
+
 ### Still to do on this branch
 
-1. **Codex review** (rounds so far were a different model, because Codex hit its usage limit at
-   about 11:20 and resets at 13:30). Run it, fix, repeat until clean.
-2. The wider documentation sweep the maintainer asked for, including whether this project has any
-   API worth documenting with OpenAPI/Swagger. It is a desktop app with no HTTP server, so the
-   likely honest answer is no — `project_api_surface_determination` already records that
-   determination; check it still holds before doing anything.
-3. Open the pull request to `alpha` when the queue is done. **One pull request, no stacking.**
+1. Open the pull request to `alpha`. **One pull request, no stacking.**
 
 ---
 
@@ -135,7 +168,9 @@ They fail the same three ways every time:
 **None of them could be seen from inside the app.** Every one needed something outside compared
 against something inside — which is why the fixes ship with checks that do exactly that.
 
-### Nine cross-source checks now run on every pull request
+### Nine cross-source checks ran on every pull request at this point
+
+(Ten since the music video work above — one new script, one extended.)
 
 Five are new here. In `tools/audit-checks/`:
 `check_build_secrets` · `check_help_topics` · `check_i18n` · `check_comment_paths` ·

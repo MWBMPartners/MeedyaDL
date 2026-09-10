@@ -2,7 +2,7 @@
 name: project-meedyasuite-core-online-only
 description: For any MeedyaSuite-core integration work, ALWAYS check the upstream repo online (github.com/MWBMPartners/MeedyaSuite-core) — never trust a local cargo-registry checkout, vendored copy, or stale clone.
 metadata:
-  type: feedback
+  type: project
 ---
 
 **Standing rule (set 2026-05-18):** Whenever investigating, planning, or
