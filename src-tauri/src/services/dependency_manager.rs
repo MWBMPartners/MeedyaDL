@@ -72,7 +72,6 @@ const TOOL_VERSIONS_TOML: &str = include_str!("../../tool-versions.toml");
 struct ToolVersionConfig {
     minimum_version: String,
     binary_name: String,
-    #[allow(dead_code)]
     version_flag: String,
 }
 

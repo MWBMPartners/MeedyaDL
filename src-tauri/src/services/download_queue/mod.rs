@@ -473,8 +473,19 @@ pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
 
-/// RAII guard that ensures one queue slot is released when the
-/// completion task finishes (#706).
+/// A guard that ensures one queue slot is released when the completion
+/// task finishes (#706).
+///
+/// This uses a Rust pattern usually called "RAII" (the name comes from
+/// C++ and stands for "resource acquisition is initialisation", though
+/// the name matters far less than what it does): Rust runs a value's
+/// clean-up code automatically the moment that value goes out of scope
+/// — whether the surrounding code returns normally, returns early, or
+/// panics. So instead of every possible exit path having to remember to
+/// release the queue slot by hand, one of these guards is created when
+/// the slot is taken, and its `Drop` implementation (below) is Rust's
+/// guaranteed clean-up hook — it releases the slot no matter which way
+/// the task ends, including ways nobody explicitly coded for.
 ///
 /// **Why this exists.** The success path of the per-item download task
 /// used to call `q.on_task_finished()` immediately after primary GAMDL

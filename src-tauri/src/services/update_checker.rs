@@ -10,8 +10,17 @@
 // ## Architecture Overview
 //
 // This service is invoked periodically (on app launch or user request) to
-// check whether any component has a newer version available. It runs all
-// checks concurrently and aggregates results into an UpdateCheckResult.
+// check whether any component has a newer version available. `check_all_updates`
+// runs every check ONE AFTER ANOTHER, not at the same time — it awaits GAMDL,
+// then the app itself, then Python, then votify, then every other enabled pip
+// engine, then each external tool with a known GitHub repo — and aggregates
+// the results into an UpdateCheckResult. That order matters because a slow
+// component (a flaky network path to one API) delays every check queued
+// behind it before the user sees a result. Each individual HTTP call carries
+// its own short timeout (10-15s, see the `Timeout safety` note in the
+// project's CLAUDE.md) so a broken endpoint can't hang forever — but with
+// nothing running the checks in parallel, several slow-but-not-broken checks
+// in a row can still add their timeouts together.
 //
 // ```
 // check_all_updates()
@@ -748,9 +757,12 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 
 /// Checks for updates to all application components.
 ///
-/// Runs all checks concurrently (GAMDL, app, Python) and returns
-/// a combined result. Non-fatal errors are collected rather than
-/// causing the entire check to fail.
+/// Runs every check one after another — GAMDL, then the app, then
+/// Python, then votify and each other enabled pip engine, then the
+/// external tools with a known GitHub repo — and returns a combined
+/// result. Non-fatal errors are collected rather than causing the
+/// entire check to fail, so one component's failure never hides the
+/// others' results.
 ///
 /// # Arguments
 /// * `app` - Tauri app handle for version info and path resolution
@@ -1479,6 +1491,25 @@ async fn check_github_tool_update(
     })
 }
 
+/// Checks whether the app's own Python runtime should be reinstalled at
+/// a newer version.
+///
+/// Unlike the other checks in this file, this one never touches the
+/// network — there's no PyPI-style "latest Python" endpoint to ask.
+/// Instead it compares the installed Python's version against
+/// `python_manager::PYTHON_VERSION`, the version this build of MeedyaDL
+/// carries. That number only changes when a developer bumps it in
+/// source, so a user only sees "Python update available" after
+/// upgrading to a newer MeedyaDL release that bundles a newer Python —
+/// there's no separate "check for Python updates" step happening in
+/// the background.
+///
+/// Reports no update at all when the installed Python is a venv built
+/// on top of a system Python the user chose to reuse (see #1017) —
+/// offering an "update" there would mean silently replacing the
+/// interpreter the user deliberately picked, which could even be a
+/// downgrade if their system Python is newer than the one this build
+/// carries.
 async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the installed Python version by running the binary with --version.
     // Returns None if Python is not installed.

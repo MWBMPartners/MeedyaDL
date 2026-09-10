@@ -1,8 +1,9 @@
+// Copyright (c) 2026 MeedyaSuite
+// Licensed under the MIT License. See LICENSE file in the project root.
+//
 /* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck — Staged for future multi-service integration (M8-M10).
 // Imports like getServiceLabel don't exist yet. Remove when wiring in.
-//
-// Copyright (c) 2026 MeedyaDL
 
 /**
  * @file ServiceStatusBanner -- Displays warnings when services are remotely

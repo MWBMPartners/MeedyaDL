@@ -19,7 +19,8 @@
 //!
 //!   * the startup version probe in `commands::dependencies` (lands in
 //!     this PR alongside this file),
-//!   * the future `votify_service::install_votify()` flow (M9-2), and
+//!   * `spotify_service::install_votify()`, which already calls in
+//!     here (see `spotify_service.rs`), and
 //!   * the future Spotify download dispatch (M9-2 / M9-4).
 //!
 //! The [`VotifyFeature`] enum carries the concrete version-gated
@@ -268,11 +269,11 @@ pub fn pip_target_spec(target: &str) -> String {
 ///
 /// * `commands::dependencies::get_component_versions` at startup
 ///   (lands in this PR alongside this file).
-/// * Future `votify_service::install_votify` after a successful
-///   `pip install --upgrade votify` (PR M9-2).
-/// * Future `votify_service::get_votify_version` whenever the version
-///   is probed (first Spotify download attempt, settings page refresh,
-///   etc. — also PR M9-2).
+/// * `spotify_service::install_votify` after a successful
+///   `pip install --upgrade votify`.
+/// * `spotify_service::get_votify_version` whenever the version is
+///   probed (first Spotify download attempt, settings page refresh,
+///   etc.).
 ///
 /// `None` means "we haven't probed yet or votify isn't installed". See
 /// the module-level docs for how unknown versions are handled.

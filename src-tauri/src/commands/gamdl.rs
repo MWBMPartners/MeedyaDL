@@ -1625,6 +1625,19 @@ pub async fn retry_download(
     }
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct BulkRetrySkipped {
+    pub id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct BulkRetryReport {
+    pub requested: usize,
+    pub retried: usize,
+    pub skipped: Vec<BulkRetrySkipped>,
+}
+
 /// Bulk re-queue every failed download in one IPC round-trip (#835).
 ///
 /// The pre-#835 "Retry All Failed" flow called `retry_download` once
@@ -1654,10 +1667,25 @@ pub async fn retry_download(
 ///     with the full id list for UIs that want a batch hook.
 ///   - `process_queue` called once.
 ///
-/// Items that can't be retried (smart-retry says "all tracks already
-/// on disk", or item isn't in `Error` state any more) are reported
-/// individually in the returned `BulkRetryReport` so the frontend
-/// can show a precise "X re-queued, Y skipped (reason)" summary.
+/// **What "skipped" means.** An id doesn't get retried, and is added
+/// to `BulkRetryReport.skipped` with a human-readable `reason`
+/// instead, in exactly three cases:
+///   1. The id isn't in the queue at all any more ("Item not found in
+///      queue") — it may have been cleared between the user selecting
+///      it and this call running.
+///   2. The smart-retry planner already sees every track for this
+///      item sitting on disk ("All N track(s) already on disk —
+///      nothing to re-fetch") — there is nothing left to fetch, so
+///      retrying would just repeat GAMDL for no result.
+///   3. The item isn't actually in a retryable state any more ("Item
+///      is not in a retryable state") — someone or something else
+///      already changed it (finished, cancelled, or retried again)
+///      before this batch reached it.
+///
+/// None of these are treated as failures of the bulk-retry call
+/// itself — the call still returns `Ok`, and the frontend shows a
+/// precise "X re-queued, Y skipped (reason)" summary built from this
+/// list rather than a generic error.
 ///
 /// **Frontend caller:** `retryFailedBulk(ids)` in `src/lib/tauri-commands.ts`.
 ///
@@ -1667,19 +1695,6 @@ pub async fn retry_download(
 /// errors are aggregated in the report, not propagated as IPC failures
 /// (one bad ID shouldn't abort the whole batch from the frontend's
 /// perspective).
-#[derive(Debug, serde::Serialize)]
-pub struct BulkRetrySkipped {
-    pub id: String,
-    pub reason: String,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct BulkRetryReport {
-    pub requested: usize,
-    pub retried: usize,
-    pub skipped: Vec<BulkRetrySkipped>,
-}
-
 #[tauri::command]
 pub async fn retry_failed_bulk(
     app: AppHandle,

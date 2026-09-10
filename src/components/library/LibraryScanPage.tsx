@@ -371,8 +371,13 @@ export function LibraryScanPage() {
       );
 
       // Phase 5b: dispatch diff IPC for every manifest. Concurrent —
-      // the IPC is filesystem-only (no network), so all rows can run
-      // in parallel without backpressure concerns. Results merge into
+      // the IPC only reads the local disk, it never calls out over the
+      // network, so there's nothing on the other end that a burst of
+      // requests could overwhelm (no server to rate-limit us, no queue
+      // to back up). That's why every row is fired off at once here,
+      // unlike the freshness check just below, which does call the
+      // Apple Music API per row and is deliberately capped at 5 at a
+      // time so it doesn't hammer Apple's servers. Results merge into
       // `diffs` map as each promise resolves.
       void Promise.allSettled(
         manifests.map(async (m) => {

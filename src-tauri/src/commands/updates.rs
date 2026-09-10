@@ -99,9 +99,10 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
     let include_prereleases =
         settings.check_pre_releases || settings.update_channel != UpdateChannel::Stable;
 
-    // check_all_updates() runs all component checks concurrently and
-    // aggregates the results. Individual check failures are captured
-    // per-component rather than failing the entire operation.
+    // check_all_updates() runs every component check one after another
+    // (not at the same time — see the module doc in update_checker.rs)
+    // and aggregates the results. Individual check failures are
+    // captured per-component rather than failing the entire operation.
     let result =
         update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
 
