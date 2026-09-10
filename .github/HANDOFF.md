@@ -11,8 +11,15 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — Session 2026-09-10 (later): music videos step down through codecs (#1176)
 
-> **PICK UP HERE.** Branch `work/video-quality-fallback`, six commits, pushed. No pull request
-> yet — it joins `alpha` later, in one pull request with anything else queued behind it.
+> **PICK UP HERE.** Branch `work/video-quality-fallback`, seven commits, pushed as
+> **pull request #1177 into `alpha`**. All twelve checks green. **Not merged — waiting on the
+> maintainer**, because merging to `alpha` cuts a release and deploys it, and that has been the
+> maintainer's call every time so far.
+>
+> **When merging: rebase-merge, do not squash.** Every commit already carries its own
+> `Release-Note:` trailer, and squashing would collapse five separate user-facing notes into one.
+> The branch is linear (no merge commits), so GitHub's own rebase-merge works directly — it does
+> **not** need the local-rebase-first dance #1174 needed.
 
 ### What this is
 
@@ -101,9 +108,21 @@ Also corrected: a commit hash written as if it were an issue number, a check des
 constant that has since been renamed away, and the pull request checklist gained a line for the
 new settings check.
 
-### Still to do on this branch
+### Still to do
 
-1. Open the pull request to `alpha`. **One pull request, no stacking.**
+1. **Merge #1177** (rebase-merge — see the note at the top), then watch the Alpha Release
+   workflow it triggers, and the build, packaging and deployment actions after that.
+
+### Not code — these need a person
+
+- The repository secrets for crash reporting (`SENTRY_DSN` / `VITE_SENTRY_DSN`), the remote
+  pause switch (`INTAPPS_*`), and the developer-access passphrase (`DEV_ACCESS_HASH`). The
+  wiring is merged and correct; every one of those features stays switched off and silent until
+  the secret actually exists. An absent secret reads as "not configured", so nothing fails and
+  nobody is told.
+- One real `bundle_engines=true` build, to confirm the offline-installer manifest change.
+- Whether Odesli will grant a song.link key. Without one, the cross-platform links feature
+  cannot do anything at all — free public access was closed during 2026.
 
 ---
 
