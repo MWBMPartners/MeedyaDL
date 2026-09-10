@@ -32,6 +32,7 @@ import { QualityTab } from './QualityTab';
 import { AdvancedTab } from './AdvancedTab';
 import { MetadataTab } from './MetadataTab';
 import { CoverArtTab } from './CoverArtTab';
+import { FallbackTab } from './FallbackTab';
 import { useSettingsStore } from '@/stores/settingsStore';
 
 // Test-only helper that switches the shared i18next instance to German or
@@ -172,6 +173,9 @@ beforeEach(() => {
       music_video_companion: false,
       musicbrainz_lookup: false,
       musicbrainz_search_fallback: true,
+      /* FallbackTab fields */
+      music_fallback_chain: ['alac', 'atmos', 'ac3', 'aac-binaural', 'aac', 'aac-legacy'],
+      video_codec_fallback_chain: ['h265', 'h264'],
       /* AdvancedTab fields */
       use_wrapper: false,
       auto_retry_without_wrapper: false,
@@ -420,13 +424,17 @@ describe('QualityTab', () => {
   // ===========================================================================
 
   /**
-   * Verifies that the "Default Video Resolution" select renders with the
-   * correct initial value. The default is '2160p' (4K UHD).
+   * Verifies that the "Maximum Video Resolution" select renders with the
+   * correct initial value. The default is '2160p' (4K UHD). Renamed from
+   * "Default Video Resolution" because the value is a ceiling, not a
+   * request -- the download tool always gets the closest quality at or
+   * below it, so nothing about it is "default" in the sense the old name
+   * implied.
    */
-  it('renders Default Video Resolution select with initial value from settings', () => {
+  it('renders Maximum Video Resolution select with initial value from settings', () => {
     render(<QualityTab />);
 
-    const select = screen.getByLabelText(/default video resolution/i) as HTMLSelectElement;
+    const select = screen.getByLabelText(/maximum video resolution/i) as HTMLSelectElement;
     expect(select).toBeInTheDocument();
     expect(select.value).toBe('2160p');
   });
@@ -438,7 +446,7 @@ describe('QualityTab', () => {
   it('renders video resolution select with all resolution options', () => {
     render(<QualityTab />);
 
-    const select = screen.getByLabelText(/default video resolution/i) as HTMLSelectElement;
+    const select = screen.getByLabelText(/maximum video resolution/i) as HTMLSelectElement;
     const options = Array.from(select.options);
     const values = options.map((o) => o.value);
 
@@ -447,6 +455,20 @@ describe('QualityTab', () => {
     expect(values).toContain('720p');
     expect(values).toContain('240p');
     expect(options).toHaveLength(8);
+  });
+
+  /**
+   * The video codec order used to live here as a hand-typed, comma-separated
+   * string with its own reorderable list. It now lives only in the
+   * Fallback tab, exactly the way the audio codec order does -- this test
+   * guards against it quietly reappearing here.
+   */
+  it('does not show a video codec list', () => {
+    render(<QualityTab />);
+
+    expect(screen.queryByText(/video codec priority/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('H.265 (HEVC)')).not.toBeInTheDocument();
+    expect(screen.queryByText('H.264 (AVC)')).not.toBeInTheDocument();
   });
 
   // ===========================================================================
@@ -475,6 +497,93 @@ describe('QualityTab', () => {
 
     const { settings } = useSettingsStore.getState();
     expect(settings.fallback_enabled).toBe(false);
+  });
+});
+
+// =============================================================================
+// FallbackTab
+// =============================================================================
+//
+// The video panel of this tab used to show video *resolutions*. It now
+// shows video *codecs*, because resolution is a ceiling the download tool
+// never fails to meet, while codec is the one thing that can genuinely make
+// a video unavailable. These tests cover the video panel's new behaviour;
+// the audio panel's behaviour is unchanged and already covered elsewhere.
+//
+// FallbackTab reads GAMDL capabilities on mount via `useGamdlCapabilities`
+// (mocked at the top of this file through `@/lib/tauri-commands`), so every
+// render is wrapped in `act(async () => ...)` to flush that resolved
+// promise before assertions run -- the same pattern the AdvancedTab tests
+// below use for `CrashReportSection`.
+describe('FallbackTab', () => {
+  /** Switches the tab from its default "Audio Fallback" panel to "Video Fallback". */
+  const openVideoPanel = () => {
+    fireEvent.click(screen.getByRole('button', { name: /video fallback/i }));
+  };
+
+  it('shows both video codecs in the stored order', async () => {
+    await act(async () => {
+      render(<FallbackTab />);
+    });
+    openVideoPanel();
+
+    // Default store order (set in beforeEach) is H.265 first, H.264 second.
+    const items = screen.getAllByText(/^H\.26[45] /);
+    expect(items.map((el) => el.textContent)).toEqual(['H.265 (HEVC)', 'H.264 (AVC)']);
+  });
+
+  it('removing H.264 updates the store and offers it back under Available', async () => {
+    await act(async () => {
+      render(<FallbackTab />);
+    });
+    openVideoPanel();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /remove h\.264 \(avc\) from fallback chain/i })
+    );
+
+    expect(useSettingsStore.getState().settings.video_codec_fallback_chain).toEqual(['h265']);
+    expect(
+      screen.getByRole('button', { name: /add h\.264 \(avc\) back to fallback chain/i })
+    ).toBeInTheDocument();
+  });
+
+  it('moving H.264 above H.265 updates the store', async () => {
+    await act(async () => {
+      render(<FallbackTab />);
+    });
+    openVideoPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: /move h\.264 \(avc\) up/i }));
+
+    expect(useSettingsStore.getState().settings.video_codec_fallback_chain).toEqual([
+      'h264',
+      'h265',
+    ]);
+  });
+
+  it('cannot remove the last remaining codec', async () => {
+    // Start from a chain that already has only one codec, so the "last
+    // remaining item" guard is the thing actually under test here.
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        video_codec_fallback_chain: ['h265'],
+      },
+    });
+
+    await act(async () => {
+      render(<FallbackTab />);
+    });
+    openVideoPanel();
+
+    const removeButton = screen.getByRole('button', {
+      name: /remove h\.265 \(hevc\) from fallback chain/i,
+    });
+    expect(removeButton).toBeDisabled();
+
+    fireEvent.click(removeButton);
+    expect(useSettingsStore.getState().settings.video_codec_fallback_chain).toEqual(['h265']);
   });
 });
 

@@ -161,15 +161,15 @@ Yes. MeedyaDL accepts personal library URLs that use the `music.apple.com/librar
 The maximum quality levels available are:
 
 - **Audio**: ALAC at 24-bit/192kHz (Hi-Res Lossless). This provides the highest fidelity audio reproduction available on Apple Music.
-- **Video**: 2160p (4K) resolution.
+- **Video**: 2160p (4K) resolution, which is a ceiling rather than a specific request -- see below.
 
-Note that not all content is available at maximum quality. When the highest quality is not available for a particular track or video, the fallback system handles this automatically by selecting the next best option.
+Not all content is available at the highest audio codec: when your preferred audio codec is unavailable for a track, the fallback system automatically selects the next best option from your configured chain. Video resolution works differently -- it isn't something that can be "unavailable" in the first place, because it's a maximum rather than a request: ask for 4K and Apple Music simply gives you the best quality it has at or below that, in one attempt, with nothing to fall back from.
 
 See [Quality Settings](quality-settings.md) for a full comparison of all quality tiers.
 
 ### What happens if my preferred quality is not available?
 
-MeedyaDL includes a fallback quality system that automatically selects the next best available quality when your preferred option is unavailable. The fallback chain is configurable, so you control which alternatives the app tries and in what order. See [Fallback Quality](fallback-quality.md) for details on how this works and how to configure it.
+For **codecs** -- both audio and video -- MeedyaDL includes a fallback system that automatically selects the next codec in your configured chain when your preferred one is unavailable. Each chain is configurable, so you control which alternatives the app tries and in what order. For **video resolution**, there's nothing to fall back through: it's a ceiling, and Apple Music always returns the best quality at or below it. See [Fallback Quality](fallback-quality.md) for details on how the codec chains work and why resolution doesn't have one.
 
 ### What is the difference between AAC and ALAC?
 

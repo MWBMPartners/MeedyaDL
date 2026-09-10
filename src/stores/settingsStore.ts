@@ -80,8 +80,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
   clipboard_monitoring: true, // Monitor clipboard for supported URLs
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
-  default_video_resolution: '2160p', // Preferred video quality: 4K
-  default_video_codec_priority: 'h265,h264', // Try H.265 first, fall back to H.264
+  default_video_resolution: '2160p', // Preferred video quality ceiling: 4K
   default_video_remux_format: 'm4v', // Container format for remuxed music videos
   fallback_enabled: true, // Enable quality fallback chains when preferred unavailable
   // Music codec fallback chain: tried in order when `default_song_codec` is unavailable
@@ -93,17 +92,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     'aac', // 5th -- standard AAC 256kbps
     'aac-legacy', // 6th -- legacy AAC (44.1kHz cap)
   ],
-  // Video resolution fallback chain: tried in order when preferred resolution unavailable
-  video_fallback_chain: [
-    '2160p', // 4K
-    '1440p', // QHD
-    '1080p', // Full HD
-    '720p', // HD
-    '540p', // qHD
-    '480p', // SD
-    '360p', // Low
-    '240p', // Lowest
-  ],
+  // Video codec fallback chain: the download tool tries these in order, in
+  // one run, for music video downloads. H.265 first because it is smaller
+  // at the same quality and the only codec offered above 1080p; H.264 kept
+  // as a fallback because it plays on almost anything.
+  video_codec_fallback_chain: ['h265', 'h264'],
   companion_mode: 'atmos_to_lossless', // Atmos → also download ALAC companion (default)
   custom_companion_codecs: [], // Only relevant when companion_mode is 'custom'
   music_video_companion: false, // Disabled by default — requires MusicKit credentials

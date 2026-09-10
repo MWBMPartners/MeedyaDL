@@ -1308,6 +1308,22 @@ impl DownloadQueue {
             return None;
         }
 
+        // This function's chain is `settings.music_fallback_chain` — the
+        // AUDIO codec chain. A music video must never fall into it. Without
+        // this check, a music video that GAMDL could not download in any
+        // of the allowed VIDEO codecs would be retried here with a
+        // different AUDIO codec instead: the activity log would say
+        // something like "trying atmos", but nothing about the video would
+        // actually change, and the retry would download nothing — GAMDL
+        // already tried every video codec it was allowed to use, by
+        // itself, in the one run it already made (see the doc comment on
+        // `VideoCodec`: GAMDL steps through the whole video codec chain in
+        // a single process, so there is no separate "next video codec"
+        // step for MeedyaDL to drive the way there is for audio).
+        if urls_are_all_music_videos(&item.status.urls) {
+            return None;
+        }
+
         // Advance to the next codec in the fallback chain
         item.fallback_index += 1;
 

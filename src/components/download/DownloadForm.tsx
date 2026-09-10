@@ -1230,7 +1230,7 @@ export function DownloadForm() {
                */}
               <Select
                 label="Video Resolution"
-                description="Override the default video resolution for this download"
+                description="The highest resolution to accept for this download. This is a ceiling, not a request — you get the closest quality at or below it, so this can never make a video unavailable."
                 options={resolutionOptions}
                 value={overrideOptions?.music_video_resolution || ''}
                 onChange={(e) => {

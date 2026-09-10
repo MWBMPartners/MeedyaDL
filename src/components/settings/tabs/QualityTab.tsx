@@ -13,8 +13,9 @@
  *     `settings.default_song_codec` and GAMDL's `--song-codec` flag.
  *
  *   - **Enable Fallback Chain** -- Whether to automatically try the next
- *     codec in the fallback chain when the preferred codec is unavailable.
- *     Maps to `settings.fallback_enabled`. The actual fallback order is
+ *     option in each fallback chain when the first choice is unavailable.
+ *     Covers both songs and music videos. Maps to `settings.fallback_enabled`.
+ *     The actual chain order (for both audio and video codecs) is
  *     configured in the separate {@link FallbackTab}.
  *
  *   - **Companion Downloads** -- Controls automatic multi-format downloads.
@@ -27,14 +28,12 @@
  *     compilations, singles, etc.). Maps to `settings.artist_auto_select`.
  *     Requires GAMDL 2.9.1+.
  *
- *   - **Default Video Resolution** -- The preferred resolution for music
- *     video downloads (e.g., 2160p for 4K). Maps to
- *     `settings.default_video_resolution`.
- *
- *   - **Video Codec Priority** -- A reorderable list of video codecs
- *     tried in order (H.265/HEVC and H.264/AVC). Stored internally as a
- *     comma-separated string in `settings.default_video_codec_priority`;
- *     the UI converts to/from an array at the boundary.
+ *   - **Maximum Video Resolution** -- The highest resolution to accept for
+ *     music video downloads. This is a ceiling, not a request: the download
+ *     tool always finds the closest quality at or below it, so it can never
+ *     make a video unavailable. Maps to `settings.default_video_resolution`.
+ *     The video *codec* order -- the setting that genuinely can make a
+ *     video unavailable -- lives in {@link FallbackTab}, not here.
  *
  *   - **Video Remux Format** -- The output container format for remuxed
  *     video files (M4V, MP4, or MKV). Maps to
@@ -46,9 +45,9 @@
  * other tab components.
  *
  * @see {@link ../SettingsPage.tsx}        -- Parent container
- * @see {@link ./FallbackTab.tsx}          -- Where the fallback chain order is configured
+ * @see {@link ./FallbackTab.tsx}          -- Where the audio/video codec chain order is configured
  * @see {@link @/stores/settingsStore.ts}  -- Zustand store
- * @see {@link @/types/index.ts}           -- SongCodec, VideoResolution, CompanionMode types
+ * @see {@link @/types/index.ts}           -- SongCodec, VideoResolution, VideoCodec, CompanionMode types
  */
 
 // Audit v2 #6 — per-field Zustand binding.
@@ -61,19 +60,17 @@ import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
 // Shared form components.
 import { Select, Toggle, FallbackChainList, CheckboxGroup, SettingsSection } from '@/components/common';
 
-// Label maps and type definitions for audio codecs, video resolutions, video codecs, and companion modes.
+// Label maps and type definitions for audio codecs, video resolutions, and companion modes.
 // These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
 import {
   SONG_CODEC_LABELS,
   VIDEO_RESOLUTION_LABELS,
-  VIDEO_CODEC_LABELS,
   COMPANION_MODE_LABELS,
   ARTIST_AUTO_SELECT_LABELS,
 } from '@/types';
 import type {
   SongCodec,
   VideoResolution,
-  VideoCodec,
   CompanionMode,
   ArtistAutoSelect,
   DuplicateDetectionScope,
@@ -96,28 +93,12 @@ const DEDUP_KEY_LABELS: Record<DedupKeyStrategy, string> = {
   song_id_only: 'Song ID only — strictest match',
 };
 
-/** All valid video codec identifiers, used for type-guarding parsed strings. */
-const VALID_VIDEO_CODECS: VideoCodec[] = ['h265', 'h264'];
-
-/**
- * Parses a comma-separated video codec priority string into a typed array.
- * Filters out any invalid values and falls back to the default order if
- * the result is empty (e.g., stored value was blank or entirely invalid).
- */
-function parseVideoCodecPriority(raw: string): VideoCodec[] {
-  const parsed = raw
-    .split(',')
-    .map((s) => s.trim())
-    .filter((s): s is VideoCodec => VALID_VIDEO_CODECS.includes(s as VideoCodec));
-  return parsed.length > 0 ? parsed : [...VALID_VIDEO_CODECS];
-}
-
 /**
  * QualityTab -- Renders the Quality settings tab.
  *
  * Organised into two visual sections:
  *   1. "Audio Quality" -- codec selection, fallback toggle, companion mode
- *   2. "Video Quality" -- resolution, codec priority, and remux format
+ *   2. "Video Quality" -- resolution ceiling and remux format (codec order lives in FallbackTab)
  *
  * Each control's `onChange` calls `updateSettings` with a partial patch,
  * using type assertions (`as SongCodec`, `as VideoResolution`, etc.) to
@@ -133,7 +114,6 @@ export function QualityTab() {
   const artistAutoSelect = useSettingsField('artist_auto_select');
   const dupDetect = useSettingsField('duplicate_detection');
   const videoResolution = useSettingsField('default_video_resolution');
-  const videoCodecPriority = useSettingsField('default_video_codec_priority');
   const videoRemuxFormat = useSettingsField('default_video_remux_format');
   const musicVideoCompanion = useSettingsField('music_video_companion');
   const musicbrainzLookup = useSettingsField('musicbrainz_lookup');
@@ -225,7 +205,7 @@ export function QualityTab() {
         {/* Fallback toggle */}
         <Toggle
           label="Enable Fallback Chain"
-          description="When the preferred codec is unavailable, automatically try the next codec in the fallback chain"
+          description="Covers both songs and music videos. When the preferred codec is unavailable, automatically try the next one in the fallback chain (configured in the Fallback tab). Turning this off means only the first choice of each is ever tried."
           checked={fallbackEnabled.value}
           onChange={fallbackEnabled.set}
         />
@@ -335,29 +315,14 @@ export function QualityTab() {
       {/* Section: Video */}
       <SettingsSection title="Video Quality">
 
-        {/* Default video resolution */}
+        {/* Maximum video resolution */}
         <Select
-          label="Default Video Resolution"
-          description="The preferred resolution for music video downloads"
+          label="Maximum Video Resolution"
+          description="The highest resolution to accept for music video downloads. This is a ceiling, not a request — the download tool always finds the closest quality at or below it, so this setting can never make a video unavailable. See Codec Fallback Order (in the Fallback tab) for the setting that controls which codec is tried first, which is what actually can make a video unavailable."
           options={resolutionOptions}
           value={videoResolution.value}
           onChange={(e) => videoResolution.set(e.target.value as VideoResolution)}
         />
-
-        {/* Video codec priority (reorderable list) */}
-        <div>
-          <label className="block text-sm font-medium text-content-primary mb-1">
-            Video Codec Priority
-          </label>
-          <p className="text-xs text-content-secondary mb-2">
-            Order of preferred video codecs for music video downloads (top = tried first)
-          </p>
-          <FallbackChainList<VideoCodec>
-            items={parseVideoCodecPriority(videoCodecPriority.value)}
-            labels={VIDEO_CODEC_LABELS}
-            onChange={(codecs) => videoCodecPriority.set(codecs.join(','))}
-          />
-        </div>
 
         {/* Remux format */}
         <Select

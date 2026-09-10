@@ -66,11 +66,16 @@ export type SongCodec =
 /**
  * Video resolution options for GAMDL's `--music-video-resolution` CLI flag.
  *
- * Mirrors: Rust enum `VideoResolution` in `src-tauri/src/models/settings.rs`
+ * Mirrors: Rust enum `VideoResolution` in `src-tauri/src/models/gamdl_options.rs`
  *
- * These represent the maximum resolution GAMDL will attempt to download
- * for music videos. If the requested resolution is unavailable, GAMDL
- * falls back to the next lower available resolution.
+ * This is a **ceiling**, not a request. The download tool looks at every
+ * quality the video actually comes in and picks the one closest to this
+ * value without going over it. If the video was never offered at this
+ * resolution or higher, it falls back to the lowest quality that IS above
+ * the ceiling. Either way, the tool always finds something to download —
+ * a resolution on its own can never make a video unavailable. Only the
+ * codec list (see {@link VideoCodec}) can do that, because a codec the
+ * video simply isn't offered in has nothing for the tool to pick.
  *
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types}
  */
@@ -88,11 +93,20 @@ export type VideoResolution =
  * Video codec options for GAMDL's `--music-video-codec-priority` CLI flag.
  *
  * Apple Music supports two video codecs for music videos:
- * - `h265`: H.265/HEVC (High Efficiency Video Coding) -- better quality at lower bitrates
- * - `h264`: H.264/AVC (Advanced Video Coding) -- wider compatibility
+ * - `h265`: H.265/HEVC (High Efficiency Video Coding) -- better quality at lower bitrates,
+ *   and the only codec offered above 1080p
+ * - `h264`: H.264/AVC (Advanced Video Coding) -- wider compatibility, never offered above 1080p
  *
- * The priority order determines which codec GAMDL tries first when downloading
- * music videos. Stored as a comma-separated string internally (e.g., "h265,h264").
+ * The download tool tries the list in order and downloads the video using the
+ * first codec it is actually offered in. If none of the codecs in the list
+ * are offered, the video is skipped as unavailable -- this is the one part
+ * of video quality that genuinely can be unavailable (see the comment on
+ * {@link VideoResolution} for why resolution never works that way).
+ *
+ * The tool's own codec list also accepts an "ask" value, which opens a
+ * picker in a terminal so a person can choose by hand. This app never offers
+ * that value, because it always runs the tool with its output captured and
+ * no terminal attached -- there would be nowhere for the picker to appear.
  *
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types}
  */
@@ -378,6 +392,14 @@ export const VIDEO_CODEC_LABELS: Record<VideoCodec, string> = {
   h264: 'H.264 (AVC)',
 };
 
+/**
+ * Every video codec the app knows about, best quality first. Mirrors Rust
+ * `VideoCodec::ALL` in `src-tauri/src/models/gamdl_options.rs`. Used to
+ * populate the "Available" panel in the video codec fallback chain editor,
+ * the same way the audio chain's equivalent list works.
+ */
+export const ALL_VIDEO_CODECS: readonly VideoCodec[] = ['h265', 'h264'];
+
 // ============================================================
 // GAMDL Options (maps to every CLI flag)
 // ============================================================
@@ -587,18 +609,22 @@ export interface AppSettings {
   clipboard_monitoring: boolean;
   /** Default audio codec for song downloads */
   default_song_codec: SongCodec;
-  /** Default maximum video resolution */
+  /** The highest video resolution to accept for music video downloads. This
+   * is a ceiling, not a request -- see the comment on {@link VideoResolution}
+   * for why a resolution can never make a video unavailable. */
   default_video_resolution: VideoResolution;
-  /** Default codec priority string for music videos */
-  default_video_codec_priority: string;
   /** Default container format for remuxed music videos */
   default_video_remux_format: string;
-  /** Whether fallback codec/resolution chains are enabled */
+  /** Whether fallback chains are enabled. Covers both songs and music
+   * videos; when off, only the first choice in each chain is tried. */
   fallback_enabled: boolean;
   /** Ordered list of codecs to try if the primary codec is unavailable */
   music_fallback_chain: SongCodec[];
-  /** Ordered list of resolutions to try if the primary resolution is unavailable */
-  video_fallback_chain: VideoResolution[];
+  /** Ordered list of video codecs the download tool tries, in one run, for
+   * music video downloads -- the video counterpart of `music_fallback_chain`.
+   * See {@link VideoCodec} for why a codec (not a resolution) is what
+   * genuinely steps down for video. */
+  video_codec_fallback_chain: VideoCodec[];
   /** Companion download mode: controls automatic multi-format downloads */
   companion_mode: CompanionMode;
   /** User-selected codecs for Custom companion mode. Ignored when companion_mode is not 'custom'. */

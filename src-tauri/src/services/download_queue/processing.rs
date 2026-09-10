@@ -1053,21 +1053,48 @@ pub fn process_queue(
                                         process_queue(app_clone.clone(), queue_clone.clone()).await;
                                         return;
                                     }
-                                    // Fallback chain exhausted — fall through to error below
+                                    // Fallback chain exhausted — fall through to error below.
+                                    //
+                                    // A music video never gets a real fallback here in
+                                    // the first place — `try_fallback()` refuses one for
+                                    // a music video (see `mod.rs`), because this chain
+                                    // (`music_fallback_chain`) is the AUDIO codec chain.
+                                    // So a music video that ran out of allowed video
+                                    // codecs always lands in this branch, having already
+                                    // had GAMDL try every video codec it was allowed to
+                                    // use, by itself, in the one run it already made. Say
+                                    // the right thing for what was actually being
+                                    // downloaded (#1155's lesson, applied here too) — the
+                                    // "audio formats" wording names a setting with no
+                                    // bearing on why a music video failed.
                                     let content_label = q
                                         .items
                                         .iter()
                                         .find(|i| i.status.id == dl_id)
                                         .map(|i| format_content_label(&i.status))
                                         .unwrap_or_else(|| "unknown content".to_string());
-                                    emit_download_log(
-                                        &app_clone,
-                                        &dl_id,
-                                        &format!(
+                                    let is_music_video = q
+                                        .items
+                                        .iter()
+                                        .find(|i| i.status.id == dl_id)
+                                        .is_some_and(|i| {
+                                            super::helpers::urls_are_all_music_videos(
+                                                &i.status.urls,
+                                            )
+                                        });
+                                    let exhausted_msg = if is_music_video {
+                                        format!(
+                                            "This music video is not available in any \
+                                             of the video codecs you allow — \
+                                             {content_label}"
+                                        )
+                                    } else {
+                                        format!(
                                             "All audio formats exhausted for {content_label} \
                                              — no compatible format found"
-                                        ),
-                                    );
+                                        )
+                                    };
+                                    emit_download_log(&app_clone, &dl_id, &exhausted_msg);
                                 }
                             }
 
@@ -1272,9 +1299,9 @@ pub fn process_queue(
                                     if is_music_video {
                                         "This music video is not available in any of \
                                      the video formats you allow. Try adding another \
-                                     video codec in Settings > Quality > Video \
-                                     Quality, or check that the video exists in your \
-                                     storefront."
+                                     video codec in Settings > Codec Fallback Order \
+                                     > Video Fallback, or check that the video \
+                                     exists in your storefront."
                                             .to_string()
                                     } else {
                                         "No audio available: Apple Music does not offer \
@@ -4422,21 +4449,40 @@ pub fn process_queue(
                             );
                                 true
                             } else {
+                                // Same reasoning as the other "chain exhausted" site
+                                // above: a music video never gets a real fallback out
+                                // of `try_fallback()` — that chain is the AUDIO codec
+                                // chain — so a music video landing here already had
+                                // GAMDL try every video codec it was allowed to use,
+                                // by itself, in the one run it made. Name the actual
+                                // setting (#1155's lesson): "audio formats" points
+                                // nowhere useful for a video.
                                 let content_label = q
                                     .items
                                     .iter()
                                     .find(|i| i.status.id == dl_id)
                                     .map(|i| format_content_label(&i.status))
                                     .unwrap_or_else(|| "unknown content".to_string());
+                                let is_music_video = q
+                                    .items
+                                    .iter()
+                                    .find(|i| i.status.id == dl_id)
+                                    .is_some_and(|i| {
+                                        super::helpers::urls_are_all_music_videos(&i.status.urls)
+                                    });
                                 drop(q);
-                                emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    &format!(
+                                let exhausted_msg = if is_music_video {
+                                    format!(
+                                        "This music video is not available in any of \
+                                         the video codecs you allow — {content_label}"
+                                    )
+                                } else {
+                                    format!(
                                         "All audio formats exhausted for {content_label} \
                                          — download failed"
-                                    ),
-                                );
+                                    )
+                                };
+                                emit_download_log(&app_clone, &dl_id, &exhausted_msg);
                                 false
                             }
                         }
