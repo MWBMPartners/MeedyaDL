@@ -547,7 +547,8 @@ export interface GamdlCapabilities {
   /**
    * ≥3.8 — GAMDL's `/v1/play/assets` endpoint unlocks every non-web song
    * codec except ALAC for wrapper-less downloads (#963, #1002). Drives
-   * version-aware prose (e.g. the Fallback tab's wrapper-dependency note)
+   * version-aware prose (e.g. the "Codec Fallback Order" tab's
+   * wrapper-dependency note)
    * via the `useGamdlCapabilities` hook. Does NOT change the codec
    * dropdown's `(Experimental)` labels, which stay unconditional (#965).
    */

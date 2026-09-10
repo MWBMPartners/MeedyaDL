@@ -1,11 +1,11 @@
 ---
 name: project-audit-checks-inventory
-description: The nine cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
+description: The ten cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
 metadata:
   type: project
 ---
 
-# The nine scripts in `tools/audit-checks/`
+# The ten scripts in `tools/audit-checks/`
 
 Each script checks that one part of the codebase still agrees with another
 part — the kind of thing that no compiler catches, because both sides are
@@ -44,12 +44,22 @@ and are runnable locally with nothing beyond Python 3's standard library.
   the "compiles fine, fails at runtime with command not found" class.
 - **`check_codec_registry.py`** — every meta-codec's `resolves_to` target
   in `codecs.toml` is a real concrete codec section, and every concrete
-  codec's `services.gamdl` value is a real `SongCodec` Rust enum variant.
-  Catches a renamed or removed codec left pointing at nothing.
+  codec's `services.gamdl` value is a real Rust enum variant — `SongCodec`
+  for audio (kebab-case names) and `VideoCodec` for video (lowercase names
+  with no dashes). Catches a renamed or removed codec left pointing at
+  nothing.
 - **`check_user_agent.py`** — every outbound HTTP request sets its
   User-Agent through one of the four named constants/functions in
   `http_client.rs`, never a hand-typed string literal that could silently
   drift out of sync with the app's own version number.
+- **`check_settings_reach_backend.py`** — every field in `AppSettings`
+  that the app lets someone change (through `useSettingsField('x')` or an
+  `updateSettings({...})` call) is either read somewhere in
+  `src-tauri/src`, or listed in the script's `FRONTEND_ONLY` dictionary
+  with a reason somebody has checked. Catches a setting with a working
+  control that saves correctly and changes nothing, because nothing
+  downstream ever reads it — the shape the old video "resolution fallback"
+  list turned out to be (#1176).
 - **`check_tauri_version_sync.py`** — the Tauri npm package and the Tauri
   Rust crate agree on major.minor version, reproducing the exact check the
   Tauri CLI itself runs (and refuses to build past if it fails).

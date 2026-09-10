@@ -3,7 +3,7 @@
 //
 // Multi-select checkbox group component.
 // Renders a list of labeled checkboxes for selecting multiple options
-// from a set. Used by the Quality settings tab for custom companion
+// from a set. Used by the "Codec & Resolution" settings tab for custom companion
 // codecs and multi-select artist auto-select modes.
 
 import { HelpButton } from './HelpButton';

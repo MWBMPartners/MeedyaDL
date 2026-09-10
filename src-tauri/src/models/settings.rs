@@ -1134,8 +1134,9 @@ pub struct AppSettings {
     ///    ISRC codes. No credentials required. Apple Music URLs found
     ///    here are downloaded via GAMDL.
     ///
-    /// Music videos use the video quality settings from Settings > Quality
-    /// (resolution, codec priority, remux format).
+    /// Music videos use the video settings from Settings > Codec &
+    /// Resolution (maximum resolution, remux format), and the order the
+    /// codecs are tried in from Settings > Codec Fallback Order.
     #[serde(default)]
     pub music_video_companion: bool,
 
@@ -1744,7 +1745,7 @@ pub struct AppSettings {
     /// (the default), no data is ever sent -- crash reports are only saved
     /// locally to `{app_data_dir}/crashes/`.
     ///
-    /// Controlled in Settings > Advanced > Crash Reporting.
+    /// Controlled in Settings > Advanced > Error Reporting.
     #[serde(default)]
     pub sentry_enabled: bool,
 
@@ -1944,10 +1945,15 @@ pub struct AppSettings {
     // ================================================================
     // UI State
     // ================================================================
-    // These fields persist UI layout preferences across sessions. They
-    // have no effect on GAMDL CLI arguments.
-    /// Whether the sidebar navigation panel is collapsed. Persisted so
-    /// the UI remembers the user's preferred layout between sessions.
+    // UI layout preferences. They have no effect on GAMDL CLI arguments.
+    // Each field below says whether it is actually written back.
+    /// Whether the sidebar navigation panel is collapsed. Read once at
+    /// startup (see `App.tsx`'s sidebar-sync effect), but the sidebar's
+    /// own collapse button deliberately does not write it back — so today
+    /// the choice does not survive a restart. See the long note on
+    /// `toggleSidebar()` in `src/stores/uiStore.ts` for why writing it
+    /// back from there would have discarded unsaved settings edits, and
+    /// #1175 for the follow-up that gives it its own narrow save.
     pub sidebar_collapsed: bool,
 
     /// Override the platform theme. `None` = auto-detect from the OS
