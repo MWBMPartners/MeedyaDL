@@ -100,7 +100,7 @@ To configure the fallback chains:
    - **Audio Fallback** -- The ordered list of audio codecs used for fallback.
    - **Video Fallback** -- The ordered list of video codecs used for fallback.
 
-Changes made here take effect immediately for all subsequent downloads.
+Like every other setting on this screen, changes here only take effect once you click **Save Changes** -- reordering or editing a chain by itself only changes what you see on screen, not what MeedyaDL actually uses.
 
 ### Reordering the Fallback Chain
 
@@ -111,7 +111,7 @@ You can fully customize the order and contents of each fallback chain:
 - **Adding a codec back** -- click the + button next to any entry in the **Available** panel to append it to the bottom of the active chain (lowest priority). Use the up arrow to move it earlier if needed.
 - **Safety guard** -- the × button on the only remaining row of a chain is disabled, so you can never remove every codec from either list through the settings screen. For audio, this matters because an empty chain really would leave nothing to try -- every download in that category would fail. Video is different: if its chain is ever empty for some other reason (for example, an old settings file being read in), MeedyaDL quietly falls back to the tool's own recommended codec order instead of failing -- but the × button still stops you emptying it by hand, so what you see in the list is always what is actually used.
 
-Your customized chains are saved automatically and persist across application restarts.
+Your customized chains persist across application restarts once you click **Save Changes** -- they are not saved automatically as you edit them.
 
 ### Disabling Fallback
 
