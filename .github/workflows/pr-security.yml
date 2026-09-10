@@ -31,7 +31,8 @@
 #                                                build-secret wiring, help docs, i18n translation catalogue,
 #                                                comment-mentioned file paths, parallel/concurrent claims in
 #                                                comments, a setting the app lets you change that the backend
-#                                                never reads)
+#                                                never reads, updater manifest platform keys written down
+#                                                anywhere but the one shared release script)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -545,6 +546,24 @@ jobs:
           DEAD_SETTINGS=$(python3 tools/audit-checks/check_settings_reach_backend.py 2>&1 || true)
           if echo "$DEAD_SETTINGS" | grep -q '•'; then
             add_section "A setting the app lets you change, that the backend never reads" "$(echo "$DEAD_SETTINGS" | grep -A100 '###')"
+          fi
+          # The list of machines the app can offer an update to used to be
+          # typed out by hand in three separate places, and on 2026-09-10
+          # six Linux .deb/.rpm entries were added to one of them and not
+          # the other two. The repair tool would then have DELETED six
+          # working update paths, and the checker sitting next to it would
+          # have called the result complete — because that checker's idea
+          # of "complete" came from the same six hand-written names as the
+          # thing it was checking. There is now one list, in
+          # scripts/release/updater-manifest.sh, and this check enforces
+          # that no workflow names one of these keys in code at all. It
+          # reports EVERY key it finds, not only unfamiliar ones: all six
+          # keys in the original bug were perfectly real, and the problem
+          # was that they had been written down twice. Whole-repo, because
+          # a second copy can live in a workflow this PR never opened.
+          MANIFEST_KEYS=$(python3 tools/audit-checks/check_updater_manifest_keys.py 2>&1 || true)
+          if echo "$MANIFEST_KEYS" | grep -q '•'; then
+            add_section "Updater manifest key drift (keys listed outside the shared script)" "$(echo "$MANIFEST_KEYS" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

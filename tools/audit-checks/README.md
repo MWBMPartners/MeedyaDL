@@ -29,6 +29,7 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | `check_comment_paths.py` | Every file path mentioned in a Rust/TypeScript/JavaScript/Python comment (starting with a real top-level directory of this repo — `src/`, `src-tauri/`, etc.) actually exists on disk. | A file gets renamed or moved and every comment that used to point at it keeps pointing at the old name forever — nothing about renaming a file touches the text of a comment sitting in some other file. An audit found eleven of these at once, none caught until someone happened to re-read the comment. |
 | `check_concurrency_claims.py` | Every comment containing the word "parallel" or "concurrently" sits inside (or immediately above) a block of code that actually contains one of `join!`, `join_all`, `try_join`, `spawn`, `Promise.all`, `allSettled`. Deliberately a rough heuristic — see the script's own docstring — with a documented `EXCEPTIONS` list for claims that are true but whose mechanism lives elsewhere. | A comment claiming two things happen at the same time when the code actually awaits them one after another — in Rust, a future does nothing until it is polled, so building two futures and awaiting each in turn is sequential no matter what a comment says. An audit found five of these, including one where the futures actually were built together but then awaited one at a time immediately below. |
 | `check_settings_reach_backend.py` | Every field in `pub struct AppSettings` that the app lets someone change (`useSettingsField('x')` or an `x:` key inside an `updateSettings({...})` call) is either read somewhere in `src-tauri/src` (a `.x` token outside `models/settings.rs` itself), or listed in the script's `FRONTEND_ONLY` dictionary with a checked, honest reason (the theme, the UI language, and other things genuinely acted on by the frontend alone). | A setting with a working UI control, that saves correctly, round-trips through the store perfectly, and changes nothing — because nothing downstream ever reads the value. This is exactly the shape the video "resolution fallback" list turned out to be: it looked exactly as meaningful as every setting next to it. |
+| `check_updater_manifest_keys.py` | No workflow file names an updater platform key (`linux-x86_64-deb`, `darwin-aarch64`, …) in code. The one and only list of them is `manifest_rows()` in `scripts/release/updater-manifest.sh`, which both the release workflow and the manual repair tool call. **Every** key found in a workflow is reported, not only unfamiliar ones — and an empty or unreadable `manifest_rows()` is itself a finding, so the check says when it has stopped being able to check anything. | The list of machines the app can offer an update to was typed out by hand in three places at once. Six Linux `.deb`/`.rpm` entries were added to one of them; the repair tool would have deleted those six working update paths from any release it was pointed at, and the checker beside it would have called the result "complete" — because that checker's idea of complete came from the same six hand-written names as the thing it was checking. A machine missing from that file is never offered an update, quietly, with nothing failing anywhere. |
 
 ## Running locally
 
@@ -44,6 +45,7 @@ python3 tools/audit-checks/check_i18n.py
 python3 tools/audit-checks/check_comment_paths.py
 python3 tools/audit-checks/check_concurrency_claims.py
 python3 tools/audit-checks/check_settings_reach_backend.py
+python3 tools/audit-checks/check_updater_manifest_keys.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
 python3 tools/audit-checks/check_ipc_commands.py --strict
@@ -56,6 +58,7 @@ python3 tools/audit-checks/check_i18n.py --strict
 python3 tools/audit-checks/check_comment_paths.py --strict
 python3 tools/audit-checks/check_concurrency_claims.py --strict
 python3 tools/audit-checks/check_settings_reach_backend.py --strict
+python3 tools/audit-checks/check_updater_manifest_keys.py --strict
 ```
 
 ## Conventions
@@ -84,6 +87,20 @@ python3 tools/audit-checks/check_settings_reach_backend.py --strict
   not lint nags — a check that cries wolf on day one gets ignored. Add a
   negative test (inject the drift, confirm it's caught, revert) when you add
   or change a check.
+
+  Better still, make that negative test a file anyone can run, so it keeps
+  proving itself rather than being done once and forgotten. Two exist:
+  `check_user_agent.py --self-test` (fixtures inside the script itself) and
+  `test_check_updater_manifest_keys.py` (a separate file that builds small,
+  deliberately-broken fake repositories and runs the real check against them
+  as a subprocess). A check nobody has ever seen fail is not evidence of
+  anything — from the outside, "caught nothing because there was nothing" and
+  "caught nothing because it stopped looking" print the same tick.
+
+  ```bash
+  python3 tools/audit-checks/check_user_agent.py --self-test
+  python3 tools/audit-checks/test_check_updater_manifest_keys.py
+  ```
 - **Default exit 0, `--strict` exit 1.** CI runs them advisory; local hooks
   can opt into blocking.
 
