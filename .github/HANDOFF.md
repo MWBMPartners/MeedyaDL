@@ -1,17 +1,80 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-10 — see ★★★★ below
-**Working branch:** none. Everything is **merged into `alpha`**. PR #1174 was rebase-merged on 2026-09-10, so all 87 commits landed individually and each kept its own `Release-Note:` trailer. `work/alpha-resilience-and-docs` is finished with; do not push to it again.
+**Last updated:** 2026-09-10 (later) — see ★★★★ below
+**Working branch:** `work/video-quality-fallback`, rooted on `alpha`. Pushed, **not yet in a pull request** — everything goes to `alpha` in one pull request later, no stacking. The previous branch (`work/alpha-resilience-and-docs`) was merged as PR #1174 and is finished with.
 
-**Channel versions at that merge:** `main` **1.10.7** · `alpha` **1.13.0-alpha.63** · `beta` **1.9.4-beta.5** · `release-candidate` **1.0.0-rc.37**.
-
-**Prior feature lineage (still-useful history):** `claude/gamdl-v3-8-5-review-gs36zl` was merged into `alpha` (PR #1082, merge commit `38e34979`) on 2026-08-11 and auto-deleted — the last big single-PR-to-`alpha` drop before this one.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.64** · `beta` **1.9.4-beta.5** · `release-candidate` **1.0.0-rc.37**.
 
 Read top-to-bottom before continuing. **This is the single canonical handoff.** Do not create a second one under `.claude/` — see `project_session_handoff_pointer` for why.
 
 ---
 
-## ★★★★ LATEST — Session 2026-09-09/10: the queue finished, then five whole-codebase sweeps → **MERGED to alpha (#1174)**
+## ★★★★ LATEST — Session 2026-09-10 (later): music videos step down through codecs (#1176)
+
+> **PICK UP HERE.** Branch `work/video-quality-fallback`, four commits, pushed. No pull request
+> yet — it joins `alpha` later, in one pull request with anything else queued behind it.
+
+### What this is
+
+Music videos should step down through the video codecs you choose, the way audio does.
+
+### I had this wrong, and the correction matters
+
+An earlier commit of mine (`026dee36`) concluded music videos never step down at all, removed the
+help text saying they did, and left the stored list doing nothing. Reading the download tool's
+own source settles it:
+
+- **The codec does step down**, natively. The tool walks your ordered list and takes the first
+  codec the video is offered in, in one run. I was wrong, and removed correct help on that basis.
+- **The resolution is a ceiling**, which I had right. Closest at or below; if everything exceeds
+  it, the lowest above. It can never make a video unavailable.
+
+So the list in Settings was the wrong list: it held **resolutions**, which cannot matter, while
+the codec order — which does — was hand-typed text nothing validated. A typo there made the tool
+reject the whole command and **every** download fail.
+
+### What is on the branch
+
+- Video codec order is now a proper reorderable list beside the audio one, with remove and re-add.
+- The resolution list is gone. Old settings files are read either way; unrecognised entries are
+  dropped with a note rather than the file being refused.
+- "Enable Fallback Chain" now covers videos as well as songs.
+- **A failed music video was being retried with a different audio codec** — up to five pointless
+  runs, with the log saying "trying atmos" for a video. Fixed, with a test that fails without it.
+- Two new checks: video codec names validated against what the tool accepts, and one that reports
+  **any setting the app lets you change that nothing in the backend reads**.
+
+### The review process, and what it caught — read this bit
+
+Four rounds. **Every round found faults in the previous round's fixes.**
+
+- Round one: nine faults.
+- Round two: found that a round-one fix was **worse than the bug it fixed**. I had made the
+  sidebar's collapsed state save itself — but the only save available writes *every* setting, and
+  the Settings screen is explicit-save. So pressing Reset, changing your mind, then collapsing the
+  sidebar would have written the defaults over your real settings. **Backed out entirely; tracked
+  as #1175 with both failed attempts recorded so nobody repeats them.**
+- Round three: a sentence I had written said the opposite of the truth ("at this resolution or
+  higher" where it must be "or below"), and careful wording added in round two had gone into one
+  of three places that needed it.
+- Round four: pending — Codex, once its usage limit resets.
+
+Worth remembering: in round one I added a check whose whole job is finding settings nothing reads,
+and **in the same commit added a setting it flagged** — and did not read its output.
+
+### Still to do on this branch
+
+1. **Codex review** (rounds so far were a different model, because Codex hit its usage limit at
+   about 11:20 and resets at 13:30). Run it, fix, repeat until clean.
+2. The wider documentation sweep the maintainer asked for, including whether this project has any
+   API worth documenting with OpenAPI/Swagger. It is a desktop app with no HTTP server, so the
+   likely honest answer is no — `project_api_surface_determination` already records that
+   determination; check it still holds before doing anything.
+3. Open the pull request to `alpha` when the queue is done. **One pull request, no stacking.**
+
+---
+
+## ★★★ Session 2026-09-09/10: the queue finished, then five whole-codebase sweeps → **MERGED to alpha (#1174)**
 
 > **PICK UP HERE.** There is no working branch. Everything below is on `alpha`.
 
