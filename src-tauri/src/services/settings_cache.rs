@@ -154,10 +154,12 @@ mod tests {
     fn clearing_the_one_shot_action_leaves_every_other_setting_alone() {
         let cache = SettingsCache::new();
 
-        let mut before = AppSettings::default();
-        before.after_queue_once = Some(crate::models::settings::AfterQueueAction::ShutdownComputer);
-        before.output_path = "/somewhere/the/person/chose".to_string();
-        before.verbose_activity_log = true;
+        let before = AppSettings {
+            after_queue_once: Some(crate::models::settings::AfterQueueAction::ShutdownComputer),
+            output_path: "/somewhere/the/person/chose".to_string(),
+            verbose_activity_log: true,
+            ..Default::default()
+        };
         cache.refresh(before.clone());
 
         let after = cache
@@ -174,8 +176,7 @@ mod tests {
         // serialised form means a field added to AppSettings in future is
         // covered here automatically, without anyone remembering to come
         // back and extend this test.
-        let mut expected = before;
-        expected.after_queue_once = None;
+        let expected = AppSettings { after_queue_once: None, ..before };
         assert_eq!(
             serde_json::to_value(&after).expect("serialise the changed settings"),
             serde_json::to_value(&expected).expect("serialise the expected settings"),
