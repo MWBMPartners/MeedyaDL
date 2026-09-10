@@ -13,6 +13,22 @@
  *
  * **Position options:** top (default), bottom, left, right.
  *
+ * **Accessibility (a11y audit Fix 14):**
+ * - The tooltip text is linked to the trigger element via `aria-describedby`,
+ *   so a screen reader announces it as part of the trigger, not as an
+ *   unconnected floating box the user has to go hunting for.
+ * - Escape hides the tooltip -- the same key that closes every other
+ *   floating UI in this app.
+ * - The bubble no longer uses `pointer-events-none`. That sounds harmless
+ *   but it was the actual cause of "moving the pointer onto the tooltip
+ *   dismisses it": the bubble is a DOM child of the hoverable wrapper, so
+ *   moving the mouse onto it should never count as leaving the wrapper --
+ *   except `pointer-events-none` makes the browser's hit-testing skip
+ *   straight through the bubble to whatever is behind it, which very
+ *   often is NOT the wrapper. The pointer would then look like it had
+ *   left the hoverable area, even though it was sitting right on top of
+ *   the tooltip text.
+ *
  * **Usage across the application:**
  * - Sidebar: tooltips on icon-only navigation buttons.
  * - CookiesTab: helper tooltips on configuration fields.
@@ -23,7 +39,15 @@
  *      MDN -- the ARIA tooltip role.
  */
 
-import { useState, useRef, useEffect, type ReactNode } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 /**
  * Props accepted by the {@link Tooltip} component.
@@ -40,6 +64,14 @@ interface TooltipProps {
    * The trigger element that the user hovers over or focuses to reveal
    * the tooltip. Wrapped inside a relative-positioned <div> for
    * absolute-positioning of the tooltip bubble.
+   *
+   * When this is a single real element (the common case -- an icon, a
+   * button, a piece of text), it is cloned with an `aria-describedby`
+   * pointing at the tooltip bubble so assistive tech announces the
+   * tooltip as a description of that exact element. When it isn't a
+   * single element (a fragment, plain text, several siblings), the
+   * tooltip still shows visually, it just can't be wired up that way --
+   * there is no single DOM node to attach the description to.
    */
   children: ReactNode;
 
@@ -80,6 +112,7 @@ const POSITION_CLASSES: Record<string, string> = {
  *   remains over the trigger for the full 300ms, `visible` is set to true.
  * - On mouse leave (or blur): the timeout is cancelled (if still pending)
  *   and `visible` is set to false immediately.
+ * - On Escape: hidden immediately, same as every other floating UI here.
  *
  * This delay prevents the tooltip from flashing when the user moves the
  * mouse quickly across the trigger without intending to read the tooltip.
@@ -98,6 +131,9 @@ const POSITION_CLASSES: Record<string, string> = {
 export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   /** Whether the tooltip bubble is currently visible */
   const [visible, setVisible] = useState(false);
+
+  /** Stable id for the tooltip bubble, referenced by the trigger's `aria-describedby`. */
+  const tooltipId = useId();
 
   /**
    * Stores the setTimeout id so it can be cleared on mouse leave or unmount.
@@ -125,13 +161,34 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
 
   /**
    * Cancels any pending show delay and hides the tooltip immediately.
-   * Called on mouseleave and blur events.
+   * Called on mouseleave and blur events. Also used to dismiss the
+   * tooltip on the events attached to the (now hoverable, see the
+   * removal of `pointer-events-none` below) bubble itself, so hovering
+   * away from the bubble still closes it.
    */
   const handleMouseLeave = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = null;
     setVisible(false);
   };
+
+  /** Escape dismisses the tooltip, matching every other floating UI in the app. */
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape' && visible) {
+      handleMouseLeave();
+    }
+  };
+
+  // Wire aria-describedby onto the trigger when it is a single real
+  // element -- the common case. Merges with any aria-describedby the
+  // caller already put on that element rather than clobbering it.
+  const trigger = isValidElement<{ 'aria-describedby'?: string }>(children)
+    ? cloneElement(children, {
+        'aria-describedby': [children.props['aria-describedby'], tooltipId]
+          .filter(Boolean)
+          .join(' '),
+      })
+    : children;
 
   return (
     /*
@@ -148,9 +205,11 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
       onMouseLeave={handleMouseLeave}
       onFocus={handleMouseEnter}
       onBlur={handleMouseLeave}
+      onKeyDown={handleKeyDown}
     >
-      {/* Trigger element -- rendered as-is from the consumer */}
-      {children}
+      {/* Trigger element -- rendered as-is from the consumer, with
+          aria-describedby attached when possible (see `trigger` above). */}
+      {trigger}
 
       {/*
        * Tooltip bubble -- only rendered when visible AND content is non-empty.
@@ -159,23 +218,28 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
        * - absolute + z-50: floats above surrounding content.
        * - POSITION_CLASSES[position]: placement-specific offsets.
        * - whitespace-nowrap: prevents the tooltip from line-wrapping.
-       * - pointer-events-none: allows the cursor to pass through the bubble
-       *   so it does not interfere with clicks on nearby elements.
        * - role="tooltip": ARIA role for assistive technologies.
+       * - id={tooltipId}: the target of the trigger's aria-describedby.
+       *
+       * Deliberately NOT `pointer-events-none` (see the file-level
+       * comment for why that was the actual cause of the tooltip
+       * dismissing itself when the pointer moved onto it).
        *
        * @see https://tailwindcss.com/docs/z-index -- stacking context
        */}
       {visible && content && (
         <div
+          id={tooltipId}
+          role="tooltip"
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
           className={`
             absolute z-50 ${POSITION_CLASSES[position]}
             px-2.5 py-1.5 text-xs font-medium
             bg-surface-elevated text-content-primary
             rounded-platform-sm border border-border-light
             shadow-platform whitespace-nowrap
-            pointer-events-none
           `}
-          role="tooltip"
         >
           {content}
         </div>

@@ -176,7 +176,13 @@ export default function SpotifyConsentModal() {
           <Button
             variant="primary"
             onClick={handleAccept}
-            aria-label="Acknowledge Spotify account-ban risk and proceed with download"
+            // Fix 5 (a11y audit): a voice-control user says the words
+            // printed on the button. The accessible name has to start
+            // with those exact words to match -- the old name described
+            // what the click DOES ("acknowledge the risk") but never
+            // said the visible words at all, so "click I understand"
+            // would not have matched anything.
+            aria-label="I understand — queue the download (acknowledges the Spotify account-ban risk)"
           >
             I understand — queue the download
           </Button>

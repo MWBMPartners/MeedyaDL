@@ -180,13 +180,26 @@ export function DependenciesStep() {
                 key={tool.name}
                 className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated"
               >
-                {/* Status icon */}
+                {/* Status icon. Fix 7 (a11y audit): colour alone used
+                    to carry the whole installed/missing/optional
+                    signal -- a screen reader user got nothing at all.
+                    The icon stays decorative and a visually-hidden
+                    word says what the colour means. */}
                 {tool.installed ? (
-                  <CheckCircle size={18} className="text-status-success flex-shrink-0" />
+                  <>
+                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Installed: </span>
+                  </>
                 ) : tool.required ? (
-                  <XCircle size={18} className="text-status-error flex-shrink-0" />
+                  <>
+                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Missing (required): </span>
+                  </>
                 ) : (
-                  <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" />
+                  <>
+                    <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" aria-hidden="true" />
+                    <span className="sr-only">Missing (optional): </span>
+                  </>
                 )}
 
                 {/* Tool info */}

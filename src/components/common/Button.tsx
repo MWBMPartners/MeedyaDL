@@ -220,6 +220,11 @@ export function Button({
       `}
       /* Disable the native button when loading OR explicitly disabled */
       disabled={disabled || loading}
+      /* Fix 13 (a11y audit): says the button is mid-operation, the same
+       * thing the spinner replacing its icon says visually. Without
+       * this, a screen reader user just hears the same label as
+       * always and has no way to tell a click actually registered. */
+      aria-busy={loading || undefined}
       /* Forward all remaining native button attributes (onClick, type, aria-*, etc.) */
       {...props}
     >

@@ -50,6 +50,7 @@
  * @see {@link https://react.dev/reference/react/useState}
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Tauri app info API for retrieving the current app version at runtime.
@@ -334,6 +335,27 @@ function App() {
    */
   /** The currently active navigation page (drives the page router below) */
   const currentPage = useUiStore((s) => s.currentPage);
+  /** Translation function -- used below to build the per-page document title. */
+  const { t } = useTranslation();
+
+  /**
+   * Fix 14 (a11y audit): nothing updated the OS window/tab title when
+   * the in-app page changed, so every page showed the same title --
+   * someone switching between MeedyaDL and another app via the OS
+   * window switcher, or reading it from a screen reader's window list,
+   * had no way to tell Download apart from Settings without switching
+   * to the app and looking. Reuses the same `nav.<page>` translation
+   * keys the sidebar already uses, so the wording always matches.
+   */
+  useEffect(() => {
+    const pageLabel = t(`nav.${currentPage}`);
+    // "MeedyaDL" is written literally, not looked up as `t('app.name')`
+    // -- this project's rule is that the product name is never routed
+    // through translation (see index.html's <title>, and
+    // check_i18n.py's UNUSED_KEY_EXCEPTIONS entry for `app.name`,
+    // which documents the same rule for that key specifically).
+    document.title = `${pageLabel} — MeedyaDL`;
+  }, [currentPage, t]);
   /** Whether the setup wizard overlay is visible (first-run or missing deps) */
   const showSetupWizard = useUiStore((s) => s.showSetupWizard);
   /** Whether the first-run "app update available" prompt is visible (takes precedence over the wizard) */
@@ -1365,6 +1387,10 @@ function App() {
             type="password"
             className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             placeholder="Passphrase"
+            // Fix 9 (a11y audit): placeholder text is not a label -- it
+            // disappears the moment something is typed, and was never
+            // announced as this field's name in the first place.
+            aria-label="Developer access passphrase"
             value={devPassphrase}
             onChange={(e) => setDevPassphrase(e.target.value)}
             autoFocus

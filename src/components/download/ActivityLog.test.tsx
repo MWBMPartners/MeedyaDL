@@ -176,7 +176,15 @@ describe('ActivityLog', () => {
     fireEvent.change(screen.getByLabelText(/search activity log/i), {
       target: { value: 'apple' }, // lowercase — should still match
     });
-    expect(screen.getByText(/2 of 3 lines/i)).toBeInTheDocument();
+    // Exact string, not a loose /2 of 3 lines/i regex: the log now also
+    // carries its own "Showing 2 of 3 lines in total (filtered)..."
+    // line inside the scrollable region (a11y audit Fix 12 -- so a
+    // screen reader user reaching the end of the ~150 rendered rows
+    // is told there's more, and how many, rather than the count only
+    // ever existing in the page header). A loose substring match hits
+    // both that new line and the header subtitle this test actually
+    // means to check.
+    expect(screen.getByText('2 of 3 lines (filtered)')).toBeInTheDocument();
   });
 
   it('Clear search (X) button empties the input', () => {

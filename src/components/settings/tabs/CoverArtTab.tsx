@@ -57,6 +57,7 @@
  */
 
 // Audit v2 #6 — per-field Zustand binding.
+import { useEffect, useState } from 'react';
 import { useSettingsField } from '@/hooks/useSettingsField';
 import { useUiStore } from '@/stores/uiStore';
 
@@ -121,6 +122,55 @@ export function CoverArtTab() {
   /** Navigate to a help topic (for the "Animated Artwork help page" link) */
   const navigateToHelp = useUiStore((s) => s.navigateToHelp);
 
+  /**
+   * Fix 11 (a11y audit): the Cover Size field used to be wired straight
+   * to the stored setting -- `value={coverSize.value.toString()}` and
+   * an `onChange` that only called `coverSize.set()` when the typed
+   * text was already a whole number in range. Since the box is a
+   * controlled input, every keystroke the validator rejected snapped
+   * the visible text straight back to the last valid number. Typing
+   * "1000" from scratch is impossible that way: the moment "1" lands
+   * (not in range), the box reverts to whatever it held before, so the
+   * "0"s that follow that revert are typed into a box that no longer
+   * has the "1" in it. Nothing on screen explained why.
+   *
+   * The fix: a local `draft` string holds exactly what's typed, with
+   * no validation at all while typing. Validation runs once, on blur
+   * -- a valid whole number in [100, 10000] is written to the setting;
+   * anything else is left exactly as typed, with a message underneath
+   * saying what's allowed (via `Input`'s `error` prop, which Fix 8
+   * already wires to `aria-invalid` + `aria-describedby` + a
+   * `role="alert"` announcement, so this also fixes the field being
+   * silent to a screen reader when the value it just saw rejected is
+   * announced).
+   */
+  const [coverSizeDraft, setCoverSizeDraft] = useState(() => coverSize.value.toString());
+  const [coverSizeError, setCoverSizeError] = useState<string | null>(null);
+
+  // Keep the draft in sync when the persisted value changes from
+  // outside this field (settings import, a snapshot restore, another
+  // window) -- but never while the field itself is mid-edit with an
+  // error showing, so a blur that failed validation doesn't get its
+  // typed text silently swapped out from under the user.
+  useEffect(() => {
+    if (coverSizeError === null) {
+      setCoverSizeDraft(coverSize.value.toString());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deliberately excludes coverSizeError; see comment above.
+  }, [coverSize.value]);
+
+  const COVER_SIZE_RANGE_MESSAGE = 'Enter a whole number between 100 and 10000.';
+
+  const handleCoverSizeBlur = () => {
+    const parsed = parseInt(coverSizeDraft, 10);
+    if (!Number.isNaN(parsed) && parsed >= 100 && parsed <= 10000) {
+      coverSize.set(parsed);
+      setCoverSizeError(null);
+    } else {
+      setCoverSizeError(COVER_SIZE_RANGE_MESSAGE);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {/* ============================================================ */}
@@ -146,28 +196,28 @@ export function CoverArtTab() {
                 onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
               />
 
-              {/* Cover size -- numeric input with client-side validation.
-                  The onChange handler parses the string to an integer and
-                  only persists the value if it falls within the valid range
-                  (100-3000 pixels). This prevents invalid values from
-                  reaching the backend while still allowing the user to
-                  type freely. The `step={100}` prop controls the increment
-                  when using the browser's native spinner arrows. */}
+              {/* Cover size -- numeric input, validated on blur (Fix 11,
+                  a11y audit -- see the long comment above coverSizeDraft
+                  for why validating on every keystroke made the field
+                  impossible to type into). The `step={100}` prop
+                  controls the increment when using the browser's
+                  native spinner arrows. */}
               <Input
                 label="Cover Size (pixels)"
                 description="Width and height of the cover art image (max 10000)"
+                error={coverSizeError ?? undefined}
                 type="number"
                 min={100}
                 max={10000}
                 step={100}
-                value={coverSize.value.toString()} /* Convert number to string for the input value */
+                value={coverSizeDraft}
                 onChange={(e) => {
-                  const size = parseInt(e.target.value, 10); // Parse the input string to a base-10 integer
-                  if (!isNaN(size) && size >= 100 && size <= 10000) {
-                    // Validate within acceptable range
-                    coverSize.set(size); // Only persist valid values
-                  }
+                  setCoverSizeDraft(e.target.value);
+                  // Clear a stale error the moment the user starts
+                  // correcting it -- it's re-checked on the next blur.
+                  if (coverSizeError !== null) setCoverSizeError(null);
                 }}
+                onBlur={handleCoverSizeBlur}
               />
 
               {/* Cover art filename */}

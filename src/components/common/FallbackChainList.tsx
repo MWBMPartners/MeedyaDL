@@ -116,20 +116,26 @@ export function FallbackChainList<T extends string>({
             <span className="flex-1 text-sm text-content-primary">{labels[item]}</span>
 
             {/* Reorder + remove buttons */}
-            <div className="flex gap-0.5">
+            <div className="flex gap-1">
+              {/* Fix 4 (a11y audit): every row's buttons used to say the
+                  same bare "Move up" / "Move down" no matter which
+                  codec they belonged to -- a screen reader user tabbing
+                  through a six-item chain heard the same two words six
+                  times with no way to tell them apart. Naming the item
+                  fixes that. */}
               <button
                 onClick={() => moveUp(index)}
                 disabled={index === 0}
-                className="p-1 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
-                aria-label="Move up"
+                className="p-1.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
+                aria-label={`Move ${labels[item]} up`}
               >
                 <ArrowUp size={14} />
               </button>
               <button
                 onClick={() => moveDown(index)}
                 disabled={index === items.length - 1}
-                className="p-1 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
-                aria-label="Move down"
+                className="p-1.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
+                aria-label={`Move ${labels[item]} down`}
               >
                 <ArrowDown size={14} />
               </button>
@@ -137,7 +143,7 @@ export function FallbackChainList<T extends string>({
                 <button
                   onClick={() => removeAt(index)}
                   disabled={items.length <= 1}
-                  className="p-1 rounded text-content-tertiary hover:text-status-error disabled:opacity-30 transition-colors"
+                  className="p-1.5 rounded text-content-tertiary hover:text-status-error disabled:opacity-30 transition-colors"
                   aria-label={`Remove ${labels[item]} from fallback chain`}
                   title={
                     items.length <= 1
@@ -172,7 +178,7 @@ export function FallbackChainList<T extends string>({
                 <span className="flex-1 text-sm text-content-secondary">{labels[item]}</span>
                 <button
                   onClick={() => addItem(item)}
-                  className="p-1 rounded text-content-tertiary hover:text-content-primary transition-colors"
+                  className="p-1.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
                   aria-label={`Add ${labels[item]} back to fallback chain`}
                   title={`Add ${labels[item]} to the bottom of the chain`}
                 >

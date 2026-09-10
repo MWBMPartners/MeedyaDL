@@ -200,4 +200,48 @@ describe('Input', () => {
     /* The id should be a kebab-case version of the label, prefixed with 'input-' */
     expect(input).toHaveAttribute('id', 'input-filename-template');
   });
+
+  // ===========================================================================
+  // Error / description announcement wiring (a11y audit Fix 8)
+  // ===========================================================================
+  //
+  // The error and description paragraphs used to have no `id`, and the
+  // <input> had no `aria-describedby` pointing at either one -- so a
+  // screen reader user tabbing into a field never heard the help text
+  // or the inline error below it, even though a sighted user sees both
+  // immediately. These tests catch that class of regression directly:
+  // if `aria-describedby` stops pointing at a real, existing element
+  // (or `aria-invalid`/`role="alert"` go missing), they fail.
+
+  it('wires aria-describedby from the input to the error paragraph, and marks aria-invalid', () => {
+    render(<Input label="API Key" error="This field is required" />);
+
+    const input = screen.getByRole('textbox');
+    const describedBy = input.getAttribute('aria-describedby');
+
+    /* aria-describedby must point at a real element that actually exists. */
+    expect(describedBy).toBeTruthy();
+    const describedElement = document.getElementById(describedBy!);
+    expect(describedElement).not.toBeNull();
+    expect(describedElement).toHaveTextContent('This field is required');
+
+    /* The error is announced as an alert, and the field is marked invalid. */
+    expect(describedElement).toHaveAttribute('role', 'alert');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('wires aria-describedby from the input to the description paragraph when there is no error', () => {
+    render(<Input label="Output Directory" description="Where downloaded tracks are saved" />);
+
+    const input = screen.getByRole('textbox');
+    const describedBy = input.getAttribute('aria-describedby');
+
+    expect(describedBy).toBeTruthy();
+    const describedElement = document.getElementById(describedBy!);
+    expect(describedElement).not.toBeNull();
+    expect(describedElement).toHaveTextContent('Where downloaded tracks are saved');
+
+    /* No error means the field must not be marked invalid. */
+    expect(input).not.toHaveAttribute('aria-invalid');
+  });
 });

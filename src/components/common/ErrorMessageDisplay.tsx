@@ -12,7 +12,13 @@
  * - Truncates the visible text to the configured number of lines via
  *   Tailwind `line-clamp-N`.
  * - Wraps in a {@link Tooltip} that surfaces the FULL message on
- *   hover/focus — works on the keyboard too.
+ *   hover/focus. The truncated text is a `<p>`, which cannot normally
+ *   receive keyboard focus at all — `tabIndex={0}` is added below
+ *   specifically so Tab can reach it and the tooltip's focus/blur
+ *   handling actually fires. Without that, the "works on the keyboard
+ *   too" claim was false: a `<p>` never got focus, so Tab always
+ *   skipped straight past it and the tooltip could only ever be shown
+ *   by hovering with a mouse.
  * - Adds a right-click context menu with:
  *   - **Copy error message** (always)
  *   - **Report this bug to GAMDL** (only when the message looks like
@@ -28,7 +34,7 @@
  */
 
 import { useCallback, useState, type MouseEvent, type ReactElement } from 'react';
-import { Bug, Copy } from 'lucide-react';
+import { Bug, Copy, MoreVertical } from 'lucide-react';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 // Sibling imports (NOT via the @/components/common barrel) to avoid a
 // circular dependency: the barrel re-exports this very component, so
@@ -160,6 +166,19 @@ export function ErrorMessageDisplay({
     }
   }, [addToast, message, sourceUrl]);
 
+  // Overflow ("⋯") button — a11y audit Fix 1. Copying the message, and
+  // reporting a recognised GAMDL bug upstream, used to be reachable
+  // only via right-click, which a keyboard-only person cannot do.
+  // Declared above the early return below -- every React Hook in a
+  // component must run in the same order on every render, and a hook
+  // written after a conditional `return` would skip entirely on the
+  // `!message` render, which is exactly the "Hooks must not be called
+  // conditionally" rule this tripped when it lived below instead.
+  const handleOverflowClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenuPos({ x: rect.left, y: rect.bottom });
+  }, []);
+
   if (!message) return null;
 
   const items: ContextMenuItem[] = [
@@ -194,14 +213,29 @@ export function ErrorMessageDisplay({
 
   return (
     <>
-      <Tooltip content={message} position="top">
-        <p
-          className={`${className} ${clampClass} cursor-default select-text`}
-          onContextMenu={handleContextMenu}
+      <div className="flex items-start gap-1">
+        <Tooltip content={message} position="top">
+          <p
+            className={`${className} ${clampClass} cursor-default select-text`}
+            onContextMenu={handleContextMenu}
+            // Fix 14 (a11y audit): a <p> cannot normally receive focus,
+            // which meant the tooltip above could only ever be shown by
+            // hovering with a mouse — tabIndex={0} lets Tab reach it too.
+            tabIndex={0}
+          >
+            {message}
+          </p>
+        </Tooltip>
+        <button
+          type="button"
+          onClick={handleOverflowClick}
+          aria-label="More actions for this error message"
+          title="More actions"
+          className="flex-shrink-0 p-0.5 rounded text-content-tertiary hover:text-content-primary opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         >
-          {message}
-        </p>
-      </Tooltip>
+          <MoreVertical size={12} aria-hidden="true" />
+        </button>
+      </div>
       {menuPos && (
         <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />
       )}

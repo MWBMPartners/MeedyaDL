@@ -87,7 +87,7 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
-import { useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
+import { useId, useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
 // `saveSettings` and `loadSettings` actions only (used by the setup
@@ -201,6 +201,9 @@ const GAMDL_IDLE_TIMEOUT_OPTIONS = [
  * Diagnostics, API Credentials (with API Field Audit), and Setup.
  */
 export function AdvancedTab() {
+  /** Fix 9 (a11y audit): ties the "MusicKit Private Key (.p8)" <label> to its <textarea>. */
+  const musicKitPrivateKeyId = useId();
+
   // Per-field bindings (audit v2 #6).
   const downloadMode = useSettingsField('download_mode');
   const remuxMode = useSettingsField('remux_mode');
@@ -752,13 +755,15 @@ export function AdvancedTab() {
               >
                 {testState === 'testing' ? 'Testing...' : 'Test Connection'}
               </Button>
+              {/* Fix 13 (a11y audit): plain text after a button press,
+                  with nothing announcing it to a screen reader. */}
               {testState === 'success' && testResult && (
-                <span className="text-xs text-status-success-text">
+                <span role="status" className="text-xs text-status-success-text">
                   Connected ({testResult.response_time_ms}ms)
                 </span>
               )}
               {testState === 'error' && (
-                <span className="text-xs text-status-error-text">
+                <span role="alert" className="text-xs text-status-error-text">
                   {testResult?.error || 'Connection failed'}
                 </span>
               )}
@@ -802,7 +807,7 @@ export function AdvancedTab() {
             onChange={(e) => musickitKeyId.set(e.target.value.toUpperCase() || null)}
           />
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-content-primary">
+            <label htmlFor={musicKitPrivateKeyId} className="block text-sm font-medium text-content-primary">
               MusicKit Private Key (.p8)
             </label>
             <p className="text-xs text-content-secondary">
@@ -811,6 +816,7 @@ export function AdvancedTab() {
                 : 'Paste the contents of your .p8 private key file. Stored securely in the OS keychain, not in settings files.'}
             </p>
             <textarea
+              id={musicKitPrivateKeyId}
               value={keyInput}
               onChange={(e) => {
                 setKeyInput(e.target.value);
@@ -829,11 +835,12 @@ export function AdvancedTab() {
               >
                 {keyStatus === 'saving' ? 'Saving...' : 'Save to Keychain'}
               </Button>
+              {/* Fix 13 (a11y audit): same as Test Connection above. */}
               {keyStatus === 'saved' && (
-                <span className="text-xs text-status-success-text">Saved to keychain</span>
+                <span role="status" className="text-xs text-status-success-text">Saved to keychain</span>
               )}
               {keyStatus === 'error' && (
-                <span className="text-xs text-status-error-text">Failed to save</span>
+                <span role="alert" className="text-xs text-status-error-text">Failed to save</span>
               )}
               {keyStored && keyStatus === 'idle' && (
                 <span className="text-xs text-status-success-text">Key stored in keychain</span>
@@ -856,7 +863,10 @@ export function AdvancedTab() {
               {validating ? 'Testing...' : 'Test Credentials'}
             </Button>
             {validationResult && (
+              // Fix 13 (a11y audit): same as the two results above --
+              // "alert" for the error-shaped wording, "status" otherwise.
               <span
+                role={validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'alert' : 'status'}
                 className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error-text' : 'text-status-success-text'}`}
               >
                 {validationResult}
@@ -952,8 +962,15 @@ export function AdvancedTab() {
             type="button"
             className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2"
             onClick={() => setAuditExpanded(!auditExpanded)}
+            // Fix 6 (a11y audit): says whether the section below is open.
+            aria-expanded={auditExpanded}
           >
-            <span className="text-sm text-content-tertiary">{auditExpanded ? '▼' : '▶'}</span>
+            {/* Fix 7 (a11y audit): the triangle character is a real
+                Unicode glyph, and a screen reader reads it out as
+                "black right-pointing triangle" (or similar) before
+                every heading -- aria-hidden removes that noise since
+                aria-expanded above already says the same thing. */}
+            <span className="text-sm text-content-tertiary" aria-hidden="true">{auditExpanded ? '▼' : '▶'}</span>
             API Field Audit
           </button>
           <p className="text-xs text-content-tertiary leading-relaxed mb-4">
@@ -966,6 +983,14 @@ export function AdvancedTab() {
               <div className="flex gap-2">
                 <Input
                   label=""
+                  // Fix 9 (a11y audit): `label=""` is intentional here
+                  // (this compact field sits inline next to the Audit
+                  // button, with no room for a visible label above it)
+                  // but Input only ties a <label> to the field when
+                  // `label` is truthy -- an empty one meant the field
+                  // had no accessible name at all, just placeholder
+                  // text that disappears once something is typed.
+                  aria-label="Apple Music album URL to audit"
                   value={auditUrl}
                   placeholder="https://music.apple.com/us/album/.../1234567890"
                   onChange={(e) => setAuditUrl(e.target.value)}
@@ -985,11 +1010,13 @@ export function AdvancedTab() {
                   MusicKit credentials required. Configure Team ID and Key ID above.
                 </p>
               )}
+              {/* Fix 13 (a11y audit): plain text/results after a button
+                  press, with nothing announcing them. */}
               {auditError && (
-                <p className="text-sm text-status-error-text">{auditError}</p>
+                <p role="alert" className="text-sm text-status-error-text">{auditError}</p>
               )}
               {auditResult && (
-                <div className="space-y-3 text-sm">
+                <div role="status" className="space-y-3 text-sm">
                   <div className="flex gap-4 flex-wrap">
                     <span className="text-content-primary font-medium">
                       {auditResult.album_name ?? auditResult.album_id}
@@ -1524,25 +1551,27 @@ function DiagnosticBundleSection() {
         </Button>
       </div>
 
-      {bundle && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
-          onClick={() => setBundle(null)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="bg-surface-primary border border-border-light rounded-platform p-5 max-w-3xl w-[90vw] max-h-[85vh] overflow-y-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-base font-semibold text-content-primary">
-                Review diagnostic bundle ({Math.round(bundle.size_bytes / 1024)} KB)
-              </h3>
-              <Button variant="ghost" size="sm" onClick={() => setBundle(null)}>
-                Close
-              </Button>
-            </div>
+      {/* a11y audit Fix 2: same defect and same fix as the ToolsTab
+          restore-snapshot dialog -- a hand-built `role="dialog"` div
+          with no accessible name, no focus management, no Tab trap and
+          no Escape. Moved onto the shared `<Modal>`. Its own header
+          "X" close button and Escape handling replace the previous
+          "Close" ghost button. The title's byte-count is derived once
+          from `bundle` inside the JSX below rather than needing
+          `bundle` to already be non-null at the call site, since
+          `Modal`'s `title` prop must be computed before the open check. */}
+      <Modal
+        open={bundle !== null}
+        onClose={() => setBundle(null)}
+        title={
+          bundle
+            ? `Review diagnostic bundle (${Math.round(bundle.size_bytes / 1024)} KB)`
+            : 'Review diagnostic bundle'
+        }
+        maxWidth="max-w-3xl"
+      >
+        {bundle && (
+          <>
             <p className="text-xs text-content-secondary mb-3">
               Review the contents below before sharing. Click <strong>Open
               GitHub Issue</strong> to pop the new-issue form in your
@@ -1559,9 +1588,9 @@ function DiagnosticBundleSection() {
                 Open GitHub Issue
               </Button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -1894,11 +1923,17 @@ function WrapperUrlSecurityHint({ kind }: { kind: WrapperUrlClass }) {
     ? 'mt-2 p-3 rounded-platform border border-status-error/40 bg-status-error/5 text-xs text-status-error-text'
     : 'mt-2 p-3 rounded-platform border border-status-warning/40 bg-status-warning/5 text-xs text-content-secondary';
 
-  const lead = isPublic
-    ? '⚠ This wrapper URL points at a public address.'
+  // Fix 7 (a11y audit): the leading glyph used to be baked straight
+  // into the sentence string, so a screen reader read "warning" or
+  // "information" out loud before every hint -- split out here so the
+  // glyph can be marked aria-hidden while the words stay exactly as
+  // visible.
+  const leadIcon = isPublic ? '⚠' : 'ℹ';
+  const leadText = isPublic
+    ? 'This wrapper URL points at a public address.'
     : kind === 'private'
-      ? 'ℹ Wrapper is on your LAN (private IP range).'
-      : 'ℹ Wrapper URL uses a DNS name — could be LAN or internet.';
+      ? 'Wrapper is on your LAN (private IP range).'
+      : 'Wrapper URL uses a DNS name — could be LAN or internet.';
 
   const body = isPublic
     ? 'Wrapper-v2 has no network-layer authentication, so exposing it on a public IP makes your Apple Music account usable by anyone who can reach the URL. Did you mean a LAN address (e.g. http://192.168.x.x)?'
@@ -1906,7 +1941,9 @@ function WrapperUrlSecurityHint({ kind }: { kind: WrapperUrlClass }) {
 
   return (
     <div className={wrapperClasses} role="note">
-      <div className="font-medium mb-1">{lead}</div>
+      <div className="font-medium mb-1">
+        <span aria-hidden="true">{leadIcon}</span> {leadText}
+      </div>
       <div>{body}</div>
     </div>
   );

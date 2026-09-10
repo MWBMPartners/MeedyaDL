@@ -531,7 +531,10 @@ Please quit and reopen MeedyaDL manually.`,
             font weight. The sidebar scrolls independently if the window
             is too short to display all groups.
             ---------------------------------------------------------------- */}
-        <nav className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
+        {/* Fix 14 (a11y audit): the app already has a "Main navigation"
+            landmark (the sidebar) -- this second, unnamed <nav> was
+            indistinguishable from it in a screen reader's landmark list. */}
+        <nav aria-label="Settings tabs" className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
           {SETTINGS_GROUPS.map((group, groupIndex) => (
             <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}
@@ -549,6 +552,10 @@ Please quit and reopen MeedyaDL manually.`,
                     <button
                       key={id}
                       onClick={() => setActiveTab(id)}
+                      // Fix 6 (a11y audit): aria-current tells assistive
+                      // tech which tab is the current one, the same way
+                      // the accent background tells a sighted user.
+                      aria-current={activeTab === id ? 'page' : undefined}
                       className={`
                         w-full flex items-center gap-2.5 px-3 py-2
                         rounded-platform text-sm transition-colors

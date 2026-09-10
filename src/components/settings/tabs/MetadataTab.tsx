@@ -35,10 +35,14 @@
  * onChange lambda + updateSettings({ key: v }) write).
  */
 
+import { useId } from 'react';
 import { Toggle, SettingsSection } from '@/components/common';
 import { useSettingsField } from '@/hooks/useSettingsField';
 
 export function MetadataTab() {
+  /** Fix 9 (a11y audit): ties the "Reference Level" <label> to its <select>. */
+  const referenceLevelId = useId();
+
   // One hook call per field; `value` + `set` replace the
   // `settings.X` / `updateSettings({ X: v })` boilerplate.
   const contentAdvisoryInFilenames = useSettingsField('content_advisory_in_filenames');
@@ -114,10 +118,11 @@ export function MetadataTab() {
               </p>
 
               <div>
-                <label className="block text-sm font-medium text-content-primary mb-1">
+                <label htmlFor={referenceLevelId} className="block text-sm font-medium text-content-primary mb-1">
                   Reference Level
                 </label>
                 <select
+                  id={referenceLevelId}
                   className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
                   value={replaygainReferenceLevel.value}
                   onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}

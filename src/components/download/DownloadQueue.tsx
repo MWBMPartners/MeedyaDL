@@ -44,7 +44,7 @@
  * @see https://react.dev/reference/react/useEffect
  * @see https://react.dev/reference/react/useMemo
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Lucide icons for the page header action buttons.
@@ -86,7 +86,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, Modal } from '@/components/common';
+import { Button, Modal, getStatusLabel } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -96,6 +96,7 @@ import { PageHeader } from '@/components/layout';
  * @see QueueItem in ./QueueItem.tsx
  */
 import { QueueListVirtualized } from './QueueListVirtualized';
+import { formatPrimaryIdentifier } from './QueueItem';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
 import type { DownloadState, QueueItemStatus } from '@/types';
@@ -222,6 +223,54 @@ export function DownloadQueue() {
 
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  /**
+   * Queue-level status announcer (a11y audit Fix 3).
+   *
+   * `StatusPill` used to be its own live region on every row -- up to
+   * ~150 of them on screen at once, each announcing a bare word
+   * ("Complete") with no idea which download it was about the moment
+   * anyone read it back out of context. This replaces all of that with
+   * ONE live region, owned by this page, that only speaks when an
+   * item's `state` actually changes (not on every progress-percentage
+   * tick, which fires far too often to read aloud) and says which
+   * download it's about, e.g. "Taylor Swift — 1989: complete".
+   *
+   * `previousStatesRef` remembers the last announced state per item id
+   * across renders without itself triggering a re-render. The effect
+   * below runs after every `queueItems` update, diffs against that
+   * map, and only touches the announcement text when something
+   * actually changed -- multiple items finishing in the same poll tick
+   * are joined into one sentence rather than firing multiple
+   * back-to-back announcements.
+   */
+  const previousStatesRef = useRef<Map<string, DownloadState>>(new Map());
+  const [queueAnnouncement, setQueueAnnouncement] = useState('');
+
+  useEffect(() => {
+    const previous = previousStatesRef.current;
+    const changed: string[] = [];
+
+    for (const item of queueItems) {
+      const before = previous.get(item.id);
+      if (before !== undefined && before !== item.state) {
+        const hasWarnings = item.state === 'complete' && !!item.warnings?.length;
+        const label = formatPrimaryIdentifier(item) || 'a download';
+        changed.push(`${label}: ${getStatusLabel(item.state, hasWarnings)}`);
+      }
+    }
+
+    // Rebuild the remembered state for every item currently in the
+    // queue (and drop ids that are no longer present — a cleared or
+    // deleted item shouldn't leave a stale entry behind forever).
+    const next = new Map<string, DownloadState>();
+    for (const item of queueItems) next.set(item.id, item.state);
+    previousStatesRef.current = next;
+
+    if (changed.length > 0) {
+      setQueueAnnouncement(changed.join('; '));
+    }
+  }, [queueItems]);
 
   // ---------------------------------------------------------------
   // Search + filter (#462) and bulk-select (#463)
@@ -944,6 +993,13 @@ export function DownloadQueue() {
      * stays pinned at the top and the queue list scrolls independently.
      */
     <div className="flex flex-col h-full">
+      {/* Single shared live region for queue status changes (a11y audit
+          Fix 3) -- see the `queueAnnouncement` effect above for why
+          this replaces a `role="status"` on every individual row. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {queueAnnouncement}
+      </div>
+
       {/*
        * Page header with dynamic subtitle showing the total item count.
        * The `actions` slot contains "Clear Finished" and "Refresh" buttons.

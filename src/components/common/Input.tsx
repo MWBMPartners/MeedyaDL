@@ -26,7 +26,7 @@
  *      Tailwind CSS docs -- focus ring and focus-within utilities.
  */
 
-import { forwardRef, type InputHTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import { HelpButton } from './HelpButton';
 import type { HelpTopicId } from '@/components/help';
 
@@ -125,6 +125,20 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
    */
   const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
 
+  /**
+   * Fix 8 (a11y audit): the error and description paragraphs had no
+   * id, and the <input> had no `aria-describedby` pointing at either
+   * one -- so every field's help text and every inline error was
+   * completely silent to a screen reader, even though a sighted user
+   * sees both right below the box. `useId()` gives each a stable id;
+   * `aria-describedby` below points at whichever one is actually
+   * rendered (they're mutually exclusive -- error wins when both are
+   * set, matching what's visible).
+   */
+  const descriptionId = useId();
+  const errorId = useId();
+  const describedBy = error ? errorId : description ? descriptionId : undefined;
+
   return (
     /* Outer wrapper -- space-y-1.5 adds 6px vertical gap between
      * the label, the input, and the description/error text. */
@@ -176,6 +190,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
         <input
           ref={ref}
           id={inputId}
+          aria-describedby={describedBy}
+          aria-invalid={error ? true : undefined}
           className={`
               w-full px-3 py-2 text-sm
               rounded-platform border
@@ -210,13 +226,21 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
        * Takes visual priority over the description: when both error and
        * description are set, only the error is shown.
        */}
-      {error && <p className="text-xs text-status-error-text">{error}</p>}
+      {error && (
+        <p id={errorId} role="alert" className="text-xs text-status-error-text">
+          {error}
+        </p>
+      )}
 
       {/*
        * Description / helper text -- rendered only when there is no error.
        * Uses a muted tertiary text colour to visually subordinate it.
        */}
-      {!error && description && <p className="text-xs text-content-tertiary">{description}</p>}
+      {!error && description && (
+        <p id={descriptionId} className="text-xs text-content-tertiary">
+          {description}
+        </p>
+      )}
     </div>
   );
 });

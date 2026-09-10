@@ -51,7 +51,15 @@ export function SettingsSection({
         onClick={() => setOpen(!open)}
         aria-expanded={open ? 'true' : 'false'}
       >
-        <span className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}>
+        {/* Fix 7 (a11y audit): without aria-hidden, a screen reader
+            read "black right-pointing triangle" out loud before every
+            single section title on every settings tab -- aria-expanded
+            on the button above already says open/closed, so this
+            glyph is purely decorative. */}
+        <span
+          className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}
+          aria-hidden="true"
+        >
           ▶
         </span>
         <div className="flex-1 min-w-0">

@@ -9,7 +9,7 @@
 // Failed entries can be retried individually (button or right-click) or
 // in bulk via the "Retry All Failed" header action (#665).
 
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useId, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
 import { Button, ContextMenu, ErrorMessageDisplay, Modal } from '@/components/common';
@@ -24,6 +24,7 @@ import {
   Clock,
   RotateCcw,
   Copy,
+  MoreVertical,
 } from 'lucide-react';
 // Trash2 used for both "Clear History" header button and the per-row Delete
 // context menu entry (#685) — single icon import covers both call sites.
@@ -105,6 +106,8 @@ export function HistoryPage() {
    */
   const [deleteTarget, setDeleteTarget] = useState<HistoryEntry | null>(null);
   const addToast = useUiStore((s) => s.addToast);
+  /** Id for the search box's visually-hidden <label> (Fix 9 — placeholder text is not a label). */
+  const searchInputId = useId();
 
   /** Loads history entries from the backend. */
   const loadEntries = useCallback(async () => {
@@ -275,6 +278,21 @@ export function HistoryPage() {
   );
 
   /**
+   * Opens the same per-row menu from a visible "⋯" button (a11y audit
+   * Fix 1) — right-click was the only way to delete or copy a history
+   * row, which a keyboard-only person cannot do. Positions the menu
+   * under the button rather than at a cursor position, since a keyboard
+   * activation has no cursor.
+   */
+  const handleOverflowClick = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>, entry: HistoryEntry) => {
+      const rect = event.currentTarget.getBoundingClientRect();
+      setContextMenu({ entry, x: rect.left, y: rect.bottom });
+    },
+    [],
+  );
+
+  /**
    * Build the menu items for the right-click context menu. The Retry
    * entry only appears for failed rows; Open Folder appears only when
    * the entry has a recorded path. Copy URL is always available so the
@@ -352,8 +370,16 @@ export function HistoryPage() {
       {/* Search bar */}
       <div className="px-6 py-3 border-b border-border-light">
         <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
+          {/* Fix 9 (a11y audit): placeholder text disappears the moment
+              someone starts typing, and was never a real label to begin
+              with -- a visually-hidden <label> gives the field a name
+              that survives that. */}
+          <label htmlFor={searchInputId} className="sr-only">
+            Search history by title, artist, album, or URL
+          </label>
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" aria-hidden="true" />
           <input
+            id={searchInputId}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -402,12 +428,23 @@ export function HistoryPage() {
                 className="px-6 py-3 hover:bg-surface-secondary transition-colors"
               >
                 <div className="flex items-start gap-3">
-                  {/* Status icon */}
+                  {/* Status icon. Fix 7 (a11y audit): the icon alone
+                      carried the entire success/failure signal with no
+                      text alternative at all -- a screen reader user
+                      got nothing. The icon stays decorative
+                      (aria-hidden) and a visually-hidden word next to
+                      it says what the colour and shape mean. */}
                   <div className="flex-shrink-0 mt-0.5">
                     {entry.status === 'success' ? (
-                      <CheckCircle size={16} className="text-status-success" />
+                      <>
+                        <CheckCircle size={16} className="text-status-success" aria-hidden="true" />
+                        <span className="sr-only">Succeeded: </span>
+                      </>
                     ) : (
-                      <XCircle size={16} className="text-status-error" />
+                      <>
+                        <XCircle size={16} className="text-status-error" aria-hidden="true" />
+                        <span className="sr-only">Failed: </span>
+                      </>
                     )}
                   </div>
 
@@ -503,6 +540,19 @@ export function HistoryPage() {
                         <FolderOpen size={14} />
                       </button>
                     )}
+                    {/* Overflow ("⋯") button — a11y audit Fix 1. Deleting
+                        or copying a history row used to be reachable
+                        only by right-clicking; this opens the same menu
+                        for keyboard and screen-reader users. */}
+                    <button
+                      type="button"
+                      onClick={(e) => handleOverflowClick(e, entry)}
+                      className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
+                      aria-label={`More actions for ${getDisplayLabel(entry)}`}
+                      title="More actions"
+                    >
+                      <MoreVertical size={14} aria-hidden="true" />
+                    </button>
                   </div>
                 </div>
               </div>

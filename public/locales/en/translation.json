@@ -190,7 +190,9 @@
     "save": "Save",
     "delete": "Delete",
     "retry": "Retry",
-    "clear": "Clear"
+    "clear": "Clear",
+    "actionsMenu": "Actions menu",
+    "skipToMainContent": "Skip to main content"
   },
   "toast": {
     "dismiss": "Dismiss",

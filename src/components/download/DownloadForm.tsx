@@ -52,7 +52,7 @@
  * @see https://react.dev/reference/react/useCallback
  * @see https://react.dev/reference/react/useMemo
  */
-import { useState, useRef, useCallback, useMemo, type MouseEvent } from 'react';
+import { useId, useState, useRef, useCallback, useMemo, type MouseEvent } from 'react';
 
 /**
  * Lucide React icons used for content-type badges and UI controls.
@@ -84,6 +84,7 @@ import {
   Layers,
   FileDown,
   FolderSearch,
+  MoreVertical,
 } from 'lucide-react';
 
 /**
@@ -288,6 +289,15 @@ export function DownloadForm() {
    * Cleared on the next successful check or when the URL input changes.
    */
   const [cookieError, setCookieError] = useState<string | null>(null);
+
+  /**
+   * Id shared between the URL textarea's `aria-describedby` and whichever
+   * one of the three help/error paragraphs below is actually rendered
+   * (a11y audit Fix 8). Before this, `aria-describedby="url-input-help"`
+   * pointed at an id that no element in this file ever had -- so the
+   * link was silent for every screen reader user, always.
+   */
+  const urlHelpId = useId();
 
   // `submitTask` wraps the full preflight + submit flow via
   // useAsyncTask (audit v2 #2). `submitTask.isRunning` replaces the
@@ -849,6 +859,17 @@ export function DownloadForm() {
   // ---------------------------------------------------------------
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
 
+  /**
+   * Opens the same after-queue-action menu from a visible button
+   * (a11y audit Fix 1) — right-clicking blank space in the form was
+   * the only way to set a one-off after-queue action, which a
+   * keyboard-only person cannot do.
+   */
+  const handleAfterQueueOverflowClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({ x: rect.left, y: rect.bottom });
+  }, []);
+
   const handleContextMenu = useCallback((e: MouseEvent) => {
     // Allow the native context menu (paste/cut/copy) on form elements —
     // only show the After-Queue menu on blank space.
@@ -944,7 +965,8 @@ export function DownloadForm() {
                 ref={textareaRef}
                 id="url-input"
                 aria-label="Media URL input"
-                aria-describedby="url-input-help"
+                aria-describedby={urlHelpId}
+                aria-invalid={Boolean(urlInput && !canSubmit)}
                 value={urlInput}
                 onChange={(e) => {
                   setUrlInput(e.target.value);
@@ -1063,6 +1085,14 @@ export function DownloadForm() {
             >
               Scan
             </Button>
+            <Button
+              variant="ghost"
+              size="md"
+              icon={<MoreVertical size={16} />}
+              onClick={handleAfterQueueOverflowClick}
+              title="Set a one-off action to run after the queue finishes"
+              aria-label="After-queue actions"
+            />
           </div>
 
           {/*
@@ -1071,13 +1101,13 @@ export function DownloadForm() {
            *  - Grey helper text when the input is empty (shows supported types).
            */}
           {urlInput && !canSubmit && !isMultiUrl && (
-            <p className="text-xs text-status-error-text">Please enter a valid Apple Music or Spotify URL</p>
+            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">Please enter a valid Apple Music or Spotify URL</p>
           )}
           {urlInput && !canSubmit && isMultiUrl && (
-            <p className="text-xs text-status-error-text">No valid Apple Music or Spotify URLs found</p>
+            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">No valid Apple Music or Spotify URLs found</p>
           )}
           {!urlInput && (
-            <p className="text-xs text-content-tertiary">
+            <p id={urlHelpId} className="text-xs text-content-tertiary">
               Supports songs, albums, playlists, music videos, and artist pages. Spotify links (open.spotify.com) are also accepted. Paste multiple URLs (one per line) to queue them all.
             </p>
           )}
@@ -1108,7 +1138,11 @@ export function DownloadForm() {
           {/* Cookie validation warning -- shown when cookies are expired,
               missing, or invalid. Blocks downloads until cookies are fixed. */}
           {cookieError && (
-            <div className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
+            // role="alert" (a11y audit Fix 13): this text appears after a
+            // button press with nothing to announce it otherwise -- a
+            // screen reader user would only find out cookies had expired
+            // by stumbling onto this box, not by anything telling them.
+            <div role="alert" className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
               <span className="text-status-warning-text text-sm mt-0.5">&#9888;</span>
               <div className="flex-1 text-xs text-content-primary">
                 <p>{cookieError}</p>
@@ -1139,7 +1173,9 @@ export function DownloadForm() {
            * so users know what they would override.
            */}
           <button
+            type="button"
             onClick={() => setShowOverrides(!showOverrides)}
+            aria-expanded={showOverrides}
             className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
           >
             <span>

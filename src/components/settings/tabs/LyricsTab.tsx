@@ -175,8 +175,11 @@ export function LyricsTab() {
             >
               {lyricsTest.isRunning ? 'Testing...' : 'Test word-level lyrics connection'}
             </Button>
+            {/* Fix 13 (a11y audit): plain text after a button press,
+                with nothing announcing it to a screen reader. */}
             {lyricsTestResult && (
               <span
+                role={lyricsTestResult.granularity === 'word' ? 'status' : lyricsTestResult.success ? 'status' : 'alert'}
                 className={
                   lyricsTestResult.granularity === 'word'
                     ? 'text-xs text-status-success-text'
@@ -191,7 +194,7 @@ export function LyricsTab() {
               </span>
             )}
             {lyricsTest.error && (
-              <span className="text-xs text-status-error-text">{lyricsTest.error}</span>
+              <span role="alert" className="text-xs text-status-error-text">{lyricsTest.error}</span>
             )}
           </div>
 
@@ -274,9 +277,17 @@ export function LyricsTab() {
             />
           )}
 
-          {/* Synced lyrics format checkboxes */}
-          <div className={formatsDisabled ? 'opacity-50' : ''}>
-            <span className="text-sm font-medium text-content-primary">Synced Lyrics Formats</span>
+          {/* Synced lyrics format checkboxes.
+              Fix 10 (a11y audit): fieldset/legend say these checkboxes
+              are one group ("Synced Lyrics Formats"), the same
+              relationship the visual layout already shows a sighted
+              user. Deliberately not using the native `disabled`
+              attribute on the fieldset -- each checkbox already
+              computes its own disabled state (`formatsDisabled ||
+              isLocked`), and TTML can be individually locked even
+              when the rest of the group isn't. */}
+          <fieldset className={`border-0 m-0 p-0 ${formatsDisabled ? 'opacity-50' : ''}`}>
+            <legend className="text-sm font-medium text-content-primary p-0">Synced Lyrics Formats</legend>
             <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
               {settings.enhanced_lrc
                 ? 'TTML is the primary format (required for Enhanced Lyrics). Select additional formats to download as companions alongside TTML.'
@@ -317,7 +328,7 @@ export function LyricsTab() {
                 );
               })}
             </div>
-          </div>
+          </fieldset>
 
           {/* Disable synced lyrics -- overridden when embed+sidecar is on */}
           <Toggle

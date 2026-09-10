@@ -165,7 +165,7 @@ export { ProgressBar } from './ProgressBar';
  * per-row vocabulary policy in
  * `.claude/memory/project_multi_service_ui_direction.md`.
  */
-export { StatusPill } from './StatusPill';
+export { StatusPill, getStatusLabel } from './StatusPill';
 export type { StatusPillProps } from './StatusPill';
 
 /**

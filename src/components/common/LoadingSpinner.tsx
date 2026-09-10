@@ -82,8 +82,11 @@ export function LoadingSpinner({ size = 'md', label, className = '' }: LoadingSp
   const dimension = SIZE_MAP[size];
 
   return (
-    /* Outer container -- centres the spinner and optional label vertically */
-    <div className={`flex flex-col items-center gap-2 ${className}`}>
+    /* Outer container -- centres the spinner and optional label vertically.
+       Fix 13 (a11y audit): role="status" (an implicit polite live
+       region) means a screen reader announces the label the moment it
+       appears, instead of a spinner that's only ever seen, never heard. */
+    <div className={`flex flex-col items-center gap-2 ${className}`} role="status">
       {/*
        * Animated SVG spinner.
        * - animate-spin: Tailwind's CSS keyframe for continuous 360deg rotation.

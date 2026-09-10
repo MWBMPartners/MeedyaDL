@@ -148,6 +148,24 @@
   }
 
   /*
+   * Fix 14 (a11y audit): the blanket `user-select: none` above meant
+   * ordinary READING text -- a help article, a release-notes entry --
+   * could not be selected or copied at all, only edited fields could.
+   * `.prose` is the class `@tailwindcss/typography` puts on every
+   * rendered-Markdown block in this app (help pages, release notes),
+   * so this one rule covers all of that prose content without having
+   * to individually opt in every paragraph. Modal dialog bodies are
+   * opted in separately, directly on the shared `<Modal>` component
+   * (see Modal.tsx), since dialog content isn't Markdown and has no
+   * single class of its own to hook a rule to here.
+   */
+  .prose,
+  .prose * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  /*
    * Focus indicators: the difference between `:focus` and `:focus-visible`,
    * and why the old blanket removal below was a serious accessibility bug.
    * -----------------------------------------------------------------------

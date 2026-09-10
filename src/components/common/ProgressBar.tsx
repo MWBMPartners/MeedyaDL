@@ -34,6 +34,16 @@ interface ProgressBarProps {
    */
   label?: string;
 
+  /**
+   * Which download this bar belongs to (e.g. "Taylor Swift — 1989"),
+   * used to build the accessible name when {@link label} is not set
+   * (a11y audit Fix 4). Without this, every progress bar on a queue
+   * page announces the identical "Download progress" with no way to
+   * tell which row it belongs to — the same problem the queue rows
+   * themselves had before Fix 4/3 of that audit.
+   */
+  itemLabel?: string;
+
   /** Additional Tailwind classes merged onto the outer container div */
   className?: string;
 }
@@ -65,9 +75,17 @@ interface ProgressBarProps {
  * @param label     - Optional text displayed above the bar
  * @param className - Additional Tailwind classes for the outer container
  */
-export function ProgressBar({ value, label, className = '' }: ProgressBarProps) {
+export function ProgressBar({ value, label, itemLabel, className = '' }: ProgressBarProps) {
   /** Boolean flag for mode selection */
   const isIndeterminate = value === null;
+
+  /**
+   * Accessible name (a11y audit Fix 4): prefer an explicit `label`,
+   * fall back to "<item> download progress" when the caller passed
+   * `itemLabel`, and only fall back to the bare generic text when
+   * neither is available.
+   */
+  const accessibleLabel = label ?? (itemLabel ? `${itemLabel} download progress` : 'Download progress');
 
   /**
    * Clamp the value to [0, 100] to prevent the bar from exceeding its track.
@@ -107,7 +125,7 @@ export function ProgressBar({ value, label, className = '' }: ProgressBarProps) 
         <div
           className="h-2 w-full rounded-full bg-surface-elevated overflow-hidden"
           role="progressbar"
-          aria-label={label ?? 'Download progress'}
+          aria-label={accessibleLabel}
         >
           {/*
            * Indeterminate bar -- 1/3 of the track width, continuously
@@ -130,7 +148,7 @@ export function ProgressBar({ value, label, className = '' }: ProgressBarProps) 
           aria-valuenow={clampedValue}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={label ?? 'Download progress'}
+          aria-label={accessibleLabel}
         >
           {/*
            * Determinate bar -- width set as an inline percentage.

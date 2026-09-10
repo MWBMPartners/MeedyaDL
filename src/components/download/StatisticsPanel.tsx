@@ -317,7 +317,12 @@ function SpeedSparkline() {
 
   return (
     <div className="flex items-center gap-2 mt-2">
-      <svg width={width} height={height} className="flex-shrink-0" aria-label="Download speed history">
+      {/* Fix 7 (a11y audit): role="img" makes sure the aria-label below
+          actually reaches assistive tech -- support for aria-label on
+          a bare <svg> with no explicit role is inconsistent across
+          screen readers, the same underlying problem as aria-label on
+          a plain <span> elsewhere in this fix. */}
+      <svg width={width} height={height} className="flex-shrink-0" role="img" aria-label="Download speed history">
         <polyline
           points={points}
           fill="none"

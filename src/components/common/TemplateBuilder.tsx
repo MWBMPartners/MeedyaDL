@@ -189,7 +189,12 @@ export function TemplateBuilder({
                 <button
                   type="button"
                   onClick={() => removeSegment(i)}
-                  className="text-current opacity-50 hover:opacity-100 transition-opacity leading-none"
+                  // Fix 14 (a11y audit): the glyph itself is ~12px, well
+                  // under the 24x24 CSS-pixel minimum target size (WCAG
+                  // 2.5.8) -- the added padding + negative margin keeps
+                  // the chip's visual size unchanged while giving the
+                  // actual click/tap target enough room.
+                  className="text-current opacity-50 hover:opacity-100 transition-opacity leading-none p-1.5 -m-1.5"
                   aria-label={`Remove ${seg.type === 'variable' ? getVariableLabel(seg.value) : seg.value}`}
                 >
                   &times;
@@ -197,7 +202,10 @@ export function TemplateBuilder({
               </span>
             ))}
 
-            {/* Add button */}
+            {/* Add button. Fix 6 (a11y audit): aria-haspopup + aria-expanded
+                say this opens a menu and whether it's currently open --
+                without them, a screen reader announced only "Add template
+                segment, button" with no hint that clicking pops anything up. */}
             <button
               ref={menuButtonRef}
               type="button"
@@ -206,6 +214,8 @@ export function TemplateBuilder({
                 border border-dashed border-border text-content-tertiary
                 hover:border-accent hover:text-accent transition-colors text-sm leading-none"
               aria-label="Add template segment"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
             >
               +
             </button>
@@ -279,6 +289,11 @@ export function TemplateBuilder({
                       }
                     }}
                     placeholder="Type text..."
+                    // Fix 9 (a11y audit): the "Custom Text" heading
+                    // above is a <p>, not a <label>, so it was never
+                    // tied to this field -- placeholder text alone is
+                    // not a name.
+                    aria-label="Custom text to add to the template"
                     className="flex-1 px-2 py-1 text-xs rounded-md border border-border
                       bg-surface-secondary text-content-primary placeholder-content-tertiary
                       focus:border-accent focus:ring-1 focus:ring-accent transition-colors"

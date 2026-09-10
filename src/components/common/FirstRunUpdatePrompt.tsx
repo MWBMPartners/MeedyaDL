@@ -130,7 +130,16 @@ export default function FirstRunUpdatePrompt() {
 
         {isDownloadingUpdate && (
           <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+            {/* Fix 13 (a11y audit): same fix as UpdateBanner.tsx -- a
+                real progress role instead of a plain div. */}
+            <div
+              className="flex-1 h-1.5 bg-surface-secondary rounded-full overflow-hidden"
+              role="progressbar"
+              aria-label="Update download progress"
+              aria-valuenow={downloadProgress ?? undefined}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
               <div
                 className="h-full bg-accent rounded-full transition-all duration-300"
                 style={{ width: `${downloadProgress ?? 0}%` }}

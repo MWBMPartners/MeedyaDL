@@ -183,11 +183,17 @@ function buildDisplayItems(entries: ActivityLogEntry[]): DisplayItem[] {
 function WallClockChip(): React.JSX.Element {
   const now = useLocalWallClock();
   return (
+    // Fix 7 (a11y audit): `aria-label` on a plain <span> is ignored --
+    // a <span> has ARIA role "generic", which the spec forbids from
+    // taking its name from aria-label. Since the digits are already
+    // visible text, a screen reader reads them regardless; a
+    // visually-hidden "Local time" prefix supplies the context sighted
+    // users get from the title tooltip.
     <span
       className="font-mono tabular-nums text-content-secondary"
       title="Local system time (updates every second)"
-      aria-label={`Local time ${now}`}
     >
+      <span className="sr-only">Local time </span>
       {now}
     </span>
   );
@@ -250,6 +256,62 @@ export function ActivityLog() {
   const [showSystem, setShowSystem] = useState(true);
   const [showDownload, setShowDownload] = useState(true);
   const [showVerbose, setShowVerbose] = useState(false);
+
+  /**
+   * Periodic summary announcer (a11y audit Fix 12).
+   *
+   * The scrolling log used to carry `role="log"` + `aria-live="polite"`
+   * directly, which makes the whole container a live region -- every
+   * single line insertion got queued to be read aloud. Lines arrive in
+   * bursts of up to ~60/sec during an active download (App.tsx's RAF
+   * batching), so in practice this meant a screen reader tried to read
+   * GAMDL's raw output continuously and couldn't be interrupted.
+   *
+   * This replaces that with a separate, ordinary live region that
+   * speaks at most once every few seconds, and only when something
+   * actually happened since the last time it spoke -- e.g. "42 new
+   * lines, 1 error" rather than narrating every line.
+   *
+   * `entriesRef` mirrors the store's `entries` array into a ref so the
+   * interval callback always reads the latest value without needing to
+   * be torn down and recreated every time `entries` changes (which, at
+   * up to 60 updates/sec, would defeat the point).
+   */
+  const entriesRef = useRef(entries);
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  /** How many entries were already accounted for in the last announcement. */
+  const lastAnnouncedCountRef = useRef(0);
+  /** Text for the summary live region below; empty until the first announcement. */
+  const [logAnnouncement, setLogAnnouncement] = useState('');
+
+  useEffect(() => {
+    const ANNOUNCE_INTERVAL_MS = 8000;
+    const timer = setInterval(() => {
+      const current = entriesRef.current;
+      const delta = current.length - lastAnnouncedCountRef.current;
+      if (delta === 0) return; // Nothing changed since last tick -- stay quiet.
+      if (delta > 0) {
+        // New lines arrived. Count how many of them are errors so the
+        // summary can flag the thing a user is most likely to care
+        // about, the same way a build's CI summary would.
+        const newSlice = current.slice(lastAnnouncedCountRef.current);
+        const errorCount = newSlice.filter((e) => e.severity === 'error').length;
+        const parts = [`${delta} new line${delta !== 1 ? 's' : ''}`];
+        if (errorCount > 0) {
+          parts.push(`${errorCount} error${errorCount !== 1 ? 's' : ''}`);
+        }
+        setLogAnnouncement(parts.join(', '));
+      }
+      // `delta < 0` means entries were cleared or the 10,000-entry cap
+      // trimmed the front -- resync silently rather than announcing a
+      // confusing negative count.
+      lastAnnouncedCountRef.current = current.length;
+    }, ANNOUNCE_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, []);
 
   /** Ref to the scrollable container for auto-scroll management. */
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -624,6 +686,14 @@ export function ActivityLog() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Summary live region (a11y audit Fix 12) -- see the
+          `logAnnouncement` effect above. This is the ONLY thing in
+          this page that gets announced automatically; the log content
+          itself is no longer a live region. */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {logAnnouncement}
+      </div>
+
       <PageHeader
         title="Activity Log"
         subtitle={
@@ -779,10 +849,32 @@ export function ActivityLog() {
         ref={scrollRef}
         onScroll={handleScroll}
         className="h-full overflow-y-auto bg-surface-secondary rounded-platform p-3 font-mono text-xs leading-relaxed select-text"
-        role="log"
-        aria-live="polite"
+        // Fix 12 (a11y audit): `role="log"` carries an implicit
+        // `aria-live="polite"` of its own -- removing the explicit
+        // `aria-live` attribute alone would NOT have stopped this
+        // being a live region, the role itself had to change too.
+        // `role="region"` keeps this a named, navigable landmark
+        // (a plain <div> has ARIA role "generic", which -- like the
+        // other "aria-label ignored" cases fixed elsewhere in this
+        // audit -- is not allowed to take a name from aria-label at
+        // all) without making every line insertion an announcement.
+        role="region"
         aria-label="Activity log"
       >
+        {/* Fix 12 (a11y audit): only ~150 of up to 10,000 entries are
+            ever actually in the DOM at once (virtualised rendering, for
+            performance) -- someone reading through with a screen reader
+            would hit the last rendered row and find nothing telling
+            them there was more below. This line is a real, always-
+            present child of the log (not part of the virtualised list),
+            so it's always reachable, and says both numbers plainly. */}
+        {entries.length > 0 && (
+          <p className="text-content-tertiary text-[11px] mb-2 select-none">
+            {isFiltered
+              ? `Showing ${filteredEntries.length} of ${entries.length} lines in total (filtered). Only the lines near your current scroll position are rendered at once -- scroll to bring more into view.`
+              : `${entries.length} line${entries.length !== 1 ? 's' : ''} in total. Only the lines near your current scroll position are rendered at once -- scroll to bring more into view.`}
+          </p>
+        )}
         {entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
             <ScrollText size={32} className="mb-3 opacity-40" />
@@ -863,7 +955,15 @@ export function ActivityLog() {
                   {entry.line}
                   <button
                     type="button"
-                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity p-0.5"
+                    // Fix 14 (a11y audit): this button only revealed
+                    // itself on mouse hover -- Tab still landed on it
+                    // (it was always in the DOM and focusable), it was
+                    // just invisible when it got there. With ~150 of
+                    // these rendered at once, that's ~150 silent,
+                    // invisible stops for a keyboard user.
+                    // `focus-visible:opacity-100` reveals it on
+                    // keyboard focus the same way hover does for a mouse.
+                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity p-0.5"
                     title="Copy to clipboard"
                     aria-label="Copy log entry"
                     onClick={() => {
