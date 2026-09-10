@@ -1,9 +1,11 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-09-10 (later) — see ★★★★ below
-**Working branch:** `work/video-quality-fallback`, rooted on `alpha`. Pushed, **not yet in a pull request** — everything goes to `alpha` in one pull request later, no stacking. The previous branch (`work/alpha-resilience-and-docs`) was merged as PR #1174 and is finished with.
+**Working branch:** `work/video-quality-fallback`, rooted on `alpha`, and now **pull request #1177 into `alpha`**, being rebase-merged. The previous branch (`work/alpha-resilience-and-docs`) was merged as PR #1174 and is finished with.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.64** · `beta` **1.9.4-beta.5** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.64**, becoming **alpha.65** the moment #1177 lands, because a push to `alpha` cuts the next tag by itself · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+
+(The beta number was wrong here until now — it said beta.5, and beta.6 had been tagged the day before. Worth knowing that this line rots quietly: nothing checks it.)
 
 Read top-to-bottom before continuing. **This is the single canonical handoff.** Do not create a second one under `.claude/` — see `project_session_handoff_pointer` for why.
 
@@ -11,15 +13,15 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — Session 2026-09-10 (later): music videos step down through codecs (#1176)
 
-> **PICK UP HERE.** Branch `work/video-quality-fallback`, seven commits, pushed as
-> **pull request #1177 into `alpha`**. All twelve checks green. **Not merged — waiting on the
-> maintainer**, because merging to `alpha` cuts a release and deploys it, and that has been the
-> maintainer's call every time so far.
+> **PICK UP HERE.** This landed on `alpha` as **pull request #1177**, rebase-merged with the
+> maintainer's explicit go-ahead. Nine commits. Rebase-merge, not squash, because every commit
+> carries its own `Release-Note:` trailer and squashing would have collapsed five separate
+> user-facing notes into one. The branch was linear, so GitHub's own rebase-merge worked directly
+> — it did **not** need the local-rebase-first dance #1174 needed.
 >
-> **When merging: rebase-merge, do not squash.** Every commit already carries its own
-> `Release-Note:` trailer, and squashing would collapse five separate user-facing notes into one.
-> The branch is linear (no merge commits), so GitHub's own rebase-merge works directly — it does
-> **not** need the local-rebase-first dance #1174 needed.
+> If you are reading this because something in the release broke: the merge triggers the Alpha
+> Release workflow, which bumps the version, tags it, and hands off to the build, packaging and
+> deploy actions. `project_release_pipeline_gotchas` has the three recurring failure modes.
 
 ### What this is
 
@@ -108,10 +110,34 @@ Also corrected: a commit hash written as if it were an issue number, a check des
 constant that has since been renamed away, and the pull request checklist gained a line for the
 new settings check.
 
+### Two more things this stretch turned up, both worth keeping
+
+**A check was telling reviewers something untrue.** The security check that flags "this pull
+request touches a sensitive path" matches six different kinds of file — brand assets, Tauri
+permissions, the app configuration, workflows, branch-protection rules, and code signing — for
+six different reasons. Its heading only ever gave one of them, so a pull request touching a
+workflow file was told "assets/brand is PROPRIETARY", which had nothing to do with it. The danger
+is not the wrong words; it is that a reviewer shown an irrelevant reason often enough learns to
+skim the section, and that is how a genuine brand-asset change gets waved through later. Each
+matched path now carries its own reason. Same shape as the Linux ARM comment that told a guard to
+stop looking — **a check only keeps its authority while everything it says is true.**
+
+**Six agents audited the two AI-context trees and produced 74 candidate corrections; adversarial
+verification rejected 66 of them.** Almost every rejection was the same mistake: reading a dated,
+deliberately historical record as though it were claiming to be current. That ratio is the useful
+part. If you run an audit like this and nearly everything it finds survives, the verification step
+is not doing its job.
+
+The eight that survived are all in this commit. The two worth remembering: the context file still
+had one sentence claiming video quality steps down through resolutions (the last survivor of the
+idea this whole issue existed to correct), and the memory folder's own README stated a rule —
+"personal memory is never committed" — that the folder it describes visibly breaks, with a good
+reason that was simply never written down.
+
 ### Still to do
 
-1. **Merge #1177** (rebase-merge — see the note at the top), then watch the Alpha Release
-   workflow it triggers, and the build, packaging and deployment actions after that.
+1. Watch the Alpha Release workflow this merge triggers, and the build, packaging and deploy
+   actions after it.
 
 ### Not code — these need a person
 

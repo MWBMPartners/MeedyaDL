@@ -10,7 +10,9 @@ That per-machine path is why memory can't be loaded straight from the repo — C
 
 ## What's in here
 
-Only memory files of `type: project` are committed. **Personal memory** (`type: user`, `type: feedback`) lives only in your home directory and is never committed — the repo shouldn't dictate that every contributor's Claude session has to know about Lance's git workflow preferences or that he prefers force-with-lease over force-push.
+Almost everything committed here is project memory — facts about MeedyaDL itself that you could not work out by reading the code. **Personal memory**, meaning one contributor's own working habits, stays in your home directory and is not committed; the repo should not make every contributor's session learn that Lance prefers force-with-lease over force-push.
+
+There is one deliberate exception. `feedback_plain_english_always.md` is filed as a `feedback` type, because that is how a standing instruction gets recorded. The instruction itself — explain everything in plain English — applies to everyone working on this project rather than to one person's setup, so it is committed and indexed here like a project file. It lives in `.claude/memory/` only and is deliberately not copied into `.OpenAI/memory/`.
 
 If you want to make a piece of project context available to the whole team, drop it in this directory using the standard memory frontmatter format (see any existing file as a template) and add a one-line hook to [`MEMORY.md`](MEMORY.md).
 
