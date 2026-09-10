@@ -151,22 +151,6 @@ FRONTEND_ONLY: dict[str, str] = {
         "this app at all, so there is nothing for the backend to do with "
         "the value."
     ),
-    "sidebar_collapsed": (
-        "Applied at startup: App.tsx reads this setting and calls "
-        "uiStore's setSidebarCollapsed() with it before first paint. "
-        "Sidebar.tsx itself never reads the setting -- it reads the "
-        "in-memory uiStore value that startup step copied it into. "
-        "Whether the sidebar is drawn wide or narrow is a rendering "
-        "decision the backend has no part in, so being read only once, "
-        "at startup, isn't itself the problem. What IS a known gap: "
-        "toggling the sidebar changes only that in-memory value and is "
-        "deliberately never written back to this setting (see the "
-        "comment on toggleSidebar() in uiStore.ts for why -- the only "
-        "save available there would silently commit whatever unsaved "
-        "edits happened to be sitting on the Settings screen). That "
-        "means the collapsed state does not survive a restart. Tracked "
-        "in #1175, not left here by accident."
-    ),
 }
 
 

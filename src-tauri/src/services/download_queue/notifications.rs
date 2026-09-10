@@ -207,22 +207,31 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
     // already set `settings.after_queue_once = None`, so writing `settings`
     // now records the cleared state.
     if had_one_shot {
-        // Save updated settings (clear the one-shot flag)
-        let data_dir = crate::utils::platform::get_app_data_dir(app);
-        let settings_path = data_dir.join("settings.json");
-        if let Ok(json) = serde_json::to_string_pretty(&settings) {
-            let _ = std::fs::write(settings_path, json);
-        }
-        // #690: also refresh the in-process settings cache so the
-        // next reader after a one-shot clear sees the post-clear
-        // value without re-reading disk. Without this, every read
-        // until the user next saves settings would see the stale
-        // pre-clear after_queue_once = Some(...) value.
-        use tauri::Manager as _;
-        if let Some(cache) =
-            app.try_state::<super::settings_cache::SettingsCache>()
-        {
-            cache.refresh(settings.clone());
+        // Clear the one-shot through the same narrow, serialised path
+        // everything else now uses.
+        //
+        // This used to be a raw `std::fs::write` of the whole cached
+        // settings object, which was wrong in two ways.
+        //
+        // First, it skipped the atomic rename, the 0600 permissions and
+        // the `.sha256` companion file. Because the checksum was never
+        // updated, the next startup compared the new file against the old
+        // checksum, found a mismatch, and warned that the settings file
+        // "may have been modified externally" — after every single
+        // one-shot action, with nothing actually wrong.
+        //
+        // Second, it wrote back every OTHER field from a snapshot that
+        // could be minutes old by the time the queue finished, quietly
+        // undoing anything changed in between.
+        //
+        // `update_settings_field` re-reads the file, changes only this
+        // field, writes it back properly, and refreshes the in-process
+        // cache itself — so the separate cache refresh that used to sit
+        // here is no longer needed (#690's requirement is still met).
+        if let Err(e) = crate::services::config_service::update_settings_field(app, |s| {
+            s.after_queue_once = None;
+        }) {
+            log::warn!("Failed to clear the one-shot after-queue action: {e}");
         }
     }
 

@@ -743,19 +743,24 @@ function App() {
   /*
    * ─── Effect 3: Sync Sidebar State from Settings ────────────────────
    *
-   * After settings load, sync the sidebar collapsed/expanded state from
-   * the persisted settings into the UI store. This uses `useUiStore.getState()`
-   * to access the store imperatively (outside the React render cycle),
-   * which is a valid Zustand pattern for one-off state synchronization.
+   * After settings load, copy the remembered sidebar position out of the
+   * settings and into the UI store. This uses `useUiStore.getState()` to
+   * reach the store imperatively (outside the React render cycle), which
+   * is a valid Zustand pattern for one-off state synchronization.
+   *
+   * Both answers are applied. This used to be wrapped in
+   * `if (sidebarCollapsedSetting)`, so a remembered "expanded" did
+   * nothing at all -- it only ever looked right because "expanded" also
+   * happens to be the UI store's own starting value. Now that the setting
+   * is written back whenever the sidebar is toggled (#1175), "expanded"
+   * is a real choice someone made and has to be honoured like any other.
    *
    * Dependency: [sidebarCollapsedSetting] -- re-runs when the setting changes.
    *
    * @see {@link https://docs.pmnd.rs/zustand/guides/practice-with-no-store-actions}
    */
   useEffect(() => {
-    if (sidebarCollapsedSetting) {
-      useUiStore.getState().setSidebarCollapsed(sidebarCollapsedSetting);
-    }
+    useUiStore.getState().setSidebarCollapsed(sidebarCollapsedSetting);
   }, [sidebarCollapsedSetting]);
 
   /*
