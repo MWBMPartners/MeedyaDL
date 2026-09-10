@@ -1947,13 +1947,19 @@ pub struct AppSettings {
     // ================================================================
     // UI layout preferences. They have no effect on GAMDL CLI arguments.
     // Each field below says whether it is actually written back.
-    /// Whether the sidebar navigation panel is collapsed. Read once at
-    /// startup (see `App.tsx`'s sidebar-sync effect), but the sidebar's
-    /// own collapse button deliberately does not write it back — so today
-    /// the choice does not survive a restart. See the long note on
-    /// `toggleSidebar()` in `src/stores/uiStore.ts` for why writing it
-    /// back from there would have discarded unsaved settings edits, and
-    /// #1175 for the follow-up that gives it its own narrow save.
+    /// Whether the sidebar navigation panel is collapsed. Read at startup
+    /// (see `App.tsx`'s sidebar-sync effect) and written back whenever the
+    /// sidebar's own collapse button is used, so the choice survives a
+    /// restart.
+    ///
+    /// The write goes through the `set_sidebar_collapsed` command, which
+    /// changes this one field on disk and nothing else. It deliberately
+    /// does not go through the ordinary whole-settings save: the collapse
+    /// button is on screen while the Settings page may have edits nobody
+    /// has pressed "Save Changes" on yet, and sending the whole object
+    /// would commit those edits by accident. That is what happened the
+    /// two previous times this was persisted, and both were backed out
+    /// (#1175).
     pub sidebar_collapsed: bool,
 
     /// Override the platform theme. `None` = auto-detect from the OS

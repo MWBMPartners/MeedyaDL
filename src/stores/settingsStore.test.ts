@@ -461,4 +461,38 @@ describe('settingsStore', () => {
       expect(useSettingsStore.getState().isDirty).toBe(true);
     });
   });
+
+  // =========================================================================
+  // No whole-object auto-save (#1175)
+  // =========================================================================
+  describe('no whole-object auto-save', () => {
+    /*
+     * There used to be a `debouncedSave()` on this store that wrote every
+     * setting from memory after a short delay. It was deleted because
+     * nothing was calling it and the one job it still had was to be the
+     * method the next person reached for when they wanted to remember one
+     * small preference -- which is how clicking the sidebar arrow came to
+     * save half-finished Settings edits over the file.
+     *
+     * The deletion itself is the real guard: putting it back is now a
+     * TypeScript error that the build catches. This test is here to say
+     * out loud, to whoever reads the file next, that its absence is the
+     * point and not an oversight.
+     */
+    it('offers no method that saves every setting on a timer', () => {
+      expect('debouncedSave' in useSettingsStore.getState()).toBe(false);
+    });
+
+    it('keeps the sidebar position in step without claiming there are unsaved edits', () => {
+      useSettingsStore.setState({ isDirty: false });
+
+      useSettingsStore.getState().syncSidebarCollapsed(true);
+
+      expect(useSettingsStore.getState().settings.sidebar_collapsed).toBe(true);
+      // Being told the sidebar moved is not the same as the person
+      // having edits they have not committed. The "Save Changes" button
+      // must stay disabled.
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+    });
+  });
 });
