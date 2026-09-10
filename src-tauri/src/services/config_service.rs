@@ -275,6 +275,35 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 9;
     }
 
+    // v9 -> v10: `default_video_codec_priority` (a single comma-separated
+    // `String`) became `video_codec_fallback_chain` (a real, ordered list
+    // of `VideoCodec` values — the same shape the audio fallback chain
+    // already used). Music videos can now step down through codecs the
+    // same way songs do, instead of the whole priority list being one
+    // hand-typed piece of text nothing validated.
+    //
+    // Nothing here actually converts the old value to the new one — that
+    // conversion happens inside the field's own reader,
+    // `deserialize_video_codec_chain` in `models/settings.rs`, which
+    // accepts either the old text or the new list. It has to live there
+    // and not here: a settings file whose JSON doesn't match a field's
+    // Rust type fails to parse as a WHOLE, before this function is ever
+    // reached, so a plain type change on this field would make an
+    // upgrading person's entire settings file look "damaged" and get
+    // reset to defaults. See the long comment above
+    // `AppSettings::video_codec_fallback_chain` for the full reasoning.
+    //
+    // The old `video_fallback_chain` (a list of video RESOLUTIONS to
+    // fall back through) is dropped in this same version bump, with
+    // nothing replacing it. It's safe to just delete: nothing in the
+    // codebase ever read it, so no download's outcome depended on it —
+    // a chain of different resolution ceilings can't change whether a
+    // video is available, only a chain of different codecs can (see the
+    // doc comment on `VideoResolution` for why).
+    if settings.settings_version == 9 {
+        settings.settings_version = 10;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -789,23 +818,26 @@ fn ini_video_section(lines: &mut Vec<String>, settings: &AppSettings) {
         "music_video_resolution = {}",
         settings.default_video_resolution.to_cli_string()
     ));
-    // Video codec priority is a comma-separated list (e.g., "h265,h264").
-    // Only written if the user has set a preference.
+    // Video codec priority is a comma-separated list (e.g., "h265,h264"),
+    // built from the person's ordered codec chain via
+    // `video_codec_priority_cli()`. Always written — that method falls
+    // back to the tool's own recommended order when the chain is somehow
+    // empty, so there is never nothing to write.
     //
-    // Passed through `sanitize_ini_value` like every other text value here.
-    // These two were the only ones that were not, and that mattered more than
-    // it looks: a line break inside the value ends the line early and whatever
-    // follows becomes a new setting of its own. One of the settings GAMDL
-    // accepts is the path to the ffmpeg program it runs, so a value carrying a
-    // line break could point that at any program on the machine. The value can
-    // come from a settings file someone was sent and imported, which is
-    // exactly the case issue #229 exists to guard. Same fix as #226.
-    if !settings.default_video_codec_priority.is_empty() {
-        lines.push(format!(
-            "music_video_codec_priority = {}",
-            sanitize_ini_value(&settings.default_video_codec_priority)
-        ));
-    }
+    // Passed through `sanitize_ini_value` like every other text value
+    // here, for the same reason issue #229 fixed this line and the remux
+    // format line below: a line break inside a value ends that line
+    // early, and whatever follows becomes a new setting of its own — one
+    // of the settings GAMDL accepts is the path to the ffmpeg program it
+    // runs, so a stray line break could point that at any program on the
+    // machine. The chain is now a real list of `VideoCodec` values, so a
+    // line break can no longer actually reach this string — but keeping
+    // the same guard here costs nothing and matches every other text
+    // value in this file.
+    lines.push(format!(
+        "music_video_codec_priority = {}",
+        sanitize_ini_value(&settings.video_codec_priority_cli())
+    ));
     // Video remux format (e.g., "mkv", "mp4"). Only written if set.
     // Sanitised for the same reason as the codec priority above.
     if !settings.default_video_remux_format.is_empty() {
@@ -1180,18 +1212,33 @@ mod tests {
 
     #[test]
     fn video_codec_priority_cannot_inject_an_extra_ini_setting() {
-        let settings = crate::models::settings::AppSettings {
-            default_video_codec_priority: "h264\nffmpeg_path = /tmp/attacker".to_string(),
-            ..Default::default()
-        };
+        // This has to go through JSON now, not a struct literal: the
+        // video codec chain is a real `Vec<VideoCodec>`, so there's no
+        // longer a plain string field a hostile value could be typed
+        // straight into. What's being proved here is that a hand-edited
+        // (or maliciously crafted) settings.json carrying this text under
+        // the OLD field name can't reach the INI file either.
+        let json = r#"{"default_video_codec_priority": "h264\nffmpeg_path = /tmp/attacker"}"#;
+        let settings: crate::models::settings::AppSettings = serde_json::from_str(json).unwrap();
+
+        // "h264\nffmpeg_path = /tmp/attacker" isn't a real codec name, so
+        // the settings reader drops it entirely before it ever reaches
+        // the INI writer — nothing recognisable survives, so the chain
+        // falls back to the tool's own recommended order. This is the
+        // real fix: the hostile text never gets anywhere NEAR a place
+        // that writes it to a file.
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            crate::models::gamdl_options::VideoCodec::ALL.to_vec(),
+            "an unrecognised codec entry should be dropped, leaving the default chain"
+        );
+
         let ini = super::settings_to_ini(&settings);
-        // What matters is whether a NEW SETTING was created, and a setting is
-        // only a setting when it starts its own line. After sanitising, the
-        // hostile text is still present but welded onto the end of the value it
-        // came in on, where GAMDL reads it as one nonsense codec name and
-        // ignores it. So the check is "does any line start with ffmpeg_path",
-        // not "does the text appear anywhere" — the looser check fails even
-        // when the fix is working correctly.
+        // Belt and braces: what matters is whether a NEW SETTING was
+        // created, and a setting is only a setting when it starts its own
+        // line. This should never trigger given the assertion above, but
+        // it's the same sanitize_ini_value guard every other text value
+        // in this file goes through, so it's proved here too.
         assert!(
             !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
             "a line break in the codec priority started a new setting:\n{ini}"
@@ -1215,7 +1262,10 @@ mod tests {
     fn the_ordinary_video_values_still_reach_the_file_intact() {
         // The fix must not break the normal case.
         let settings = crate::models::settings::AppSettings {
-            default_video_codec_priority: "h265,h264".to_string(),
+            video_codec_fallback_chain: vec![
+                crate::models::gamdl_options::VideoCodec::H265,
+                crate::models::gamdl_options::VideoCodec::H264,
+            ],
             default_video_remux_format: "mp4".to_string(),
             ..Default::default()
         };
@@ -2052,6 +2102,27 @@ mod tests {
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
         assert!(s.musicbrainz_search_fallback);
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v9 → v10 video codec fallback chain
+    // (`default_video_codec_priority` String -> `video_codec_fallback_chain`
+    // Vec<VideoCodec>)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v9_to_v10_stamps_version() {
+        // Like v7→v8 and v8→v9, this migration only stamps the schema
+        // version — the actual old-text-to-new-list conversion happens
+        // in the field's own `deserialize_with` reader
+        // (`deserialize_video_codec_chain` in `models/settings.rs`), not
+        // here, so there's nothing else for this step to do.
+        let mut s = AppSettings {
+            settings_version: 9,
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
     }
 
     #[test]

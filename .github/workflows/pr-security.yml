@@ -24,10 +24,12 @@
 #   5. Hardcoded absolute paths               — /Users//home/<user>/ C:\ literals
 #   6. Unpinned GitHub Actions                — `uses: org/repo@<tag>` not pinned to a 40-hex SHA
 #   7. Sensitive / proprietary path touches   — assets/brand, capabilities, signing, tauri.conf.json, workflows
-#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry, User-Agent,
-#                                                Tauri npm/Rust version sync, build-secret wiring, help docs,
-#                                                i18n translation catalogue, comment-mentioned file paths,
-#                                                parallel/concurrent claims in comments)
+#   8. Cross-source consistency               — tools/audit-checks/*.py (IPC contract, codec registry [now covers
+#                                                video codecs too], User-Agent, Tauri npm/Rust version sync,
+#                                                build-secret wiring, help docs, i18n translation catalogue,
+#                                                comment-mentioned file paths, parallel/concurrent claims in
+#                                                comments, a setting the app lets you change that the backend
+#                                                never reads)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -491,6 +493,24 @@ jobs:
           CONCURRENCY_CLAIMS=$(python3 tools/audit-checks/check_concurrency_claims.py 2>&1 || true)
           if echo "$CONCURRENCY_CLAIMS" | grep -q '•'; then
             add_section "Comment claims parallel/concurrent execution with no join!/spawn/Promise.all nearby" "$(echo "$CONCURRENCY_CLAIMS" | grep -A100 '###')"
+          fi
+          # A setting the app lets someone change that nothing in the
+          # backend ever reads — the exact shape the video-quality
+          # "resolution fallback" list turned out to be: a working UI
+          # control, saved to disk correctly, and never once looked at by
+          # anything downstream. The type system has no way to catch this
+          # (a field can be fully wired up as a *setting* and still be
+          # inert), so this script does it mechanically: every
+          # AppSettings field the app can change (`useSettingsField` /
+          # `updateSettings({...})`) must either be read somewhere in
+          # src-tauri/src, or be listed in the script's FRONTEND_ONLY
+          # dictionary with a reason (the theme, the UI language, and
+          # other things genuinely acted on by the frontend alone).
+          # Whole-repo, because the setting and its backend consumer (or
+          # lack of one) can live in files this PR never touched.
+          DEAD_SETTINGS=$(python3 tools/audit-checks/check_settings_reach_backend.py 2>&1 || true)
+          if echo "$DEAD_SETTINGS" | grep -q '•'; then
+            add_section "A setting the app lets you change, that the backend never reads" "$(echo "$DEAD_SETTINGS" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

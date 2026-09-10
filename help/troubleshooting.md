@@ -76,11 +76,11 @@ If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able
 
 #### "Requested quality not available"
 
-Not all content on Apple Music is available in every codec and resolution. Some tracks may only be available in specific formats.
+Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error -- it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
 
-- **Cause:** The specific codec or quality level you requested is not available for this particular content on Apple Music.
-- **Solution:** Enable fallback quality in **Settings > Codec Fallback Order** tab so that MeedyaDL automatically selects the next best available quality when your preferred choice is unavailable. Alternatively, manually select a different quality level before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
-- **Note:** ALAC (lossless) has the widest availability.
+- **Cause:** The specific audio or video codec you requested is not available for this particular content on Apple Music.
+- **Solution:** Enable fallback quality in **Settings > Codec Fallback Order** tab so that MeedyaDL automatically selects the next best available codec when your preferred choice is unavailable. Alternatively, manually select a different codec before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
+- **Note:** ALAC (lossless) has the widest availability among audio codecs.
 
 ---
 

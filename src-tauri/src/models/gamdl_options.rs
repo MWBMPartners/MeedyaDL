@@ -308,14 +308,19 @@ impl SongCodec {
 
 /// Video resolution options for GAMDL's `--music-video-resolution` flag.
 ///
+/// This is a **ceiling**, not a request. GAMDL looks at every quality the
+/// video actually comes in and picks the one closest to this value without
+/// going over it. If the video was never offered at this resolution or
+/// higher, GAMDL falls back to the lowest quality that IS above the
+/// ceiling. Either way, GAMDL always finds *something* — the resolution
+/// setting on its own can never make a video unavailable. Only the codec
+/// list (see [`VideoCodec`]) can do that, because a codec a video simply
+/// isn't offered in has nothing for GAMDL to pick.
+///
 /// Listed from highest to lowest quality. Resolutions above 1080p require
 /// the H.265 (HEVC) codec; lower resolutions are available with H.264 (AVC).
 /// The video codec priority is controlled separately via
-/// `GamdlOptions::music_video_codec_priority`.
-///
-/// The fallback chain in `AppSettings::video_fallback_chain` (see `settings.rs`)
-/// tries these resolutions in descending order when the preferred resolution
-/// is not available for a given music video.
+/// [`VideoCodec`] / `GamdlOptions::music_video_codec_priority`.
 ///
 /// ## Serialization
 ///
@@ -387,6 +392,98 @@ impl VideoResolution {
             Self::P480 => "480p",
             Self::P360 => "360p",
             Self::P240 => "240p",
+        }
+    }
+}
+
+/// Video codec options for GAMDL's `--music-video-codec-priority` flag.
+///
+/// GAMDL walks a list of these, in order, and downloads the video using
+/// the first codec it is actually offered in. That means a music video
+/// genuinely steps down through codecs in one single run — the tool does
+/// this itself, unlike the audio codec chain where MeedyaDL has to restart
+/// GAMDL once per codec as a safety net. See
+/// `AppSettings::video_codec_fallback_chain` for how a person's chosen
+/// order becomes the comma-separated string GAMDL is given.
+///
+/// Anything above 1080p (1440p, 2160p — see [`VideoResolution`]) is only
+/// ever offered in H.265. So a chain that leaves H.265 out caps every
+/// video at 1080p, even if a higher resolution was asked for. The codec
+/// list and the resolution ceiling work together this way, but only the
+/// codec list can make a video unavailable outright — the resolution can
+/// never do that on its own (see the note on [`VideoResolution`]).
+///
+/// GAMDL's own codec list has a third value, `ask`, which opens an
+/// interactive prompt in the terminal so a person can pick by hand.
+/// MeedyaDL always runs GAMDL with its output captured and no terminal
+/// attached, so there is nowhere for that prompt to go — it would either
+/// fail immediately or sit waiting forever for a keypress that can never
+/// arrive. For that reason `ask` is deliberately **not** a variant here.
+/// It must never be offered in the settings UI, and never forwarded to
+/// GAMDL.
+///
+/// ## Serialization
+///
+/// `#[serde(rename_all = "lowercase")]` matches the exact strings GAMDL's
+/// CLI expects (`"h265"`, `"h264"`).
+///
+/// ## Reference
+///
+/// - GAMDL `--music-video-codec-priority` flag and its `ask` picker:
+///   <https://github.com/glomatico/gamdl#usage>
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VideoCodec {
+    /// H.265 (HEVC). Better picture quality for the same file size than
+    /// H.264, and the only codec that unlocks resolutions above 1080p.
+    /// Not every music video is offered in H.265.
+    H265,
+
+    /// H.264 (AVC). Plays on essentially every device and app. On Apple
+    /// Music this tops out at 1080p — see [`VideoResolution`].
+    H264,
+}
+
+impl VideoCodec {
+    /// Every codec MeedyaDL knows about, best quality first. Used to
+    /// build the default fallback chain, and as the safety-net order
+    /// when a stored chain turns out to be empty (see
+    /// `AppSettings::video_codec_fallback_chain`).
+    pub const ALL: [Self; 2] = [Self::H265, Self::H264];
+
+    /// Converts to the exact CLI string GAMDL expects as one entry in
+    /// `--music-video-codec-priority` (the caller joins entries with
+    /// commas).
+    #[must_use]
+    pub const fn to_cli_string(&self) -> &str {
+        match self {
+            Self::H265 => "h265",
+            Self::H264 => "h264",
+        }
+    }
+
+    /// Human-readable label for the settings UI.
+    #[must_use]
+    pub const fn display_name(&self) -> &str {
+        match self {
+            Self::H265 => "H.265 (HEVC)",
+            Self::H264 => "H.264 (AVC)",
+        }
+    }
+
+    /// Parses a CLI-style codec name back into a `VideoCodec`. Trims
+    /// surrounding whitespace and ignores case, so a hand-edited
+    /// settings file (`" H265 "`, `"H264"`) still reads correctly.
+    ///
+    /// Returns `None` for anything not recognised — **including
+    /// `"ask"`**, which GAMDL accepts but this app never offers and
+    /// never forwards (see the enum's doc comment for why).
+    #[must_use]
+    pub fn from_cli_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "h265" => Some(Self::H265),
+            "h264" => Some(Self::H264),
+            _ => None,
         }
     }
 }
@@ -1346,6 +1443,31 @@ mod tests {
     }
 
     // ----------------------------------------------------------
+    // VideoCodec
+    // ----------------------------------------------------------
+
+    #[test]
+    fn video_codec_cli_strings_match_gamdl() {
+        assert_eq!(VideoCodec::H265.to_cli_string(), "h265");
+        assert_eq!(VideoCodec::H264.to_cli_string(), "h264");
+    }
+
+    #[test]
+    fn video_codec_from_cli_str_accepts_whitespace_and_case() {
+        assert_eq!(VideoCodec::from_cli_str(" H265 "), Some(VideoCodec::H265));
+        assert_eq!(VideoCodec::from_cli_str("h264"), Some(VideoCodec::H264));
+    }
+
+    #[test]
+    fn video_codec_from_cli_str_rejects_ask_and_junk() {
+        // "ask" is a real GAMDL value, but it opens an interactive terminal
+        // prompt MeedyaDL has no terminal to answer, so it must never parse.
+        assert_eq!(VideoCodec::from_cli_str("ask"), None);
+        assert_eq!(VideoCodec::from_cli_str("vp9"), None);
+        assert_eq!(VideoCodec::from_cli_str(""), None);
+    }
+
+    // ----------------------------------------------------------
     // LyricsFormat::to_cli_string
     // ----------------------------------------------------------
 
@@ -1686,6 +1808,16 @@ mod tests {
 
         let deserialized: VideoResolution = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized, res);
+    }
+
+    #[test]
+    fn video_codec_serde_roundtrip() {
+        let codec = VideoCodec::H265;
+        let json = serde_json::to_string(&codec).unwrap();
+        assert_eq!(json, "\"h265\"");
+
+        let deserialized: VideoCodec = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized, codec);
     }
 
     // ----------------------------------------------------------

@@ -1410,7 +1410,7 @@ pub(crate) async fn download_music_video_by_url(
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: Some(settings.output_path.clone()),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
-        music_video_codec_priority: Some(settings.default_video_codec_priority.clone()),
+        music_video_codec_priority: Some(settings.video_codec_priority_cli()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
         temp_path: Some(if settings.temp_path.is_empty() {
             std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
