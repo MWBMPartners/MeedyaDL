@@ -73,6 +73,11 @@ vi.mock('@/lib/tauri-commands', () => ({
   exportActivityLog: vi.fn().mockResolvedValue(undefined),
   exportDiskActivityLog: vi.fn().mockResolvedValue(1024),
   getLogsFolderPath: vi.fn().mockResolvedValue('/var/log/meedyadl'),
+  // The store writes the lines it is about to drop to a file before
+  // discarding them. That only happens once the log is full, which no test
+  // reached until the "keeps announcing" test below — so this was missing
+  // and the store threw the moment trimming started.
+  saveSessionLog: vi.fn().mockResolvedValue(undefined),
 }));
 
 beforeEach(() => {
@@ -88,6 +93,62 @@ describe('ActivityLog', () => {
   // ===========================================================================
   // Empty state
   // ===========================================================================
+
+  // ===========================================================================
+  // The spoken summary for screen readers
+  // ===========================================================================
+
+  it('keeps announcing new lines after the log has filled up and started dropping old ones', () => {
+    // The log holds at most 10,000 lines. Once it is full, every new line
+    // pushes an old one off the front, so the NUMBER OF LINES stops changing
+    // while lines keep pouring in. A first version of this counted the number
+    // of lines, so from that moment on it decided nothing had happened and
+    // went quiet for the rest of the session — and because the log's own
+    // running commentary was removed at the same time, somebody using a
+    // screen reader would have heard nothing at all from then on.
+    //
+    // This fills the log to its limit, then adds more, and checks the summary
+    // still says something.
+    vi.useFakeTimers();
+    try {
+      const MAX = 10_000;
+      const fill = Array.from({ length: MAX }, (_, i) =>
+        makeEntry({ line: `line ${i}` })
+      );
+      act(() => {
+        useActivityStore.getState().addEntries(fill);
+      });
+
+      render(<ActivityLog />);
+
+      // Let the first tick pass so the starting point is recorded.
+      act(() => {
+        vi.advanceTimersByTime(8000);
+      });
+
+      const lengthBefore = useActivityStore.getState().entries.length;
+
+      act(() => {
+        useActivityStore.getState().addEntries([
+          makeEntry({ line: 'after the cap' }),
+          makeEntry({ line: 'and another', severity: 'error' }),
+        ]);
+      });
+
+      // The list is the same size as before — that is the whole point.
+      expect(useActivityStore.getState().entries.length).toBe(lengthBefore);
+
+      act(() => {
+        vi.advanceTimersByTime(8000);
+      });
+
+      const announcement = screen.getByTestId('activity-log-announcement');
+      expect(announcement.textContent).toMatch(/2 new lines/);
+      expect(announcement.textContent).toMatch(/1 error/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('renders empty state when no entries', () => {
     render(<ActivityLog />);
