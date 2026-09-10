@@ -588,6 +588,37 @@ pub fn process_queue(
         // with a single codec (see `try_fallback()` and the "codec" error handler).
         let uses_native_priority = if let Some(ref ver) = gamdl_version {
             let settings_for_priority = load_settings_for_queue(&app);
+            let is_music_video_batch = super::helpers::urls_are_all_music_videos(&urls);
+
+            // The "Using GAMDL video codec priority" line used to be decided
+            // by the AUDIO gate just below -- GAMDL's version, the fallback
+            // switch, and whether there are at least two distinct AUDIO
+            // codecs. That's the wrong gate for a video: `--music-video-codec-priority`
+            // is set unconditionally, for every download, back in
+            // `merge_options()` (see options.rs) -- it has never depended on
+            // GAMDL's version or on how many audio codecs are configured.
+            // So someone who trims their audio chain down to a single codec
+            // got no log line for a music video at all, even though the
+            // exact same video codec order was still being sent to GAMDL as
+            // always. This decides the video line from video facts only --
+            // fallback being on, and there being more than one video codec
+            // to actually have an order among -- independently of the audio
+            // gate below. It changes nothing about what is sent, only what
+            // gets said about it.
+            if is_music_video_batch
+                && settings_for_priority.fallback_enabled
+                && settings_for_priority.video_codec_fallback_chain.len() > 1
+            {
+                emit_download_log(
+                    &app,
+                    &download_id,
+                    &format!(
+                        "Using GAMDL video codec priority: {}",
+                        settings_for_priority.video_codec_priority_cli().replace(',', " → ")
+                    ),
+                );
+            }
+
             if gamdl_service::is_version_at_least(ver, "2.9.1")
                 && settings_for_priority.fallback_enabled
                 && !settings_for_priority.music_fallback_chain.is_empty()
@@ -621,26 +652,23 @@ pub fn process_queue(
                     // What GAMDL is actually SENT here never changes: it always
                     // gets a value for `--song-codec-priority`, music video
                     // included, because the tool wants the audio arguments
-                    // regardless of what's being downloaded. Only what we TELL
-                    // the person watching should change. For a music video,
-                    // this audio codec chain has nothing to do with whether the
-                    // video steps down -- that's `video_codec_fallback_chain`'s
-                    // job, walked entirely inside GAMDL's own single run (see
-                    // `AppSettings::video_codec_priority_cli`). Naming "alac"
-                    // or "atmos" while a video downloads would just be wrong,
-                    // so say what's actually controlling this download instead.
-                    let priority_log_line = if super::helpers::urls_are_all_music_videos(&urls) {
-                        format!(
-                            "Using GAMDL video codec priority: {}",
-                            settings_for_priority.video_codec_priority_cli().replace(',', " → ")
-                        )
-                    } else {
-                        format!(
-                            "Using GAMDL native format priority: {}",
-                            priority_str.replace(',', " → ")
-                        )
-                    };
-                    emit_download_log(&app, &download_id, &priority_log_line);
+                    // regardless of what's being downloaded. This line is
+                    // about the AUDIO chain specifically, so only say it for
+                    // a non-video batch -- the video's own line, above, has
+                    // already covered a music video on its own (video) terms,
+                    // and printing both would be confusing at best and wrong
+                    // at worst (naming "alac" or "atmos" while a video
+                    // downloads has nothing to do with the video).
+                    if !is_music_video_batch {
+                        emit_download_log(
+                            &app,
+                            &download_id,
+                            &format!(
+                                "Using GAMDL native format priority: {}",
+                                priority_str.replace(',', " → ")
+                            ),
+                        );
+                    }
                     options.song_codec_priority = Some(priority_str);
                     true
                 } else {
@@ -1321,9 +1349,9 @@ pub fn process_queue(
                                     } else {
                                         "No audio available: Apple Music does not offer \
                                      this content in any of your requested formats. Try \
-                                     alternative codecs in Settings > Quality > Music \
-                                     Codec, or check that this content exists in your \
-                                     storefront."
+                                     alternative codecs in Settings > Codec & Resolution \
+                                     > Default Audio Codec, or check that this content \
+                                     exists in your storefront."
                                             .to_string()
                                     }
                                 } else if let Some(last_warning) = warnings.last() {
@@ -4443,35 +4471,70 @@ pub fn process_queue(
                                 // now explicitly refuses to run at all for a
                                 // music video (see its own comment) -- so for
                                 // a video there is no "trying each format
-                                // individually" about to happen. Say what is
-                                // actually true instead: GAMDL already walked
-                                // this video's own codec order, by itself, in
-                                // the single run that just failed.
-                                let is_music_video = {
+                                // individually" about to happen, and the
+                                // warning line right below has to say that
+                                // too, not just the activity-log line.
+                                //
+                                // The chain named here is read from the
+                                // QUEUED ITEM's own `merged_options` -- what
+                                // was actually handed to GAMDL when this
+                                // attempt started -- rather than from current
+                                // settings. Settings can be edited by the user
+                                // at any time, including while this item sat
+                                // waiting in the queue; reading them here
+                                // would risk naming a chain that was never
+                                // what GAMDL was actually given.
+                                let (is_music_video, video_codec_priority_sent) = {
                                     let q = queue_clone.lock().await;
                                     q.items
                                         .iter()
                                         .find(|i| i.status.id == dl_id)
-                                        .is_some_and(|i| {
-                                            super::helpers::urls_are_all_music_videos(
-                                                &i.status.urls,
+                                        .map(|i| {
+                                            (
+                                                super::helpers::urls_are_all_music_videos(
+                                                    &i.status.urls,
+                                                ),
+                                                i.merged_options
+                                                    .music_video_codec_priority
+                                                    .clone(),
                                             )
                                         })
+                                        .unwrap_or((false, None))
                                 };
-                                log::warn!(
-                                    "Download {dl_id} codec error despite native \
-                                 priority — trying per-codec fallback as \
-                                 safety net"
-                                );
+                                if is_music_video {
+                                    log::warn!(
+                                        "Download {dl_id} codec error despite native \
+                                     priority — no per-codec retry for a music video"
+                                    );
+                                } else {
+                                    log::warn!(
+                                        "Download {dl_id} codec error despite native \
+                                     priority — trying per-codec fallback as \
+                                     safety net"
+                                    );
+                                }
                                 let failure_log_line = if is_music_video {
+                                    // Say only what is known. We do NOT know
+                                    // GAMDL "exhausted" every codec in the
+                                    // sense of trying each one and having it
+                                    // refused -- the comment a few lines above
+                                    // this whole match arm already says a
+                                    // codec-shaped error can come from other
+                                    // causes (a broken stream, DRM trouble)
+                                    // without the codec order having anything
+                                    // to do with it. All that's actually known
+                                    // is that the download failed, and that
+                                    // MeedyaDL doesn't have a per-codec video
+                                    // retry to fall back on.
+                                    let chain_desc = video_codec_priority_sent
+                                        .as_deref()
+                                        .map(|s| s.replace(',', " → "))
+                                        .unwrap_or_else(|| "unknown".to_string());
                                     format!(
-                                        "This music video was not available in any \
-                                         of the codecs in your video codec order \
-                                         ({}) — GAMDL already tried all of them in \
-                                         the one run it made",
-                                        settings
-                                            .video_codec_priority_cli()
-                                            .replace(',', " → ")
+                                        "GAMDL could not download this music video with \
+                                         any codec in the order that was sent ({chain_desc}). \
+                                         MeedyaDL does not retry a music video one codec \
+                                         at a time."
                                     )
                                 } else {
                                     "GAMDL native priority failed — trying each \

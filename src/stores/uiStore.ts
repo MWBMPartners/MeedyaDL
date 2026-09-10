@@ -395,31 +395,28 @@ export const useUiStore = create<UiState>((set, get) => ({
    * Toggle sidebar collapse. Uses the **updater-function** form of `set()`
    * (`set((prev) => next)`) to derive the new value from the previous state,
    * avoiding stale-closure issues.
+   *
+   * This deliberately only changes the in-memory UI state and does NOT
+   * write `sidebar_collapsed` back to the settings store. A previous
+   * version of this function did that (via `updateSettings()` +
+   * `debouncedSave()`), and it was wrong: the Settings screen is
+   * explicit-save -- editing any field there only changes memory, and
+   * nothing reaches disk until the person clicks "Save Changes".
+   * `debouncedSave()` writes the WHOLE settings object, not just this one
+   * field. So clicking the sidebar's collapse button -- which is visible
+   * on every screen, not just Settings -- could silently write out
+   * whatever half-edited or just-reset settings happened to be sitting in
+   * memory at that moment, discarding real changes the person had not
+   * chosen to save. The collapsed state IS read from settings at startup
+   * (see `App.tsx`'s sidebar-sync effect, which calls
+   * `setSidebarCollapsed()` below) -- it just isn't written back from
+   * here, because the only save available to this action would have
+   * committed edits that were never the user's to commit. See #1175 for
+   * the follow-up to give the sidebar its own narrowly-scoped save.
    * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state#using-updater-function}
    */
   toggleSidebar: () =>
-    set((state) => {
-      const sidebarCollapsed = !state.sidebarCollapsed;
-      // Remember the choice. Without this the sidebar springs back open on
-      // the next launch: the saved setting was read at startup and applied,
-      // but nothing ever wrote the new value back, so collapsing it could
-      // never actually stick.
-      //
-      // `updateSettings()` only changes the copy of settings held in memory
-      // -- it does not write anything to disk, and its own doc comment says
-      // so. Something has to actually save afterwards, or this is exactly
-      // as broken as before. `debouncedSave()` is that something: it is the
-      // settings store's existing "save shortly after a change" helper,
-      // built for exactly this kind of toggle. It waits 300ms in case more
-      // clicks are coming, then writes the whole settings object to disk
-      // and clears the "unsaved changes" flag on success. It is
-      // deliberately not awaited here -- the sidebar should move the
-      // instant it is clicked, and the save happening a fraction of a
-      // second later is invisible to the user.
-      void useSettingsStore.getState().updateSettings({ sidebar_collapsed: sidebarCollapsed });
-      useSettingsStore.getState().debouncedSave();
-      return { sidebarCollapsed };
-    }),
+    set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
 
   /**
    * Directly set sidebar collapsed state. Called on app startup from the

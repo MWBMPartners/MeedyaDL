@@ -358,9 +358,19 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
         // - Type mismatches: returns a descriptive parse error
         //
         // If parsing fails (e.g., a field type changed between versions),
-        // fall back to defaults rather than returning an error. This prevents
-        // settings from appearing "reset" to the user — they get defaults
-        // for the broken field(s) while other fields are preserved by serde(default).
+        // fall back to defaults rather than returning an error, so the app
+        // still starts. But this is whole-file, not per-field: serde does
+        // not parse a struct field by field and keep the good ones -- if
+        // ONE field's JSON shape doesn't match its Rust type, the WHOLE
+        // file fails to parse, and the `Err` branch below returns
+        // `AppSettings::default()` for every field, not just the broken
+        // one. The output folder, cookies path, templates, credentials --
+        // everything the person had configured -- reverts to defaults
+        // together. See `models/settings.rs`'s comment on
+        // `video_codec_fallback_chain` for the full explanation of why
+        // that matters and how a field with a real shape change avoids
+        // triggering this by handling both the old and new shape in its
+        // own reader instead.
         // Ref: https://docs.rs/serde_json/latest/serde_json/fn.from_str.html
         match serde_json::from_str(&contents) {
             Ok(mut parsed) => {
@@ -1208,7 +1218,26 @@ mod tests {
     // runs. The value can arrive from a settings file someone was sent and
     // imported, which is the case #229 exists to guard against.
     //
-    // These tests fail if either write loses its sanitising again.
+    // What each test below actually proves is not the same for both
+    // fields, and it's worth being honest about that:
+    //
+    // - `video_remux_format_cannot_inject_an_extra_ini_setting` goes
+    //   through the REAL write path end to end (builds `AppSettings`,
+    //   calls `settings_to_ini`) and fails if `ini_video_section` ever
+    //   stops sanitising the remux-format write. That field is still a
+    //   plain `String`, so a hostile value really can reach the writer.
+    // - The two codec-priority tests do NOT prove the same thing about the
+    //   codec write. `unrecognised_video_codec_priority_text_is_dropped_by_the_reader`
+    //   proves the READER throws a hostile string away before it can ever
+    //   become part of `video_codec_fallback_chain` — so a real settings
+    //   file can no longer carry a line break in this field by the time
+    //   writing happens. `sanitize_ini_value_stops_a_hostile_codec_priority_string_from_injecting_an_ini_setting`
+    //   calls `sanitize_ini_value` directly, not through `ini_video_section`
+    //   — it would keep passing even if that call were deleted from the
+    //   real write site. (Proved by actually deleting it: every test here
+    //   still passed.) The call stays in `ini_video_section` anyway, as
+    //   defence in depth matching every other text value in that
+    //   function, but these tests are not what would catch its removal.
 
     #[test]
     fn unrecognised_video_codec_priority_text_is_dropped_by_the_reader() {
