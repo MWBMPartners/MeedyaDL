@@ -218,7 +218,100 @@ This bypasses the tag-push trigger and runs the Release workflow directly.
 
 ## Required GitHub Secrets
 
-The Release workflow requires these secrets to be configured in the repository settings (**Settings → Secrets and variables → Actions**):
+The Release workflow reads these when it builds. Each is listed below with what it
+is for and, further down, exactly how to set it.
+
+### Where a secret can live, and why that matters when you go looking
+
+A secret can be set in **two** places, and the build reads either without caring
+which:
+
+- **On this repository** — Settings → Secrets and variables → Actions.
+- **On the MWBMPartners organisation** — the organisation's settings, shared
+  across repositories.
+
+This catches people out. `gh secret list` run against the repository shows
+**only** the repository ones. Several of the values this build needs are set at
+organisation level, so a secret can be missing from that listing and still be
+perfectly well configured. Listing the organisation's secrets needs
+administrator rights on the organisation (`gh auth refresh -h github.com -s
+admin:org`), and most people working on this will not have them.
+
+**So never conclude a secret is missing because it is not in the repository
+listing.** Judge it by whether the feature it switches on actually works in a
+real build. That is the only test available to somebody without organisation
+admin rights, and it is the honest one.
+
+### How to set one
+
+In the browser, which is the usual way:
+
+1. Go to the repository on GitHub → **Settings** → **Secrets and variables** →
+   **Actions**.
+2. **New repository secret**.
+3. Put the name in exactly as written in the tables below — they are
+   case-sensitive, and a typo produces no error anywhere. The build simply
+   behaves as though the secret does not exist, which is silent by design.
+4. Paste the value. Do not add quotation marks around it, and watch for a
+   trailing newline or a stray space if you copied it from a terminal.
+5. **Add secret**.
+
+Or from a terminal, which avoids the copy-paste hazards:
+
+```bash
+# Reads the value from your clipboard on macOS -- nothing is echoed to the screen
+pbpaste | gh secret set SECRET_NAME --repo MWBMPartners/MeedyaDL
+
+# Or from a file (useful for long values such as a base64 certificate)
+gh secret set SECRET_NAME --repo MWBMPartners/MeedyaDL < value.txt
+
+# Organisation-wide instead, if that is where it belongs
+gh secret set SECRET_NAME --org MWBMPartners --visibility selected --repos MeedyaDL
+```
+
+**A secret takes effect on the next build, not on builds already running.** If
+you set one to switch a feature on, the release that is mid-flight will still be
+built without it.
+
+### Checking whether it worked
+
+There is no way to read a secret back — that is the point of them. What you can
+do:
+
+```bash
+# Names only, repository level. Values are never shown, and organisation-level
+# secrets do NOT appear here.
+gh secret list --repo MWBMPartners/MeedyaDL
+
+# Confirms every build-time value the code reads is at least WIRED THROUGH the
+# release workflow. It deliberately does NOT check whether the secret has a
+# value on GitHub -- that needs admin rights CI does not have and should not
+# have. It checks the half that lives in this repository, which is the half
+# that was missing all three times this went wrong (#1161, #1162, #1163).
+python3 tools/audit-checks/check_build_secrets.py
+```
+
+Then build a release and look at the feature itself. Each entry below says what
+"working" looks like, because for most of these a missing secret produces
+silence rather than an error.
+
+### The rule that stops a feature shipping switched off
+
+**Adding a new `option_env!("NAME")` in Rust, or `import.meta.env.VITE_NAME` in
+the frontend, means adding it to all three `env:` blocks in `release.yml` in the
+same change.** There are three because the workflow builds on three runners.
+
+An uncreated secret resolves to an empty string, so wiring it early is always
+safe, and the feature switches itself on the moment the secret exists.
+
+This is not a theoretical tidiness rule. A sweep in September 2026 found **three
+finished, reviewed, shipped features that had never worked once** in any build
+anyone could install, purely because the value was never passed through the
+release workflow. Crash reporting had been "fixed" five months earlier by making
+it read an environment variable that nobody ever set. `check_build_secrets.py`
+exists to catch exactly that, and runs on every pull request.
+
+The Release workflow requires these secrets to be configured in the repository settings (**Settings → Secrets and variables → Actions**) or at organisation level:
 
 ### Tauri Updater Signing (Required for all platforms)
 
@@ -269,6 +362,102 @@ These are only used by the macOS build. If missing, the macOS build will fail at
 | `INTAPPS_API_KEY` | API key for the feature-availability backend, embedded at compile time via `option_env!(...)` (same pattern as `ACOUSTID_API_KEY`). The key is extractable from shipped binaries by anyone holding the app, so it functions as attribution / abuse-filtering, not as a security boundary. |
 
 If **any** of the three is unset at build time, the feature-availability client is completely inert: no network call is attempted, no error is logged, and every feature resolves as enabled. Forks and local builds therefore work fully with zero configuration. **Never put real values, hostnames, or wire header names in this file — env-var names and the `option_env!()` mechanism only.**
+
+**Shape of each value** (placeholders — the real ones are not written down in
+this repository):
+
+| Secret | Shape | Example placeholder |
+|--------|-------|---------------------|
+| `INTAPPS_BASE_URL` | An `https://` address ending in a slash. Use the **subdomain** form, not the path form. | `https://<service>.api.<domain>/` |
+| `INTAPPS_APP_ID` | A short lowercase identifier for this app, letters, digits and hyphens only | `meedyadl` |
+| `INTAPPS_API_KEY` | A long opaque string issued by the backend | `k_live_0000000000000000000000000000` |
+
+Set all three together. Two out of three does nothing at all, silently, by
+design — the client refuses to start unless it has the complete set.
+
+**How to tell whether it took**: build a release, install it, and use the app
+normally for a minute. Then open the activity log with verbose logging switched
+on. A configured build makes one quiet background request; an unconfigured one
+makes none and says nothing either way. There is deliberately no on-screen
+success message — the whole mechanism is invisible unless a feature is actually
+paused.
+
+### Crash Reporting (Optional)
+
+| Secret | Description |
+|--------|-------------|
+| `SENTRY_DSN` | The address crash reports are sent to, read by the Rust side via `option_env!("SENTRY_DSN")`. |
+| `VITE_SENTRY_DSN` | The same address, read by the frontend via `import.meta.env.VITE_SENTRY_DSN`. **Both are needed.** They are separate because the two halves of the app are built by different tools, and setting only one means half the crashes go nowhere. |
+
+**Shape**: a DSN is an `https://` address with a key in front of the host and a
+project number on the end.
+
+```
+https://<32-hex-character-key>@<host>/<project-number>
+```
+
+Example placeholder: `https://00000000000000000000000000000000@app.glitchtip.com/1`
+
+**Where to get one**: create a project in the error-tracking service and copy the
+DSN it shows you. Reports go to GlitchTip, which accepts the same client
+libraries as Sentry, so the destination is decided entirely by this value — do
+not add a second library.
+
+**The step people forget, and it fails silently**: the host in the DSN must also
+be listed in `connect-src` in `src-tauri/tauri.conf.json`. The WebView refuses
+any address that is not, with no error and nothing shown to the user, so the
+frontend half would drop every report and nothing would look wrong. Two hosts
+are allowed today:
+
+```
+https://app.glitchtip.com    https://sentry.mwbm.cloud
+```
+
+If your DSN points anywhere else, add that host to `connect-src` in the same
+change. `tools/audit-checks/check_build_secrets.py` fails review when the DSN
+host and the allow-list disagree. Keeping the list short is deliberate: a
+reporting address arriving from anywhere else is refused rather than quietly
+sending stack traces somewhere nobody chose.
+
+**How to tell whether it took**: turn on Settings → Advanced → Error Reporting
+in a release build, cause a deliberate crash, and check the project for it.
+
+### Developer Access Passphrase (Optional)
+
+| Secret | Description |
+|--------|-------------|
+| `DEV_ACCESS_HASH` | The SHA-256 hash of the passphrase that unlocks the hidden developer tools, read via `option_env!("DEV_ACCESS_HASH")`. **The passphrase itself never goes in a secret and never reaches the binary** — only its hash does. |
+
+**Shape**: 64 lowercase hexadecimal characters.
+
+Generate it from the passphrase you have chosen:
+
+```bash
+# macOS / Linux. Note the -n: without it you hash a trailing newline as well,
+# and the passphrase will never match.
+printf '%s' 'your chosen passphrase' | shasum -a 256 | cut -d" " -f1
+```
+
+Example, so you can check your command produces the right shape — this is the
+hash of the word `example`, which is obviously not a passphrase to use:
+
+```
+50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c
+```
+
+Then set `DEV_ACCESS_HASH` to that 64-character string.
+
+**When this is unset there is no way in at all**, and that is deliberate. It
+used to fall back to the hash of the empty string, on the reasoning that only an
+empty passphrase would match — which was treated as equivalent to being switched
+off. It was not. An empty box is the starting state of the prompt and the
+easiest thing in the world to submit, so every build shipped with the hidden
+gate openable by entering the key sequence and pressing the button without
+typing anything (#1162).
+
+**How to tell whether it took**: in a release build, enter the key sequence
+(arrow keys then B, A), type the passphrase, and confirm the Developer Tools
+section appears in Settings → Advanced. An empty entry must be refused.
 
 ### MusicKit — no build-time secret today
 
