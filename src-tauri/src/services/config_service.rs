@@ -766,8 +766,8 @@ where
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
 
     // Read what is actually on disk, not what the frontend thinks is
-    // there. `load_settings` is the app's own reader, so this gets the
-    // schema migrations and the damaged-file handling for free.
+    // there — the frontend's copy may be half-edited or freshly reset.
+    //
     // The PLAIN read — deliberately not `load_settings`, which also
     // performs startup actions (resetting verbose logging, recording the
     // version, rewriting GAMDL's config file). Reading through that would
@@ -782,9 +782,13 @@ where
     // lock, and the lock is not reentrant, so calling it would freeze the
     // app on the spot.
     //
-    // (To be accurate about GAMDL's config.ini: `load_settings` above
-    // already regenerates it, so skipping `save_settings` does not skip
-    // that. It is a small waste on a sidebar click and nothing more.)
+    // GAMDL's config.ini is therefore NOT regenerated on this path, and
+    // that is correct rather than a gap: the read above has no side
+    // effects, and nothing written through this function — the sidebar's
+    // collapsed state, a cleared one-shot action — appears in config.ini
+    // at all. Regenerating it would be pure waste on every sidebar click.
+    // Anything that DOES change a value config.ini carries must go through
+    // `save_settings`, which syncs it.
 
     // Refresh the in-process cache of the settings.
     //

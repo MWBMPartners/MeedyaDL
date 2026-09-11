@@ -1,9 +1,11 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-10 (later) — see ★★★★ below
+**Last updated:** 2026-09-11 — see ★★★★ below (the section labelled "evening")
 **Working branch:** `work/manifest-parity-and-sidebar`, rooted on `alpha`. Before it, PR #1177 was rebase-merged (and its branch deleted), and before that PR #1174.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.65** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.66** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+
+(This line goes stale faster than it looks. A push to `alpha` cuts the next version by itself, so the very commit that last updated this line pushed `alpha` and tagged alpha.66 moments later — leaving the line wrong the instant it was written. Nothing checks it. Re-read it from each branch's own `package.json` rather than trusting it.)
 
 (The beta number was wrong here until now — it said beta.5, and beta.6 had been tagged the day before. Worth knowing that this line rots quietly: nothing checks it.)
 
@@ -13,8 +15,9 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — Session 2026-09-10 (evening): the repair tool that broke things, and the sidebar (#1178, #1175)
 
-> **PICK UP HERE.** Branch `work/manifest-parity-and-sidebar`, five commits, rooted on `alpha`.
-> Two fixes, one pull request, no stacking.
+> **PICK UP HERE.** Branch `work/manifest-parity-and-sidebar`, six commits, rooted on `alpha`.
+> Two fixes in one pull request, no stacking. It is **open as #1179** against `alpha` and every
+> check on it has passed. What is left is the merge itself.
 
 ### #1178 — the tool for repairing a broken release would have broken a healthy one
 
@@ -106,10 +109,16 @@ Codex rounds 3 and 4 both found nothing.
 
 ### Still to do
 
-1. Push, open the pull request to `alpha`, watch it, merge, then watch the release actions the way
-   [[project-green-release-can-miss-a-platform]] describes — **read the job list, not the tick.**
-2. First release after this merges: check `latest.json` by hand. Expect twelve entries, and the
-   verify step naming twelve rather than "6/6".
+1. **Merge #1179, with rebase-merge, not squash.** The branch is pushed, the pull request is open
+   and green. Four of the six commits carry real `Release-Note:` sentences (one carries two, so
+   five in all); the other two carry `Release-Note: none`. Squashing collapses those five separate
+   user-facing notes into one. The branch is linear, so GitHub's own rebase-merge works directly —
+   it does not need the local-rebase-first dance #1174 needed.
+2. The merge is a push to `alpha`, so it cuts **1.13.0-alpha.67** by itself. Watch the release
+   actions the way [[project-green-release-can-miss-a-platform]] describes — **read the job list,
+   not the tick.** An experimental ARM build can fail and leave the run looking entirely green.
+3. On that release, check `latest.json` by hand. Expect twelve entries, and the verify step naming
+   twelve rather than "6/6".
 
 ---
 
@@ -678,9 +687,19 @@ stopped working, said nothing, and its silence looked exactly like it passing.
 
 - **Do not add required status checks to the protected branches.** The rule set has no exempt
   accounts, so it would stop the automated jobs that push version bumps.
-- **Do not fail a release when only the ARM Linux builds are missing.** The update file has no ARM
-  Linux entry at all, so those users are unaffected, and failing on it would have turned two
-  otherwise-fine releases red for a problem measured at two in fifteen.
+- **Do not fail a release when only the ARM Linux builds are missing** — but NOT for the reason
+  this note used to give. It said "the update file has no ARM Linux entry at all, so those users
+  are unaffected". **That is false, and it was the belief #1166 was raised to correct.** The
+  update file carries four Linux ARM entries today — `.deb` and `.rpm` for both ARM64 and ARMv7 —
+  so a missing ARM build means those users genuinely get no update. Verified against the live
+  v1.13.0-alpha.66 manifest.
+
+  The decision still stands, on its real grounds: these are experimental builds, one flaky
+  cross-compile should not sink a whole release, and the failure mode is temporary (Ubuntu's
+  armhf archive briefly refusing `libc6`). What must go with it is the comfortable half of the
+  sentence. **Read the job list, not the run's green tick**, and re-run a failed ARM build rather
+  than shrugging at it. A note under a heading that says not to re-litigate it is exactly where a
+  false belief survives longest — that is how #1166 lasted the life of the project.
 - **Do not tighten the toolkit version pins yet.** The new guard already blocks the situation the
   pins were meant to prevent, and pins introduce their own quiet stall.
 - **Never re-run the release job against a tag that already exists.** It rebuilds that tag and
