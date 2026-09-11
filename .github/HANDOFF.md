@@ -1,19 +1,106 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-11 — see ★★★★ below (the section labelled "evening")
-**Working branch:** `work/manifest-parity-and-sidebar`, rooted on `alpha`. Before it, PR #1177 was rebase-merged (and its branch deleted), and before that PR #1174.
+**Last updated:** 2026-09-11 — see ★★★★ below
+**Working branch:** none. Everything is on `alpha`. PR #1179 was rebase-merged and its branch deleted; before it PR #1177, and before that PR #1174.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.66** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.67** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
 
-(This line goes stale faster than it looks. A push to `alpha` cuts the next version by itself, so the very commit that last updated this line pushed `alpha` and tagged alpha.66 moments later — leaving the line wrong the instant it was written. Nothing checks it. Re-read it from each branch's own `package.json` rather than trusting it.)
-
-(The beta number was wrong here until now — it said beta.5, and beta.6 had been tagged the day before. Worth knowing that this line rots quietly: nothing checks it.)
+(This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
 Read top-to-bottom before continuing. **This is the single canonical handoff.** Do not create a second one under `.claude/` — see `project_session_handoff_pointer` for why.
 
 ---
 
-## ★★★★ LATEST — Session 2026-09-10 (evening): the repair tool that broke things, and the sidebar (#1178, #1175)
+## ★★★★ LATEST — 2026-09-11: #1178 and #1175 shipped; the build-time secrets are now written down
+
+> **PICK UP HERE.** No working branch. Everything is on `alpha`, released as
+> **v1.13.0-alpha.67** — published, 22 files, all six platforms, twelve signed entries in the
+> update manifest. PR #1179 rebase-merged; #1178 and #1175 closed.
+
+### What shipped
+
+**#1178 — the tool for repairing a broken release would have broken a healthy one.** The standalone
+repair workflow wrote 6 of the 12 updater entries, and the six missing were *every* Linux package
+format, not just ARMv7 as the issue first said. Worse, it was destructive rather than incomplete:
+it built a fresh manifest from nothing and uploaded it with `--clobber`, so pointing it at a
+healthy release deleted six working update paths — and then reported "looks complete (6/6)",
+because its check was written from the same six names as its builder and was blind by construction
+to what it had just removed.
+
+Fixed by putting the platform list in **one** place (`manifest_rows()` in
+`scripts/release/updater-manifest.sh`, called by both workflows) and by making a rebuild **seed
+from the manifest already published**, so it can add or refresh an entry but never remove one.
+The verification now derives what to expect from the signatures the release actually published.
+
+**Proven in a real release**, not just in tests — alpha.67 was the first built through the shared
+script, and its verify step reported: `carries all 12 key(s) that this release signed`.
+
+**#1175 — the sidebar now remembers whether it was collapsed.** Two earlier attempts were backed
+out because the only save available wrote the whole settings file from memory, and the Settings
+screen is explicit-save, so collapsing the sidebar could commit a half-typed field or an
+uncommitted Reset. The fix is a write that cannot carry anything else. The real guard is a
+deletion: the whole-file auto-save is gone from the settings store, so putting that attempt back
+is now a TypeScript error the build refuses.
+
+**Two bugs review caught before they shipped**, both worth knowing:
+- A one-field write read through `load_settings`, which also switches verbose logging off on a
+  full release — so collapsing the sidebar switched off someone's verbose logging *and saved it*.
+  The write was flawless; the read broke the promise. See [[project-a-read-can-break-a-writes-promise]].
+- A one-time action ("shut down when finished") could repeat if its save failed, because the
+  in-memory copy was only refreshed on success. The old comment warned "Shut down firing forever"
+  and the change had quietly undone the protection it described.
+
+### The build-time secrets are now documented properly
+
+`DEV_NOTES.md` → **Required GitHub Secrets** now carries step-by-step instructions: where a secret
+can live, how to set it in the browser or from a terminal, how to check it took, and the shape of
+each value with example placeholders.
+
+Three things in there that are easy to get wrong and produce **silence rather than an error**:
+
+1. **A secret can be set on the repository OR on the organisation, and `gh secret list` shows only
+   the repository ones.** Listing the organisation's needs admin rights most people will not have.
+   So never conclude a secret is missing because it is absent from that listing — judge it by
+   whether the feature actually works in a real build.
+2. **Crash reporting needs `SENTRY_DSN` *and* `VITE_SENTRY_DSN`** — the two halves of the app are
+   built by different tools, and setting one means half the crashes go nowhere. The DSN's host
+   must also be in `connect-src` in `tauri.conf.json`, or the WebView refuses it silently.
+3. **`DEV_ACCESS_HASH` is a hash, never the passphrase.** Generate with `printf '%s'`, not `echo`
+   — a trailing newline produces a different hash and the passphrase will never match. Verified:
+   `example` hashes to `50d858…6545c` without the newline and `135503…48de` with it.
+
+### Worth raising: the confidentiality rule does not hold
+
+`.claude/CLAUDE.md` says user-facing docs must never carry the feature-backend hostname, and that
+`DEV_NOTES.md` "may name the `INTAPPS_*` env vars and nothing else about the transport".
+
+**This repository is public**, and that hostname is already committed in `.claude/CLAUDE.md`,
+`.claude/memory/project_remote_feature_control.md` and this handoff. So the rule is being kept in
+one file while being broken in three others that are equally public. `DEV_NOTES.md` was written to
+the rule anyway — placeholders only, no new exposure — but somebody should decide which it is:
+either the hostname is confidential and those three need cleaning, or it is not and the rule
+should say so. It is an endpoint address rather than key material, so this is a tidiness and
+honesty question rather than an emergency.
+
+### Still to do — these need a person, not code
+
+1. **Create the build-time secrets.** `SENTRY_DSN` / `VITE_SENTRY_DSN`, the three `INTAPPS_*`, and
+   `DEV_ACCESS_HASH`. The wiring is merged and correct; every one of those features is switched
+   off and silent until the secret exists. Instructions are in `DEV_NOTES.md`.
+2. **One real `bundle_engines=true` build**, to confirm the offline-installer manifest change.
+3. **Whether Odesli will grant a song.link key.** Without one the cross-platform links feature
+   cannot do anything — free public access closed during 2026.
+
+### When watching a release
+
+**Read the job list, not the run's green tick.** The ARM cross-compile jobs are
+`continue-on-error`, so a Release run reports success while a platform build inside it has failed.
+That is how ARMv7 dropped out of alpha.65 with everything looking green. See
+[[project-green-release-can-miss-a-platform]] for how to check and what to do.
+
+---
+
+## ★★★ Previous — Session 2026-09-10 (evening): the repair tool that broke things, and the sidebar (#1178, #1175)
 
 > **PICK UP HERE.** Branch `work/manifest-parity-and-sidebar`, six commits, rooted on `alpha`.
 > Two fixes in one pull request, no stacking. It is **open as #1179** against `alpha` and every
