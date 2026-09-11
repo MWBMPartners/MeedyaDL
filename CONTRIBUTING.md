@@ -134,7 +134,7 @@ All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **l
 
 1. Create a feature branch from `main`: `git checkout -b feat/your-feature`
 2. Make your changes with conventional commit messages
-3. Ensure all checks pass: `npm run type-check && npm run test`
+3. Ensure the checks CI will run actually pass: `npm run lint && npm run type-check && npm run test`, then from inside `src-tauri/`, `cargo clippy -- -D warnings && cargo test`. CI fails the pull request on any one of these.
 4. Push and open a pull request against `main`
 5. Link related GitHub Issues in the PR description (e.g., "Fixes #123")
 6. Wait for CI to pass and a maintainer to review
@@ -143,7 +143,7 @@ All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **l
 
 ## Reporting Issues
 
-- **Bugs**: Use the [bug report template](https://github.com/MWBMPartners/MeedyaDL/issues/new?template=bug_report.md)
+- **Bugs**: [open a new issue](https://github.com/MWBMPartners/MeedyaDL/issues/new) and say what you did, what you expected, and what happened instead. (There is no bug report form yet — only the crash report form the app itself uses.)
 - **Crash reports**: Use the in-app crash reporting (Settings > Advanced > Error Reporting)
 - **Feature requests**: Open a [discussion](https://github.com/MWBMPartners/MeedyaDL/discussions) or issue
 - **Security vulnerabilities**: See [SECURITY.md](SECURITY.md) — do NOT open public issues

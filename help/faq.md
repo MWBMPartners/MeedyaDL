@@ -228,7 +228,7 @@ The typical real-world impact:
 - **~10-track album**: metadata phase ~5–10 s instead of ~1–2 s.
 - **100-track playlist**: metadata phase ~30–60 s but reliably completes (previously prone to rate-limit cascades).
 
-There is no setting to re-enable parallel fetch — the knob is internal to GAMDL and was not exposed as a CLI flag. If upstream adds one in a future release, MeedyaDL will expose it in **Settings &gt; Quality**.
+There is no setting to re-enable parallel fetch — the control is internal to GAMDL and was not exposed as a command-line option. If a future GAMDL release adds one, MeedyaDL will surface it in **Settings > Codec & Resolution**.
 
 ### How do I update MeedyaDL?
 
@@ -275,7 +275,7 @@ If your question is not answered here, check the full [Troubleshooting](troubles
 
 ### What are "release channels"?
 
-MeedyaDL ships across four channels, ordered from least to most stable: **Alpha → Beta → RC → Stable**. Pre-release channels (anything below Stable) may be incomplete, untested, or broken. Pick your channel in **Settings > General > Updates**. See [Release Channels](release-channels.md) for the full breakdown.
+MeedyaDL ships across four channels, ordered from least to most stable: **Alpha → Beta → RC → Stable**. Pre-release channels (anything below Stable) may be incomplete, untested, or broken. Pick your channel in **Settings > General**, in the group of update settings near the bottom of the **Preferences** section. See [Release Channels](release-channels.md) for the full breakdown.
 
 ### Will I accidentally get an Alpha build if I'm on Stable?
 
@@ -283,7 +283,7 @@ No. The in-app updater only surfaces releases matching your selected channel (or
 
 ### How do I move back to Stable after trying a pre-release build?
 
-Open **Settings > General > Updates**, pick **Stable** from the Update Channel dropdown, and save. The next update check will surface the latest Stable release. If the Stable version number is lower than the pre-release version you're currently on, you'll need to download and install Stable manually from the [Releases page](https://github.com/MWBMPartners/MeedyaDL/releases) — the updater won't auto-downgrade your version.
+Open **Settings > General**, scroll down to the update settings at the bottom of the **Preferences** section, pick **Stable** from the Update Channel dropdown, and save. The next update check will surface the latest Stable release. If the Stable version number is lower than the pre-release version you're currently on, you'll need to download and install Stable manually from the [Releases page](https://github.com/MWBMPartners/MeedyaDL/releases) — the updater won't auto-downgrade your version.
 
 ### How often are pre-release builds published?
 

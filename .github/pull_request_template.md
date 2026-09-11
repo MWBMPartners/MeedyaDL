@@ -42,7 +42,7 @@ heuristically, but a clean bot comment is not a substitute for this pass.
 - [ ] URLs are validated as `http(s)://` before reaching a subprocess (`gamdl_service.rs` guard), and download URLs are domain-allowlisted (Apple Music / Classical / iTunes)
 - [ ] Any new filesystem path goes through `validate_path_safe()` (rejects `..` traversal); no path is built from unsanitised user input
 - [ ] User strings written to GAMDL `config.ini` pass through `sanitize_ini_value()` (strips `\n` / `\r`)
-- [ ] Imported settings/manifests are length-capped and control-char-stripped (`sanitize_imported_settings()`)
+- [ ] Imported settings/manifests are length-capped, and line breaks and carriage returns are removed from the text fields (`sanitize_imported_settings()` — note it removes only those two characters, not control characters in general)
 
 ### Subprocess safety
 

@@ -48,7 +48,7 @@ Once you are back online, adding another download or clicking "Start Queue" on t
 
 ### Network Errors (network)
 
-Network errors include connection timeouts, DNS resolution failures, and server-side errors from Apple Music. MeedyaDL automatically retries network errors up to **3 times** with exponential backoff before reporting a failure, so if you see a network error, it means multiple attempts have already been made.
+Network errors include connection timeouts, name-lookup failures, and server-side errors from Apple Music. MeedyaDL automatically retries a network error up to **3 times** — four attempts in total, one straight after another — before reporting a failure. So if you see a network error, several attempts have already been made in quick succession. Because there is no pause between them, a connection that is down will fail all four; wait until you are back online and retry the item yourself.
 
 #### Connection Timeout / DNS Failure
 
@@ -476,7 +476,7 @@ The Activity Log toolbar offers **three** actions for preserving log data, each 
 
 #### How to Export the Visible Activity Log
 
-1. Open the **Activity Log** panel (accessible from the sidebar or the bottom panel).
+1. Open the **Activity** page from the sidebar (or press Cmd/Ctrl + K).
 2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
 3. Click the **Export** button in the Activity Log header.
 4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
