@@ -21,17 +21,30 @@
 //
 // ## Frontend Mapping (src/lib/tauri-commands.ts)
 //
-// | Rust Command                  | TypeScript Function              | Line |
-// |-------------------------------|----------------------------------|------|
-// | get_settings                  | getSettings()                    | ~75  |
-// | save_settings                 | saveSettings(settings)           | ~80  |
-// | set_sidebar_collapsed         | saveSidebarCollapsed(collapsed)  | ~82  |
-// | has_embedded_acoustid_key     | hasEmbeddedAcoustidKey()         | ~83  |
-// | validate_cookies_file         | validateCookiesFile(path)        | ~85  |
-// | check_cookies_before_download | checkCookiesBeforeDownload()     | ~88  |
-// | check_internet_before_download| checkInternetBeforeDownload()    | ~91  |
-// | get_default_output_path       | getDefaultOutputPath()           | ~95  |
-// | test_wrapper_connection       | testWrapperConnection(url)       | ~100 |
+// | Rust Command                   | TypeScript Function              |
+// |--------------------------------|----------------------------------|
+// | get_settings                   | getSettings()                    |
+// | save_settings                  | saveSettings(settings)           |
+// | set_sidebar_collapsed          | saveSidebarCollapsed(collapsed)  |
+// | has_embedded_acoustid_key      | hasEmbeddedAcoustidKey()         |
+// | validate_cookies_file          | validateCookiesFile(path)        |
+// | check_cookies_before_download  | checkCookiesBeforeDownload()     |
+// | check_internet_before_download | checkInternetBeforeDownload()    |
+// | get_default_output_path        | getDefaultOutputPath()           |
+// | test_wrapper_connection        | testWrapperConnection(url)       |
+//
+// This table used to carry a "Line" column pointing into
+// `tauri-commands.ts`. Every number in it was wrong by roughly six
+// hundred lines — `getSettings` was listed at ~75 and is at 689 — because
+// a line number goes stale the moment anything above it changes and
+// nothing here ever checked them. The column is gone rather than
+// corrected: corrected numbers would simply be wrong again tomorrow, and
+// a number that looks precise is trusted more than it deserves. Search
+// for the function name instead; that survives edits.
+//
+// The pairing itself IS checked: `tools/audit-checks/check_ipc_commands.py`
+// confirms every `#[tauri::command]` is registered and every frontend
+// `invoke('x')` names a real command.
 //
 // ## References
 //
