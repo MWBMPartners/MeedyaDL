@@ -96,7 +96,7 @@ The following queue actions are available:
 - **Retry without Wrapper** -- (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
 - **Retry All Failed** -- header button; re-queues every failed item in one click. Confirmation modal shows the count first
 - **Right-click any row** -- opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
-- **Clear Finished** -- removes all completed and failed items from the queue list, keeping only pending and active items
+- **Clear Completed** -- removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear All** if you want the failures gone too
 - **Export** -- saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
 - **Import** -- loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
 
@@ -148,10 +148,10 @@ When a download completes successfully, the item is marked as finished in the qu
 | Error Type | Cause | Resolution |
 | --- | --- | --- |
 | **auth** | Cookie is expired or invalid | Re-authenticate by updating your cookie in Settings. See [Cookie Management](cookie-management.md). |
-| **network** | Connection timeout or server error | Network errors automatically retry 3 times with exponential backoff. If all retries fail, check your internet connection and use Retry. |
+| **network** | Connection timeout or server error | MeedyaDL retries automatically — four attempts in total, one straight after another, with no pause between them. If all four fail, check your internet connection and use Retry once you are back online. |
 | **codec** | Selected audio quality is unavailable for this track | The fallback chain runs automatically. If all codecs fail, the track may not be available in any downloadable format. |
 | **not_found** | Content has been removed from Apple Music | The song, album, or playlist no longer exists on Apple Music. No action can resolve this. |
-| **rate_limit** | Too many requests sent to Apple Music servers | Wait a few minutes before retrying. |
+| **rate_limit** | Too many requests sent to Apple Music servers | Nothing is retried. MeedyaDL pauses the whole queue so it stops making the block worse. The cooldown usually lasts 1–2 hours or more, so wait it out and then click Resume on the Queue page. Files already downloaded are kept. |
 
 ---
 
@@ -289,7 +289,7 @@ MeedyaDL can watch your system clipboard for supported URLs while the app is ope
 
 Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). Dismiss the notification if you do not want to download.
 
-When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Notification Style** setting in **Settings > General > Notifications** (a three-way choice: in-app toasts only, native OS notifications only, or both).
+When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both).
 
 ### Privacy
 

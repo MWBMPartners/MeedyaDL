@@ -561,7 +561,7 @@ gh workflow run "Changelog" --ref main
 gh workflow run "Release" -f tag=v0.3.8
 ```
 
-During development, use `[skip ci]` in commit messages to prevent automatic workflow triggers.
+Do not use `[skip ci]` to save minutes. It looks harmless and is not — the text can travel into the release commit, and then GitHub skips every workflow that would have tagged and built the release. Trigger a workflow by hand instead, using the commands above.
 
 ---
 
@@ -1160,7 +1160,7 @@ MeedyaDL/
 
 │       ├── pr-security.yml     #    Advisory security/consistency checks on every PR
 
-│       ├── licences.yml        #    Licence-compliance checks on every PR
+│       ├── licences.yml        #    Licence-compliance checks on pull requests into main
 
 │       ├── dependency-report.yml#   Monthly dependency audit
 
@@ -1303,7 +1303,7 @@ When `hide_animated_artwork` is `true` (default), downloaded files are hidden vi
 
 ### Enrichment Pipeline Integration
 
-Animated artwork is **Step 3** (stage 8) in the enrichment pipeline. The `AlbumMetadata` response (with `extend=editorialVideo`) is fetched **once** in Step 1 and shared across metadata tagging, artwork download, and music video companion lookup — no duplicate API calls.
+Animated artwork is **Step 3** of the enrichment pipeline, and the fourth of the eight stages the progress bar shows. The `AlbumMetadata` response (with `extend=editorialVideo`) is fetched **once** in Step 1 and shared across metadata tagging, artwork download, and music video companion lookup — no duplicate API calls.
 
 Runs in a separate `tokio::spawn` task (non-blocking). Shutdown-aware (checked between enrichment stages).
 
@@ -1361,9 +1361,9 @@ The `TemplateBuilder` component provides an interactive chip/pill-based UI for b
 | File | Role |
 | ---- | ---- |
 | `src/lib/template-parser.ts` | Parser, serializer, `TEMPLATE_VARIABLES`, `COMMON_LITERALS`, `SAMPLE_METADATA` |
-| `src/lib/template-parser.test.ts` | 30 unit tests |
+| `src/lib/template-parser.test.ts` | 35 unit tests |
 | `src/components/common/TemplateBuilder.tsx` | Visual chip builder component |
-| `src/components/settings/tabs/TemplatesTab.tsx` | Consumer — 7 TemplateBuilder instances |
+| `src/components/settings/tabs/TemplatesTab.tsx` | Consumer — 8 TemplateBuilder instances |
 
 ---
 
@@ -1554,7 +1554,7 @@ The TOML file has two top-level scopes:
 
 | Section | Description | Count |
 |---------|-------------|-------|
-| `[album.<tag_id>]` | Per-album tags (same value on every track in the album) | 16 |
+| `[album.<tag_id>]` | Per-album tags (same value on every track in the album) | 17 |
 | `[track.<tag_id>]` | Per-track tags (matched to each file by track/disc number) | 14 |
 
 ### Tag Entry Format
@@ -1721,7 +1721,6 @@ assets/brand/
 ├── icon-tile-medium.svg   # Hand-authored 48/64px tile (same reason)
 ├── logo.svg               # Animated SVG logo
 ├── wordtype.svg           # Animated SVG wordtype (gradient shimmer wordmark)
-├── logo-liquidglass-light.svg / -dark.svg # Apple Icon Composer foregrounds
 ├── brandkit.html          # Self-contained brand kit page (previews all assets)
 ├── README.txt             # Drop-in instructions for regenerating from the source kit
 ├── icon[-mode].png        # Rendered icon PNGs (1024x1024, 8 modes)
@@ -1877,7 +1876,7 @@ All elements have descriptive IDs for manual editing or JavaScript access:
 
 ### File Size
 
-~49 KB with two embedded fonts. The Orbitron variable font replaced 2 static weights, and Rajdhani uses a single weight — reduced from ~308 KB (4 separate static fonts) to ~49 KB.
+About 180 KB, with two fonts embedded in the file so it never needs to fetch anything. It was around 308 KB when it carried four separate fixed-weight fonts; moving to the Orbitron variable font and a single weight of Rajdhani is what brought it down.
 
 ---
 
@@ -2114,15 +2113,15 @@ SVG content is cached in a module-level `Map` to avoid re-fetching on re-renders
 ### Fallback Chain
 
 1. **Local SVG** from `public/icons/platforms/{id}.svg` — rendered inline, theme-adaptive
-2. **Google Favicon API** — `https://www.google.com/s2/favicons?domain={host}&sz=32` returns a PNG. Not theme-adaptive but always available for any domain.
+2. **The same file as a plain `<img>`** — if reading the SVG fails for any reason, the icon is shown as an ordinary image instead. It loses the theme colours but still appears.
+3. **Nothing** — a service with no icon file shows no icon rather than a placeholder. There is no lookup of an icon from anywhere outside the app; the app's security policy would refuse one anyway.
 
 ### Adding a New Platform Icon
 
 1. Create a 16x16 SVG file at `public/icons/platforms/{platform-id}.svg`
 2. Use `fill="currentColor"` for all paths (NOT hardcoded hex colours)
 3. Use `fill-opacity` for visual weight variation (e.g., `0.7` for primary, `0.15` for backgrounds)
-4. Set the `icon` field in `engines.toml`: `icon = "icons/platforms/{id}.svg"`
-5. Add the platform to `PLATFORM_CONFIG` in `GlobalProgressBar.tsx`
+4. Set the `icon` field in `engines.toml`: `icon = "icons/platforms/{id}.svg"`. That is the last step — the app reads the service list out of `engines.toml` at startup, so nothing in the front end needs changing.
 
 ### SVG Template
 

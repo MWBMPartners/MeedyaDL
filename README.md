@@ -73,7 +73,7 @@
 
 - **Auto-update checking** — stay on the latest version with full release notes in the Updates page
 - **Auto-start queue** — downloads start immediately by default, or toggle off to batch-add URLs and start manually from the Queue page
-- **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Paths
+- **Configurable temp directory** — intermediate files stored in `{OS temp}/MeedyaDL` by default, customizable in Settings > Tools
 - **First-run setup wizard** — installs Python and GAMDL automatically; reuses tools you already installed with a package manager (Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap) in place instead of downloading duplicates — and can update them through that same package manager from the Updates page. If a reused system Python is later removed or relocated (which a `brew upgrade python` can sometimes do) and that leaves MeedyaDL's Python environment unable to start, the wizard explains what happened and offers a one-click rebuild — MeedyaDL's own bundled Python is unaffected
 - **Built-in help documentation** — 20 topics with search, accessible in-app
 - **Feature availability notices** — if we ever have to temporarily pause a feature (for example while an upstream service change is investigated), the app shows a clear in-app notice explaining that the pause is deliberate and temporary — a feature never just silently disappears. If the paused feature is a whole download service, MeedyaDL declines new downloads for it with an explanation while it's paused — anything already downloading finishes normally, and other services are unaffected. If MeedyaDL can't check availability (for example, offline), it simply carries on with the last known state — being offline never turns anything off, and a fresh install with no internet runs with everything enabled.
@@ -88,7 +88,7 @@
 - **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
 - **CodeQL workflow** — GitHub CodeQL static analysis for Actions YAML and JavaScript/TypeScript. Rust is intentionally excluded (build hangs indefinitely) since Rust code quality is covered by clippy and cargo test in CI
-- **Brand assets** — a "Graphite levels" design: a downward play-triangle with media-equaliser levels on a save bar, as an animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar uses animated SVG logo + wordtype via `<object>` tags with static PNG/text fallbacks
+- **Brand assets** — a "Graphite levels" design: a downward play-triangle with media-equaliser levels on a save bar, as an animated SVG logo and wordtype. Brand kit page at `assets/brand/brandkit.html`. Colour mode support: light, dark, and 3 colour-blind variants (deuteranopia, protanopia, tritanopia) plus dark variants of each. Sidebar shows the animated SVG logo and wordtype through `<img>` tags rather than `<object>`, so nothing embedded in the SVG file can execute; if the wordtype fails to load, plain text is shown in its place
 
 ---
 
@@ -103,7 +103,7 @@
 | 🐧 **Linux** | ARM64 | `.deb`, `.rpm` | ✅ Yes¹ | Raspberry Pi 4/5, ARM servers |
 | 🐧 **Linux** | ARMv7 | `.deb`, `.rpm` | ✅ Yes¹ | Raspberry Pi 32-bit (experimental) |
 
-¹ Until a fix that shipped in September 2026, the in-app updater didn't know how to offer a new version to anyone who had installed from a `.deb` or `.rpm` package — on an ordinary 64-bit machine as much as on ARM. It would silently try to hand over `.AppImage` bytes instead, which `dpkg`/`rpm` can't install. The `.AppImage` format itself was never affected. Linux ARM additionally had no update signature published at all until the same fix, on top of the missing update record. None of this needs anything from you: the first release built after the fix updates normally, on every install method, the same as macOS and Windows.
+¹ Until a fix that shipped in September 2026, the in-app updater didn't know how to offer a new version to anyone who had installed from a `.deb` or `.rpm` package — on an ordinary 64-bit machine as much as on ARM. It would silently try to hand over `.AppImage` bytes instead, which `dpkg`/`rpm` can't install. The `.AppImage` format itself was never affected. 32-bit ARM (Raspberry Pi 32-bit) had a second problem on top of that: its packages were being signed during the build but the signature file was never actually published, and the updater will not install anything it cannot check a signature for. 64-bit ARM was never affected by that part — its signatures were published all along. None of this needs anything from you: the first release built after the fix updates normally, on every install method, the same as macOS and Windows.
 
 ---
 
@@ -125,7 +125,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 
 ### How the support window is enforced
 
-- **Install flow**: `install_gamdl()` invokes `pip install --upgrade 'gamdl>={min},<={max}'`, so the resolver never pulls a GAMDL release we haven't validated.
+- **Install flow**: the ordinary install and the ordinary "Upgrade" button ask pip for the newest GAMDL inside the tested range only, so neither can quietly pull in a version we have not checked. The one exception is deliberate: if you accept an upgrade that the app has labelled "Untested", it installs exactly the version the label named.
 - **Update prompts**: the update banner (`services::update_checker`) queries `gamdl_capabilities::should_offer_upgrade()` — if PyPI advertises a GAMDL version beyond `maximum_tested_version`, no upgrade is suggested. Users who manually upgrade outside the range will still see their installed version, and a startup activity-log entry warns them that downloads may fail on CLI changes until the next MeedyaDL release catches up.
 - **GAMDL 3.8.5 is supported and recommended** (admitted 2026-08-03, ceiling raised from 3.8.4). GAMDL 3.8.x ships a compiled Rust extension as `cp310-abi3` wheels for macOS, Windows x64/ARM64, and Linux x64/aarch64 — installable on those platforms. **Linux ARMv7 has no 3.8.x wheel**, so it automatically stays on 3.8.1 (still in the support window). 3.8.5 reworks GAMDL's internal DRM key extraction to always read keys from the HLS playlist; 3.8.4 fixed a wrapper-decrypt bug that could corrupt the ending of some songs on 3.8.2/3.8.3. See [`.github/audits/gamdl-v3.8.5-audit.md`](.github/audits/gamdl-v3.8.5-audit.md) (and [`gamdl-v3.8.3-v3.8.4-audit.md`](.github/audits/gamdl-v3.8.3-v3.8.4-audit.md) / [`gamdl-v3.8.2-audit.md`](.github/audits/gamdl-v3.8.2-audit.md) for background).
 - **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
@@ -286,7 +286,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Installation
 
-1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page. Most users want the latest **Stable** release; if you want bleeding-edge builds, pick one of the pre-release channels (see [Release channels](#-release-channels) below).
+1. **Download** the latest release for your platform from the [Releases](https://github.com/MWBMPartners/MeedyaDL/releases) page. Most users want the latest **Stable** release; if you want bleeding-edge builds, pick one of the pre-release channels (see [Release channels](#release-channels) below).
 2. **Install** using your platform's standard method:
    - **macOS**: Open the `.dmg` and drag MeedyaDL to Applications
    - **Windows**: Run the `.exe` installer
@@ -461,14 +461,14 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 1. 🍴 Fork the repository
 2. 🌿 Create a feature branch: `git checkout -b feat/my-feature`
 3. 💾 Commit changes using conventional commits
-4. ✅ Ensure all checks pass: `npm run type-check && npm run test`
+4. ✅ Ensure the checks CI will run actually pass. On the frontend: `npm run lint && npm run type-check && npm run test`. On the backend, from inside `src-tauri/`: `cargo clippy -- -D warnings && cargo test`. CI runs all of these and will fail the pull request on any one of them.
 5. 📬 Open a pull request against `main`
 
 ---
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v1.10.0) <!-- x-release-please-version -->
+### v1.x — Current (v1.10.7) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry

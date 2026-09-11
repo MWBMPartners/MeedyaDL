@@ -35,7 +35,7 @@ MeedyaDL unterstützt Tastaturkürzel für schnelles Navigieren und häufige Akt
 - Verwenden Sie unter **Windows/Linux** die **Ctrl**-Taste
 - Tastenkombinationen sind deaktiviert, während Sie in ein Textfeld tippen, um versehentliches Navigieren zu verhindern
 - Das Activity Log unterstützt Textauswahl und Kopieren (Cmd/Ctrl + C)
-- **Cmd/Ctrl + D** wählt außerdem den gesamten Text im URL-Feld aus, damit er sich schnell ersetzen lässt.
+- **Cmd/Ctrl + D** wechselt zur Download-Seite und setzt den Cursor in das URL-Feld. Was dort bereits steht, bleibt unverändert.
 
 ## Modal-Tastenkombinationen
 

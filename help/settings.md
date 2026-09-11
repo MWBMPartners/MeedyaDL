@@ -20,7 +20,7 @@ MeedyaDL's Settings screen has 11 tabs, grouped into five sections in the sideba
 ## Codec & Resolution
 
 - **Audio Quality** -- Default audio codec (ALAC lossless by default), Companion Downloads mode (automatically download extra format versions alongside your primary download, e.g. Atmos + a lossless companion), and duplicate-detection preferences for artist downloads.
-- **Video Quality** -- Maximum Video Resolution (2160p/4K by default, treated as a ceiling -- Apple Music returns the closest quality at or below it), music video companion downloads (requires MusicKit credentials), and MusicBrainz video discovery as a fallback when Apple Music's own API doesn't find a music video.
+- **Video Quality** -- Maximum Video Resolution (2160p/4K by default, treated as a ceiling -- Apple Music returns the closest quality at or below it), the container format videos are repackaged into, music video companion downloads (these work either way: with MusicKit credentials MeedyaDL asks the Apple Music API, without them it falls back to MusicBrainz), and the MusicBrainz lookup itself, which you can also turn on on its own.
 - **Enable Fallback Chain** -- One switch that covers both songs and music videos. When it's on, an unavailable codec steps down through your configured chain (see below); when it's off, only your preferred codec is tried, and nothing steps down further.
 
 ## Codec Fallback Order
@@ -68,9 +68,9 @@ Spotify support is largely built but sits behind a hidden developer-only preview
 
 ## Advanced
 
-- **Setup** -- Download mode (which underlying tool fetches encrypted streams from Apple's CDN) and remux mode (which tool repackages the finished file) -- both apply to Apple Music downloads.
-- **Processing** -- File-handling options that affect how downloads are processed.
-- **File Options** -- Additional file-handling preferences.
+- **Processing** -- Which tool fetches the encrypted streams from Apple's servers, which tool repackages the finished file, and how long MeedyaDL waits with no output from GAMDL before giving up on a download. All three apply to Apple Music downloads.
+- **File Options** -- Shorten long filenames to a maximum length, and list any metadata tags you want left out of downloaded files.
+- **Setup** -- A single button that re-runs the first-time setup wizard, so your Python, GAMDL and tool installs are re-checked and repaired. Your settings are kept.
 - **Wrapper / Sign in to wrapper** -- Optional alternative authentication for Apple Music that doesn't rely on cookies. MeedyaDL supports two wrapper generations depending on your GAMDL version -- see [Wrapper Authentication](wrapper.md) for the full picture, including the three separate addresses wrapper-v1 uses and the single address wrapper-v2 uses, plus auto-retry-without-wrapper and connectivity testing.
 - **API Credentials** -- Your own MusicKit developer credentials (Team ID, Key ID, private key) for premium features, an AcoustID key override, and the song.link (Odesli) access key used by the Metadata tab's cross-platform links feature.
 - **Error Reporting** -- Local crash reports are always kept on your own machine. This section's toggle switches on optional, anonymous crash reporting to help us fix bugs -- off by default, no personal data, download history, or library information ever included -- alongside one-click reporting of a specific error to GitHub Issues (which opens a pre-filled issue in your browser after showing you exactly what would be sent).
