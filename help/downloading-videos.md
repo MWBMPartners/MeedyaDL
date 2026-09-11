@@ -145,8 +145,8 @@ MeedyaDL can automatically download music videos as companions when downloading 
 
 ### Requirements
 
-- **MusicKit credentials required** -- This feature uses the Apple Music API to look up music video relationships. You must configure your MusicKit Team ID, Key ID, and private key in **Settings > Advanced > API Credentials** before enabling this feature.
-- **Enable the toggle** -- Go to **Settings > Codec & Resolution > Video Quality** and turn on **Music Video Companions**. The toggle is only available when MusicKit credentials are configured.
+- **MusicKit credentials recommended** -- With your MusicKit Team ID, Key ID, and private key configured in **Settings > Advanced > API Credentials**, MeedyaDL can use the Apple Music API to look up music video relationships, which is the more complete source. They are not required, though -- see the next point.
+- **Enable the toggle** -- Go to **Settings > Codec & Resolution > Video Quality** and turn on **Music Video Companions**. You can turn it on whether or not you have MusicKit credentials. With credentials, MeedyaDL asks the Apple Music API which tracks have a music video. Without them, it falls back to looking them up in the MusicBrainz database instead, which needs no credentials -- coverage is thinner, because MusicBrainz is community-maintained.
 
 ### How It Works
 

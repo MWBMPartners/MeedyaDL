@@ -248,6 +248,79 @@ Long-lived channel branches (force-push-protected): `alpha`, `beta`, `release-ca
 - **ELI5 release-notes self-heal gate** (#1046): prerelease GitHub Release bodies that regress to raw commit-speak (e.g. from a squash-merge losing the `Release-Note:` trailer) are now detected and auto-repaired rather than shipping silently broken; see "MANDATORY: user-facing (ELI5) release notes" above for the full mechanism.
 - **alpha↔main realignment (EPIC #1040, 2026-07-24)**: `alpha` was reconciled with `main` at the content level — see `.claude/memory/project_alpha_main_drift.md` and `.github/HANDOFF.md` for the live phase tracker. Audit trail in `.github/audits/alpha-main-drift-content-analysis-2026-07-24.md` and `.github/audits/alpha-main-realignment-runbook-2026-07-24.md`. Ancestry closure (`-s ours` merge of main) and promotion to main are gated on maintainer go-ahead — do not run `realign-alpha` or a naive `git merge main` in the meantime.
 
+### When one assistant runs out, hand over — and hand back
+
+Every assistant used on this project has its own limits: a usage cap, a spend
+cap, a rate limit, an outage. Hitting one is routine, not an emergency.
+
+**If the assistant doing the work becomes unavailable, hand the work to another
+available one and carry on.** Do not idle until a limit resets, and do not leave
+a task half-finished because one service said no. Then go back to the usual one
+as soon as it will take work again — a fallback is a detour, not a new route.
+
+Deliberately written without naming tools. It applies to whichever assistants
+are set up at the time, and to falling back from one model to another inside a
+single tool. If a different one is added later, this already covers it.
+
+**The condition that has to be met first:** the work must survive the move.
+Hand over only when enough goes with it that the result will be as good — what
+is being attempted, what has been established, which files matter, what has
+already been tried and rejected, and how the result will be checked.
+`.github/HANDOFF.md` exists for exactly this; if the thread cannot be carried
+across, write it down there first. **A confident answer produced without the
+context that made the question answerable is worse than no answer**, because
+nobody can tell the difference by looking at it.
+
+**Retry the preferred assistant at the start of each new run**, even if it
+failed last time. Limits reset and outages end. Trying costs one failed call;
+assuming costs the whole benefit of the preferred one.
+
+**Say when the work changes hands, and why** — one sentence. A silent switch
+leaves the next reader puzzling over why the output reads differently.
+
+**The one place a hand-over must never be silent: reviewing.** The whole value
+of a second assistant checking the first is that two different systems rarely
+make the same mistake in the same place. If the reviewer is unavailable and the
+builder reviews its own work, that value is gone and the result looks identical
+from the outside. So when the usual reviewer cannot run: say so plainly in the
+report AND the commit message, get what independence is available (a different
+model, or a fresh agent with no memory of building the thing) and name which,
+and treat the change as not yet fully reviewed until the proper review runs.
+
+**Agents count too, not just services.** A sub-agent hitting its own cap is the
+same situation as the whole service being down, and the same rule applies:
+move the work to another suitable one rather than stopping.
+
+**Hand to any suitable one, not only the usual partner.** The point is that the
+work continues with something capable of doing it well — not that a specific
+pairing is preserved.
+
+**Why this is safer here than it would be elsewhere:** this project already
+reviews across different assistants, so a difference in how one of them
+approaches a problem tends to get caught by the other rather than shipping
+unnoticed. That is the safety net that makes handing over reasonable rather than
+risky.
+
+**It is a net, not a guarantee.** When the usual assistant for this project is
+available again, run a **full review** — not just a review of whatever was
+written while it was away. Differences in method show up in the shape of a whole
+change, not only in the lines a stand-in happened to touch. Do this often rather
+than saving it up.
+
+**This makes keeping `.github/HANDOFF.md` current a live obligation, not a
+closing task.** A hand-over is never scheduled: a cap is hit mid-sentence, an
+outage begins without warning. Whatever is written down at that moment is the
+whole of what the next assistant gets.
+
+So the handoff must be true *continuously*, not brought up to date at the end —
+the end is precisely when it will not happen, because whatever stopped the work
+stopped the writing with it. Update it as things are established, as approaches
+are rejected, as decisions are taken. "Is the handoff true right now?" is part
+of the work, not tidying afterwards.
+
+This never licenses swapping assistants to get a different answer. A refusal on
+the merits is a judgement, not an outage.
+
 ### The updater manifest is built by one shared script
 
 `latest.json` — the file the in-app updater reads — is assembled by

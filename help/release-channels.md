@@ -6,7 +6,7 @@
 
 # Release Channels
 
-MeedyaDL publishes builds on four release channels, ordered from **least stable** to **most stable**. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel.
+MeedyaDL publishes builds on four release channels, ordered from **least stable** to **most stable**. You pick one in **Settings > General > Preferences**, in the group of update settings near the bottom of that section, and the in-app updater stays on that channel.
 
 ## The four channels
 
@@ -21,7 +21,7 @@ Picking a channel opts you into everything at least that stable: choosing Beta a
 
 ## Switching channels
 
-1. Open **Settings > General > Updates**.
+1. Open **Settings > General** and scroll down to the update settings at the bottom of the **Preferences** section.
 2. Pick a channel from the **Update Channel** dropdown.
 3. Save. The app will start offering updates from that channel on the next update check.
 

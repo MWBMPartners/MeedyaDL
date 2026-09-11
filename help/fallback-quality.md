@@ -47,10 +47,10 @@ Downloaded in: AAC
 
 For audio, only a "codec unavailable" error triggers this. Other error types are handled differently:
 
-- **Network errors** -- Automatic retry (up to 3 attempts with exponential backoff)
+- **Network errors** -- Automatic retry. MeedyaDL tries the download up to four times in total (the first attempt plus three retries), one straight after another, before reporting it as failed.
 - **Authentication errors** -- Require a cookie refresh; no fallback attempted
 - **Not found errors** -- The content does not exist; no fallback attempted
-- **Rate limit errors** -- Automatic retry after the rate limit window expires
+- **Rate limit errors** -- No automatic retry. Apple Music limits how many licence requests one account can make, and the block lasts hours rather than minutes. MeedyaDL marks the item failed and pauses the whole queue so it stops making the block worse. Files already downloaded are kept, so when you resume from the Queue page later only the missing tracks are fetched.
 
 ### Audio Fallback Chain
 

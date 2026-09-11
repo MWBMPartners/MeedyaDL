@@ -329,7 +329,7 @@ You can select **multiple content types** simultaneously using the checkbox grou
 
 ### Download Notifications
 
-MeedyaDL sends notifications when downloads complete or encounter errors. Configure how notifications are delivered in **Settings > General > Notifications**:
+MeedyaDL sends notifications when downloads complete or encounter errors. Configure how notifications are delivered in **Settings > General > Preferences**, under the notification settings:
 
 | Mode | Behavior |
 |------|----------|

@@ -155,12 +155,24 @@ export function useKeyboardShortcuts(): void {
             if (urlInput) {
               urlInput.focus();
               /*
-               * Select all text in the input so the user can immediately
-               * start typing a new URL without manually clearing the field.
+               * Focus only -- deliberately NOT select-all.
+               *
+               * There used to be a `urlInput.select()` here, guarded by
+               * `instanceof HTMLInputElement`. That guard could never be
+               * true: the URL field is a `<textarea>` (it takes a whole
+               * list of links, one per line), and a textarea is an
+               * `HTMLTextAreaElement`, not an `HTMLInputElement`. So the
+               * select-all never ran, while the comment above it said it
+               * did -- and the help page repeated that claim to users.
+               *
+               * It has been removed rather than repaired, because
+               * repairing it would be worse than the dead code. Selecting
+               * everything made sense when this was a single-line box:
+               * you pressed the shortcut and typed straight over the one
+               * URL. It is now a list. Selecting the lot would mean the
+               * next character you typed silently wiped every link you
+               * had queued up.
                */
-              if (urlInput instanceof HTMLInputElement) {
-                urlInput.select();
-              }
             }
           });
           break;

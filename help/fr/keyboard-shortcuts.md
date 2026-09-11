@@ -35,7 +35,7 @@ MeedyaDL prend en charge des raccourcis clavier pour naviguer rapidement et effe
 - Sur **Windows/Linux**, utilisez la touche **Ctrl**
 - Les raccourcis sont désactivés pendant la saisie dans un champ de texte, pour éviter une navigation accidentelle
 - L'Activity Log prend en charge la sélection de texte et la copie (Cmd/Ctrl + C)
-- **Cmd/Ctrl + D** sélectionne aussi tout le texte du champ d'URL, pour le remplacer rapidement.
+- **Cmd/Ctrl + D** ouvre la page Download et place le curseur dans le champ d'URL. Ce qui y est déjà saisi reste tel quel.
 
 ## Raccourcis dans les fenêtres modales
 

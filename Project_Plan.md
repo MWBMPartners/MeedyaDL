@@ -9,7 +9,7 @@
 
 ## 📌 Current Version
 
-**v1.10.0** (2026-03-30) — All 6 phases complete + post-release features <!-- x-release-please-version -->
+**v1.13.0-alpha.66** — all 6 phases complete, plus the post-release work listed below <!-- x-release-please-version -->
 
 ---
 
@@ -183,12 +183,12 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 5. 🎵 AAC (256kbps at up to 48kHz)
 6. 🎵 AAC Legacy (256kbps at up to 44.1kHz)
 
-✅ Default video fallback chain:
+✅ Default video codec fallback chain:
 
-1. 🎬 H.265 2160p (4K)
-2. 🎬 H.265 1440p
-3. 🎬 H.265/H.264 1080p
-4. 🎬 H.264 720p → 540p → 480p → 360p → 240p
+1. 🎬 H.265
+2. 🎬 H.264
+
+Picture size is a separate setting and is not part of any chain. It sets a ceiling (2160p by default), and the app fetches the best quality at or below that ceiling in a single attempt — so there is never a "size unavailable" case to step down from.
 
 #### 4.3 Progress Tracking
 
@@ -200,7 +200,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 
 - ✅ Authentication errors → Cookie Settings redirect
 - ✅ Codec errors → Automatic fallback
-- ✅ Network errors → Auto-retry (3x exponential backoff)
+- ✅ Network errors → Auto-retry (3 retries, 4 attempts in all; the item goes straight back into the queue, with no waiting period between tries)
 - ✅ Clear error messages with actionable guidance
 
 ---
@@ -298,12 +298,12 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Generic GitHub API resolver** - Reusable `resolve_github_release_asset()` for upstream release queries and mirror fallback (refactored from N_m3u8DL-RE inline code)
 - ✅ **Three-tier download fallback** - System PATH → Primary upstream → Mirror repository → Error with guidance
 - ✅ **Auto-start queue setting** - `auto_start_queue` toggle in Settings > General (default: on). When disabled, items queue up and the user clicks "Start Queue" in the Queue page to begin processing. New `process_queue_manual` Tauri command for manual triggering.
-- ✅ **Temp directory setting** - `temp_path` in Settings > Paths (default: `{OS temp}/MeedyaDL`). Resolves GAMDL's default `--temp-path` of `.` which is unwritable on macOS from `/Applications`.
+- ✅ **Temp directory setting** - `temp_path` in Settings > Tools (default: `{OS temp}/MeedyaDL`). Resolves GAMDL's default `--temp-path` of `.` which is unwritable on macOS from `/Applications`.
 - ✅ **Fix --cover-size parameter** - Was passing `"10000x10000"` (WxH) instead of `"10000"` (single integer) to GAMDL in both CLI args and config.ini
 - ✅ **Expanded MusicKit documentation** - 6-step setup guide with detailed Apple Developer portal navigation, platform-specific instructions for extracting the `.p8` private key
 - ✅ **Updates page** - Dedicated sidebar page (`Updates`) showing full release notes rendered as markdown via `react-markdown`. Strips "Choose your download" section from release bodies (irrelevant for in-app auto-update). Connected to update banner "View Details" link and sidebar footer update button. Shows "You're up to date" state with current version when no updates are available. External links in release notes and "View on GitHub" buttons open in the system default browser via `@tauri-apps/plugin-shell`.
 - ✅ **i18n groundwork** - Translation infrastructure using `i18next` + `react-i18next` + `i18next-browser-languagedetector`. Translation files in `public/locales/{lang}/translation.json` (en, de, fr). `ui_language` setting in AppSettings (empty = auto-detect from OS). Language dropdown in Settings > General. Dynamic locale loading at startup. Provides migration path for translating remaining components. **Later update:** German and French are now complete, machine-made translations, not a stub — the language picker and an in-app note both say so. Help pages can also be translated (one file per page under `help/<language>/`, one page done so far), falling back to the English original with a note when a translation is missing.
-- ✅ **Crash reporting system** - Three-layer diagnostics: local file logging (`tracing` ecosystem with daily-rotating log files), local JSON crash reports (`{app_data_dir}/crashes/`), and opt-in Sentry cloud reporting. Custom panic handler captures Rust panics; frontend errors (ErrorBoundary, window.onerror, unhandledrejection) persisted via `log_frontend_error` IPC command.
+- ✅ **Crash reporting system** - Three-layer diagnostics: local file logging (`tracing` ecosystem with daily-rotating log files), local JSON crash reports (`{app_data_dir}/crashes/`), and opt-in cloud reporting that users must switch on themselves. The cloud reports go to GlitchTip. The code still uses Sentry's client library and the setting is still named `sentry_enabled`, because GlitchTip accepts Sentry's libraries unchanged — where reports land is set by an address supplied at build time, not by the library. Custom panic handler captures Rust panics; frontend errors (ErrorBoundary, window.onerror, unhandledrejection) persisted via `log_frontend_error` IPC command.
 - ✅ **GitHub Issues crash reporting** - One-click crash reporting to GitHub Issues from Settings > Advanced > Error Reporting. Pre-filled GitHub Issue URL opened in the user's browser (no tokens, no server needed). Privacy-first: user reviews all data in a `CrashReportDialog` consent modal before submitting. Backtrace truncated if body exceeds 3500 chars for URL length safety. New `crash-report` label and `.github/ISSUE_TEMPLATE/crash-report.yml` issue template. `build_github_issue_url()` in `crash_report_service.rs`, `get_github_issue_url` IPC command, `CrashReportSection` and `CrashReportDialog` frontend components.
 - ✅ **GitHub branch protection** - Repository Ruleset on `main` preventing force pushes and branch deletion, requiring CI status checks for PRs
 - ✅ **Pre-download internet connectivity check** - Non-blocking internet check before every download (`check_internet_before_download` Tauri command). When offline, the download is still queued but auto-start is skipped (`skip_auto_start` parameter on `start_download`); a warning toast is shown. Downloads wait in Queued state until the next online download triggers `process_queue()`. Cookie validation (`check_cookies_before_download`) runs only when online and is skipped for wrapper users.
@@ -320,7 +320,7 @@ Implement the download queue, fallback quality architecture, progress tracking, 
 - ✅ **Verbose activity log toggle** (v0.6.4) - New `verbose_activity_log` setting for detailed diagnostic output. Verbose messages prefixed with `[VERBOSE]`. Toggle in Settings > Advanced.
 - ✅ **Comprehensive Apple Music API metadata** (v0.6.4) - All available fields from the Apple Music catalog API extracted and embedded: 9 new track-level fields (Digital Master, release date, composer, duration, has lyrics, play params, URL, preview URL, genres) and 11 new album-level fields (record label, copyright, release date, compilation/single/complete flags, MFiT, track count, editorial notes, UPC, content rating).
 - ✅ **Dual-namespace metadata tagging** (v0.6.4) - All API-sourced tags written to both `com.apple.iTunes` (player-compatible) and `MeedyaMeta` (MeedyaDL-branded). Industry standard alternative names: `LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`. Album scope uses `Album*` prefix; track scope uses no prefix.
-- ✅ **Config-driven tag system (tags.toml)** (v0.6.4) - 28 tag definitions (16 album + 14 track) in declarative TOML. Adding new tags = edit TOML only, zero Rust changes. JSON path walker supports dotted paths, `[N]` array indexing, nested objects. `tag_registry.rs` module. 25 unit tests.
+- ✅ **Config-driven tag system (tags.toml)** (v0.6.4) - 31 tag definitions (17 album + 14 track) in declarative TOML. Adding new tags = edit TOML only, zero Rust changes. JSON path walker supports dotted paths, `[N]` array indexing, nested objects. `tag_registry.rs` module. 25 unit tests.
 - ✅ **API field audit tool** (v0.6.4) - Developer diagnostic in Settings > Metadata. Fetches album from Apple Music API, diffs JSON against tags.toml. Reports known/unknown/missing fields. 10 unit tests.
 - ✅ **Dependabot automated dependency checks** (v0.6.4) - Weekly semver-compatible npm + Cargo dependency checks. Minor/patch grouped into single PRs per ecosystem.
 - ✅ **Security fixes** (v0.6.4) - Cookie domain substring sanitization (Code Scanning #11), Secure attribute on cookies (#4-10), CI permissions block (#1-2).
@@ -580,6 +580,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-05-26*
+*Last updated: 2026-09-11*
 
 (c) 2024-2026 MeedyaDL

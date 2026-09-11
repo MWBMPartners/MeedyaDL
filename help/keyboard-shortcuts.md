@@ -35,7 +35,7 @@ MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
 - On **Windows/Linux**, use the **Ctrl** key
 - Shortcuts are disabled when typing in text fields to prevent accidental navigation
 - The Activity Log supports text selection and copy (Cmd/Ctrl + C)
-- **Cmd/Ctrl + D** also selects all text in the URL input for quick replacement.
+- **Cmd/Ctrl + D** takes you to the Download page and puts the cursor in the URL box. Anything already typed there is left as it is.
 
 ## Modal Shortcuts
 

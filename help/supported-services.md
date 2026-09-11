@@ -49,7 +49,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 | Synced Lyrics | Yes |
 
 **Engine:** [votify](https://github.com/glomatico/votify)
-**Authentication:** OAuth (cookie-based auth as fallback)
+**Authentication:** Browser cookies (Netscape format), the same way Apple Music works
 **Note:** Spotify does not offer lossless audio — maximum quality is Ogg Vorbis 320kbps.
 **URL acceptance:** MeedyaDL's download form already accepts `open.spotify.com` links today — pasting one queues it and routes it through Spotify's own eligibility checks (developer access, consent, and a daily cap) rather than rejecting it as unsupported. Full Spotify feature parity with Apple Music remains Milestone M9.
 

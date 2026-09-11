@@ -48,7 +48,7 @@ See [SECURITY.md](SECURITY.md) for a full list of security measures and data han
 
 ## 6. Third-Party Dependencies
 
-MeedyaDL depends on third-party software (GAMDL, FFmpeg, Python, etc.) which have their own licences and terms. By using MeedyaDL, you also agree to the terms of these dependencies. See the in-app "Open Source Licences" section (Help > About) for a complete list.
+MeedyaDL depends on third-party software (GAMDL, FFmpeg, Python, etc.) which have their own licences and terms. By using MeedyaDL, you also agree to the terms of these dependencies. See the "Open Source Acknowledgements" and "Third-Party Licences" sections under Help > About in the app for the complete list.
 
 ## 7. Limitation of Liability
 
