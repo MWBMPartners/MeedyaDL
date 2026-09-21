@@ -8,6 +8,24 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(deps)** Rustls security update, plus the waiting dependency updates (main) (#1202)
+
+This combines the dependency updates that were waiting on the main
+  branch into one pull request, and adds the security fix that was
+  blocking all of them from passing checks.
+
+  ## What is in it
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.7 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.7] - 2026-09-09
+
+### 🐛 Bug Fixes
+
 - **(deps)** Bump js-yaml to 4.3.2 for a high-severity advisory published on 8 September (#1167)
 
 A limit in `js-yaml` meant to stop a file tying up the processor did not
@@ -46,7 +64,6 @@ A limit in `js-yaml` meant to stop a file tying up the processor did not
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.7 [skip ci]
 
 ### 🔄 CI/CD
 
