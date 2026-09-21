@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-21 (19:10) — see ★★★★ below
+**Last updated:** 2026-09-22 (00:05) — see ★★★★ below
 **Working branch:** `work/issue-sweep-2026-09` (from `alpha` @ `bfb7b25f`, alpha.70) — the full GitHub issues sweep plus `.claude/` and handoff updates. Separately, `work/main-1.10.8-notes-and-audit` → `main` is open as **PR #1206**. Neither PR is merged until the sweep is done (maintainer's ordering).
 
 **Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
@@ -13,19 +13,23 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — 2026-09-21 (evening): issues sweep done, Codex round 1 fixed; waiting on Codex (23:15) before any PR
 
-> **PICK UP HERE (19:10).** The maintainer's instruction still stands: **create or merge NO
-> pull request until the Codex review is done**, and they chose (19:05) to **wait for Codex
-> itself** rather than accept an Opus stand-in. Codex's round 1 is done. It ran out of credit
-> during round 2 and is back at **23:15**. Then, in order:
-> (1) run Codex round 2 over everything committed since its round 1 — on this branch,
->     `git diff e92a8296..HEAD` plus `~/.claude/CLAUDE.md`, and PR #1206's new commits — and
->     repeat until a round finds no real problems;
-> (2) open the PR for this branch → `alpha`, and rebase-merge it when green;
-> (3) squash-merge PR #1206 → `main`;
-> (4) run `channel-security-audit.yml` once with `dry_run`, then for real;
-> (5) merge release PR #1203 (stable 1.10.8, approved);
-> (6) watch every run after each merge until green.
-> A follow-up is scheduled for 23:17, in this session only.
+> **PICK UP HERE (22 Sept, 00:05).** The rule still stands: **no PR is created or merged until
+> Codex's review is done** (the maintainer chose to wait for Codex itself). Codex is out of credit
+> again until **04:16 on 22 Sept**. Where the review stands:
+> - Round 1: 18 findings, all fixed; 1 disputed, and Codex accepted the dispute in round 2.
+> - Round 2: the rules and notes came back **clean**. The audit workflow had 3 findings (on
+>   alpha) plus 3 (on PR #1206), all fixed (`a4262eb2`, `7e69a80b`, and their cherry-picks on
+>   #1206) and tested: 15 npm/Rust cases, with stop-on-error on.
+> - **Round 3 still to run:** confirm those last workflow fixes. Review the whole of PR #1206
+>   (`git diff origin/main...HEAD` on `work/main-1.10.8-notes-and-audit`). The workflow file is
+>   byte-identical on this branch, so that one review covers both. Close off `codex exec`'s input
+>   with `</dev/null` — without it, it waits for typed input forever (lost 30 minutes at 23:28).
+>   Run reviews one at a time, to spare the usage allowance.
+>
+> Then, in order: (1) open the PR for this branch → `alpha`, and rebase-merge it when green;
+> (2) squash-merge PR #1206 → `main`; (3) run `channel-security-audit.yml` with `dry_run`, then for
+> real; (4) merge release PR #1203 (stable 1.10.8, approved); (5) watch every run until green.
+> A follow-up is scheduled for 04:18, in this session only.
 
 **Codex round 1 (18:15–18:45): 18 findings across the three reviews.** 17 were real and are fixed
 (`75b84914` workflow, `6bed4a82` style guide, `6f298c15` rules). 1 was disputed and not
