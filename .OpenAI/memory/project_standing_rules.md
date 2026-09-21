@@ -98,7 +98,7 @@ because the plugin does not match the rule exactly.
 | Improvement or cleanup pass on existing code | `dev-team-iterate` | |
 | Independent verification / QA pass | `dev-team-review` | **Read-only reporting mode only.** It treats the root `SECURITY.md` as its own list of security findings, and its repair mode writes back into it — here that file is the public security policy. It also expects a `PROJECT.md`, which this repo does not have. For reviewing Codex-built work, a plain fresh review agent (section 5) is usually the better choice. |
 | Documentation generation and upkeep | `dev-team-docs` | Fits the standing documentation sweep (section 7). The help-page rules and "never hand-edit `.OpenAI/CONTEXT.md`" still apply. |
-| Failing CI on an open PR | `dev-team-ci-medic` | |
+| Failing CI on an open PR | `dev-team-ci-medic` (also run by `/dev-team-watch-prs`) | **Only with `autofix=off` here** — there is no setting to force it, so pass it every time. Its default (`autofix=safe`) commits and pushes fixes to the PR branch by itself, checked only by its own Opus agent — which skips the Codex review. With `autofix=off` it diagnoses and proposes, and changes nothing. |
 | Large upgrades (a Tauri major, a framework port) | `dev-team-migrate` | |
 | Competitor feature-gap analysis | `dev-team-featurefind` | Useful for #911-type UI work. |
 | CI / secret scanning / branch protection / release audit | `dev-team-ship` | Most of this already exists here; use it to audit, not to stand up. |
@@ -137,7 +137,13 @@ Haiku → Sonnet → Opus → Fable. Two strikes: the first may be a bad brief (
 **Branches, commits and pushes:** `auto-commit` is **off** in the config, which stops the
 plugin committing after every single task. It does **not** stop all plugin commits: it still
 commits at each checkpoint (and once per cycle in `dev-team-iterate`), whatever the setting
-says. The plugin never pushes, so nothing leaves this machine until you push — and the rule
+says. **The plugin can push in two cases:** `dev-team-ci-medic` in its default mode (also
+reached through the `/dev-team-watch-prs` command), which is why it is only used with
+`autofix=off` here; and any skill run on a branch that already has an open PR, because the
+plugin's single-PR rule pushes its commits to that PR's branch. So do not run dev-team skills
+on a branch whose PR is open. Nothing in the settings file can enforce either restriction, so
+they rely on being remembered. Outside those two cases nothing leaves this machine until you
+push — and the rule
 that matters is **review before it is pushed**: run the Codex review over everything the
 plugin committed (`codex review --base <the commit you started from>`) before pushing. By default a run
 "branches from and targets the default branch" — start the skill from the working branch and
@@ -150,7 +156,9 @@ while an autopilot run is in progress — ordinary skill runs are not guarded at
 All of them are git-ignored in this repo, so git refuses to add them unless forced
 (`git add -f`) — and the plugin's own instructions tell it to commit `HANDOFF.md`, so it may
 force it. `auto-handoff` is off too, but the plugin still writes `HANDOFF.md` at checkpoints.
-**Before every push, check the plugin's commits** (`git diff --stat <start>..HEAD`) for any of
+**Before every push, check the plugin's commits** — every outgoing commit, with
+`git log --stat <start>..HEAD`, not just the difference between start and end (a file added in
+one commit and deleted in the next vanishes from that difference but is still pushed) — for any of
 these files, and take them out if present. If a plugin step reports it could not add an
 ignored file, check that the commit it was part of still happened — git stages the other
 files but the step can stop before committing. Anything worth keeping goes into `.github/HANDOFF.md` or an issue. `SECURITY.md`
@@ -189,7 +197,7 @@ codex review --commit <commit-id>
 # custom prompt alongside --uncommitted or --base ("cannot be used with
 # [PROMPT]", checked 2026-09-21), so use `codex exec` in read-only mode and
 # tell it what to look at. -o saves its final answer to a file.
-codex exec -s read-only -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
+codex exec -s read-only -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff HEAD, which includes staged changes, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
 ```
 
 **The loop:**
@@ -226,8 +234,7 @@ order; do not start the next unit until they are done.
    Run `rustfmt` **only on the files you touched** — never whole-crate `cargo fmt`, the tree has
    pre-existing drift and CI does not gate on it. Read the diff once for security (secrets,
    shell interpolation, paths, credentials in logs).
-2. **Cross-system review until clean** (section 5).
-3. **Update the notes so the next session can pick up:**
+2. **Update the notes so the next session can pick up:**
    - `.claude/memory/` — add or update the memory file(s), and its one-line entry in the
      index, `.claude/memory/MEMORY.md`.
    - `.claude/CLAUDE.md` — the affected bullet(s), if behaviour, settings or architecture changed.
@@ -239,6 +246,8 @@ order; do not start the next unit until they are done.
      `.OpenAI/CONTEXT.md` (never hand-edit `CONTEXT.md`) and copies memory to the home folder.
      Check with `cmp .claude/CLAUDE.md .OpenAI/CONTEXT.md`.
    - `.github/HANDOFF.md` — the LATEST section (section 2).
+3. **Cross-system review until clean** (section 5) — of the code **and** the note changes
+   from step 2, so nothing is committed unreviewed. One exception: a handoff-only update that just records progress does not wait for its own review round; the next round covers it.
 4. **Commit and push to the working branch.** The commit title starts with its type
    (`feat:`, `fix:`, `docs:` …, the "conventional commit" format the release tooling reads);
    every `feat`/`fix`/`perf` commit ends with a `Release-Note:` line — one plain-English sentence
@@ -334,7 +343,11 @@ queue changes.
   the combining branch: `git cherry origin/<combining-branch> origin/<original-branch>` must
   **succeed** (exit code 0) **and** show no `+` lines. Check the exit code — when the command
   fails (for example a mistyped branch name) it prints nothing, which looks exactly like "no
-  `+` lines". Use the `origin/…` names, since the branch may exist only on GitHub.
+  `+` lines". Run `git fetch origin` first and use the `origin/…` names, so you compare the
+  branches as they are on GitHub now. And `git cherry` compares changes, not final contents: a
+  change that was carried over and then undone later on the combining branch still passes it.
+  So also look at the combining branch's files and confirm the change is still there (for a
+  dependency PR: the versions it set are the versions the combining branch has).
   Once its changes live on the combining branch, the original's branch is no longer anyone's
   working branch. Delete **only** the branches of the PRs being replaced, and only in this
   repository — never a release branch (`main`, `alpha`, `beta`, `release-candidate`), the

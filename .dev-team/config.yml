@@ -84,6 +84,10 @@ features:               # On/off switches. Some (not all) can be overridden for 
                         # the standing rule is check, then have the other system (Codex)
                         # review, then commit. Honest limit: the plugin STILL commits at each
                         # checkpoint (and once per cycle in dev-team-iterate) whatever this
-                        # says. It never pushes, so the rule that holds is "review before it
+                        # says. It can also push, in two cases: dev-team-ci-medic (and the
+                        # /dev-team-watch-prs command) in its default autofix=safe mode -
+                        # so pass autofix=off every time, nothing here can force it - and
+                        # any run on a branch that already has an open PR (see single-pr
+                        # above). Otherwise the rule that holds is "review before it
                         # is pushed": run the Codex review over everything the plugin
                         # committed before the lead pushes.
