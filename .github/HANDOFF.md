@@ -20,11 +20,13 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > - Round 2: the rules and notes came back **clean**. The audit workflow had 3 findings (on
 >   alpha) plus 3 (on PR #1206), all fixed (`a4262eb2`, `7e69a80b`, and their cherry-picks on
 >   #1206) and tested: 15 npm/Rust cases, with stop-on-error on.
-> - **Round 3 still to run:** confirm those last workflow fixes. Review the whole of PR #1206
->   (`git diff origin/main...HEAD` on `work/main-1.10.8-notes-and-audit`). The workflow file is
->   byte-identical on this branch, so that one review covers both. Close off `codex exec`'s input
->   with `</dev/null` — without it, it waits for typed input forever (lost 30 minutes at 23:28).
->   Run reviews one at a time, to spare the usage allowance.
+> - **Round 3 still to run — ONLY the work Codex has not yet seen** (maintainer, 22 Sept: never
+>   re-review what rounds 1 and 2 already covered; it wastes Codex credit). That is exactly one
+>   44-line workflow change, identical on both branches (`9c9e025a` on PR #1206 = `7e69a80b`
+>   here), so review it once. Plus the handoff-only commit `36369ec0`. Check that the change
+>   fixes the three findings in `codex-r2b.txt`. If round 3 finds anything, round 4 reviews
+>   only that fix, and so on. Close off `codex exec`'s input with `</dev/null` — without it,
+>   it waits forever for typed input (lost 30 minutes at 23:28).
 >
 > Then, in order: (1) open the PR for this branch → `alpha`, and rebase-merge it when green;
 > (2) squash-merge PR #1206 → `main`; (3) run `channel-security-audit.yml` with `dry_run`, then for
