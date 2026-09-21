@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-09-21 — see ★★★★ below
-**Working branch:** `work/standing-rules-2026-09` (from `alpha` @ `53232f20`). One pull request to `alpha` will be opened later, when told — not before. Before this, PR #1179 was rebase-merged and its branch deleted.
+**Working branch:** none once PR #1205 merges. `work/standing-rules-2026-09` → `alpha` was opened as **PR #1205** at the maintainer's request (10:35), to be rebase-merged when its checks pass. If you are reading this on `alpha`, it merged. Its post-merge release result is recorded on issue #1198, because after the merge this file can only change through another PR.
 
 **Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open, waiting on the maintainer) · `alpha` **1.13.0-alpha.69** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 09:53, straight after the dependency merges.
 
@@ -13,8 +13,9 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — 2026-09-21: the standing rules, written down in one place (#1198); dependency PRs merged
 
-> **PICK UP HERE.** Branch `work/standing-rules-2026-09`. No pull request yet — one will be
-> opened to `alpha` later, when the maintainer says so.
+> **PICK UP HERE.** The rules work went to `alpha` as PR #1205. **Still owed: the Codex review**
+> of those commits (Codex was out of credit until 13:04). Run `codex review` over the PR's
+> commits on `alpha`, and put any fixes on a new working branch. Then close #1198.
 
 **What is being done.** The maintainer restated the standing rules and standing tasks. Until now
 most of them lived only in old session notes further down this file. They are being collected
