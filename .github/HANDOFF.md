@@ -25,9 +25,14 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 - **PR #1206 → `main`** is open. It holds `.github/release-notes/v1.10.8.md` (the plain-English
   notes that release PR #1203 needs before it can pass its check) and a copy of
   `channel-security-audit.yml` (#1204 — it has never run, because it only existed on `alpha`).
-  The `security` label was deliberately removed from #1206 so that the forward-port workflow
-  does not try to copy these two files to the other branches. After merging: run the audit
-  once with `dry_run`, then once for real.
+  The `security` label was removed from #1206. That was harmless but unnecessary: on `main` the
+  forward-port workflow acts only on Dependabot's own PRs (the label route exists only in
+  alpha's newer copy). An independent review found a real flaw in the audit (it never checked
+  whether switching to each branch's files worked), fixed on both branches as `aa9fcf43` /
+  its cherry-pick, so the two copies stay identical. After merging: run the audit once with
+  `dry_run`, then once for real. **Merge #1206 by squash**, so its `fix(ci)` commit does not
+  appear as a fix in the stable 1.10.8 changelog.
+- **Filed #1207:** the cut-off release-note line (see the next point), with a proposed check.
 - **Fixed today, outside git:** the notes of four published test releases (alpha.69, alpha.70,
   beta.7, rc.38) cut off mid-sentence, or started with the "Release in progress…" placeholder.
   They were edited by hand to show the full sentence. The cause: a `Release-Note:` line in
