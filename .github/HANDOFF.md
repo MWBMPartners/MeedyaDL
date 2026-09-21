@@ -3,7 +3,7 @@
 **Last updated:** 2026-09-21 — see ★★★★ below
 **Working branch:** `work/standing-rules-2026-09` (from `alpha` @ `53232f20`). One pull request to `alpha` will be opened later, when told — not before. Before this, PR #1179 was rebase-merged and its branch deleted.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.68** · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open, waiting on the maintainer) · `alpha` **1.13.0-alpha.69** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 09:53, straight after the dependency merges.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21: the standing rules, written down in one place (#1198) — IN PROGRESS
+## ★★★★ LATEST — 2026-09-21: the standing rules, written down in one place (#1198); dependency PRs merged
 
 > **PICK UP HERE.** Branch `work/standing-rules-2026-09`. No pull request yet — one will be
 > opened to `alpha` later, when the maintainer says so.
@@ -42,7 +42,65 @@ if Fable is unavailable); (2) a Sonnet agent puts the wording into the files; (3
 findings are fixed, and the review repeats until a round is clean; (4) commit, push, update
 issue #1198, memory, `.OpenAI/`, and this note.
 
-**Status:** branch and issue created. Step 1 next.
+**Status (10:00):** the rules work is **committed and pushed** — `41e75397` (the memory sync
+script fix) and `2d30a456` (the rules), plus this handoff. Sonnet applied the Fable drafts;
+the lead made the review fixes by hand, because they needed the whole review's context.
+**Still owed: the Codex review** (see below). No PR yet — one PR to `alpha` later, when told.
+
+**Review — Codex is OUT until 13:04 today** (usage limit, checked 09:31). Per the hand-over
+rule this was not quietly replaced by a self-review: a **fresh Opus agent** that built none of
+it reviewed round 1 — NOT CLEAN, 23 findings, all real, all fixed (wrong claims about the
+dev-team plugin's guard, a review loop that could be read as "change things until the
+reviewer goes quiet", an ambiguous branch-deletion rule, missing rules in `AGENTS.md`, script
+fixes). Round 2: 7 more findings, all fixed (the biggest: the check before deleting a branch
+could "pass" by failing, and nothing forbade pushing straight to a release branch). Round 3: the
+rule files came back clean; the only findings were stale lines in this handoff, fixed.
+Round 4: one finding (four old section headings still said `LATEST`), fixed. **Round 5: CLEAN.**
+**When Codex is back after 13:04, run the Codex review of the whole change anyway** — the Opus rounds are the stand-in, not the real thing. Commit message must say so.
+
+**Found along the way (fixed on this branch):**
+
+- `scripts/sync-claude-memory.sh` built the memory folder name wrongly for any path with `&`
+  in it (this clone's is "Coding & Development"), so project memory **never loaded** on this
+  Mac. Fixed, and it now warns if the folder has no Claude Code session files. The old,
+  wrongly named folder is still in `~/.claude/projects/` — deleting it was blocked for the
+  assistant; the script now prints the command for a person to run.
+- `codex review --uncommitted` / `--base` refuse a custom prompt. A focused review uses
+  `codex exec -s read-only "<what to check>"` instead. The rules say so.
+- `~/.codex/AGENTS.md` is now a **link** to `~/.claude/CLAUDE.md` (original backed up in the
+  session scratchpad), so the two machine-wide files cannot drift.
+- `.dev-team/config.yml` has `auto-commit: off`, which stops the plugin's per-task commits but
+  not its checkpoint commits — so the rule is "review everything the plugin committed before
+  pushing". All the plugin's own root files are git-ignored (it can still force one in, so
+  check its commits before pushing).
+
+**To raise with the maintainer (not changed):** `.claude/settings.json` and the *tracked*
+`.claude/settings.local.json` (in `.gitignore`, but committed before that) contain home-folder
+paths with the real name. Untracking it, or rewriting history, is the maintainer's call.
+
+### Second task, same session: the dependency PRs
+
+The maintainer asked for the ten waiting dependency PRs to be combined per branch, fixed,
+merged, and watched through every post-merge run. **All ten failed one check for one reason:**
+a security advisory for `rustls` (GHSA-2mjx-qc3c-rqvc, fixed in 0.23.45). A Sonnet agent built
+one combined branch per target with the updates + `cargo update -p rustls` (alpha needed
+`--precise 0.23.45`, which also moved `rustls-webpki` 0.103.13 → 0.103.15), opened one PR each,
+closed the ten originals and deleted their branches. The agent's own check before deleting
+used the weaker form of the test (it did not look at exit codes), so it was **re-done properly
+at 09:52**: all ten original PRs (fetched from GitHub's `refs/pull/N/head`) show as carried,
+every `git cherry` exited 0, and each combined branch's dependency files are identical to what
+was merged. Nothing was lost.
+
+| Branch | PR | Replaces | State (09:52) |
+| --- | --- | --- | --- |
+| release-candidate | #1199 | #1194, #1195 | **merged** `ab2d88ba` — post-merge runs being watched |
+| beta | #1200 | #1192, #1197 | **merged** `90d9b59c` — post-merge runs being watched |
+| alpha | #1201 | #1180, #1190, #1191 | **merged** `3db19a06` — post-merge runs being watched |
+| main | #1202 | #1181, #1193, #1196 | **merged last** `423dc6c9` — post-merge runs being watched |
+
+Merge order matters: main goes last so that `forward-port-security.yml` (which runs on every
+push to main) finds the other three already fixed and does nothing. Every PR was
+squash-merged (the PR description carries the `Release-Note:` line).
 
 ---
 
@@ -634,7 +692,7 @@ check's findings actually survive the pipeline.**
 
 ---
 
-## ★★★ LATEST — Session 2026-09-08: beta brought back to life, everything consolidated onto one branch
+## ★★★ Previous — Session 2026-09-08: beta brought back to life, everything consolidated onto one branch
 
 > **PICK UP HERE.** One work branch: `work/alpha-resilience-and-docs`, rooted on `alpha`
 > at `v1.13.0-alpha.61`. It carries everything and goes to `alpha` in a single pull
@@ -961,7 +1019,7 @@ Removed the two stale dated duplicates (`.claude/memory/` + `.OpenAI/memory/proj
 
 ---
 
-## ★★ LATEST — Session 2026-08-09/11: multi-PM tool detection + Phase 2a/2b → MERGED to alpha (#1082, v1.13.0-alpha.45)
+## ★★ Previous — Session 2026-08-09/11: multi-PM tool detection + Phase 2a/2b → MERGED to alpha (#1082, v1.13.0-alpha.45)
 
 **Focus:** the setup wizard showed external tools (FFmpeg, MP4Box, MediaInfo, …) as **missing** even when they were installed via Homebrew — the maintainer's own screenshot with `ffmpeg-full` present but shown red. Investigate the root cause and make detection work for Homebrew-installed (and, generally, system-package-manager-installed) components, minimising duplicate installs. Standing one-branch / no-PR-stacking rule applies — all commits land on `claude/gamdl-v3-8-5-review-gs36zl`; the single PR to `alpha` is cut later.
 
@@ -1004,7 +1062,7 @@ Landed (backend, main-loop Opus given the security-sensitive subprocess/elevatio
 
 ---
 
-## ★ LATEST — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
+## ★ Previous — Session 2026-08-05: Dependabot consolidation + security-alert sweep + issues/docs reconciliation
 
 **Focus:** Forward-port the two outstanding Dependabot **security** fixes onto this alpha-bound branch, resolve GitHub's 8 dependency + 2 secret-scanning alerts, then a full GitHub-issues sweep + documentation/memory refresh. **No new PR** (no-stacking rule — the single PR to `alpha` is cut later from this branch). Model routing per maintainer: sequential **Fable 5** for deep analysis/planning, Sonnet/Haiku for implementation.
 
@@ -1241,7 +1299,7 @@ Read this subsection top-to-bottom, then `.claude/memory/project_remote_feature_
 
 ---
 
-## ★ LATEST — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, PHASES 1–2 DONE)
+## ★ Previous — Session 2026-07-24: alpha↔main REALIGNMENT (EPIC #1040, PHASES 1–2 DONE)
 
 **Goal:** clean up alpha↔main drift without losing work, then bundle-ID change, then full issue-sweep + docs refresh + vision analysis. Autonomous run; Phase 3 gated on owner go-ahead.
 
