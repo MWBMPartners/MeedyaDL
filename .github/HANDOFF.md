@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-11 — see ★★★★ below
-**Working branch:** none. Everything is on `alpha`. PR #1179 was rebase-merged and its branch deleted; before it PR #1177, and before that PR #1174.
+**Last updated:** 2026-09-21 — see ★★★★ below
+**Working branch:** `work/standing-rules-2026-09` (from `alpha` @ `53232f20`). One pull request to `alpha` will be opened later, when told — not before. Before this, PR #1179 was rebase-merged and its branch deleted.
 
-**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.67** (released, all 6 platforms) · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
+**Channel versions:** `main` **1.10.7** · `alpha` **1.13.0-alpha.68** · `beta` **1.9.4-beta.6** · `release-candidate` **1.0.0-rc.37**.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,42 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-11: #1178 and #1175 shipped; the build-time secrets are now written down
+## ★★★★ LATEST — 2026-09-21: the standing rules, written down in one place (#1198) — IN PROGRESS
+
+> **PICK UP HERE.** Branch `work/standing-rules-2026-09`. No pull request yet — one will be
+> opened to `alpha` later, when the maintainer says so.
+
+**What is being done.** The maintainer restated the standing rules and standing tasks. Until now
+most of them lived only in old session notes further down this file. They are being collected
+into one lasting place, for Claude Code and for Codex, in this project and machine-wide.
+
+**Decisions the maintainer took today (2026-09-21):**
+
+1. The handoff stays **here, in `.github/HANDOFF.md`**. The rules must name this file, even
+   though the maintainer's list said "in `.claude/`". The 1 September reason still holds: two
+   copies drifted apart before.
+2. The "thorough documentation update" is recorded as a **standing task**, to be run after the
+   next real piece of work. It is not being run now, because the docs were fully checked on
+   11 September. OpenAPI / Swagger does not apply: MeedyaDL has no web API (decided 3 August).
+3. Codex's machine-wide file (`~/.codex/AGENTS.md`) is to be brought up to match Claude's
+   (`~/.claude/CLAUDE.md`). It was missing five rules, including "never write the real name".
+4. The rules are saved **both** for this project **and**, in a general form, machine-wide for
+   both tools.
+
+**Replaced, not kept:** the old project rule "do not auto-commit or auto-push" becomes "commit
+and push each finished piece of work to the working branch; one PR later". The ban on
+force-push, hard reset and changing remotes stays.
+
+**Plan:** (1) a Fable agent drafts the wording and checks that no existing rule is lost (Opus
+if Fable is unavailable); (2) a Sonnet agent puts the wording into the files; (3) Codex reviews,
+findings are fixed, and the review repeats until a round is clean; (4) commit, push, update
+issue #1198, memory, `.OpenAI/`, and this note.
+
+**Status:** branch and issue created. Step 1 next.
+
+---
+
+## ★★★★ Previous — 2026-09-11: #1178 and #1175 shipped; the build-time secrets are now written down
 
 > **PICK UP HERE.** No working branch. Everything is on `alpha`, released as
 > **v1.13.0-alpha.67** — published, 22 files, all six platforms, twelve signed entries in the
