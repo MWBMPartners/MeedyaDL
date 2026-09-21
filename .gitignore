@@ -124,3 +124,19 @@ _temp/
 # are plain Python, so this catches both.
 __pycache__/
 *.py[cod]
+
+# The dev-team plugin writes its own working files at the repository root: a HANDOFF.md at
+# run checkpoints (even with auto-handoff switched off in .dev-team/config.yml), plus its own
+# plan and result files. This project's one handoff is .github/HANDOFF.md (two copies drifted
+# apart before), and its plans live in issues and that handoff, so none of the plugin's files
+# may be committed — they would become a second handoff or a competing plan. The leading
+# slash means only the root file is ignored, so .github/HANDOFF.md is unaffected.
+# SECURITY.md is deliberately NOT here: it is the real public security policy. That is why the
+# two plugin skills that write into it are not used on this repo (see the standing rules).
+/HANDOFF.md
+/PROJECT.md
+/FEATURES.md
+/VERIFICATION.md
+/verdict.json
+/MIGRATION.md
+/.dev-team/autopilot.json
