@@ -142,7 +142,26 @@ jobs:
           fetch-depth: 0
 
       - name: Fetch all channel branches
-        run: git fetch --no-tags origin main alpha beta release-candidate
+        run: |
+          set -euo pipefail
+          # Fetch each release branch that exists. Fetching all four by name used to
+          # fail the whole run if any one of them did not exist, before the audit loop
+          # below could skip it as designed (found 2026-09-21). A missing branch is now
+          # skipped with a notice; a real failure to reach GitHub still stops the run.
+          for BRANCH in main alpha beta release-candidate; do
+            if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+              git fetch --no-tags origin "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}"
+            else
+              rc=$?
+              # `git ls-remote --exit-code` returns 2 only when the branch is not there.
+              if [ "$rc" -eq 2 ]; then
+                echo "::notice::Branch '${BRANCH}' does not exist on GitHub, so it will be skipped."
+              else
+                echo "::error::Could not ask GitHub whether branch '${BRANCH}' exists (exit ${rc})."
+                exit 1
+              fi
+            fi
+          done
 
       # Needed for `npm audit --package-lock-only`, which reads
       # package-lock.json directly and does not need `npm ci` to have run.
@@ -265,6 +284,29 @@ jobs:
           # ----------------------------------------------------------------
           classify_cargo_deny() {
             local errfile="$1"
+            # Every diagnostic and log line must be readable. An unreadable one could be
+            # hiding the very failure the checks below look for, so it makes the whole
+            # check untrustworthy (found 2026-09-21: a garbled line used to be skipped
+            # silently). A normal run writes nothing but JSON lines, so this cannot
+            # misfire on healthy output.
+            local unreadable
+            unreadable=$(grep -E '"type":"(diagnostic|log)"' "$errfile" \
+              | { while IFS= read -r line; do jq -e . >/dev/null 2>&1 <<<"$line" || echo x; done; } \
+              | wc -l | tr -d ' ' || true)
+            if [ "${unreadable:-0}" != "0" ]; then
+              echo "error|cargo deny wrote ${unreadable} line(s) that could not be read, so the check cannot be trusted"
+              return
+            fi
+            # Any error-level log line means cargo deny hit a problem while checking
+            # (for example it could not open the local registry index). It may still go
+            # on to print a summary, which used to be read as clean; the result is
+            # incomplete either way (found 2026-09-21).
+            if grep -qF '"level":"ERROR"' "$errfile"; then
+              local logged
+              logged=$(grep -F '"level":"ERROR"' "$errfile" | jq -r '.fields.message // empty' 2>/dev/null | sort -u | paste -sd ';' - || true)
+              echo "error|cargo deny reported an error while checking, so the result is incomplete: ${logged:-see the raw output in the log}"
+              return
+            fi
             local summary_line
             summary_line=$(grep -F '"type":"summary"' "$errfile" | tail -n1 || true)
             if [ -z "$summary_line" ]; then
