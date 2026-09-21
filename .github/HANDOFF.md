@@ -101,12 +101,12 @@ at 09:52**: all ten original PRs (fetched from GitHub's `refs/pull/N/head`) show
 every `git cherry` exited 0, and each combined branch's dependency files are identical to what
 was merged. Nothing was lost.
 
-| Branch | PR | Replaces | State (09:52) |
+| Branch | PR | Replaces | Final state (10:20) |
 | --- | --- | --- | --- |
-| release-candidate | #1199 | #1194, #1195 | **merged** `ab2d88ba` — post-merge runs being watched |
-| beta | #1200 | #1192, #1197 | **merged** `90d9b59c` — post-merge runs being watched |
-| alpha | #1201 | #1180, #1190, #1191 | **merged** `3db19a06` — post-merge runs being watched |
-| main | #1202 | #1181, #1193, #1196 | **merged last** `423dc6c9` — post-merge runs being watched |
+| release-candidate | #1199 | #1194, #1195 | **merged** `ab2d88ba`; **v1.0.0-rc.38 published**, every job OK, 20 files, 6 updater entries (same as rc.37 — RC does not have the Linux-updater fix yet) |
+| beta | #1200 | #1192, #1197 | **merged** `90d9b59c`; **v1.9.4-beta.7 published**, every job OK, 20 files, 6 updater entries (same as beta.6) |
+| alpha | #1201 | #1180, #1190, #1191 | **merged** `3db19a06`; **v1.13.0-alpha.69 published**, every job OK, 22 files, 12 updater entries (same as alpha.68) |
+| main | #1202 | #1181, #1193, #1196 | **merged last** `423dc6c9`; every follow-on run green (forward-port found nothing to do, as intended). Opened release PR #1203 for stable 1.10.8 — waiting on the maintainer |
 
 Merge order matters: main goes last so that `forward-port-security.yml` (which runs on every
 push to main) finds the other three already fixed and does nothing. Every PR was
