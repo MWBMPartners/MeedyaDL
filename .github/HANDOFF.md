@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-21 — see ★★★★ below
-**Working branch:** none once PR #1205 merges. `work/standing-rules-2026-09` → `alpha` was opened as **PR #1205** at the maintainer's request (10:35), to be rebase-merged when its checks pass. If you are reading this on `alpha`, it merged. Its post-merge release result is recorded on issue #1198, because after the merge this file can only change through another PR.
+**Last updated:** 2026-09-21 (11:55) — see ★★★★ below
+**Working branch:** `work/issue-sweep-2026-09` (from `alpha` @ `bfb7b25f`, alpha.70) — the full GitHub issues sweep plus `.claude/` and handoff updates. Separately, `work/main-1.10.8-notes-and-audit` → `main` is open as **PR #1206**. Neither PR is merged until the sweep is done (maintainer's ordering).
 
-**Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open, waiting on the maintainer) · `alpha` **1.13.0-alpha.69** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 09:53, straight after the dependency merges.
+**Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,47 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21: the standing rules, written down in one place (#1198); dependency PRs merged
+## ★★★★ LATEST — 2026-09-21 (midday): full GitHub issues sweep, then stable 1.10.8 — IN PROGRESS
+
+> **PICK UP HERE.** The maintainer's order is: (1) finish the issues sweep, (2) update `.claude/`
+> and this handoff, then (3) merge PR #1206 to `main`, (4) merge release PR #1203 (stable
+> 1.10.8 — the maintainer has approved merging it), and watch every run after each merge until
+> green.
+
+**Where things stand (11:55)**
+
+- **PR #1205** (the standing rules) was merged into `alpha` at 09:45 UTC. **v1.13.0-alpha.70**
+  is published and every run was green.
+- **PR #1206 → `main`** is open. It holds `.github/release-notes/v1.10.8.md` (the plain-English
+  notes that release PR #1203 needs before it can pass its check) and a copy of
+  `channel-security-audit.yml` (#1204 — it has never run, because it only existed on `alpha`).
+  The `security` label was deliberately removed from #1206 so that the forward-port workflow
+  does not try to copy these two files to the other branches. After merging: run the audit
+  once with `dry_run`, then once for real.
+- **Fixed today, outside git:** the notes of four published test releases (alpha.69, alpha.70,
+  beta.7, rc.38) cut off mid-sentence, or started with the "Release in progress…" placeholder.
+  They were edited by hand to show the full sentence. The cause: a `Release-Note:` line in
+  #1201/#1202 had been wrapped onto two lines, and the notes tooling reads only the first. That
+  cut-off text is now permanent in git history, so **future alpha releases will show it cut off
+  again** in their "since the last stable" summary. To be filed as an issue during the sweep,
+  with a proposal: the notes check should reject a wrapped line before merge (it passed this one).
+- `git-cliff` was installed with Homebrew (2.14.2; CI pins 2.13.1). The release-notes draft
+  tool needs it.
+- **Still owed:** Codex's review of #1205's commits. Codex is out until 13:04; a follow-up is
+  scheduled for 13:12 in this session only.
+
+**The sweep — how it is being done**
+
+- All 63 open and all 611 closed issues are checked against the **actual code on `alpha`**
+  (a read-only copy at `bfb7b25f`), never against titles, commit messages or other documents.
+- Fable agents do the checking, one batch at a time. An Opus agent re-checks every proposed
+  close or reopen before anything changes on GitHub. A Sonnet agent applies the agreed changes
+  in plain English.
+- Project board 6: every open issue goes on it with the right Status, and every closed issue
+  already on it is set to Done. Long-closed issues are not added, because that would bury the
+  live work.
+
+## ★★★★ Previous — 2026-09-21: the standing rules, written down in one place (#1198); dependency PRs merged
 
 > **PICK UP HERE.** The rules work went to `alpha` as PR #1205. **Still owed: the Codex review**
 > of those commits (Codex was out of credit until 13:04). Run `codex review` over the PR's
