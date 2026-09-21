@@ -32,7 +32,7 @@
 # `rust-std` onto the pinned toolchain. Add a triple here whenever release.yml's
 # build matrix gains a new cross-compiled platform.
 [toolchain]
-channel = "1.98.0"
+channel = "1.98.1"
 components = ["clippy", "rustfmt"]
 targets = [
   "aarch64-pc-windows-msvc",       # Windows ARM64 (cross-compiled from x64)
