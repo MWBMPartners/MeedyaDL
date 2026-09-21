@@ -4,7 +4,7 @@ This directory holds **project-scoped** Claude memory files that we want every d
 
 ## How Claude memory works
 
-Claude Code stores per-project memory in `~/.claude/projects/<sanitised-repo-path>/memory/`, with each fact in its own Markdown file (frontmatter + body) and a flat `MEMORY.md` index that points at them. The `<sanitised-repo-path>` is the absolute repo path with `/` replaced by `-`, so on every contributor's machine the directory is at a different location.
+Claude Code stores per-project memory in `~/.claude/projects/<sanitised-repo-path>/memory/`, with each fact in its own Markdown file (frontmatter + body) and a flat `MEMORY.md` index that points at them. The `<sanitised-repo-path>` is the absolute repo path with every character that is not a letter or digit replaced by `-` — so `/Users/someone/Work & Play/MeedyaDL` becomes `-Users-someone-Work---Play-MeedyaDL` — and on every contributor's machine the directory is at a different location. (Until 2026-09-21 the sync script only replaced `/`, `.` and spaces, so on a path containing `&` it filled a folder Claude Code never reads — #1198.)
 
 That per-machine path is why memory can't be loaded straight from the repo — Claude reads from a fixed home-directory location, not from inside the repo.
 
