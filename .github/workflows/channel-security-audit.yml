@@ -194,7 +194,12 @@ jobs:
           REPO: ${{ github.repository }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: |
-          set -uo pipefail  # NOT -e: individual audit commands are expected to exit non-zero
+          # Stop-on-error (-e) stays ON here: GitHub starts this step with `bash -e`, and
+          # `set -uo pipefail` does not switch it off. (This line used to say "NOT -e",
+          # which was never true — found 2026-09-21.) So every command that is expected
+          # to exit non-zero, such as the audit tools themselves, carries its own
+          # `|| true`, and any other failure stops the step loudly, not quietly.
+          set -uo pipefail
 
           git config --global --add safe.directory "$(pwd)"
 
@@ -214,10 +219,20 @@ jobs:
               echo "error|npm audit produced no parseable JSON output"
               return
             fi
-            local err
-            err=$(jq -r '.error.summary // empty' "$outfile")
-            if [ -n "$err" ]; then
-              echo "error|${err}"
+            # Any `error` object at all means the audit did not finish, even when its
+            # summary is empty. Checking only for a non-empty summary used to let an
+            # error with a blank summary through as "clean" (found 2026-09-21).
+            if jq -e 'has("error")' "$outfile" >/dev/null 2>&1; then
+              local err
+              err=$(jq -r '.error.summary // .error.code // empty' "$outfile")
+              echo "error|${err:-npm audit reported an error with no summary}"
+              return
+            fi
+            # A real report always carries numeric high and critical counts. Without
+            # both we cannot say "clean" (an empty counts object used to pass), so
+            # this is an incomplete check, not a pass.
+            if ! jq -e '(.metadata.vulnerabilities.high | type == "number") and (.metadata.vulnerabilities.critical | type == "number")' "$outfile" >/dev/null 2>&1; then
+              echo "error|npm audit output has no vulnerability counts, so it cannot be read as clean"
               return
             fi
             local high critical
@@ -261,7 +276,16 @@ jobs:
               return
             fi
             local errors
-            errors=$(jq -r '.fields.advisories.errors // 0' <<<"$summary_line")
+            errors=$(jq -r '.fields.advisories.errors // empty' <<<"$summary_line" 2>/dev/null || true)
+            # The count must be a whole number. A garbled summary line, or one with
+            # no advisory count, used to fall through to "clean" (found 2026-09-21);
+            # now it is an incomplete check, the same as no summary at all.
+            case "$errors" in
+              ''|*[!0-9]*)
+                echo "error|cargo deny's summary line had no readable advisory count, so it cannot be read as clean"
+                return
+                ;;
+            esac
             if [ "$errors" -gt 0 ]; then
               local details
               details=$(grep -F '"type":"diagnostic"' "$errfile" \
@@ -272,6 +296,11 @@ jobs:
               echo "clean|"
             fi
           }
+
+          # Remember exactly what was checked out before the loop, so it can be restored
+          # afterwards. (`git checkout -` only goes back one switch, i.e. to the
+          # second-to-last branch audited, not to the start.)
+          ORIG_HEAD=$(git rev-parse HEAD)
 
           VULN_LINES=""
           ERROR_LINES=""
@@ -286,13 +315,15 @@ jobs:
             CHECKED_COUNT=$((CHECKED_COUNT + 1))
 
             # Switch to this branch's files. --force throws away anything the
-            # previous branch's checks left changed (for example `cargo deny`
-            # quietly refreshing an out-of-date Cargo.lock), so the switch
-            # cannot be blocked by leftovers. If the switch still fails, the
-            # branch is recorded as "could not be checked" instead of being
-            # judged on the previous branch's files — the same rule as a tool
-            # error below: unknown is never reported as clean. (Before
-            # 2026-09-21 the result of this line was not checked at all.)
+            # previous branch's checks left changed (the checks themselves no
+            # longer change files — cargo deny runs with --locked — but the
+            # switch must not depend on that), so it cannot be blocked by
+            # leftovers. If the switch still fails, the
+            # branch is recorded as "could not be checked" and the others are
+            # still audited — the same rule as a tool error below: unknown is
+            # never reported as clean. (Before 2026-09-21 a failed switch
+            # stopped the whole step, because stop-on-error is on, so no
+            # branch's results reached the tracking issue.)
             if ! git checkout --quiet --force -B "audit/${BRANCH}" "origin/${BRANCH}"; then
               echo "::error::'${BRANCH}' — could not switch to this branch's files, so it was not checked."
               ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — **could not be checked** (switching to its files failed; this is NOT the same as clean)\n"
@@ -317,6 +348,7 @@ jobs:
                 ;;
               error)
                 echo "::error::'${BRANCH}' — npm audit could not complete: ${NPM_DETAIL}"
+                echo "::group::Raw npm audit output for '${BRANCH}'"; cat "$NPM_OUT" 2>/dev/null || true; echo "::endgroup::"
                 ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — \`npm audit\` **could not complete** (this is NOT the same as clean): ${NPM_DETAIL}\n"
                 HAD_TOOL_ERROR=1
                 ;;
@@ -324,7 +356,11 @@ jobs:
 
             # --- cargo deny -------------------------------------------------
             DENY_ERR="$RUNNER_TEMP/cargo-deny-${BRANCH}.stderr"
-            cargo deny --manifest-path src-tauri/Cargo.toml --format json check advisories \
+            # --locked: audit exactly the versions committed in Cargo.lock. Without it,
+            # cargo could quietly re-resolve an out-of-date lockfile and audit different
+            # versions from the ones that ship. If the lockfile needs updating, this now
+            # fails, and is reported as "could not complete", never as clean.
+            cargo deny --locked --manifest-path src-tauri/Cargo.toml --format json check advisories \
               >/dev/null 2>"$DENY_ERR" || true
             DENY_RESULT=$(classify_cargo_deny "$DENY_ERR")
             DENY_STATUS="${DENY_RESULT%%|*}"
@@ -340,15 +376,20 @@ jobs:
                 ;;
               error)
                 echo "::error::'${BRANCH}' — cargo deny could not complete: ${DENY_DETAIL}"
+                echo "::group::Raw cargo deny output for '${BRANCH}'"; cat "$DENY_ERR" 2>/dev/null || true; echo "::endgroup::"
                 ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — \`cargo deny check advisories\` **could not complete** (this is NOT the same as clean): ${DENY_DETAIL}\n"
                 HAD_TOOL_ERROR=1
                 ;;
             esac
           done
 
-          # Return to whatever the job originally had checked out so later
-          # steps (none currently, but future-proofing) see a normal state.
-          git checkout --quiet -
+          # Return to what the job originally had checked out, so later steps
+          # (none currently) see a normal state. Forced, so leftovers from the
+          # last branch's checks cannot block it, and never fatal: with
+          # stop-on-error on, a failure here used to end the step before the
+          # findings below reached the tracking issue.
+          git checkout --quiet --force "$ORIG_HEAD" \
+            || echo "::warning::Could not return to the original checkout; the audit results below are unaffected."
 
           MARKER_TITLE="[channel-security-audit] known-vulnerable dependencies on one or more channel branches"
 
