@@ -285,7 +285,20 @@ jobs:
             fi
             CHECKED_COUNT=$((CHECKED_COUNT + 1))
 
-            git checkout --quiet -B "audit/${BRANCH}" "origin/${BRANCH}"
+            # Switch to this branch's files. --force throws away anything the
+            # previous branch's checks left changed (for example `cargo deny`
+            # quietly refreshing an out-of-date Cargo.lock), so the switch
+            # cannot be blocked by leftovers. If the switch still fails, the
+            # branch is recorded as "could not be checked" instead of being
+            # judged on the previous branch's files — the same rule as a tool
+            # error below: unknown is never reported as clean. (Before
+            # 2026-09-21 the result of this line was not checked at all.)
+            if ! git checkout --quiet --force -B "audit/${BRANCH}" "origin/${BRANCH}"; then
+              echo "::error::'${BRANCH}' — could not switch to this branch's files, so it was not checked."
+              ERROR_LINES="${ERROR_LINES}- **\`${BRANCH}\`** — **could not be checked** (switching to its files failed; this is NOT the same as clean)\n"
+              HAD_TOOL_ERROR=1
+              continue
+            fi
 
             # --- npm audit -------------------------------------------------
             NPM_OUT="$RUNNER_TEMP/npm-audit-${BRANCH}.json"
