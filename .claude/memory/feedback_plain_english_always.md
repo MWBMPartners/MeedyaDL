@@ -5,7 +5,7 @@ metadata:
   type: feedback
 ---
 
-**Standing rule, set by the maintainer on 2026-09-07.** When feeding anything back —
+**Standing rule, set by the maintainer on 2026-09-07, restated 2026-09-21 (#1198).** When feeding anything back —
 chat replies, explanations, commit messages, pull request text, issue text, release
 notes, documentation, in-app help — write in plain, everyday English. Do not use
 technical jargon.

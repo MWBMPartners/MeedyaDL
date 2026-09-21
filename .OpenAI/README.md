@@ -9,6 +9,9 @@ project-scoped memory used by AI-assisted development environments.
 
 Only shared project information belongs here. Do not add API keys, credentials,
 local permission settings, chat transcripts, personal preferences, or other
-machine/user-specific data. `.claude/memory/` remains the existing canonical
-Claude memory location; this copy makes the same context discoverable in Codex
-and other OpenAI-powered development environments.
+machine/user-specific data. `.claude/memory/` remains the canonical Claude memory location; this copy makes the
+same context available to Codex and other OpenAI-powered tools. Codex does not look in
+this folder by itself: it reads files named `AGENTS.md` (and a few other names only if set
+up to). The repository-root
+`AGENTS.md` (added 2026-09-21, #1198) is what points it here, so keep that file in step
+with the standing rules.
