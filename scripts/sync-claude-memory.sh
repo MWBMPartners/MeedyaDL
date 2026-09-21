@@ -7,7 +7,8 @@
 #
 # Claude Code reads per-project memory from `~/.claude/projects/<sanitised-
 # repo-path>/memory/`, where the sanitised path is the absolute repo path
-# with `/`, `.`, and ` ` replaced by `-`. That location is per-user and
+# with every character that is not a letter or digit replaced by `-` (see
+# the note where it is computed below). That location is per-user and
 # can't be loaded directly from inside the repo, so every contributor
 # bootstraps it once with this script (and re-runs it after `git pull`
 # whenever someone updates a shared memory file).
@@ -30,7 +31,11 @@ set -eu
 # Resolve repo root regardless of where the script is invoked from
 # ----------------------------------------------------------------
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+# `pwd -P` gives the real path with any symbolic links resolved (for example
+# /private/tmp rather than /tmp on a Mac). Claude Code names its memory
+# folder from the real path, so the plain `pwd` used before could produce a
+# name it never reads when the clone sits behind a link.
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd -P)
 SHARED_DIR="$REPO_ROOT/.claude/memory"
 
 if [ ! -d "$SHARED_DIR" ]; then
@@ -64,12 +69,74 @@ fi
 # Compute the sanitised path Claude Code uses for this repo
 # ----------------------------------------------------------------
 # Rule observed in Claude Code: take the absolute repo path and replace
-# every `/`, `.`, and ` ` (space) with `-`. The leading `/` becomes a
-# leading `-`. Example:
-#   /Users/salem874/Projects/MeedyaDL
-#   → -Users-salem874-Projects-MeedyaDL
-SANITISED=$(printf '%s' "$REPO_ROOT" | sed 's![ /.]!-!g')
-USER_DIR="$HOME/.claude/projects/$SANITISED/memory"
+# EVERY character that is not a plain letter or digit with `-` — slashes,
+# dots, spaces, `&`, underscores, brackets, all of them. The leading `/`
+# becomes a leading `-`. Example:
+#   /Users/someone/Projects/Work & Play/MeedyaDL
+#   → -Users-someone-Projects-Work---Play-MeedyaDL
+#
+# This used to replace only `/`, `.` and space. That looked right for a
+# simple path, but on a clone under a folder such as "Coding & Development"
+# it kept the `&`, so every run copied the memory into a folder Claude Code
+# never reads — the real memory folder stayed empty, and nothing said so
+# (found 2026-09-21, #1198).
+#
+# What this cannot do, said plainly:
+#   - Claude Code shortens very long paths (roughly 200+ characters) and
+#     adds a hash to the end. This script does not copy that rule, because
+#     it is not documented.
+#   - Letters outside plain English (é, ß, an emoji) may not come out the
+#     same: `sed` turns each such character into one `-`, while Claude Code
+#     turns some of them (an emoji, for instance) into two.
+# The check below catches both cases by warning, rather than by guessing.
+SANITISED=$(printf '%s' "$REPO_ROOT" | sed 's/[^A-Za-z0-9]/-/g')
+PROJECT_DIR="$HOME/.claude/projects/$SANITISED"
+USER_DIR="$PROJECT_DIR/memory"
+
+# Check that this is a folder Claude Code really uses, rather than trusting
+# the naming rule above. Claude Code keeps one `<id>.jsonl` file per session
+# in its project folder, so a folder with none is either one Claude Code has
+# never used or one whose old sessions it has since cleaned up (it deletes
+# them after about a month by default). The copy still goes ahead — on a
+# brand-new clone that has not been opened in Claude Code yet, this is
+# expected — but it says so out loud: this warning would have caught the
+# `&` mistake described above on its very first run. It is a warning, not a
+# stop, because the only thing at stake is where some copies of repo files
+# land.
+if ! ls "$PROJECT_DIR"/*.jsonl >/dev/null 2>&1; then
+    printf 'Warning: %s\n' "$PROJECT_DIR" >&2
+    printf '  has no Claude Code session files in it. Either Claude Code has not\n' >&2
+    printf '  been opened in this clone yet or not for a long while (fine: open\n' >&2
+    printf '  it once, then re-run), or Claude Code names its folder differently\n' >&2
+    printf '  from this script, in which case the memory is being copied somewhere\n' >&2
+    printf '  it will never be read. Look in ~/.claude/projects/ for the folder\n' >&2
+    printf '  that matches this clone.\n' >&2
+fi
+
+# Point out the folder an older version of this script may have filled by
+# mistake (it only turned `/`, `.` and spaces into `-`). Normally it holds
+# only stale copies of repo files, but this script cannot be sure nobody
+# added a note of their own there, so it only points the folder out and
+# never deletes anything itself.
+OLD_SANITISED=$(printf '%s' "$REPO_ROOT" | sed 's![ /.]!-!g')
+OLD_PROJECT_DIR="$HOME/.claude/projects/$OLD_SANITISED"
+# Two safety points. It only suggests deleting when the folder holds no
+# Claude Code session files: if it has some, Claude Code really uses it, and
+# it is not a leftover. And the suggested command wraps the path in single
+# quotes, so pasting it can never run anything hidden in a folder name (a
+# double-quoted path would still expand `$(...)` or backticks); a path that
+# itself contains a single quote gets no ready-made command at all.
+if [ "$OLD_SANITISED" != "$SANITISED" ] && [ -d "$OLD_PROJECT_DIR" ] \
+    && ! ls "$OLD_PROJECT_DIR"/*.jsonl >/dev/null 2>&1; then
+    printf 'Note: an older version of this script copied memory into\n' >&2
+    printf '  %s\n' "$OLD_PROJECT_DIR" >&2
+    printf '  which Claude Code never reads. Normally it holds only stale copies of\n' >&2
+    printf '  repo files. Look inside first; if nothing there is yours, delete it' >&2
+    case "$OLD_PROJECT_DIR" in
+        *"'"*) printf ' by hand.\n' >&2 ;;
+        *)     printf ':\n  rm -rf '"'"'%s'"'"'\n' "$OLD_PROJECT_DIR" >&2 ;;
+    esac
+fi
 
 mkdir -p "$USER_DIR"
 
