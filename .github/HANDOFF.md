@@ -22,7 +22,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > approved by the maintainer); (5) watch every run after each merge until green.
 
 **Issues sweep — DONE (13:52).** All 63 open and 611 closed issues were checked against the
-code on `alpha` @ `bfb7b25f`. Results: 575 unchanged; 39 plain-English status comments; **5
+code on `alpha` @ `bfb7b25f`. Results: 615 unchanged; 39 plain-English status comments; **5
 closed as done** (#1034, #1072, #1075, #1162, #1176); **15 reopened**, because they had been
 closed as done but the code does not have them (#95, #216, #273, #329, #352, #387, #393, #397,
 #423, #424, #426, #431, #759 (also labelled enhancement), #949, #984). An Opus skeptic re-checked
@@ -33,8 +33,24 @@ shown as "In Progress". Nothing failed. The full results are in the session scra
 every 1.x build, because the pre-release test looks for a leading "0."), #329 (the library in
 use cannot read MKV/WebM, so video ReplayGain silently does nothing), #273, and #949 — all real.
 
-**Step 3 in progress:** a Sonnet agent is correcting `.claude/CLAUDE.md` and `.claude/memory/`
-wherever the sweep proved them wrong, and adding `project_issue_sweep_2026_09_21.md`.
+**Step 3 — DONE (14:45).** A Sonnet agent corrected `.claude/CLAUDE.md` and `.claude/memory/`
+wherever the sweep proved them wrong, checking each correction in the code first. It added
+`project_issue_sweep_2026_09_21.md`. An independent Opus review ran 2 rounds (4 findings, all
+fixed, then clean). Corrections include:
+- `bpm_service` has no caller (#1160);
+- the timeout is one function, at 30 s per track;
+- tool update checks cover only FFmpeg and N_m3u8DL-RE (#273);
+- `wordtype.svg`, not `logotype.svg`;
+- the token chain is two-tier;
+- video ReplayGain does not work (#329);
+- the animated-artwork and artist-promo defaults were stated the wrong way round;
+- the "0." pre-release test (#216);
+- the multi-service groundwork note is brought up to date.
+
+**Found, not fixed (code, not notes):** `settings.rs:1403` says the artist promo video defaults
+to `false`, but a new install gets `true` (`:2288`). An older settings file without the entry
+reads it as `false`, because of `#[serde(default)]`. Whether existing users should also get it
+on is a product decision; the comment is wrong either way.
 
 **What Codex must review when it is back:** (a) PR #1205's 7 commits, now on `alpha`
 (`41e75397`..`5efa6cf7`) plus `~/.claude/CLAUDE.md`; (b) PR #1206 (notes for 1.10.8, and the
