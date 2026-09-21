@@ -228,11 +228,14 @@ jobs:
               echo "error|${err:-npm audit reported an error with no summary}"
               return
             fi
-            # A real report always carries numeric high and critical counts. Without
-            # both we cannot say "clean" (an empty counts object used to pass), so
-            # this is an incomplete check, not a pass.
-            if ! jq -e '(.metadata.vulnerabilities.high | type == "number") and (.metadata.vulnerabilities.critical | type == "number")' "$outfile" >/dev/null 2>&1; then
-              echo "error|npm audit output has no vulnerability counts, so it cannot be read as clean"
+            # A real report always carries high and critical counts that are whole,
+            # non-negative, sensible numbers. Anything else (missing, empty, negative,
+            # fractional, absurdly large) means we cannot say "clean", so it is an
+            # incomplete check, not a pass. This is checked inside jq so that a bad
+            # value can never reach shell arithmetic, where a fraction used to stop
+            # the whole step (stop-on-error is on) before anything was reported.
+            if ! jq -e '[.metadata.vulnerabilities.high, .metadata.vulnerabilities.critical] | all(type == "number" and . >= 0 and . == floor and . < 1000000000)' "$outfile" >/dev/null 2>&1; then
+              echo "error|npm audit output has no usable vulnerability counts (missing, negative, fractional or implausible), so it cannot be read as clean"
               return
             fi
             local high critical
@@ -275,13 +278,28 @@ jobs:
               echo "error|${detail}"
               return
             fi
+            # cargo deny can finish with a summary even when it could not read the
+            # crate registry's index (codes `index-failure` and
+            # `index-cache-load-failure` in cargo-deny 0.19.0's src/advisories/diags.rs).
+            # Its counts then describe an incomplete check, so this is an error, not
+            # clean and not "vulnerable" (found 2026-09-21).
+            local infra
+            infra=$(grep -F '"type":"diagnostic"' "$errfile" \
+              | jq -r 'select(((.fields.code // "") | test("^index-")) or ((.fields.message // "") | test("failed to (get|load cached) index information"; "i"))) | .fields.message // .fields.code' 2>/dev/null \
+              | sort -u | paste -sd ';' - || true)
+            if [ -n "$infra" ]; then
+              echo "error|cargo deny could not read the crate registry's index, so the check is incomplete: ${infra}"
+              return
+            fi
             local errors
             errors=$(jq -r '.fields.advisories.errors // empty' <<<"$summary_line" 2>/dev/null || true)
             # The count must be a whole number. A garbled summary line, or one with
             # no advisory count, used to fall through to "clean" (found 2026-09-21);
             # now it is an incomplete check, the same as no summary at all.
+            # At most 9 digits, so the comparison below can never overflow (a huge
+            # number used to make it fail and fall through to "clean").
             case "$errors" in
-              ''|*[!0-9]*)
+              ''|*[!0-9]*|??????????*)
                 echo "error|cargo deny's summary line had no readable advisory count, so it cannot be read as clean"
                 return
                 ;;
@@ -334,7 +352,7 @@ jobs:
             # --- npm audit -------------------------------------------------
             NPM_OUT="$RUNNER_TEMP/npm-audit-${BRANCH}.json"
             npm audit --audit-level=high --package-lock-only --json >"$NPM_OUT" 2>/dev/null || true
-            NPM_RESULT=$(classify_npm "$NPM_OUT")
+            NPM_RESULT=$(classify_npm "$NPM_OUT") || NPM_RESULT="error|the npm result could not be classified"
             NPM_STATUS="${NPM_RESULT%%|*}"
             NPM_DETAIL="${NPM_RESULT#*|}"
 
@@ -362,7 +380,7 @@ jobs:
             # fails, and is reported as "could not complete", never as clean.
             cargo deny --locked --manifest-path src-tauri/Cargo.toml --format json check advisories \
               >/dev/null 2>"$DENY_ERR" || true
-            DENY_RESULT=$(classify_cargo_deny "$DENY_ERR")
+            DENY_RESULT=$(classify_cargo_deny "$DENY_ERR") || DENY_RESULT="error|the cargo deny result could not be classified"
             DENY_STATUS="${DENY_RESULT%%|*}"
             DENY_DETAIL="${DENY_RESULT#*|}"
 
@@ -393,10 +411,15 @@ jobs:
 
           MARKER_TITLE="[channel-security-audit] known-vulnerable dependencies on one or more channel branches"
 
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::warning::RELEASE_PAT is not available to this run — cannot manage the tracking issue. The check results above still stand."
-          elif [ "$DRY_RUN" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "::notice::dry_run is set — not creating, updating, or closing the tracking issue. Findings were reported above only."
+          elif [ -z "${GH_TOKEN:-}" ]; then
+            # A real run that cannot update its tracking issue has lost its only way
+            # of telling anyone, so it fails loudly instead of ending green with a
+            # warning nobody reads (found 2026-09-21). The findings are still in the
+            # log above. A dry run needs no credential, which is why it is checked first.
+            echo "::error::RELEASE_PAT is not available to this run, so the tracking issue cannot be created, updated or closed. The findings are in the log above. Failing the run so this is not missed."
+            exit 1
           else
             EXISTING=$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER_TITLE\"" --json number --jq '.[0].number // empty')
             CHECKED_AT="$(date -u +"%Y-%m-%d %H:%M UTC")"
