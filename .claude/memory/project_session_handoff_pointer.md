@@ -13,8 +13,11 @@ Dated handoff duplicates previously kept in `.claude/memory/` and
 (2026-09-01 push) because they drifted out of sync with the real one and caused confusion.
 
 **Do not recreate a handoff document under `.claude/`.** Update `.github/HANDOFF.md` instead:
-add a new `## ★★★ LATEST — Session <date>: <topic>` section at the top, demote the previous
-`LATEST` heading to plain `## ★★★ Session <date>: …`, and refresh the `**Last updated:**`
+add a new section at the top whose heading contains `LATEST`, the date and the topic (the file
+currently uses `## ★★★★ LATEST — <date>: <topic>`), change the previous section's `LATEST` to
+`Previous` so exactly one heading says `LATEST`, and refresh the `**Last updated:**`
 and `**Working branch:**` lines in the header.
+
+**Reaffirmed 2026-09-21 (#1198).** The maintainer's restated standing rules said "update our Handoff documentation in `.claude/`". Asked directly, the maintainer chose to keep `.github/HANDOFF.md` as the one handoff, for the same reason as before. So wherever a rule or brief says "the handoff in `.claude/`", it means this file's target, `.github/HANDOFF.md`.
 
 This file exists only as a signpost for anyone (human or agent) who looks in `.claude/` first.

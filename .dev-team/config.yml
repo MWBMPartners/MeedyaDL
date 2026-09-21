@@ -1,0 +1,89 @@
+# .dev-team/config.yml — repository settings for the dev-team plugin (Claude Code)
+#
+# What this file is: the one place where this repository tells the dev-team plugin how to
+# behave. The plugin reads it at the start of every run, in every session, for everyone who
+# opens the repository with Claude Code — which is why it is committed rather than kept per
+# machine. Codex does not read this file; the same rules reach Codex through AGENTS.md.
+#
+# Why these values: they implement the maintainer's standing rules of 2026-09-21 (#1198):
+# cheap models for building, one working branch and one pull request, no stacking, the
+# project's own handoff file, and issues kept up to date by hand. The full reasoning is in
+# .claude/memory/project_standing_rules.md (section 4).
+#
+# Two things this file cannot do, said plainly so nobody expects them:
+#   1. It cannot make the plugin use Fable for its "hard reasoning" step under the economy
+#      cost setting — the plugin routes that step to Opus under economy, and to Fable only
+#      under balanced/max (which then build features on Opus). The Fable planning happens before a skill is
+#      invoked, done by the lead's own sequential agents. Add `models=balanced` to one request
+#      if that single run needs Fable reasoning inside the plugin.
+#   2. It cannot fully stop the plugin writing a HANDOFF.md at the repository root: turning
+#      auto-handoff off stops the per-task write, but the plugin still writes one at stage
+#      checkpoints. That file, and the plugin's other own files (PROJECT.md, FEATURES.md,
+#      VERIFICATION.md, verdict.json, MIGRATION.md, .dev-team/autopilot.json), are plugin
+#      scratch and are listed in .gitignore, so git refuses to add them unless forced
+#      (git add -f) — and the plugin is told to commit HANDOFF.md, so it may force it. Before
+#      pushing, check the plugin's commits for these files and take them out. If a plugin step
+#      reports it could not add one of them, check that its commit still happened. The project's handoff is .github/HANDOFF.md.
+#
+# The plugin is "fail-open": a missing key, or one it does not recognise, is ignored and the
+# built-in default applies. Nothing here can break a run.
+
+version: 1              # The only required key. Schema version of this file.
+
+defaults:               # Repo-wide defaults for the plugin's run arguments.
+  models: economy       # economy | balanced | max. "economy" builds on Sonnet, does mechanical
+                        # edits on Haiku, writes docs on Sonnet, and verifies on Opus (never
+                        # lower, in any cost setting). This is the maintainer's implementation rule:
+                        # Sonnet or Haiku to build, Opus only when it is complex, spend tokens
+                        # where judgement is needed. See caveat 1 in the header.
+  gates: hybrid         # Default kept. Only used by dev-team-autopilot (how it decides what
+                        # runs unattended versus what waits for approval). Autopilot is not to
+                        # be run here without the maintainer's say-so.
+  cap: 30               # Default kept. Autopilot's cap on how many cycles it will run.
+  cycles: 5             # Default kept. dev-team-iterate's cap on improvement cycles per run.
+  issues: off           # off | sync | auto. Off on purpose: GitHub issues are kept up to date
+                        # by hand, one per task, with a comment on each push and a close once
+                        # the work has merged (the project convention in .claude/CLAUDE.md).
+                        # "auto" would have the plugin post to issues on its own cadence and
+                        # in its own words, which would not follow the plain-English rule and
+                        # would duplicate the hand-written updates.
+
+git:                    # Branch and pull-request policy.
+  stack-prs: false      # Never stack a pull request on another pull request's branch. Two
+                        # open PRs to the same base race each other; the second lands on a
+                        # stale base the moment the first merges. This is the project's
+                        # standing "no PR stacking" rule.
+  single-pr: true       # If the run's branch already has an open PR, push to it rather than
+                        # opening a duplicate. One line of work, one PR.
+  default-branch: alpha # The branch pull requests target here. All active development lands
+                        # on "alpha" (the bleeding-edge release channel), not "main". Note: by
+                        # default a plugin run branches FROM this branch too — so start a skill
+                        # from the working branch and tell it to stay there, and never let it
+                        # open a PR itself; the one PR is opened by hand later, when told.
+
+features:               # On/off switches. Some (not all) can be overridden for one session
+                        # by an environment variable named in the plugin's README.
+  update-notifier: on   # Default kept. A once-a-day note if a newer plugin version exists.
+  branch-notifier: on   # Default kept. A note when local branches have vanished upstream.
+  guard: auto           # Default kept. Weaker than its name suggests: it blocks only pushes
+                        # and force-pushes to main/master (and live payment keys), and only
+                        # while an autopilot run is in progress (.dev-team/autopilot.json
+                        # exists). Ordinary skill runs are not guarded, so the "never
+                        # force-push" rule is still the lead's job. It does not block pushes to
+                        # the working branch, which the standing rules require.
+  notifications: on     # Default kept. Autopilot's "queued for approval / blocked / done" notes.
+  telemetry: on         # Default kept. A cost estimate at the end of a run.
+  dry-run: off          # Default kept. "on" would make every building skill only show its
+                        # plan; a per-run "dry-run=on" still works for one run when wanted.
+  auto-handoff: off     # OFF on purpose. "on" regenerates a HANDOFF.md at the repository root
+                        # after every task. This project's only handoff is .github/HANDOFF.md;
+                        # a second one at the root would drift from it — two handoffs drifted
+                        # apart before and were deleted on 2026-09-01. See caveat 2 in the
+                        # header: checkpoint writes can still produce the root file.
+  auto-commit: off      # OFF: stops the plugin committing after every single task, because
+                        # the standing rule is check, then have the other system (Codex)
+                        # review, then commit. Honest limit: the plugin STILL commits at each
+                        # checkpoint (and once per cycle in dev-team-iterate) whatever this
+                        # says. It never pushes, so the rule that holds is "review before it
+                        # is pushed": run the Codex review over everything the plugin
+                        # committed before the lead pushes.
