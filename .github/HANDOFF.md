@@ -74,6 +74,16 @@ Round 4: one finding (four old section headings still said `LATEST`), fixed. **R
   pushing". All the plugin's own root files are git-ignored (it can still force one in, so
   check its commits before pushing).
 
+**Open decisions for the maintainer (raised 2026-09-21, nothing blocked on them):**
+
+1. **Stable 1.10.8** — release PR #1203 exists because the `rustls` fix reached `main`. Its
+   notes check fails by design until `.github/release-notes/v1.10.8.md` is written. Offered to
+   write the notes; publishing a stable release is the maintainer's call. Not merged.
+2. **`channel-security-audit.yml` has never run (#1204).** It exists only on `alpha`, and all
+   its triggers only work from `main`. It needs to reach `main` (next promotion, or a small PR
+   of its own). `.claude/CLAUDE.md` now says it is not active yet.
+3. The real name in tracked settings files — next paragraph.
+
 **To raise with the maintainer (not changed):** `.claude/settings.json` and the *tracked*
 `.claude/settings.local.json` (in `.gitignore`, but committed before that) contain home-folder
 paths with the real name. Untracking it, or rewriting history, is the maintainer's call.
