@@ -42,10 +42,12 @@ through `.claude/`; both tools are meant to work by the same rules.
   is wrong is recorded with the reason, never "fixed" just to quiet the reviewer. Record the
   round count.
 - **After each finished piece of work:** verify it yourself (read the checks' real exit
-  codes; format only touched files; one security read of the diff); review loop; update
+  codes; format only touched files; one security read of the diff); update
   `.claude/memory/` and its `.OpenAI/memory/` mirror, `.claude/CLAUDE.md` (then run
   `./scripts/sync-claude-memory.sh` to refresh `CONTEXT.md`), and `.github/HANDOFF.md`;
-  commit and push to the working branch; update that task's GitHub issue.
+  then the review loop over the code and those note changes (a handoff-only progress note
+  need not wait for its own round); commit and push to the working branch; update that
+  task's GitHub issue.
 - **One working branch, one pull request to `alpha` opened later when the maintainer says
   so, never stacked.** Never force-push, hard-reset, or change a remote without an explicit
   instruction, and never push directly to `main`, `alpha`, `beta` or `release-candidate`
