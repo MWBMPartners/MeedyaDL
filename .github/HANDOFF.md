@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-21 (11:55) — see ★★★★ below
+**Last updated:** 2026-09-21 (14:00) — see ★★★★ below
 **Working branch:** `work/issue-sweep-2026-09` (from `alpha` @ `bfb7b25f`, alpha.70) — the full GitHub issues sweep plus `.claude/` and handoff updates. Separately, `work/main-1.10.8-notes-and-audit` → `main` is open as **PR #1206**. Neither PR is merged until the sweep is done (maintainer's ordering).
 
 **Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
@@ -11,12 +11,34 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21 (midday): full GitHub issues sweep, then stable 1.10.8 — IN PROGRESS
+## ★★★★ LATEST — 2026-09-21 (afternoon): issues sweep DONE; waiting on the Codex review before any PR
 
-> **PICK UP HERE.** The maintainer's order is: (1) finish the issues sweep, (2) update `.claude/`
-> and this handoff, then (3) merge PR #1206 to `main`, (4) merge release PR #1203 (stable
-> 1.10.8 — the maintainer has approved merging it), and watch every run after each merge until
-> green.
+> **PICK UP HERE.** Maintainer's instruction (14:00): **create or merge NO pull request until
+> the Codex review is done.** Codex is out of usage credit until **18:12** (its limit moved from
+> 13:04; the scheduled 13:12 follow-up never fired because the session was busy). Then, in order:
+> (1) run the Codex review over everything unreviewed (see "What Codex must review"), and fix
+> whatever it finds; (2) open the PR for this branch (`work/issue-sweep-2026-09`) to `alpha`;
+> (3) merge PR #1206 to `main` by **squash**; (4) merge release PR #1203 (stable 1.10.8 —
+> approved by the maintainer); (5) watch every run after each merge until green.
+
+**Issues sweep — DONE (13:52).** All 63 open and 611 closed issues were checked against the
+code on `alpha` @ `bfb7b25f`. Results: 575 unchanged; 39 plain-English status comments; **5
+closed as done** (#1034, #1072, #1075, #1162, #1176); **15 reopened**, because they had been
+closed as done but the code does not have them (#95, #216, #273, #329, #352, #387, #393, #397,
+#423, #424, #426, #431, #949, #984, plus one with a label added). An Opus skeptic re-checked
+every close and reopen and overruled 2 closes (#295, #995 — these got comments instead).
+Project board 6: 38 open issues added; 74 statuses corrected, including 32 closed issues still
+shown as "In Progress". Nothing failed. The full results are in the session scratchpad
+(`sweep/results.json`). Spot-checked by the lead: #216 (verbose logging is switched off on
+every 1.x build, because the pre-release test looks for a leading "0."), #329 (the library in
+use cannot read MKV/WebM, so video ReplayGain silently does nothing), #273, and #949 — all real.
+
+**Step 3 in progress:** a Sonnet agent is correcting `.claude/CLAUDE.md` and `.claude/memory/`
+wherever the sweep proved them wrong, and adding `project_issue_sweep_2026_09_21.md`.
+
+**What Codex must review when it is back:** (a) PR #1205's 7 commits, now on `alpha`
+(`41e75397`..`5efa6cf7`) plus `~/.claude/CLAUDE.md`; (b) PR #1206 (notes for 1.10.8, and the
+audit workflow plus its fix); (c) this branch's commits; (d) the step-3 note corrections.
 
 **Where things stand (11:55)**
 
