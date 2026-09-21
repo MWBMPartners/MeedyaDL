@@ -52,6 +52,9 @@ to `false`, but a new install gets `true` (`:2288`). An older settings file with
 reads it as `false`, because of `#[serde(default)]`. Whether existing users should also get it
 on is a product decision; the comment is wrong either way.
 
+**18:15 — Codex is back** (its fast connection fails a certificate check, but it falls back to
+a slower one and works). The three reviews below are running.
+
 **What Codex must review when it is back:** (a) PR #1205's 7 commits, now on `alpha`
 (`41e75397`..`5efa6cf7`) plus `~/.claude/CLAUDE.md`; (b) PR #1206 (notes for 1.10.8, and the
 audit workflow plus its fix); (c) this branch's commits; (d) the step-3 note corrections.
