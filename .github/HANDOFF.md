@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-21 (14:00) — see ★★★★ below
+**Last updated:** 2026-09-21 (19:10) — see ★★★★ below
 **Working branch:** `work/issue-sweep-2026-09` (from `alpha` @ `bfb7b25f`, alpha.70) — the full GitHub issues sweep plus `.claude/` and handoff updates. Separately, `work/main-1.10.8-notes-and-audit` → `main` is open as **PR #1206**. Neither PR is merged until the sweep is done (maintainer's ordering).
 
 **Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
@@ -11,15 +11,30 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21 (afternoon): issues sweep DONE; waiting on the Codex review before any PR
+## ★★★★ LATEST — 2026-09-21 (evening): issues sweep done, Codex round 1 fixed; waiting on Codex (23:15) before any PR
 
-> **PICK UP HERE.** Maintainer's instruction (14:00): **create or merge NO pull request until
-> the Codex review is done.** Codex is out of usage credit until **18:12** (its limit moved from
-> 13:04; the scheduled 13:12 follow-up never fired because the session was busy). Then, in order:
-> (1) run the Codex review over everything unreviewed (see "What Codex must review"), and fix
-> whatever it finds; (2) open the PR for this branch (`work/issue-sweep-2026-09`) to `alpha`;
-> (3) merge PR #1206 to `main` by **squash**; (4) merge release PR #1203 (stable 1.10.8 —
-> approved by the maintainer); (5) watch every run after each merge until green.
+> **PICK UP HERE (19:10).** The maintainer's instruction still stands: **create or merge NO
+> pull request until the Codex review is done**, and they chose (19:05) to **wait for Codex
+> itself** rather than accept an Opus stand-in. Codex's round 1 is done. It ran out of credit
+> during round 2 and is back at **23:15**. Then, in order:
+> (1) run Codex round 2 over everything committed since its round 1 — on this branch,
+>     `git diff e92a8296..HEAD` plus `~/.claude/CLAUDE.md`, and PR #1206's new commits — and
+>     repeat until a round finds no real problems;
+> (2) open the PR for this branch → `alpha`, and rebase-merge it when green;
+> (3) squash-merge PR #1206 → `main`;
+> (4) run `channel-security-audit.yml` once with `dry_run`, then for real;
+> (5) merge release PR #1203 (stable 1.10.8, approved);
+> (6) watch every run after each merge until green.
+> A follow-up is scheduled for 23:17, in this session only.
+
+**Codex round 1 (18:15–18:45): 18 findings across the three reviews.** 17 were real and are fixed
+(`75b84914` workflow, `6bed4a82` style guide, `6f298c15` rules). 1 was disputed and not
+changed: the 1.10.8 notes keep "What's fixed", because the release carries a user-visible
+security fix. The style guide now says that explicitly. The important ones: the audit could
+read a check it could not parse as "clean"; the step's own comment wrongly said stop-on-error
+was off; the rules' review step came before the notes edits; the dev-team plugin CAN push;
+and the real name was still in a memory README example. An Opus stand-in then confirmed the
+fixes and found 10 more (fixed in the same commits; 9 tested cases for the two checks).
 
 **Issues sweep — DONE (13:52).** All 63 open and 611 closed issues were checked against the
 code on `alpha` @ `bfb7b25f`. Results: 615 unchanged; 39 plain-English status comments; **5
@@ -31,7 +46,7 @@ Project board 6: 38 open issues added; 74 statuses corrected, including 32 close
 shown as "In Progress". Nothing failed. The full results are in the session scratchpad
 (`sweep/results.json`). Spot-checked by the lead: #216 (verbose logging is switched off on
 every 1.x build, because the pre-release test looks for a leading "0."), #329 (the library in
-use cannot read MKV/WebM, so video ReplayGain silently does nothing), #273, and #949 — all real.
+use cannot read MKV/WebM/OGV, so loudness tags are never written to those files), #273, and #949 — all real.
 
 **Step 3 — DONE (14:45).** A Sonnet agent corrected `.claude/CLAUDE.md` and `.claude/memory/`
 wherever the sweep proved them wrong, checking each correction in the code first. It added
@@ -41,8 +56,10 @@ fixed, then clean). Corrections include:
 - the timeout is one function, at 30 s per track;
 - tool update checks cover only FFmpeg and N_m3u8DL-RE (#273);
 - `wordtype.svg`, not `logotype.svg`;
-- the token chain is two-tier;
-- video ReplayGain does not work (#329);
+- which key MeedyaDL uses for the extra Apple Music features (word-by-word lyrics, animated
+  artwork, music-video lookup): the user's own MusicKit credentials first, then the token saved
+  from the web-player sign-in (the "built into the app" option was removed under #1034);
+- loudness (ReplayGain) tags are never written to MKV, WebM or OGV files (#329);
 - the animated-artwork and artist-promo defaults were stated the wrong way round;
 - the "0." pre-release test (#216);
 - the multi-service groundwork note is brought up to date.
@@ -79,12 +96,12 @@ audit workflow plus its fix); (c) this branch's commits; (d) the step-3 note cor
   They were edited by hand to show the full sentence. The cause: a `Release-Note:` line in
   #1201/#1202 had been wrapped onto two lines, and the notes tooling reads only the first. That
   cut-off text is now permanent in git history, so **future alpha releases will show it cut off
-  again** in their "since the last stable" summary. To be filed as an issue during the sweep,
-  with a proposal: the notes check should reject a wrapped line before merge (it passed this one).
+  again** in their "since the last stable" summary. **Filed as #1207**, with a proposal: the notes check should reject a wrapped line
+  before merge (it passed this one).
 - `git-cliff` was installed with Homebrew (2.14.2; CI pins 2.13.1). The release-notes draft
   tool needs it.
-- **Still owed:** Codex's review of #1205's commits. Codex is out until 13:04; a follow-up is
-  scheduled for 13:12 in this session only.
+- **Still owed at the time:** Codex's review of #1205's commits. Codex's limit then moved twice
+  (13:04, then 18:12, then 23:15) — see the PICK UP HERE box for the current state.
 
 **The sweep — how it is being done**
 
