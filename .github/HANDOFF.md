@@ -25,7 +25,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 code on `alpha` @ `bfb7b25f`. Results: 575 unchanged; 39 plain-English status comments; **5
 closed as done** (#1034, #1072, #1075, #1162, #1176); **15 reopened**, because they had been
 closed as done but the code does not have them (#95, #216, #273, #329, #352, #387, #393, #397,
-#423, #424, #426, #431, #949, #984, plus one with a label added). An Opus skeptic re-checked
+#423, #424, #426, #431, #759 (also labelled enhancement), #949, #984). An Opus skeptic re-checked
 every close and reopen and overruled 2 closes (#295, #995 — these got comments instead).
 Project board 6: 38 open issues added; 74 statuses corrected, including 32 closed issues still
 shown as "In Progress". Nothing failed. The full results are in the session scratchpad
