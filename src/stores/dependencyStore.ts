@@ -453,8 +453,15 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
    * The Rust handler runs `python -m pip install gamdl` using the portable
    * Python runtime. This installs GAMDL and all its Python dependencies.
    *
-   * After installation, `checkGamdlStatus()` is called to verify the package
-   * is importable and populate the `gamdl` status field.
+   * After installation, `checkGamdlStatus()` is called to populate the
+   * `gamdl` status field.
+   *
+   * It does NOT prove the package will actually load. It reads the version
+   * pip recorded, so a package whose files are damaged or half-written can
+   * still report a version and look installed. This comment used to say the
+   * package was checked for being importable; an independent review caught
+   * that, and it is the same fault #397 was about — wording that promises a
+   * check nobody wrote.
    *
    * @returns The installed GAMDL version string
    */
