@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-22 (04:30) — see ★★★★ below
-**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It holds only this handoff update and one notes correction. **No PR yet** — one goes to `alpha` when the maintainer says so.
+**Last updated:** 2026-09-22 (evening) — see ★★★★ below
+**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2 and the whole GAMDL 3.9.1 batch (commit `17774965`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 04:30.
 
@@ -37,52 +37,42 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > still out of credit, so Opus did it. Ship this BEFORE starting YouTube support (maintainer's
 > order). The audit write-up goes in `.github/audits/gamdl-v3.9-v3.9.1-audit.md` — still to write.
 >
-> **GAMDL 3.9.x — where it has got to (22 Sept, midday):**
+> **GAMDL 3.9.x — DONE and pushed (22 Sept, evening). Commit `17774965` on
+> `work/after-1.10.8`. Issues #1212 (the work), #1213 + #1214 (follow-ups). #1189 closed.**
 > - **3.9 is refused, 3.9.1 is admitted.** 3.9 cannot download Apple's web AAC formats at all,
->   and those are the LAST entry in the default fallback chain — so on 3.9 a download would walk
->   the whole chain and fail at the bottom, looking like "this track isn't available". It is on a
->   new known-bad list, with its own `KnownBad` state, badge and refusal.
-> - **Windows on ARM is held at 3.8.5** (maintainer's decision). Every other platform moves to
->   3.9.1; Linux on 32-bit ARM stays at 3.8.1 as before.
->   **Checked against PyPI itself on 22 Sept, not inferred:** GAMDL 3.9.1 *does* publish a
->   Windows ARM64 wheel, and its new dependency `pyplayready` is pure Python — so neither of
->   those is the blocker. The blocker is one level further down: `pyplayready` requires
->   `cryptography` 45.0.6 or later, and **`cryptography` publishes no Windows ARM64 wheel in any
->   version, 45.x or 46.x** — only 32-bit and 64-bit Intel. Installing there would mean building
->   it from source with a Rust toolchain, which a user machine will not have. So this cap is not
->   waiting on a version bump; it lifts only if `cryptography` starts publishing that wheel, or
->   GAMDL stops needing it. Worth re-checking at each ceiling bump, and cheap to check.
-> - Three review rounds by an independent Opus agent, all findings fixed. The last one found a
->   real bug nobody else had: the "this version is untested" message handed back the general
->   recommendation without asking the platform, so Windows on ARM was told to downgrade to a
->   version it cannot install. Every user-facing sentence naming a GAMDL version now goes through
->   one helper that takes the platform. 1,943 backend tests and clippy clean.
-> - **In progress:** the PlayReady setting (maintainer's request). GAMDL 3.9 added a second way of
->   unlocking protected tracks, needing a `.prd` device file the user supplies. The option must
->   appear in Settings ONLY when GAMDL 3.9+ is installed, the same way the Wrapper section already
->   shows v1 or v2 fields — with one exception: if it is switched on and the installed GAMDL is
->   older, the section still shows, with a note, because a setting that is on but invisible is
->   worse than one that is visible and explained. Help pages and Settings wording included.
-> - **Then:** the ungated tool-path flags in `inject_tool_paths`; documenting that music videos
->   may now move into album folders. (Album-name matching is **done** — see below.)
-> - **Done since:** the album-name guard. GAMDL 3.9 started filling in an album name from iTunes
->   for singles and music videos, which previously had none. MeedyaDL compares that name against
->   Apple Music's catalogue name before adding any of its own metadata, and the two sources do
->   not always agree — iTunes writes "X - Single" and "X - EP" where the catalogue writes "X".
->   A mismatch meant every piece of extra metadata was skipped for that file, with nothing on
->   screen to say so. Now those two suffixes are ignored in the comparison, and a skip is written
->   to the activity log where a user can see it. Edition wording ("(Deluxe Edition)" against
->   "(Deluxe)") is deliberately still treated as a mismatch: telling a wording difference from a
->   genuinely different release means guessing, and guessing there puts one album's metadata onto
->   another album's tracks — the exact fault this guard was written for. 5 new tests.
+>   and those are the LAST entry in the default fallback chain — so on 3.9 a download walks the
+>   whole chain and fails at the bottom, looking like "this track isn't available". New known-bad
+>   list, its own `KnownBad` state, a red badge in Settings > Tools, and an install that refuses.
+> - **Windows on ARM held at 3.8.5**, and this is now *checked* rather than inferred: GAMDL 3.9.1
+>   does publish a Windows ARM64 package and `pyplayready` is pure Python — the blocker is
+>   `cryptography`, which publishes **no Windows ARM64 build in any version, 45.x or 46.x**. The
+>   cap is not waiting on a version bump. Per-platform ceilings now govern the install itself,
+>   not only the labelling.
+> - **PlayReady setting shipped** (Settings > Advanced, off by default, shown only on GAMDL 3.9+
+>   — except when already switched on, where it shows with a note rather than vanishing). One
+>   function decides it, both options go together or neither, and a fallback says why on screen.
+>   Deliberately never written to GAMDL's config file: it reads that as defaults the command line
+>   overrides, so a stale line there would outlive the decision to fall back.
+> - **Two pre-existing faults fixed**, neither caused by 3.9.1: the album-name guard (was about to
+>   start silently skipping all of MeedyaDL's own metadata on singles and music videos), and two
+>   command-line options being sent ungated on the live download path that no GAMDL since 3.6
+>   accepts — GAMDL treats an unknown option as a hard error.
+> - Verified: 1960 backend tests, 737 frontend, clippy, TypeScript, all repo audit checks clean.
 >
-> **Before this ships to stable, there is a test only a person can do.** Carry forward the
-> 3.8.4/3.8.5 live smoke test and point it at 3.9.1: a real download on each platform, keeping
-> the song-ending integrity check. Add two runs to it — one album with the codec forced to
-> **AAC Legacy**, which is the exact path 3.9 broke and 3.9.1 repaired and so the single most
-> valuable test here; and one music video that has an album plus one single, to see where the
-> video lands and whether the single kept its extra metadata. Four things in the audit could not
-> be verified by reading, and these runs settle three of them.
+> **REVIEW STATUS — read this before merging.** The version-window work had three independent
+> review rounds, all findings fixed. The PlayReady work and the tool-path gate had ONE partial
+> independent round, which found a real defect (the command line and the user-facing message were
+> decided at different moments and could disagree — fixed, plus a second case it prompted, plus
+> the companion options which were cloned before the decision). **The Settings visibility rule,
+> the album-name guard and the documentation were checked by the builder only.** That is not an
+> independent review. Three further review agents were started and all three stalled without
+> producing anything — subagents were unreliable in that session, which is the reason, not a
+> judgement that the work did not need reviewing. **All of it must go into the Codex catch-up
+> review before the PR to `alpha`.**
+>
+> **NEXT:** the reopened-issues queue resumes at batch 3 (#216 + #387, Opus). Then, once 3.9.x
+> has shipped, YouTube support via yt-dlp — and note the maintainer's scope: **every site yt-dlp
+> supports, not only YouTube URLs**.
 >
 > **Codex model for reviews (maintainer, 22 Sept):** keep `gpt-6-sol`, but run it at **medium**
 > reasoning effort, passed per run (`-c model_reasoning_effort=medium`) so the config file on this
