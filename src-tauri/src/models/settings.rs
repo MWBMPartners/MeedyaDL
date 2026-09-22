@@ -635,7 +635,7 @@ pub struct SpotifySettings {
 
 /// Per-service settings for YouTube/YouTube Music downloads (stub).
 ///
-/// Will be populated in milestone M9 (v2.1.0) when yt-dlp
+/// Will be populated in milestone M10 (v2.2.0) when yt-dlp
 /// integration is implemented.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]

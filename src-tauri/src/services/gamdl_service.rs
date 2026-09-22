@@ -193,9 +193,10 @@ pub async fn install_gamdl(
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Post-install integrity verification: compute SHA-256 of the installed
-    // gamdl package location for audit trail. This allows detection of
-    // tampered packages after installation (e.g., compromised PyPI mirror).
+    // Log where pip installed GAMDL, for troubleshooting. This is NOT an
+    // integrity check: no checksum is computed or compared here, so it
+    // cannot detect a tampered package. Installs checked against known file
+    // fingerprints are tracked in #397.
     if let Ok(location_output) = Command::new(&python_bin)
         .args(["-m", "pip", "show", "gamdl", "--verbose"])
         .output()
@@ -206,12 +207,12 @@ pub async fn install_gamdl(
         if let Some(loc_line) = show_output.lines().find(|l| l.starts_with("Location:")) {
             let location = loc_line.trim_start_matches("Location:").trim();
             log::info!(
-                "GAMDL {version} installed at: {location} (verify via: pip show gamdl --verbose)"
+                "GAMDL {version} installed at: {location} (details: pip show gamdl --verbose)"
             );
         }
     }
 
-    log::info!("GAMDL {version} installed and verified successfully");
+    log::info!("GAMDL {version} installed successfully");
     Ok(version)
 }
 

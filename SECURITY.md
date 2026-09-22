@@ -75,7 +75,7 @@ MeedyaDL implements the following security measures:
 
 - **IPC command rate limiting** — sliding-window rate limiter on sensitive commands (downloads, updates, cookie imports)
 - **Settings file integrity** — SHA-256 checksum verification detects external modification
-- **Pip install verification** — post-install audit trail logs package location
+- **Pip install location logging** — after installing GAMDL or a general engine such as yt-dlp, MeedyaDL logs where pip put it, for troubleshooting. This is not an integrity check. Installs that are checked against known file fingerprints are planned (#397)
 - **Feature-availability fail-open** — remote feature notices degrade safely: if the availability check cannot be reached, MeedyaDL keeps its last known state and everything continues to work; a network failure can never disable a feature
 - **Self-protection floor** — the availability mechanism is structurally unable to switch off the app's own update system or the availability check itself, so a compromised publishing account cannot permanently blind installed copies
 - **Untrusted notice rendering** — any explanation text delivered with a feature notice is rendered as plain text only (never HTML or markdown), with a hard length cap

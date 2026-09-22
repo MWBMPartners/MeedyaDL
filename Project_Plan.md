@@ -432,7 +432,7 @@ Spotify integration via [votify](https://github.com/glomatico/votify), a Python 
 
 **Status:** 🔲 Planned
 
-YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp also serves as the shared backend for BBC iPlayer in Milestone 10.
+YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most widely-used media download tool. Supports YouTube videos, shorts, playlists, channels, and audio extraction. yt-dlp is also BBC iPlayer's fallback engine (Milestone 8), so it is installed once and shared.
 
 #### YouTube Architecture Changes
 
@@ -481,13 +481,13 @@ YouTube integration via [yt-dlp](https://github.com/yt-dlp/yt-dlp), the most wid
 
 **Status:** 🔲 Planned
 
-BBC iPlayer integration for downloading TV programmes, films, and radio shows. Reuses yt-dlp from Milestone 9 (which already supports BBC iPlayer) or uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as a dedicated alternative.
+BBC iPlayer integration for downloading TV programmes, films, and radio shows. Uses [get_iplayer](https://github.com/get-iplayer/get_iplayer) as the main engine, with yt-dlp (which also supports BBC iPlayer) as the fallback. yt-dlp is already installed alongside GAMDL, which depends on it, and YouTube (Milestone 10) uses it too.
 
 **Important:** BBC iPlayer content is geographically restricted to the United Kingdom. Users outside the UK will need a VPN or BBC account with UK access.
 
 #### BBC iPlayer Architecture Changes
 
-- Add `BbcIPlayer` variant to `MediaServiceId` (or broader `MediaServiceId` if refactored in Milestone 9)
+- ✅ `MediaServiceId` already has a `BBCiPlayer` variant (`src-tauri/src/models/media_service.rs`; the enum itself was renamed in #314)
 - Update `url_domains()` to match `bbc.co.uk/iplayer`, `bbc.co.uk/sounds`
 - Extend content type detection for TV-specific models (series, episodes, categories)
 - ~~Consider renaming `MusicService` trait to `MediaService`~~ Done in #314
@@ -535,7 +535,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 - ✅ **Service registry** — `EngineRegistry` in `engine_registry.rs` provides runtime query layer for `engines.toml` with `resolve_engine()`, `resolve_engine_chain()`, `detect_platform()`. `EngineCommandBuilder` trait + `run_engine()` in `engine_runner.rs` abstract subprocess spawning (#107)
 - ✅ **Per-service settings** — `PerServiceSettings` in `settings.rs` nests per-service config (Apple Music, Spotify stub, YouTube stub) with `engine_priority` overrides per platform (#107)
 - ✅ **Rename MusicService → MediaService** — reflect that BBC iPlayer and YouTube are not music-only services (#314)
-- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M9) and BBC iPlayer (M10); install once, share across services
+- 🔲 **Shared dependency management** — yt-dlp used by both YouTube (M10) and BBC iPlayer (M8); install once, share across services
 - ✅ **Service-aware fallback chains** — engine fallback via `try_engine_fallback()` for multi-engine platforms (e.g., BBC iPlayer: get_iplayer → yt-dlp) (#107)
 - 🔲 **Help documentation** — add per-service help topics (e.g., `help/spotify.md`, `help/youtube.md`, `help/bbc-iplayer.md`)
 - 🔲 **Per-service settings UI tabs** — infrastructure exists but needs React Settings page integration
@@ -576,7 +576,7 @@ None at this time.
 - **All dependencies are self-contained** in the app data directory — no system-wide installations
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
-- **yt-dlp is shared** between YouTube (M9) and BBC iPlayer (M10) — install once, configure per-service
+- **yt-dlp is shared** between YouTube (M10) and BBC iPlayer (M8) — install once, configure per-service
 
 ---
 

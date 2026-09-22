@@ -111,7 +111,9 @@ pub async fn install_pip_engine(app: &AppHandle, package: &str) -> Result<String
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Post-install integrity verification: log the install location for audit trail
+    // Log where pip installed the package, for troubleshooting. This is NOT an
+    // integrity check: no checksum is computed or compared, so it cannot detect
+    // a tampered package. Installs checked against known file fingerprints are tracked in #397.
     if let Ok(show_output) = Command::new(&python_bin)
         .args(["-m", "pip", "show", package, "--verbose"])
         .output()
@@ -124,7 +126,7 @@ pub async fn install_pip_engine(app: &AppHandle, package: &str) -> Result<String
         }
     }
 
-    log::info!("{package} v{version} installed and verified successfully");
+    log::info!("{package} v{version} installed successfully");
     Ok(version)
 }
 
