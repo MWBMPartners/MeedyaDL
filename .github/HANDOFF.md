@@ -66,16 +66,32 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 >   accepts — GAMDL treats an unknown option as a hard error.
 > - Verified: 1960 backend tests, 737 frontend, clippy, TypeScript, all repo audit checks clean.
 >
-> **REVIEW STATUS — read this before merging.** The version-window work had three independent
-> review rounds, all findings fixed. The PlayReady work and the tool-path gate had ONE partial
-> independent round, which found a real defect (the command line and the user-facing message were
-> decided at different moments and could disagree — fixed, plus a second case it prompted, plus
-> the companion options which were cloned before the decision). **The Settings visibility rule,
-> the album-name guard and the documentation were checked by the builder only.** That is not an
-> independent review. Three further review agents were started and all three stalled without
-> producing anything — subagents were unreliable in that session, which is the reason, not a
-> judgement that the work did not need reviewing. **All of it must go into the Codex catch-up
-> review before the PR to `alpha`.**
+> **REVIEW STATUS (23 Sept, small hours) — Codex came back and has now reviewed the whole
+> branch. It found eleven faults across four rounds. Everything on this branch has been through
+> it except the very last three text fixes; see the last line of this block.**
+> - **Backend of the 3.9.1 work — 3 real defects, fixed, second round clean.** The worst was my
+>   own fix failing at the exact case it was written for: the tool-path gate asked "does this
+>   release do its own muxing?", which answers *no* when no version has been detected, and *no*
+>   was being read as "old release, send the arguments". So with no version detected it still
+>   sent arguments a modern release rejects — and a rejected argument stops the download before
+>   it starts. Also: a missing artist was counted as agreement in the album-name guard, and my
+>   own normalisation merged "X - Single" with "X - EP", two releases the sources had actually
+>   agreed were different.
+> - **Settings screen — clean.** All four visibility rules hold in the component itself, and the
+>   test for the awkward third case genuinely proves it rather than appearing to.
+> - **Documents — 6 faults, fixed, third round clean.** Including one of mine that matters:
+>   I wrote in five places, and called it verified, that `cryptography` publishes no Windows-ARM
+>   build in any version. It does — at 46.0.0 to 46.0.3, just outside the range the dependency
+>   allows. I had checked the two newest releases and generalised. Corrected everywhere except
+>   the pushed commit message of `17774965`, which still carries it.
+> - **The offline-installer checksum check (#984) — 1 real defect, fixed, second round clean.**
+>   The lookup compared the file name only as far as the first space, so a line naming
+>   "thing.tar.gz backup" would have been accepted as the checksum for "thing.tar.gz".
+> - **The false-claims sweep (#949, #397) — 3 more places found, fixed.** Codex hit its usage
+>   limit part-way through confirming those three (it resets at 2:13 AM), so **its confirming
+>   round never ran**. A fresh Claude agent reviewed them instead and came back clean, having
+>   followed each claim to the code. That is independent but it is not the usual reviewer. If
+>   anything on this branch is re-reviewed before the PR, make it commit `5e17271e`.
 >
 > **NEXT:** the reopened-issues queue resumes at batch 3 (#216 + #387, Opus). Then, once 3.9.x
 > has shipped, YouTube support via yt-dlp — and note the maintainer's scope: **every site yt-dlp
