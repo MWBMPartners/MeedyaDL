@@ -139,7 +139,7 @@ Omit any section that has nothing in it. Don't write "### Performance" followed 
 - **Summary**: one to two sentences immediately under the title, framing the release for a user skimming the GitHub Releases page.
 - **Bullets**: one to two sentences each, roughly 200 characters. Bold the headline phrase for anything significant (a new feature, a fix for something widely hit).
 - **Issue links**: at most one per bullet, placed at the **end**, formatted as `([details](<url>))`. Never a bare `(#1026)`. Omit the link entirely for minor items — not every bullet needs one.
-- **Deps-only / internal-only releases**: skip the sections entirely and write a single line: *"Under-the-hood housekeeping and dependency updates — nothing changes in how you use the app."*
+- **Deps-only / internal-only releases**: skip the sections entirely and write a single line: *"Under-the-hood housekeeping and dependency updates — nothing changes in how you use the app."* **Exception — a security fix:** if a dependency update closes a security weakness (its pull request carried a user-facing `Release-Note:` line), say so under **What's fixed** in plain words, without naming the library, and recommend installing the update. The single housekeeping line would hide a reason to update. (Added 2026-09-21, for 1.10.8.)
 - **Technical detail** belongs only in the collapsed "Full technical changelog" block (a `<details>` section) or the linked issue — never inline in a bullet.
 
 ## `Release-Note:` trailers (for PR authors)
