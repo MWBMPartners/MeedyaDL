@@ -196,7 +196,7 @@ category = "lossy"
 lossless = false
 mimetype = "audio/opus"
 suffix = "[Opus]"
-# YouTube/yt-dlp mapping TBD in M9
+# YouTube/yt-dlp mapping TBD in M10
 
 # ============================================================
 # Meta Codecs — Resolve Per-Service
@@ -243,7 +243,7 @@ votify = "mp4"
 name = "VP9"
 category = "modern"
 mimetype = "video/webm"
-# YouTube/yt-dlp mapping TBD in M9
+# YouTube/yt-dlp mapping TBD in M10
 
 [video.av1]
 name = "AV1"
@@ -301,4 +301,4 @@ category = "text"
 extension = "vtt"
 mimetype = "text/vtt"
 word_timing = false
-# YouTube/yt-dlp mapping TBD in M9
+# YouTube/yt-dlp mapping TBD in M10
