@@ -29,8 +29,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > Codex must do a catch-up review of everything built in the meantime** (only work it has not
 > seen). Nothing is merged without it. Fable is also out of credit (planning fell back to Opus).
 > **Progress:** batch 1 DONE — `bc48aceb` (Opus review: 3 rounds, clean; Codex still owed).
-> Batch 2 (#984) — built (Sonnet), uncommitted in the working tree; its first reviewer stalled,
-> so the review is being re-run.
+> Batch 2 (#984) DONE — see the fix(release) commit (Opus review 2 rounds, clean; Codex owed).
 > **NEW TOP PRIORITY (maintainer, 22 Sept): GAMDL 3.9 + 3.9.1** (released 21-22 Sept). Audit the
 > whole 3.8.5..3.9.1 source diff, not only the release notes, and make every change MeedyaDL
 > needs so nothing breaks. That includes our own enhancements: iTunes/Apple Music enrichment,
