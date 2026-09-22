@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-22 (00:05) — see ★★★★ below
-**Working branch:** `work/issue-sweep-2026-09` (from `alpha` @ `bfb7b25f`, alpha.70) — the full GitHub issues sweep plus `.claude/` and handoff updates. Separately, `work/main-1.10.8-notes-and-audit` → `main` is open as **PR #1206**. Neither PR is merged until the sweep is done (maintainer's ordering).
+**Last updated:** 2026-09-22 (04:50) — see ★★★★ below
+**Working branch:** `work/issue-sweep-2026-09` → `alpha` (its PR opened 22 Sept after the clean Codex review). If you are reading this on `alpha`, it merged and there is no working branch. PR #1206 → `main` and release PR #1203 follow.
 
 **Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
 
@@ -11,29 +11,18 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21 (evening): issues sweep done, Codex round 1 fixed; waiting on Codex (23:15) before any PR
+## ★★★★ LATEST — 2026-09-21/22: issues sweep done, Codex review clean (4 rounds); PRs and stable 1.10.8 under way
 
-> **PICK UP HERE (22 Sept, 00:05).** The rule still stands: **no PR is created or merged until
-> Codex's review is done** (the maintainer chose to wait for Codex itself). Codex is out of credit
-> again until **04:16 on 22 Sept**. Where the review stands:
-> - Round 1: 18 findings, all fixed; 1 disputed, and Codex accepted the dispute in round 2.
-> - Round 2: the rules and notes came back **clean**. The audit workflow had 3 findings (on
->   alpha) plus 3 (on PR #1206), all fixed (`a4262eb2`, `7e69a80b`, and their cherry-picks on
->   #1206) and tested: 15 npm/Rust cases, with stop-on-error on.
-> - **Round 3 still to run — ONLY the work Codex has not yet seen** (maintainer, 22 Sept: never
->   re-review what rounds 1 and 2 already covered; it wastes Codex credit). That is exactly one
->   44-line workflow change, identical on both branches (`9c9e025a` on PR #1206 = `7e69a80b`
->   here), so review it once. Plus the handoff-only commit `36369ec0`. Check that the change
->   fixes the three findings in `codex-r2b.txt`. If round 3 finds anything, round 4 reviews
->   only that fix, and so on. When the prompt is passed as an argument from a background
->   command (as here), add `</dev/null`: `codex exec` also reads extra instructions from its
->   input, and an input left open makes it wait indefinitely (30 minutes lost at 23:28). If you
->   deliberately pipe instructions in, do not add it.
->
-> Then, in order: (1) open the PR for this branch → `alpha`, and rebase-merge it when green;
-> (2) squash-merge PR #1206 → `main`; (3) run `channel-security-audit.yml` with `dry_run`, then for
-> real; (4) merge release PR #1203 (stable 1.10.8, approved); (5) watch every run until green.
-> A follow-up is scheduled for 04:18, in this session only.
+> **PICK UP HERE (22 Sept, 04:50).** **The Codex review is DONE — round 4 came back clean.**
+> Rounds: 1 (everything done while Codex was out: 18 findings, 17 fixed, 1 disputed and later
+> accepted); 2 (the fixes plus all of #1206: rules and notes clean, 6 in the audit workflow,
+> fixed); 3 (only the unreviewed change: 2 findings, fixed); 4 (only those fixes: **clean**).
+> Each follow-up round reviewed only work Codex had not seen, per the maintainer.
+> Now, in order (all approved): (1) the PR for this branch → `alpha`, rebase-merged when green;
+> (2) PR #1206 → `main`, squash-merged; (3) `channel-security-audit.yml` with `dry_run`, then
+> for real; (4) release PR #1203 (stable 1.10.8); (5) watch every run until green. After the
+> merge into `alpha` this file can only change through another PR, so the outcome of steps
+> 2–5 is recorded on issues #1198, #1203 and #1204.
 
 **Codex round 1 (18:15–18:45): 18 findings across the three reviews.** 17 were real and are fixed
 (`75b84914` workflow, `6bed4a82` style guide, `6f298c15` rules). 1 was disputed and not
