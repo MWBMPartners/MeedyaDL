@@ -21,6 +21,62 @@ This combines the dependency updates that were waiting on the main
 
 - **(security)** Update supported versions to 1.10.7 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- Release notes for 1.10.8, and switch on the channel security audit (#1203, #1204) (#1206)
+
+## What this is
+
+  Two small changes for `main`, combined into one pull request so they
+  don't race each other. Both were approved by the maintainer on
+  2026-09-21.
+
+  **1. Release notes for stable 1.10.8** (for #1203)
+  - The release PR #1203 is blocked, on purpose, until
+  `.github/release-notes/v1.10.8.md` exists on `main`. That rule is there
+  so a stable release never goes out with technical commit wording as its
+  notes.
+  - 1.10.8 contains one change a user would notice: a security fix in the
+  part of the app that protects its internet connections. Everything else
+  is dependency housekeeping.
+  - The notes follow `.github/release-notes/STYLE_GUIDE.md` and pass the
+  project's release-notes lint.
+  - The project's own draft tool produced the same content: one fix,
+  nothing else user-facing.
+
+  **2. Switch on the channel security audit** (#1204)
+  - `channel-security-audit.yml` checks every release branch for known
+  security problems in its dependencies.
+  - It is meant to run weekly, on every push to `main` that changes a
+  lockfile, and by hand. All three of those only work when the file is on
+  `main`, and it existed only on `alpha`. So GitHub has never run it once.
+  - This copies it from `alpha`. It needs nothing `main` lacks, and
+  `actionlint` passes.
+  - **One fix on top, made on `alpha` too so the two copies stay
+  identical:** the audit switches to each branch's files in turn, and it
+  never checked whether that switch worked. A branch could then be judged
+  on the previous branch's files and reported clean without being checked.
+  The switch is now forced, and a failed switch is reported as "could not
+  be checked". This was found by an independent review of this PR.
+
+  ## After merging
+  - Run the audit once by hand as a trial (`dry_run`), then once for real.
+  - Then merge #1203 to release 1.10.8.
+
+  Nothing in the app itself changes.
+
+  ## How it was checked
+  - The release-notes lint passes, and so does the check for technical
+  commit wording. `actionlint` passes on the workflow.
+  - **Codex could not review this.** It is out of usage credit until
+  13:04. An independent Claude agent that did not write it reviewed it
+  instead (1 finding, fixed above), and the Codex review follows when
+  Codex is available.
+
+  Part of #1203 and #1204.
+
 
 ## [1.10.7] - 2026-09-09
 
