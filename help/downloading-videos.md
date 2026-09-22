@@ -64,6 +64,8 @@ MeedyaDL lets you pick a resolution from the list below. This is not a preferenc
 
 **File size consideration:** 4K UHD (2160p) music videos can be several hundred megabytes per file. Ensure you have sufficient disk space before downloading at this resolution.
 
+**4K needs more than just picking 2160p:** the resolution setting is a ceiling, but reaching all the way up to 4K also depends on how MeedyaDL is unlocking the track. The built-in unlocking method (Widevine) cannot reach 4K on its own. Apple Music only offers 4K music videos to one of two kinds of device file: a PlayReady device file (a `.prd` file you supply yourself -- MeedyaDL's Unlocking Method setting, see [Settings](settings.md), takes this on GAMDL 3.9 and newer) or a Widevine L1 device file (which MeedyaDL does not currently offer a way to supply). Without a PlayReady device file set, requesting 2160p simply gets you the highest resolution actually available to the built-in method, which may be lower.
+
 ### Video Codecs
 
 The video codec determines how the video track is compressed. Different codecs offer different trade-offs between quality, file size, and device compatibility. For a detailed comparison of all available video codecs and their differences, see [Quality Settings](quality-settings.md).

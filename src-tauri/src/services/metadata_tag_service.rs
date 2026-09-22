@@ -504,6 +504,58 @@ pub async fn apply_enriched_metadata_tags(
 /// from the file via ffprobe (since GAMDL doesn't report which codec it
 /// selected from the priority chain). This prevents incorrect codec-specific
 /// tags (e.g., tagging AAC files as Dolby Atmos).
+/// Suffixes the iTunes Lookup API adds to an album name that Apple Music's
+/// own catalogue does not: a single is listed as `"Title - Single"` and a
+/// short release as `"Title - EP"`. Compared in lower case, so these are
+/// written in lower case too.
+const ITUNES_RELEASE_KIND_SUFFIXES: [&str; 2] = [" - single", " - ep"];
+
+/// Do these two album names refer to the same album?
+///
+/// `file_name` is whatever the download engine wrote into the file's album
+/// tag. `api_name` is the name Apple Music's catalogue gave MeedyaDL. The
+/// answer decides whether MeedyaDL adds its extra metadata to the file at
+/// all, so being wrong in either direction costs something: too strict and a
+/// file silently misses out, too loose and metadata from one album can end up
+/// on another album's tracks (the fault this guard was written for, #452).
+///
+/// The comparison ignores case, because the two sources capitalise
+/// differently, and ignores a trailing `" - Single"` or `" - EP"`, because
+/// iTunes adds those and the catalogue does not. **Nothing else is ignored.**
+/// In particular, edition wording is left alone: `"(Deluxe Edition)"` and
+/// `"(Deluxe)"` are still treated as different albums, because there is no
+/// way to tell a wording difference from a genuinely different release
+/// without guessing, and guessing here puts one album's metadata on another's
+/// tracks.
+///
+/// # Why this was needed
+///
+/// Until GAMDL 3.9 a single, a music video or a library item usually had no
+/// album name on the file at all, and the check above fell through to
+/// comparing artist names instead. GAMDL 3.9 started filling the album name
+/// in from iTunes, which is a different source from the one compared against
+/// here — so files that used to pass the check by having nothing to compare
+/// suddenly had something to compare, and it did not always match.
+fn album_names_match(file_name: &str, api_name: &str) -> bool {
+    let normalise = |name: &str| -> String {
+        let lowered = name.trim().to_lowercase();
+        for suffix in ITUNES_RELEASE_KIND_SUFFIXES {
+            if let Some(stripped) = lowered.strip_suffix(suffix) {
+                // Only strip when something is left. `"- Single"` on its own
+                // is a strange album name, but blanking it would make it
+                // match every other blank, which is worse.
+                let stripped = stripped.trim();
+                if !stripped.is_empty() {
+                    return stripped.to_string();
+                }
+            }
+        }
+        lowered
+    };
+
+    normalise(file_name) == normalise(api_name)
+}
+
 async fn enrich_single_file(
     file_path: &Path,
     requested_codec: &SongCodec,
@@ -653,6 +705,9 @@ async fn enrich_single_file(
     let return_codec = effective_codec.clone();
     let tag_path = file_path.to_path_buf();
     let metadata_owned = album_metadata.cloned();
+    // An owned copy of the activity-log context. The borrowed pair cannot
+    // cross into the blocking thread, which outlives this function.
+    let log_context = event_context.map(|(app, dl_id)| (app.clone(), dl_id.to_string()));
 
     // Offload all Tag I/O to a blocking thread. Tag::read_from_path and
     // Tag::write_to_path are synchronous file I/O that can block for
@@ -713,9 +768,25 @@ async fn enrich_single_file(
             let api_artist = metadata.artist_name.as_deref();
             let album_matches = match (&file_album, api_album) {
                 (Some(file_name), Some(api_name)) => {
-                    // Case-insensitive comparison — Apple Music sometimes
-                    // normalises casing differently than GAMDL
-                    file_name.to_lowercase() == api_name.to_lowercase()
+                    // An exact match (bar capitalisation) needs nothing more.
+                    // A match that only holds after ignoring iTunes' " - Single"
+                    // / " - EP" suffix is weaker, so it also has to agree on the
+                    // artist. Without that, a single and a full album of the
+                    // same name by DIFFERENT artists — "Flowers - Single"
+                    // against the album "Flowers" — would look like the same
+                    // release, which is exactly the mix-up this guard exists to
+                    // stop. Two releases by the SAME artist named that way can
+                    // still match; nothing on the file can separate those, and
+                    // refusing them would bring back the silent skip this whole
+                    // change is here to fix.
+                    let exact = file_name.trim().to_lowercase() == api_name.trim().to_lowercase();
+                    let artists_agree = match (&file_artist, api_artist) {
+                        (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
+                        // Nothing to compare: fall back to the name alone
+                        // rather than refusing a file with no artist tag.
+                        _ => true,
+                    };
+                    exact || (album_names_match(file_name, api_name) && artists_agree)
                 }
                 (None, Some(_)) => {
                     // File has no album tag — try artist name as fallback guard.
@@ -739,6 +810,35 @@ async fn enrich_single_file(
                     file_album.as_deref().unwrap_or("?"),
                     api_album.unwrap_or("?"),
                 );
+                // Also say it where a user can see it. Until GAMDL 3.9 this
+                // was nearly unreachable, because a single or a music video
+                // had no album name at all and the check fell through to
+                // comparing artists. From 3.9 onwards GAMDL fills the album
+                // name in from iTunes, while the name compared against here
+                // comes from Apple Music's catalogue — and the two do not
+                // always agree (iTunes adds " - Single" and " - EP"; edition
+                // wording differs). When they disagree, every piece of extra
+                // metadata MeedyaDL adds is skipped for that file, the
+                // download still succeeds, and nothing on screen says so.
+                // A line in the log file only is not good enough for that.
+                if let Some((app, download_id)) = log_context.as_ref() {
+                    crate::utils::activity_log::emit_download_log(
+                        app,
+                        download_id,
+                        &format!(
+                            "Extra metadata skipped for \"{}\" — the album name on the file \
+                             (\"{}\") does not match the one Apple Music gave us (\"{}\"). \
+                             The file itself downloaded normally.",
+                            tag_path
+                                .file_name()
+                                .map_or_else(|| tag_path.display().to_string(), |n| n
+                                    .to_string_lossy()
+                                    .to_string()),
+                            file_album.as_deref().unwrap_or("none"),
+                            api_album.unwrap_or("none"),
+                        ),
+                    );
+                }
             } else {
                 // Match this file to a track by track/disc number
                 let track_num = tag.track_number();
@@ -3204,5 +3304,66 @@ mod tests {
 
         assert!(dir.path().join("01 Track [Explicit].lrc").exists());
         assert!(!dir.path().join("01 Track.lrc").exists());
+    }
+
+    // ----------------------------------------------------------------
+    // album_names_match — the guard that decides whether MeedyaDL's extra
+    // metadata is written to a file at all (#452, revisited for GAMDL 3.9)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn album_names_match_ignores_case() {
+        assert!(album_names_match("Abbey Road", "ABBEY ROAD"));
+    }
+
+    #[test]
+    fn album_names_match_ignores_the_itunes_single_and_ep_suffixes() {
+        // This is the case GAMDL 3.9 introduced: the engine now fills the
+        // album name in from iTunes, which writes "X - Single", while the
+        // name we compare against comes from Apple Music's catalogue, which
+        // writes just "X". Before this, both of these were treated as
+        // different albums and the file silently lost all its extra
+        // metadata.
+        assert!(album_names_match("Flowers - Single", "Flowers"));
+        assert!(album_names_match("Flowers", "Flowers - Single"));
+        assert!(album_names_match("The Bends - EP", "The Bends"));
+        assert!(album_names_match("Both - Single", "Both - Single"));
+    }
+
+    #[test]
+    fn album_names_match_still_separates_genuinely_different_albums() {
+        assert!(!album_names_match("Abbey Road", "Let It Be"));
+        // Edition wording is deliberately NOT normalised — telling a wording
+        // difference from a different release needs a guess, and guessing
+        // here writes one album's metadata onto another album's tracks.
+        assert!(!album_names_match("Nevermind (Deluxe Edition)", "Nevermind (Deluxe)"));
+        assert!(!album_names_match("Nevermind", "Nevermind (Deluxe Edition)"));
+    }
+
+    #[test]
+    fn album_names_match_does_not_blank_a_name_that_is_only_a_suffix() {
+        // "- Single" on its own is a strange name, but if stripping left it
+        // empty then every oddly-named file would match every other one.
+        assert!(!album_names_match("- Single", "Abbey Road"));
+        assert!(!album_names_match("- EP", ""));
+    }
+
+    #[test]
+    fn album_names_match_ignores_surrounding_spaces() {
+        assert!(album_names_match("  Abbey Road  ", "Abbey Road"));
+        assert!(album_names_match("Flowers - Single ", " Flowers"));
+    }
+
+    #[test]
+    fn album_names_match_is_only_half_the_guard() {
+        // Worth stating in a test because the function on its own looks
+        // more permissive than the behaviour is. `album_names_match`
+        // answers "could these be the same release"; the call site adds
+        // "and do the artists agree" whenever the answer relied on
+        // ignoring a suffix. The pair is what stops a single by one
+        // artist being enriched with a same-named album by another.
+        assert!(album_names_match("Flowers - Single", "Flowers"));
+        // ...which is why the caller does not stop there. See the
+        // `album_matches` block in `enrich_single_file`.
     }
 }

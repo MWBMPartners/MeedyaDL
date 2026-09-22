@@ -1420,6 +1420,15 @@ Music video placement on disk is resolved through a four-tier cascade, highest p
 
 **Tiers 2 and 3 are scoped out of the initial RC fix.** The current PR covers Tier 4 only (the safety net). Tier 1 already works natively in GAMDL. Tiers 2 and 3 are tracked in #537 and will land as a separate PR once the Apple Music Catalog MV endpoint and the parent-album threading are implemented. Landing Tier 4 alone already resolves the RC blocker — MVs that fell into the buggy `[Unknown]` path now land in a predictable `{artist}/Music Videos/` folder with unique `{title} ({title_id}).mp4` filenames.
 
+**GAMDL 3.9 changed which tier most music videos land in, and it is worth knowing before somebody reports it as a bug.** Before 3.9, GAMDL only knew a music video's album if Apple's own playback response said so, and most did not — so those videos fell to Tier 4 and landed in `{artist}/Music Videos/` with the `({title_id})` suffix. From 3.9, GAMDL also looks the video up in iTunes and takes the album from there, which usually finds one. A video that finds an album takes GAMDL's ordinary album templates instead, so it now lands **beside the album's audio tracks**, named like a track and without the `({title_id})` suffix.
+
+That is Tier 1 behaviour — exactly what this table has always said should happen — arriving on its own rather than through MeedyaDL's own Tiers 2 and 3, which remain unbuilt. It is a welcome change, with two consequences worth stating plainly:
+
+- **Files move for existing users.** Someone who upgrades and re-downloads will find new videos in the album folder while the old copies stay where they were. Nothing is deleted or overwritten; there are simply two places to look. This belongs in the release notes, not just here.
+- **The uniqueness guarantee is weaker for those videos.** `({title_id})` was what stopped two videos with the same title colliding. Videos on the album path no longer carry it. GAMDL 3.9 added its own name-clash handling for this (it compares the Apple Music ID stored in each candidate file and appends " 2" when they genuinely differ), so the case is covered — but by GAMDL's mechanism now, not by MeedyaDL's filename.
+
+The same iTunes fill-in can also change an audio file's name: where iTunes reports more than one disc and Apple's own response said nothing, a track switches from `01 Title.m4a` to `1-01 Title.m4a`. On a re-download that makes a second file rather than replacing the first.
+
 **Key constants & locations:**
 
 | Location | Role |

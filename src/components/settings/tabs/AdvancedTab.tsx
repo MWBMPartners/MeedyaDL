@@ -36,6 +36,21 @@
  *     the password/2FA code exist only in the modal's local React state and
  *     are never written to settings.
  *
+ * ## Section 2b: Unlocking Method (#1189)
+ *
+ *   - **Unlocking Method** -- Choice between Widevine (built in, the only
+ *     option before GAMDL 3.9) and PlayReady (needs a user-supplied `.prd`
+ *     device file; only understood by GAMDL 3.9+). Maps to
+ *     `settings.drm_backend`.
+ *   - **PlayReady Device File** -- Only shown when PlayReady is selected.
+ *     Maps to `settings.prd_path`.
+ *   - This whole section is hidden unless `GamdlCapabilities.play_ready_drm`
+ *     is true (installed GAMDL is 3.9+), with one exception: if
+ *     `drm_backend` is already `'playready'` from an earlier, newer GAMDL
+ *     install, the section stays visible with an explanatory note rather
+ *     than disappearing and leaving an active setting unexplained. See
+ *     `showDrmBackendSection` in the component body for the exact logic.
+ *
  * ## Section 3: File Options
  *
  *   - **Truncate Filenames** -- Maximum filename length in characters.
@@ -98,13 +113,25 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
 // Input for text/number fields, Button for actions, Modal for the wrapper-v2
-// interactive sign-in dialog (#1029).
-import { Select, Toggle, Input, Button, HelpButton, SettingsSection, Modal } from '@/components/common';
+// interactive sign-in dialog (#1029), FilePickerButton for the PlayReady
+// device file picker (#1189 -- same "Browse" pattern already used for tool
+// binary paths in ToolsTab.tsx, rather than a hand-rolled dialog call).
+import {
+  Select,
+  Toggle,
+  Input,
+  Button,
+  HelpButton,
+  SettingsSection,
+  Modal,
+  FilePickerButton,
+} from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
 import type {
   DownloadMode,
   RemuxMode,
+  DrmBackend,
   WrapperTestResult,
   WrapperV2LoginResult,
   ApiAuditResult,
@@ -195,6 +222,20 @@ const GAMDL_IDLE_TIMEOUT_OPTIONS = [
 ];
 
 /**
+ * Unlocking-method dropdown options (#1189).
+ * Widevine is the method built into GAMDL and needs no setup -- it's
+ * what every MeedyaDL install has used up to this point. PlayReady is
+ * a second method GAMDL 3.9 learned to speak, but it only works once
+ * the user supplies their own device file (see the PlayReady Device
+ * File picker below this dropdown) -- MeedyaDL has no way to provide
+ * one itself.
+ */
+const DRM_BACKEND_OPTIONS = [
+  { value: 'widevine', label: 'Widevine (built in)' },
+  { value: 'playready', label: 'PlayReady' },
+];
+
+/**
  * AdvancedTab -- Renders the Advanced settings tab.
  *
  * Contains sections: Processing, Wrapper, File Options, Error Reporting,
@@ -230,6 +271,10 @@ export function AdvancedTab() {
   const wrapperM3u8Ip = useSettingsField('wrapper_m3u8_ip');
   const wrapperDecryptIp = useSettingsField('wrapper_decrypt_ip');
   const wrapperUrl = useSettingsField('wrapper_url');
+  // Which method GAMDL uses to unlock Apple Music's copy-protected
+  // tracks, and the device file PlayReady needs to do it (#1189).
+  const drmBackend = useSettingsField('drm_backend');
+  const prdPath = useSettingsField('prd_path');
 
   /**
    * Classify the current `wrapper_url` value (#891 follow-up) so we
@@ -297,7 +342,24 @@ export function AdvancedTab() {
     // Defaults `false` until the dependency probe runs, matching every
     // other capability's cache-empty default (#963, #1002).
     assets_api_unlocks_lossy_codecs: false,
+    // Defaults `false` for the same reason as every other capability
+    // above -- the "Unlocking Method" section below stays hidden until
+    // the probe confirms the installed GAMDL actually understands
+    // PlayReady (#1189).
+    play_ready_drm: false,
   });
+  /**
+   * Whether the very first `getGamdlCapabilities()` call (below) has
+   * settled yet. Every other capability-gated bit of this tab is fine
+   * rendering its conservative default while loading -- the Wrapper
+   * section, for instance, just shows the older wrapper-v1 fields for
+   * a moment. The "Unlocking Method" section is different: it can go
+   * from completely absent to present (or vice versa) once the real
+   * capability arrives, and a section popping in or out reads as a
+   * glitch rather than a state change. So that one section waits for
+   * this flag instead of rendering against the default.
+   */
+  const [gamdlCapsLoading, setGamdlCapsLoading] = useState(true);
 
   // ── API Field Audit state ──
   const [auditUrl, setAuditUrl] = useState('');
@@ -309,6 +371,40 @@ export function AdvancedTab() {
   /** Whether MusicKit credentials are configured (required for audit) */
   const hasMusicKitCredentials =
     !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
+
+  /**
+   * Whether to render the "Unlocking Method" section at all (#1189).
+   *
+   * Two conditions, either one is enough on its own:
+   *   1. `gamdlCaps.play_ready_drm` -- the installed GAMDL (3.9+)
+   *      actually understands PlayReady, so the choice is real.
+   *   2. `drmBackend.value === 'playready'` -- someone already chose
+   *      PlayReady, most likely on a newer GAMDL, and has since gone
+   *      back to (or reinstalled) an older one that doesn't understand
+   *      it. The setting is still switched on even though the capability
+   *      is now false, and hiding the section in that state would hide
+   *      the fact that it's silently not doing what the user asked for.
+   *      A setting that's on but invisible is worse than one that's on,
+   *      visible, and explained -- so the section stays up and shows a
+   *      note instead (see `drmBackendIsStale` below).
+   *
+   * Deliberately excludes the loading state: while the capability
+   * fetch is still in flight, this whole section stays hidden rather
+   * than rendering against the conservative "not supported" default
+   * and then possibly popping in once the real answer arrives -- see
+   * `gamdlCapsLoading`'s own comment above.
+   */
+  const showDrmBackendSection =
+    !gamdlCapsLoading && (gamdlCaps.play_ready_drm || drmBackend.value === 'playready');
+
+  /**
+   * True exactly in case 2 above: PlayReady is selected but the
+   * installed GAMDL doesn't understand it. Downloads still work in
+   * this state -- MeedyaDL never blocks a download over this setting
+   * -- they just quietly fall back to the built-in Widevine method,
+   * which is the one thing the note below has to make unmistakable.
+   */
+  const drmBackendIsStale = !gamdlCaps.play_ready_drm && drmBackend.value === 'playready';
 
   // Reset test result when the wrapper URL changes
   useEffect(() => {
@@ -332,17 +428,19 @@ export function AdvancedTab() {
 
   // Load GAMDL capability flags on mount (#853). Determines whether the
   // wrapper section renders the v1 three-fields UI or the v2 single-URL
-  // UI. Re-runs when the component re-mounts (e.g. user navigates back
-  // to Settings) so capability changes after a GAMDL upgrade are
-  // picked up without an app restart.
+  // UI, and whether the "Unlocking Method" section below is offered at
+  // all (#1189). Re-runs when the component re-mounts (e.g. user
+  // navigates back to Settings) so capability changes after a GAMDL
+  // upgrade are picked up without an app restart.
   useEffect(() => {
     getGamdlCapabilities()
       .then(setGamdlCaps)
       .catch(() => {
-        // Stay with the defensive default (wrapper-v1 UI). The cache
-        // is populated by the startup dependency probe, so this
-        // catch path only fires in unusual scenarios.
-      });
+        // Stay with the defensive default (wrapper-v1 UI, no PlayReady
+        // offer). The cache is populated by the startup dependency
+        // probe, so this catch path only fires in unusual scenarios.
+      })
+      .finally(() => setGamdlCapsLoading(false));
   }, []);
 
   /** Handles the "Test Connection" button click */
@@ -771,6 +869,92 @@ export function AdvancedTab() {
           </>
         )}
       </SettingsSection>
+
+      {/* ── Unlocking Method (#1189) ──
+          Apple Music tracks are copy-protected, and the download engine
+          has to unlock them before it can save a file. Until GAMDL 3.9
+          there was exactly one way to do that (Widevine, built in, no
+          setup). GAMDL 3.9 added a second way, PlayReady, which needs a
+          device file the user supplies themselves. This section only
+          exists to offer that second choice -- see `showDrmBackendSection`
+          above for the two conditions that control whether it renders,
+          and why it deliberately stays hidden while `gamdlCapsLoading`
+          is still true (a section that appears and disappears on every
+          Settings visit would read as a bug). */}
+      {showDrmBackendSection && (
+        <SettingsSection
+          title="Unlocking Method"
+          description="How the download engine unlocks Apple Music's copy-protected tracks. Most people should leave this alone."
+          defaultOpen={false}
+        >
+          {/*
+            The stale-setting note (case 2 of `showDrmBackendSection`'s
+            two conditions above): PlayReady is selected, but the GAMDL
+            that's currently installed doesn't understand it. This is
+            the one case the task brief calls out by name -- a setting
+            that's switched on but invisible is worse than one that's
+            visible and explained, so rather than hiding the section we
+            explain exactly what's happening instead.
+          */}
+          {drmBackendIsStale && (
+            <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+              <p className="text-xs text-status-warning-text">
+                PlayReady is selected, but the installed GAMDL is older than the version that
+                understands it (3.9). Downloads are using the built-in Widevine unlocking instead
+                for now. Upgrade GAMDL in Settings &gt; Tools to use PlayReady again.
+              </p>
+            </div>
+          )}
+
+          <Select
+            label="Unlocking Method"
+            description="Widevine needs no setup and is what MeedyaDL has always used. PlayReady is a newer alternative that only works once you supply your own device file below -- MeedyaDL cannot provide one."
+            options={DRM_BACKEND_OPTIONS}
+            value={drmBackend.value}
+            onChange={(e) => drmBackend.set(e.target.value as DrmBackend)}
+            helpTopic="settings"
+          />
+
+          {drmBackend.value === 'playready' && (
+            <>
+              <FilePickerButton
+                label="PlayReady Device File"
+                description="A .prd file identifies a specific device to Apple Music so it can unlock the track for it. MeedyaDL does not provide one and cannot get one for you -- you have to supply your own. One useful fact either way: a PlayReady device is one of only two ways to download 4K music videos (the built-in Widevine method alone cannot reach 4K)."
+                value={prdPath.value || null}
+                onChange={(path) => prdPath.set(path || '')}
+                filters={[{ name: 'PlayReady Device File', extensions: ['prd'] }]}
+                placeholder="No file selected"
+              />
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={!prdPath.value}
+                onClick={() => prdPath.set('')}
+              >
+                Reset
+              </Button>
+
+              {/*
+                PlayReady is chosen but no device file has been picked
+                yet. MeedyaDL deliberately does not refuse to queue a
+                download over this -- it just keeps using the built-in
+                Widevine method until a file is set, exactly as it did
+                before this setting existed. This note exists so that
+                behaviour is visible rather than a silent surprise.
+              */}
+              {!prdPath.value && (
+                <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+                  <p className="text-xs text-status-warning-text">
+                    No PlayReady device file chosen yet. Downloads will keep using the built-in
+                    Widevine unlocking until you choose one -- this will not stop a download from
+                    starting.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </SettingsSection>
+      )}
 
       {/* ── API Credentials ── */}
       <SettingsSection title="API Credentials" description="MusicKit, AcoustID, song.link, and developer tools." defaultOpen={false}>

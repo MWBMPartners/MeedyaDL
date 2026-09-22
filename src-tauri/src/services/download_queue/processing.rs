@@ -839,6 +839,53 @@ pub fn process_queue(
             );
         }
 
+        // Settle the copy-protection question HERE, immediately before the
+        // download runs, and let that one answer drive both the command
+        // line and what the person is told.
+        //
+        // `merge_options` already made this decision once, but it made it
+        // when the item was ADDED TO THE QUEUE, which can be a long time
+        // ago — a queue can sit for hours. Everything the decision rests
+        // on can change in between: the setting itself, whether the `.prd`
+        // device file is still on disk, even which GAMDL is installed.
+        // Deciding again now is not belt-and-braces, it is the only way
+        // the two can be the same answer. A review caught the earlier
+        // version, which claimed they could not disagree; they could, in
+        // both directions, and the worst of them was silent — a device
+        // file deleted after queueing still reached GAMDL, which then
+        // stopped with a Python traceback.
+        //
+        // The download is never refused over this. When PlayReady cannot
+        // be used, GAMDL's own built-in unlocking is used instead — what
+        // every download did before this setting existed — and one plain
+        // sentence says why.
+        // Both sets of options are updated, not just the one used for this
+        // download. The companion downloads (the extra copies in other
+        // formats) were copied from the queued options further up, before
+        // this point, so leaving them alone would hand GAMDL the stale
+        // answer on every companion run — including a device file that has
+        // since been deleted, which is the case that ends in a traceback
+        // rather than a message.
+        let (drm_backend, prd_path, fallback_reason) =
+            match super::options::plan_drm_backend_for_now(&settings_for_companion) {
+                super::options::DrmPlan::PlayReady { prd_path } => (
+                    Some(crate::models::settings::DrmBackend::PlayReady),
+                    Some(prd_path),
+                    None,
+                ),
+                super::options::DrmPlan::LeaveToGamdl => (None, None, None),
+                super::options::DrmPlan::FallBackToBuiltIn { reason } => {
+                    (None, None, Some(reason))
+                }
+            };
+        download_options.drm_backend = drm_backend;
+        download_options.prd_path.clone_from(&prd_path);
+        companion_base_options.drm_backend = drm_backend;
+        companion_base_options.prd_path = prd_path;
+        if let Some(reason) = fallback_reason {
+            emit_download_log(&app, &download_id, &reason);
+        }
+
         // Per-download GAMDL version + capability flags (#755). The
         // process-global cache populated at startup means we read it
         // here without spawning a `--version` probe. Surfaces in both

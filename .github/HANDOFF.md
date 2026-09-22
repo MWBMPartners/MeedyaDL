@@ -33,10 +33,61 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > **NEW TOP PRIORITY (maintainer, 22 Sept): GAMDL 3.9 + 3.9.1** (released 21-22 Sept). Audit the
 > whole 3.8.5..3.9.1 source diff, not only the release notes, and make every change MeedyaDL
 > needs so nothing breaks. That includes our own enhancements: iTunes/Apple Music enrichment,
-> music-video naming, companions, wrapper, and fallback. Key upstream changes: PlayReady DRM
-> support plus a new dependency, iTunes metadata fill, music-video and playlist handling, new CLI
-> config. Deep analysis: Fable was retried and is still out of credit, so Opus is doing it. The audit goes in
-> `.github/audits/gamdl-v3.9-v3.9.1-audit.md`. Then the reopened-issues queue resumes at batch 3.
+> music-video naming, companions, wrapper, and fallback. Deep analysis: Fable was retried and is
+> still out of credit, so Opus did it. Ship this BEFORE starting YouTube support (maintainer's
+> order). The audit write-up goes in `.github/audits/gamdl-v3.9-v3.9.1-audit.md` — still to write.
+>
+> **GAMDL 3.9.x — where it has got to (22 Sept, midday):**
+> - **3.9 is refused, 3.9.1 is admitted.** 3.9 cannot download Apple's web AAC formats at all,
+>   and those are the LAST entry in the default fallback chain — so on 3.9 a download would walk
+>   the whole chain and fail at the bottom, looking like "this track isn't available". It is on a
+>   new known-bad list, with its own `KnownBad` state, badge and refusal.
+> - **Windows on ARM is held at 3.8.5** (maintainer's decision). Every other platform moves to
+>   3.9.1; Linux on 32-bit ARM stays at 3.8.1 as before.
+>   **Checked against PyPI itself on 22 Sept, not inferred:** GAMDL 3.9.1 *does* publish a
+>   Windows ARM64 wheel, and its new dependency `pyplayready` is pure Python — so neither of
+>   those is the blocker. The blocker is one level further down: `pyplayready` requires
+>   `cryptography` 45.0.6 or later, and **`cryptography` publishes no Windows ARM64 wheel in any
+>   version, 45.x or 46.x** — only 32-bit and 64-bit Intel. Installing there would mean building
+>   it from source with a Rust toolchain, which a user machine will not have. So this cap is not
+>   waiting on a version bump; it lifts only if `cryptography` starts publishing that wheel, or
+>   GAMDL stops needing it. Worth re-checking at each ceiling bump, and cheap to check.
+> - Three review rounds by an independent Opus agent, all findings fixed. The last one found a
+>   real bug nobody else had: the "this version is untested" message handed back the general
+>   recommendation without asking the platform, so Windows on ARM was told to downgrade to a
+>   version it cannot install. Every user-facing sentence naming a GAMDL version now goes through
+>   one helper that takes the platform. 1,943 backend tests and clippy clean.
+> - **In progress:** the PlayReady setting (maintainer's request). GAMDL 3.9 added a second way of
+>   unlocking protected tracks, needing a `.prd` device file the user supplies. The option must
+>   appear in Settings ONLY when GAMDL 3.9+ is installed, the same way the Wrapper section already
+>   shows v1 or v2 fields — with one exception: if it is switched on and the installed GAMDL is
+>   older, the section still shows, with a note, because a setting that is on but invisible is
+>   worse than one that is visible and explained. Help pages and Settings wording included.
+> - **Then:** the ungated tool-path flags in `inject_tool_paths`; documenting that music videos
+>   may now move into album folders. (Album-name matching is **done** — see below.)
+> - **Done since:** the album-name guard. GAMDL 3.9 started filling in an album name from iTunes
+>   for singles and music videos, which previously had none. MeedyaDL compares that name against
+>   Apple Music's catalogue name before adding any of its own metadata, and the two sources do
+>   not always agree — iTunes writes "X - Single" and "X - EP" where the catalogue writes "X".
+>   A mismatch meant every piece of extra metadata was skipped for that file, with nothing on
+>   screen to say so. Now those two suffixes are ignored in the comparison, and a skip is written
+>   to the activity log where a user can see it. Edition wording ("(Deluxe Edition)" against
+>   "(Deluxe)") is deliberately still treated as a mismatch: telling a wording difference from a
+>   genuinely different release means guessing, and guessing there puts one album's metadata onto
+>   another album's tracks — the exact fault this guard was written for. 5 new tests.
+>
+> **Before this ships to stable, there is a test only a person can do.** Carry forward the
+> 3.8.4/3.8.5 live smoke test and point it at 3.9.1: a real download on each platform, keeping
+> the song-ending integrity check. Add two runs to it — one album with the codec forced to
+> **AAC Legacy**, which is the exact path 3.9 broke and 3.9.1 repaired and so the single most
+> valuable test here; and one music video that has an album plus one single, to see where the
+> video lands and whether the single kept its extra metadata. Four things in the audit could not
+> be verified by reading, and these runs settle three of them.
+>
+> **Codex model for reviews (maintainer, 22 Sept):** keep `gpt-6-sol`, but run it at **medium**
+> reasoning effort, passed per run (`-c model_reasoning_effort=medium`) so the config file on this
+> Mac is left alone. Cost control — the model is right for reviewing, the top effort tier is not
+> needed for it.
 
 **What landed (22 Sept, all times UTC):**
 - **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the

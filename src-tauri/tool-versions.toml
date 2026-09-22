@@ -641,44 +641,134 @@ minimum_version = "3.0"
 #   at 3.8.5 — keep the song-ending integrity check, and treat the
 #   wrapper-less non-web-codec `aac` leg as the validation of the rewritten
 #   m3u8 `#EXT-X-KEY` key-extraction path.
-maximum_tested_version = "3.8.5"
+#
+# 3.9 (2026-09-21) — **NEVER ADMITTED. Deliberately skipped, not merely
+#   untested.** 3.9 changed how GAMDL finds a track's copy-protection
+#   key, looking it up by a label on the key rather than taking the
+#   first one in the stream. Apple's web AAC streams present a key with
+#   no such label, so the lookup came back empty and the download
+#   stopped with a "decryption not available" error. That is exactly
+#   the `aac-web` / `aac-he-web` formats, which sit at the BOTTOM of
+#   MeedyaDL's default audio fallback chain (`AacLegacy` → `aac-web` is
+#   the last entry). That chain is the safety net every other codec
+#   falls back to, so a user on 3.9 loses the last thing standing
+#   between them and a failed download — and the failure reads as
+#   "this track just isn't available". It hits the gap-fill retry for
+#   the same reason. Upstream fixed it the next day in 3.9.1. The ban
+#   is enforced in code, not just by this comment — see
+#   `KNOWN_BAD_VERSIONS` in
+#   `src-tauri/src/services/gamdl_capabilities.rs`, which refuses an
+#   explicit install of 3.9 and tells a user who already has it to move
+#   to 3.9.1.
+#
+# 3.9.1 audit (2026-09-22) — DECISION: **ADMITTED** (ceiling 3.8.5 →
+# 3.9.1), with one platform held back. Two things had to be handled:
+#   * **The web-AAC repair.** 3.9.1 restores the web AAC path 3.9
+#     broke, which is why the ceiling can move past 3.8.5 at all. 3.9
+#     itself stays banned (see above).
+#   * **Windows on ARM is held at 3.8.5.** GAMDL 3.9 added a plain,
+#     non-optional dependency on `pyplayready`, which in turn requires
+#     `cryptography` at version 45.0.6 or later but below 46. Only
+#     45.0.6 and 45.0.7 exist in that range and NEITHER publishes a
+#     Windows ARM64 package; Windows ARM64 support starts at
+#     `cryptography` 46.0.0, which the requirement excludes. So on
+#     Windows ARM64 pip would try to COMPILE `cryptography` from source,
+#     which needs a Rust toolchain MeedyaDL's managed Python does not
+#     ship, and the install fails with a wall of compiler output.
+#     GAMDL's own 3.9.1 package for Windows ARM64 exists and is fine —
+#     the missing package is two levels down the dependency tree, where
+#     `--only-binary=gamdl` cannot reach, which is why this needs an
+#     explicit ceiling rather than pip working it out by itself (the way
+#     Linux ARMv7 does, where it is GAMDL's OWN package that is
+#     missing). See `[gamdl.platform_ceilings]` below.
+#
+#     Honest limit on this one: the Windows ARM64 failure was worked
+#     out from the published package lists and the version requirement,
+#     NOT reproduced on a real Windows ARM64 machine. The package facts
+#     are certain (checked every file published for `cryptography` 45.x
+#     and 46.0.0); what was not confirmed by hand is exactly HOW it
+#     fails there — a hard error while compiling, or pip quietly
+#     choosing an older GAMDL. Either way the ceiling is the right
+#     answer, but running `pip install "gamdl==3.9.1"` on one of those
+#     machines is still worth doing before this reaches a stable
+#     release.
+maximum_tested_version = "3.9.1"
 # What the installer will resolve to when run with no override. Always
-# within `[minimum_version, maximum_tested_version]`. ARMv7 auto-falls-back
-# to 3.8.1 via `--only-binary` since 3.8.2–3.8.5 have no ARMv7 wheel.
-recommended_version = "3.8.5"
+# within `[minimum_version, maximum_tested_version]`.
+#
+# Two platforms land lower than this, each for its own reason, and both
+# are now capped explicitly by the per-platform table below rather than
+# left to pip to work out:
+#   * Linux ARMv7 — 3.8.1, because GAMDL publishes no ARMv7 package
+#     from 3.8.2 onwards.
+#   * Windows ARM64 — 3.8.5, because a dependency of GAMDL 3.9+ has no
+#     Windows ARM64 package.
+recommended_version = "3.9.1"
 
 # Per-platform ceiling overrides (#1014). `maximum_tested_version` above
 # is the GLOBAL ceiling — the version every platform is validated up to.
-# `pip_version_spec()` / `install_gamdl`'s bounded `--only-binary=gamdl`
-# resolve (see the 3.8.2 audit above) already make the ACTUAL installed
-# version correct per-platform today: on Linux ARMv7, pip naturally
-# resolves down to 3.8.1 because that's the newest version with an
-# ARMv7-compatible wheel, even though the requested range reaches 3.8.5.
+# A platform listed here is held BELOW that global ceiling, because the
+# newer releases genuinely cannot be installed there.
 #
-# This table exists so `gamdl_capabilities::classify_for_platform()` can
-# reflect that same per-platform reality WITHOUT a network call (unlike
-# `update_checker::no_compatible_wheel`, which queries PyPI). A platform
-# listed here has its effective `maximum_tested_version` overridden to
-# the given value for classification purposes (startup activity-log
-# line, component dashboard) — it does NOT change `minimum_version`,
-# `recommended_version`, or `pip_version_spec()`'s bounds, all of which
-# stay global; only `services::gamdl_capabilities::classify_for_platform()`
-# / `effective_maximum_tested()` consult this table. A platform absent
-# from this table simply tracks the global ceiling — this is the common
-# case and requires no entry.
+# The keys must be spelled exactly as
+# `gamdl_capabilities::current_platform_id()` writes them — `macos`,
+# `windows-x86_64`, `windows-aarch64`, `linux-x86_64`, `linux-aarch64`,
+# `linux-armv7`. A misspelled key (`windows-arm64`, say) is not an
+# error; it simply never matches anything and the platform silently
+# tracks the global ceiling, which is the failure this note exists to
+# prevent. A platform absent from this table tracks the global ceiling
+# on purpose — that is the common case and needs no entry.
+#
+# What this table now governs (widened for the 3.9.1 bump):
+#   * `classify_for_platform()` — the startup activity-log line and the
+#     component dashboard, so a held-back platform is told the truth
+#     about its own ceiling rather than a global one it cannot reach.
+#   * `pip_version_spec()` — the bounded range routine installs and
+#     upgrades use, so the cap actually governs what gets installed.
+#     Before this it only affected LABELLING, and the install was left
+#     to pip working the problem out by itself.
+#   * The explicit-version install path in `gamdl_service.rs`, which
+#     pins exactly and would otherwise walk straight past the bounded
+#     range above.
+#   * The "Untested" warning badge in `update_checker.rs`.
+# It does NOT change `minimum_version` or `recommended_version`, which
+# stay global.
+#
+# Why relying on pip alone was not enough. On Linux ARMv7 the missing
+# package is GAMDL's OWN, so `--only-binary=gamdl` makes 3.8.2+
+# unsatisfiable and pip quietly resolves back down to 3.8.1. That has
+# always worked by luck rather than design. On Windows ARM64 the
+# missing package is two levels down (`gamdl` → `pyplayready` →
+# `cryptography`), where that flag does not reach — so pip has no
+# reason to resolve down and tries to compile instead. An explicit
+# ceiling is deterministic and can say why; pip's backtracking is
+# neither.
 #
 # linux-armv7 = "3.8.1" — GAMDL 3.8.2 replaced Python `amdecrypt.py`
 # with a compiled Rust `ammuxer` extension shipped as `cp310-abi3`
 # wheels for macOS universal2, Windows x64/ARM64, and Linux
 # x86_64/aarch64 — but NOT Linux ARMv7 (32-bit ARM has no published
-# wheel through at least 3.8.5; see the 3.8.2 / 3.8.3+3.8.4 / 3.8.5
+# wheel through at least 3.9.1; see the 3.8.2 / 3.8.3+3.8.4 / 3.8.5
 # audits above, all independently re-verified live against PyPI).
 # ARMv7's sdist-only path would need a Rust toolchain MeedyaDL's managed
 # Python environment doesn't ship, so 3.8.1 (the last pure-Python
 # release) remains ARMv7's real ceiling until upstream publishes an
 # ARMv7 wheel or MeedyaDL bundles a Rust toolchain for that target.
+#
+# windows-aarch64 = "3.8.5" — GAMDL 3.9 added a required dependency on
+# `pyplayready`, which requires `cryptography` at 45.0.6 or later but
+# below 46. Only 45.0.6 and 45.0.7 exist in that range, and neither
+# publishes a Windows ARM64 package; Windows ARM64 support begins at
+# `cryptography` 46.0.0, which that requirement excludes. GAMDL's own
+# Windows ARM64 package for 3.9.1 exists and is fine — it is the
+# dependency that cannot be installed, so pip would fall back to
+# compiling it from source and fail. 3.8.5 is the newest release with
+# no `pyplayready` dependency at all. Lift this the moment
+# `pyplayready` allows `cryptography` 46 (raised upstream), or when a
+# 45.x release ships a Windows ARM64 package.
 [gamdl.platform_ceilings]
 linux-armv7 = "3.8.1"
+windows-aarch64 = "3.8.5"
 
 # Votify is installed via pip (mirrors the GAMDL pattern). Same support-
 # window contract: the running MeedyaDL build only "knows about" releases

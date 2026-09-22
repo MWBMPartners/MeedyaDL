@@ -182,6 +182,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   wrapper_m3u8_ip: '127.0.0.1:20020', // wrapper-v1 m3u8 address (GAMDL 3.1–3.5.x)
   wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
   wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
+  drm_backend: 'widevine', // Which method GAMDL uses to unlock Apple Music tracks; built-in, needs no setup (#1189, GAMDL >= 3.9 adds 'playready')
+  prd_path: '', // PlayReady device file (.prd) path; only used when drm_backend is 'playready'
   truncate: null, // Max filename length in characters; null = no truncation
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
