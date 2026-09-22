@@ -284,13 +284,14 @@ jobs:
           # ----------------------------------------------------------------
           classify_cargo_deny() {
             local errfile="$1"
-            # Every diagnostic and log line must be readable. An unreadable one could be
+            # EVERY non-empty line must be readable JSON. An unreadable one could be
             # hiding the very failure the checks below look for, so it makes the whole
-            # check untrustworthy (found 2026-09-21: a garbled line used to be skipped
-            # silently). A normal run writes nothing but JSON lines, so this cannot
-            # misfire on healthy output.
+            # check untrustworthy. (Found 2026-09-21: a garbled line used to be skipped
+            # silently; then only lines still carrying a recognisable "type" were
+            # checked, so garbling that hit the type itself slipped through.) A normal
+            # run writes nothing but JSON lines, so this cannot misfire on healthy output.
             local unreadable
-            unreadable=$(grep -E '"type":"(diagnostic|log)"' "$errfile" \
+            unreadable=$(grep -v '^[[:space:]]*$' "$errfile" \
               | { while IFS= read -r line; do jq -e . >/dev/null 2>&1 <<<"$line" || echo x; done; } \
               | wc -l | tr -d ' ' || true)
             if [ "${unreadable:-0}" != "0" ]; then
