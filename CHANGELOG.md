@@ -22,6 +22,8 @@ This combines the dependency updates that were waiting on the main
 - **(security)** Update supported versions to 1.10.7 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.8 [skip ci]
 
 ### 🔄 CI/CD
 
