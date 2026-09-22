@@ -43,11 +43,18 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 >   and those are the LAST entry in the default fallback chain — so on 3.9 a download walks the
 >   whole chain and fails at the bottom, looking like "this track isn't available". New known-bad
 >   list, its own `KnownBad` state, a red badge in Settings > Tools, and an install that refuses.
-> - **Windows on ARM held at 3.8.5**, and this is now *checked* rather than inferred: GAMDL 3.9.1
->   does publish a Windows ARM64 package and `pyplayready` is pure Python — the blocker is
->   `cryptography`, which publishes **no Windows ARM64 build in any version, 45.x or 46.x**. The
->   cap is not waiting on a version bump. Per-platform ceilings now govern the install itself,
->   not only the labelling.
+> - **Windows on ARM held at 3.8.5.** GAMDL 3.9.1 does publish a Windows ARM64 package, and its
+>   new dependency `pyplayready` is pure Python, so neither is the blocker. `pyplayready` requires
+>   `cryptography` 45.0.6 or later but strictly below 46.0.0, and the only two releases in that
+>   range — 45.0.6 and 45.0.7 — publish no Windows ARM64 build. **Windows ARM64 builds of
+>   `cryptography` DO exist**, in 46.0.0 through 46.0.3, which is exactly the range `pyplayready`'s
+>   limit shuts out; they stop again from 46.0.4. So the cap is not permanent by nature — it would
+>   lift if `pyplayready` relaxed that limit.
+>   **This note previously said `cryptography` published no Windows ARM64 build in any version,
+>   and called that verified.** It came from checking only the newest two releases and
+>   generalising — the confident kind of wrong. Codex caught it while reviewing the audit, which
+>   had checked every release properly. Re-check at each ceiling bump; it is cheap.
+>   Per-platform ceilings now govern the install itself, not only the labelling.
 > - **PlayReady setting shipped** (Settings > Advanced, off by default, shown only on GAMDL 3.9+
 >   — except when already switched on, where it shows with a note rather than vanishing). One
 >   function decides it, both options go together or neither, and a fallback says why on screen.
