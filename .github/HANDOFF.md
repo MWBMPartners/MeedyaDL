@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-22 (04:50) — see ★★★★ below
-**Working branch:** `work/issue-sweep-2026-09` → `alpha` (its PR opened 22 Sept after the clean Codex review). If you are reading this on `alpha`, it merged and there is no working branch. PR #1206 → `main` and release PR #1203 follow.
+**Last updated:** 2026-09-22 (04:30) — see ★★★★ below
+**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It holds only this handoff update and one notes correction. **No PR yet** — one goes to `alpha` when the maintainer says so.
 
-**Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
+**Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 04:30.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,43 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21/22: issues sweep done, Codex review clean (4 rounds); PRs and stable 1.10.8 under way
+## ★★★★ LATEST — 2026-09-22 (early hours): everything merged, stable 1.10.8 released, all green
+
+> **PICK UP HERE.** Nothing is in flight. Every PR from 21/22 Sept is merged, and every run after
+> each merge finished green. The only open item on this branch is its own PR (when told).
+
+**What landed (22 Sept, all times UTC):**
+- **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
+  standing-rules fixes from the Codex review, and the hardened channel security audit.
+  **v1.13.0-alpha.71** is published: every job OK, 22 files, 12 updater entries.
+- **PR #1206 → `main`** (03:30, squash-merged): the 1.10.8 release notes and the audit workflow.
+- **Channel security audit:** GitHub now lists it as active. First dry run clean; first real
+  run clean ("All channels clean — nothing to do"); it then ran by itself on the release push,
+  also clean. **#1204 closed.**
+- **Release PR #1203 → stable 1.10.8** (03:49): published, marked latest, not a draft. Every
+  job OK, 20 files, 6 updater entries (the same as 1.10.7: `main` does not yet have the
+  Linux-updater fix). The curated notes were applied. All 11 runs on the merge were green.
+- **#1198 closed.** The Codex review of the standing rules was clean after 4 rounds; each
+  follow-up round reviewed only work Codex had not seen (maintainer's instruction).
+
+**Still true / next:**
+- **#1207** — the cut-off release-note line comes back in every alpha release's "since the last
+  stable" summary. alpha.69, .70 and .71 were corrected by hand. Since 1.10.8 is now the last
+  stable, whether it keeps recurring depends on how the cumulative summary treats the new stable
+  tag — check the next alpha's notes. The proposed permanent fix (the PR check rejects a wrapped
+  `Release-Note:` line) is not built yet.
+- **15 reopened issues** from the sweep are real, outstanding work: notably #216 (verbose logging
+  switched off on every 1.x launch), #329 (no loudness tags on MKV/WebM/OGV) and #273 (update
+  checks cover only 2 of 5 tools).
+- **Artist promo video default:** a code comment says off, while a new install gets on and an
+  older settings file reads it as off. That is a product decision for the maintainer.
+- **Codex's usage allowance** ran out four times in a day. Run reviews one at a time, pass the
+  prompt as an argument with `</dev/null`, and never re-review work already reviewed.
+- The maintainer chose to leave `.claude/settings.local.json` (tracked, containing home-folder
+  paths) as it is.
+- `git-cliff` 2.14.2 is installed with Homebrew on this Mac.
+
+## ★★★★ Previous — 2026-09-21/22: issues sweep done, Codex review clean (4 rounds); PRs and stable 1.10.8 under way
 
 > **PICK UP HERE (22 Sept, 04:50).** **The Codex review is DONE — round 4 came back clean.**
 > Rounds: 1 (everything done while Codex was out: 18 findings, 17 fixed, 1 disputed and later
