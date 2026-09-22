@@ -113,7 +113,7 @@ pub async fn install_votify(
         .await?
         .unwrap_or_else(|| "unknown".to_string());
 
-    log::info!("votify {version} installed and verified successfully");
+    log::info!("votify {version} installed successfully");
     Ok(version)
 }
 

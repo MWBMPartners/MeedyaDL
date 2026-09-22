@@ -456,7 +456,7 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
 
 /// Command builder stub for yt-dlp (YouTube / BBC iPlayer downloads).
 ///
-/// Not yet functional — will be implemented in milestones M9/M10.
+/// Not yet functional — will be implemented in milestones M8/M10.
 /// yt-dlp is a pip-installed Python package shared between YouTube
 /// and BBC iPlayer services.
 pub struct YtdlpCommandBuilder;
@@ -472,13 +472,13 @@ impl EngineCommandBuilder for YtdlpCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("yt-dlp engine is not yet implemented (planned for v2.1.0)".to_string())
+        Err("yt-dlp engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 
 /// Command builder stub for get_iplayer (BBC iPlayer primary engine).
 ///
-/// Not yet functional — will be implemented in milestone M10.
+/// Not yet functional — will be implemented in milestone M8.
 /// get_iplayer uses a different installation method (system binary,
 /// not pip) and has a distinct CLI interface.
 pub struct GetIplayerCommandBuilder;
@@ -494,7 +494,7 @@ impl EngineCommandBuilder for GetIplayerCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("get_iplayer engine is not yet implemented (planned for v2.2.0)".to_string())
+        Err("get_iplayer engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 

@@ -504,8 +504,7 @@ the list" step first.
 
 ## #949 — Old milestone numbers left in code comments and the project plan
 
-**What is missing today** (all confirmed, and a repository-wide search found
-no others):
+**What is missing today** (all confirmed; a later review found three more in `Project_Plan.md`, at lines 435, 484 and 490, fixed in the same batch):
 
 - `src/types/index.ts:992` — YouTube settings called a "stub for M9"
   (should be M10).

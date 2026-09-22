@@ -989,7 +989,7 @@ export type DispatchGateOutcome =
   | { kind: 'missing_wvd' }
   | { kind: 'daily_cap_reached'; count: number; cap: number };
 
-/** YouTube/YouTube Music service settings (stub for M9) */
+/** YouTube/YouTube Music service settings (stub for M10) */
 export interface YouTubeServiceSettings {
   cookies_path: string | null;
 }
