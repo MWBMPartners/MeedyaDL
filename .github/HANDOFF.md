@@ -13,8 +13,14 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ## ★★★★ LATEST — 2026-09-22 (early hours): everything merged, stable 1.10.8 released, all green
 
-> **PICK UP HERE.** Nothing is in flight. Every PR from 21/22 Sept is merged, and every run after
-> each merge finished green. The only open item on this branch is its own PR (when told).
+> **PICK UP HERE.** Every PR from 21/22 Sept is merged and every run was green. **New task (22 Sept,
+> 04:40): the maintainer asked to queue up work on the 15 reopened issues** (#95, #216, #273, #329,
+> #352, #387, #393, #397, #423, #424, #426, #431, #759, #949, #984). Step 1, running now: a Fable
+> agent plans them against the code — size, dependencies, and the decisions the maintainer must
+> take, asked up front. Step 2: the queue and questions go to the maintainer. Step 3: build
+> (Sonnet/Haiku, Opus when complex), with a Codex review of new work only, committing and pushing
+> each piece to this branch (`work/after-1.10.8`). One PR to `alpha` later, when told. The sweep's
+> evidence for the 15 is in the session scratchpad (`reopened/sweep-evidence.json`).
 
 **What landed (22 Sept, all times UTC):**
 - **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
