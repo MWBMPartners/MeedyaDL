@@ -721,7 +721,7 @@ fn build_gamdl_command(
 /// * `cmd` - The command to add arguments to (mutated in place)
 /// * `options` - The user's options (checked for custom path overrides)
 fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions) {
-    use crate::services::gamdl_capabilities::{detected_version, supports, GamdlFeature};
+    use crate::services::gamdl_capabilities::{detected_version, GamdlFeature};
 
     // Which of these four options the installed GAMDL actually accepts
     // differs by version, and GAMDL treats an option it does not know
@@ -739,7 +739,16 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     // checked by reading the code alone. So this is either a fix for a
     // real fault or a guard against one that was waiting to happen —
     // either way the emission now matches what each GAMDL release accepts.
-    let native_muxing = supports(GamdlFeature::NativeMuxing);
+    // These two arguments exist only on releases BEFORE the engine started
+    // doing its own muxing. Asking `supports` is not enough here: every
+    // capability answers "no" when no version has been detected, and "no"
+    // for this one reads as "this is an old release, so send them" — the
+    // exact opposite of the caution intended. An independent review caught
+    // it: with no version detected, the old condition still sent both
+    // arguments, and a modern engine stops before downloading anything when
+    // it is given an argument it does not recognise. So the version must be
+    // KNOWN, and known to be one that accepts them.
+    let tool_paths_accepted = tool_paths_accepted_on(detected_version().as_deref());
 
     // FFmpeg: accepted before 3.6, dropped in 3.6.x, then brought back in
     // 3.7 because N_m3u8DL-RE needs it.
@@ -769,7 +778,7 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     // mp4decrypt: GAMDL dropped this when it moved to doing the muxing
     // itself in 3.6, and has not brought it back. Nothing is lost by
     // staying quiet — those releases do not use the tool at all.
-    if options.mp4decrypt_path.is_none() && !native_muxing {
+    if options.mp4decrypt_path.is_none() && tool_paths_accepted {
         let mp4decrypt_bin = dependency_manager::get_tool_binary_path(app, "mp4decrypt");
         if mp4decrypt_bin.exists() {
             cmd.arg("--mp4decrypt-path");
@@ -778,7 +787,7 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     }
 
     // MP4Box: dropped in 3.6 alongside mp4decrypt, for the same reason.
-    if options.mp4box_path.is_none() && !native_muxing {
+    if options.mp4box_path.is_none() && tool_paths_accepted {
         let mp4box_bin = dependency_manager::get_tool_binary_path(app, "mp4box");
         if mp4box_bin.exists() {
             cmd.arg("--mp4box-path");
@@ -796,6 +805,62 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
         if nm3u8dlre_bin.exists() {
             cmd.arg("--nm3u8dlre-path");
             cmd.arg(&nm3u8dlre_bin);
+        }
+    }
+}
+
+/// Does this engine release still accept `--mp4decrypt-path` and
+/// `--mp4box-path`?
+///
+/// `None` means no version has been detected yet, and the answer is then
+/// **no**. That is the whole point of this function existing separately:
+/// asking the capability directly answers "no" for an unknown version, and
+/// for this particular feature "no" means "an old release, so send them" —
+/// the opposite of the caution wanted. Getting it wrong costs the entire
+/// download, because a release that does not recognise an argument stops
+/// before downloading anything.
+fn tool_paths_accepted_on(version: Option<&str>) -> bool {
+    use crate::services::gamdl_capabilities::GamdlFeature;
+    version.is_some_and(|v| !GamdlFeature::NativeMuxing.is_available_on(v))
+}
+
+#[cfg(test)]
+mod tool_path_gate_tests {
+    use super::tool_paths_accepted_on;
+    use crate::services::gamdl_capabilities::set_detected_version;
+
+    // These call the SAME function the download path calls. An earlier
+    // version of this test restated the rule in its own words, which a
+    // reviewer rightly objected to: it would have gone on passing while
+    // the real rule drifted away from it, which is the one thing a test
+    // like this exists to prevent.
+
+    #[test]
+    fn an_unknown_engine_version_is_never_sent_the_removed_arguments() {
+        // This is the defect an independent review found. Asking the
+        // capability directly answers "no" when nothing has been detected,
+        // and for this feature "no" reads as "an old release, so send
+        // them" — the opposite of the caution intended. A modern engine
+        // given an argument it does not know stops before downloading
+        // anything, so the cost of guessing wrong here is the whole
+        // download.
+        set_detected_version(None);
+        assert!(
+            !tool_paths_accepted_on(None),
+            "with no version detected, neither argument may be sent"
+        );
+    }
+
+    #[test]
+    fn only_releases_that_still_accept_them_are_sent_the_removed_arguments() {
+        for old in ["3.0", "3.5.2"] {
+            assert!(tool_paths_accepted_on(Some(old)), "{old} still accepts them");
+        }
+        for modern in ["3.6", "3.7.4", "3.9.1"] {
+            assert!(
+                !tool_paths_accepted_on(Some(modern)),
+                "{modern} rejects them outright"
+            );
         }
     }
 }
