@@ -878,10 +878,13 @@ any of its own metadata, MeedyaDL checks that the file's album name matches
 the one Apple Music's catalogue gave it — a guard against one album's
 metadata landing on another's tracks. Singles and music videos used to have no
 album name at all, so the check fell through to comparing artists and passed.
-From 3.9, GAMDL fills that name in from iTunes, which writes `"X - Single"`
-where the catalogue writes `"X"` — a mismatch, so every piece of MeedyaDL's
-own metadata would have been skipped for those files, with nothing on screen
-to say so. The comparison now ignores case and those two suffixes, and a skip
+From 3.9, GAMDL fills that name in from iTunes. The two sources do not always
+agree on a name — iTunes is known to write `"X - Single"` and `"X - EP"` where
+the catalogue writes `"X"` — and wherever they disagree, every piece of
+MeedyaDL's own metadata would have been skipped for that file, with nothing on
+screen to say so. **How often they actually disagree was never measured**: it
+needs real downloads against both sources, which this audit could not run. So
+the size of the problem is unknown; only its shape is established. The comparison now ignores case and those two suffixes, and a skip
 is written to the activity log. Edition wording (`"(Deluxe Edition)"` against
 `"(Deluxe)"`) is deliberately still treated as a mismatch: telling a wording
 difference from a genuinely different release means guessing, and a wrong
