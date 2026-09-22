@@ -29,7 +29,15 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > Codex must do a catch-up review of everything built in the meantime** (only work it has not
 > seen). Nothing is merged without it. Fable is also out of credit (planning fell back to Opus).
 > **Progress:** batch 1 DONE — `bc48aceb` (Opus review: 3 rounds, clean; Codex still owed).
-> Batch 2 (#984) — starting.
+> Batch 2 (#984) — built (Sonnet), uncommitted in the working tree; its first reviewer stalled,
+> so the review is being re-run.
+> **NEW TOP PRIORITY (maintainer, 22 Sept): GAMDL 3.9 + 3.9.1** (released 21-22 Sept). Audit the
+> whole 3.8.5..3.9.1 source diff, not only the release notes, and make every change MeedyaDL
+> needs so nothing breaks. That includes our own enhancements: iTunes/Apple Music enrichment,
+> music-video naming, companions, wrapper, and fallback. Key upstream changes: PlayReady DRM
+> support plus a new dependency, iTunes metadata fill, music-video and playlist handling, new CLI
+> config. Deep analysis: Fable (retried), falling back to Opus. The audit write-up goes in
+> `.github/audits/gamdl-v3.9-v3.9.1-audit.md`. Then the reopened-issues queue resumes at batch 3.
 
 **What landed (22 Sept, all times UTC):**
 - **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
