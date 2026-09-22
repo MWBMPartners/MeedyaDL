@@ -25,8 +25,10 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 >   44-line workflow change, identical on both branches (`9c9e025a` on PR #1206 = `7e69a80b`
 >   here), so review it once. Plus the handoff-only commit `36369ec0`. Check that the change
 >   fixes the three findings in `codex-r2b.txt`. If round 3 finds anything, round 4 reviews
->   only that fix, and so on. Close off `codex exec`'s input with `</dev/null` — without it,
->   it waits forever for typed input (lost 30 minutes at 23:28).
+>   only that fix, and so on. When the prompt is passed as an argument from a background
+>   command (as here), add `</dev/null`: `codex exec` also reads extra instructions from its
+>   input, and an input left open makes it wait indefinitely (30 minutes lost at 23:28). If you
+>   deliberately pipe instructions in, do not add it.
 >
 > Then, in order: (1) open the PR for this branch → `alpha`, and rebase-merge it when green;
 > (2) squash-merge PR #1206 → `main`; (3) run `channel-security-audit.yml` with `dry_run`, then for
