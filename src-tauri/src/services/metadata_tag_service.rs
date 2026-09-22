@@ -537,23 +537,49 @@ const ITUNES_RELEASE_KIND_SUFFIXES: [&str; 2] = [" - single", " - ep"];
 /// here — so files that used to pass the check by having nothing to compare
 /// suddenly had something to compare, and it did not always match.
 fn album_names_match(file_name: &str, api_name: &str) -> bool {
-    let normalise = |name: &str| -> String {
+    /// Splits a name into the part before any release-kind wording, and
+    /// which wording it was. `None` means the name had none.
+    fn split_release_kind(name: &str) -> (String, Option<&'static str>) {
         let lowered = name.trim().to_lowercase();
         for suffix in ITUNES_RELEASE_KIND_SUFFIXES {
             if let Some(stripped) = lowered.strip_suffix(suffix) {
-                // Only strip when something is left. `"- Single"` on its own
+                // Only split when something is left. `"- Single"` on its own
                 // is a strange album name, but blanking it would make it
                 // match every other blank, which is worse.
                 let stripped = stripped.trim();
                 if !stripped.is_empty() {
-                    return stripped.to_string();
+                    return (stripped.to_string(), Some(suffix));
                 }
             }
         }
-        lowered
-    };
+        (lowered, None)
+    }
 
-    normalise(file_name) == normalise(api_name)
+    let (file_base, file_kind) = split_release_kind(file_name);
+    let (api_base, api_kind) = split_release_kind(api_name);
+
+    if file_base != api_base {
+        return false;
+    }
+
+    // The names agree once the release wording is set aside. Whether that is
+    // enough depends on what the wording said.
+    //
+    // An independent review caught the case this guards against: an earlier
+    // version simply removed the wording from both sides and compared what
+    // was left, so `"Example - Single"` and `"Example - EP"` came out the
+    // same. Those are two different releases, and the two sources agree they
+    // are — one says single, the other says EP. Treating them as one is
+    // exactly the mix-up this whole guard exists to prevent, and it would
+    // have been self-inflicted.
+    //
+    // So: the wording may be missing on one side, because that is the real
+    // difference between the two sources (iTunes writes it, the catalogue
+    // does not). It may not CONTRADICT the other side.
+    match (file_kind, api_kind) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
 }
 
 async fn enrich_single_file(
@@ -780,11 +806,18 @@ async fn enrich_single_file(
                     // refusing them would bring back the silent skip this whole
                     // change is here to fix.
                     let exact = file_name.trim().to_lowercase() == api_name.trim().to_lowercase();
+                    // Both artists must be PRESENT and equal, not merely
+                    // "not known to differ". An independent review caught
+                    // the earlier version, which treated a missing artist
+                    // as agreement — so a file with an album name but no
+                    // artist tag could be given another artist's metadata
+                    // purely because the two album names matched once the
+                    // " - Single" wording was set aside. An absent fact is
+                    // not evidence, and this guard only has two facts to
+                    // work with.
                     let artists_agree = match (&file_artist, api_artist) {
                         (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
-                        // Nothing to compare: fall back to the name alone
-                        // rather than refusing a file with no artist tag.
-                        _ => true,
+                        _ => false,
                     };
                     exact || (album_names_match(file_name, api_name) && artists_agree)
                 }
@@ -3352,6 +3385,24 @@ mod tests {
     fn album_names_match_ignores_surrounding_spaces() {
         assert!(album_names_match("  Abbey Road  ", "Abbey Road"));
         assert!(album_names_match("Flowers - Single ", " Flowers"));
+    }
+
+    #[test]
+    fn album_names_match_refuses_two_different_release_types() {
+        // Found by an independent review. An earlier version removed the
+        // release wording from both sides and compared what was left, so a
+        // single and an EP of the same name came out identical — two
+        // different releases, which the two sources had actually AGREED
+        // were different, merged by our own normalisation.
+        assert!(!album_names_match("Example - Single", "Example - EP"));
+        assert!(!album_names_match("Example - EP", "Example - Single"));
+
+        // The wording being absent on one side is the real difference
+        // between the two sources, and must still be forgiven.
+        assert!(album_names_match("Example - Single", "Example"));
+        assert!(album_names_match("Example - EP", "Example"));
+        // The same wording on both sides is agreement, not a conflict.
+        assert!(album_names_match("Example - Single", "example - single"));
     }
 
     #[test]
