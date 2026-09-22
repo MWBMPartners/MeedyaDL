@@ -36,7 +36,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > needs so nothing breaks. That includes our own enhancements: iTunes/Apple Music enrichment,
 > music-video naming, companions, wrapper, and fallback. Key upstream changes: PlayReady DRM
 > support plus a new dependency, iTunes metadata fill, music-video and playlist handling, new CLI
-> config. Deep analysis: Fable (retried), falling back to Opus. The audit write-up goes in
+> config. Deep analysis: Fable was retried and is still out of credit, so Opus is doing it. The audit goes in
 > `.github/audits/gamdl-v3.9-v3.9.1-audit.md`. Then the reopened-issues queue resumes at batch 3.
 
 **What landed (22 Sept, all times UTC):**
