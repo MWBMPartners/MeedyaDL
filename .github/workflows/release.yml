@@ -1265,8 +1265,25 @@ jobs:
                   print(asset['browser_download_url'])
                   break
           " || true)
+                # A line in these files is: the hash, a two-character
+                # separator, then the file name. The file name is the whole
+                # of the rest of the line and may itself contain spaces, so
+                # it is compared in full.
+                #
+                # This used to compare only up to the first space, which an
+                # independent review caught: a published line naming
+                # "thing.tar.gz backup" would have been accepted as the
+                # checksum for "thing.tar.gz". Since the whole point of this
+                # step is to refuse bytes that are not the ones the mirror
+                # published, a near-match is not good enough.
+                #
+                # Every matching line is printed, deliberately. If a file
+                # name somehow appears twice, the result is two hashes, the
+                # comparison below cannot match, and the build stops — which
+                # is the right answer to a checksum list that contradicts
+                # itself.
                 if [ -n "$CHECKSUMS_URL" ]; then
-                  EXPECTED_SHA256=$(curl -fsSL "$CHECKSUMS_URL" | awk -v name="$ASSET_NAME" '$2 == name {print $1}')
+                  EXPECTED_SHA256=$(curl -fsSL "$CHECKSUMS_URL" | awk -v name="$ASSET_NAME" '{ i = index($0, " "); if (i == 0) next; rest = substr($0, i + 1); sub(/^[ *]/, "", rest); if (rest == name) print $1 }')
                 else
                   SHA256SUMS_URL=$(echo "$ASSETS_JSON" | python3 -c "
           import json, sys
@@ -1277,7 +1294,7 @@ jobs:
                   break
           " || true)
                   if [ -n "$SHA256SUMS_URL" ]; then
-                    EXPECTED_SHA256=$(curl -fsSL "$SHA256SUMS_URL" | awk -v name="$ASSET_NAME" '$2 == name {print $1}')
+                    EXPECTED_SHA256=$(curl -fsSL "$SHA256SUMS_URL" | awk -v name="$ASSET_NAME" '{ i = index($0, " "); if (i == 0) next; rest = substr($0, i + 1); sub(/^[ *]/, "", rest); if (rest == name) print $1 }')
                   fi
                 fi
               fi
