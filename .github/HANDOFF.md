@@ -23,7 +23,13 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > comment on the issue, and update this box. Decisions: #393 closed; #352 and #431 kept open
 > but not queued; #423 and #424 go with M8; #426 with #911 Phase 2; new issues #1209, #1210
 > and #1211. Planning was done by Opus, because Fable was out of credit at 08:14.
-> **Progress:** batch 1 — starting.
+> **CODEX IS OUT UNTIL 27 SEPT, 16:59** (a much longer limit than before — probably weekly).
+> Per the hand-over rule, each batch is reviewed meanwhile by an independent Opus agent that did
+> not build it, and committed marked "not yet reviewed by Codex". **Before the PR to `alpha`,
+> Codex must do a catch-up review of everything built in the meantime** (only work it has not
+> seen). Nothing is merged without it. Fable is also out of credit (planning fell back to Opus).
+> **Progress:** batch 1 — built (Haiku), and the Opus review found more lines of the same kind;
+> being fixed.
 
 **What landed (22 Sept, all times UTC):**
 - **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
