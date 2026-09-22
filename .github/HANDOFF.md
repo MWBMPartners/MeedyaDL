@@ -28,8 +28,8 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > not build it, and committed marked "not yet reviewed by Codex". **Before the PR to `alpha`,
 > Codex must do a catch-up review of everything built in the meantime** (only work it has not
 > seen). Nothing is merged without it. Fable is also out of credit (planning fell back to Opus).
-> **Progress:** batch 1 — built (Haiku), and the Opus review found more lines of the same kind;
-> being fixed.
+> **Progress:** batch 1 DONE — `bc48aceb` (Opus review: 3 rounds, clean; Codex still owed).
+> Batch 2 (#984) — starting.
 
 **What landed (22 Sept, all times UTC):**
 - **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
