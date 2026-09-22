@@ -9,6 +9,98 @@
 
 use super::*;
 
+use crate::models::settings::DrmBackend;
+
+// ============================================================
+// Helper: which way of unlocking copy-protected tracks to use
+// ============================================================
+
+/// What MeedyaDL decided to do about the copy-protection setting for one
+/// download.
+///
+/// Worked out in one place so that what goes on the command line and what
+/// the user is told can never drift apart — they are both read from this.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DrmPlan {
+    /// Say nothing to GAMDL and let it use its own built-in unlocking.
+    /// This is what every download did before the setting existed, and
+    /// what all but a handful of downloads will still do.
+    LeaveToGamdl,
+    /// Use PlayReady, with this device file.
+    PlayReady { prd_path: String },
+    /// PlayReady was asked for but cannot be used. The download still goes
+    /// ahead with GAMDL's built-in unlocking; this sentence says why, in
+    /// words meant for the person waiting for their music.
+    FallBackToBuiltIn { reason: String },
+}
+
+/// Decides what to do about the copy-protection setting for one download.
+///
+/// `gamdl_understands_playready` is
+/// `supports(GamdlFeature::PlayReadyDrmBackend)`, passed in rather than
+/// read here so this stays a plain function that can be tested without a
+/// running app. `prd_file_exists` is likewise passed in.
+///
+/// **Why a wrong setting never stops a download.** If MeedyaDL simply
+/// passed PlayReady through whenever it was chosen, GAMDL would stop
+/// before downloading anything — it writes one fatal line about the
+/// missing device file and exits. From MeedyaDL's side that arrives as a
+/// download that ended with no output at all, which is reported as a
+/// terminal failure with nothing useful in it. Falling back and saying so
+/// gets the person their music and tells them what to fix.
+pub(crate) fn plan_drm_backend(
+    settings: &AppSettings,
+    gamdl_understands_playready: bool,
+    prd_file_exists: bool,
+) -> DrmPlan {
+    if settings.drm_backend != DrmBackend::PlayReady {
+        return DrmPlan::LeaveToGamdl;
+    }
+
+    if !gamdl_understands_playready {
+        return DrmPlan::FallBackToBuiltIn {
+            reason: "PlayReady is switched on, but the installed version of GAMDL is too old to \
+                     know about it (it needs GAMDL 3.9 or newer). This download used the \
+                     built-in unlocking instead."
+                .to_string(),
+        };
+    }
+
+    let prd_path = settings.prd_path.trim();
+    if prd_path.is_empty() {
+        return DrmPlan::FallBackToBuiltIn {
+            reason: "PlayReady is switched on, but no .prd device file has been chosen for it. \
+                     This download used the built-in unlocking instead."
+                .to_string(),
+        };
+    }
+
+    if !prd_file_exists {
+        return DrmPlan::FallBackToBuiltIn {
+            reason: format!(
+                "PlayReady is switched on, but the .prd device file is not where it used to be \
+                 ({prd_path}). This download used the built-in unlocking instead."
+            ),
+        };
+    }
+
+    DrmPlan::PlayReady {
+        prd_path: prd_path.to_string(),
+    }
+}
+
+/// The same decision, reading the two facts it needs from the machine:
+/// which GAMDL is installed, and whether the device file is really there.
+pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
+    let understands = crate::services::gamdl_capabilities::supports(
+        crate::services::gamdl_capabilities::GamdlFeature::PlayReadyDrmBackend,
+    );
+    let exists = {
+        let path = settings.prd_path.trim();
+        !path.is_empty() && std::path::Path::new(path).is_file()
+    };
+    plan_drm_backend(settings, understands, exists)
+}
 
 // ============================================================
 // Helper: merge per-download overrides with global settings
@@ -234,6 +326,24 @@ pub(crate) fn merge_options(
         .clone_from(&settings.mp4decrypt_path);
     options.mp4box_path.clone_from(&settings.mp4box_path);
     options.nm3u8dlre_path.clone_from(&settings.nm3u8dlre_path);
+
+    // Which way of unlocking copy-protected tracks to use. Nothing is
+    // said to GAMDL unless the user asked for PlayReady AND it can
+    // actually be used, so an ordinary download's command line is exactly
+    // what it was before this setting existed. See `plan_drm_backend`.
+    match plan_drm_backend_for_now(settings) {
+        DrmPlan::PlayReady { prd_path } => {
+            options.drm_backend = Some(DrmBackend::PlayReady);
+            options.prd_path = Some(prd_path);
+        }
+        // Both the "not asked for" and the "asked for but unusable" cases
+        // leave GAMDL on its own default. The person is told about the
+        // second one at download start, in `processing.rs`.
+        DrmPlan::LeaveToGamdl | DrmPlan::FallBackToBuiltIn { .. } => {
+            options.drm_backend = None;
+            options.prd_path = None;
+        }
+    }
 
     // Set download and remux modes
     options.download_mode = Some(settings.download_mode.clone());

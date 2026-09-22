@@ -304,6 +304,20 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 10;
     }
 
+    // v10 -> v11: adds `drm_backend` and `prd_path` (GAMDL 3.9's second way
+    // of unlocking copy-protected tracks, PlayReady).
+    //
+    // Nothing to convert. Both fields are new, both take their defaults
+    // through `#[serde(default)]` for anyone upgrading, and those defaults
+    // — GAMDL's built-in Widevine unlocking, and no device file — are
+    // exactly what every download did before the fields existed. MeedyaDL
+    // does not even send the options to GAMDL while they hold those values,
+    // so an upgrading person's command line is unchanged, not merely
+    // equivalent. This only stamps the version.
+    if settings.settings_version == 10 {
+        settings.settings_version = 11;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -976,6 +990,25 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if let Some(ref path) = settings.cookies_path {
         lines.push(format!("cookies_path = {}", sanitize_ini_value(path)));
     }
+
+    // The copy-protection settings (`drm_backend` / `prd_path`, GAMDL 3.9's
+    // PlayReady) are deliberately NOT written here, even though GAMDL would
+    // accept both as keys.
+    //
+    // Writing them would create a second place the answer lives, and the two
+    // places would not always agree. MeedyaDL decides per download whether
+    // PlayReady can actually be used — it checks the installed GAMDL is new
+    // enough and that the device file is still on disk, and quietly uses the
+    // built-in unlocking when it is not (see `plan_drm_backend` in
+    // `download_queue/options.rs`). A line sitting in this file knows none of
+    // that. GAMDL reads its config file as the defaults and lets the command
+    // line override, so a stale `drm_backend = playready` here would survive
+    // MeedyaDL's decision to fall back, and GAMDL would then stop without
+    // downloading anything because no device file was given — which is the
+    // exact failure the fallback exists to prevent.
+    //
+    // The command line is the only place this is said, so there is only one
+    // answer and it is always the current one.
 }
 
 /// Appends audio quality INI key-value pairs.

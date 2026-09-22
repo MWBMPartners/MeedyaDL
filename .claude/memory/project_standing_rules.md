@@ -197,8 +197,15 @@ codex review --commit <commit-id>
 # custom prompt alongside --uncommitted or --base ("cannot be used with
 # [PROMPT]", checked 2026-09-21), so use `codex exec` in read-only mode and
 # tell it what to look at. -o saves its final answer to a file.
-codex exec -s read-only -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff HEAD, which includes staged changes, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
+codex exec -s read-only -m gpt-6-sol -c model_reasoning_effort=medium -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff HEAD, which includes staged changes, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
 ```
+
+**Model and effort (maintainer's decision, 22 September 2026):** keep the model
+`gpt-6-sol`, but run reviews at **medium** reasoning effort, passed on the command line
+as above. The model is the right one for reviewing; the top effort tier is not needed for
+it, and Codex's allowance has run out repeatedly — four times in one day, and once for
+five days. **Set it per run, never by editing the Codex config file on this Mac**: that
+config is the maintainer's own and covers work outside this project.
 
 **The loop:**
 

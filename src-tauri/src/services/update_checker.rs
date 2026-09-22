@@ -910,6 +910,103 @@ async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, Strin
     }
 }
 
+// ============================================================
+// Known-bad-aware classification of the latest GAMDL release
+// ============================================================
+//
+// Split into pure, synchronous helpers (independent-review fix) so the
+// "is the newest release on PyPI something we have specifically found
+// broken?" logic is unit-testable without a live PyPI/pip round trip —
+// `check_gamdl_update` itself can't be unit tested directly, since it
+// does real network + subprocess I/O.
+
+/// Classifies `latest` (the newest GAMDL version PyPI reports, if any)
+/// against `platform_id`'s effective tested ceiling AND the known-bad
+/// list, returning `(is_untested, known_bad)`.
+///
+/// **Why a known-bad release is folded into `is_untested`** rather than
+/// carried as its own separate boolean on `ComponentUpdate`: `is_untested`
+/// already has a real behavioural consequence here, not just a badge.
+/// The frontend's Upgrade button reads `update.is_untested ?
+/// update.latest_version : null` (`UpdatesPage.tsx` / `UpdateBanner.tsx`)
+/// — `true` makes it pass the explicit target, which routes through
+/// `gamdl_service::install_gamdl(app, Some(target))` →
+/// `gamdl_service::refuse_unsupported_target`, the one place that
+/// actually refuses a known-bad install with a reason the user can act
+/// on. Leaving `is_untested` false for a known-bad release would send
+/// an ordinary Upgrade click down the bounded `pip_version_spec()` path
+/// instead, which has no known-bad awareness of its own.
+///
+/// Before this existed, nothing in the update-check path ever consulted
+/// `gamdl_capabilities::KNOWN_BAD_VERSIONS` at all: if PyPI's reported
+/// "latest" version happened to BE a known-bad release (e.g. GAMDL 3.9,
+/// broken for Apple's web AAC formats), it was offered exactly like any
+/// ordinary, fully-tested upgrade — no warning, no badge, and an
+/// ordinary Upgrade click would not have been refused either.
+///
+/// `platform_id` is threaded through explicitly (rather than reading
+/// [`gamdl_capabilities::current_platform_id`] internally) so a test
+/// can exercise a platform other than whichever one happens to run the
+/// test suite.
+fn classify_gamdl_latest(
+    latest: Option<&str>,
+    platform_id: &str,
+) -> (bool, Option<&'static gamdl_capabilities::KnownBadVersion>) {
+    let known_bad = latest.and_then(gamdl_capabilities::known_bad_version);
+    let is_untested = known_bad.is_some()
+        || latest.is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
+    (is_untested, known_bad)
+}
+
+/// Builds the `ComponentUpdate.description` sentence for a GAMDL
+/// update, given the already-computed flags.
+///
+/// Priority order (first match wins): **no compatible wheel** (a
+/// guaranteed pip failure — the hardest blocker) > **known-bad** (we
+/// already know exactly what's wrong and what to install instead, so
+/// say that rather than the generic wording below) > **untested**
+/// (generic "we haven't validated this yet" warning) > plain "update
+/// available". The two harder-blocker cases combining in practice
+/// (a known-bad release that also has no wheel) is unlikely but not
+/// impossible; the ordering still makes sense if it happens, since
+/// "not installable at all" is the more urgent fact.
+fn gamdl_update_description(
+    update_available: bool,
+    no_compatible_wheel: bool,
+    known_bad: Option<&gamdl_capabilities::KnownBadVersion>,
+    is_untested: bool,
+    platform_id: &str,
+) -> Option<String> {
+    if !update_available {
+        return None;
+    }
+    Some(if no_compatible_wheel {
+        "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
+            .to_string()
+    } else if let Some(bad) = known_bad {
+        // `known_bad_advice` is what stops this sentence naming a fix a
+        // held-back platform's own install path would then refuse — see
+        // its doc comment in `gamdl_capabilities` for the Windows-on-ARM
+        // case that motivated it. `bad.version` (not `bad.fixed_in`) is
+        // passed as the "installed" version deliberately: this is the
+        // PyPI-reported LATEST release, which by construction of the
+        // known-bad table IS the exact release `bad` describes.
+        let advice = gamdl_capabilities::known_bad_advice(
+            bad.reason,
+            bad.fixed_in,
+            bad.version,
+            platform_id,
+        );
+        format!("New GAMDL version available on PyPI, but this release is known to be broken: {advice}")
+    } else if is_untested {
+        // Surface the warning in the description text so it shows up
+        // even in places that don't render the dedicated badge.
+        "New GAMDL version available on PyPI (untested with this MeedyaDL build)".to_string()
+    } else {
+        "New GAMDL version available on PyPI".to_string()
+    })
+}
+
 /// Checks for GAMDL updates by comparing the installed version with `PyPI`.
 ///
 /// # Returns
@@ -940,9 +1037,11 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // newly released GAMDL versions until we'd audited them; surfacing
     // them with a warning badge is the better default.
     let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
-    let is_untested = latest
-        .as_ref()
-        .is_some_and(|v| gamdl_capabilities::is_above_tested_ceiling(v));
+    // See `classify_gamdl_latest`'s doc comment for the known-bad /
+    // untested rationale (independent review fix — the update offer
+    // used to never consult the known-bad list at all).
+    let platform_id = gamdl_capabilities::current_platform_id();
+    let (is_untested, known_bad) = classify_gamdl_latest(latest.as_deref(), platform_id);
 
     // Wheel-compatibility check (#gamdl-3.8.2-hardening): flags a
     // release that has no installable wheel for the bundled CPython
@@ -951,6 +1050,19 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // latest version to check; any network/parse failure is logged at
     // debug and defaults to "not flagged" so a transient PyPI hiccup
     // never blocks or false-alarms the user.
+    //
+    // Deliberately left checking GAMDL's OWN published files only, and
+    // not walking down into what GAMDL depends on. That means it does
+    // NOT catch the Windows-on-ARM case that holds that platform at
+    // 3.8.5 — GAMDL's own Windows ARM64 package for 3.9.1 exists and
+    // is perfectly fine; the one that is missing belongs to something
+    // GAMDL depends on, two levels down. Following a whole dependency
+    // tree across PyPI would be a large, network-heavy change for a
+    // problem the per-platform ceiling already handles properly and
+    // without a single request. If this ever reports "no compatible
+    // wheel" for a platform whose real problem is a dependency, the
+    // fix is an entry in `[gamdl.platform_ceilings]`, not more
+    // crawling here.
     let no_compatible_wheel = match &latest {
         Some(v) => match fetch_gamdl_release_wheel_filenames(v).await {
             Ok(filenames) => {
@@ -965,23 +1077,13 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         None => false,
     };
 
-    let description = if update_available {
-        Some(if no_compatible_wheel {
-            // Takes priority over the "untested" wording below — a
-            // missing wheel is a harder blocker (guaranteed pip
-            // failure) than an unaudited-but-installable release.
-            "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
-                .to_string()
-        } else if is_untested {
-            // Surface the warning in the description text so it shows up
-            // even in places that don't render the dedicated badge.
-            "New GAMDL version available on PyPI (untested with this MeedyaDL build)".to_string()
-        } else {
-            "New GAMDL version available on PyPI".to_string()
-        })
-    } else {
-        None
-    };
+    let description = gamdl_update_description(
+        update_available,
+        no_compatible_wheel,
+        known_bad,
+        is_untested,
+        platform_id,
+    );
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
@@ -2182,6 +2284,170 @@ mod tests {
         assert!(
             known_keys.contains(&key),
             "Platform key '{key}' should be a known Tauri updater key"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Known-bad-aware GAMDL update classification (independent review
+    // fix — the update offer used to never consult the known-bad list)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn classify_gamdl_latest_flags_a_known_bad_release_as_untested() {
+        // The whole point of the fix: PyPI reporting a known-bad
+        // version as "latest" must not sail through as an ordinary,
+        // ungated update.
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9"), "macos");
+        assert!(is_untested, "a known-bad release must be flagged untested");
+        assert!(known_bad.is_some(), "must report which known-bad entry matched");
+        assert_eq!(known_bad.unwrap().fixed_in, "3.9.1");
+
+        // Written the other way, it is the same release.
+        let (is_untested_alt, known_bad_alt) = classify_gamdl_latest(Some("3.9.0"), "macos");
+        assert!(is_untested_alt);
+        assert!(known_bad_alt.is_some());
+    }
+
+    #[test]
+    fn classify_gamdl_latest_does_not_flag_the_fix_itself() {
+        // The release that FIXES the known-bad entry must not itself be
+        // reported as known-bad or untested (assuming it's within this
+        // platform's ceiling).
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9.1"), "macos");
+        assert!(known_bad.is_none());
+        assert!(!is_untested, "the fix release itself must not read as untested");
+    }
+
+    #[test]
+    fn classify_gamdl_latest_still_flags_ordinary_above_ceiling_releases() {
+        // A release that is simply newer than anything validated (and
+        // NOT on the known-bad list) must still be caught by the
+        // pre-existing ceiling check — the known-bad addition must not
+        // have replaced that logic, only extended it.
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("99.0.0"), "macos");
+        assert!(is_untested);
+        assert!(known_bad.is_none());
+    }
+
+    #[test]
+    fn classify_gamdl_latest_handles_no_latest_version() {
+        let (is_untested, known_bad) = classify_gamdl_latest(None, "macos");
+        assert!(!is_untested);
+        assert!(known_bad.is_none());
+    }
+
+    #[test]
+    fn gamdl_update_description_prioritises_no_wheel_over_known_bad() {
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, true, Some(bad), true, "macos")
+            .expect("update_available=true must produce Some description");
+        assert!(
+            desc.contains("no compatible wheel"),
+            "the harder blocker must win, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_names_the_fault_and_the_fix_for_a_known_bad_release() {
+        // macOS tracks the global ceiling, which is itself the fix for
+        // the 3.9 entry — so naming it plainly, with "or newer", is
+        // correct here.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, false, Some(bad), true, "macos")
+            .expect("update_available=true must produce Some description");
+        assert!(desc.contains(bad.reason), "must include the actual reason, got: {desc}");
+        assert!(
+            desc.contains(bad.fixed_in),
+            "must name the fixed-in release, got: {desc}"
+        );
+        assert!(
+            desc.contains("or newer"),
+            "a platform that can install the fix may say 'or newer', got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_never_offers_an_uninstallable_fix_as_an_update() {
+        // Windows on ARM is held below the 3.9 entry's own `fixed_in`
+        // (3.9.1) — the PyPI "latest" release IS the known-bad one, and
+        // the description must not dress up a downgrade as an update,
+        // must not say "or newer" (which would re-permit the broken
+        // release), and must not name the un-installable 3.9.1 as
+        // something to move TO — but it MUST still say why 3.9.1 isn't
+        // reachable here, which means naming it as part of that
+        // explanation.
+        let window = crate::services::gamdl_capabilities::support_window();
+        if !window.platform_ceilings.contains_key("windows-aarch64") {
+            return; // Entry removed — nothing left to prove.
+        }
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, false, Some(bad), true, "windows-aarch64")
+            .expect("update_available=true must produce Some description");
+        assert!(
+            !desc.contains("or newer"),
+            "windows-aarch64 cannot install past its own ceiling, got: {desc}"
+        );
+        assert!(
+            !desc.contains("Update to GAMDL 3.9.1") && !desc.contains("Install GAMDL 3.9.1"),
+            "3.9.1 must never be framed as something to install here, got: {desc}"
+        );
+        assert!(
+            desc.contains("3.9.1"),
+            "must still name 3.9.1 to explain why it's unavailable, got: {desc}"
+        );
+        assert!(
+            desc.contains("move back"),
+            "the advised version is a downgrade from what's installed and must say so, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_uses_the_same_sentence_as_known_bad_advice() {
+        // The point of the shared helper: this description and the
+        // Settings badge (`dependencies::gamdl_classification_fields`)
+        // and the explicit-install refusal
+        // (`gamdl_service::refuse_unsupported_target`) must all embed
+        // the exact same words for the same platform, not three
+        // independently-worded approximations of the same fact.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+
+        for platform_id in ["macos", "windows-aarch64"] {
+            let desc = gamdl_update_description(true, false, Some(bad), true, platform_id)
+                .expect("update_available=true must produce Some description");
+            let expected = gamdl_capabilities::known_bad_advice(
+                bad.reason,
+                bad.fixed_in,
+                bad.version,
+                platform_id,
+            );
+            assert!(
+                desc.contains(&expected),
+                "{platform_id}: description must embed known_bad_advice's exact sentence.\n\
+                 expected to find: {expected}\n\
+                 got: {desc}"
+            );
+        }
+    }
+
+    #[test]
+    fn gamdl_update_description_falls_back_through_the_ordinary_states() {
+        // Untested (no known-bad match) — generic warning.
+        let desc = gamdl_update_description(true, false, None, true, "macos").unwrap();
+        assert!(desc.contains("untested"));
+
+        // Fully ordinary update.
+        let desc = gamdl_update_description(true, false, None, false, "macos").unwrap();
+        assert_eq!(desc, "New GAMDL version available on PyPI");
+
+        // No update available at all — no description regardless of
+        // the other flags.
+        assert_eq!(
+            gamdl_update_description(false, false, None, false, "macos"),
+            None
         );
     }
 }

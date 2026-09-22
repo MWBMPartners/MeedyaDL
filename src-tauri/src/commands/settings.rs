@@ -894,6 +894,12 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.mp4box_path = current.mp4box_path.clone();
     imported.nm3u8dlre_path = current.nm3u8dlre_path.clone();
     imported.mediainfo_path = current.mediainfo_path.clone();
+    // The PlayReady device file is a path on THIS machine too, and the
+    // download engine is handed it directly. It is not a program, so it
+    // cannot be "run" the way the five paths above can — but it is a file
+    // an imported settings file could point at anything on disk, and it
+    // means nothing on another machine anyway. Keep the local value.
+    imported.prd_path = current.prd_path.clone();
     // Security: where the persistent activity log is written is also a
     // path on THIS machine, which is exactly what this whole function
     // exists to protect. Left un-preserved, an imported file could point
@@ -1119,6 +1125,9 @@ mod tests {
             spotify_consent_acknowledged: true,
             sentry_enabled: true,
             analytics_enabled: true,
+            // A file on the sender's machine, pointed at by the copy-
+            // protection setting. Not a program, but still theirs, not ours.
+            prd_path: "/Users/them/somewhere/device.prd".to_string(),
             // An ordinary preference, which SHOULD travel.
             output_path: "/Users/them/Music".to_string(),
             ..Default::default()
@@ -1138,6 +1147,19 @@ mod tests {
         assert_eq!(imported.mp4decrypt_path, current.mp4decrypt_path);
         assert_eq!(imported.mp4box_path, current.mp4box_path);
         assert_eq!(imported.nm3u8dlre_path, current.nm3u8dlre_path);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_point_at_files_on_your_machine() {
+        // The .prd device file is not a program, so it cannot be "run"
+        // the way the five paths above can. It is still a path that only
+        // means anything on the machine it came from, and it is handed
+        // straight to the download engine, so it stays local too.
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert_eq!(imported.prd_path, current.prd_path);
     }
 
     #[test]

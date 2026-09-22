@@ -255,6 +255,49 @@ impl Default for CompanionMode {
     }
 }
 
+/// Which of the two ways of unlocking copy-protected tracks GAMDL should
+/// use.
+///
+/// Apple Music tracks are copy-protected, and the download engine has to
+/// unlock them before anything can be saved. Until GAMDL 3.9 there was one
+/// way of doing that, built into GAMDL, called Widevine — it needs no setup
+/// from the user, and it is what every MeedyaDL download has used until now.
+/// GAMDL 3.9 added a second, called PlayReady, which needs a device file
+/// (a `.prd` file) that the user has to obtain themselves. MeedyaDL does not
+/// provide one and cannot get one for anybody.
+///
+/// **The default is and stays `Widevine`**, so a user who never touches this
+/// setting gets exactly the behaviour they had before — MeedyaDL does not
+/// even pass the option to GAMDL in that case, leaving the command line
+/// byte-identical to what it was.
+///
+/// The one thing PlayReady offers that the built-in Widevine device cannot
+/// do is 4K music video, and only with a particular grade of device file
+/// (GAMDL's README calls it SL3000). MeedyaDL does not do anything special
+/// with that today; it simply stops being impossible.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DrmBackend {
+    /// GAMDL's built-in unlocking. Needs nothing from the user. The default.
+    #[default]
+    Widevine,
+    /// Needs a `.prd` device file the user supplies. GAMDL 3.9 and newer only.
+    PlayReady,
+}
+
+impl DrmBackend {
+    /// The value GAMDL itself expects on the command line and in its
+    /// configuration file. These strings come from GAMDL's own `DrmBackend`
+    /// enum, so they must not be "tidied up".
+    #[must_use]
+    pub fn as_gamdl_value(self) -> &'static str {
+        match self {
+            Self::Widevine => "widevine",
+            Self::PlayReady => "playready",
+        }
+    }
+}
+
 /// Filename for saved cover art images (without extension).
 ///
 /// GAMDL writes `Cover.<ext>` by default. MeedyaDL renames the file after
@@ -1691,6 +1734,33 @@ pub struct AppSettings {
     #[serde(default = "default_wrapper_url")]
     pub wrapper_url: String,
 
+    /// Which way of unlocking copy-protected tracks to use. See
+    /// [`DrmBackend`]. Default: Widevine, GAMDL's built-in one, which is
+    /// what every download used before this setting existed.
+    ///
+    /// Only has any effect on GAMDL 3.9 and newer — older releases do not
+    /// know about the option, so MeedyaDL does not send it to them and the
+    /// Settings screen does not offer it. The one case where the screen
+    /// still shows it on an older GAMDL is when it has already been set to
+    /// PlayReady, because a setting that is switched on but invisible is
+    /// worse than one that is visible and explained.
+    #[serde(default)]
+    pub drm_backend: DrmBackend,
+
+    /// Path to the user's own `.prd` device file, needed only when
+    /// `drm_backend` is PlayReady. Empty means "not chosen yet".
+    ///
+    /// This is a path on this machine, so it is never accepted from an
+    /// imported settings file (see `preserve_local_only_settings`).
+    ///
+    /// If PlayReady is chosen and this is empty, or names a file that is no
+    /// longer there, MeedyaDL falls back to the built-in Widevine unlocking
+    /// for that download and says so in the activity log. It deliberately
+    /// does not refuse the download: a setting nobody understands should not
+    /// stop somebody downloading their music.
+    #[serde(default)]
+    pub prd_path: String,
+
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
     /// for tracks with very long titles that would exceed filesystem
@@ -2092,7 +2162,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 10;
+pub const CURRENT_SETTINGS_VERSION: u32 = 11;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -2376,6 +2446,11 @@ impl Default for AppSettings {
             // the three v1 sockets above when the detected GAMDL release
             // is ≥ 3.6.
             wrapper_url: default_wrapper_url(),
+            // Unchanged behaviour for everyone: GAMDL's built-in
+            // unlocking, and no device file. MeedyaDL sends neither
+            // option to GAMDL while this is the case.
+            drm_backend: DrmBackend::Widevine,
+            prd_path: String::new(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // No tags excluded by default -- embed all available metadata.

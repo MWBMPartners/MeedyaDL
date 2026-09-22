@@ -553,6 +553,17 @@ export interface GamdlCapabilities {
    * dropdown's `(Experimental)` labels, which stay unconditional (#965).
    */
   assets_api_unlocks_lossy_codecs: boolean;
+  /**
+   * ≥3.9 -- GAMDL understands the PlayReady unlocking method (a second
+   * option alongside its original, built-in Widevine one), and will
+   * accept a user-supplied `.prd` device file for it. `false` on every
+   * older GAMDL release, and `false` on the cache-empty default before
+   * the dependency probe has run -- deliberately conservative, since
+   * offering a choice the installed GAMDL can't actually act on would
+   * be worse than not offering it. Drives whether Settings > Advanced
+   * shows the "Unlocking Method" section at all; see `AdvancedTab.tsx`.
+   */
+  play_ready_drm: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');

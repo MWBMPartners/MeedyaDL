@@ -4590,3 +4590,179 @@
         );
     }
 
+    // ----------------------------------------------------------
+    // Which way of unlocking copy-protected tracks (GAMDL 3.9's
+    // PlayReady, added 2026-09-22)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn drm_plan_says_nothing_when_the_user_has_not_chosen_playready() {
+        // The ordinary case, and the one that matters most: somebody who
+        // never touches this setting must get the exact command line they
+        // got before it existed — not an equivalent one.
+        let settings = AppSettings::default();
+        assert_eq!(
+            plan_drm_backend(&settings, true, true),
+            DrmPlan::LeaveToGamdl
+        );
+
+        let options = merge_options(None, &settings, None);
+        assert_eq!(options.drm_backend, None);
+        assert_eq!(options.prd_path, None);
+        let args = options.to_cli_args();
+        assert!(
+            !args.iter().any(|a| a == "--drm-backend" || a == "--prd-path"),
+            "a default install must not send either option, got: {args:?}"
+        );
+    }
+
+    #[test]
+    fn drm_plan_uses_playready_when_everything_is_in_place() {
+        let settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: "/somewhere/device.prd".to_string(),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            plan_drm_backend(&settings, true, true),
+            DrmPlan::PlayReady {
+                prd_path: "/somewhere/device.prd".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn drm_plan_falls_back_when_gamdl_is_too_old() {
+        // An older GAMDL does not ignore an option it does not know — it
+        // stops. So the option must not be sent, and the person must be
+        // told why their choice was not used.
+        let settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: "/somewhere/device.prd".to_string(),
+            ..Default::default()
+        };
+
+        let DrmPlan::FallBackToBuiltIn { reason } = plan_drm_backend(&settings, false, true) else {
+            panic!("an older GAMDL must fall back to the built-in unlocking");
+        };
+        assert!(
+            reason.contains("3.9"),
+            "the reason must say which GAMDL is needed, got: {reason}"
+        );
+    }
+
+    #[test]
+    fn drm_plan_falls_back_when_no_device_file_is_chosen() {
+        let settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: String::new(),
+            ..Default::default()
+        };
+
+        let DrmPlan::FallBackToBuiltIn { reason } = plan_drm_backend(&settings, true, false) else {
+            panic!("no device file means PlayReady cannot be used");
+        };
+        assert!(
+            reason.contains(".prd"),
+            "the reason must name what is missing, got: {reason}"
+        );
+    }
+
+    #[test]
+    fn drm_plan_falls_back_when_the_device_file_has_gone_missing() {
+        // Distinct from the case above, and worth its own sentence: the
+        // person did choose a file, so telling them to choose one would
+        // be confusing. The file moved or was deleted.
+        let settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: "/gone/device.prd".to_string(),
+            ..Default::default()
+        };
+
+        let DrmPlan::FallBackToBuiltIn { reason } = plan_drm_backend(&settings, true, false) else {
+            panic!("a missing device file must fall back");
+        };
+        assert!(
+            reason.contains("/gone/device.prd"),
+            "the reason must say which file is missing, got: {reason}"
+        );
+    }
+
+    #[test]
+    fn drm_plan_ignores_surrounding_spaces_in_the_device_file_path() {
+        // A path pasted in by hand often carries a trailing space.
+        let mut settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: "   ".to_string(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            plan_drm_backend(&settings, true, true),
+            DrmPlan::FallBackToBuiltIn { .. }
+        ));
+
+        settings.prd_path = "  /somewhere/device.prd  ".to_string();
+        assert_eq!(
+            plan_drm_backend(&settings, true, true),
+            DrmPlan::PlayReady {
+                prd_path: "/somewhere/device.prd".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn playready_options_reach_the_command_line_together() {
+        // GAMDL stops without downloading if it is told to use PlayReady
+        // with no device file, so these two are always sent as a pair.
+        let options = GamdlOptions {
+            drm_backend: Some(crate::models::settings::DrmBackend::PlayReady),
+            prd_path: Some("/somewhere/device.prd".to_string()),
+            ..Default::default()
+        };
+
+        let args = options.to_cli_args();
+        let backend_at = args.iter().position(|a| a == "--drm-backend");
+        let path_at = args.iter().position(|a| a == "--prd-path");
+        assert!(backend_at.is_some() && path_at.is_some(), "both or neither: {args:?}");
+        assert_eq!(args[backend_at.expect("checked above") + 1], "playready");
+        assert_eq!(args[path_at.expect("checked above") + 1], "/somewhere/device.prd");
+    }
+
+    #[test]
+    fn the_device_file_is_checked_again_at_download_start_not_only_when_queued() {
+        // A queue can sit for hours. Everything this decision rests on can
+        // change in between — the setting, whether the device file is
+        // still on disk, even which GAMDL is installed. So the same
+        // question is asked again immediately before the download runs
+        // (in `processing.rs`), and that later answer is what both the
+        // command line and the activity-log line come from.
+        //
+        // Proven here at the level that matters: the decision depends only
+        // on its inputs, so asking it twice with different facts gives
+        // different answers. An earlier version decided once, when the
+        // item was queued, and claimed the two could not disagree. They
+        // could — and the silent case was the bad one: a device file
+        // deleted after queueing still reached GAMDL, which stopped with
+        // a Python traceback instead of downloading.
+        let settings = AppSettings {
+            drm_backend: crate::models::settings::DrmBackend::PlayReady,
+            prd_path: "/somewhere/device.prd".to_string(),
+            ..Default::default()
+        };
+
+        // When it was queued: file present, GAMDL new enough.
+        assert_eq!(
+            plan_drm_backend(&settings, true, true),
+            DrmPlan::PlayReady {
+                prd_path: "/somewhere/device.prd".to_string()
+            }
+        );
+
+        // By the time it ran: the file is gone. The answer must change,
+        // and it must be the falling-back one, not the original.
+        assert!(matches!(
+            plan_drm_backend(&settings, true, false),
+            DrmPlan::FallBackToBuiltIn { .. }
+        ));
+    }
