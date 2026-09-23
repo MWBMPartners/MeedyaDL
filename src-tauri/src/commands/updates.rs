@@ -596,3 +596,126 @@ fn categorize_update_error(error: &str) -> String {
         format!("Update failed: {error}")
     }
 }
+
+/// What the app looked like at the previous launch, so the frontend can
+/// decide whether to say "here is what changed".
+///
+/// # Why this is a command of its own rather than a settings field
+///
+/// The settings file does hold a "last seen version". It is not usable
+/// for this: startup writes the current version over it before the page
+/// has loaded, so by the time the page asks, the stored "previous"
+/// version is the version it is already running. The two were always
+/// equal, the upgrade screen's condition was never true, and it never
+/// appeared once — on any build, since it was written. Issue #387.
+///
+/// So the real previous version is kept in memory for the run, and this
+/// hands it over along with the current version and whether this build
+/// is a finished release, which is the other half of the decision
+/// (issue #216).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchVersionInfo {
+    /// The version running now.
+    pub current_version: String,
+    /// The version running at the previous launch.
+    ///
+    /// Empty string means a fresh install — there was no previous
+    /// version. `null` means settings have not been read yet this run,
+    /// so nobody knows; the caller should wait rather than guess.
+    pub previous_version: Option<String>,
+    /// Is this an unfinished build — an alpha, a beta, a release
+    /// candidate, or anything before 1.0? See `utils::version`.
+    pub is_unfinished_build: bool,
+    /// True when the app has just been upgraded (or downgraded) since
+    /// the previous launch.
+    ///
+    /// False on a fresh install and false when the version has not
+    /// changed, so the caller does not have to work out the difference
+    /// between "no previous version" and "same version" itself — a
+    /// distinction that is easy to get wrong and would show a
+    /// "what changed" screen to somebody who has changed nothing.
+    pub is_first_launch_after_upgrade: bool,
+}
+
+/// Has the app changed version since the previous launch?
+///
+/// Split out from the command so it can be tested, because the command
+/// itself needs a running app. Tests call THIS — the real thing — rather
+/// than a second copy of the same reasoning. A test written from the
+/// same belief as the code it checks cannot ever contradict it, and this
+/// project has been bitten by exactly that more than once.
+fn is_first_launch_after_upgrade(previous_version: Option<&str>, current_version: &str) -> bool {
+    match previous_version {
+        // A fresh install. Nothing changed for this person, because
+        // there was no "before".
+        Some("") => false,
+        Some(previous) => previous != current_version,
+        // Settings have not been read yet this run, so nobody knows.
+        // Say no: showing nothing is always recoverable, showing the
+        // wrong thing to somebody who did not upgrade is not.
+        None => false,
+    }
+}
+
+#[tauri::command]
+pub fn get_launch_version_info(app: AppHandle) -> LaunchVersionInfo {
+    let current_version = app.package_info().version.to_string();
+    let previous_version = config_service::get_version_at_last_launch();
+
+    LaunchVersionInfo {
+        is_unfinished_build: crate::utils::version::is_unfinished_build(&current_version),
+        is_first_launch_after_upgrade: is_first_launch_after_upgrade(
+            previous_version.as_deref(),
+            &current_version,
+        ),
+        current_version,
+        previous_version,
+    }
+}
+
+#[cfg(test)]
+mod launch_version_tests {
+    use super::*;
+
+    #[test]
+    fn an_upgrade_counts_as_an_upgrade() {
+        assert!(is_first_launch_after_upgrade(Some("1.10.7"), "1.10.8"));
+        assert!(is_first_launch_after_upgrade(
+            Some("1.13.0-alpha.70"),
+            "1.13.0-alpha.71"
+        ));
+    }
+
+    #[test]
+    fn going_back_to_an_older_version_counts_too() {
+        // Somebody who takes the offered way back from an unfinished
+        // build to the last finished one has also changed version, and
+        // should be told what that changed.
+        assert!(is_first_launch_after_upgrade(
+            Some("1.13.0-alpha.71"),
+            "1.10.8"
+        ));
+    }
+
+    #[test]
+    fn the_same_version_twice_is_not_an_upgrade() {
+        assert!(!is_first_launch_after_upgrade(Some("1.10.8"), "1.10.8"));
+    }
+
+    #[test]
+    fn a_fresh_install_is_not_an_upgrade() {
+        // The empty string is how "there was no previous version" is
+        // recorded. Somebody opening the app for the first time has not
+        // upgraded from anything, and must not be shown a list of what
+        // changed since a version they never ran.
+        assert!(!is_first_launch_after_upgrade(Some(""), "1.10.8"));
+    }
+
+    #[test]
+    fn not_knowing_yet_is_not_an_upgrade() {
+        // Settings not read yet. This is the one case where guessing
+        // wrong is visible to the user, so it says no.
+        assert!(!is_first_launch_after_upgrade(None, "1.10.8"));
+    }
+}

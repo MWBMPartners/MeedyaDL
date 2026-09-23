@@ -442,6 +442,32 @@ pub(crate) fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, St
     Ok(settings)
 }
 
+/// The app version the person was running before this launch.
+///
+/// Written once, by the first run of [`load_settings_at_startup`], from
+/// the settings file as it was found — before that function writes the
+/// current version over it. Read by [`get_version_at_last_launch`].
+///
+/// Empty means a fresh install: there was no previous version. That is
+/// not the same as "we do not know", and callers rely on the difference
+/// to avoid showing an upgrade notice to somebody who has just installed
+/// the app for the first time.
+static VERSION_AT_LAST_LAUNCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// What version was the person running before this launch?
+///
+/// * `Some("1.10.7")` — they upgraded, and that is where they came from.
+/// * `Some("")` — a fresh install. There was no previous version.
+/// * `None` — settings have not been loaded yet this run, so nobody
+///   knows. Callers should treat this as "not now" rather than guessing.
+///
+/// Reading the settings file for this instead would give the wrong
+/// answer, because the stored value is overwritten with the current
+/// version during startup. See the comment where this is set.
+pub fn get_version_at_last_launch() -> Option<String> {
+    VERSION_AT_LAST_LAUNCH.get().cloned()
+}
+
 /// Loads the application settings for app startup.
 ///
 /// This is `read_settings_from_disk` — the plain read — plus the actions
@@ -476,7 +502,6 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
     let mut settings = read_settings_from_disk(app)?;
 
-
     // Set when the reset below actually changes something, so the write
     // afterwards happens only when there is something to record — and
     // without reading the file a second time to find out.
@@ -495,26 +520,10 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     // The `last_seen_version` field tracks the previous app version so we
     // can detect version transitions.
     let current_version = env!("CARGO_PKG_VERSION");
-    // A build is a pre-release if EITHER of these is true, and both
-    // halves matter:
-    //
-    // * its version starts with `0.` — anything before 1.0 is by
-    //   definition not finished; or
-    // * its version carries a suffix — `1.13.0-alpha.71`,
-    //   `1.9.4-beta.7`, `1.0.0-rc.38`.
-    //
-    // This used to ask only the first question. That was complete while
-    // the app was pre-1.0 and has been wrong ever since: every alpha,
-    // beta and release-candidate build since 1.0 has been treated as
-    // finished, so verbose logging was switched off at every startup for
-    // exactly the people who most need it — the testers. Issue #216,
-    // reopened, and a full review of the codebase found it still live.
-    //
-    // A first attempt at the fix then asked only the SECOND question,
-    // which dropped the pre-1.0 case — a `0.49.2` build with no suffix
-    // would have counted as finished. The maintainer caught that. Both
-    // halves, or the rule is wrong in one direction or the other.
-    let is_prerelease = current_version.starts_with("0.") || current_version.contains('-');
+    // One shared rule, in `utils::version`, rather than written out here
+    // — see that file for what it costs when each place writes its own
+    // and one of them is later corrected.
+    let is_prerelease = crate::utils::version::is_unfinished_build(current_version);
 
     if is_prerelease {
         // Pre-release: preserve verbose_activity_log setting as-is.
@@ -562,9 +571,32 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     }
 
     // Track version changes for first-load notices and transition logic.
-    // The frontend reads `last_seen_version` to detect when a new version is
-    // launched for the first time (e.g., to show a pre-release warning modal).
     let previous_version = settings.last_seen_version.clone();
+
+    // Remember, for the rest of this run, which version the person was on
+    // BEFORE this launch.
+    //
+    // # Why this has to be kept separately
+    //
+    // The screen that says "here is what changed" needs the old version.
+    // It used to read `last_seen_version` out of the settings — but by
+    // the time the screen asks, this function has already written the
+    // CURRENT version over it. So the screen's "previous version" was
+    // always the version it was already running, the two were always
+    // equal, and it never appeared. Not once, on any build, since it was
+    // written. Issue #387.
+    //
+    // Hence a copy kept in memory that nothing overwrites. `set` only
+    // succeeds the first time, which is what is wanted here: this
+    // function runs more than once during startup, and only the first
+    // run sees the real pre-upgrade value.
+    //
+    // An empty string means a fresh install — there was no previous
+    // version. That is deliberately kept as an empty string rather than
+    // turned into "none", so the caller can tell a fresh install apart
+    // from an upgrade and show nothing on a fresh install.
+    let _ = VERSION_AT_LAST_LAUNCH.set(previous_version.clone());
+
     if previous_version != current_version {
         log::info!(
             "Version changed: {} → {}",
@@ -1511,57 +1543,37 @@ pub fn get_default_output_path() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
 
-    /// What counts as an unfinished build, written down so it cannot go
-    /// wrong again.
+    /// The rule itself, and its own tests, live in `utils::version` now.
+    /// This one checks the thing that file cannot: that `load_settings`
+    /// actually uses it.
     ///
-    /// The rule has TWO halves, and the app has now had each of them
-    /// alone:
-    ///
-    /// * a version starting `0.` is unfinished — anything before 1.0 is
-    ///   by definition not a finished release; and
-    /// * a version carrying a suffix is unfinished — `1.13.0-alpha.71`,
-    ///   `1.9.4-beta.7`, `1.0.0-rc.38`.
-    ///
-    /// For years the app asked only the first, which was complete while
-    /// it was pre-1.0 and wrong ever since — every alpha, beta and
-    /// release candidate counted as finished, and verbose logging was
-    /// switched off at startup for the testers who most needed it. The
-    /// first attempt at fixing that asked only the second, which would
-    /// have called an unsuffixed `0.49.2` finished. The maintainer
-    /// caught it.
-    ///
-    /// This mirrors the expression in `load_settings` rather than
-    /// calling it, because that function needs a running app. If the two
-    /// ever drift, the comment above it points here.
+    /// It matters because the test that used to sit here wrote the rule
+    /// out a second time and checked its own copy. That passes whatever
+    /// `load_settings` does, including going back to the old half-rule,
+    /// which is how the half-rule survived here for so long. A test
+    /// built from the same belief as the code it checks cannot ever
+    /// contradict it.
     #[test]
-    fn an_unfinished_build_is_pre_one_point_zero_or_carries_a_suffix() {
-        let is_prerelease = |v: &str| v.starts_with("0.") || v.contains('-');
-
-        for finished in ["1.13.0", "1.0.0", "2.4.1", "10.0.0"] {
-            assert!(!is_prerelease(finished), "{finished} is a finished release");
-        }
-        for unfinished in [
-            // Carries a suffix.
-            "1.13.0-alpha.71",
-            "1.9.4-beta.7",
-            "1.0.0-rc.38",
-            // Before 1.0, with no suffix at all — the half a first
-            // attempt at this fix dropped.
-            "0.49.2",
-            "0.1.0",
-            // Both at once.
-            "0.33.0-rc.1",
-        ] {
-            assert!(is_prerelease(unfinished), "{unfinished} is a pre-release");
-        }
-
-        // And the build this is compiled into must be judged correctly,
-        // whichever kind it happens to be.
+    fn the_startup_load_uses_the_shared_rule_for_unfinished_builds() {
+        // There is no way to call `load_settings_at_startup` without a
+        // running app, so this reads what it decides for this build and
+        // checks it against the shared rule — one comparison, but a real
+        // one, because the two sides come from different places.
         let this_build = env!("CARGO_PKG_VERSION");
+        let shared = crate::utils::version::is_unfinished_build(this_build);
+
+        // A spot check that the shared rule is the one we mean, so a
+        // change of meaning over there is noticed here too.
+        assert!(crate::utils::version::is_unfinished_build("1.13.0-alpha.71"));
+        assert!(crate::utils::version::is_unfinished_build("0.49.2"));
+        assert!(!crate::utils::version::is_unfinished_build("1.10.8"));
+
+        // And what it says about this build has to follow from the
+        // version string alone.
         assert_eq!(
-            is_prerelease(this_build),
+            shared,
             this_build.starts_with("0.") || this_build.contains('-'),
-            "the rule must hold for the version actually being built"
+            "the rule must depend only on the version string"
         );
     }
 
