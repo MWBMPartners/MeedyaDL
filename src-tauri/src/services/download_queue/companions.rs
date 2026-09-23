@@ -1450,6 +1450,26 @@ pub(crate) async fn download_music_video_by_url(
         ..Default::default()
     };
 
+    // Which way of unlocking copy-protected tracks to use.
+    //
+    // This one is built from scratch rather than copied from the
+    // download's own options, and it passes `no_config_file`, so nothing
+    // reaches it by accident — every setting it honours has to be named
+    // here. A whole-branch review found the new unlocking choice missing:
+    // somebody who had chosen PlayReady got it for their music and
+    // quietly not for their music videos, which is the kind of gap
+    // nobody reports because nothing looks wrong.
+    //
+    // Decided through the same function as everywhere else, so a device
+    // file that has since been deleted is handled identically here.
+    let mut opts = opts;
+    if let super::options::DrmPlan::PlayReady { prd_path } =
+        super::options::plan_drm_backend_for_now(settings)
+    {
+        opts.drm_backend = Some(crate::models::settings::DrmBackend::PlayReady);
+        opts.prd_path = Some(prd_path);
+    }
+
     let urls = vec![video_url.to_string()];
     let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, &urls, &opts) {
         Ok(c) => c,
