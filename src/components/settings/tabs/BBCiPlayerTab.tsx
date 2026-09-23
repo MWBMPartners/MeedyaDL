@@ -7,6 +7,13 @@
  * This tab will contain BBC iPlayer-specific download settings once the
  * get_iplayer + yt-dlp integration is implemented. Currently displays a
  * "Coming Soon" message with a brief description of planned capabilities.
+ *
+ * This component is written but not wired up on purpose: the settings
+ * page's tab list does not include it yet, so there is no way to open
+ * it from inside the app today. That is deliberate groundwork for the
+ * BBC iPlayer milestone, not a bug -- nobody can reach this screen
+ * until the BBC iPlayer integration itself ships and gets added to
+ * that list.
  */
 
 /**
