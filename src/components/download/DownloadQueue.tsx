@@ -341,12 +341,19 @@ export function DownloadQueue() {
       try {
         await setStoredPreference({ kind: 'abort_queue_confirm', confirm: false });
       } catch (err) {
+        // Said out loud rather than swallowed: otherwise the tick box
+        // appears to work and the question comes back next time with no
+        // explanation.
         console.error('Could not remember the abort confirmation choice:', err);
+        addToast(
+          'MeedyaDL could not remember that, so it will ask again before the next abort.',
+          'error'
+        );
       }
       setAbortDontAskAgain(false);
     }
     await abortAll();
-  }, [abortAll, abortDontAskAgain, updateSettings]);
+  }, [abortAll, abortDontAskAgain, updateSettings, addToast]);
 
   /**
    * Entry point for the "Abort Queue" action. Honours the

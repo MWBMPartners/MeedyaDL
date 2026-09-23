@@ -32,9 +32,17 @@ export default function CrashReportOptInModal() {
     try {
       await setStoredPreference({ kind: 'crash_reporting_choice', enabled });
     } catch (err) {
-      // If this cannot be written, the question will be asked again next
-      // time — which is the safe way round for a consent question.
+      // Asking again next time is the safe way round for a consent
+      // question — but it should not be a surprise. A reviewer pointed
+      // out the first version said nothing at all, so somebody who
+      // answered would be asked again with no idea why.
       console.error('Could not record the crash-reporting answer:', err);
+      useUiStore
+        .getState()
+        .addToast(
+          'MeedyaDL could not save that answer, so it will ask again next time you open it.',
+          'error'
+        );
     }
     useUiStore.getState().setShowCrashReportPrompt(false);
   }, []);

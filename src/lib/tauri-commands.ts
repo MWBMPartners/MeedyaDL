@@ -703,6 +703,44 @@ export function getSettings(): Promise<AppSettings> {
 }
 
 /**
+ * What version was running at the previous launch, and is this build an
+ * unfinished one.
+ *
+ * Both answers come from the backend on purpose. The page used to work
+ * them out itself and got both wrong: its copy of "is this unfinished"
+ * only asked whether the version starts with `0.`, which stopped being
+ * a complete answer the day 1.0 shipped; and it read the previous
+ * version from the settings, which startup overwrites with the current
+ * one before the page loads, so the two were always equal.
+ *
+ * Rust handler: `get_launch_version_info()` in
+ * `src-tauri/src/commands/updates.rs`
+ */
+export interface LaunchVersionInfo {
+  /** The version running now. */
+  currentVersion: string;
+  /**
+   * The version running at the previous launch. An empty string means a
+   * fresh install — there was no previous version. `null` means settings
+   * have not been read yet this run, so nobody knows.
+   */
+  previousVersion: string | null;
+  /** An alpha, beta, release candidate, or anything before 1.0. */
+  isUnfinishedBuild: boolean;
+  /**
+   * True only when the version actually changed since the previous
+   * launch. False on a fresh install and false when nothing changed, so
+   * the caller never has to tell those apart itself — getting that wrong
+   * means showing somebody a list of changes to a version they never ran.
+   */
+  isFirstLaunchAfterUpgrade: boolean;
+}
+
+export function getLaunchVersionInfo(): Promise<LaunchVersionInfo> {
+  return invoke<LaunchVersionInfo>('get_launch_version_info');
+}
+
+/**
  * Asks for the settings a brand-new install would have.
  *
  * Used by the Settings screen's "Reset" button. The page deliberately

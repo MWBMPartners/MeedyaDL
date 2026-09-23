@@ -187,13 +187,6 @@ UNREACHABLE_BY_DESIGN: dict[str, str] = {
         "Groundwork for finding the same album on another service. Needs the "
         "other services to work first — see the multi-service milestones."
     ),
-    "get_launch_version_info": (
-        "Hands the page the version it was running at the previous launch, "
-        "which startup used to write over before anything could read it — the "
-        "reason the 'here is what changed' screen had never appeared once "
-        "(#387). The backend half landed first; the screen that calls this is "
-        "the remaining half of #387."
-    ),
     "detect_service": (
         "The frontend works out the service itself, in url-parser.ts, because "
         "it needs the answer while the user is still typing. This is the same "
