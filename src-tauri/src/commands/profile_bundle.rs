@@ -845,30 +845,17 @@ pub async fn import_profile(
             // caught it.
             imported.output_path = pre_import_settings.output_path.clone();
 
-            // One deliberate exception, when credentials are being
-            // restored as well.
+            // The Apple Music identifiers are NOT taken here.
             //
-            // The shared helper keeps this machine's Apple Music sign-in
-            // identifiers, which is right for an ordinary settings file:
-            // nobody else's should arrive in one. But a bundle restoring
-            // credentials also replaces the private key those identifiers
-            // belong to — and the identifiers travel in the settings, not
-            // in the encrypted part. Keeping the old ones would pair a new
-            // key with the identifiers of the old, which does not work and
-            // gives no clue why. A reviewer spotted the mismatch.
-            //
-            // So when the key is coming from the bundle, its identifiers
-            // come with it. When it is not, they stay local.
-            if matches!(options.credentials, ImportConflictAction::Replace) {
-                if let Ok(from_bundle) =
-                    serde_json::from_slice::<crate::models::settings::AppSettings>(&settings_bytes)
-                {
-                    imported.service_settings.apple_music.musickit_team_id =
-                        from_bundle.service_settings.apple_music.musickit_team_id;
-                    imported.service_settings.apple_music.musickit_key_id =
-                        from_bundle.service_settings.apple_music.musickit_key_id;
-                }
-            }
+            // They belong with the private key, and the key is restored
+            // much later in this function — after a password has been
+            // accepted and the keychain has agreed. Setting them here
+            // would save somebody else's identifiers even when the
+            // restore then fails, or when the bundle carried no key at
+            // all. A reviewer caught both that and an earlier attempt
+            // that copied the wrong pair of fields entirely: the app
+            // reads the top-level ones, while the per-service copies are
+            // read by nothing. See where the key is restored below.
 
             crate::services::config_service::save_settings(&app, &imported)
                 .map_err(|e| format!("Failed to write settings.json: {e}"))?;
@@ -1018,6 +1005,42 @@ pub async fn import_profile(
                 other => format!("Failed to decrypt credentials: {other}"),
             })?;
         restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
+
+        // The key is in. Now, and only now, take the identifiers that go
+        // with it.
+        //
+        // The shared list keeps this machine's identifiers, which is
+        // right for an ordinary settings file — nobody else's belong in
+        // one. But a restored key is useless beside the previous key's
+        // identifiers, and gives no clue why: the identifiers travel in
+        // the bundle's settings while the key travels in its encrypted
+        // part, so keeping one and replacing the other leaves a pair
+        // that does not match.
+        //
+        // Written here rather than with the rest of the settings because
+        // this is the first point at which the key is known to have been
+        // restored. A reviewer found the earlier version setting them
+        // before any of that was established — so a wrong password, or a
+        // bundle with no key in it, still left somebody else's
+        // identifiers behind.
+        if let Some(bytes) = reader
+            .read_entry(entry::SETTINGS)
+            .ok()
+            .flatten()
+        {
+            if let Ok(from_bundle) =
+                serde_json::from_slice::<crate::models::settings::AppSettings>(&bytes)
+            {
+                if let Err(e) = crate::services::config_service::update_settings_field(&app, |s| {
+                    s.musickit_team_id = from_bundle.musickit_team_id.clone();
+                    s.musickit_key_id = from_bundle.musickit_key_id.clone();
+                }) {
+                    log::warn!(
+                        "Restored the Apple Music key but could not record its identifiers: {e}"
+                    );
+                }
+            }
+        }
         // P4 success path — clear the "skipped" flag (default false) so
         // the frontend doesn't show the misleading "skipped" toast.
         result.credentials_skipped_p4 = false;

@@ -477,6 +477,11 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     let mut settings = read_settings_from_disk(app)?;
 
 
+    // Set when the reset below actually changes something, so the write
+    // afterwards happens only when there is something to record — and
+    // without reading the file a second time to find out.
+    let mut verbose_was_just_switched_off = false;
+
     // Version-aware verbose logging reset.
     //
     // The current app version determines whether verbose logging persists:
@@ -530,23 +535,28 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
                 "Full release (v{current_version}): resetting verbose_activity_log to false"
             );
             settings.verbose_activity_log = false;
+            verbose_was_just_switched_off = true;
         }
     }
 
-    // If verbose logging was just switched off, WRITE that down.
+    // If verbose logging was just switched off, WRITE that down —
+    // through the locked single-field write, not by hand.
     //
     // It used to be changed in memory only, and saved as a side effect of
-    // recording a new version — which happens once per upgrade. So on an
-    // ordinary restart of the same version, the file still said "on", and
-    // the next plain read handed that back to whatever asked. Save
-    // anything at all afterwards and it was on again: switched off at
-    // every startup, switched back on by the first save, for ever.
+    // recording a new version, which happens once per upgrade. So on an
+    // ordinary restart the file still said "on", the next read handed
+    // that back, and the next save turned it on again — off at every
+    // startup, on again at the first save, for ever.
     //
-    // A reviewer found this surviving the rename that fixed the rest of
-    // the settings-read problem. The decision made at startup has to
-    // reach the file, or it is not a decision, just a flicker.
-    if !settings.verbose_activity_log && settings_on_disk_has_verbose_logging_on(app) {
-        if let Err(e) = write_settings_to_path(&settings_path, &settings) {
+    // The first fix wrote the whole settings object here, unlocked. A
+    // reviewer pointed out that this function also runs from a task three
+    // seconds after launch, by which time other things are saving: an
+    // unlocked write of a whole object read moments earlier can put back
+    // an older copy of everything else. Changing the one field under the
+    // lock cannot. It costs a second read inside that call, once per
+    // launch, which is not worth optimising.
+    if verbose_was_just_switched_off {
+        if let Err(e) = update_settings_field(app, |s| s.verbose_activity_log = false) {
             log::warn!("Failed to record that verbose logging was switched off: {e}");
         }
     }
@@ -621,15 +631,6 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     } else {
         Ok(AppSettings::default())
     }
-}
-
-/// Did the file on disk say verbose logging was on?
-///
-/// Used only by the startup path, to tell "it was already off" from "we
-/// have just switched it off and should write that down". Reading the
-/// file again is cheap and happens once per launch.
-fn settings_on_disk_has_verbose_logging_on(app: &AppHandle) -> bool {
-    read_settings_from_disk(app).is_ok_and(|s| s.verbose_activity_log)
 }
 
 /// Reads the stored settings. No side effects.
