@@ -122,7 +122,7 @@ pub struct CookieValidation {
 /// * `Err(String)` - File read or JSON parse error.
 #[tauri::command]
 pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
-    config_service::load_settings(&app)
+    config_service::read_settings_from_disk(&app)
 }
 
 /// Saves application settings to disk.
@@ -180,7 +180,7 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
 
     // Load previous settings for diff logging (best-effort — if this fails,
     // we still save the new settings, just without the verbose diff).
-    let previous = config_service::load_settings(&app).ok();
+    let previous = config_service::read_settings_from_disk(&app).ok();
 
     // Security: `dev_access_enabled` must only be toggled by the dedicated
     // `activate_dev_access` / `deactivate_dev_access` commands, which
@@ -405,7 +405,7 @@ pub struct CookieCheckResult {
 /// cookie parsing and expiry detection.
 #[tauri::command]
 pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let settings = crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Wrapper users don't need cookies — the wrapper handles authentication
     if settings.use_wrapper {
@@ -509,7 +509,7 @@ pub async fn check_internet_before_download(
 pub async fn check_output_path_before_download(
     app: tauri::AppHandle,
 ) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::load_settings(&app)?;
+    let settings = crate::services::config_service::read_settings_from_disk(&app)?;
     let resolved_path = if settings.output_path.is_empty() {
         crate::services::config_service::get_default_output_path()?
     } else {
@@ -691,7 +691,7 @@ pub async fn export_settings(app: AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
     // Load current settings
-    let mut settings = config_service::load_settings(&app)?;
+    let mut settings = config_service::read_settings_from_disk(&app)?;
 
     // Clear sensitive fields before export
     clear_sensitive_fields(&mut settings);
@@ -798,7 +798,7 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     }
 
     // Load current settings to preserve sensitive fields
-    let current = config_service::load_settings(&app).unwrap_or_default();
+    let current = config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Sanitize imported settings to prevent injection via crafted files.
     // Truncate excessively long strings that could cause memory issues
@@ -900,6 +900,39 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     // an imported settings file could point at anything on disk, and it
     // means nothing on another machine anyway. Keep the local value.
     imported.prd_path = current.prd_path.clone();
+
+    // The SAME protection, one level deeper, for the per-service
+    // settings.
+    //
+    // A full review of the codebase found this missing, and it was the
+    // more dangerous half. Everything above is a path on this machine
+    // that an imported file must not choose — and the per-service
+    // settings hold three more of exactly that kind, including a
+    // program file that the Spotify engine LOADS (`spotify_dll_path`,
+    // passed straight to it on the command line). The careful list
+    // above stopped at the top level and never looked inside, so the
+    // one value with the worst consequences was the one left open.
+    //
+    // Every path here is clamped to what this machine already had. As
+    // with the others, nothing is lost: a path means nothing on anybody
+    // else's computer, so it was never worth carrying across.
+    imported.service_settings.apple_music.cookies_path =
+        current.service_settings.apple_music.cookies_path.clone();
+    imported.service_settings.spotify.cookies_path =
+        current.service_settings.spotify.cookies_path.clone();
+    imported.service_settings.spotify.spotify_dll_path =
+        current.service_settings.spotify.spotify_dll_path.clone();
+    imported.service_settings.spotify.wvd_path =
+        current.service_settings.spotify.wvd_path.clone();
+    imported.service_settings.youtube.cookies_path =
+        current.service_settings.youtube.cookies_path.clone();
+
+    // The sign-in details for a music service are this person's own, and
+    // an imported file has no business setting them either.
+    imported.service_settings.apple_music.musickit_team_id =
+        current.service_settings.apple_music.musickit_team_id.clone();
+    imported.service_settings.apple_music.musickit_key_id =
+        current.service_settings.apple_music.musickit_key_id.clone();
     // Security: where the persistent activity log is written is also a
     // path on THIS machine, which is exactly what this whole function
     // exists to protect. Left un-preserved, an imported file could point
@@ -1147,6 +1180,57 @@ mod tests {
         assert_eq!(imported.mp4decrypt_path, current.mp4decrypt_path);
         assert_eq!(imported.mp4box_path, current.mp4box_path);
         assert_eq!(imported.nm3u8dlre_path, current.nm3u8dlre_path);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_choose_a_program_for_a_service_to_load() {
+        // The worst version of the same fault, found by a full review of
+        // the codebase. The careful protection for paths stopped at the
+        // top level and never looked inside the per-service settings —
+        // where one of the values is a program file the Spotify engine
+        // LOADS, handed to it on the command line. Somebody could be
+        // sent a settings file that pointed it anywhere.
+        let mut imported = settings_where_everything_is_set();
+        imported.service_settings.spotify.spotify_dll_path =
+            Some("/Users/them/evil.dll".to_string());
+        imported.service_settings.spotify.wvd_path = Some("/Users/them/theirs.wvd".to_string());
+        imported.service_settings.spotify.cookies_path =
+            Some("/Users/them/cookies.txt".to_string());
+        imported.service_settings.apple_music.cookies_path =
+            Some("/Users/them/apple.txt".to_string());
+        imported.service_settings.youtube.cookies_path =
+            Some("/Users/them/yt.txt".to_string());
+        imported.service_settings.apple_music.musickit_team_id = Some("THEIRTEAM1".to_string());
+
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert_eq!(
+            imported.service_settings.spotify.spotify_dll_path,
+            current.service_settings.spotify.spotify_dll_path,
+            "an imported file must never choose which program is loaded"
+        );
+        assert_eq!(
+            imported.service_settings.spotify.wvd_path,
+            current.service_settings.spotify.wvd_path
+        );
+        assert_eq!(
+            imported.service_settings.spotify.cookies_path,
+            current.service_settings.spotify.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.apple_music.cookies_path,
+            current.service_settings.apple_music.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.youtube.cookies_path,
+            current.service_settings.youtube.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.apple_music.musickit_team_id,
+            current.service_settings.apple_music.musickit_team_id,
+            "somebody else's sign-in details must not arrive in a settings file"
+        );
     }
 
     #[test]
