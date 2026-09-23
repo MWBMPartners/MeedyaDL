@@ -1,188 +1,93 @@
 # Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
-# Preserve Release-Please PR Body  (and the published Release body)
-# =================================================================
+# Preserve Release-Please PR Body — RETIRED (kept as a signpost, not a job)
+# ==========================================================================
 #
-# Release-please force-pushes its release branch on every sync (any push to
-# main triggers a sync), which regenerates the PR body from raw commit
-# subjects and overwrites any manual rewrites. There is no upstream config
-# option to disable this — the body is part of release-please's source of
-# truth.
+# This workflow used to do two things, both of them by reading a hand-
+# written file from `.github/release-drafts/vX.Y.Z.md`:
 #
-# This workflow restores the user-facing body in two places:
+#   1. Overwrite the body of the open release-please pull request with that
+#      file, every time release-please force-pushed its branch (which wipes
+#      any manual edit to the PR body).
+#   2. As a safety net, overwrite the body of the published GitHub Release
+#      itself with the same file, in case (1) missed the race.
 #
-#   1. `preserve_pr_body` (workflow_run trigger):
-#      Fires when the "Release Please" workflow completes. Finds the open
-#      `chore(main): release X.Y.Z` PR, extracts the version from the
-#      title, reads `.github/release-drafts/vX.Y.Z.md`, and overwrites
-#      the PR body. Idempotent — re-applies on every release-please sync.
+# Neither of those is how this project writes release notes any more, and
+# checking that before touching this file is what turned up why it had to
+# go, not just be tidied:
 #
-#   2. `preserve_release_body` (release.released trigger, added in #820):
-#      Fires when a release publishes (or is flipped from prerelease to
-#      released). Reads `.github/release-drafts/v<tag>.md` from main and
-#      overwrites the live release body via `gh release edit`. This is
-#      the safety net for the race in (1): release-please's auto-merge
-#      can fire before the preserve workflow finds the PR, so the
-#      release object publishes with whatever body was in the PR at
-#      merge time (typically empty or the terse commit subjects). The
-#      post-publish job recovers from that automatically.
+#   - `.github/release-drafts/` — the folder this workflow reads from — was
+#     last written to for v1.9.4. `.github/release-notes/` — the folder
+#     every current mechanism actually uses — has a file for every release
+#     since, up to and past v1.13.0. Nobody had written a drafts file in
+#     roughly ten months of releases, so for all of that time both jobs in
+#     this workflow took their "file not found, leaving it alone" branch on
+#     every single run and reported success while doing nothing. A
+#     workflow that always reports green while never doing its job is worse
+#     than one that is honestly switched off, because nothing about a green
+#     run tells you that.
+#   - The real replacement already exists and is more careful than this
+#     workflow ever was. `.github/workflows/release.yml`'s `ensure-release`
+#     job applies `.github/release-notes/v<tag>.md` to the release body —
+#     footer-preserving and idempotent, via `scripts/release-notes/
+#     apply-notes.sh` and `scripts/release-notes/splice-body.py` — and can
+#     also self-heal a prerelease body that looks like raw commit text. A
+#     stable release with no curated file is refused loudly (`::error::`)
+#     rather than silently shipping commit-speak. If this workflow had kept
+#     running on real data, its job 2 would have been racing that logic —
+#     "whichever one runs last wins" — over the exact same release body,
+#     which is a bug waiting to happen, not a safety net.
+#   - The PR-body half (job 1) solved a problem this project no longer
+#     tries to solve that way. `.github/workflows/release-note-gate.yml`'s
+#     `release-pr-notes-file` job now REQUIRES the curated notes file to
+#     already be merged to `main`, reviewed in its OWN pull request, before
+#     the release-please PR is allowed to merge. Nobody needs the
+#     release-please PR itself to look pretty any more, because the human
+#     review of the actual words happens somewhere else, earlier, and is
+#     enforced by a check rather than hoped for.
+#   - The drafts-file content was also never linted. `.github/release-notes/`
+#     files are checked by `scripts/release-notes/lint-notes.py` (wired
+#     into `release-note-gate.yml`) for things like accidentally revealing
+#     how a feature is built. A rewritten workflow that pointed this file's
+#     job 2 at `.github/release-notes/` instead would have published that
+#     folder's content through a path with none of that checking — a
+#     second, weaker way of doing the one thing `release.yml` already does
+#     properly. Better to have one path than two that can drift apart; a
+#     comment near the top of this repo's updater-manifest script explains
+#     the same lesson learned the same way, the hard way.
 #
-# To use:
-#   - Before a release ships, commit `.github/release-drafts/vX.Y.Z.md` to
-#     main using the four-section gold-standard format (What's new /
-#     What's fixed / Performance / Notes). See the README in that folder.
-#   - This workflow handles the rest in both places automatically.
+# What is actually lost by retiring this: nothing that still does anything
+# today. The `.github/release-drafts/*.md` files already committed are left
+# in place as a historical record of what shipped in past releases; see
+# `.github/release-drafts/README.md`, which has been updated to say the
+# same thing this comment does. The manual re-apply command this workflow
+# used to offer — `gh workflow run "Preserve Release-Please PR Body"` — is
+# replaced by `bash scripts/release-notes/apply-notes.sh vX.Y.Z`, which is
+# the exact command `.claude/CLAUDE.md`'s release workflow notes already
+# tell you to run for a post-hoc fix.
 #
-# Manual trigger via `workflow_dispatch` is also supported so the PR body
-# can be re-applied without waiting for the next release-please sync
-# (useful when iterating on the drafts file).
+# The file is kept, rather than deleted outright, purely so that a command
+# typed from old habit — `gh workflow run "Preserve Release-Please PR
+# Body"` — prints this explanation and points at the current mechanism,
+# instead of failing with "workflow not found" and no clue why.
 
 name: Preserve Release-Please PR Body
 
 on:
-  workflow_run:
-    workflows: ["Release Please"]
-    types: [completed]
-  release:
-    types: [released]
   workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'Override: PR number to re-apply (auto-detected if blank)'
-        required: false
-        type: string
 
 permissions:
-  # `contents: write` so the post-publish job can rewrite the live
-  # release body via `gh release edit` (release objects live under the
-  # contents scope). Read alone is enough for `actions/checkout`.
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  preserve_pr_body:
-    # PR-body branch — only for workflow_run (after a Release Please run)
-    # and manual dispatch. Skipped on the `release.released` trigger,
-    # which is handled by the sister job below.
-    if: >-
-      ${{ (github.event_name == 'workflow_dispatch')
-        || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+  retired:
+    name: This workflow is retired — see the header comment
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main (for drafts)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: main
-
-      - name: Find release-please PR + apply drafts file
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OVERRIDE_PR: ${{ inputs.pr_number }}
+      - name: Explain the retirement
         run: |
-          set -euo pipefail
-
-          # --- Locate the release-please PR ---
-          if [ -n "${OVERRIDE_PR:-}" ]; then
-            PR_NUM="$OVERRIDE_PR"
-            echo "Using overridden PR #${PR_NUM}"
-          else
-            PR_JSON=$(gh pr list \
-              --state open \
-              --search 'in:title "chore(main): release"' \
-              --json number,title \
-              --limit 1)
-            PR_NUM=$(echo "$PR_JSON" | jq -r '.[0].number // empty')
-            if [ -z "$PR_NUM" ]; then
-              echo "::notice::No open release-please PR found — nothing to do."
-              exit 0
-            fi
-            echo "Found release-please PR #${PR_NUM}"
-          fi
-
-          # --- Extract version from PR title ---
-          # Title shape: "chore(main): release 1.6.0" (no `v` prefix in
-          # release-please's default template).
-          TITLE=$(gh pr view "$PR_NUM" --json title --jq '.title')
-          VERSION=$(echo "$TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | head -1)
-          if [ -z "$VERSION" ]; then
-            echo "::warning::Could not parse version from PR title: ${TITLE}"
-            exit 0
-          fi
-          echo "Detected version: v${VERSION}"
-
-          # --- Look for the drafts file (we're on main, so it must already exist here) ---
-          DRAFT=".github/release-drafts/v${VERSION}.md"
-          if [ ! -f "$DRAFT" ]; then
-            echo "::notice::${DRAFT} not found on main — leaving PR body alone."
-            echo "::notice::Write the user-facing notes there and commit to main."
-            exit 0
-          fi
-
-          # --- Apply ---
-          BYTES=$(wc -c < "$DRAFT" | tr -d ' ')
-          echo "Applying ${DRAFT} (${BYTES} bytes) to PR #${PR_NUM}"
-          gh pr edit "$PR_NUM" --body-file "$DRAFT"
-          echo "::notice::Re-applied user-facing release notes to PR #${PR_NUM} (v${VERSION})"
-
-  preserve_release_body:
-    # Post-publish safety net (#820). Fires on `release.released` —
-    # which covers both first-time publish and prerelease → released
-    # flips. Reads the drafts file from main at the time the release
-    # publishes and overwrites the live release body so the user-facing
-    # notes always appear in the GitHub Releases UI and in the in-app
-    # update banner (which reads `release_body` straight from the API).
-    if: ${{ github.event_name == 'release' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout main (for drafts)
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          ref: main
-
-      - name: Apply drafts file to published release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.event.release.tag_name }}
-        run: |
-          set -euo pipefail
-
-          # Strip an optional leading `v` so v1.7.0 → 1.7.0 and 1.7.0 → 1.7.0.
-          VERSION="${TAG#v}"
-          DRAFT=".github/release-drafts/v${VERSION}.md"
-          echo "Release tag: ${TAG} (version ${VERSION})"
-          echo "Looking for: ${DRAFT}"
-
-          if [ ! -f "$DRAFT" ]; then
-            echo "::notice::${DRAFT} not found on main — leaving release body alone."
-            echo "::notice::This is expected for prereleases without a drafts file."
-            exit 0
-          fi
-
-          # Idempotency: if the live release body already starts with the
-          # drafts file's first non-empty line, treat it as already
-          # patched and skip. Stops a `prerelease → released` flip from
-          # clobbering a body that was manually rewritten in the meantime.
-          DRAFT_HEAD=$(awk 'NF{print; exit}' "$DRAFT")
-          LIVE_BODY=$(gh release view "$TAG" --json body --jq '.body' || echo "")
-          if printf '%s' "$LIVE_BODY" | grep -qF -- "$DRAFT_HEAD"; then
-            echo "::notice::Live release body already contains the drafts headline — skipping (idempotent)."
-            exit 0
-          fi
-
-          # Apply. Preserve the existing "Choose your download" footer
-          # if it's present in the live body (release.yml appends it
-          # after the per-platform builds finish).
-          FOOTER_START=$(printf '%s' "$LIVE_BODY" | awk '/^## Choose your download/{print NR; exit}')
-          {
-            cat "$DRAFT"
-            if [ -n "${FOOTER_START:-}" ]; then
-              printf '\n---\n\n'
-              printf '%s' "$LIVE_BODY" | tail -n +"$FOOTER_START"
-            fi
-          } > /tmp/rewritten-release-body.md
-
-          BYTES=$(wc -c < /tmp/rewritten-release-body.md | tr -d ' ')
-          echo "Applying rewritten body (${BYTES} bytes) to release ${TAG}"
-          gh release edit "$TAG" --notes-file /tmp/rewritten-release-body.md
-          echo "::notice::Re-applied user-facing release notes to ${TAG} from ${DRAFT}"
+          echo "::notice::This workflow no longer does anything. It used to rewrite the release-please PR body and the published release body from .github/release-drafts/vX.Y.Z.md, but that folder has not been used since v1.9.4."
+          echo "::notice::The current mechanism: write .github/release-notes/vX.Y.Z.md, get it merged to main (release-note-gate.yml requires this before the release-please PR can merge), and release.yml's ensure-release job applies it to the release automatically."
+          echo "::notice::To re-apply notes to an already-published release by hand: bash scripts/release-notes/apply-notes.sh vX.Y.Z"
+          echo "See the header comment in this file for the full reasoning."

@@ -202,6 +202,48 @@ jobs:
                   "require_on": ["main"],
               },
               {
+                  # This workflow went live 2026-09-22, per the project's own
+                  # notes, and this entry was added the very next day
+                  # (2026-09-23) — for the same reason channel-security-audit.yml
+                  # exists at all. forward-port-security.yml above can only catch
+                  # a security fix that arrives as a pull request it can
+                  # recognise as a security fix. It cannot catch one that never
+                  # went through a pull request that says so — which is exactly
+                  # what happened for three weeks (a `gh` CLI field it depended
+                  # on was removed upstream, and nothing noticed).
+                  # channel-security-audit.yml is the check that asks the
+                  # question directly instead of inferring it from pull-request
+                  # history, so it needs the same watching — otherwise this
+                  # project would have replaced one silent gap with a second
+                  # workflow that could go silent the exact same way.
+                  "path": ".github/workflows/channel-security-audit.yml",
+                  "why": "The primary defence against a known-vulnerable dependency sitting "
+                         "on a channel branch with no fix ever reaching it, regardless of how "
+                         "a fix would normally arrive. It exists because "
+                         "forward-port-security.yml, which relies on recognising a specific "
+                         "pull request as a security fix, failed silently for three weeks.",
+                  "fail_threshold": 2,
+                  "max_age_days": 10,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
+                  # Same weekly, tracking-issue shape as the entry above, watching a
+                  # different question: not "is a branch vulnerable" but "did
+                  # Dependabot's own weekly scan even run against this branch at all".
+                  # Belongs in this list for the same reason every other entry does —
+                  # nothing else would notice if its cron simply stopped firing.
+                  "path": ".github/workflows/dependency-canary.yml",
+                  "why": "The only signal that Dependabot has quietly stopped opening its "
+                         "weekly dependency-update pull request against a channel branch — "
+                         "without it, a branch could run on stale, unpatched dependencies for "
+                         "months before anyone thought to check.",
+                  "fail_threshold": 2,
+                  "max_age_days": 10,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
                   "path": ".github/workflows/release-note-gate.yml",
                   "why": "Blocks a release PR that has no plain-English release notes. The "
                          "in-app updater shows that text to users.",
