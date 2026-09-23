@@ -1508,6 +1508,43 @@ pub fn classify_gamdl_traceback(output: &str) -> Option<&'static str> {
 // Unit Tests
 // ============================================================
 
+/// Removes anything secret from a list of command-line arguments before
+/// it is written to a log.
+///
+/// **Why this is one function rather than a check at each place that
+/// logs.** Two places used to do their own: one redacted exactly one
+/// argument by name, and the other redacted nothing at all. When the
+/// download engine gained a second address option for its newer sign-in
+/// service, the name-based one did not know about it, and the whole
+/// address — including any token in it — went into the log. A rule
+/// written as a list of names goes stale the moment somebody adds an
+/// option, and nothing says so.
+///
+/// So the rule here is about the SHAPE of a value, not its name: any
+/// argument that looks like a web address has its query string and any
+/// embedded sign-in details removed, leaving the part that is actually
+/// useful when somebody is trying to work out what went wrong — which
+/// machine, which port, which path. A new option carrying an address is
+/// covered the day it is added, without anyone remembering to come here.
+///
+/// What this does NOT do: it leaves file paths alone, so a log can still
+/// contain a folder name that includes somebody's account name on their
+/// own computer. That is deliberate — those paths are what make a report
+/// useful — and the separate step that prepares a report for sharing
+/// removes them.
+#[must_use]
+pub fn redact_cli_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .map(|arg| {
+            if arg.starts_with("http://") || arg.starts_with("https://") {
+                crate::services::crash_report_service::redact_single_url(arg)
+            } else {
+                arg.clone()
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3668,4 +3705,56 @@ mod tests {
             }
         }
     }
+    // ----------------------------------------------------------------
+    // Keeping secrets out of logged command lines
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn a_logged_command_line_keeps_no_sign_in_token() {
+        // Found by an independent review of the whole codebase. Two
+        // places logged the arguments handed to the download engine; one
+        // removed the token from a single option by name, the other
+        // removed nothing. The address of the newer sign-in service had
+        // been added since that name was written down, so its token went
+        // into the log whole — and the log file is kept for a week and
+        // has an "export" button next to it.
+        let args = vec![
+            "--wrapper-account-url".to_string(),
+            "http://pi.local:30020/account?token=SECRET".to_string(),
+            "--wrapper-url".to_string(),
+            "https://user:hunter2@pi.local/?key=ALSOSECRET".to_string(),
+            "--output-path".to_string(),
+            "/Users/somebody/Music".to_string(),
+        ];
+        let redacted = redact_cli_args(&args);
+        let joined = redacted.join(" ");
+
+        assert!(!joined.contains("SECRET"), "a token must not survive: {joined}");
+        assert!(!joined.contains("ALSOSECRET"), "nor a second one: {joined}");
+        assert!(!joined.contains("hunter2"), "nor a password in the address: {joined}");
+
+        // What is worth keeping, is kept: somebody debugging needs to
+        // know which machine and which port, and the option names have
+        // to stay or the line is unreadable.
+        assert!(joined.contains("pi.local"), "the host is useful: {joined}");
+        assert!(joined.contains("30020"), "the port is useful: {joined}");
+        assert!(joined.contains("--wrapper-account-url"), "option names stay: {joined}");
+        // A file path is not a web address and is left alone.
+        assert!(joined.contains("/Users/somebody/Music"), "paths are untouched: {joined}");
+    }
+
+    #[test]
+    fn the_rule_is_about_the_shape_of_a_value_not_a_list_of_names() {
+        // The reason the old approach failed: it knew one option name.
+        // This one covers an option nobody has written yet, because it
+        // looks at whether the value is a web address.
+        let args = vec![
+            "--some-option-invented-tomorrow".to_string(),
+            "https://example.test/path?token=SECRET".to_string(),
+        ];
+        let joined = redact_cli_args(&args).join(" ");
+        assert!(!joined.contains("SECRET"), "an unknown option is covered too: {joined}");
+        assert!(joined.contains("example.test"), "and still says where it points: {joined}");
+    }
+
 }

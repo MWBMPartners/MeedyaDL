@@ -175,11 +175,25 @@ pub fn build_diagnostic_bundle(
     } else {
         let count = input.activity_log_lines.len();
         body.push_str(&format!(
-            "Last {count} entries (caller-supplied slice). Usernames in paths are redacted.\n\n"
+            "Last {count} entries (caller-supplied slice). Account names in paths, and \
+             anything secret inside a web address, are removed.\n\n"
         ));
         body.push_str("<details><summary>Click to expand</summary>\n\n```\n");
         for line in &input.activity_log_lines {
-            body.push_str(&redact_path_usernames(line));
+            // Both removals, not just the first.
+            //
+            // This used to take out account names from paths and nothing
+            // else, while the rest of this file is careful to take sign-in
+            // tokens out of web addresses — and this is the part a person
+            // pastes into a public issue. An independent review of the
+            // whole codebase found the gap, together with the line
+            // elsewhere that was putting a token into the activity log in
+            // the first place. Both are fixed; this one stays fixed even
+            // if another line ever starts carrying one again.
+            let without_usernames = redact_path_usernames(line);
+            body.push_str(&crate::services::crash_report_service::redact_urls_in_text(
+                &without_usernames,
+            ));
             body.push('\n');
         }
         body.push_str("\n```\n\n</details>\n\n");

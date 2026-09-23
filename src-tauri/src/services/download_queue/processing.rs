@@ -829,8 +829,28 @@ pub fn process_queue(
                 &download_id,
                 &format!("Authentication: Wrapper ({safe_url})"),
             );
-            // Verbose: show full wrapper URL (not redacted) for troubleshooting
-            emit_verbose_download_log(&app, &download_id, &format!("Wrapper URL (full): {url}"));
+            // The address again, still with its query string removed.
+            //
+            // This line used to print the address in full, on purpose,
+            // "for troubleshooting" — two lines after the code above had
+            // gone to the trouble of removing the token from it. Verbose
+            // lines are written to the log file on disk whatever the
+            // screen is set to show, that file is kept for a week, and
+            // the app offers a button to export it and another to reveal
+            // it in a folder. So a sign-in token ended up in a file made
+            // to be sent to somebody else.
+            //
+            // Nothing is lost by removing it. What a person needs when a
+            // wrapper will not connect is which machine, which port and
+            // which path — all of which survive. Found by an independent
+            // review of the whole codebase, and it contradicted this
+            // project's own written rule that wrapper addresses are
+            // redacted before they are logged.
+            emit_verbose_download_log(
+                &app,
+                &download_id,
+                &format!("Wrapper address in use: {safe_url}"),
+            );
         } else {
             emit_download_log(
                 &app,
@@ -5613,7 +5633,10 @@ pub(crate) async fn run_download_with_events(
     emit_verbose_download_log(
         app,
         download_id,
-        &format!("GAMDL CLI args: {:?}", options.to_cli_args()),
+        &format!(
+            "GAMDL CLI args: {:?}",
+            crate::utils::process::redact_cli_args(&options.to_cli_args())
+        ),
     );
 
     // Configure piped stdout/stderr for real-time parsing
