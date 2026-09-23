@@ -2276,8 +2276,28 @@ pub fn process_queue(
                                     // Trim what Windows treats specially at either end, and
                                     // cap the length so a very long title cannot push the
                                     // whole name past what a filesystem accepts.
+                                    //
+                                    // Capped by BYTES, not by characters, and this matters.
+                                    // It used to take eighty characters — which is eighty
+                                    // bytes of English and two hundred and forty bytes of
+                                    // Chinese or Japanese, because those characters are
+                                    // three bytes each. Filesystems count bytes: Linux
+                                    // allows 255 per name. So an album with a long enough
+                                    // non-Latin title produced a name the filesystem
+                                    // refused, and the diagnostic file was never written.
+                                    // An independent reviewer worked out the exact case.
+                                    //
+                                    // The budget leaves room for everything added after
+                                    // the name: the fixed ending, and the ` .1`-style
+                                    // number used when a file of that name already exists
+                                    // with different contents.
+                                    const NAME_SUFFIX: &str = "-applemusic-data.json";
+                                    // Enough for a two-digit disambiguating number.
+                                    const ROOM_FOR_A_NUMBER: usize = 4;
+                                    let name_budget =
+                                        255usize.saturating_sub(NAME_SUFFIX.len() + ROOM_FOR_A_NUMBER);
                                     let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
-                                    let safe_name: String = safe_name.chars().take(80).collect();
+                                    let safe_name = crate::utils::text::truncate_str(safe_name, name_budget);
                                     let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
                                     // Never empty: a name of nothing but punctuation would
                                     // otherwise produce a file called just the suffix.
@@ -2286,7 +2306,7 @@ pub fn process_queue(
                                     } else {
                                         safe_name
                                     };
-                                    let json_filename = format!("{safe_name}-applemusic-data.json");
+                                    let json_filename = format!("{safe_name}{NAME_SUFFIX}");
                                     let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {

@@ -647,7 +647,35 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
         ));
     }
 
-    let client = crate::utils::http_client::build_simple(5)?;
+    // Built here rather than through the shared helper, for one reason:
+    // **this client must not follow redirects.**
+    //
+    // The check above only looks at the address that was typed. By
+    // default the HTTP client follows a redirect wherever it points — so
+    // something listening on a local address could answer "go and fetch
+    // this instead" and name any address on the internet, and the
+    // backend would go. The check would have passed and the request it
+    // was guarding would still have gone somewhere else. An independent
+    // reviewer found that; it is the same shape as the fault this guard
+    // was added for, one step further along.
+    //
+    // Nothing is lost by refusing: a wrapper answers on the address you
+    // gave it. A redirect is not something a working wrapper does, so
+    // seeing one is itself a useful answer.
+    //
+    // **Honest limit, not fixed here.** The name is looked up once to
+    // check it, and looked up again by the client when it connects. A
+    // name that answers differently between those two moments could pass
+    // the check and then connect elsewhere. Closing that properly means
+    // connecting to the exact address that was checked, which this
+    // client cannot be told to do without more machinery than a
+    // connection test is worth. It is written down rather than left for
+    // somebody to assume is covered.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let start = std::time::Instant::now();
     match client.get(&url).send().await {

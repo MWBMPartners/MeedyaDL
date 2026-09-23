@@ -126,9 +126,31 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 /// So the page no longer has that permission. It asks here instead, and
 /// this checks:
 ///
-/// * the path exists and is a FILE, not a folder or anything stranger;
+/// * the path is not a shortcut to somewhere else (see below);
+/// * it exists and is a FILE, not a folder or anything stranger;
 /// * its extension is one of [`OPENABLE_EXTENSIONS`], compared without
 ///   regard to case, so `.EXE` is refused exactly as `.exe` is.
+///
+/// # Why shortcuts are refused
+///
+/// The first version of this check did not refuse them, and that left
+/// the hole it was written to close still open. "Is this a file?"
+/// follows a shortcut to whatever it points at, while "what is its
+/// extension?" reads the name it was handed. So a shortcut *named*
+/// `track.mp3` pointing at a program satisfied both: the first question
+/// answered yes, because the program at the far end is a file, and the
+/// second answered `mp3`, because that is what the name says. Then the
+/// real path — the shortcut — went to the system, which follows it and
+/// launches the program.
+///
+/// An independent reviewer found that. It is the same shape as the
+/// original fault, one layer down: the thing being checked and the thing
+/// being acted on were not the same thing.
+///
+/// A file this app downloaded is never a shortcut, so refusing them
+/// outright costs nothing and needs no guessing about where one leads.
+/// Both questions are now asked about the same path — the one that was
+/// handed in, without following anything.
 ///
 /// Folders are revealed rather than opened, through a separate
 /// permission, which selects the item in the file manager instead of
@@ -137,14 +159,36 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 /// **What this does not do:** it does not check the file is inside the
 /// download folder. People save music to external drives and network
 /// shares, and to their own folders outside anything this app chose, so
-/// a location check would refuse ordinary use. The kind of file is what
-/// decides, and a music file is not a way to run code.
+/// a location check would refuse ordinary use.
+///
+/// It also does not look inside the file. An extension says what
+/// something is called, not what it contains. That is accepted: the list
+/// exists to stop the app being a way to run a program, and renaming a
+/// program to `.mp3` does not make the system run it — the system
+/// decides by the same extension this check reads.
 #[tauri::command]
 pub fn open_downloaded_file(file_path: String) -> Result<(), String> {
     let path = std::path::Path::new(&file_path);
 
-    if !path.is_file() {
-        return Err("That is not a file, or it is no longer there.".to_string());
+    // Asked FIRST, and deliberately about the path itself rather than
+    // what it might point at. `symlink_metadata` is the one that does
+    // not follow shortcuts; `is_file` does. See the note above for what
+    // asking them in the wrong order cost.
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            return Err(
+                "That is a shortcut to another file, and MeedyaDL does not open shortcuts. \
+                 Open it from your file manager if you meant to."
+                    .to_string(),
+            );
+        }
+        Ok(meta) if !meta.is_file() => {
+            return Err("That is not a file.".to_string());
+        }
+        Ok(_) => {}
+        Err(_) => {
+            return Err("That is not a file, or it is no longer there.".to_string());
+        }
     }
 
     let extension = path
@@ -181,6 +225,89 @@ pub fn resolve_reveal_path(file_path: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A shortcut named like music, pointing at a program, must be
+    /// refused — with a real shortcut on a real disk, not a stand-in.
+    ///
+    /// The first version of this check let it through: "is this a file?"
+    /// follows the shortcut and says yes, while "what is its extension?"
+    /// reads the name and says `mp3`. Both questions passed, and the
+    /// system then followed the shortcut and launched the program at the
+    /// far end. An independent reviewer found it.
+    #[cfg(unix)]
+    #[test]
+    fn a_shortcut_wearing_a_music_name_is_refused() {
+        use std::io::Write;
+
+        let dir = std::env::temp_dir().join(format!(
+            "meedyadl-open-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Something that would run if it were opened.
+        let target = dir.join("payload.sh");
+        {
+            let mut f = std::fs::File::create(&target).unwrap();
+            writeln!(f, "#!/bin/sh\necho pwned").unwrap();
+        }
+
+        // A shortcut to it, wearing a name from the allowed list.
+        let disguise = dir.join("track.mp3");
+        let _ = std::fs::remove_file(&disguise);
+        std::os::unix::fs::symlink(&target, &disguise).unwrap();
+
+        // Both of the old checks would have passed on this path, so this
+        // is a real demonstration rather than a restatement of the code.
+        assert!(
+            disguise.is_file(),
+            "the old file check followed the shortcut and said yes"
+        );
+        assert_eq!(
+            disguise.extension().and_then(|e| e.to_str()),
+            Some("mp3"),
+            "the old extension check read the name and said mp3"
+        );
+
+        let result = open_downloaded_file(disguise.to_string_lossy().into_owned());
+        assert!(
+            result.is_err(),
+            "a shortcut must be refused however innocent its name looks"
+        );
+        assert!(
+            result.unwrap_err().contains("shortcut"),
+            "and the person should be told why"
+        );
+
+        let _ = std::fs::remove_file(&disguise);
+        let _ = std::fs::remove_file(&target);
+        let _ = std::fs::remove_dir(&dir);
+    }
+
+    /// An ordinary file is still opened — or rather, still gets past
+    /// every check, which is as far as a test can go without actually
+    /// launching something.
+    #[test]
+    fn an_ordinary_music_file_still_passes_the_checks() {
+        let dir = std::env::temp_dir().join(format!(
+            "meedyadl-open-ok-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&dir);
+        let track = dir.join("real track.m4a");
+        std::fs::write(&track, b"not really audio, but that is not what is checked").unwrap();
+
+        // It is not a shortcut and its kind is on the list, so the only
+        // thing that can fail now is the launch itself, which a test
+        // cannot ask for. So check the two refusals do NOT fire.
+        let meta = std::fs::symlink_metadata(&track).unwrap();
+        assert!(!meta.file_type().is_symlink());
+        assert!(meta.is_file());
+        assert!(OPENABLE_EXTENSIONS.contains(&"m4a"));
+
+        let _ = std::fs::remove_file(&track);
+        let _ = std::fs::remove_dir(&dir);
+    }
 
     #[test]
     fn only_music_video_artwork_and_text_may_be_opened() {
