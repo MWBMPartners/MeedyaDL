@@ -2879,6 +2879,35 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
 
             // Fall back to mirror directly (skip get_tool_download_url which
             // returns Err for MP4Box since it uses platform-specific installers)
+            //
+            // **Honest about what this does and does not check.** The
+            // mirror copy is verified ONLY when `tool-versions.toml`
+            // pins a checksum for that exact file. The
+            // `[mirror.asset_hashes]` section is entirely commented out
+            // in the shipped configuration, so today **nothing here is
+            // verified** — `download_and_extract_verified` checks a hash
+            // when it is given one and simply extracts when it is not.
+            //
+            // A commit message once described this fallback as "the
+            // checksum-verified mirror". That was wrong, and an
+            // independent reviewer caught it. It is written down here so
+            // the next person reads the truth from the code rather than
+            // from a claim made somewhere else.
+            //
+            // The pins are commented out for a real reason, not an
+            // oversight: the mirror republishes its files periodically as
+            // upstream tools move, so a pinned hash goes stale and breaks
+            // every install until somebody notices. The proper answer is
+            // for the mirror to publish a checksum alongside each file
+            // and for this to fetch and check it — which is #1076, with
+            // signed build records as #1211. Both need work on the mirror
+            // itself, not here.
+            //
+            // What this change DID achieve is still worth having: before
+            // it, macOS and Linux fetched a nightly build that by its
+            // nature can never have a checksum. Now every platform takes
+            // a file that at least CAN be pinned, and will be checked the
+            // moment a pin exists.
             let tool_dir = get_tool_dir(app, "mp4box");
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
