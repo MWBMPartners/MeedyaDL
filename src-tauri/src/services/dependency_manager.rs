@@ -156,7 +156,20 @@ struct GpacWindowsInstallerPin {
 /// skips straight to the mirror fallback rather than executing an
 /// unverifiable download.
 fn load_gpac_windows_installer_pin() -> Option<GpacWindowsInstallerPin> {
-    parse_gpac_windows_installer_pin(TOOL_VERSIONS_TOML)
+    parse_gpac_installer_pin(TOOL_VERSIONS_TOML, "windows_installer")
+}
+
+/// The same lookup for macOS: `[gpac.macos_installer]`.
+///
+/// Absent by default, exactly like the Windows one, and absent means the
+/// upstream installer is refused rather than downloaded unchecked.
+fn load_gpac_macos_installer_pin() -> Option<GpacWindowsInstallerPin> {
+    parse_gpac_installer_pin(TOOL_VERSIONS_TOML, "macos_installer")
+}
+
+/// The same lookup for Linux: `[gpac.linux_installer]`.
+fn load_gpac_linux_installer_pin() -> Option<GpacWindowsInstallerPin> {
+    parse_gpac_installer_pin(TOOL_VERSIONS_TOML, "linux_installer")
 }
 
 /// Pure parsing core for [`load_gpac_windows_installer_pin()`], factored
@@ -168,20 +181,20 @@ fn load_gpac_windows_installer_pin() -> Option<GpacWindowsInstallerPin> {
 /// typo'd pin doesn't fail silently) rather than passed through to the
 /// downloader, since a malformed hash could never successfully verify
 /// anyway.
-fn parse_gpac_windows_installer_pin(toml_src: &str) -> Option<GpacWindowsInstallerPin> {
+fn parse_gpac_installer_pin(toml_src: &str, section: &str) -> Option<GpacWindowsInstallerPin> {
     let config: toml::Value = toml::from_str(toml_src).ok()?;
-    let table = config.get("gpac")?.get("windows_installer")?;
+    let table = config.get("gpac")?.get(section)?;
 
     let url = table.get("url")?.as_str()?.to_string();
     let sha256 = table.get("sha256")?.as_str()?.to_lowercase();
 
     if url.is_empty() {
-        log::warn!("[gpac.windows_installer] is present but 'url' is empty — ignoring pin");
+        log::warn!("[gpac.{section}] is present but 'url' is empty — ignoring pin");
         return None;
     }
     if sha256.len() != 64 || !sha256.chars().all(|c| c.is_ascii_hexdigit()) {
         log::warn!(
-            "[gpac.windows_installer] 'sha256' is not a well-formed 64-character hex digest — ignoring pin"
+            "[gpac.{section}] 'sha256' is not a well-formed 64-character hex digest — ignoring pin"
         );
         return None;
     }
@@ -1614,14 +1627,48 @@ async fn install_mp4box_from_pkg_inner(
     app: &AppHandle,
     temp_dir: &std::path::Path,
 ) -> Result<String, String> {
-    // Download the GPAC .pkg from the nightly builds permalink.
-    // This URL always points to the latest master branch build.
-    let pkg_url =
-        "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg";
+    // The upstream build is used ONLY when a specific release has been
+    // pinned with its checksum. Absent a pin, it is refused.
+    //
+    // This used to download `gpac_latest_head_macos.pkg` from GPAC's
+    // nightly permalink and install it, unchecked. A nightly has no
+    // checksum to publish — the file behind that address changes on
+    // every upstream build — so nothing could confirm the bytes were the
+    // ones GPAC made, and the program it installs is then run on every
+    // download this app performs.
+    //
+    // That exact danger was written down and fixed for Windows under
+    // issue #987, and left here. A full review of the codebase found it.
+    // Same shape as three other faults that review turned up: a rule
+    // applied to the one door somebody was looking at.
+    //
+    // Refusing returns an error, and `install_mp4box_with_fallback` then
+    // fetches MP4Box from the MeedyaSuite mirror, which publishes a
+    // checksum and is verified against it. Nobody is left without
+    // MP4Box; they get the copy that can be checked.
+    let Some(pin) = load_gpac_macos_installer_pin() else {
+        return Err(
+            "MeedyaDL will not install MP4Box from GPAC's nightly build: there is no published \
+             checksum for it, so there is no way to confirm that what was downloaded is what \
+             GPAC built. Using the MeedyaSuite mirror instead, which publishes one."
+                .to_string(),
+        );
+    };
+    let pkg_url = pin.url.as_str();
     let pkg_path = temp_dir.join("gpac.pkg");
 
     log::info!("Downloading GPAC .pkg from {pkg_url}");
-    archive::download_file(pkg_url, &pkg_path).await?;
+    // Downloaded AND checked, the same way the Windows path does it.
+    // A pin whose bytes do not match is refused, and the caller then
+    // uses the mirror.
+    let (_bytes, actual_sha256) = archive::download_file(pkg_url, &pkg_path).await?;
+    if actual_sha256 != pin.sha256 {
+        return Err(format!(
+            "The pinned GPAC installer did not match its checksum, so it was not used. \
+             Expected {}, got {}. Using the MeedyaSuite mirror instead.",
+            pin.sha256, actual_sha256
+        ));
+    }
 
     // Step 1: Expand the .pkg using pkgutil (standard macOS tool).
     // This unpacks the XAR archive into a directory structure containing
@@ -2260,13 +2307,48 @@ async fn install_mp4box_linux_inner(
     app: &AppHandle,
     temp_dir: &std::path::Path,
 ) -> Result<String, String> {
-    // Download the GPAC .deb from the nightly builds permalink
-    let deb_url =
-        "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_linux64.deb";
+    // The upstream build is used ONLY when a specific release has been
+    // pinned with its checksum. Absent a pin, it is refused.
+    //
+    // This used to download `gpac_latest_head_linux64.deb` from GPAC's
+    // nightly permalink and install it, unchecked. A nightly has no
+    // checksum to publish — the file behind that address changes on
+    // every upstream build — so nothing could confirm the bytes were the
+    // ones GPAC made, and the program it installs is then run on every
+    // download this app performs.
+    //
+    // That exact danger was written down and fixed for Windows under
+    // issue #987, and left here. A full review of the codebase found it.
+    // Same shape as three other faults that review turned up: a rule
+    // applied to the one door somebody was looking at.
+    //
+    // Refusing returns an error, and `install_mp4box_with_fallback` then
+    // fetches MP4Box from the MeedyaSuite mirror, which publishes a
+    // checksum and is verified against it. Nobody is left without
+    // MP4Box; they get the copy that can be checked.
+    let Some(pin) = load_gpac_linux_installer_pin() else {
+        return Err(
+            "MeedyaDL will not install MP4Box from GPAC's nightly build: there is no published \
+             checksum for it, so there is no way to confirm that what was downloaded is what \
+             GPAC built. Using the MeedyaSuite mirror instead, which publishes one."
+                .to_string(),
+        );
+    };
+    let deb_url = pin.url.as_str();
     let deb_path = temp_dir.join("gpac.deb");
 
     log::info!("Downloading GPAC .deb from {deb_url}");
-    archive::download_file(deb_url, &deb_path).await?;
+    // Downloaded AND checked, the same way the Windows path does it.
+    // A pin whose bytes do not match is refused, and the caller then
+    // uses the mirror.
+    let (_bytes, actual_sha256) = archive::download_file(deb_url, &deb_path).await?;
+    if actual_sha256 != pin.sha256 {
+        return Err(format!(
+            "The pinned GPAC package did not match its checksum, so it was not used. \
+             Expected {}, got {}. Using the MeedyaSuite mirror instead.",
+            pin.sha256, actual_sha256
+        ));
+    }
 
     // Extract the .deb using `ar` (part of binutils, standard on Linux)
     let ar_status = tokio::process::Command::new("ar")
@@ -2899,7 +2981,7 @@ release_tag = "latest"
         );
     }
 
-    /// `parse_gpac_windows_installer_pin()` only returns `Some` for a
+    /// `parse_gpac_installer_pin()` only returns `Some` for a
     /// well-formed pin (non-empty URL + exactly-64-hex-char SHA-256);
     /// a missing section, a missing/short/non-hex hash all degrade to
     /// `None` rather than passing a broken pin through to the downloader.
@@ -2910,7 +2992,7 @@ release_tag = "latest"
 url = "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
 sha256 = "abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
 "#;
-        let pin = parse_gpac_windows_installer_pin(good);
+        let pin = parse_gpac_installer_pin(good, "windows_installer");
         assert!(pin.is_some());
         let pin = pin.unwrap();
         assert_eq!(
@@ -2929,7 +3011,7 @@ minimum_version = "5.0"
 binary_name = "ffmpeg"
 version_flag = "-version"
 "#;
-        assert!(parse_gpac_windows_installer_pin(missing).is_none());
+        assert!(parse_gpac_installer_pin(missing, "windows_installer").is_none());
 
         // Hash too short -> None.
         let short_hash = r#"
@@ -2937,7 +3019,7 @@ version_flag = "-version"
 url = "https://example.com/gpac.exe"
 sha256 = "abcd1234"
 "#;
-        assert!(parse_gpac_windows_installer_pin(short_hash).is_none());
+        assert!(parse_gpac_installer_pin(short_hash, "windows_installer").is_none());
 
         // Hash contains non-hex characters -> None.
         let non_hex = r#"
@@ -2945,6 +3027,46 @@ sha256 = "abcd1234"
 url = "https://example.com/gpac.exe"
 sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
 "#;
-        assert!(parse_gpac_windows_installer_pin(non_hex).is_none());
+        assert!(parse_gpac_installer_pin(non_hex, "windows_installer").is_none());
+    }
+
+    #[test]
+    fn no_platform_installs_the_nightly_gpac_build_unchecked() {
+        // The fault a full review of the codebase found: the danger was
+        // written down and fixed for Windows under issue #987, and left
+        // in place on macOS and Linux — where an unpinned nightly was
+        // downloaded with no checksum and installed as a program this
+        // app then runs on every download.
+        //
+        // The shipped configuration deliberately pins none of the three.
+        // Absent a pin, each platform must refuse and let the caller use
+        // the mirror, which publishes a checksum and is verified against
+        // it. This asserts the shipped state really is "no pin" for all
+        // three — if somebody adds one, they must also supply a checksum,
+        // which the parser already enforces.
+        for section in ["windows_installer", "macos_installer", "linux_installer"] {
+            assert!(
+                parse_gpac_installer_pin(TOOL_VERSIONS_TOML, section).is_none(),
+                "[gpac.{section}] must not be pinned in the shipped configuration — \
+                 if it is, the upstream installer is used instead of the checked mirror"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pin_without_a_good_checksum_is_ignored_on_every_platform() {
+        // Whatever platform it is written for, a pin that cannot be
+        // verified must read as "not configured" rather than being used.
+        for section in ["windows_installer", "macos_installer", "linux_installer"] {
+            let no_hash = format!(
+                "[gpac.{section}]\nurl = \"https://example.test/gpac.pkg\"\nsha256 = \"\"\n"
+            );
+            assert!(parse_gpac_installer_pin(&no_hash, section).is_none());
+
+            let short = format!(
+                "[gpac.{section}]\nurl = \"https://example.test/gpac.pkg\"\nsha256 = \"abc123\"\n"
+            );
+            assert!(parse_gpac_installer_pin(&short, section).is_none());
+        }
     }
 }
