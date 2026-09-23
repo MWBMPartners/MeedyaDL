@@ -62,6 +62,7 @@ import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 // uiStore provides setShowSetupWizard to dismiss the wizard overlay.
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { setStoredPreference } from '@/lib/tauri-commands';
 
 // Shared Button component for the navigation bar.
 import { Button } from '@/components/common';
@@ -167,9 +168,27 @@ export function SetupWizard() {
    * 3. Calling `setShowSetupWizard(false)` on the uiStore, which
    *    removes the full-screen overlay and reveals the main application.
    */
-  const handleFinish = () => {
+  const handleFinish = async () => {
     finishSetup();
+    // Written to DISK, not just to this page's copy of the settings.
+    //
+    // It used to call `updateSettings`, which only changes the copy the
+    // page is holding. Nothing ever saved it, so the app never knew
+    // setup had been done — and because the crash-reporting question
+    // only appears once setup is recorded as finished, that question
+    // could never be asked on any install either.
+    //
+    // It also stays in memory so the rest of this session sees it
+    // without re-reading the file.
     updateSettings({ setup_completed: true });
+    try {
+      await setStoredPreference({ kind: 'setup_completed', completed: true });
+    } catch (err) {
+      // Not fatal: the wizard has done its real work, and the only cost
+      // is that it may appear again if a tool later goes missing. Worth
+      // a line in the console rather than blocking the person here.
+      console.error('Could not record that setup was finished:', err);
+    }
     setShowSetupWizard(false);
   };
 

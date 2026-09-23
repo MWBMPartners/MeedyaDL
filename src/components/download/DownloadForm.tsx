@@ -121,6 +121,7 @@ import {
   checkRedownloadStatus,
   checkSpotifyDispatchAllowed,
   importManifest,
+  setStoredPreference,
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
@@ -883,12 +884,38 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const setAfterQueueOnce = useCallback((action: AfterQueueAction) => {
+  const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
+    const stored = action === 'do_nothing' ? null : action;
     const { updateSettings } = useSettingsStore.getState();
-    updateSettings({ after_queue_once: action === 'do_nothing' ? null : action });
+    updateSettings({ after_queue_once: stored });
+
+    // Written to DISK, because the part of the app that ACTS on this
+    // reads it from the file, not from this page.
+    //
+    // It used to be set in memory only. So the status bar said the
+    // action was armed, the toast below said so too, and nothing ever
+    // happened: somebody could set "shut down when the queue finishes",
+    // walk away, and come back to a machine still running. The careful
+    // backend written to do it had never once been reached with a value
+    // set.
+    //
+    // A failure here is told to the person rather than swallowed. This
+    // is the one case where quietly carrying on is worst: they would
+    // leave believing the computer will shut itself down.
     const label = action === 'do_nothing' ? 'cleared' : action.replace(/_/g, ' ');
-    useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     setContextMenu(null);
+    try {
+      await setStoredPreference({ kind: 'after_queue_once', action: stored });
+      useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
+    } catch {
+      useSettingsStore.getState().updateSettings({ after_queue_once: null });
+      useUiStore
+        .getState()
+        .addToast(
+          `Could not set the after-queue action — MeedyaDL was unable to save it, so nothing will happen when the queue finishes.`,
+          'error'
+        );
+    }
   }, []);
 
   const afterQueueMenuItems = [

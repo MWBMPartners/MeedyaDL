@@ -65,6 +65,7 @@ import {
 // Zustand stores for dependency tracking and wizard step management.
 import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
+import { useUiStore } from '@/stores/uiStore';
 
 // Shared UI components.
 import { Button, LoadingSpinner } from '@/components/common';
@@ -72,6 +73,7 @@ import { Button, LoadingSpinner } from '@/components/common';
 // Package-manager provenance badge label helper (Phase 2a -- see
 // .github/audits/package-manager-abstraction-design-2026-08-10.md §3.D).
 import { sourceLabel } from '@/lib/pm-source';
+import { setStoredPreference, type HelperProgram } from '@/lib/tauri-commands';
 
 /**
  * DependenciesStep -- Renders the external tools installation step.
@@ -261,9 +263,20 @@ export function DependenciesStep() {
                             title: `Locate ${tool.name} binary`,
                           });
                           if (typeof selected === 'string') {
-                            // Map tool display name to the exact settings key used by the
-                            // backend. A generic name-to-key transform breaks for
-                            // N_m3u8DL-RE (produces n_m3u8dl_re_path instead of nm3u8dlre_path).
+                            // Written to DISK.
+                            //
+                            // This used to change the page's own copy of
+                            // the settings and nothing saved it, so a
+                            // person who already had FFmpeg and pointed
+                            // the wizard at it had that thrown away —
+                            // the app carried on as though the program
+                            // were missing, in the same session.
+                            //
+                            // Two lists, because the app's own settings
+                            // field names and the names the backend
+                            // command accepts are not the same shape. A
+                            // generic transform breaks on N_m3u8DL-RE
+                            // either way.
                             const TOOL_SETTINGS_KEY: Record<string, string> = {
                               FFmpeg: 'ffmpeg_path',
                               mp4decrypt: 'mp4decrypt_path',
@@ -271,11 +284,43 @@ export function DependenciesStep() {
                               MP4Box: 'mp4box_path',
                               MediaInfo: 'mediainfo_path',
                             };
-                            const key =
-                              TOOL_SETTINGS_KEY[tool.name] ??
-                              `${tool.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_path`;
-                            const { updateSettings } = (await import('@/stores/settingsStore')).useSettingsStore.getState();
+                            const TOOL_PROGRAM: Record<string, HelperProgram> = {
+                              FFmpeg: 'ffmpeg',
+                              mp4decrypt: 'mp4_decrypt',
+                              'N_m3u8DL-RE': 'nm3u8_dl_re',
+                              MP4Box: 'mp4_box',
+                              MediaInfo: 'media_info',
+                            };
+                            const key = TOOL_SETTINGS_KEY[tool.name];
+                            const program = TOOL_PROGRAM[tool.name];
+                            if (!key || !program) {
+                              // A tool nobody has added to both lists.
+                              // Refusing is right: guessing a field name
+                              // would write the path somewhere wrong and
+                              // look like it worked.
+                              useUiStore.getState().addToast(
+                                `MeedyaDL does not know where to record a path for ${tool.name}.`,
+                                'error'
+                              );
+                              return;
+                            }
+                            const { updateSettings } = (
+                              await import('@/stores/settingsStore')
+                            ).useSettingsStore.getState();
                             updateSettings({ [key]: selected } as Record<string, string>);
+                            try {
+                              await setStoredPreference({
+                                kind: 'helper_program_path',
+                                program,
+                                path: selected,
+                              });
+                            } catch (err) {
+                              useUiStore.getState().addToast(
+                                `Could not save where ${tool.name} is — MeedyaDL will not find it next time.`,
+                                'error'
+                              );
+                              console.error('Could not save the helper program path:', err);
+                            }
                           }
                         } catch {
                           // User cancelled

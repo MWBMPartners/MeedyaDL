@@ -61,6 +61,7 @@ import { invoke } from '@tauri-apps/api/core';
  * @see src/types/index.ts for full type definitions
  */
 import type {
+  AfterQueueAction,
   AppSettings,
   ArtworkResult,
   ComponentUpdate,
@@ -2743,4 +2744,64 @@ export function getFeatureFlags(): Promise<FeatureFlagsSnapshot> {
  */
 export function refreshFeatureFlags(): Promise<FeatureFlagsSnapshot> {
   return invoke<FeatureFlagsSnapshot>('refresh_feature_flags');
+}
+
+// ============================================================================
+// One-off answers given outside the Settings screen
+// ============================================================================
+
+/**
+ * Which of the five helper programs a remembered path belongs to.
+ *
+ * Mirrors the Rust `HelperProgram` enum. A closed list rather than a
+ * field name as free text, so only these five can ever be named.
+ */
+export type HelperProgram = 'ffmpeg' | 'mp4_decrypt' | 'mp4_box' | 'nm3u8_dl_re' | 'media_info';
+
+/**
+ * One answer, given outside the Settings screen, that should be
+ * remembered on disk.
+ *
+ * Mirrors the Rust `StoredPreference` enum, which is where the full
+ * explanation lives. The short version: writing to `updateSettings()`
+ * only changes the copy of the settings this page is holding. Nothing
+ * saves it, so eight finished features did nothing at all — finishing
+ * the setup wizard, answering the crash-reporting question, "Not now"
+ * on the macOS move prompt, "don't ask again" before aborting the
+ * queue, the one-off after-queue action, the wizard's Browse buttons
+ * for the five helper programs, and the wizard's manual cookies-file
+ * picker.
+ *
+ * Deliberately one named answer at a time. Sending the whole settings
+ * object is the bug that was backed out twice (#1175): this page's copy
+ * may hold half-finished edits from the Settings screen that nobody has
+ * pressed Save on.
+ */
+export type StoredPreference =
+  | { kind: 'setup_completed'; completed: boolean }
+  | { kind: 'crash_reporting_choice'; enabled: boolean }
+  | { kind: 'relocation_declined'; declined: boolean }
+  | { kind: 'abort_queue_confirm'; confirm: boolean }
+  | { kind: 'after_queue_once'; action: AfterQueueAction | null }
+  | { kind: 'helper_program_path'; program: HelperProgram; path: string | null }
+  | { kind: 'cookies_path'; path: string | null };
+
+/**
+ * Remembers one answer given outside the Settings screen, on disk.
+ *
+ * Call this INSTEAD OF `updateSettings()` for anything that has to
+ * survive a restart. `updateSettings()` is still right for the Settings
+ * screen itself, where "Save Changes" writes the lot on purpose.
+ *
+ * Rust handler: `set_stored_preference()` in
+ * `src-tauri/src/commands/stored_preference.rs`
+ *
+ * @param preference The single answer to remember.
+ * @returns Promise that rejects if the settings file cannot be written —
+ *   which the caller should surface, rather than carrying on as though
+ *   the answer had been remembered. That silence is the whole fault this
+ *   command exists to fix.
+ */
+export function setStoredPreference(preference: StoredPreference): Promise<void> {
+  return invoke<void>('set_stored_preference', { preference });
 }
