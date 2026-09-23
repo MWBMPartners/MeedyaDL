@@ -166,6 +166,7 @@ import {
   type GamdlCapabilities,
   type NotificationDiagnostics,
   type IntegrityScanReport,
+  setStoredPreference,
 } from '@/lib/tauri-commands';
 import { useActivityStore } from '@/stores/activityStore';
 
@@ -293,8 +294,6 @@ export function AdvancedTab() {
   const odesliApiKey = useSettingsField('odesli_api_key');
   const setupCompleted = useSettingsField('setup_completed');
   const devAccessEnabled = useSettingsField('dev_access_enabled');
-  /** Persist settings to disk (needed for setup wizard reset) */
-  const saveSettings = useSettingsStore((s) => s.saveSettings);
   /** Platform detection for Wrapper feature gating (Linux x86_64 only) */
   const { supportsWrapper } = usePlatform();
 
@@ -758,17 +757,41 @@ export function AdvancedTab() {
           size="sm"
           onClick={async () => {
             const confirmed = window.confirm(
-              'This will reset the setup wizard flag and reload the app. ' +
-                'Your settings will be preserved, but the setup wizard will ' +
-                'appear on next load to verify your dependencies. Continue?'
+              'This will start the setup wizard again and reload MeedyaDL. ' +
+                'Your settings are kept. Continue?'
             );
             if (!confirmed) return;
-            setupCompleted.set(false);
+
+            // Writes ONE setting, not all of them.
+            //
+            // This used to call the whole-settings save. That is the last
+            // remaining wide write triggered by a narrow intention, and it
+            // is worse here than almost anywhere: the person is standing
+            // in the Settings screen, where they may have half-finished
+            // edits open on other tabs. Pressing this button committed all
+            // of them, without ever pressing Save. That is the exact fault
+            // #1175 was about, fixed and backed out twice.
+            //
+            // The catch used to say "reload anyway, the copy in memory
+            // says setup is not done". That was backwards. Reloading
+            // re-reads the settings from disk, so if the save had failed
+            // the file would still say setup WAS done and the wizard would
+            // not appear — the opposite of what the comment promised, and
+            // the person would be left pressing a button that did nothing.
+            // So a failure is now said out loud and nothing is reloaded.
             try {
-              await saveSettings();
-            } catch {
-              /* Reload anyway — in-memory state has setup_completed: false */
+              await setStoredPreference({ kind: 'setup_completed', completed: false });
+            } catch (err) {
+              console.error('Could not start the setup wizard again:', err);
+              useUiStore
+                .getState()
+                .addToast(
+                  'Could not start the setup wizard again — MeedyaDL was unable to save the change.',
+                  'error'
+                );
+              return;
             }
+            setupCompleted.set(false);
             window.location.reload();
           }}
         >

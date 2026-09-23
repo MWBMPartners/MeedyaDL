@@ -27,7 +27,14 @@ import { useTranslation } from 'react-i18next';
 import deTranslations from '../../public/locales/de/translation.json';
 import enTranslations from '../../public/locales/en/translation.json';
 import frTranslations from '../../public/locales/fr/translation.json';
-import i18n, { AVAILABLE_LOCALES, LOCALES, baseLanguageOf, initI18n, isMachineAssisted } from './i18n';
+import i18n, {
+  AVAILABLE_LOCALES,
+  LOCALES,
+  baseLanguageOf,
+  changeUiLanguage,
+  initI18n,
+  isMachineAssisted,
+} from './i18n';
 
 /* ------------------------------------------------------------------ */
 /* 1. The addResourceBundle-doesn't-repaint-the-screen bug             */
@@ -195,11 +202,13 @@ describe('document.documentElement.lang tracks every later language change too',
   });
 
   it('updates when the language changes after startup, not only at startup', async () => {
-    // Settings > General calls `i18next.changeLanguage(...)` directly
-    // (see App.tsx) whenever the user picks a language from the
-    // dropdown -- long after `initI18n()` has already finished. If the
-    // <html> tag were only set once, at startup, switching languages in
-    // Settings would leave it wrong for the rest of the session.
+    // App.tsx's Effect 3b calls `changeUiLanguage(...)` (which itself
+    // calls `i18n.changeLanguage()`) whenever the `ui_language` setting
+    // changes -- including a language picked from the Settings > General
+    // dropdown while the app is already running, long after `initI18n()`
+    // has finished. If the <html> tag were only set once, at startup,
+    // switching languages in Settings would leave it wrong for the rest
+    // of the session.
     await act(async () => {
       await i18n.changeLanguage('fr');
     });
@@ -210,6 +219,83 @@ describe('document.documentElement.lang tracks every later language change too',
       await i18n.changeLanguage('de');
     });
     expect(document.documentElement.lang).toBe('de');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 1b. changeUiLanguage -- switching language should take one call,    */
+/*     not two restarts                                                */
+/* ------------------------------------------------------------------ */
+
+describe('changeUiLanguage fetches the file itself, rather than assuming it is already loaded', () => {
+  beforeEach(() => {
+    // Deliberately NOT setting German in localStorage or navigator.language
+    // here. This reproduces picking German from the Settings dropdown on a
+    // machine whose OS/browser is English -- `initI18n()`'s own
+    // auto-detection never runs for, or fetches, German in that case.
+    // `changeUiLanguage` has to do its own fetching; it cannot be riding on
+    // work initI18n already did.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (typeof url === 'string' && url.includes('/locales/de/translation.json')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(deTranslations),
+          } as Response);
+        }
+        return Promise.resolve({ ok: false } as Response);
+      })
+    );
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage('en');
+    document.documentElement.lang = 'en';
+  });
+
+  it('shows the new language after a single call', async () => {
+    // This is the bug, made concrete. Before this function existed,
+    // App.tsx called `i18next.changeLanguage('de')` straight from a
+    // freshly-loaded setting -- exactly like this test does one line
+    // down, but with the plain, unfixed call. Nothing had ever fetched
+    // de/translation.json, and there is no i18next HTTP backend
+    // registered to do that automatically (see i18n.ts's own comment on
+    // this function). The probe would keep showing "Queue" even though
+    // `i18n.language` claimed to be "de".
+    render(createElement(LanguageProbe));
+    expect(screen.getByTestId('probe')).toHaveTextContent('Queue');
+
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+
+    // The real assertion: one call, and the file was already fetched as
+    // part of it -- no prior `initI18n()` detection of German, no second
+    // restart needed.
+    expect(i18n.language).toBe('de');
+    expect(screen.getByTestId('probe')).toHaveTextContent('Warteschlange');
+  });
+
+  it('does not re-fetch a language that has already been loaded', async () => {
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const callsAfterFirstLoad = fetchMock.mock.calls.length;
+
+    // Switching away and back -- e.g. someone previewing two languages
+    // in the Settings dropdown -- must not hit the network again for a
+    // language i18next already has the data for in memory.
+    await act(async () => {
+      await changeUiLanguage('en');
+    });
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad);
   });
 });
 

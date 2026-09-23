@@ -138,6 +138,54 @@ async function loadLocaleResources(lng: string): Promise<void> {
 }
 
 /**
+ * Switches the app to `lng`, making sure that language's translation
+ * file has actually been loaded first.
+ *
+ * `i18n.changeLanguage()` on its own only switches WHICH already-loaded
+ * language i18next reads from — it does not fetch anything by itself.
+ * This app registers no i18next HTTP-fetching plugin (check
+ * `package.json`: just `i18next`, `i18next-browser-languagedetector`,
+ * `react-i18next`), so calling `i18n.changeLanguage('de')` for a
+ * language nobody has fetched yet does not fail or warn — it just
+ * quietly keeps showing English. `i18n.language` will report "de", and
+ * every `t()` call will still return the English string, because there
+ * is no German data for i18next to read, so it silently falls back to
+ * `fallbackLng: 'en'`.
+ *
+ * This used to bite real users: choosing a language in Settings wrote
+ * the choice to the `ui_language` setting, and on the next app launch,
+ * `App.tsx` called `i18next.changeLanguage(uiLang)` directly on a
+ * language nobody had fetched — so the FIRST restart after picking
+ * German still showed English. It only started working on the SECOND
+ * restart, because by then `changeLanguage` had already written the
+ * choice into the browser's remembered-language storage (the language
+ * detector caches there), so `initI18n()`'s own startup detection found
+ * German on its own next time and fetched the file as part of that
+ * separate path. The help text next to the setting used to say "requires
+ * restart" (singular) — it actually needed two.
+ *
+ * @param lng — A language code, e.g. "de" or "de-DE". Only the base part
+ *   (before any "-REGION") is used to find the translation file — that
+ *   matches how `LOCALES` and the `public/locales/<code>/` folders are
+ *   keyed, via `baseLanguageOf()`, same as everywhere else in this file.
+ */
+export async function changeUiLanguage(lng: string): Promise<void> {
+  const base = baseLanguageOf(lng);
+  /*
+   * English is bundled into the app at build time (see the import at
+   * the top of this file), so there's nothing to fetch for it.
+   * `hasResourceBundle` skips re-fetching a language that's already
+   * loaded — this matters once this function is called live every time
+   * someone changes the Settings dropdown, including switching back to
+   * a language already seen earlier in the same session.
+   */
+  if (base !== 'en' && !i18n.hasResourceBundle(base, 'translation')) {
+    await loadLocaleResources(base);
+  }
+  await i18n.changeLanguage(lng);
+}
+
+/**
  * Initialize i18next with language detection and React integration.
  * Pre-loads English (fallback) and the detected/selected language.
  *
@@ -174,15 +222,16 @@ export async function initI18n(): Promise<void> {
   // the event synchronously during `init()`.
   syncDocumentLanguage(i18n.language);
 
-  // If the detected language is not English, fetch and add its file too.
+  // If the detected language is not English, fetch its file and apply it.
   const detected = baseLanguageOf(i18n.language);
   if (detected !== 'en') {
-    await loadLocaleResources(detected);
-
-    // Adding a resource bundle above does NOT, by itself, tell React that
+    // `changeUiLanguage()` does two things: fetches the file (if it
+    // isn't already loaded) and then calls `i18n.changeLanguage()`.
+    // That second step matters on its own, separately from the fetch:
+    // adding a resource bundle does NOT, by itself, tell React that
     // anything changed. react-i18next only re-renders components when
-    // i18next fires its `languageChanged` event, and `addResourceBundle`
-    // does not fire that event — it just quietly puts the data in memory.
+    // i18next fires its `languageChanged` event, and just adding the
+    // data to memory does not fire that event.
     //
     // Concretely, this used to mean: a German or French user who had
     // never touched the language dropdown (the default state, since
@@ -191,11 +240,10 @@ export async function initI18n(): Promise<void> {
     // then every already-rendered component would go on showing English
     // forever, because nothing ever told them to look again.
     //
-    // Re-issuing the same language through `changeLanguage` forces that
-    // event to fire, which is what actually makes the screen update. It
-    // looks like a no-op (we're "changing" to the language we're already
-    // on) but the event is the whole point.
-    await i18n.changeLanguage(i18n.language);
+    // Passing the language we are already on into `changeLanguage` looks
+    // like a no-op, but the event it fires is the whole point — that's
+    // what actually makes the screen update.
+    await changeUiLanguage(i18n.language);
   }
 }
 

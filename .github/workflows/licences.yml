@@ -4,8 +4,11 @@
 # Licence compliance workflow (#806).
 # ===================================
 #
-# Runs on every PR to `main` and verifies three things about MeedyaDL's
-# dependency licensing posture:
+# Runs on every PR to `main` and the three long-lived channel branches
+# (alpha, beta, release-candidate — matching ci.yml, since that is where
+# real development, including auto-merged Dependabot updates, actually
+# lands) and verifies three things about MeedyaDL's dependency licensing
+# posture:
 #
 #   1. ACKNOWLEDGEMENTS.md drift — every direct dep in `Cargo.toml` /
 #      `package.json` is named in `ACKNOWLEDGEMENTS.md`. (Catches the
@@ -43,8 +46,14 @@
 name: Licences
 
 on:
+  # Same branch list as ci.yml: main plus the three long-lived channel
+  # branches (alpha, beta, release-candidate). All real development lands
+  # on one of these, not just main — a routine Dependabot update that
+  # auto-merges into `alpha` used to get no licence check at all, because
+  # this workflow only ever watched main. A real PR into `alpha` was
+  # checked and confirmed no licence check ran on it before this was added.
   pull_request:
-    branches: [main]
+    branches: [main, alpha, beta, release-candidate]
   workflow_dispatch:
 
 permissions:

@@ -39,7 +39,7 @@ use tauri::AppHandle;
 // Emitter trait for sending events to the frontend (used for download progress).
 use tauri::Emitter;
 
-// config_service: loads user settings (including check_pre_releases preference)
+// config_service: loads user settings (including the chosen update channel)
 // from the app data directory.
 use crate::models::settings::UpdateChannel;
 use crate::services::config_service;
@@ -89,15 +89,21 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
     log::info!("Checking for updates...");
     emit_app_log(&app, "Checking for updates...");
     // Load settings to check the user's pre-release preference and channel.
-    // If settings fail to load, default to stable-only (check_pre_releases: false).
+    // If settings cannot be read, fall back to finished releases only.
     let settings = config_service::load_settings(&app).unwrap_or_default();
 
-    // When the user has opted into a non-stable channel, we must query the
-    // list endpoint (`releases?per_page=N`) because `releases/latest` skips
-    // pre-releases. This effectively forces check_pre_releases = true for any
-    // non-Stable channel, regardless of the legacy toggle.
-    let include_prereleases =
-        settings.check_pre_releases || settings.update_channel != UpdateChannel::Stable;
+    // Somebody on any channel other than the finished one needs the list
+    // of releases, because the "newest release" address GitHub offers
+    // skips unfinished builds entirely.
+    //
+    // This used to also read a setting called `check_pre_releases`, put
+    // there by a switch in Settings labelled "Include Pre-Release
+    // Versions". That switch could not change the answer in any
+    // configuration — see the note where it used to sit in the Settings
+    // screen — so it has been removed, and this is worked out from the
+    // chosen channel alone. The stored setting is left in place so an
+    // existing settings file still loads; nothing reads it now.
+    let include_prereleases = settings.update_channel != UpdateChannel::Stable;
 
     // check_all_updates() runs every component check one after another
     // (not at the same time — see the module doc in update_checker.rs)
@@ -326,7 +332,7 @@ pub async fn check_component_update(
     // (currently no way to check individual components independently)
     let settings = config_service::load_settings(&app).unwrap_or_default();
     let include_prereleases =
-        settings.check_pre_releases || settings.update_channel != UpdateChannel::Stable;
+        settings.update_channel != UpdateChannel::Stable;
     let result =
         update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
 
