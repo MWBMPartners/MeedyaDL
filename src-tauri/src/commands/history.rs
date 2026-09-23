@@ -108,6 +108,65 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
     "json", "meedyadl", "log", "m3u", "m3u8", "cue", "pdf",
 ];
 
+/// Is Finder's "this is an alias" flag set on this file?
+///
+/// Reads `com.apple.FinderInfo`, the 32 bytes Finder keeps beside a file.
+/// For a file, bytes 8 and 9 are its flags, most significant byte first,
+/// and 0x8000 is the alias flag. Finder sets it on every alias it makes,
+/// whatever the format of the alias itself — which is the point: it is
+/// one question that does not depend on knowing every format.
+///
+/// Returns `Ok(false)` when there is no such attribute at all, which is
+/// the ordinary case for an ordinary file, and also when the attribute
+/// is too short to hold flags. Any other failure to read is returned as
+/// an error so the caller can refuse rather than assume.
+#[cfg(target_os = "macos")]
+fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    const FINDER_INFO: &std::ffi::CStr = c"com.apple.FinderInfo";
+    const ALIAS_FLAG: u16 = 0x8000;
+
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "the file name contains a zero byte".to_string())?;
+
+    let mut buf = [0u8; 32];
+    // `XATTR_NOFOLLOW` matters: ask about THIS file, not about whatever
+    // it might point at. Asking about the far end is the mistake that
+    // made the original hole.
+    let read = unsafe {
+        libc::getxattr(
+            c_path.as_ptr(),
+            FINDER_INFO.as_ptr(),
+            buf.as_mut_ptr().cast::<libc::c_void>(),
+            buf.len(),
+            0,
+            libc::XATTR_NOFOLLOW,
+        )
+    };
+
+    if read < 0 {
+        let err = std::io::Error::last_os_error();
+        // No such attribute is the normal answer for a normal file, not
+        // a failure. macOS reports it as ENOATTR, which shares a number
+        // with ENODATA.
+        if err.raw_os_error() == Some(libc::ENOATTR) {
+            return Ok(false);
+        }
+        return Err(err.to_string());
+    }
+
+    let read = read as usize;
+    if read < 10 {
+        // Too short to hold the flags. Nothing to read, so nothing is
+        // claimed.
+        return Ok(false);
+    }
+
+    let flags = u16::from_be_bytes([buf[8], buf[9]]);
+    Ok(flags & ALIAS_FLAG != 0)
+}
+
 /// Opens a downloaded file in whatever program handles its type.
 ///
 /// # Why this exists rather than the page opening it directly
@@ -196,33 +255,53 @@ pub fn open_downloaded_file(file_path: String) -> Result<(), String> {
         }
     }
 
-    // macOS has a second kind of shortcut that the check above cannot
-    // see: a Finder alias. Unlike the shortcuts above, an alias is an
-    // ORDINARY FILE — so "is this a file?" says yes and "is this a
-    // shortcut?" says no — and macOS still follows it to whatever it
-    // points at and opens that. An independent reviewer spotted the gap.
+    // macOS has a second kind of shortcut the check above cannot see: a
+    // Finder alias. Unlike a symbolic link, an alias is an ORDINARY FILE
+    // — so "is this a file?" says yes and "is this a shortcut?" says no
+    // — and macOS follows it to whatever it points at and opens that.
+    // An independent reviewer found the gap.
     //
-    // Confirmed by making a real one on a Mac rather than reasoning
-    // about it: an alias to a script came out as a regular 784-byte file
-    // beginning `book\0\0\0\0mark`, which is Apple's bookmark format.
+    // # Why the Finder flag, and not the file's contents
     //
-    // The whole twelve bytes are checked, not just `book`, because a
-    // perfectly ordinary text file may well begin with the word "book".
-    // Twelve bytes with those exact zeros in between will not happen by
-    // accident, and none of the file types this app produces starts that
-    // way.
+    // The first attempt at this looked for the twelve bytes a modern
+    // alias begins with. That was checked against a real alias, and it
+    // was right about modern ones — but the same reviewer pointed out it
+    // only describes ONE format. An older alias keeps its target
+    // somewhere else entirely and can have no contents at all, so
+    // reading its first twelve bytes finds nothing and it walks straight
+    // through. Describing formats is the losing game: the list is always
+    // one entry short, which is the same reason the extension check
+    // below is a list of what IS allowed.
+    //
+    // So this asks the question Finder itself answers: **is the alias
+    // flag set?** Finder sets it on every alias it makes, whatever the
+    // format inside, which is what makes this independent of format.
+    // Verified on a real alias on a real Mac rather than assumed — its
+    // `com.apple.FinderInfo` came back 32 bytes, type code `alis`,
+    // creator `MACS`, and the flag at 0x8000 set.
+    //
+    // # It refuses when it cannot tell
+    //
+    // Not being able to read the answer is not the same as the answer
+    // being no. A file that cannot be inspected is refused, because the
+    // alternative is that anything unreadable gets the benefit of the
+    // doubt from a check written to withhold exactly that.
     #[cfg(target_os = "macos")]
     {
-        use std::io::Read;
-        const ALIAS_SIGNATURE: &[u8] = b"book\0\0\0\0mark";
-        if let Ok(mut f) = std::fs::File::open(path) {
-            let mut head = [0u8; 12];
-            if f.read_exact(&mut head).is_ok() && head == ALIAS_SIGNATURE {
+        match macos_alias_flag(path) {
+            Ok(true) => {
                 return Err(
                     "That is an alias to another file, and MeedyaDL does not open aliases. \
                      Open it from Finder if you meant to."
                         .to_string(),
                 );
+            }
+            Ok(false) => {}
+            Err(why) => {
+                return Err(format!(
+                    "MeedyaDL could not check whether that is an alias, so it has not opened \
+                     it ({why}). Open it from Finder if you meant to."
+                ));
             }
         }
     }
@@ -320,63 +399,75 @@ mod tests {
         let _ = std::fs::remove_dir(&dir);
     }
 
-    /// A macOS alias wearing a music name must be refused too.
+    /// A macOS alias wearing a music name must be refused.
     ///
-    /// An alias is NOT a shortcut in the sense the check above uses: it
-    /// is an ordinary file, so "is this a file?" says yes and "is this a
-    /// shortcut?" says no — and macOS follows it anyway. An independent
-    /// reviewer found that gap after the first fix.
+    /// An alias is NOT a symbolic link: it is an ordinary file, so the
+    /// check above says "yes, a file" and "no, not a shortcut" — and
+    /// macOS follows it anyway. An independent reviewer found that gap.
     ///
-    /// This asks Finder to make a REAL alias rather than writing the
-    /// twelve magic bytes by hand, because a hand-made stand-in would
-    /// only prove the code matches what this test believes an alias
-    /// looks like. If Finder is not available (no desktop session, as on
-    /// a build machine) the test says so and stops, rather than passing
-    /// on nothing.
+    /// # Why this makes its own alias instead of asking Finder
+    ///
+    /// It used to ask Finder, and print a message and return early when
+    /// Finder could not be reached. A reviewer pointed out that is a
+    /// **silently passing test**: the runner hides output from tests
+    /// that pass, so on a machine with no desktop it went green while
+    /// proving nothing — exactly the thing its own comment promised not
+    /// to do.
+    ///
+    /// So it sets the flag itself and always runs. The flag's layout was
+    /// confirmed against a REAL alias made by Finder on a real Mac: 32
+    /// bytes, type code `alis`, creator `MACS`, flag 0x8000 set. This
+    /// writes that same shape, so it tests the real check against the
+    /// real thing Finder marks.
     #[cfg(target_os = "macos")]
     #[test]
     fn a_macos_alias_wearing_a_music_name_is_refused() {
+        use std::os::unix::ffi::OsStrExt;
+
         let dir = std::env::temp_dir().join(format!("meedyadl-alias-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        let target = dir.join("payload.sh");
-        std::fs::write(&target, b"#!/bin/sh\necho hi\n").unwrap();
-
-        let script = format!(
-            "tell application \"Finder\" to make alias file to POSIX file \"{}\" at POSIX file \"{}\"",
-            target.display(),
-            dir.display()
-        );
-        let made = std::process::Command::new("osascript")
-            .arg("-e")
-            .arg(&script)
-            .output();
-
-        let alias = dir.join("payload.sh alias");
-        if made.is_err() || !alias.exists() {
-            // Never silently pass: say the check could not run.
-            eprintln!(
-                "skipping: Finder could not make an alias here (no desktop session?), \
-                 so this test proved nothing"
-            );
-            let _ = std::fs::remove_dir_all(&dir);
-            return;
-        }
-
-        // Rename it to wear an allowed extension — the disguise.
+        // An ordinary file, wearing a name from the allowed list.
         let disguise = dir.join("track.m4a");
-        std::fs::rename(&alias, &disguise).unwrap();
+        std::fs::write(&disguise, b"whatever an alias happens to hold").unwrap();
 
-        // The point: an alias is a regular file, so the shortcut check
-        // above does NOT catch it. This asserts that, so the test shows
-        // the gap rather than restating the fix.
+        // Before the flag: it passes every other check, which is the
+        // whole problem this test exists for.
         let meta = std::fs::symlink_metadata(&disguise).unwrap();
-        assert!(
-            !meta.file_type().is_symlink(),
-            "an alias is not a symbolic link — that is the whole problem"
-        );
+        assert!(!meta.file_type().is_symlink(), "an alias is not a symbolic link");
         assert!(meta.is_file(), "and it answers yes to being a file");
+        assert!(OPENABLE_EXTENSIONS.contains(&"m4a"), "and its name is allowed");
+
+        // Now mark it the way Finder marks an alias.
+        let mut finder_info = [0u8; 32];
+        finder_info[0..4].copy_from_slice(b"alis");
+        finder_info[4..8].copy_from_slice(b"MACS");
+        finder_info[8..10].copy_from_slice(&0x8000u16.to_be_bytes());
+
+        let c_path = std::ffi::CString::new(disguise.as_os_str().as_bytes()).unwrap();
+        let set = unsafe {
+            libc::setxattr(
+                c_path.as_ptr(),
+                c"com.apple.FinderInfo".as_ptr(),
+                finder_info.as_ptr().cast::<libc::c_void>(),
+                finder_info.len(),
+                0,
+                libc::XATTR_NOFOLLOW,
+            )
+        };
+        assert_eq!(
+            set,
+            0,
+            "could not set the flag, so this test would have proved nothing: {}",
+            std::io::Error::last_os_error()
+        );
+
+        // The check should now read that flag and refuse.
+        assert!(
+            macos_alias_flag(&disguise).unwrap(),
+            "the flag was set, so the check must see it"
+        );
 
         let result = open_downloaded_file(disguise.to_string_lossy().into_owned());
         assert!(result.is_err(), "an alias must be refused however it is named");
@@ -386,6 +477,28 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file that cannot be looked at is refused, not waved through.
+    ///
+    /// Not being able to read the answer is not the same as the answer
+    /// being no. A reviewer pointed out the first version treated every
+    /// failure to inspect as "not an alias", which hands the benefit of
+    /// the doubt to exactly the files a check like this exists to
+    /// withhold it from.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_file_that_cannot_be_checked_is_refused() {
+        // A name with a zero byte in it cannot be asked about at all.
+        // That is the simplest way to reach the "could not tell" branch
+        // without depending on how a particular machine handles
+        // permissions (a test run as an administrator can read anything,
+        // so a permissions-based test would pass for the wrong reason).
+        let bad = std::path::PathBuf::from("/tmp/meedyadl\0alias.m4a");
+        assert!(
+            macos_alias_flag(&bad).is_err(),
+            "a name it cannot even ask about must be an error, not a no"
+        );
     }
 
     /// An ordinary file is still opened — or rather, still gets past

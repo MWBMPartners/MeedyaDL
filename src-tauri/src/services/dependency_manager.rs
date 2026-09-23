@@ -2903,23 +2903,35 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             // signed build records as #1211. Both need work on the mirror
             // itself, not here.
             //
-            // What this change DID achieve, stated carefully, because the
-            // first attempt at stating it was itself wrong and a reviewer
-            // caught that too:
+            // What this change achieved, and what it did not. This is the
+            // third wording; the first two both overstated it and a
+            // reviewer caught both. So, only what was checked in the
+            // code:
             //
-            // A nightly build CAN have a checksum — any file can. What it
-            // cannot have is a checksum that stays valid, because the
-            // bytes behind that address are replaced without notice. The
-            // mirror's files have the same property today, which is why
-            // pinning them is no better.
+            //  * A nightly build CAN have a checksum — any file can. What
+            //    it cannot have is one that stays valid, because the bytes
+            //    behind the address are replaced without notice. The
+            //    mirror's files are replaced the same way, so pinning
+            //    them is no better today.
             //
-            // So the honest gain is narrower than "now it can be pinned":
-            // all three platforms now take the same file from the same
-            // place, through one code path that already knows how to
-            // check a hash. Nothing is checked until the mirror publishes
-            // a checksum with each file (#1076) — the remaining work is
-            // there, not here, and it is the publishing that is missing,
-            // not the ability to verify.
+            //  * Each platform still fetches its OWN file: the name is
+            //    built from the operating system and processor
+            //    (`get_mirror_asset_prefix`). They share a code path, not
+            //    a file.
+            //
+            //  * Getting the mirror to publish checksums would not, on
+            //    its own, make any of this verified. `get_mirror_download_url`
+            //    takes its expected hash from the `tool-versions.toml`
+            //    compiled into this binary and nothing else — it fetches
+            //    nothing. Using a published checksum would need code here
+            //    to go and get it. Both halves are missing, not just the
+            //    publishing half (#1076).
+            //
+            // So the gain is modest and worth stating plainly: every
+            // platform now goes through one path that already knows how
+            // to compare a hash, instead of one platform doing that and
+            // two fetching something that could never be compared to
+            // anything. Nothing is verified today.
             let tool_dir = get_tool_dir(app, "mp4box");
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
