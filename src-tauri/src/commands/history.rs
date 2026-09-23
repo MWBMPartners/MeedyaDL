@@ -150,7 +150,12 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 /// A file this app downloaded is never a shortcut, so refusing them
 /// outright costs nothing and needs no guessing about where one leads.
 /// Both questions are now asked about the same path — the one that was
-/// handed in, without following anything.
+/// handed in, rather than whatever it might lead to.
+///
+/// macOS has a second kind that the first check cannot see: a Finder
+/// alias is an ORDINARY FILE, so it answers "yes, a file" and "no, not a
+/// shortcut", and macOS follows it anyway. That is checked for
+/// separately, by its contents. A reviewer found that gap too.
 ///
 /// Folders are revealed rather than opened, through a separate
 /// permission, which selects the item in the file manager instead of
@@ -188,6 +193,37 @@ pub fn open_downloaded_file(file_path: String) -> Result<(), String> {
         Ok(_) => {}
         Err(_) => {
             return Err("That is not a file, or it is no longer there.".to_string());
+        }
+    }
+
+    // macOS has a second kind of shortcut that the check above cannot
+    // see: a Finder alias. Unlike the shortcuts above, an alias is an
+    // ORDINARY FILE — so "is this a file?" says yes and "is this a
+    // shortcut?" says no — and macOS still follows it to whatever it
+    // points at and opens that. An independent reviewer spotted the gap.
+    //
+    // Confirmed by making a real one on a Mac rather than reasoning
+    // about it: an alias to a script came out as a regular 784-byte file
+    // beginning `book\0\0\0\0mark`, which is Apple's bookmark format.
+    //
+    // The whole twelve bytes are checked, not just `book`, because a
+    // perfectly ordinary text file may well begin with the word "book".
+    // Twelve bytes with those exact zeros in between will not happen by
+    // accident, and none of the file types this app produces starts that
+    // way.
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Read;
+        const ALIAS_SIGNATURE: &[u8] = b"book\0\0\0\0mark";
+        if let Ok(mut f) = std::fs::File::open(path) {
+            let mut head = [0u8; 12];
+            if f.read_exact(&mut head).is_ok() && head == ALIAS_SIGNATURE {
+                return Err(
+                    "That is an alias to another file, and MeedyaDL does not open aliases. \
+                     Open it from Finder if you meant to."
+                        .to_string(),
+                );
+            }
         }
     }
 
@@ -282,6 +318,74 @@ mod tests {
         let _ = std::fs::remove_file(&disguise);
         let _ = std::fs::remove_file(&target);
         let _ = std::fs::remove_dir(&dir);
+    }
+
+    /// A macOS alias wearing a music name must be refused too.
+    ///
+    /// An alias is NOT a shortcut in the sense the check above uses: it
+    /// is an ordinary file, so "is this a file?" says yes and "is this a
+    /// shortcut?" says no — and macOS follows it anyway. An independent
+    /// reviewer found that gap after the first fix.
+    ///
+    /// This asks Finder to make a REAL alias rather than writing the
+    /// twelve magic bytes by hand, because a hand-made stand-in would
+    /// only prove the code matches what this test believes an alias
+    /// looks like. If Finder is not available (no desktop session, as on
+    /// a build machine) the test says so and stops, rather than passing
+    /// on nothing.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_macos_alias_wearing_a_music_name_is_refused() {
+        let dir = std::env::temp_dir().join(format!("meedyadl-alias-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let target = dir.join("payload.sh");
+        std::fs::write(&target, b"#!/bin/sh\necho hi\n").unwrap();
+
+        let script = format!(
+            "tell application \"Finder\" to make alias file to POSIX file \"{}\" at POSIX file \"{}\"",
+            target.display(),
+            dir.display()
+        );
+        let made = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output();
+
+        let alias = dir.join("payload.sh alias");
+        if made.is_err() || !alias.exists() {
+            // Never silently pass: say the check could not run.
+            eprintln!(
+                "skipping: Finder could not make an alias here (no desktop session?), \
+                 so this test proved nothing"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        // Rename it to wear an allowed extension — the disguise.
+        let disguise = dir.join("track.m4a");
+        std::fs::rename(&alias, &disguise).unwrap();
+
+        // The point: an alias is a regular file, so the shortcut check
+        // above does NOT catch it. This asserts that, so the test shows
+        // the gap rather than restating the fix.
+        let meta = std::fs::symlink_metadata(&disguise).unwrap();
+        assert!(
+            !meta.file_type().is_symlink(),
+            "an alias is not a symbolic link — that is the whole problem"
+        );
+        assert!(meta.is_file(), "and it answers yes to being a file");
+
+        let result = open_downloaded_file(disguise.to_string_lossy().into_owned());
+        assert!(result.is_err(), "an alias must be refused however it is named");
+        assert!(
+            result.unwrap_err().contains("alias"),
+            "and the person should be told why"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// An ordinary file is still opened — or rather, still gets past

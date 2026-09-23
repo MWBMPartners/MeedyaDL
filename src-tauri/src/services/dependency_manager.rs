@@ -2903,11 +2903,23 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             // signed build records as #1211. Both need work on the mirror
             // itself, not here.
             //
-            // What this change DID achieve is still worth having: before
-            // it, macOS and Linux fetched a nightly build that by its
-            // nature can never have a checksum. Now every platform takes
-            // a file that at least CAN be pinned, and will be checked the
-            // moment a pin exists.
+            // What this change DID achieve, stated carefully, because the
+            // first attempt at stating it was itself wrong and a reviewer
+            // caught that too:
+            //
+            // A nightly build CAN have a checksum — any file can. What it
+            // cannot have is a checksum that stays valid, because the
+            // bytes behind that address are replaced without notice. The
+            // mirror's files have the same property today, which is why
+            // pinning them is no better.
+            //
+            // So the honest gain is narrower than "now it can be pinned":
+            // all three platforms now take the same file from the same
+            // place, through one code path that already knows how to
+            // check a hash. Nothing is checked until the mirror publishes
+            // a checksum with each file (#1076) — the remaining work is
+            // there, not here, and it is the publishing that is missing,
+            // not the ability to verify.
             let tool_dir = get_tool_dir(app, "mp4box");
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
