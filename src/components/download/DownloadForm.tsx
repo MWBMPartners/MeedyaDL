@@ -922,9 +922,30 @@ export function DownloadForm() {
       // shut down is worse than the fault this whole change fixed.
       useSettingsStore.getState().updateSettings({ after_queue_once: previous });
 
-      const stillArmed = previous
-        ? `“${previous.replace(/_/g, ' ')}” is still set from before, and will still happen.`
-        : 'Nothing was set before, so nothing will happen when the queue finishes.';
+      // What will ACTUALLY happen when the queue finishes, which is not
+      // simply "the one-off action, or nothing".
+      //
+      // The backend uses the one-off if there is one and otherwise falls
+      // back to the standing choice in Settings. So "nothing was set
+      // before, so nothing will happen" is wrong whenever that standing
+      // choice is anything but "do nothing" — and it is wrong in the
+      // dangerous direction, because it can say the machine will stay on
+      // when the standing choice is to shut it down.
+      //
+      // A reviewer caught that. It is the same mistake as the one this
+      // failure path was written to fix, one level along: the message
+      // claiming something the stored state does not support.
+      const standing = useSettingsStore.getState().settings.after_queue_action;
+      const readable = (a: string) => `“${a.replace(/_/g, ' ')}”`;
+
+      let stillArmed: string;
+      if (previous) {
+        stillArmed = `${readable(previous)} is still set from before, and will still happen.`;
+      } else if (standing && standing !== 'do_nothing') {
+        stillArmed = `Your usual after-queue setting, ${readable(standing)}, still applies.`;
+      } else {
+        stillArmed = 'Nothing will happen when the queue finishes.';
+      }
 
       useUiStore
         .getState()
