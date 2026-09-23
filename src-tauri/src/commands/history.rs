@@ -116,11 +116,16 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 /// whatever the format of the alias itself — which is the point: it is
 /// one question that does not depend on knowing every format.
 ///
-/// Returns `Ok(false)` for exactly one reason: there is no such
-/// attribute, which is the ordinary case for an ordinary file. Every
-/// other outcome — including an attribute too short to hold the flags —
-/// comes back as an error, so the caller refuses rather than assumes.
-/// "Cannot tell" and "no" are never the same answer here.
+/// Answers `Ok(false)` when it genuinely established the file is not an
+/// alias: either the flags were read and the alias bit was clear, or
+/// there is no Finder information at all, which is the ordinary case for
+/// an ordinary file.
+///
+/// Everything it could NOT establish comes back as an error — including
+/// an attribute present but too short to hold the flags — so the caller
+/// refuses rather than assumes. **"Cannot tell" is never reported as
+/// "no".** That is the one property worth protecting here, and an
+/// earlier version broke it in the too-short branch.
 #[cfg(target_os = "macos")]
 fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
     use std::os::unix::ffi::OsStrExt;
