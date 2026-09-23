@@ -325,10 +325,20 @@ pub fn build_github_issue_url(app: &AppHandle, id: &str) -> Result<String, Strin
     // in a *public* GitHub issue URL. Panic messages frequently include
     // source-adjacent data (failed path operations, file-not-found
     // errors) that can carry the local username.
-    let redacted_panic_message = report
-        .panic_message
-        .as_deref()
-        .map(crate::services::diagnostic_bundle::redact_path_usernames);
+    // Both removals, the same pair applied to the backtrace below.
+    //
+    // This used to take out account names from paths and stop there,
+    // while the backtrace beside it also had web addresses cleaned. A
+    // full review of the codebase flagged the difference: nothing puts a
+    // token into a panic message today, but this text goes straight into
+    // a PUBLIC issue, and "nothing does that at the moment" is a poor
+    // thing to rely on when the cost of being wrong is a token published
+    // on the internet. Doing both here costs nothing and removes the
+    // question.
+    let redacted_panic_message = report.panic_message.as_deref().map(|msg| {
+        let without_usernames = crate::services::diagnostic_bundle::redact_path_usernames(msg);
+        redact_urls_in_text(&without_usernames)
+    });
 
     let error_summary: String = redacted_panic_message
         .as_deref()

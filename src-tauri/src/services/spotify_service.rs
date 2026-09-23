@@ -354,6 +354,14 @@ fn redact_cli_value(arg: &str) -> String {
 ///
 /// * The command can't be built (Python missing, URL fails prefix check).
 /// * The process exits with a non-zero status.
+/// # Nothing calls this
+///
+/// Spotify downloads go through the queue's own path. **Do not switch
+/// anything to this function without adding what it is missing**: it
+/// runs the program through the plain runner, so there is no
+/// cancellation check, no deadline, and the program is not stopped if
+/// the app quits. Found by a full review of the codebase, alongside the
+/// same situation in the Apple Music service.
 pub async fn run_votify(
     app: &AppHandle,
     download_id: &str,
