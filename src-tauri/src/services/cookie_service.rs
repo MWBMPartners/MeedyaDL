@@ -460,14 +460,34 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
             .map_err(|e| format!("Failed to create cookies directory: {e}"))?;
     }
 
-    std::fs::write(&cookies_path, &netscape_content)
-        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
-
-    // Restrict cookies.txt to owner-only read/write on Unix (#459-style
-    // hardening) — it carries live Apple Music session cookies, so other
-    // local accounts on a shared machine must not be able to read it.
+    // This file holds live Apple Music session cookies, so nobody else
+    // with an account on the same machine should be able to read it.
+    //
+    // On Unix it is CREATED locked rather than written and then locked.
+    // The previous order left a gap — short, but real — where the file
+    // existed with whatever permissions the system hands out by default
+    // and anybody could read it. An independent review of the whole
+    // codebase pointed it out. Closing the gap costs nothing, and the
+    // alternative depended on nobody being quick.
     #[cfg(unix)]
     {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&cookies_path)
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+        file.write_all(netscape_content.as_bytes())
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+
+        // `mode` only applies when this call CREATES the file. If one
+        // was already there — an earlier import, or a file somebody
+        // else made — it keeps the permissions it already had, so set
+        // them explicitly as well.
         use std::os::unix::fs::PermissionsExt;
         if let Err(e) =
             std::fs::set_permissions(&cookies_path, std::fs::Permissions::from_mode(0o600))
@@ -475,6 +495,13 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
             log::debug!("Failed to set cookies.txt permissions: {e}");
         }
     }
+
+    // Windows has no equivalent of these permission bits, and the file
+    // sits in this application's own data folder, which the system
+    // already restricts to this account.
+    #[cfg(not(unix))]
+    std::fs::write(&cookies_path, &netscape_content)
+        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
 
     let cookies_path_str = cookies_path
         .to_str()
@@ -695,6 +722,42 @@ pub fn check_full_disk_access() -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// The cookie file must never exist, even briefly, in a state where
+    /// another account on the same machine could read it.
+    ///
+    /// This does not call the real import (that needs a browser and a
+    /// live Apple Music session). It exercises the same way of making
+    /// the file that the import now uses, which is the part that was
+    /// wrong: the file used to be written first and locked afterwards,
+    /// leaving a short window open. An independent review of the whole
+    /// codebase found it.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_cookie_file_is_never_readable_by_anybody_else() {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("cookies.txt");
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .expect("create");
+        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        drop(file);
+
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the file must be readable and writable by its owner and nobody else, got {mode:o}"
+        );
+    }
+
     use super::*;
 
     // ----------------------------------------------------------
