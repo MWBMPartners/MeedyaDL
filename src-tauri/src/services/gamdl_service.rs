@@ -878,7 +878,6 @@ mod refusal_agreement_tests {
 #[cfg(test)]
 mod tool_path_gate_tests {
     use super::tool_paths_accepted_on;
-    use crate::services::gamdl_capabilities::set_detected_version;
 
     // These call the SAME function the download path calls. An earlier
     // version of this test restated the rule in its own words, which a
@@ -895,7 +894,14 @@ mod tool_path_gate_tests {
         // given an argument it does not know stops before downloading
         // anything, so the cost of guessing wrong here is the whole
         // download.
-        set_detected_version(None);
+        //
+        // Nothing is written to the shared record of which version was
+        // detected, and that is the point: this asks the pure function
+        // directly. A whole-branch review found the earlier version
+        // clearing that record without holding the lock, which could
+        // wipe a version another test had just set and make THAT test
+        // fail, somewhere else, for no reason anyone could reproduce.
+        // A test that needs no shared state should touch none.
         assert!(
             !tool_paths_accepted_on(None),
             "with no version detected, neither argument may be sent"
