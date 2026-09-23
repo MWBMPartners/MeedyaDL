@@ -832,6 +832,44 @@ pub async fn import_profile(
                 &pre_import_settings,
             );
 
+            // Where downloads are saved stays as this install has it.
+            //
+            // The shared helper deliberately does NOT keep this, because
+            // an ordinary settings export exists partly to carry that
+            // folder to your own second machine. A bundle is a different
+            // thing — a restore onto an install that already has its own
+            // folders — and its export replaces the account name in paths
+            // with a placeholder, so a folder taken from one can point
+            // somewhere that does not exist. This route always kept it;
+            // moving to the shared helper lost that, and a reviewer
+            // caught it.
+            imported.output_path = pre_import_settings.output_path.clone();
+
+            // One deliberate exception, when credentials are being
+            // restored as well.
+            //
+            // The shared helper keeps this machine's Apple Music sign-in
+            // identifiers, which is right for an ordinary settings file:
+            // nobody else's should arrive in one. But a bundle restoring
+            // credentials also replaces the private key those identifiers
+            // belong to — and the identifiers travel in the settings, not
+            // in the encrypted part. Keeping the old ones would pair a new
+            // key with the identifiers of the old, which does not work and
+            // gives no clue why. A reviewer spotted the mismatch.
+            //
+            // So when the key is coming from the bundle, its identifiers
+            // come with it. When it is not, they stay local.
+            if matches!(options.credentials, ImportConflictAction::Replace) {
+                if let Ok(from_bundle) =
+                    serde_json::from_slice::<crate::models::settings::AppSettings>(&settings_bytes)
+                {
+                    imported.service_settings.apple_music.musickit_team_id =
+                        from_bundle.service_settings.apple_music.musickit_team_id;
+                    imported.service_settings.apple_music.musickit_key_id =
+                        from_bundle.service_settings.apple_music.musickit_key_id;
+                }
+            }
+
             crate::services::config_service::save_settings(&app, &imported)
                 .map_err(|e| format!("Failed to write settings.json: {e}"))?;
             result.settings_restored = true;

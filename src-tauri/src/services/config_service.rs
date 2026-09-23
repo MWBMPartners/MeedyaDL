@@ -533,6 +533,24 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
         }
     }
 
+    // If verbose logging was just switched off, WRITE that down.
+    //
+    // It used to be changed in memory only, and saved as a side effect of
+    // recording a new version — which happens once per upgrade. So on an
+    // ordinary restart of the same version, the file still said "on", and
+    // the next plain read handed that back to whatever asked. Save
+    // anything at all afterwards and it was on again: switched off at
+    // every startup, switched back on by the first save, for ever.
+    //
+    // A reviewer found this surviving the rename that fixed the rest of
+    // the settings-read problem. The decision made at startup has to
+    // reach the file, or it is not a decision, just a flicker.
+    if !settings.verbose_activity_log && settings_on_disk_has_verbose_logging_on(app) {
+        if let Err(e) = write_settings_to_path(&settings_path, &settings) {
+            log::warn!("Failed to record that verbose logging was switched off: {e}");
+        }
+    }
+
     // Track version changes for first-load notices and transition logic.
     // The frontend reads `last_seen_version` to detect when a new version is
     // launched for the first time (e.g., to show a pre-release warning modal).
@@ -603,6 +621,15 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     } else {
         Ok(AppSettings::default())
     }
+}
+
+/// Did the file on disk say verbose logging was on?
+///
+/// Used only by the startup path, to tell "it was already off" from "we
+/// have just switched it off and should write that down". Reading the
+/// file again is cheap and happens once per launch.
+fn settings_on_disk_has_verbose_logging_on(app: &AppHandle) -> bool {
+    read_settings_from_disk(app).is_ok_and(|s| s.verbose_activity_log)
 }
 
 /// Reads the stored settings. No side effects.

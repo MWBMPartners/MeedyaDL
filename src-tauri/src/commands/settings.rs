@@ -912,6 +912,22 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.after_queue_action = current.after_queue_action;
     imported.after_queue_once = current.after_queue_once;
 
+    // NOT here: where downloads are saved.
+    //
+    // A reviewer pointed out that the profile-bundle route used to keep
+    // the local folder and lost that when it moved onto this function.
+    // The first fix was to add it here — and a test caught it
+    // immediately: an ordinary settings import is MEANT to carry that
+    // folder between your own machines, and refusing it "would make
+    // importing pointless", as the test says in as many words.
+    //
+    // So the two routes genuinely differ, and the bundle route keeps its
+    // own line for this one value rather than bending the shared rule.
+    // The difference is deliberate: a settings file is something you
+    // export to set up your own second machine, while a bundle is a
+    // restore of a whole profile onto an install that already has its
+    // own folders.
+
     // The SAME protection, one level deeper, for the per-service
     // settings.
     //
