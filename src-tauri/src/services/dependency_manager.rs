@@ -2908,12 +2908,16 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             //  * Each platform fetches a different file: the name is
             //    built from the operating system and processor by
             //    `get_mirror_asset_prefix`.
-            //  * Verifying would need two things that are both missing:
-            //    the mirror publishing a checksum beside each file
-            //    (#1076), AND code here to fetch and use it. This
-            //    function does reach the network — `resolve_github_release_asset`
-            //    fetches the release listing — but it asks for no
-            //    checksum.
+            //  * The machinery to verify already exists and works: pin a
+            //    hash in `[mirror.asset_hashes]` and this download is
+            //    checked against it. What is missing is a hash that
+            //    stays right. Fetching one published beside each file
+            //    (#1076) is the way out being pursued, and it needs both
+            //    the mirror to publish it and code here to go and get
+            //    it — this function does reach the network, through
+            //    `resolve_github_release_asset` for the release listing,
+            //    but asks for no checksum. That is one route to a
+            //    durable answer, not the only conceivable one.
             //  * None of this is impossible, only absent. Any file can
             //    have a checksum; what these files cannot have is one
             //    that stays valid while the bytes behind them are
