@@ -3421,6 +3421,7 @@ dependencies = [
  "fs2",
  "jsonwebtoken",
  "keyring",
+ "libc",
  "lofty",
  "log",
  "lzma-rs",
