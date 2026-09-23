@@ -151,32 +151,12 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// * `Err(String)` - File write or serialization error.
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    static MUSICKIT_ID_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
-
     let mut settings = settings;
 
-    let normalize_musickit_id =
-        |label: &str, value: Option<String>| -> Result<Option<String>, String> {
-            let Some(raw) = value else {
-                return Ok(None);
-            };
-            let normalized = raw.trim().to_ascii_uppercase();
-            if normalized.is_empty() {
-                return Ok(None);
-            }
-            if !MUSICKIT_ID_RE.is_match(&normalized) {
-                return Err(format!(
-                    "{label} must be exactly 10 uppercase letters/numbers (A-Z, 0-9)."
-                ));
-            }
-            Ok(Some(normalized))
-        };
-
     settings.musickit_team_id =
-        normalize_musickit_id("MusicKit Team ID", settings.musickit_team_id.take())?;
+        normalise_musickit_id("MusicKit Team ID", settings.musickit_team_id.take())?;
     settings.musickit_key_id =
-        normalize_musickit_id("MusicKit Key ID", settings.musickit_key_id.take())?;
+        normalise_musickit_id("MusicKit Key ID", settings.musickit_key_id.take())?;
 
     // Load previous settings for diff logging (best-effort — if this fails,
     // we still save the new settings, just without the verbose diff).
@@ -819,6 +799,41 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     emit_app_log(&app, &format!("Settings imported from {filename}"));
 
     Ok(())
+}
+
+
+/// Cleans and checks one Apple Music identifier.
+///
+/// Trimmed, upper-cased, and then required to be exactly ten letters or
+/// digits. Nothing at all is not an error — plenty of people never enter
+/// these.
+///
+/// **This used to live inside the Settings save as a closure**, which
+/// meant it protected exactly one route. A reviewer found the profile
+/// restore going through a different save that does none of this, while
+/// a comment right beside it claimed the checking happened. Same fault
+/// this project keeps meeting: a rule that only guards the door somebody
+/// happened to write it on.
+pub(crate) fn normalise_musickit_id(
+    label: &str,
+    value: Option<String>,
+) -> Result<Option<String>, String> {
+    static MUSICKIT_ID_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
+
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let normalised = raw.trim().to_ascii_uppercase();
+    if normalised.is_empty() {
+        return Ok(None);
+    }
+    if !MUSICKIT_ID_RE.is_match(&normalised) {
+        return Err(format!(
+            "{label} must be exactly 10 uppercase letters/numbers (A-Z, 0-9)."
+        ));
+    }
+    Ok(Some(normalised))
 }
 
 /// Sanitize imported settings to prevent injection and resource exhaustion.
