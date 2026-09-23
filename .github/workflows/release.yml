@@ -2231,8 +2231,80 @@ jobs:
           # Base URL for release assets
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # Get the current release body
-          CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+          # Get the current release body.
+          #
+          # This has to be read reliably, because the next few steps decide
+          # what to write back based on what it says. Getting this wrong
+          # once destroyed a whole release's notes (see the big comment
+          # right below), so it is worth spelling out exactly what "read
+          # reliably" means here:
+          #
+          #   - GitHub can refuse a request for no real reason — a blip,
+          #     not a fault of ours. The project's own notes record this
+          #     happening TWICE within two seconds during a past incident,
+          #     so one failed attempt proves nothing. We try up to three
+          #     times, two seconds apart, before giving up.
+          #   - If every attempt fails, that is NOT the same thing as "this
+          #     release has no notes yet". A brand-new release genuinely
+          #     has an empty body and `gh` reports that successfully; a
+          #     network hiccup makes `gh` fail outright. Those two cases
+          #     must never be treated the same way.
+          #   - The old version of this step could not tell them apart. It
+          #     wrote `2>/dev/null || echo ""`, so ANY failure — a timeout,
+          #     a rate limit, anything — turned into a silent empty string.
+          #     That empty string then walked through every check below as
+          #     if it were the real (short) body. The "has the guide
+          #     already been added?" check found nothing in it, so the
+          #     step went ahead and wrote the download table over — not
+          #     alongside, over — whatever plain-English release notes a
+          #     person had actually published. A later run would see the
+          #     table, conclude "already done", and never touch it again,
+          #     so the loss was permanent. A failed read must stop this
+          #     step, never stand in for an empty body.
+          #
+          # fetch_release_body() is the one place that talks to GitHub for
+          # this step. It prints the body and returns success (0) only
+          # when a read genuinely succeeded, even if what it read back was
+          # an empty string. On repeated failure it returns 1 and prints
+          # nothing, and the caller below treats that as fatal.
+          fetch_release_body() {
+            local tag="$1" repo="$2" attempt body
+            for attempt in 1 2 3; do
+              if body=$(gh release view "$tag" --repo "$repo" --json body --jq '.body' 2>/dev/null); then
+                printf '%s' "$body"
+                return 0
+              fi
+              echo "::warning::Could not read release notes for $tag (attempt $attempt of 3) — retrying" >&2
+              if [ "$attempt" -lt 3 ]; then
+                sleep 2
+              fi
+            done
+            return 1
+          }
+
+          if ! RAW_BODY=$(fetch_release_body "$TAG" "$REPO"); then
+            echo "::error::Could not read the current release notes for $TAG after 3 attempts. Refusing to write anything, because guessing here (treating the failed read as 'no notes yet') is exactly what previously overwrote a real release's notes with just the download table. Re-run this job once GitHub is answering again."
+            exit 1
+          fi
+
+          # Detect whether the RAW body (before any stripping) still has
+          # the "Release in progress..." placeholder in it, so later steps
+          # know whether a cleanup write is needed even when the download
+          # guide is already present. This reads $RAW_BODY directly rather
+          # than asking GitHub a second time — one read for the whole step
+          # means one place that can fail, not two, and it also removes a
+          # second silent-failure spot the old version of this step had
+          # here (a failed second `gh release view` fed an empty string
+          # into `grep`, which just quietly reported "no placeholder found"
+          # instead of raising anything).
+          # Anchored to the start of a line for the same reason as the
+          # verify step below: prose that merely mentions the placeholder
+          # in passing must not trigger a spurious cleanup-write.
+          if printf '%s' "$RAW_BODY" | grep -qE "^Release in progress"; then
+            NEEDS_PLACEHOLDER_CLEANUP="1"
+          else
+            NEEDS_PLACEHOLDER_CLEANUP="0"
+          fi
 
           # Strip any "Release in progress..." placeholder + the optional
           # `---` separator that follows it (#857). The placeholder is
@@ -2252,7 +2324,7 @@ jobs:
           # at the first match) and prune the optional `---` separator
           # that immediately follows it. We also collapse the extra
           # blank lines left behind.
-          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "
+          CURRENT_BODY=$(printf '%s' "$RAW_BODY" | python3 -c "
           import re,sys
           body = sys.stdin.read()
           # Strip the placeholder line + optional '---' separator + the
@@ -2267,22 +2339,6 @@ jobs:
           body = body.lstrip('\n')
           sys.stdout.write(body)
           ")
-
-          # Detect whether the body looked broken before the strip.
-          # If the placeholder appeared anywhere, we need to write the
-          # cleaned body back even if the download guide is already
-          # present (because the guide check comes BEFORE the cleanup
-          # write in the legacy flow). Set a flag the post-cleanup
-          # branch reads.
-          # Anchored for the same reason as the verify step below: prose
-          # that merely mentions the placeholder must not trigger a
-          # spurious cleanup-write.
-          if gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
-            | grep -qE "^Release in progress"; then
-            NEEDS_PLACEHOLDER_CLEANUP="1"
-          else
-            NEEDS_PLACEHOLDER_CLEANUP="0"
-          fi
 
           # Check if the download guide has already been appended (idempotent).
           # If so AND no placeholder cleanup is needed → exit clean. If a
@@ -2364,7 +2420,11 @@ jobs:
           # Strip leading whitespace from heredoc indentation
           DOWNLOAD_GUIDE=$(echo "$DOWNLOAD_GUIDE" | sed 's/^          //')
 
-          # Append the guide to the existing body
+          # Append the guide to the existing body. This is safe to do
+          # unconditionally at this point — the script already exited
+          # above if the read of $CURRENT_BODY could not be trusted, so
+          # by the time we reach here it holds either the release's real
+          # notes or a genuinely empty body, never a failed-read stand-in.
           NEW_BODY="${CURRENT_BODY}${DOWNLOAD_GUIDE}"
 
           # Update the release
