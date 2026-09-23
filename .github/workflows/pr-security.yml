@@ -9,9 +9,13 @@
 # MeedyaDL's Rust + TypeScript + Tauri stack.
 #
 # IMPORTANT: every check here is NON-BLOCKING (continue-on-error). The
-# merge gate stays with ci.yml — which already enforces the hard gates this
-# repo cares about (`cargo clippy -D warnings`, `cargo test`, `cargo-deny`,
-# `tsc`/`npm run type-check`, `eslint`, CodeQL for JS/TS + Actions). This
+# merge gate is `ci.yml` plus the separate `CodeQL` and `Licences`
+# workflows — together they enforce the hard gates this repo cares about
+# (`cargo clippy -D warnings`, `cargo test`, `cargo-deny`, `tsc`/`npm run
+# type-check`, `eslint`, and CodeQL static analysis for JS/TS + Actions).
+# CodeQL is its own workflow, not a step inside ci.yml — an earlier version
+# of this comment said CodeQL ran "already hard-gates" as part of ci.yml,
+# which was never true; it just happened to run on the same PRs. This
 # workflow adds the *heuristic* layer those gates don't cover, and posts a
 # single advisory comment on the PR. These are HEURISTICS — false positives
 # are expected. Review the findings; don't blindly act on them.

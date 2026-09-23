@@ -1315,7 +1315,6 @@ pub fn run() {
             // Clipboard monitoring command
             commands::clipboard::read_clipboard,
             // Service status checking
-            commands::service_status::check_service_status,
             // Remote feature availability (#1071)
             commands::feature_flags::get_feature_flags,
             commands::feature_flags::refresh_feature_flags,

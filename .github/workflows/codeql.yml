@@ -4,8 +4,10 @@
 # CodeQL Code Scanning Workflow
 # ==============================
 #
-# Runs GitHub CodeQL static analysis on push to main and on pull requests.
-# This file overrides the GitHub "Default setup" dynamic CodeQL configuration
+# Runs GitHub CodeQL static analysis on push to main and the three
+# long-lived channel branches (alpha, beta, release-candidate), and on
+# pull requests targeting any of those four. This file overrides the
+# GitHub "Default setup" dynamic CodeQL configuration
 # to exclude Rust analysis, which hangs indefinitely due to the full Cargo
 # build required by CodeQL's Rust extractor (often exceeding 6+ hours).
 #
@@ -24,10 +26,16 @@
 name: CodeQL
 
 on:
+  # Same branch list as ci.yml: main plus the three long-lived channel
+  # branches (alpha, beta, release-candidate). All real development lands
+  # on one of these, not just main, so this scan has to watch all four —
+  # otherwise a change can reach a channel users install with no static
+  # security scan ever having looked at it. A real PR into `alpha` was
+  # checked and found no CodeQL run at all before this was added.
   push:
-    branches: [main]
+    branches: [main, alpha, beta, release-candidate]
   pull_request:
-    branches: [main]
+    branches: [main, alpha, beta, release-candidate]
 
 # Cancel in-progress runs for the same branch/PR to save Actions minutes.
 concurrency:

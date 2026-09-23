@@ -61,7 +61,7 @@
       "themeLight": "Hell",
       "themeDark": "Dunkel",
       "language": "Sprache",
-      "languageDesc": "Anzeigesprache der Anwendung (erfordert Neustart)",
+      "languageDesc": "Die Sprache, in der MeedyaDL angezeigt wird. Wird sofort übernommen.",
       "languageAuto": "Automatisch (System)",
       "preferences": "Einstellungen",
       "metadataLanguage": "Metadaten-Sprache",

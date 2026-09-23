@@ -1185,9 +1185,24 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
 ///
 /// # Arguments
 /// * `app` - Tauri app handle for reading the current app version
-/// * `check_pre_releases` - Whether to include pre-release versions.
-///   When true: queries `releases?per_page=5` and takes the newest (which may be a pre-release).
-///   When false: queries `releases/latest` (GitHub automatically excludes pre-releases).
+/// * `check_pre_releases` - Whether unfinished builds are in scope.
+///   When true: asks for the list of releases and takes the newest one at
+///   least as finished as the person's chosen channel. When false: asks
+///   for `releases/latest`, which GitHub already excludes unfinished
+///   builds from.
+///
+///   **This is worked out from the chosen channel, not from a setting of
+///   its own.** There used to be a switch in Settings called "Include
+///   Pre-Release Versions". It could not change the answer in any
+///   configuration: on the finished-releases channel the filter below
+///   admits only finished releases whichever way it was set, and on every
+///   other channel this was already true because of the channel itself.
+///   It could only ever make things worse — switched on, it narrowed the
+///   search to a fixed number of recent releases, so a finished release
+///   sitting below that many unfinished ones would have been missed.
+///
+///   (The old text here said this asks for five releases. It asks for
+///   rather more than that, and has for a long time.)
 async fn check_app_update(
     app: &AppHandle,
     check_pre_releases: bool,
@@ -1201,11 +1216,29 @@ async fn check_app_update(
     // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
     // - Include pre-releases: `releases?per_page=20` returns an array sorted newest-first.
     //   We fetch up to 20 so that, after channel filtering, we still find the most
-    //   recent release on the user's tier (nightly releases ship daily and can bury
-    //   other channels in the first few results).
+    //   recent release on the person's own channel.
+    //
+    //   A hundred, not twenty, and the reason is worth writing down
+    //   because it is NOT a bug being fixed. A review worried that this
+    //   project cuts an alpha build on every push, so the newest twenty
+    //   releases could all be alphas — and somebody on the beta channel
+    //   would match none of them and be told they were up to date while
+    //   sitting behind a beta nobody offered them.
+    //
+    //   That was checked against the live list on 23 September 2026
+    //   rather than assumed, and it is NOT happening: the newest release
+    //   candidate, the newest finished release and the newest beta sat at
+    //   positions 1, 3 and 6. Twenty was comfortably enough.
+    //
+    //   It is a hundred anyway because the worry is sound even though the
+    //   instance was not: it costs exactly the same single request (a
+    //   hundred is the most GitHub will return at once), and it widens
+    //   the margin from fourteen spare places to ninety-four. If this is
+    //   ever not enough, the symptom is somebody being told they are up
+    //   to date when they are not — so it is worth being generous.
     let (url, is_list) = if check_pre_releases {
         (
-            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20",
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=100",
             true,
         )
     } else {

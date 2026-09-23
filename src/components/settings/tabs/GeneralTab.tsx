@@ -264,12 +264,18 @@ const LANGUAGE_OPTIONS = [
  */
 export function GeneralTab() {
   // `i18n.language` is the language the app is ACTUALLY showing text in
-  // right now -- as opposed to `uiLanguage.value` below, which is just
-  // what the dropdown is set to and (per its own description text)
-  // "requires restart to take full effect". The machine-translation
-  // notice further down is about words the person is reading on THIS
-  // screen right now, so it has to follow the same live language, not
-  // the not-yet-applied dropdown choice.
+  // right now, as opposed to `uiLanguage.value` below, which is what the
+  // dropdown is set to. Those are the same thing almost immediately now
+  // — changing the dropdown switches the language straight away — but
+  // not in the same instant, because fetching the words for a language
+  // takes a moment. The machine-translation notice further down is about
+  // the words the person is reading on THIS screen right now, so it has
+  // to follow the live language rather than the dropdown.
+  //
+  // This used to say the dropdown "requires restart to take full
+  // effect", and until recently that was true twice over: the words for
+  // the chosen language were never fetched, so the first restart changed
+  // nothing and only the second one worked.
   const { t, i18n } = useTranslation();
 
   /**
@@ -303,7 +309,6 @@ export function GeneralTab() {
   const clipboardMonitoring = useSettingsField('clipboard_monitoring');
   const autoCheckUpdates = useSettingsField('auto_check_updates');
   const updateCheckInterval = useSettingsField('update_check_interval_hours');
-  const checkPreReleases = useSettingsField('check_pre_releases');
   const updateChannel = useSettingsField('update_channel');
   const devAccessEnabled = useSettingsField('dev_access_enabled');
 
@@ -645,7 +650,9 @@ export function GeneralTab() {
          * UI display language selector -- controls translation files loaded by i18next.
          * 'auto' maps to empty string in settings (OS auto-detection).
          * Other values are language codes that map to public/locales/{code}/.
-         * Requires app restart to take full effect across all components.
+         * Applies straight away. It used to need two restarts, because
+         * nothing ever fetched the words for the chosen language — the
+         * first restart appeared to do nothing at all.
          */}
         {/* High-contrast accessibility toggle */}
         <Toggle
@@ -674,7 +681,7 @@ export function GeneralTab() {
         <div className="space-y-1.5">
           <Select
             label="Language"
-            description="Application display language (requires restart to take full effect)"
+            description="The language MeedyaDL is shown in. Changes straight away."
             options={UI_LANGUAGE_OPTIONS}
             value={uiLanguage.value || 'auto'}
             onChange={(e) => {
@@ -956,17 +963,32 @@ export function GeneralTab() {
           />
         )}
 
-        {/* Pre-release channel toggle */}
-        <Toggle
-          label="Include Pre-Release Versions"
-          description="Check for pre-release (beta/RC) versions in addition to stable releases. Pre-release versions may contain bugs or incomplete features and are not yet fully supported."
-          checked={checkPreReleases.value}
-          onChange={checkPreReleases.set}
-        />
+        {/* There used to be an "Include Pre-Release Versions" switch here.
+            It has been removed because it could not change anything.
 
-        {/* Update channel selector — guards auto-updates from crossing down the
-            stability ladder. Selecting anything other than Stable implicitly
-            enables pre-release checks on the backend. */}
+            Following it through: switching it on made the app look at a
+            list of recent releases instead of asking for the newest
+            finished one — but the app then keeps only releases at least
+            as finished as the channel chosen below. For somebody on the
+            finished-releases channel that admits only finished releases,
+            which is the same answer as leaving the switch off. And on any
+            other channel the list was already being used because of the
+            channel itself. There was no setting of the two in which the
+            switch altered the outcome.
+
+            It could only make things worse: switched on, the app looked
+            at a fixed number of recent releases, so a finished release
+            sitting below that many unfinished ones would have been
+            missed — exactly the person the switch was supposed to help.
+
+            The channel below already does this job properly, and does it
+            in a way the switch never could: it will not offer an update
+            that moves you to a LESS finished build than you chose. The
+            stored setting is kept so an existing settings file still
+            loads; nothing reads it any more. */}
+
+        {/* Update channel selector — stops updates crossing down to a
+            less finished build than the person chose. */}
         <Select
           label="Update Channel"
           description="Controls which release channel you receive updates from. Subscribing to a channel surfaces releases at-or-above that stability tier (e.g. Beta sees Beta, RC, Stable). Alpha is hidden unless Dev Access is enabled. Switching to any pre-release channel requires explicit confirmation."

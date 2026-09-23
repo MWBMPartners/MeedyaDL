@@ -129,9 +129,6 @@ pub mod clipboard;
 /// Delegates to `services::api_audit_service`.
 pub mod api_audit;
 
-/// Service status command — checks remote service availability.
-pub mod service_status;
-
 /// Remote feature-flag commands (#1071) — read the resolved availability
 /// snapshot (`get_feature_flags`, no network) and trigger a refresh
 /// (`refresh_feature_flags`, rate-limited 1/min). Delegates to

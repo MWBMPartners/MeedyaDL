@@ -32,6 +32,14 @@ vi.mock('@/lib/tauri-commands', () => ({
   abortAllDownloads: vi.fn(),
   deleteQueueItem: vi.fn(),
   getQueueStatus: vi.fn(),
+  // Added for the export/import/start-queue silent-failure fix below --
+  // without these, `commands.exportQueue` etc. would be `undefined`
+  // inside the store (this factory replaces the whole module), so any
+  // test calling those actions would fail with "is not a function"
+  // instead of exercising the real behaviour being tested.
+  exportQueue: vi.fn(),
+  importQueue: vi.fn(),
+  processQueue: vi.fn(),
 }));
 
 /**
@@ -501,12 +509,213 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().queueItems[0].id).toBe('dl-active');
     });
 
-    it('returns 0 on failure', async () => {
+    it('propagates the backend rejection instead of returning 0 (a real failure must not look identical to "nothing to clear")', async () => {
       vi.mocked(commands.clearQueue).mockRejectedValueOnce('Clear failed');
 
-      const removed = await useDownloadStore.getState().clearFinished();
+      await expect(useDownloadStore.getState().clearFinished()).rejects.toThrow('Clear failed');
+    });
+  });
 
-      expect(removed).toBe(0);
+  describe('clearAll', () => {
+    it('propagates the backend rejection instead of returning 0', async () => {
+      vi.mocked(commands.clearAllQueue).mockRejectedValueOnce('Clear all failed');
+
+      await expect(useDownloadStore.getState().clearAll()).rejects.toThrow('Clear all failed');
+    });
+  });
+
+  describe('exportQueue', () => {
+    it('returns the exported count on success', async () => {
+      vi.mocked(commands.exportQueue).mockResolvedValueOnce(4);
+
+      const count = await useDownloadStore.getState().exportQueue();
+
+      expect(count).toBe(4);
+    });
+
+    it('propagates the backend rejection instead of swallowing it (pre-fix this was caught, written to the never-displayed `error` field, and turned into a silent `return 0`)', async () => {
+      vi.mocked(commands.exportQueue).mockRejectedValueOnce('No items to export');
+
+      await expect(useDownloadStore.getState().exportQueue()).rejects.toThrow(
+        'No items to export',
+      );
+    });
+  });
+
+  describe('importQueue', () => {
+    it('imports and refreshes the queue on success', async () => {
+      const importedItems = [createMockQueueItem({ id: 'dl-imported', state: 'queued' })];
+      vi.mocked(commands.importQueue).mockResolvedValueOnce(2);
+      vi.mocked(commands.getQueueStatus).mockResolvedValueOnce({
+        total: 1,
+        active: 0,
+        queued: 1,
+        completed: 0,
+        failed: 0,
+        items: importedItems,
+      });
+
+      const count = await useDownloadStore.getState().importQueue();
+
+      expect(count).toBe(2);
+      expect(useDownloadStore.getState().queueItems).toEqual(importedItems);
+    });
+
+    it('propagates the backend rejection and never touches the queue', async () => {
+      vi.mocked(commands.importQueue).mockRejectedValueOnce(
+        'Invalid queue file format: expected value at line 1 column 1',
+      );
+
+      await expect(useDownloadStore.getState().importQueue()).rejects.toThrow(
+        /Invalid queue file format/,
+      );
+      // A failed import has nothing new to reflect -- the refresh call
+      // must never fire on the failure path (it used to be unreachable
+      // anyway, but now it's unreachable BY the early throw, not by
+      // being wrapped in the same try that swallowed everything).
+      expect(commands.getQueueStatus).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('processQueue', () => {
+    it('resolves on success', async () => {
+      vi.mocked(commands.processQueue).mockResolvedValueOnce(undefined);
+
+      await expect(useDownloadStore.getState().processQueue()).resolves.toBeUndefined();
+    });
+
+    it('propagates the backend rejection instead of only logging it to the console', async () => {
+      // Pre-fix this caught its own failure with `console.error(...)`
+      // and resolved anyway, so the "Start Queue" button's success
+      // toast fired every time regardless of whether the backend
+      // actually started anything.
+      vi.mocked(commands.processQueue).mockRejectedValueOnce('Queue is already running');
+
+      await expect(useDownloadStore.getState().processQueue()).rejects.toThrow(
+        'Queue is already running',
+      );
+    });
+  });
+
+  // ============================================================
+  // Batch submission pacing
+  // ============================================================
+  //
+  // The backend only allows 10 calls to `start_download` inside any
+  // rolling 60-second window. `submitBatchDownload` makes one such
+  // call per pasted link, so a paste of more than ten links crosses
+  // that line partway through. Before this fix, every rejection past
+  // the tenth link was thrown away in a bare `catch { failed++; }`, so
+  // the person only ever saw "N failed to queue" with no reason, and
+  // pasting the same list again failed the exact same way for a reason
+  // they could never see.
+  describe('submitBatchDownload', () => {
+    /** Exact shape of the backend's real rejection message (see
+     *  src-tauri/src/utils/rate_limiter.rs) -- the wait time is
+     *  formatted with no decimal places, so it always reads as a
+     *  plain integer like "42", never "42.0". */
+    const backendPacingMessage = 'Too many requests. Please wait 42 seconds before trying again.';
+
+    function urls(count: number): string[] {
+      return Array.from(
+        { length: count },
+        (_, i) => `https://music.apple.com/us/album/test-${i}/${1000 + i}`,
+      );
+    }
+
+    it('queues every link when none of them are rejected', async () => {
+      vi.mocked(commands.startDownload).mockResolvedValue({
+        download_id: 'dl-id',
+        duplicate_warning: null,
+      });
+
+      const result = await useDownloadStore.getState().submitBatchDownload(urls(3));
+
+      expect(result).toEqual({ queued: 3, failed: 0, duplicateWarnings: [] });
+      expect(commands.startDownload).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops calling the backend the moment pacing kicks in, instead of repeating the same rejection for every remaining link', async () => {
+      const batch = urls(15);
+      // First 10 links succeed, matching the backend's real limit; the
+      // 11th is rejected with its exact wording for the pacing case.
+      for (let i = 0; i < 10; i++) {
+        vi.mocked(commands.startDownload).mockResolvedValueOnce({
+          download_id: `dl-${i}`,
+          duplicate_warning: null,
+        });
+      }
+      vi.mocked(commands.startDownload).mockRejectedValueOnce(backendPacingMessage);
+
+      const result = await useDownloadStore.getState().submitBatchDownload(batch);
+
+      // Only 11 real IPC calls -- 10 that succeeded plus the one that
+      // revealed the pacing limit. The remaining 4 links were counted
+      // as not-yet-queued WITHOUT another round trip, because every
+      // one of them would have failed for the identical reason.
+      expect(commands.startDownload).toHaveBeenCalledTimes(11);
+      expect(result).toEqual({ queued: 10, failed: 5, duplicateWarnings: [] });
+    });
+
+    it('tells the person what happened and what to do, in plain language, when pasting hits the pacing limit', async () => {
+      const batch = urls(15);
+      for (let i = 0; i < 10; i++) {
+        vi.mocked(commands.startDownload).mockResolvedValueOnce({
+          download_id: `dl-${i}`,
+          duplicate_warning: null,
+        });
+      }
+      vi.mocked(commands.startDownload).mockRejectedValueOnce(backendPacingMessage);
+
+      await useDownloadStore.getState().submitBatchDownload(batch);
+
+      const toasts = useUiStore.getState().toasts;
+      const pacingToast = toasts.find((t) => t.message.includes('42 seconds'));
+      expect(pacingToast).toBeDefined();
+      expect(pacingToast?.type).toBe('warning');
+      // House style: never show the words "rate limit" on screen, and
+      // don't just parrot the backend's technical wording either.
+      expect(pacingToast?.message.toLowerCase()).not.toContain('rate limit');
+      expect(pacingToast?.message.toLowerCase()).not.toContain('too many requests');
+      // Says how many were added and how many are left to paste again.
+      expect(pacingToast?.message).toContain('10');
+      expect(pacingToast?.message).toContain('the other 4');
+    });
+
+    it('drops the "paste the rest again" phrasing when the rejected link was the last one in the batch', async () => {
+      const batch = urls(11);
+      for (let i = 0; i < 10; i++) {
+        vi.mocked(commands.startDownload).mockResolvedValueOnce({
+          download_id: `dl-${i}`,
+          duplicate_warning: null,
+        });
+      }
+      vi.mocked(commands.startDownload).mockRejectedValueOnce(backendPacingMessage);
+
+      const result = await useDownloadStore.getState().submitBatchDownload(batch);
+
+      expect(result).toEqual({ queued: 10, failed: 1, duplicateWarnings: [] });
+      const toasts = useUiStore.getState().toasts;
+      const pacingToast = toasts.find((t) => t.message.includes('42 seconds'));
+      expect(pacingToast).toBeDefined();
+      // Nothing is left to paste again, so the message must not claim
+      // there is a "rest" to come back to.
+      expect(pacingToast?.message).not.toContain('the other');
+    });
+
+    it('does not treat an ordinary per-link failure as the pacing case, and keeps trying the rest of the batch', async () => {
+      vi.mocked(commands.startDownload)
+        .mockResolvedValueOnce({ download_id: 'dl-1', duplicate_warning: null })
+        .mockRejectedValueOnce('Invalid or unsupported media URL')
+        .mockResolvedValueOnce({ download_id: 'dl-3', duplicate_warning: null });
+
+      const result = await useDownloadStore.getState().submitBatchDownload(urls(3));
+
+      expect(commands.startDownload).toHaveBeenCalledTimes(3);
+      expect(result).toEqual({ queued: 2, failed: 1, duplicateWarnings: [] });
+      // No pacing-specific toast for a failure unrelated to pacing.
+      const toasts = useUiStore.getState().toasts;
+      expect(toasts.some((t) => t.type === 'warning')).toBe(false);
     });
   });
 

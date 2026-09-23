@@ -49,7 +49,7 @@
 // ## Remote enable/disable does NOT live here
 //
 // This module used to carry `is_service_remotely_enabled()` and
-// `service_disabled_error()`, which read the interim `service_status.json`
+// `service_disabled_error()`, which read the interim service-status file
 // transport. Both were removed: they had zero call sites, and leaving them
 // in place invited a future implementer to wire enforcement to the dead
 // backend.

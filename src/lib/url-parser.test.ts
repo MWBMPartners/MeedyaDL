@@ -425,6 +425,43 @@ describe('detectService', () => {
   it('is case-insensitive', () => {
     expect(detectService('https://MUSIC.APPLE.COM/us/album/test/123')).toBe('apple-music');
   });
+
+  /*
+   * Regression tests for a real fault: `detectService` used to check
+   * whether the domain TEXT appeared anywhere in the whole URL string
+   * (`url.toLowerCase().includes(domain)`), not just in the host. A link
+   * that only MENTIONED an Apple Music domain -- inside a query
+   * parameter belonging to a different site entirely -- was wrongly read
+   * as an Apple Music link. See the comment on `detectService` in
+   * url-parser.ts for the full story, including what this did and did
+   * not put at risk.
+   */
+  it('does not classify a domain name that only appears in the query string', () => {
+    // This link is really on example.com. It just happens to mention
+    // "music.apple.com" inside its own `ref` parameter -- that must not
+    // make it count as an Apple Music link.
+    expect(
+      detectService('https://example.com/album/x/1?ref=music.apple.com&i=2')
+    ).toBeNull();
+  });
+
+  it('does not classify a look-alike host as Apple Music', () => {
+    // "music.apple.com.evil.example" CONTAINS the text
+    // "music.apple.com", but the real host is a subdomain of
+    // "evil.example" -- an entirely different, attacker-controlled
+    // domain. A correct host check compares the actual host, not a
+    // substring of the URL text.
+    expect(
+      detectService('https://music.apple.com.evil.example/us/album/test/123')
+    ).toBeNull();
+  });
+
+  it('does not classify a BBC host as BBC iPlayer without the iPlayer/Sounds path', () => {
+    // BBC iPlayer and BBC Sounds share one host (bbc.co.uk) and are told
+    // apart only by path. A BBC News page has the right host but the
+    // wrong path, and must not be classified as either.
+    expect(detectService('https://www.bbc.co.uk/news/some-article')).toBeNull();
+  });
 });
 
 describe('isSupportedUrl', () => {
@@ -462,6 +499,20 @@ describe('parseMediaUrl', () => {
     const result = parseMediaUrl('  https://music.apple.com/us/album/test/123  ');
     expect(result.service).toBe('apple-music');
     expect(result.isValid).toBe(true);
+  });
+
+  it('does not treat a domain mentioned only in the query string as that service', () => {
+    // `parseMediaUrl` is what DownloadForm.tsx actually calls to work
+    // out what was pasted into the download box. This checks the fix
+    // reaches that real call path, not just `detectService` in
+    // isolation -- a Spotify (or any other) link that happens to
+    // mention "music.apple.com" in its own query string must not be
+    // read as Apple Music, since that would skip the Spotify consent
+    // step and the paused-service notice this page runs for the real
+    // service.
+    const result = parseMediaUrl('https://example.com/album/x/1?ref=music.apple.com&i=2');
+    expect(result.service).toBeNull();
+    expect(result.isValid).toBe(false);
   });
 });
 

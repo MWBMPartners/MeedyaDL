@@ -246,6 +246,8 @@ interface DownloadState {
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items removed. Refreshes the queue afterward.
    * @returns The count of items that were cleared
+   * @throws Re-throws the IPC error so callers can show a toast, instead
+   *   of the pre-fix behaviour of quietly returning 0 either way.
    */
   clearFinished: () => Promise<number>;
 
@@ -254,6 +256,8 @@ interface DownloadState {
    * errored, and queued). Active downloads are preserved.
    * IPC call: `commands.clearAllQueue()` -> Rust `clear_all_queue`
    * @returns The count of items that were cleared
+   * @throws Re-throws the IPC error so callers can show a toast, instead
+   *   of the pre-fix behaviour of quietly returning 0 either way.
    */
   clearAll: () => Promise<number>;
 
@@ -288,6 +292,10 @@ interface DownloadState {
    * IPC call: `commands.exportQueue()` -> Rust `export_queue`
    * Only non-terminal items (queued/active) are exported.
    * @returns The count of items exported
+   * @throws Re-throws the IPC error (e.g. "Export cancelled", "No items
+   *   to export", a real write failure) so callers can tell those apart
+   *   and say the right thing for each, instead of the pre-fix behaviour
+   *   of quietly returning 0 either way.
    */
   exportQueue: () => Promise<number>;
 
@@ -296,6 +304,9 @@ interface DownloadState {
    * IPC call: `commands.importQueue()` -> Rust `import_queue`
    * Imported items are enqueued and processing starts automatically.
    * @returns The count of items imported
+   * @throws Re-throws the IPC error (e.g. "Import cancelled", a corrupt
+   *   or wrong-version file) so callers can tell those apart, instead of
+   *   the pre-fix behaviour of quietly returning 0 either way.
    */
   importQueue: () => Promise<number>;
 
@@ -303,6 +314,9 @@ interface DownloadState {
    * Manually triggers download queue processing.
    * Used when auto_start_queue is disabled and the user clicks "Start Queue".
    * IPC call: `commands.processQueue()` -> Rust `process_queue_manual`
+   * @throws Re-throws the IPC error so callers can show a toast, instead
+   *   of the pre-fix behaviour of logging it to the console and
+   *   resolving as if nothing had gone wrong.
    */
   processQueue: () => Promise<void>;
 
@@ -544,104 +558,114 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * IPC call: `commands.clearQueue()` -> Rust `clear_queue`
    * Returns the number of items that were removed.
    * Refreshes the queue afterward to ensure frontend and backend are in sync.
+   *
+   * Used to catch its own failure here and return 0 -- which reads
+   * exactly like "there was nothing to clear", not "this failed and
+   * nothing was cleared". The real reason went into this store's
+   * `error` field, which nothing on screen has ever read (checked with
+   * a search across every component in `src/`). Removed so the
+   * rejection reaches the caller in `DownloadQueue.tsx`, which can
+   * then say what actually went wrong -- the same choice already made
+   * for `deleteItem` above.
    */
   clearFinished: async () => {
-    try {
-      const removed = await commands.clearQueue();
-      // Refresh the queue to remove cleared items from the UI.
-      const status = await commands.getQueueStatus();
-      set({ queueItems: status.items });
-      return removed;
-    } catch (e) {
-      set({ error: String(e) });
-      return 0; // Return 0 on failure -- no items were cleared
-    }
+    const removed = await commands.clearQueue();
+    // Refresh the queue to remove cleared items from the UI. Only
+    // reached on success -- a failed clear has nothing new to reflect,
+    // and the line above already threw.
+    const status = await commands.getQueueStatus();
+    set({ queueItems: status.items });
+    return removed;
   },
 
   /**
    * Clear ALL non-active items from the queue.
    * IPC call: `commands.clearAllQueue()` -> Rust `clear_all_queue`
+   *
+   * Used to wrap all of this in a try/catch that turned any failure
+   * into a quiet `return 0` (with the real reason going into the
+   * store's `error` field, which nothing on screen ever reads --
+   * checked with a search across every component in `src/`). Removed
+   * for the same reason as `clearFinished` above: the rejection needs
+   * to reach `DownloadQueue.tsx` so it can say what actually happened,
+   * instead of a wrong-but-calm "Cleared 0 items" toast. The undo-
+   * buffer / undo-toast logic below is unchanged.
    */
   clearAll: async () => {
-    try {
-      // Save URLs of non-active items to undo buffer before clearing
-      const clearableUrls = get().queueItems
-        .filter((i) => i.state !== 'downloading' && i.state !== 'processing')
-        .flatMap((i) => i.urls ?? []);
+    // Save URLs of non-active items to undo buffer before clearing
+    const clearableUrls = get().queueItems
+      .filter((i) => i.state !== 'downloading' && i.state !== 'processing')
+      .flatMap((i) => i.urls ?? []);
 
-      const removed = await commands.clearAllQueue();
-      const status = await commands.getQueueStatus();
-      set({ queueItems: status.items, _undoBuffer: clearableUrls.length > 0 ? clearableUrls : null });
+    const removed = await commands.clearAllQueue();
+    const status = await commands.getQueueStatus();
+    set({ queueItems: status.items, _undoBuffer: clearableUrls.length > 0 ? clearableUrls : null });
 
-      // Show undo toast with 5-second timeout
-      if (removed > 0 && clearableUrls.length > 0) {
-        const { addToast } = useUiStore.getState();
-        addToast(
-          `Cleared ${removed} item${removed !== 1 ? 's' : ''}`,
-          'info',
-          5000,
-          'undo-clear',
-          {
-            label: 'Undo',
-            onClick: () => {
-              // Re-enqueue the cleared URLs.
-              //
-              // #991: ONE start_download IPC for the whole batch — the
-              // backend accepts `urls: string[]` and enqueues them as a
-              // single queue item (same pattern HistoryPage's Retry-All
-              // already uses). The previous per-URL loop consumed one
-              // rate-limit slot per URL against the backend's 10/min
-              // `start_download` limit, silently dropping every URL past
-              // the tenth while the toast still claimed full success.
-              const urls = get()._undoBuffer;
-              if (urls && urls.length > 0) {
-                commands
-                  .startDownload({ urls })
-                  .then((result) => {
-                    set({ _undoBuffer: null });
-                    if (result.download_id) {
-                      addToast(
-                        `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
-                        'success'
-                      );
-                    } else {
-                      addToast(
-                        result.duplicate_warning ??
-                          'Nothing re-queued — items are already in the queue',
-                        'info'
-                      );
-                    }
-                  })
-                  .catch((e) => {
+    // Show undo toast with 5-second timeout
+    if (removed > 0 && clearableUrls.length > 0) {
+      const { addToast } = useUiStore.getState();
+      addToast(
+        `Cleared ${removed} item${removed !== 1 ? 's' : ''}`,
+        'info',
+        5000,
+        'undo-clear',
+        {
+          label: 'Undo',
+          onClick: () => {
+            // Re-enqueue the cleared URLs.
+            //
+            // #991: ONE start_download IPC for the whole batch — the
+            // backend accepts `urls: string[]` and enqueues them as a
+            // single queue item (same pattern HistoryPage's Retry-All
+            // already uses). The previous per-URL loop consumed one
+            // rate-limit slot per URL against the backend's 10/min
+            // `start_download` limit, silently dropping every URL past
+            // the tenth while the toast still claimed full success.
+            const urls = get()._undoBuffer;
+            if (urls && urls.length > 0) {
+              commands
+                .startDownload({ urls })
+                .then((result) => {
+                  set({ _undoBuffer: null });
+                  if (result.download_id) {
                     addToast(
-                      `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                      'error'
+                      `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
+                      'success'
                     );
-                  });
-              }
-            },
-          }
-        );
-
-        // #894: cancel any previous undo-buffer expiry timer before
-        // scheduling a new one, so rapid clearAll() calls don't
-        // accumulate orphan setTimeout closures. The handle is
-        // stashed on the store internals so a subsequent clearAll
-        // can find and clear it.
-        if (undoBufferTimerHandle !== null) {
-          clearTimeout(undoBufferTimerHandle);
+                  } else {
+                    addToast(
+                      result.duplicate_warning ??
+                        'Nothing re-queued — items are already in the queue',
+                      'info'
+                    );
+                  }
+                })
+                .catch((e) => {
+                  addToast(
+                    `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
+                    'error'
+                  );
+                });
+            }
+          },
         }
-        undoBufferTimerHandle = setTimeout(() => {
-          set({ _undoBuffer: null });
-          undoBufferTimerHandle = null;
-        }, 5000);
-      }
+      );
 
-      return removed;
-    } catch (e) {
-      set({ error: String(e) });
-      return 0;
+      // #894: cancel any previous undo-buffer expiry timer before
+      // scheduling a new one, so rapid clearAll() calls don't
+      // accumulate orphan setTimeout closures. The handle is
+      // stashed on the store internals so a subsequent clearAll
+      // can find and clear it.
+      if (undoBufferTimerHandle !== null) {
+        clearTimeout(undoBufferTimerHandle);
+      }
+      undoBufferTimerHandle = setTimeout(() => {
+        set({ _undoBuffer: null });
+        undoBufferTimerHandle = null;
+      }, 5000);
     }
+
+    return removed;
   },
 
   /**
@@ -788,45 +812,64 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * Export the current queue to a `.meedyadl` file.
    * IPC call: `commands.exportQueue()` -> Rust `export_queue`
    * Opens a native save dialog. Returns the count of exported items.
+   *
+   * Does NOT catch here. It used to -- every outcome other than a
+   * clean success (closing the save dialog, an empty queue, a write
+   * that actually failed) was swallowed into the `error` field and
+   * this returned 0 regardless. Nothing on screen has ever read that
+   * field (checked with a search across every component in `src/`),
+   * so the person just saw nothing happen and had no way to tell
+   * "you cancelled" from "there was nothing to export" from "the
+   * write failed". Letting the rejection through -- the same choice
+   * already made for `deleteItem` above -- means the caller in
+   * `DownloadQueue.tsx` can tell those apart and say the right thing
+   * for each one.
    */
-  exportQueue: async () => {
-    try {
-      const count = await commands.exportQueue();
-      return count;
-    } catch (e) {
-      set({ error: String(e) });
-      return 0;
-    }
-  },
+  exportQueue: () => commands.exportQueue(),
 
   /**
    * Import queue items from a `.meedyadl` file.
    * IPC call: `commands.importQueue()` -> Rust `import_queue`
    * Opens a native file picker. Refreshes the queue after import.
+   *
+   * As with `exportQueue` above, this used to catch every failure --
+   * closing the file picker, a corrupt file, a wrong file version --
+   * and turn it into a silent `return 0`, with the real reason
+   * written to the store's `error` field, which nothing displays. The
+   * backend already writes a clear, specific message for each of
+   * those cases ("Import cancelled", "Invalid queue file format:
+   * ...", "Unsupported queue file version: ..."); the only thing
+   * standing between that message and the person was this catch
+   * block. Removed, so the caller's `try`/`catch` in
+   * `DownloadQueue.tsx` sees the real rejection.
    */
   importQueue: async () => {
-    try {
-      const count = await commands.importQueue();
-      // Refresh the queue to include the newly imported items
-      const status = await commands.getQueueStatus();
-      set({ queueItems: status.items });
-      return count;
-    } catch (e) {
-      set({ error: String(e) });
-      return 0;
-    }
+    const count = await commands.importQueue();
+    // Refresh the queue to include the newly imported items. Only
+    // reached on success -- a failed import has nothing new to
+    // reflect, and the line above already threw.
+    const status = await commands.getQueueStatus();
+    set({ queueItems: status.items });
+    return count;
   },
 
   /**
    * Manually trigger queue processing.
    * IPC call: `commands.processQueue()` -> Rust `process_queue_manual`
+   *
+   * Used to catch its own failure, log it to the developer console
+   * only, and resolve as if nothing had happened -- which is why the
+   * "Start Queue" button in `DownloadQueue.tsx` always showed "Queue
+   * processing started", even on a failure nobody but a developer
+   * with the console open could see. The `withErrorToast` wrapper at
+   * that call site only shows its success message when the wrapped
+   * call actually RESOLVES, so the fix is simply to stop resolving on
+   * failure -- let the rejection through, the same as every other
+   * action in this file that doesn't need to do anything special with
+   * the error itself.
    */
   processQueue: async () => {
-    try {
-      await commands.processQueue();
-    } catch (err) {
-      console.error('Failed to process queue:', err);
-    }
+    await commands.processQueue();
   },
 
   // -------------------------------------------------------------------------
@@ -1008,6 +1051,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    *   4. Clear the input form on completion.
    *   5. Return a summary for the calling component to display toasts.
    *
+   * A paste of more than ten links will cross the backend's pacing limit
+   * on `start_download` partway through step 2 -- see the long comment
+   * inside the implementation below for how that specific case is
+   * recognised and explained to the person with its own toast, separate
+   * from the summary the caller builds out of the returned counts.
+   *
    * @param urls - Array of validated Apple Music URLs to submit
    * @param skipAutoStart - When true, items are queued but not auto-started
    * @returns Summary object with queued/failed counts and duplicate warnings
@@ -1021,8 +1070,52 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     let failed = 0;
     const duplicateWarnings: string[] = [];
 
+    // The backend only allows 10 calls to `start_download` inside any
+    // rolling 60-second window (`check_rate_limit("start_download", 10,
+    // 60)` in src-tauri/src/commands/gamdl.rs). This loop makes one such
+    // call per pasted link, so pasting more than ten links crosses that
+    // line partway through -- and every call after the tenth is
+    // rejected with a message naming how long to wait.
+    //
+    // Before this fix, that rejection was thrown away entirely
+    // (`catch { failed++; }`), so a long paste came back as plain "N
+    // failed to queue" with no reason, and trying again straight away
+    // failed the exact same way for a reason nobody could see. This is
+    // the same trap already found and fixed on the undo path above (see
+    // the long comment inside `clearAll`'s undo action) -- but that fix
+    // doesn't transplant here: the undo path deliberately turns many
+    // URLs into ONE queue item via ONE `startDownload({ urls })` call,
+    // whereas a pasted batch is meant to become one queue item PER
+    // link, so the per-URL loop has to stay.
+    //
+    // What this does instead: recognise the backend's own wording for
+    // this specific rejection (it starts "Too many requests.") and, the
+    // first time it happens, stop making further calls for the rest of
+    // this batch. There is no point trying the rest -- a slot is only
+    // used up by a call that succeeds, so every further attempt made a
+    // few milliseconds later in this same loop is certain to be
+    // refused for the identical reason. The untried links are still
+    // counted as `failed` (so `queued + failed` always adds up to the
+    // number of links pasted, keeping the caller's own summary honest)
+    // and a single toast explains, in plain terms, what happened and
+    // what to do: this is the app pacing itself through a long paste,
+    // not a real failure, and the rest can be pasted again once the
+    // wait is over. Deliberately NOT auto-retried after the wait --
+    // that would mean holding the form's `isSubmitting` state for up to
+    // a minute and adding a timer chain for a fairly rare case (pasting
+    // more than ten links at once); telling the person plainly and
+    // letting them paste again is simpler and cannot fail quietly.
+    let pacedStop = false;
+
     try {
       for (const url of urls) {
+        if (pacedStop) {
+          // Already know this one would be refused too -- count it as
+          // not-yet-queued without spending a real round trip to prove it.
+          failed++;
+          continue;
+        }
+
         try {
           const result = await commands.startDownload(
             {
@@ -1035,9 +1128,34 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           if (result.duplicate_warning) {
             duplicateWarnings.push(result.duplicate_warning);
           }
-        } catch {
+        } catch (e) {
           // Individual URL failure — continue with remaining URLs
           failed++;
+
+          const msg = e instanceof Error ? e.message : String(e);
+          const waitMatch = msg.match(/wait (\d+) seconds/i);
+
+          if (msg.startsWith('Too many requests') && waitMatch) {
+            pacedStop = true;
+            const waitSeconds = waitMatch[1];
+            const remaining = urls.length - queued - failed;
+            const { addToast } = useUiStore.getState();
+
+            // House style: never show the words "rate limit" on
+            // screen -- say what it actually means instead.
+            addToast(
+              remaining > 0
+                ? `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. So far ${queued} of your links got added; the other ${remaining} will need pasting again in about ${waitSeconds} seconds.`
+                : `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${queued} of your links got added. Wait about ${waitSeconds} seconds before adding more.`,
+              'warning',
+            );
+          }
+          // Any other individual failure (a bad link, a one-off
+          // backend error) is left as a silent addition to `failed` --
+          // there is no single good plain-English message that covers
+          // every possible reason one URL out of a batch can fail, and
+          // the caller's own summary toast already tells the person
+          // some number of links didn't make it in.
         }
       }
 

@@ -230,10 +230,13 @@ import './styles/themes/a11y-colour-blind.css';
  * Internationalization setup using i18next.
  * `initI18n` initializes the translation system with OS language detection.
  * Must be called before any component uses `useTranslation()`.
+ * `changeUiLanguage` switches to a specific language, fetching its
+ * translation file first if needed -- see that function's own comment in
+ * `lib/i18n.ts` for why calling i18next's own `changeLanguage()` directly
+ * on an unfetched language used to leave the screen silently in English.
  * @see ./lib/i18n.ts for configuration details
  */
-import { initI18n } from './lib/i18n';
-import i18next from 'i18next';
+import { initI18n, changeUiLanguage } from './lib/i18n';
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -374,6 +377,15 @@ function App() {
    */
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const sidebarCollapsedSetting = useSettingsStore((s) => s.settings.sidebar_collapsed);
+  /**
+   * The chosen UI language, read reactively so Effect 3b below re-runs
+   * the moment it changes -- whether that's settings loading for the
+   * first time at startup, or someone picking a different language from
+   * the Settings > General dropdown while the app is already open. Empty
+   * string means "no explicit choice; follow the OS/browser language",
+   * which `initI18n()` already handles in Effect 2 above.
+   */
+  const uiLanguageSetting = useSettingsStore((s) => s.settings.ui_language);
 
   /*
    * ─── Dependency Store Selectors ────────────────────────────────────
@@ -502,13 +514,19 @@ function App() {
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */
       await loadSettings();
 
-      /* Step 1.5: Sync UI language from settings if explicitly set.
-       * If ui_language is non-empty, override i18next's auto-detected language.
-       * Empty string means "use auto-detected language" (from OS locale). */
-      const uiLang = useSettingsStore.getState().settings.ui_language;
-      if (uiLang) {
-        i18next.changeLanguage(uiLang).catch(() => {});
-      }
+      /* Step 1.5 used to live here: reading `ui_language` out of the
+       * just-loaded settings and calling `i18next.changeLanguage()` on
+       * it directly. That call was moved into its own reactive effect
+       * below (search this file for "uiLanguageSetting"), for two
+       * reasons: it now goes through `changeUiLanguage()`, which fetches
+       * the chosen language's translation file first -- calling
+       * `changeLanguage()` on a language nobody had fetched is exactly
+       * why picking a new language used to need two restarts before it
+       * actually showed up (see that function's comment in lib/i18n.ts)
+       * -- and a reactive effect also picks up a language switch made
+       * *while the app is already running*, from Settings > General,
+       * with no restart needed at all. A one-off read here, like this
+       * used to be, could only ever catch the language at startup. */
 
       /* Step 2: Check for app updates BEFORE dependency checks.
        * On first launch the installed version may already be outdated, so we
@@ -773,6 +791,39 @@ function App() {
   useEffect(() => {
     useUiStore.getState().setSidebarCollapsed(sidebarCollapsedSetting);
   }, [sidebarCollapsedSetting]);
+
+  /*
+   * ─── Effect 3b: Apply the UI Language, Live ────────────────────────
+   *
+   * Re-applies `ui_language` every time it changes: once at startup,
+   * right after Effect 2 loads settings for the first time, and again
+   * immediately if the user picks a different language from Settings >
+   * General while the app is already running.
+   *
+   * That second case used to not work at all. `ui_language` was only
+   * ever read once, inside Effect 2's one-shot startup sequence, so
+   * choosing a different language while MeedyaDL was open did nothing
+   * until it was closed and reopened -- and even then, the FIRST restart
+   * silently kept showing English (see `changeUiLanguage()` in
+   * lib/i18n.ts for exactly why). This effect fixes both problems at
+   * once: reacting to the setting like this means a language switch
+   * applies straight away, with no restart needed at all, and
+   * `changeUiLanguage()` fetches the chosen language's file before
+   * switching to it, so even the very first time this runs -- at
+   * startup -- it works without a second restart.
+   *
+   * An empty string means "no explicit choice", so nothing is done for
+   * that case -- `initI18n()` in Effect 2 already applied whatever the
+   * OS/browser reported.
+   *
+   * Dependency: [uiLanguageSetting] -- re-runs whenever the setting
+   * changes, the same pattern Effect 3 above uses for the sidebar.
+   */
+  useEffect(() => {
+    if (uiLanguageSetting) {
+      changeUiLanguage(uiLanguageSetting).catch(() => {});
+    }
+  }, [uiLanguageSetting]);
 
   /*
    * ─── Effect 4: Auto-Update Check and Tray Listener ─────────────────

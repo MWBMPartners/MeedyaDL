@@ -30,8 +30,8 @@ use std::time::Duration;
 /// User-Agent" bullet for the full table): sent to (1) first-party
 /// endpoints — anything belonging to MWBM Partners / MWBM Partners Ltd /
 /// MeedyaSuite / Meedya / Scriptkey, including the `MWBMPartners`,
-/// `Skriptey`, and `MeedyaSuite` GitHub orgs (e.g. `service_status.rs`'s
-/// `raw.githubusercontent.com/MWBMPartners/...` reads) — and (2)
+/// `Skriptey`, and `MeedyaSuite` GitHub orgs (anything of ours reading
+/// `raw.githubusercontent.com/MWBMPartners/...`) — and (2)
 /// integrations that specifically require identification: the GitHub API
 /// (GitHub's own guidance asks integrations to identify themselves, and
 /// it's the channel GitHub uses to contact maintainers of a misbehaving

@@ -61,7 +61,7 @@
       "themeLight": "Light",
       "themeDark": "Dark",
       "language": "Language",
-      "languageDesc": "Application display language (requires restart to take full effect)",
+      "languageDesc": "The language MeedyaDL is shown in. Changes straight away.",
       "languageAuto": "Auto (System)",
       "preferences": "Preferences",
       "metadataLanguage": "Metadata Language",

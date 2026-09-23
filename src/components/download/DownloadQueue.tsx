@@ -576,60 +576,111 @@ export function DownloadQueue() {
 
   /**
    * Export the current queue to a `.meedyadl` file.
-   * Wraps `exportQueue()` with toast feedback showing the count exported.
+   *
+   * The store's `exportQueue()` now lets a failure through instead of
+   * swallowing it (see the comment on that action), so `withErrorToast`
+   * -- which only shows an error toast when the wrapped call actually
+   * REJECTS -- can no longer be handed a function that always resolves.
+   * This also needs to tell apart three different things the backend
+   * can say, not show every one of them as a red error:
+   *   - the person closed the save dialog without picking anywhere to
+   *     save -- not a mistake, so say nothing, same as any other Cancel;
+   *   - the queue had nothing exportable in it -- also not a mistake,
+   *     say so plainly instead of alarming them;
+   *   - anything else (a real write failure, e.g. a full disk) -- show
+   *     it as the error it actually is, with the backend's own reason.
    */
   const handleExport = async () => {
-    const count = await withErrorToast(() => exportQueue(), {
-      errorMsg: 'Failed to export queue',
-    });
-    if (count !== undefined && count > 0) {
+    try {
+      const count = await exportQueue();
       addToast(`Exported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'Export cancelled') return;
+      if (msg === 'No items to export') {
+        addToast('There is nothing in the queue to export yet', 'info');
+        return;
+      }
+      addToast(msg, 'error');
     }
   };
 
   /**
    * Import queue items from a `.meedyadl` file.
-   * Wraps `importQueue()` with toast feedback showing the count imported.
+   *
+   * Same reasoning as `handleExport` above: the store no longer hides
+   * the backend's reason, so this tells "you cancelled the file picker"
+   * apart from a real problem with the file, and shows the backend's
+   * own message for the latter -- it already says plainly what was
+   * wrong (a corrupt file, the wrong file version, nothing in it to
+   * import).
    */
   const handleImport = async () => {
-    const count = await withErrorToast(() => importQueue(), {
-      errorMsg: 'Failed to import queue',
-    });
-    if (count !== undefined && count > 0) {
+    try {
+      const count = await importQueue();
       addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'Import cancelled') return;
+      addToast(msg, 'error');
     }
   };
 
   /**
    * Manually start processing the download queue.
-   * Wraps `processQueue()` with toast feedback.
+   *
+   * The store's `processQueue()` used to catch its own failure and log
+   * it to the console only, so this always showed "Queue processing
+   * started" even when the backend refused -- `withErrorToast` only
+   * shows its success message when the wrapped call actually resolves,
+   * so removing that silent catch (see the store) is what fixes it;
+   * the error branch below now has a real rejection to report instead
+   * of never firing at all.
    */
   const handleStartQueue = async () => {
     await withErrorToast(() => processQueue(), {
       successMsg: 'Queue processing started',
       successVariant: 'info',
-      errorMsg: 'Failed to start queue processing',
+      errorMsg: (err) =>
+        `Could not start the queue: ${err instanceof Error ? err.message : String(err)}`,
     });
   };
 
   /**
    * Clear all finished items (complete, error, cancelled) from the queue.
-   * Wraps `clearFinished()` with toast feedback showing the count removed.
+   *
+   * `clearFinished()` used to catch its own failure and return 0, which
+   * reads as "there was nothing to clear" rather than "this failed and
+   * nothing was cleared". The `removed !== undefined` check below
+   * already relied on `withErrorToast` returning `undefined` on a
+   * genuine rejection, but that never happened while the store
+   * swallowed the error first. Now that it doesn't, this works as
+   * originally intended: a real failure shows the backend's reason and
+   * skips the "Cleared N items" toast entirely.
    */
   const handleClearFinished = async () => {
     const removed = await withErrorToast(() => clearFinished(), {
-      errorMsg: 'Failed to clear queue',
+      errorMsg: (err) =>
+        `Could not clear finished downloads: ${err instanceof Error ? err.message : String(err)}`,
     });
     if (removed !== undefined) {
       addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
     }
   };
 
-  /** Clear ALL non-active items. The useConfirmation hook auto-closes
-   *  on resolve, so this just runs the action and surfaces the toast. */
+  /**
+   * Clear ALL non-active items. The useConfirmation hook auto-closes
+   * on resolve, so this just runs the action and surfaces the toast.
+   *
+   * Same fix as `handleClearFinished` above: `clearAll()` no longer
+   * turns a real failure into a silent "0 items cleared", so a genuine
+   * problem now shows the backend's own reason instead of a
+   * misleadingly calm success toast.
+   */
   const handleClearAllConfirmed = async () => {
     const removed = await withErrorToast(() => clearAll(), {
-      errorMsg: 'Failed to clear queue',
+      errorMsg: (err) =>
+        `Could not clear the queue: ${err instanceof Error ? err.message : String(err)}`,
     });
     if (removed !== undefined) {
       addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
