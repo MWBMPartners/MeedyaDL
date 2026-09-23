@@ -827,6 +827,19 @@ pub async fn import_profile(
             //
             // A reviewer found it. Two lists guarding the same thing is
             // the arrangement that produced the gap; there is now one.
+            // Taken BEFORE the shared list runs, because that list
+            // replaces them with this machine's own.
+            //
+            // A reviewer caught the first version of this reading them
+            // afterwards — which read back the local values and wrote
+            // them straight in again, so the whole change did nothing
+            // while reading as though it worked. The seventh time this
+            // area has been corrected, and the fourth of those where
+            // what I wrote was a no-op rather than a mistake in
+            // behaviour. Order is the entire content of this fix.
+            let bundle_team_id = imported.musickit_team_id.clone();
+            let bundle_key_id = imported.musickit_key_id.clone();
+
             crate::commands::settings::preserve_local_only_settings(
                 &mut imported,
                 &pre_import_settings,
@@ -852,13 +865,20 @@ pub async fn import_profile(
             // next one.
             //
             // Taking them here instead needs none of that. `save_settings`
-            // below already trims, upper-cases and checks both, and
-            // refuses the whole save if either is malformed — before the
-            // credentials step runs at all. The simplest version was
-            // available the whole time, underneath the special case.
-            let bundle_team_id = imported.musickit_team_id.clone();
-            let bundle_key_id = imported.musickit_key_id.clone();
-
+            // below already trims, upper-cases and requires ten letters
+            // or digits, and refuses the whole save if either is
+            // malformed — which happens before the credentials step runs,
+            // so a bad value stops the import with the key untouched.
+            //
+            // One thing this does NOT do, stated plainly because an
+            // earlier version of this comment implied otherwise: it does
+            // not check whether the bundle actually contains a key. If
+            // its settings are restored and its credentials are not, the
+            // bundle's identifiers arrive beside whatever key is already
+            // here. That is the person explicitly choosing to restore one
+            // and not the other, it is what this route did before any of
+            // this, and every attempt to be cleverer about it produced a
+            // worse fault than the one it fixed.
             // Where downloads are saved stays as this install has it.
             //
             // The shared helper deliberately does NOT keep this, because
@@ -1113,6 +1133,58 @@ fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_restored_profile_keeps_its_apple_music_identifiers_with_its_key() {
+        // The test that should have existed seven rounds ago.
+        //
+        // Everything about this pair has been wrong at some point: the
+        // wrong fields edited, the write before the key arrived, no
+        // checking, silent failure, checking before the key, and — twice
+        // — code that read the local values back and wrote them in
+        // again, doing nothing at all while looking right. That last
+        // shape is the reason for testing the ORDER rather than the
+        // lines: both no-ops compiled, passed everything, and read
+        // perfectly well.
+        //
+        // This mirrors what the import does: take the bundle's values,
+        // run the shared list that replaces them with local ones, then
+        // put the bundle's back.
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("BUNDLETEAM".to_string()),
+            musickit_key_id: Some("BUNDLEKEY1".to_string()),
+            ..Default::default()
+        };
+        let local = crate::models::settings::AppSettings {
+            musickit_team_id: Some("LOCALTEAM1".to_string()),
+            musickit_key_id: Some("LOCALKEY12".to_string()),
+            ..Default::default()
+        };
+
+        let bundle_team_id = imported.musickit_team_id.clone();
+        let bundle_key_id = imported.musickit_key_id.clone();
+
+        crate::commands::settings::preserve_local_only_settings(&mut imported, &local);
+
+        // The shared list does replace them — which is what makes the
+        // order matter.
+        assert_eq!(
+            imported.musickit_team_id,
+            local.musickit_team_id,
+            "the shared list is expected to put this machine's values in"
+        );
+
+        imported.musickit_team_id = bundle_team_id;
+        imported.musickit_key_id = bundle_key_id;
+
+        assert_eq!(
+            imported.musickit_team_id,
+            Some("BUNDLETEAM".to_string()),
+            "the bundle's identifiers must survive, or the key it restores has none that match"
+        );
+        assert_eq!(imported.musickit_key_id, Some("BUNDLEKEY1".to_string()));
+    }
+
 
 
     use super::*;
