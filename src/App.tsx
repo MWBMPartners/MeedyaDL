@@ -634,17 +634,18 @@ function App() {
        */
       try {
         const currentVersion = await getVersion();
-        // A pre-release is a version with a suffix — `1.13.0-alpha.71`,
-        // `1.9.4-beta.7`, `1.0.0-rc.38` — which is the same test the
-        // backend and the update checker use.
+        // A build is a pre-release if EITHER its version starts with
+        // `0.` (anything before 1.0 is by definition unfinished) or it
+        // carries a suffix (`1.13.0-alpha.71`, `1.9.4-beta.7`,
+        // `1.0.0-rc.38`). The same rule the backend uses.
         //
-        // This used to ask whether the version started with "0.", true
-        // while the app was pre-1.0 and wrong ever since. So the notice
-        // that tells somebody they are running an unfinished build has
-        // not appeared on a single pre-release since 1.0 shipped, which
-        // is every pre-release there has been. Issue #216, found still
-        // live by a full review of the codebase.
-        const isPrerelease = currentVersion.includes('-');
+        // This used to ask only the first question, which was complete
+        // while the app was pre-1.0 and wrong ever since — so the notice
+        // telling somebody they are running an unfinished build has not
+        // appeared on a single pre-release since 1.0 shipped. Issue
+        // #216. A first attempt at the fix asked only the second
+        // question and dropped the pre-1.0 case; both halves are needed.
+        const isPrerelease = currentVersion.startsWith('0.') || currentVersion.includes('-');
         const previousVersion = settingsState.settings.last_seen_version;
         const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
         const uiStateForNotice = useUiStore.getState();

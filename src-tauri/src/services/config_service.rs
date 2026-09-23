@@ -490,19 +490,26 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // The `last_seen_version` field tracks the previous app version so we
     // can detect version transitions.
     let current_version = env!("CARGO_PKG_VERSION");
-    // A pre-release is a version with a suffix — `1.13.0-alpha.71`,
-    // `1.9.4-beta.7`, `1.0.0-rc.38`. The same test the update checker
-    // uses, so the two cannot disagree about which kind of build this is.
+    // A build is a pre-release if EITHER of these is true, and both
+    // halves matter:
     //
-    // This used to ask whether the version started with "0.", which was
-    // true while the app was pre-1.0 and has been wrong ever since. Every
-    // alpha, beta and release-candidate build has been treated as a full
-    // release since then, so verbose logging was switched off at every
-    // startup for exactly the people who most need it — the testers. It
-    // is issue #216, reopened after an earlier close, and a full review
-    // of the codebase found it still live and doing more damage than the
-    // issue described (see the read sites below).
-    let is_prerelease = current_version.contains('-');
+    // * its version starts with `0.` — anything before 1.0 is by
+    //   definition not finished; or
+    // * its version carries a suffix — `1.13.0-alpha.71`,
+    //   `1.9.4-beta.7`, `1.0.0-rc.38`.
+    //
+    // This used to ask only the first question. That was complete while
+    // the app was pre-1.0 and has been wrong ever since: every alpha,
+    // beta and release-candidate build since 1.0 has been treated as
+    // finished, so verbose logging was switched off at every startup for
+    // exactly the people who most need it — the testers. Issue #216,
+    // reopened, and a full review of the codebase found it still live.
+    //
+    // A first attempt at the fix then asked only the SECOND question,
+    // which dropped the pre-1.0 case — a `0.49.2` build with no suffix
+    // would have counted as finished. The maintainer caught that. Both
+    // halves, or the rule is wrong in one direction or the other.
+    let is_prerelease = current_version.starts_with("0.") || current_version.contains('-');
 
     if is_prerelease {
         // Pre-release: preserve verbose_activity_log setting as-is.
@@ -1442,33 +1449,44 @@ pub fn get_default_output_path() -> Result<String, String> {
 mod tests {
 
     /// What counts as an unfinished build, written down so it cannot go
-    /// wrong a third time.
+    /// wrong again.
     ///
-    /// The rule: a version with a suffix is a pre-release. `1.13.0` is a
-    /// finished release; `1.13.0-alpha.71` is not. The app used to ask
-    /// whether the version started with "0." instead, which was right
-    /// while it was pre-1.0 and wrong every day since — so every alpha,
-    /// beta and release-candidate build has been treated as finished,
-    /// and verbose logging switched off at startup for precisely the
-    /// people testing it.
+    /// The rule has TWO halves, and the app has now had each of them
+    /// alone:
+    ///
+    /// * a version starting `0.` is unfinished — anything before 1.0 is
+    ///   by definition not a finished release; and
+    /// * a version carrying a suffix is unfinished — `1.13.0-alpha.71`,
+    ///   `1.9.4-beta.7`, `1.0.0-rc.38`.
+    ///
+    /// For years the app asked only the first, which was complete while
+    /// it was pre-1.0 and wrong ever since — every alpha, beta and
+    /// release candidate counted as finished, and verbose logging was
+    /// switched off at startup for the testers who most needed it. The
+    /// first attempt at fixing that asked only the second, which would
+    /// have called an unsuffixed `0.49.2` finished. The maintainer
+    /// caught it.
     ///
     /// This mirrors the expression in `load_settings` rather than
     /// calling it, because that function needs a running app. If the two
     /// ever drift, the comment above it points here.
     #[test]
-    fn an_unfinished_build_is_one_with_a_suffix() {
-        let is_prerelease = |v: &str| v.contains('-');
+    fn an_unfinished_build_is_pre_one_point_zero_or_carries_a_suffix() {
+        let is_prerelease = |v: &str| v.starts_with("0.") || v.contains('-');
 
-        for finished in ["1.13.0", "1.0.0", "2.4.1", "0.49.2"] {
-            assert!(
-                !is_prerelease(finished),
-                "{finished} is a finished release"
-            );
+        for finished in ["1.13.0", "1.0.0", "2.4.1", "10.0.0"] {
+            assert!(!is_prerelease(finished), "{finished} is a finished release");
         }
         for unfinished in [
+            // Carries a suffix.
             "1.13.0-alpha.71",
             "1.9.4-beta.7",
             "1.0.0-rc.38",
+            // Before 1.0, with no suffix at all — the half a first
+            // attempt at this fix dropped.
+            "0.49.2",
+            "0.1.0",
+            // Both at once.
             "0.33.0-rc.1",
         ] {
             assert!(is_prerelease(unfinished), "{unfinished} is a pre-release");
@@ -1479,7 +1497,7 @@ mod tests {
         let this_build = env!("CARGO_PKG_VERSION");
         assert_eq!(
             is_prerelease(this_build),
-            this_build.contains('-'),
+            this_build.starts_with("0.") || this_build.contains('-'),
             "the rule must hold for the version actually being built"
         );
     }

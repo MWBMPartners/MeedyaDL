@@ -932,11 +932,30 @@ impl DownloadQueue {
     /// what was stopped.
     ///
     /// Each matching item is transitioned directly to `DownloadState::Cancelled`
-    /// in the same way the per-item `cancel()` does — the running task's
-    /// cancellation-poll loop will detect the state change on its next tick,
-    /// reap the subprocess via `Child::kill_on_drop(true)`, and short-circuit
-    /// any enrichment / companion / lyrics tasks that poll
-    /// [`ShutdownSignal`]-style flags.
+    /// in the same way the per-item `cancel()` does.
+    ///
+    /// What that actually stops, and when:
+    ///
+    /// * An item still on its FIRST download stops within about a
+    ///   quarter of a second — that loop checks for cancellation on
+    ///   every tick and the program is stopped when the task is dropped.
+    /// * An item already making its extra copies in other formats stops
+    ///   at the boundary between one format and the next, which is where
+    ///   the other stop conditions are checked too. A format already
+    ///   under way finishes first.
+    /// * The pass that adds information to finished files is not
+    ///   interrupted. It writes to files that have already downloaded,
+    ///   takes seconds rather than minutes, and stopping it half-way
+    ///   would leave those files partly done.
+    ///
+    /// **This used to claim more than it did.** It said the companion
+    /// and enrichment work would be short-circuited, and nothing in
+    /// either of them asked about cancellation at all — so Cancel marked
+    /// the item cancelled on screen while the work carried on, sometimes
+    /// for many minutes, still holding the queue's one slot so the next
+    /// item waited behind it. A full review of the codebase found the
+    /// gap, and found this comment asserting it was already handled,
+    /// which is why nobody had looked.
     ///
     /// Items already in `Complete`, `Cancelled`, or `Error` are untouched so
     /// the user keeps their history intact.
