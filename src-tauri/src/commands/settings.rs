@@ -582,6 +582,31 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
         return Err("URL must use http:// or https:// scheme".to_string());
     }
 
+    // The address has to be on this machine or this network.
+    //
+    // This command takes an address from the page and has the BACKEND
+    // fetch it. That matters more than it looks: the page is held to a
+    // list of addresses it may contact, and a request made out here is
+    // not. So a page running something it should not could use this to
+    // find out what answers on the local network — a printer, a router,
+    // a database on the same machine — one address at a time, learning
+    // from the status and the timing.
+    //
+    // A full review of the codebase found it, and found the sign-in
+    // command beside it already refusing exactly this, for the same
+    // wrapper, with the reasoning written out. Another rule that guarded
+    // one door. The same check now guards both.
+    //
+    // Nothing is lost: this button exists to test a wrapper, and a
+    // wrapper is something you run on your own machine or your own
+    // network.
+    if !crate::commands::wrapper::wrapper_host_is_local_or_private(&url).await {
+        return Err(format!(
+            "MeedyaDL will only test an address on this computer or this network ({url} is \
+             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper."
+        ));
+    }
+
     let client = crate::utils::http_client::build_simple(5)?;
 
     let start = std::time::Instant::now();

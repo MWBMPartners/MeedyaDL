@@ -74,7 +74,7 @@ pub async fn wrapper_sign_in(
 /// a hard block, not an advisory hint (compare the softer frontend
 /// classifier in `src/lib/wrapper-url-classifier.ts`, which only
 /// surfaces a UI warning and never blocks).
-async fn wrapper_host_is_local_or_private(wrapper_url: &str) -> bool {
+pub(crate) async fn wrapper_host_is_local_or_private(wrapper_url: &str) -> bool {
     let Ok(parsed) = url::Url::parse(wrapper_url) else {
         return false;
     };

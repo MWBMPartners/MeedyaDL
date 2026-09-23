@@ -91,6 +91,81 @@ pub fn get_lifetime_stats(
 /// Falls back to the input string unchanged if it has no parent (e.g. a
 /// root path) — the caller's regex-based fallback handles the case where
 /// this command itself is unreachable (IPC failure).
+/// The kinds of file MeedyaDL will open for you.
+///
+/// An allow-list, not a list of things to refuse. The difference matters
+/// here more than usual: on Windows, "opening" a program RUNS it, and a
+/// list of dangerous extensions is always one spelling short — `.EXE` in
+/// capitals, or some file type that turns out to be executable on one
+/// system and not another.
+const OPENABLE_EXTENSIONS: &[&str] = &[
+    // Music, which is the point of the app.
+    "m4a", "m4b", "m4p", "mp3", "flac", "wav", "aac", "ogg", "opus", "aiff", "alac",
+    // Video, for music videos.
+    "mp4", "m4v", "mov", "mkv", "webm", // Artwork.
+    "jpg", "jpeg", "png", "webp", "gif", // Words that come with the music.
+    "lrc", "srt", "vtt", "ass", "ttml", "txt", "lyrics", // The app's own records.
+    "json", "meedyadl", "log", "m3u", "m3u8", "cue", "pdf",
+];
+
+/// Opens a downloaded file in whatever program handles its type.
+///
+/// # Why this exists rather than the page opening it directly
+///
+/// The page used to call the "open this path" plugin itself, with
+/// permission to open **any path at all**. On Windows, opening a program
+/// runs it — so anything that could run code inside the page had, in
+/// effect, "run any file on this computer". That is a large power to
+/// hand to a web page, and the feature it was there for is "open the
+/// track I just downloaded".
+///
+/// A full review of the codebase found it, and also found the capability
+/// file describing those permissions as "scoped just to that" when the
+/// scope was in fact everything.
+///
+/// So the page no longer has that permission. It asks here instead, and
+/// this checks:
+///
+/// * the path exists and is a FILE, not a folder or anything stranger;
+/// * its extension is one of [`OPENABLE_EXTENSIONS`], compared without
+///   regard to case, so `.EXE` is refused exactly as `.exe` is.
+///
+/// Folders are revealed rather than opened, through a separate
+/// permission, which selects the item in the file manager instead of
+/// running anything.
+///
+/// **What this does not do:** it does not check the file is inside the
+/// download folder. People save music to external drives and network
+/// shares, and to their own folders outside anything this app chose, so
+/// a location check would refuse ordinary use. The kind of file is what
+/// decides, and a music file is not a way to run code.
+#[tauri::command]
+pub fn open_downloaded_file(file_path: String) -> Result<(), String> {
+    let path = std::path::Path::new(&file_path);
+
+    if !path.is_file() {
+        return Err("That is not a file, or it is no longer there.".to_string());
+    }
+
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+
+    if !OPENABLE_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(format!(
+            "MeedyaDL only opens music, video, artwork and text files. It will not open a \
+             .{extension} file. Open it from your file manager if you meant to."
+        ));
+    }
+
+    // Not `open_path` with a chosen program: the second argument is
+    // `None`, which means "whatever this computer normally uses".
+    tauri_plugin_opener::open_path(&file_path, None::<&str>)
+        .map_err(|e| format!("Could not open that file: {e}"))
+}
+
 #[tauri::command]
 pub fn resolve_reveal_path(file_path: String) -> String {
     let p = std::path::Path::new(&file_path);
@@ -106,6 +181,55 @@ pub fn resolve_reveal_path(file_path: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_music_video_artwork_and_text_may_be_opened() {
+        // On Windows, opening a program runs it. The page used to be
+        // able to ask for any path at all, which made this a way to run
+        // any file on the computer from anything that could run code in
+        // the page. A full review of the codebase found it.
+        //
+        // An allow-list, so a file type nobody thought of is refused
+        // rather than permitted.
+        for allowed in ["m4a", "mp4", "flac", "jpg", "lrc", "json", "meedyadl"] {
+            assert!(
+                OPENABLE_EXTENSIONS.contains(&allowed),
+                "{allowed} is something this app produces and should open"
+            );
+        }
+        for refused in [
+            "exe", "bat", "cmd", "com", "scr", "msi", "lnk", "ps1", "vbs", "sh", "command", "app",
+            "jar", "dll", "so", "dylib", "reg", "hta", "pkg", "deb",
+        ] {
+            assert!(
+                !OPENABLE_EXTENSIONS.contains(&refused),
+                "{refused} can run code and must never be opened"
+            );
+        }
+    }
+
+    #[test]
+    fn a_capital_letter_does_not_get_a_program_past_the_check() {
+        // The reason the check lower-cases before comparing: a list of
+        // dangerous extensions is always one spelling short, and
+        // `PAYLOAD.EXE` is the spelling people try. Here the list is of
+        // what is ALLOWED, so the same lower-casing means `TRACK.M4A`
+        // works while `PAYLOAD.EXE` does not.
+        let lowered = |name: &str| {
+            std::path::Path::new(name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(str::to_ascii_lowercase)
+                .unwrap_or_default()
+        };
+
+        assert!(OPENABLE_EXTENSIONS.contains(&lowered("Track.M4A").as_str()));
+        assert!(OPENABLE_EXTENSIONS.contains(&lowered("Cover.JPG").as_str()));
+        assert!(!OPENABLE_EXTENSIONS.contains(&lowered("payload.EXE").as_str()));
+        assert!(!OPENABLE_EXTENSIONS.contains(&lowered("payload.Bat").as_str()));
+        // Nothing at all is not an extension we accept.
+        assert!(!OPENABLE_EXTENSIONS.contains(&lowered("README").as_str()));
+    }
 
     /// A real directory resolves to itself — this is the album-download
     /// case that #992 was about (the stored path IS the folder to reveal).
