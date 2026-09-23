@@ -692,6 +692,29 @@ use super::progress_stages::{set_label_only, set_stage, set_stage_with_label, Pr
 /// #596 (Lyricsfile manifest field, populated from disk scan rather than
 /// a new param). Acceptable for an internal config-bag function; if it
 /// grows further consider a `WriteManifestRequest` struct.
+/// # This reads, changes and writes the file in three separate steps
+///
+/// Nothing locks it in between, so two of these running at once for the
+/// same album folder would each read the same "before" copy and the
+/// second to finish would drop the first one's source — silently, since
+/// merging is exactly what this file exists to do.
+///
+/// **That cannot happen today**, and a review asked the question, so
+/// here is the answer rather than a guess. Three things hold:
+///
+/// * The queue runs one item at a time, so two albums cannot be here at
+///   once.
+/// * Within one item there is a single call on each service's path — one
+///   for Apple Music at the end of the pass that adds information, one on
+///   the Spotify path — and an album only ever takes one of them.
+/// * The extra copies in other formats all finish before that pass
+///   starts; they do not write here themselves.
+///
+/// **If you add a second caller on the same path, or make the queue run
+/// items in parallel, this needs a lock first.** The merging is what
+/// makes it dangerous: two writers do not collide loudly, they just
+/// quietly lose one of the two records, and the only symptom is a
+/// re-download fetching one format instead of two.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn write_manifest(
     album_dir: &str,

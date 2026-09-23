@@ -2242,15 +2242,50 @@ pub fn process_queue(
                                         .album_name
                                         .as_deref()
                                         .unwrap_or("Unknown Album");
-                                    // Sanitize album name for filesystem safety: strip characters
-                                    // that are illegal or problematic on macOS/Windows/Linux.
+                                    // An album name comes from Apple Music, which means a
+                                    // record label typed it, which means it can contain
+                                    // anything at all. This is the one place in the download
+                                    // path where such a name becomes a FILE NAME directly
+                                    // rather than being appended to one the download engine
+                                    // already wrote, so it is cleaned properly.
+                                    //
+                                    // A review found the previous version listing the
+                                    // characters to remove and stopping there: it missed
+                                    // spaces and dots at either end, which Windows quietly
+                                    // strips or refuses, control characters, and any limit on
+                                    // length. A list of what to remove is always missing
+                                    // something; keeping only what is known to be safe is
+                                    // not.
+                                    //
+                                    // Only ever a diagnostic file written when verbose
+                                    // logging is on, so nothing much rode on it — but it
+                                    // was the one spot that needed the careful version and
+                                    // had the casual one.
                                     let safe_name: String = album_name
                                         .chars()
-                                        .map(|c| match c {
-                                            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                                            _ => c,
+                                        .map(|c| {
+                                            if c.is_alphanumeric()
+                                                || matches!(c, ' ' | '-' | '_' | '(' | ')' | '\'')
+                                            {
+                                                c
+                                            } else {
+                                                '_'
+                                            }
                                         })
                                         .collect();
+                                    // Trim what Windows treats specially at either end, and
+                                    // cap the length so a very long title cannot push the
+                                    // whole name past what a filesystem accepts.
+                                    let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
+                                    let safe_name: String = safe_name.chars().take(80).collect();
+                                    let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
+                                    // Never empty: a name of nothing but punctuation would
+                                    // otherwise produce a file called just the suffix.
+                                    let safe_name = if safe_name.is_empty() {
+                                        "Unknown Album"
+                                    } else {
+                                        safe_name
+                                    };
                                     let json_filename = format!("{safe_name}-applemusic-data.json");
                                     let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
