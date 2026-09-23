@@ -4925,10 +4925,18 @@ pub fn process_queue(
                         // auth and the user has opted in, automatically re-queue
                         // with wrapper disabled (cookie-based auth) instead of
                         // treating this as a terminal failure.
+                        // The address with its query string removed, like
+                        // everywhere else it is written down. This line
+                        // printed it whole — and a reviewer pointed out
+                        // that this is the failure path, which is exactly
+                        // the moment somebody exports the log and sends
+                        // it to whoever might help.
                         log::debug!(
                             "Download {dl_id} terminal error path: \
                          wrapper_url={}, error_category={error_category}",
-                            wrapper_url_for_logging.as_deref().unwrap_or("none"),
+                            wrapper_url_for_logging
+                                .as_deref()
+                                .map_or_else(|| "none".to_string(), redact_url_query),
                         );
                         // Skip the cookie auto-retry for rate limits — a 429 is a
                         // per-account server-side cooldown, so re-running via

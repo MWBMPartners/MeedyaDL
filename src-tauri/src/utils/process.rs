@@ -1536,7 +1536,19 @@ pub fn classify_gamdl_traceback(output: &str) -> Option<&'static str> {
 pub fn redact_cli_args(args: &[String]) -> Vec<String> {
     args.iter()
         .map(|arg| {
-            if arg.starts_with("http://") || arg.starts_with("https://") {
+            // Case does not matter. `HTTPS://…` is the same address as
+            // `https://…`, and a settings field keeps whatever spelling
+            // was typed into it.
+            //
+            // The first version of this compared exactly, so an address
+            // typed in capitals went into the log complete with its
+            // token. That was WORSE than the name-based check it
+            // replaced, which caught the option whatever its value
+            // looked like — a reviewer put it plainly, and they were
+            // right. A rule about the shape of a value has to consider
+            // every shape the value can take.
+            let lowered = arg.to_ascii_lowercase();
+            if lowered.starts_with("http://") || lowered.starts_with("https://") {
                 crate::services::crash_report_service::redact_single_url(arg)
             } else {
                 arg.clone()
@@ -3741,6 +3753,23 @@ mod tests {
         assert!(joined.contains("--wrapper-account-url"), "option names stay: {joined}");
         // A file path is not a web address and is left alone.
         assert!(joined.contains("/Users/somebody/Music"), "paths are untouched: {joined}");
+    }
+
+    #[test]
+    fn capital_letters_in_an_address_do_not_smuggle_a_token_out() {
+        // The first version of this compared exactly, so an address
+        // typed in capitals kept its token. Worse than the check it
+        // replaced, which did not care how the value was spelled.
+        for scheme in ["HTTPS", "Https", "HTTP", "hTtP"] {
+            let args = vec![
+                "--wrapper-url".to_string(),
+                format!("{scheme}://user:hunter2@pi.local/account?token=SECRET"),
+            ];
+            let joined = redact_cli_args(&args).join(" ");
+            assert!(!joined.contains("SECRET"), "{scheme}: token survived: {joined}");
+            assert!(!joined.contains("hunter2"), "{scheme}: password survived: {joined}");
+            assert!(joined.contains("pi.local"), "{scheme}: host should remain: {joined}");
+        }
     }
 
     #[test]

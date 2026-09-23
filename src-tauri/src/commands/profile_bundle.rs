@@ -813,17 +813,24 @@ pub async fn import_profile(
                 serde_json::from_slice(&settings_bytes)
                     .map_err(|e| format!("Bundle settings.json is malformed: {e}"))?;
             crate::commands::settings::sanitize_imported_settings(&mut imported);
-            // Security-sensitive fields are NEVER taken from the bundle —
-            // always clamped to what this install already had configured.
-            imported.dev_access_enabled = pre_import_settings.dev_access_enabled;
-            imported.ffmpeg_path = pre_import_settings.ffmpeg_path.clone();
-            imported.mp4decrypt_path = pre_import_settings.mp4decrypt_path.clone();
-            imported.mp4box_path = pre_import_settings.mp4box_path.clone();
-            imported.nm3u8dlre_path = pre_import_settings.nm3u8dlre_path.clone();
-            imported.wrapper_url = pre_import_settings.wrapper_url.clone();
-            imported.wrapper_decrypt_ip = pre_import_settings.wrapper_decrypt_ip.clone();
-            imported.cookies_path = pre_import_settings.cookies_path.clone();
-            imported.output_path = pre_import_settings.output_path.clone();
+            // Everything that must never arrive from somebody else's file
+            // is clamped to what this install already had — through the
+            // SAME function the ordinary settings import uses.
+            //
+            // This used to be its own shorter list, written out by hand
+            // here. It had already fallen behind: it did not mention the
+            // MediaInfo path, the PlayReady device file, the per-service
+            // paths (one of which is a program the Spotify engine loads),
+            // or where the activity log is written. So a bundle could set
+            // all of those while an ordinary settings file could not —
+            // the same door, left open beside the one that was locked.
+            //
+            // A reviewer found it. Two lists guarding the same thing is
+            // the arrangement that produced the gap; there is now one.
+            crate::commands::settings::preserve_local_only_settings(
+                &mut imported,
+                &pre_import_settings,
+            );
 
             crate::services::config_service::save_settings(&app, &imported)
                 .map_err(|e| format!("Failed to write settings.json: {e}"))?;

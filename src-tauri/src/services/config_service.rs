@@ -469,7 +469,7 @@ pub(crate) fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, St
 ///
 /// # Returns
 /// * `Ok(settings)` - The loaded or default settings, after startup actions
-pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> {
     // The plain read first — see `read_settings_from_disk`. Everything
     // below this line is a startup action, and is exactly what a
     // single-field write must NOT inherit.
@@ -603,6 +603,41 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     } else {
         Ok(AppSettings::default())
     }
+}
+
+/// Reads the stored settings. No side effects.
+///
+/// **This is what almost everything wants.** It is the plain read: open
+/// the file, check it, parse it, upgrade an older one, hand it back.
+///
+/// # Why this name belongs to the harmless one
+///
+/// It used to belong to the startup version below, which also switches
+/// verbose logging off, records the version just seen, rewrites the
+/// download engine's own configuration file and sets a global flag. Its
+/// documentation said, in as many words, that anything just wanting to
+/// read a value must not call it.
+///
+/// Forty-nine places called it anyway. Not one of them was startup.
+///
+/// That is not forty-nine people ignoring a warning — it is a name that
+/// promised something harmless attached to something that was not, with
+/// the warning kept somewhere you only look if you already suspect. The
+/// effects were real: switching verbose logging off during an ordinary
+/// download, and handing the Settings screen a value that then got saved
+/// over the person's own choice.
+///
+/// So the name now belongs to the harmless one, and the startup version
+/// is called `load_settings_at_startup`, which cannot be called by
+/// accident and says what it does at every call site. A reviewer found
+/// that changing six of the forty-nine had not finished the job; this
+/// finishes it for all of them at once.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file exists but cannot be read.
+pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    read_settings_from_disk(app)
 }
 
 /// Serialises every write to `settings.json`.

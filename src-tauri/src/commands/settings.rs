@@ -901,6 +901,17 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     // means nothing on another machine anyway. Keep the local value.
     imported.prd_path = current.prd_path.clone();
 
+    // What happens when the queue finishes is this person's choice, and
+    // one of the choices is to shut the computer down or restart it.
+    //
+    // A reviewer pointed out that an imported file could set it. Somebody
+    // sent a settings file, who imported it and later left a queue
+    // running, would have had their machine shut down mid-way through
+    // whatever else they were doing. Nothing about that is obvious from
+    // the file, and nothing asks again before it happens.
+    imported.after_queue_action = current.after_queue_action;
+    imported.after_queue_once = current.after_queue_once;
+
     // The SAME protection, one level deeper, for the per-service
     // settings.
     //

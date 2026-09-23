@@ -2553,7 +2553,7 @@ pub(crate) fn spawn_companion_downloads(
                 // Checked between tiers, which is where the other two
                 // stop conditions are checked, and for the same reason:
                 // it is the point where nothing is half-done.
-                if comp_queue.lock().await.is_cancelled(&comp_dl_id) {
+                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
                     log::info!(
                         "Companion downloads stopping early — {comp_dl_id} was cancelled"
                     );
@@ -2609,6 +2609,25 @@ pub(crate) fn spawn_companion_downloads(
                             tier_idx
                         ),
                     );
+                    // Asked again before EVERY attempt, not only between
+                    // tiers. A tier can hold several formats and try each
+                    // in turn, so checking only at the tier boundary
+                    // meant a cancellation during the first attempt still
+                    // let the next one start — fresh download work, begun
+                    // after the person said stop. A reviewer caught the
+                    // gap in the first version of this check.
+                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                        log::info!(
+                            "Companion downloads stopping — {comp_dl_id} was cancelled"
+                        );
+                        emit_download_log(
+                            &comp_app,
+                            &comp_dl_id,
+                            "Cancelled — stopping the extra format downloads.",
+                        );
+                        return;
+                    }
+
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
