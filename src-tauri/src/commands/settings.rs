@@ -125,6 +125,46 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
     config_service::read_settings_from_disk(&app)
 }
 
+/// Hands back the settings a brand-new install would have.
+///
+/// **Frontend caller:** `getDefaultSettings()` in
+/// `src/lib/tauri-commands.ts`, used by the Settings screen's "Reset"
+/// button.
+///
+/// # Why this exists rather than the page keeping its own copy
+///
+/// The page did keep its own copy, and it had drifted. Three values
+/// disagreed with the real ones, and two of those three were exactly
+/// the values a settings upgrade step exists to REPAIR — the folder and
+/// file name patterns that, without the identifier on the end, let two
+/// playlists with the same name overwrite each other's file and two
+/// compilations with the same album name pile into one folder (#545,
+/// #552). So pressing "Reset" and then "Save" put somebody straight
+/// back onto the two patterns known to lose files.
+///
+/// The page's copy also had no settings version number in it at all, so
+/// a reset-then-save wrote version zero and every upgrade step ran again
+/// at the next launch. That happened to repair the two patterns — but
+/// only after a restart, so anything downloaded in between used the
+/// colliding names.
+///
+/// Two copies of the same list will always drift; the only question is
+/// how long before anyone notices. This one went unnoticed long enough
+/// for the drift to re-introduce a fixed bug. So there is one copy now,
+/// here, and the page asks for it.
+/// `tools/audit-checks/check_settings_defaults.py` reports it if the
+/// page's placeholder copy drifts from this one again.
+///
+/// # Errors
+///
+/// Cannot fail — it builds the defaults in memory and touches no file.
+/// It returns a `Result` only because that is the shape every command
+/// here has, and a command that cannot fail today may need to later.
+#[tauri::command]
+pub async fn get_default_settings() -> Result<AppSettings, String> {
+    Ok(AppSettings::default())
+}
+
 /// Saves application settings to disk.
 ///
 /// **Frontend caller:** `saveSettings(settings)` in `src/lib/tauri-commands.ts`

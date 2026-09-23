@@ -19,6 +19,7 @@ import {
   useUiStore,
   __resetToastWorkerForTests,
   __resetSidebarSaveForTests,
+  MAX_TOASTS,
 } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import * as commands from '@/lib/tauri-commands';
@@ -85,10 +86,19 @@ beforeEach(() => {
   vi.mocked(notificationPlugin.isPermissionGranted).mockClear();
   vi.mocked(notificationPlugin.requestPermission).mockClear();
   vi.mocked(notificationPlugin.sendNotification).mockClear();
-  // Reset settings to a known baseline (native + in-app) so notification
-  // tests aren't affected by a prior test's `useSettingsStore.setState()`.
+  // Reset settings to a known baseline (master switch on, style native +
+  // in-app) so notification tests aren't affected by a prior test's
+  // `useSettingsStore.setState()`. Both fields are reset here, not just
+  // `notification_style` -- a test that turns `desktop_notifications` off
+  // and forgets to put it back would otherwise leak that into every test
+  // that runs after it, since `setState` here only spreads over whatever
+  // the previous test left behind.
   useSettingsStore.setState((state) => ({
-    settings: { ...state.settings, notification_style: 'native_and_in_app' },
+    settings: {
+      ...state.settings,
+      desktop_notifications: true,
+      notification_style: 'native_and_in_app',
+    },
   }));
 });
 
@@ -377,10 +387,19 @@ describe('uiStore', () => {
       // schedule 50 individual setTimeouts. Post-#894 the worker
       // is a single setInterval — the count of pending timers stays
       // bounded regardless of how many toasts are queued.
+      //
+      // The MAX_TOASTS ceiling added later means the array itself
+      // holds at most MAX_TOASTS entries at any one time (the oldest
+      // are dropped as new ones arrive) rather than growing to 50 --
+      // that is the OTHER fix's job and is covered by its own tests
+      // above. What THIS test still needs to prove is unchanged: that
+      // firing many toasts uses one shared worker rather than 50
+      // individual timers, and that the worker still clears everything
+      // once it all expires.
       for (let i = 0; i < 50; i += 1) {
         useUiStore.getState().addToast(`msg ${i}`, 'info', 1000);
       }
-      expect(useUiStore.getState().toasts).toHaveLength(50);
+      expect(useUiStore.getState().toasts).toHaveLength(MAX_TOASTS);
 
       // Advance past expiry + worker tick; all should be cleared.
       vi.advanceTimersByTime(1500);
@@ -500,6 +519,138 @@ describe('uiStore', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
       expect(useUiStore.getState().toasts).toHaveLength(1);
+    });
+  });
+
+  // =========================================================================
+  // Desktop Notifications master switch
+  //
+  // `desktop_notifications` is the on/off toggle shown in Settings >
+  // General; `notification_style` is the dropdown underneath it that only
+  // appears -- and can only be changed -- while the toggle is on. Before
+  // this fix, `addToast` looked only at `notification_style` and never at
+  // `desktop_notifications`, so turning the toggle off did not stop a
+  // single OS banner. These tests go red against that specific mistake,
+  // not just against "the switch is missing" -- each one turns the switch
+  // off and checks the native path stayed off, the same way the sidebar
+  // tests above go red against the two ways remembering the sidebar broke
+  // before.
+  // =========================================================================
+  describe('addToast — desktop notifications master switch', () => {
+    it('sends no native notification when the switch is off, even though the style is "native + in-app"', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          desktop_notifications: false,
+          notification_style: 'native_and_in_app',
+        },
+      }));
+
+      useUiStore.getState().addToast('Switch is off', 'warning');
+
+      // Nothing to wait FOR here (the assertion is that nothing ever
+      // fires), so give stray microtasks a moment to run instead of
+      // asserting synchronously.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
+
+      // The switch only concerns the native OS banner. The in-app toast
+      // is unaffected and must still appear.
+      const { toasts } = useUiStore.getState();
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].message).toBe('Switch is off');
+    });
+
+    it('still shows an in-app toast when the switch is off and the saved style is "native only" -- otherwise the message reaches the user nowhere at all', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          desktop_notifications: false,
+          notification_style: 'native_only',
+        },
+      }));
+
+      useUiStore.getState().addToast('Would otherwise vanish', 'error');
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
+
+      // Before the fix, "native only" always returned early and skipped
+      // the in-app toast. Combined with the switch being off (so no OS
+      // banner either), that message reached the user nowhere -- silently.
+      // This is the exact case the fix exists to prevent.
+      const { toasts } = useUiStore.getState();
+      expect(toasts).toHaveLength(1);
+      expect(toasts[0].message).toBe('Would otherwise vanish');
+    });
+
+    it('leaves the saved notification_style untouched -- the switch-off behaviour only changes what this one call does', () => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          desktop_notifications: false,
+          notification_style: 'native_only',
+        },
+      }));
+
+      useUiStore.getState().addToast('Does not rewrite settings', 'info');
+
+      expect(useSettingsStore.getState().settings.notification_style).toBe('native_only');
+    });
+
+    it('still sends the native notification when the switch is on and the style is "native only" (unaffected by this fix)', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          desktop_notifications: true,
+          notification_style: 'native_only',
+        },
+      }));
+
+      useUiStore.getState().addToast('Switch is on', 'warning');
+
+      await vi.waitFor(() => {
+        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
+      });
+      // "Native only" with the switch on keeps its pre-existing meaning:
+      // no in-app toast.
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    });
+  });
+
+  // =========================================================================
+  // Toast list ceiling
+  // =========================================================================
+  describe('addToast — list ceiling (MAX_TOASTS)', () => {
+    it('keeps only the newest MAX_TOASTS entries once the list overflows, dropping the oldest first', () => {
+      // Every message here is different, so the message-based dedup a few
+      // lines up in `addToast` does nothing -- and these are persistent
+      // (duration 0) error toasts, so nothing ages them out either. This
+      // is exactly the run-of-differently-worded-failures shape the cap
+      // exists for.
+      const total = MAX_TOASTS + 1;
+      for (let i = 0; i < total; i += 1) {
+        useUiStore.getState().addToast(`Failure ${i}`, 'error', 0);
+      }
+
+      const { toasts } = useUiStore.getState();
+      expect(toasts).toHaveLength(MAX_TOASTS);
+
+      // "Failure 0" was the oldest and should have been dropped; the
+      // newest MAX_TOASTS entries remain, still in the order they arrived.
+      const messages = toasts.map((t) => t.message);
+      expect(messages).not.toContain('Failure 0');
+      expect(messages).toEqual(
+        Array.from({ length: MAX_TOASTS }, (_, i) => `Failure ${i + 1}`),
+      );
+    });
+
+    it('does not trim the list while it is at or under the ceiling', () => {
+      for (let i = 0; i < MAX_TOASTS; i += 1) {
+        useUiStore.getState().addToast(`Item ${i}`, 'info', 0);
+      }
+
+      expect(useUiStore.getState().toasts).toHaveLength(MAX_TOASTS);
     });
   });
 

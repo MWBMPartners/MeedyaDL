@@ -94,6 +94,36 @@ export function __resetToastWorkerForTests(): void {
 }
 
 /**
+ * Ceiling on how many toasts this store will hold at once.
+ *
+ * The message-based dedup inside `addToast` only catches two toasts with
+ * the EXACT SAME wording. It does nothing for a run of failures that each
+ * name a different track, a different codec, or a different reason --
+ * and that is the common case during a bad network stretch in the middle
+ * of a big queue, where dozens of distinctly-worded toasts can appear in
+ * a few minutes. Error and warning toasts also default to never
+ * auto-dismissing (see the duration resolution inside `addToast`), so
+ * without a ceiling nothing was ever removing them and the on-screen
+ * list would grow for as long as the app stayed open.
+ *
+ * `featureFlagStore.ts`'s `MAX_FEATURE_NOTICES` caps a different list
+ * for the identical reason -- an unbounded source feeding a list that
+ * nothing else bounds. The number here is set higher than that one's 5,
+ * because the two lists don't behave the same way on screen: feature
+ * notices are full-width banners pinned across the top of the app, so 5
+ * of those already crowds it, whereas toasts are small pills stacked in
+ * a corner that most of them auto-dismiss out of on their own -- more
+ * can be on screen at once before the stack stops being readable.
+ *
+ * When the cap is hit, the newest toast is kept and the oldest is
+ * dropped, not the other way round: the newest failure is the one that
+ * still describes what is happening right now, while the oldest has
+ * usually already been overtaken by events by the time there are this
+ * many stacked up.
+ */
+export const MAX_TOASTS = 8;
+
+/**
  * How long to wait after the last sidebar click before writing the new
  * state to disk.
  *
@@ -562,7 +592,46 @@ export const useUiStore = create<UiState>((set, get) => ({
    */
   addToast: (message, type, duration?, key?, action?) => {
     const { settings } = useSettingsStore.getState();
-    const style = settings.notification_style ?? 'native_and_in_app';
+
+    // "Desktop Notifications" in Settings > General is the master on/off
+    // switch for OS-level banners. `notification_style` only says HOW a
+    // native notification is delivered once that switch is on -- it was
+    // never meant to work on its own.
+    //
+    // Before this fix, the code below looked only at `notification_style`
+    // and never at `desktop_notifications`, so switching the master
+    // control off did not stop a single OS banner -- the switch simply
+    // had no effect here. That was easy to miss because the Settings
+    // screen hides the style dropdown entirely whenever the master switch
+    // is off (see GeneralTab.tsx), so whatever style was last chosen stays
+    // saved and out of sight. A person could turn the switch off while
+    // "Native only" was still selected from an earlier session and never
+    // see that combination again to notice anything was wrong.
+    //
+    // The Rust side of the app already gets this right --
+    // `send_desktop_notification` in `download_queue/notifications.rs`
+    // checks `desktop_notifications` before it even looks at
+    // `notification_style`. This brings the two halves of the app into
+    // agreement.
+    const desktopNotificationsEnabled = settings.desktop_notifications ?? true;
+    const requestedStyle = settings.notification_style ?? 'native_and_in_app';
+
+    // The one case that needs a deliberate decision, not just "switch off
+    // means nothing happens": the switch is off AND the saved style is
+    // "Native only". Doing nothing in that case would mean a message --
+    // say, a failed download -- reaches the user nowhere at all: no OS
+    // banner, because the switch is off, and no in-app toast either,
+    // because the style says native-only and the code further down skips
+    // the in-app toast whenever that style is selected. That is worse
+    // than either setting acting alone, so when the master switch is off,
+    // this call treats the style as "in-app only" regardless of what is
+    // actually saved -- the native path is guaranteed off, and the in-app
+    // toast is guaranteed to show, so the message always reaches the user
+    // somewhere. Only this one call is affected; the person's saved
+    // `notification_style` choice in settings.json is never touched, so
+    // switching "Desktop Notifications" back on later restores whatever
+    // style they had chosen without them having to reselect it.
+    const style = desktopNotificationsEnabled ? requestedStyle : 'in_app_only';
 
     // Resolve duration: use explicit value if provided, otherwise read from settings.
     // Error and warning toasts are persistent (0 = no auto-dismiss) unless explicitly timed.
@@ -642,12 +711,21 @@ export const useUiStore = create<UiState>((set, get) => ({
       // (replacement behaviour — only one toast per key at a time).
       const filtered = key ? state.toasts.filter((t) => t.key !== key) : state.toasts;
 
-      return {
-        toasts: [
-          ...filtered,
-          { id, message, type, duration, expiresAt, key, action },
-        ],
-      };
+      const withNewToast = [
+        ...filtered,
+        { id, message, type, duration, expiresAt, key, action },
+      ];
+
+      // Enforce the MAX_TOASTS ceiling (see the comment on that constant
+      // above for why this exists at all). Toasts are always appended to
+      // the end of the array above, so the oldest one is reliably at
+      // index 0 -- slicing from the front drops the oldest entries first
+      // and keeps the newest ones, including the one just added.
+      const toasts = withNewToast.length > MAX_TOASTS
+        ? withNewToast.slice(withNewToast.length - MAX_TOASTS)
+        : withNewToast;
+
+      return { toasts };
     });
 
     // Kick the centralised dismissal worker if this toast has a

@@ -809,6 +809,17 @@ function BackupManagement() {
   const [snapshots, setSnapshots] = useState<BackupEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
+  /**
+   * Delete confirmation target. This used to be missing entirely: the
+   * Delete button (an icon-only "X", right beside Restore) deleted a
+   * snapshot on the very first click, while Restore -- sitting right
+   * next to it -- already asks first. Only the 10 most recent
+   * snapshots are kept, and each one holds settings, queue AND
+   * history, so a slipped click aimed at Restore could permanently
+   * destroy the one snapshot someone needed, with no way to get it
+   * back. `null` = modal closed, mirroring `restoreTarget` above.
+   */
+  const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -858,10 +869,20 @@ function BackupManagement() {
     }
   };
 
-  const handleDelete = async (entry: BackupEntry) => {
+  /**
+   * Runs the actual delete, once the user has confirmed it in the
+   * modal below. Deleting a snapshot cannot be undone -- unlike
+   * Restore, there's no "restart to apply" step that gives a moment
+   * to reconsider; the file on disk is just gone. See the comment on
+   * `deleteTarget` above for why this needed a confirmation at all.
+   */
+  const handleDeleteConfirmed = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
     setBusy(true);
     try {
-      await deleteBackup(entry.path);
+      await deleteBackup(target.path);
       addToast('Snapshot deleted.', 'info');
       await refresh();
     } catch (e) {
@@ -929,7 +950,7 @@ function BackupManagement() {
                   size="sm"
                   icon={<XCircle size={14} />}
                   disabled={busy}
-                  onClick={() => handleDelete(s)}
+                  onClick={() => setDeleteTarget(s)}
                   aria-label={`Delete snapshot ${s.name}`}
                 />
               </div>
@@ -966,6 +987,41 @@ function BackupManagement() {
               </Button>
               <Button variant="primary" onClick={handleRestoreConfirmed}>
                 Restore
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* Delete confirmation modal -- see the comment on `deleteTarget`
+          above for why this was missing and why that mattered: this
+          button sits right beside Restore, looks nothing like it (an
+          icon with no visible text versus a labelled button), and used
+          to act on the very first click with nothing to stop a
+          mis-click from destroying a snapshot for good. */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete snapshot?"
+      >
+        {deleteTarget && (
+          <>
+            <p className="text-sm text-content-secondary mb-4">
+              This will permanently delete{' '}
+              <span className="font-mono">{formatSnapshotName(deleteTarget.name)}</span>. This
+              cannot be undone.
+            </p>
+            <p className="text-sm text-content-secondary mb-6">
+              Only the 10 most recent snapshots are kept, and each one holds your settings,
+              queue, and history together. If this was the snapshot you'd need to undo a
+              mistake, deleting it removes that option.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleDeleteConfirmed}>
+                Delete
               </Button>
             </div>
           </>
