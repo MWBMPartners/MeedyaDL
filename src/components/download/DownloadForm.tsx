@@ -937,19 +937,26 @@ export function DownloadForm() {
         const oneOff = onDisk.after_queue_once ?? null;
         const standing = onDisk.after_queue_action;
 
-        // Put the page back in step with the disk — BOTH values, not
-        // just the one-off.
+        // Put the page back in step with the disk — the ONE-OFF only.
         //
-        // The status bar falls back to the standing setting when there
-        // is no one-off, so restoring only the one-off left it reading
-        // this page's possibly-unsaved copy of the standing one. A
-        // reviewer caught that: stored "shut down" plus an unsaved "do
-        // nothing" showed no shutdown indicator at all, while the
-        // message beside it correctly warned about the shutdown.
-        useSettingsStore.getState().updateSettings({
-          after_queue_once: oneOff,
-          after_queue_action: standing,
-        });
+        // The standing setting is deliberately left alone, and that is a
+        // correction of something attempted here a moment ago. Writing
+        // it back would have fixed the status bar in one case, and would
+        // have done so by silently throwing away an unsaved edit the
+        // person had made on the Settings screen and not yet saved.
+        //
+        // That is the exact fault this whole batch of work exists to
+        // fix: one part of the app committing, or discarding, edits the
+        // person never chose to commit (#1175). Doing it here, in a
+        // failure handler on a different screen, would have been a
+        // particularly quiet version of it.
+        //
+        // So the message below tells the truth from the disk, and the
+        // person's unsaved edit stays theirs. What the status bar shows
+        // for the standing setting while an edit is pending is a
+        // separate, pre-existing question about the whole Settings
+        // screen, and not one to answer by overwriting.
+        useSettingsStore.getState().updateSettings({ after_queue_once: oneOff });
 
         if (oneOff) {
           stillArmed = `${readable(oneOff)} is still set from before, and will still happen.`;
