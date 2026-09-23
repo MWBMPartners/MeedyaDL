@@ -112,6 +112,31 @@ pub struct ComponentUpdate {
     /// Whether an update is available (latest > current via semver comparison).
     /// True if not installed and a version is available on the remote source.
     pub update_available: bool,
+    /// Set when MeedyaDL could NOT work out whether there is an update,
+    /// carrying the reason in plain English.
+    ///
+    /// # Why this is a field and not just wording in `description`
+    ///
+    /// "We could not check" and "we checked and there is nothing new"
+    /// both arrive as `update_available: false`, and they are not the
+    /// same thing at all — one means you are up to date, the other means
+    /// nobody knows. Telling them apart by reading the English of a
+    /// message would work until somebody reworded it.
+    ///
+    /// This matters here because the Updates page keeps only entries
+    /// where an update IS available, so without a field of its own a
+    /// component nobody could check simply vanished from the screen —
+    /// looking exactly like one that had been checked and found current.
+    /// That is the failure this project has a standing rule about: a
+    /// check that could not run must never be read as a check that found
+    /// nothing.
+    ///
+    /// Today this is set for the helper programmes whose version cannot
+    /// be established — an FFmpeg installed before MeedyaDL started
+    /// recording where its build came from, or a mirror that does not
+    /// publish a version for a tool.
+    #[serde(default)]
+    pub not_checkable_reason: Option<String>,
     /// Whether this update is compatible with the current app version.
     /// For GAMDL: any parseable semver passes (we only reject obviously
     /// malformed strings like `v3-rc`). The "untested vs tested" status
@@ -826,13 +851,27 @@ pub async fn check_all_updates(
     }
 
     // Check external tools for updates (#273).
-    // Compares installed tool versions (from tool-versions.toml minimums)
-    // against the latest GitHub release for tools that have known repos.
-    let tool_checks = [
-        ("ffmpeg", "BtbN/FFmpeg-Builds", "FFmpeg"),
-        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE"),
-    ];
-    for (tool_id, repo, display_name) in &tool_checks {
+    //
+    // Originally only FFmpeg and N_m3u8DL-RE were checked here — and
+    // FFmpeg's check could never actually find an update, because it
+    // compared against BtbN's release tag, which is permanently the
+    // literal word "latest" with no version number in it at all. That
+    // left exactly one of the five required tools genuinely checked.
+    // Below: N_m3u8DL-RE keeps its existing GitHub-release comparison;
+    // FFmpeg gets a dedicated build-date comparison (see
+    // `check_ffmpeg_update()`); MP4Box, mp4decrypt, and MediaInfo — the
+    // three that had no check at all — get one each, each compared
+    // against whichever source actually means something for that tool
+    // (see `check_mp4box_update()` and `check_mirror_only_tool_update()`).
+    if crate::services::dependency_manager::get_tool_binary_path(app, "ffmpeg").exists() {
+        match check_ffmpeg_update(app).await {
+            Ok(update) => components.push(update),
+            Err(e) => log::debug!("FFmpeg update check failed: {e}"),
+        }
+    }
+
+    let github_tool_checks = [("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE")];
+    for (tool_id, repo, display_name) in &github_tool_checks {
         let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
         if binary.exists() {
             match check_github_tool_update(app, tool_id, repo, display_name).await {
@@ -841,6 +880,43 @@ pub async fn check_all_updates(
                     log::debug!("Tool update check failed for {tool_id}: {e}");
                 }
             }
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mp4box").exists() {
+        match check_mp4box_update(app).await {
+            Ok(update) => components.push(update),
+            Err(e) => log::debug!("MP4Box update check failed: {e}"),
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mp4decrypt").exists() {
+        match check_mirror_only_tool_update(
+            app,
+            "mp4decrypt",
+            "mp4decrypt",
+            "mp4decrypt",
+            crate::services::dependency_manager::normalize_bento4_version,
+        )
+        .await
+        {
+            Ok(update) => components.push(update),
+            Err(e) => log::debug!("mp4decrypt update check failed: {e}"),
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mediainfo").exists() {
+        match check_mirror_only_tool_update(
+            app,
+            "mediainfo",
+            "mediainfo",
+            "MediaInfo",
+            crate::services::dependency_manager::normalize_mediainfo_version,
+        )
+        .await
+        {
+            Ok(update) => components.push(update),
+            Err(e) => log::debug!("MediaInfo update check failed: {e}"),
         }
     }
 
@@ -1159,6 +1235,9 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         current_version: current,
         latest_version: latest.clone(),
         update_available,
+        // Both of these are checked against what the package index
+        // publishes, so there is no "could not tell" case here.
+        not_checkable_reason: None,
         is_compatible,
         is_untested,
         no_compatible_wheel,
@@ -1274,6 +1353,7 @@ async fn check_app_update(
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
+                not_checkable_reason: None,
                 is_compatible: true,
                 is_untested: false,
                 no_compatible_wheel: false, // Only computed for GAMDL
@@ -1320,6 +1400,7 @@ async fn check_app_update(
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
+                not_checkable_reason: None,
                 is_compatible: true,
                 is_untested: false,
                 no_compatible_wheel: false, // Only computed for GAMDL
@@ -1454,6 +1535,7 @@ fn parse_release_from_response(
         update_available,
         // App updates are always "compatible" — the new version replaces the old one entirely.
         // Unlike GAMDL (which has a CLI interface contract), the app is self-contained.
+        not_checkable_reason: None,
         is_compatible: true,
         // Untested-vs-tested only applies to GAMDL (whose CLI surface
         // we audit per-version). MeedyaDL releases are self-contained.
@@ -1659,23 +1741,14 @@ async fn check_github_tool_update(
     // relabels the Upgrade button "Update via <label>" (routing unchanged —
     // `install_tool` Step 0 delegates to the manager), and shows the manual
     // command as transparency / elevation fallback.
-    let (managed_by, manual_update_command) = {
-        let tool_dir = crate::services::dependency_manager::get_tool_dir(app, tool_id);
-        let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
-        match crate::services::package_manager::PackageRef::parse_marker(&marker) {
-            Some(r) => (
-                Some(r.pm.display_label().to_string()),
-                Some(r.manual_update_command()),
-            ),
-            None => (None, None),
-        }
-    };
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
 
     Ok(ComponentUpdate {
         name: display_name.to_string(),
         current_version,
         latest_version: latest_semver.or(latest_version),
         update_available,
+        not_checkable_reason: None,
         is_compatible: true,
         is_untested: false,
         no_compatible_wheel: false, // Only computed for GAMDL
@@ -1693,6 +1766,384 @@ async fn check_github_tool_update(
         managed_by,
         manual_update_command,
     })
+}
+
+/// Reads a tool's `.source` marker and, if it names a package manager,
+/// returns that manager's display label plus the exact command a user
+/// could run to update it themselves.
+///
+/// `None` for a MeedyaDL-managed download or an unattributed system
+/// find — both have no separate manager to route an update through.
+/// Shared by every binary-tool check in this file so the "which manager
+/// owns this, if any" question is answered the same way everywhere.
+fn tool_pm_attribution(app: &AppHandle, tool_id: &str) -> (Option<String>, Option<String>) {
+    let tool_dir = crate::services::dependency_manager::get_tool_dir(app, tool_id);
+    let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+    match crate::services::package_manager::PackageRef::parse_marker(&marker) {
+        Some(r) => (
+            Some(r.pm.display_label().to_string()),
+            Some(r.manual_update_command()),
+        ),
+        None => (None, None),
+    }
+}
+
+/// Builds the "nothing to check" `ComponentUpdate` used whenever a
+/// binary tool's `.source` marker shows a package manager owns this
+/// copy (or MeedyaDL merely found it on the system with no known owner)
+/// — see `dependency_manager::is_meedyadl_managed()`. Shared by every
+/// binary-tool check added for issue #273 so all of them treat this
+/// case identically rather than four near-identical inline structs
+/// quietly drifting apart later.
+fn pm_owned_update_skip(
+    display_name: &str,
+    tool_id: &str,
+    current_version: Option<String>,
+    managed_by: Option<String>,
+    manual_update_command: Option<String>,
+) -> ComponentUpdate {
+    ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: None,
+        update_available: false,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: None,
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    }
+}
+
+/// Builds a `ComponentUpdate` that honestly says "this could not be
+/// checked" instead of quietly reading as "checked, nothing found".
+///
+/// Used whenever a check has a real reason it cannot determine an
+/// answer — the remote source didn't publish what was needed, or a
+/// value recorded at install time is missing or unreadable — as
+/// opposed to "checked, and there is no update". `update_available` is
+/// always `false` here, but `description` carries the actual reason
+/// rather than leaving it blank, which is what would make the two
+/// cases indistinguishable to whoever reads this later.
+fn not_checkable_update(
+    display_name: &str,
+    tool_id: &str,
+    current_version: Option<String>,
+    managed_by: Option<String>,
+    manual_update_command: Option<String>,
+    reason: String,
+) -> ComponentUpdate {
+    ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: None,
+        update_available: false,
+        // The whole point of this helper: say WHY nobody could tell,
+        // in a field of its own rather than only in the wording of the
+        // message below. Without it the Updates page — which keeps only
+        // entries where an update IS available — drops this one on the
+        // floor, and a programme nobody could check looks exactly like
+        // one that was checked and found current.
+        not_checkable_reason: Some(reason.clone()),
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: Some(reason),
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    }
+}
+
+/// Checks a tool that is distributed EXCLUSIVELY through the
+/// MeedyaSuite/MeedyaDL-Tools mirror (mp4decrypt, MediaInfo) for an
+/// update, by comparing the installed version against what the
+/// mirror's own `versions.json` currently records — never against the
+/// upstream project's own releases (Bento4's site has no versioned
+/// releases to check at all; MediaArea's GitHub releases exist but the
+/// mirror is frequently a release or two behind them, so comparing
+/// against upstream would routinely say "update available" when
+/// installing it would fetch the exact bytes already on disk — the
+/// "one thing to avoid above all" from issue #273).
+///
+/// `normalize` reshapes the mirror's raw version string into the same
+/// form MeedyaDL's own installed-version reader produces, so the two
+/// sides of the comparison mean the same thing — see
+/// `dependency_manager::normalize_bento4_version()` and
+/// `normalize_mediainfo_version()`.
+///
+/// Only runs the comparison at all when MeedyaDL manages this copy
+/// itself (see `dependency_manager::is_meedyadl_managed()`) — a copy a
+/// package manager installed is left for that manager to keep current.
+async fn check_mirror_only_tool_update(
+    app: &AppHandle,
+    tool_id: &str,
+    mirror_key: &str,
+    display_name: &str,
+    normalize: impl Fn(&str) -> String,
+) -> Result<ComponentUpdate, String> {
+    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
+    let current_version = if binary.exists() {
+        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
+            .await
+            .ok()
+    } else {
+        None
+    };
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+
+    if !crate::services::dependency_manager::is_meedyadl_managed(app, tool_id) {
+        return Ok(pm_owned_update_skip(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+        ));
+    }
+
+    let versions = crate::services::dependency_manager::fetch_mirror_versions().await?;
+    let raw_latest = versions
+        .get(mirror_key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+
+    let Some(raw_latest) = raw_latest else {
+        // The mirror doesn't currently record a version for this key —
+        // say so rather than silently reading as "up to date".
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            "The mirror does not currently record a version for this tool — cannot check for an update.".to_string(),
+        ));
+    };
+
+    let latest_normalized = normalize(raw_latest);
+    let update_available = current_version
+        .as_ref()
+        .is_some_and(|cur| is_newer(cur, &latest_normalized));
+
+    Ok(ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: Some(latest_normalized),
+        update_available,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: if update_available {
+            Some(format!(
+                "Newer version of {display_name} available from the mirror"
+            ))
+        } else {
+            None
+        },
+        release_url: Some("https://github.com/MeedyaSuite/MeedyaDL-Tools".to_string()),
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    })
+}
+
+/// Checks MP4Box for an update.
+///
+/// MP4Box has three real origins, which look identical on disk unless
+/// `dependency_manager::copy_and_verify_mp4box()` recorded which one
+/// actually happened (see that function's doc comment for the bug this
+/// fixed — every origin used to write the same "managed" marker):
+/// MeedyaDL's own download (GPAC's official pinned installer, or the
+/// MeedyaSuite mirror when that fails) — compared below against GPAC's
+/// own GitHub releases — or a package manager (Homebrew, apt) that
+/// either MeedyaDL asked to install it or the user already had it from
+/// before MeedyaDL ever ran, in which case this defers entirely and
+/// leaves the check to that manager (see the `#273` note: "this task
+/// is only for programmes MeedyaDL installed itself").
+async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+    if !crate::services::dependency_manager::is_meedyadl_managed(app, "mp4box") {
+        let binary = crate::services::dependency_manager::get_tool_binary_path(app, "mp4box");
+        let current_version = if binary.exists() {
+            crate::services::dependency_manager::get_tool_version(&binary, "mp4box")
+                .await
+                .ok()
+        } else {
+            None
+        };
+        let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
+        return Ok(pm_owned_update_skip(
+            "MP4Box",
+            "mp4box",
+            current_version,
+            managed_by,
+            manual_update_command,
+        ));
+    }
+
+    check_github_tool_update(app, "mp4box", "gpac/gpac", "MP4Box").await
+}
+
+/// Checks FFmpeg for an update.
+///
+/// FFmpeg has no ordinary version number MeedyaDL can compare — see
+/// `dependency_manager::fetch_ffmpeg_source_build_date()`'s doc comment
+/// for why (BtbN's release tag is permanently the literal word
+/// "latest"; evermeet.cx's own version number tracks which upstream
+/// FFmpeg *release* is packaged, not when MeedyaDL's specific copy was
+/// built). So this compares the date the currently-installed copy's
+/// source reported at install time (recorded in
+/// `.ffmpeg-build-info.json` by `dependency_manager::install_tool()`)
+/// against that SAME source's date right now, and offers an update
+/// only once the gap passes roughly a month. Comparing across sources
+/// would be meaningless — BtbN and evermeet.cx build FFmpeg completely
+/// independently of each other, on their own schedules.
+///
+/// Every case where the age genuinely cannot be determined — no record
+/// was ever written (an install from before this feature existed), the
+/// build date couldn't be read at install time, or the record is
+/// unreadable — returns an honest "not checkable" `ComponentUpdate`
+/// (see `not_checkable_update()`) rather than silently reading as "no
+/// update found". Only a live network failure while asking the source
+/// for its CURRENT date bubbles up as `Err`, the same non-fatal shape
+/// every other check in this file uses.
+async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+    // Chosen by the maintainer rather than derived — see issue #273:
+    // "offer an update only when the SAME source has a build more than
+    // about 30 days newer."
+    const STALE_AFTER_DAYS: i64 = 30;
+
+    let binary = crate::services::dependency_manager::get_tool_binary_path(app, "ffmpeg");
+    let current_version = if binary.exists() {
+        crate::services::dependency_manager::get_tool_version(&binary, "ffmpeg")
+            .await
+            .ok()
+    } else {
+        None
+    };
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, "ffmpeg");
+
+    if !crate::services::dependency_manager::is_meedyadl_managed(app, "ffmpeg") {
+        return Ok(pm_owned_update_skip(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+        ));
+    }
+
+    let info_path = crate::services::dependency_manager::ffmpeg_build_info_path(app);
+    let Some(info) = std::fs::read_to_string(&info_path).ok().and_then(|s| {
+        serde_json::from_str::<crate::services::dependency_manager::FfmpegBuildInfo>(&s).ok()
+    }) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — this copy was installed before MeedyaDL began \
+             recording where it came from. Reinstalling FFmpeg (Settings > Tools) lets future \
+             checks work."
+                .to_string(),
+        ));
+    };
+
+    let Some(recorded_date) = info.build_date.as_deref() else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the build date could not be read when this \
+             copy was installed."
+                .to_string(),
+        ));
+    };
+
+    let Ok(recorded_date) = chrono::DateTime::parse_from_rfc3339(recorded_date) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the recorded install date is unreadable."
+                .to_string(),
+        ));
+    };
+    let recorded_date = recorded_date.with_timezone(&chrono::Utc);
+
+    // The only network call in this function — a real failure here (and
+    // only here) is allowed to bubble up as Err, same as every other
+    // check in this file: it means "couldn't reach the source right
+    // now", not "this copy can never be checked".
+    let current_build_date =
+        crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source).await?;
+
+    let age_days = (current_build_date - recorded_date).num_days();
+    let update_available = age_days > STALE_AFTER_DAYS;
+
+    Ok(ComponentUpdate {
+        name: "FFmpeg".to_string(),
+        current_version,
+        // FFmpeg has no meaningful version number to show as "latest" for
+        // two of its three sources — the build date is the only thing
+        // that means the same thing every time, so it's shown instead.
+        latest_version: Some(current_build_date.date_naive().to_string()),
+        update_available,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: if update_available {
+            Some(format!(
+                "A newer FFmpeg build is available from the same source (about {age_days} days newer)"
+            ))
+        } else {
+            None
+        },
+        release_url: Some(ffmpeg_source_release_url(&info.source)),
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some("ffmpeg".to_string()),
+        managed_by,
+        manual_update_command,
+    })
+}
+
+/// Where a user can go look at FFmpeg's current build for `source`
+/// themselves, for the release-URL link shown alongside the update
+/// status.
+fn ffmpeg_source_release_url(source: &str) -> String {
+    match source {
+        "btbn" => "https://github.com/BtbN/FFmpeg-Builds/releases/latest".to_string(),
+        "evermeet" => "https://evermeet.cx/ffmpeg/".to_string(),
+        "mirror" => "https://github.com/MeedyaSuite/MeedyaDL-Tools".to_string(),
+        _ => "https://ffmpeg.org/".to_string(),
+    }
 }
 
 /// Checks whether the app's own Python runtime should be reinstalled at
@@ -1754,6 +2205,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         update_available,
         // Python updates are always compatible since we control the version
         // and test it with GAMDL before shipping.
+        not_checkable_reason: None,
         is_compatible: true,
         is_untested: false,
         no_compatible_wheel: false, // Only computed for GAMDL
@@ -1868,6 +2320,9 @@ async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         current_version: current,
         latest_version: latest.clone(),
         update_available,
+        // Both of these are checked against what the package index
+        // publishes, so there is no "could not tell" case here.
+        not_checkable_reason: None,
         is_compatible,
         is_untested,
         no_compatible_wheel: false, // Wheel-availability gating is GAMDL-specific (#gamdl-3.8.2-hardening)
@@ -1929,6 +2384,7 @@ async fn check_pip_engine_update(
         current_version: installed,
         latest_version: latest,
         update_available,
+        not_checkable_reason: None,
         is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
         is_untested: false,  // Untested-vs-tested only applies to GAMDL
         no_compatible_wheel: false, // Only computed for GAMDL
@@ -2691,5 +3147,51 @@ mod tests {
             gamdl_update_description(false, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")),
             None
         );
+    }
+
+    // ============================================================
+    // Tool update-check tests (issue #273)
+    // ============================================================
+
+    /// The real example named in issue #273: GPAC jumped from a
+    /// locally-detected `"2.4"` (MeedyaDL's own `MP4BOX_RE` parse of
+    /// `"MP4Box - GPAC version 2.4-DEV..."`) to a GitHub release tagged
+    /// `"26.07.0"` — more than a factor of ten in the major number.
+    /// Exercises the real, shared `is_newer()` this module uses for
+    /// every version comparison (not a re-implementation of it), so a
+    /// naive-string-comparison regression (`"2.4" > "26.07.0"` reads
+    /// true lexicographically, which would be the wrong answer) can't
+    /// creep back in unnoticed.
+    #[test]
+    fn is_newer_handles_mp4boxs_real_major_version_jump() {
+        assert!(is_newer("2.4", "26.07.0"));
+        // And the reverse must not also read as newer — the shape a
+        // broken comparator that always returns true would take.
+        assert!(!is_newer("26.07.0", "2.4"));
+    }
+
+    /// `dependency_manager::normalize_bento4_version()` feeding straight
+    /// into this module's real `is_newer()`, for the two cases that
+    /// actually matter to a user: a genuine version bump reads as an
+    /// update, and a difference that's ONLY in the build number — which
+    /// MeedyaDL's own installed-version reader can never see, since it
+    /// only ever extracts three dotted numbers — correctly reads as
+    /// "nothing to offer" rather than proposing to reinstall what's
+    /// already there.
+    #[test]
+    fn mirror_mp4decrypt_version_compares_correctly_once_normalized() {
+        let installed = "1.6.0";
+
+        // Mirror's raw "1-6-0-641" differs from "1.6.0" only in a build
+        // number the local reader can't see at all — must not claim an
+        // update is available.
+        let mirror_same_release =
+            crate::services::dependency_manager::normalize_bento4_version("1-6-0-641");
+        assert!(!is_newer(installed, &mirror_same_release));
+
+        // A genuine bump: mirror's patch number increased.
+        let mirror_newer =
+            crate::services::dependency_manager::normalize_bento4_version("1-6-1-650");
+        assert!(is_newer(installed, &mirror_newer));
     }
 }

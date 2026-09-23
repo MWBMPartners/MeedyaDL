@@ -107,3 +107,76 @@ describe('UpdatesPage generic tool row -- managed_by / manual_update_command', (
     expect(screen.queryByText(/Runs:/i)).not.toBeInTheDocument();
   });
 });
+
+// ===========================================================================
+// Things MeedyaDL could not check
+// ===========================================================================
+//
+// The page keeps only entries where an update IS available. Anything
+// nobody could work out an answer for used to fall straight through that
+// filter and never reach the screen — so "we could not tell" looked
+// exactly like "checked, you are up to date". These tests fail if that
+// comes back.
+
+describe('things MeedyaDL could not check', () => {
+  it('says so, instead of letting them vanish behind "up to date"', () => {
+    setLastResult([
+      makeComponentUpdate({
+        name: 'FFmpeg',
+        current_version: '6.0',
+        latest_version: null,
+        update_available: false,
+        not_checkable_reason:
+          'Cannot check for an FFmpeg update — this copy was installed before MeedyaDL began recording where builds come from.',
+        tool_id: 'ffmpeg',
+      }),
+    ]);
+
+    render(<UpdatesPage />);
+
+    // The heading still appears, because nothing needs updating...
+    expect(screen.getByText(/up to date/i)).toBeInTheDocument();
+    // ...but it no longer speaks for FFmpeg, which nobody could check.
+    expect(screen.getByText(/could not check/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/installed before MeedyaDL began recording/i)
+    ).toBeInTheDocument();
+  });
+
+  it('counts them, so one reads differently from several', () => {
+    setLastResult([
+      makeComponentUpdate({
+        name: 'FFmpeg',
+        update_available: false,
+        not_checkable_reason: 'Cannot check — no build date was recorded.',
+        tool_id: 'ffmpeg',
+      }),
+      makeComponentUpdate({
+        name: 'MediaInfo',
+        update_available: false,
+        not_checkable_reason: 'The mirror does not record a version for this tool.',
+        tool_id: 'mediainfo',
+      }),
+    ]);
+
+    render(<UpdatesPage />);
+    expect(screen.getByText(/2 things MeedyaDL could not check/i)).toBeInTheDocument();
+  });
+
+  it('stays quiet when everything really was checked', () => {
+    // The ordinary case: nothing to update, nothing unknown. No notice at
+    // all, so this cannot become background noise people learn to ignore.
+    setLastResult([
+      makeComponentUpdate({
+        name: 'FFmpeg',
+        update_available: false,
+        not_checkable_reason: null,
+        tool_id: 'ffmpeg',
+      }),
+    ]);
+
+    render(<UpdatesPage />);
+    expect(screen.getByText(/up to date/i)).toBeInTheDocument();
+    expect(screen.queryByText(/could not check/i)).not.toBeInTheDocument();
+  });
+});

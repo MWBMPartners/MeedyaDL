@@ -49,6 +49,7 @@
 // - GPAC (MP4Box): https://gpac.io/
 // - Tokio async filesystem operations: https://docs.rs/tokio/latest/tokio/fs/
 
+use base64::Engine;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use tauri::AppHandle;
@@ -200,6 +201,332 @@ fn parse_gpac_installer_pin(toml_src: &str, section: &str) -> Option<GpacWindows
     }
 
     Some(GpacWindowsInstallerPin { url, sha256 })
+}
+
+// ============================================================
+// Update-check support (issue #273)
+// ============================================================
+//
+// MeedyaDL checked only two of its five required helper programmes for
+// updates — FFmpeg and N_m3u8DL-RE — and FFmpeg's own check could never
+// find one anyway, because it was comparing against BtbN's release tag,
+// and that tag is the literal word "latest" with no number in it at all.
+// The functions below give the other three (mp4decrypt, MP4Box,
+// MediaInfo) a real check, and replace FFmpeg's broken one with a
+// build-date comparison — see `check_ffmpeg_update()` in
+// `update_checker.rs` for why a date, not a version number, is the only
+// honest thing to compare FFmpeg against.
+
+/// Returns `true` only when MeedyaDL downloaded and manages this copy of
+/// `tool_id` itself.
+///
+/// This is the gate every update check added for issue #273 uses before
+/// proposing a "newer version available" — a copy a package manager
+/// installed (Homebrew, apt, …) or one this app merely found already on
+/// the system with no identifiable owner must be left alone. Offering our
+/// own reinstall for either would fight with whatever already keeps that
+/// copy current, and for the "found on the system, owner unknown" case we
+/// have no idea whether replacing it is even wanted.
+///
+/// Reads the same `.source` marker file `install_tool()` and
+/// `copy_and_verify_mp4box()` write. A marker of exactly `"managed"`
+/// means MeedyaDL's own download; anything else — a package-manager
+/// reference (`"homebrew:ffmpeg"`, `"apt:gpac"`, …), the generic
+/// `"system"` fallback, or the file simply not existing yet — means
+/// "leave it alone".
+pub(crate) fn is_meedyadl_managed(app: &AppHandle, tool_id: &str) -> bool {
+    let tool_dir = get_tool_dir(app, tool_id);
+    let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+    source_marker_means_meedyadl_managed(&marker)
+}
+
+/// Pure core of [`is_meedyadl_managed()`], split out so the "what counts
+/// as managed" rule can be unit tested without touching a real file.
+fn source_marker_means_meedyadl_managed(marker: &str) -> bool {
+    marker.trim() == "managed"
+}
+
+/// Normalises the MeedyaSuite mirror's Bento4 (mp4decrypt) version string
+/// into the dotted form MeedyaDL's own locally-installed-version reader
+/// would produce, so the two sides of a comparison actually look alike.
+///
+/// The mirror's `versions.json` records mp4decrypt's version with
+/// hyphens throughout, e.g. `"1-6-0-641"` — that's the literal fragment
+/// of Bento4's own SDK archive directory name (`Bento4-SDK-1-6-0-641.<os>`),
+/// carried straight through because hyphens survive a filesystem-safe
+/// name better than dots do. MeedyaDL's own reading of an *installed*
+/// mp4decrypt, by contrast, comes from running the binary and only ever
+/// yields three dotted numbers with no build number at all (see
+/// `MP4DECRYPT_RE`, which doesn't capture one) — so without this step,
+/// `"1-6-0-641"` and `"1.6.0"` would never compare as related versions at
+/// all, let alone correctly.
+///
+/// Converts the first three hyphen-separated numeric segments to dotted
+/// form and keeps anything after the third as a hyphenated suffix, e.g.
+/// `"1-6-0-641"` -> `"1.6.0-641"`. Left completely unchanged when the
+/// input doesn't look like this shape — already dotted, or fewer than
+/// three all-numeric hyphen segments — so an unexpected future format in
+/// the mirror's file degrades to "compared literally" (which `is_newer()`
+/// still handles safely) rather than being silently mangled.
+pub(crate) fn normalize_bento4_version(raw: &str) -> String {
+    let parts: Vec<&str> = raw.split('-').collect();
+    let looks_like_bento4_shape = parts.len() >= 3
+        && parts
+            .iter()
+            .take(3)
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()));
+    if !looks_like_bento4_shape {
+        return raw.to_string();
+    }
+    let base = parts[..3].join(".");
+    if parts.len() > 3 {
+        format!("{base}-{}", parts[3..].join("-"))
+    } else {
+        base
+    }
+}
+
+/// Strips the mirror's leading `v` from a MediaInfo version string
+/// (`"v26.05"` -> `"26.05"`) so it matches the bare `"26.01"`-shaped
+/// string MeedyaDL's own installed-version reader produces (see
+/// `MEDIAINFO_RE`, which never captures the `v`). Unlike mp4decrypt,
+/// MediaInfo's mirror entry needs no other reshaping — it's already
+/// dotted major.minor with no build-number suffix to preserve.
+pub(crate) fn normalize_mediainfo_version(raw: &str) -> String {
+    raw.trim_start_matches('v').to_string()
+}
+
+/// Fetches the MeedyaSuite/MeedyaDL-Tools mirror repository's
+/// `versions.json` — the file the mirror itself uses to record which
+/// version of each tool it currently holds.
+///
+/// Used to check mp4decrypt and MediaInfo for updates. Both are
+/// distributed EXCLUSIVELY through this mirror (see `get_mp4decrypt_url()`
+/// and `get_mediainfo_url()`'s doc comments — neither has a normal
+/// versioned upstream release MeedyaDL can download from directly), so
+/// the mirror's own record of what it holds is the only meaningful
+/// "latest version" to compare an installed copy against. Comparing
+/// against the *upstream* project instead (Bento4's own site, MediaArea's
+/// own GitHub releases) would be actively misleading: the mirror is
+/// frequently a release or two behind upstream, so that comparison would
+/// routinely say "update available" when installing it would fetch the
+/// exact bytes already on disk — precisely the mistake this feature
+/// exists to avoid (see the "one thing to avoid above all" note in the
+/// project's issue #273).
+///
+/// Uses the GitHub Contents API (rather than guessing the mirror's
+/// default branch name for a raw.githubusercontent.com URL) so this
+/// keeps working even if that branch is ever renamed.
+pub(crate) async fn fetch_mirror_versions() -> Result<serde_json::Value, String> {
+    let mirror = load_mirror_config().ok_or_else(|| {
+        "Mirror not configured in tool-versions.toml — cannot check its versions.json".to_string()
+    })?;
+
+    let url = format!(
+        "https://api.github.com/repos/{}/contents/versions.json",
+        mirror.github_repo
+    );
+    let client = crate::utils::http_client::build_simple(15)?;
+    let response = client
+        .get(&url)
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reach the mirror's versions.json: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "GitHub returned HTTP {} for {}/versions.json",
+            response.status(),
+            mirror.github_repo
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse the GitHub contents response: {e}"))?;
+
+    let encoded = body
+        .get("content")
+        .and_then(|v| v.as_str())
+        .ok_or("GitHub's response had no 'content' field for versions.json")?;
+
+    // The Contents API wraps its base64 payload at ~60 characters/line;
+    // the decoder rejects embedded newlines, so strip all whitespace first.
+    let cleaned: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(cleaned)
+        .map_err(|e| format!("versions.json content was not valid base64: {e}"))?;
+
+    serde_json::from_slice(&decoded)
+        .map_err(|e| format!("The mirror's versions.json was not valid JSON: {e}"))
+}
+
+/// Which source a tool's binary actually came from when
+/// [`download_tool_with_fallback()`] succeeds.
+///
+/// Every other tool ignores this — it exists so FFmpeg's caller in
+/// `install_tool()` can record which of FFmpeg's three real sources
+/// (BtbN on Linux/Windows, evermeet.cx on macOS, or this mirror as the
+/// fallback for either) actually supplied the running copy, because the
+/// update check needs to ask that SAME source whether it now has
+/// something newer — asking a different source would be comparing two
+/// independently-built copies that happen to share a name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolInstallSource {
+    /// The tool's own primary/official source succeeded.
+    Primary,
+    /// The primary source failed and the MeedyaSuite/MeedyaDL-Tools
+    /// mirror was used instead.
+    Mirror,
+}
+
+/// What MeedyaDL recorded about a FFmpeg install at the moment it was
+/// installed: which of the three sources it came from, and how old that
+/// build was according to that source at the time.
+///
+/// Written by `install_tool()` right after a successful FFmpeg install to
+/// `{tool_dir}/.ffmpeg-build-info.json`, and read back by
+/// `update_checker::check_ffmpeg_update()`.
+///
+/// `build_date` is `None` when the install succeeded but the follow-up
+/// network call to record the build date failed (a real possibility —
+/// it's a best-effort extra request, not something that should ever fail
+/// the install itself). A missing date means "we cannot check this copy
+/// for updates", which the update checker says so plainly rather than
+/// quietly treating as "no update found".
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct FfmpegBuildInfo {
+    /// `"btbn"`, `"evermeet"`, or `"mirror"` — see [`ToolInstallSource`].
+    pub source: String,
+    /// RFC 3339 timestamp of the build this copy came from, if it could
+    /// be determined at install time.
+    pub build_date: Option<String>,
+}
+
+/// Path to the FFmpeg build-info marker described by [`FfmpegBuildInfo`].
+pub(crate) fn ffmpeg_build_info_path(app: &AppHandle) -> PathBuf {
+    get_tool_dir(app, "ffmpeg").join(".ffmpeg-build-info.json")
+}
+
+/// Fetches "how old is the build this source currently offers, right
+/// now" for one of FFmpeg's three possible sources.
+///
+/// This is the read half of the FFmpeg update check: FFmpeg has no
+/// ordinary version number that means the same thing across all three
+/// sources (BtbN's release is permanently tagged the literal word
+/// "latest"; evermeet.cx's own version number tracks which upstream
+/// FFmpeg *release* a build packages, not when MeedyaDL's specific copy
+/// of it was built), so the only honest signal available is a date —
+/// compared only against a later reading of the SAME source, never
+/// across sources, since BtbN and evermeet.cx build FFmpeg completely
+/// independently of each other.
+pub(crate) async fn fetch_ffmpeg_source_build_date(
+    source: &str,
+) -> Result<chrono::DateTime<chrono::Utc>, String> {
+    match source {
+        "btbn" => fetch_btbn_ffmpeg_build_date().await,
+        "evermeet" => fetch_evermeet_ffmpeg_build_date().await,
+        "mirror" => fetch_mirror_ffmpeg_build_date().await,
+        other => Err(format!(
+            "'{other}' is not a recognised FFmpeg source — cannot look up its build date"
+        )),
+    }
+}
+
+/// BtbN/FFmpeg-Builds publishes every Linux/Windows build under the same
+/// permanent tag, `latest`, with its assets replaced each time — but the
+/// release object's own `published_at` field updates with each rebuild
+/// (confirmed live on 2026-09-23: the release named "Latest Auto-Build
+/// (2026-09-23 14:55)" reported `published_at` from the same day), so
+/// that field is a trustworthy build date even though the tag itself
+/// never changes.
+async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+    let client = crate::utils::http_client::build_simple(15)?;
+    let response = client
+        .get("https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest")
+        .header("User-Agent", crate::utils::http_client::APP_USER_AGENT)
+        .send()
+        .await
+        .map_err(|e| format!("BtbN FFmpeg build-date lookup failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "BtbN FFmpeg build-date lookup returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse BtbN's release response: {e}"))?;
+
+    let published_at = body
+        .get("published_at")
+        .and_then(|v| v.as_str())
+        .ok_or("BtbN's release response had no published_at field")?;
+
+    chrono::DateTime::parse_from_rfc3339(published_at)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|e| format!("Could not parse BtbN's published_at '{published_at}': {e}"))
+}
+
+/// evermeet.cx doesn't publish a JSON date field for its "release" build
+/// (its `info/ffmpeg/release` endpoint gives a version number but no
+/// date), so this reads the `Last-Modified` header off the exact URL
+/// FFmpeg is actually downloaded from — `getrelease/zip`, which redirects
+/// through to the real hosting server. Confirmed live on 2026-09-23: that
+/// header reported the same date (18 September 2026) as the build's own
+/// RSS feed entry, so it's a trustworthy stand-in for "when was this
+/// build made" without needing to parse the feed's XML.
+async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+    // No User-Agent header here, matching every other evermeet.cx request
+    // this app already makes (the actual FFmpeg download in
+    // `archive::download_file()` sends none either, and evermeet.cx has
+    // never required one).
+    let client = crate::utils::http_client::build_simple(15)?;
+    let response = client
+        .head("https://evermeet.cx/ffmpeg/getrelease/zip")
+        .send()
+        .await
+        .map_err(|e| format!("evermeet.cx build-date lookup failed: {e}"))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "evermeet.cx build-date lookup returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let header = response
+        .headers()
+        .get(reqwest::header::LAST_MODIFIED)
+        .and_then(|v| v.to_str().ok())
+        .ok_or("evermeet.cx's response had no Last-Modified header")?;
+
+    chrono::DateTime::parse_from_rfc2822(header)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|e| format!("Could not parse evermeet.cx's Last-Modified '{header}': {e}"))
+}
+
+/// The mirror's own `versions.json` records FFmpeg's entry as an RFC 3339
+/// timestamp already (confirmed live on 2026-09-23: `"2026-09-22T13:38:08Z"`)
+/// — the simplest of the three sources to read, since no reshaping is
+/// needed at all.
+async fn fetch_mirror_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+    let versions = fetch_mirror_versions().await?;
+    let raw = versions
+        .get("ffmpeg")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or("The mirror's versions.json has no 'ffmpeg' entry")?;
+
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .map_err(|e| format!("Could not parse the mirror's ffmpeg build date '{raw}': {e}"))
 }
 
 // Regex caches.
@@ -768,7 +1095,7 @@ async fn get_mirror_download_url(
 async fn download_tool_with_fallback(
     tool_id: &str,
     tool_dir: &std::path::Path,
-) -> Result<(), String> {
+) -> Result<ToolInstallSource, String> {
     // Sibling staging directory — never the real tool_dir. Named
     // `{tool_dir}.staging` so it lives alongside (not inside) the real
     // install and can't collide with a legitimate tool subdirectory.
@@ -790,7 +1117,10 @@ async fn download_tool_with_fallback(
         Ok((url, format)) => {
             log::info!("Downloading {tool_id} from primary source: {url}");
             match archive::download_and_extract(&url, &staging, format).await {
-                Ok(()) => return promote_staged_install(&staging, tool_dir),
+                Ok(()) => {
+                    return promote_staged_install(&staging, tool_dir)
+                        .map(|()| ToolInstallSource::Primary);
+                }
                 Err(e) => {
                     log::warn!("Primary download failed for {tool_id}: {e}");
                     e
@@ -820,7 +1150,9 @@ async fn download_tool_with_fallback(
             )
             .await
             {
-                Ok(()) => promote_staged_install(&staging, tool_dir),
+                Ok(()) => {
+                    promote_staged_install(&staging, tool_dir).map(|()| ToolInstallSource::Mirror)
+                }
                 Err(e) => {
                     let _ = std::fs::remove_dir_all(&staging);
                     Err(format!(
@@ -1416,8 +1748,10 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     // Step 1-3: Download with automatic mirror fallback.
     // Tries the primary upstream source first (hardcoded URL or GitHub API),
     // then falls back to the MeedyaSuite/MeedyaDL-Tools mirror repository.
+    // The return value records which of the two actually supplied the
+    // binary — only FFmpeg's install (Step 5b below) acts on it.
     let tool_dir = get_tool_dir(app, tool_id);
-    download_tool_with_fallback(tool_id, &tool_dir).await?;
+    let install_source = download_tool_with_fallback(tool_id, &tool_dir).await?;
 
     // Step 4: Find the binary in the extracted contents.
     // Archives often contain nested directory structures. For example:
@@ -1457,6 +1791,40 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     // ffprobe is used for codec detection (metadata enrichment) and BPM tag reading.
     if tool_id == "ffmpeg" {
         install_companion_ffprobe(&tool_dir).await;
+
+        // Record which of FFmpeg's three real sources supplied this copy,
+        // and how old that build was according to the source itself right
+        // now — the update check (issue #273) later asks the SAME source
+        // whether it has something newer than this. macOS always uses
+        // evermeet.cx as its primary source (see `get_ffmpeg_url()`);
+        // Linux/Windows always use BtbN. Best-effort: a failure here never
+        // fails the install itself, since FFmpeg is already downloaded and
+        // verified by this point — it only means a later update check
+        // for this copy can't determine an answer, which
+        // `check_ffmpeg_update()` says plainly rather than guessing.
+        let ffmpeg_source = match install_source {
+            ToolInstallSource::Mirror => "mirror",
+            ToolInstallSource::Primary if cfg!(target_os = "macos") => "evermeet",
+            ToolInstallSource::Primary => "btbn",
+        };
+        let build_date = fetch_ffmpeg_source_build_date(ffmpeg_source).await;
+        if let Err(ref e) = build_date {
+            log::warn!(
+                "Could not record FFmpeg's build date at install time (future update checks \
+                 for this copy will report 'not checkable' until it's reinstalled): {e}"
+            );
+        }
+        let info = FfmpegBuildInfo {
+            source: ffmpeg_source.to_string(),
+            build_date: build_date.ok().map(|dt| dt.to_rfc3339()),
+        };
+        if let Err(e) = crate::utils::atomic_write::atomic_write_json(
+            &ffmpeg_build_info_path(app),
+            &info,
+            "FFmpeg build info",
+        ) {
+            log::warn!("Could not save FFmpeg build info: {e}");
+        }
     }
 
     // Write a .source marker file so check_all_dependencies knows this
@@ -1573,10 +1941,28 @@ async fn install_mp4box_via_homebrew(app: &AppHandle, brew_path: &str) -> Result
                 brew_binary_lower.display()
             ));
         }
-        return copy_and_verify_mp4box(app, &brew_binary_lower, "Homebrew").await;
+        return copy_and_verify_mp4box(
+            app,
+            &brew_binary_lower,
+            "Homebrew",
+            Some(crate::services::package_manager::PackageRef::new(
+                crate::services::package_manager::PackageManagerKind::Homebrew,
+                "gpac",
+            )),
+        )
+        .await;
     }
 
-    copy_and_verify_mp4box(app, &brew_binary, "Homebrew").await
+    copy_and_verify_mp4box(
+        app,
+        &brew_binary,
+        "Homebrew",
+        Some(crate::services::package_manager::PackageRef::new(
+            crate::services::package_manager::PackageManagerKind::Homebrew,
+            "gpac",
+        )),
+    )
+    .await
 }
 
 /// Installs `MP4Box` by downloading and extracting GPAC's official macOS `.pkg`.
@@ -1851,18 +2237,54 @@ fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Stri
     Ok(())
 }
 
+/// Computes the `.source` marker value `copy_and_verify_mp4box()` should
+/// write for one MP4Box install, given which package manager (if any)
+/// actually put the binary there.
+///
+/// Pulled out as its own small, pure function so this mapping can be
+/// checked with a plain unit test instead of only by reading the code —
+/// this exact mapping is the fix for a real bug found while adding the
+/// MP4Box update check for issue #273. Every one of `copy_and_verify_mp4box`'s
+/// five callers used to write the literal string `"managed"` regardless
+/// of where the binary actually came from — including the two callers
+/// that had just run `brew install gpac` or `apt-get install gpac`
+/// themselves. `"managed"` is supposed to mean "MeedyaDL downloaded and
+/// owns this copy"; a package manager owning it is the opposite of that.
+/// Left uncaught, the MP4Box update check this same issue adds would have
+/// compared a Homebrew- or apt-owned MP4Box against GPAC's own GitHub
+/// releases and offered to "update" it by overwriting the copy Homebrew
+/// or apt is already responsible for keeping current — exactly the
+/// "leave the check to that manager" case the maintainer asked this
+/// feature to respect.
+fn mp4box_source_marker(pm_ref: Option<&crate::services::package_manager::PackageRef>) -> String {
+    pm_ref
+        .map(crate::services::package_manager::PackageRef::to_marker)
+        .unwrap_or_else(|| "managed".to_string())
+}
+
 /// Copies an `MP4Box` binary to `MeedyaDL`'s tool directory and verifies it works.
 ///
-/// Used by both the Homebrew and .pkg installation paths to finalize the install.
+/// Used by the Homebrew, apt, GPAC-NSIS-installer, and GPAC-.deb-extraction
+/// paths to finalize the install.
 ///
 /// # Arguments
 /// * `app` - The Tauri app handle
 /// * `source_binary` - Path to the `MP4Box` binary to copy
 /// * `source_label` - Label for log messages (e.g., "Homebrew", "GPAC .pkg")
+/// * `pm_ref` - `Some(reference)` when a package manager just installed
+///   this copy (Homebrew's `brew install gpac`, apt's `apt-get install gpac`)
+///   — written into the `.source` marker so the update check this app runs
+///   (issue #273) recognises the copy as owned by that manager and leaves
+///   it alone. `None` when the binary came from GPAC's own official
+///   installer (the pinned, checksum-verified NSIS `.exe` or `.deb`) or
+///   the MeedyaSuite mirror — both of those are MeedyaDL's own download,
+///   so they keep the plain `"managed"` marker and are eligible for the
+///   update check to compare against GPAC's GitHub releases.
 async fn copy_and_verify_mp4box(
     app: &AppHandle,
     source_binary: &std::path::Path,
     source_label: &str,
+    pm_ref: Option<crate::services::package_manager::PackageRef>,
 ) -> Result<String, String> {
     let tool_dir = get_tool_dir(app, "mp4box");
 
@@ -1894,9 +2316,11 @@ async fn copy_and_verify_mp4box(
     // Set executable permissions and verify
     archive::set_executable(&expected_binary)?;
 
-    // Write a .source marker so check_all_dependencies knows the install origin.
+    // Write a .source marker so check_all_dependencies (and the update
+    // checker) know the install origin. See mp4box_source_marker()'s doc
+    // comment for why this must NOT always be the literal "managed".
     let source_marker = tool_dir.join(".source");
-    std::fs::write(&source_marker, "managed").ok();
+    std::fs::write(&source_marker, mp4box_source_marker(pm_ref.as_ref())).ok();
 
     let version = get_tool_version(&expected_binary, "mp4box")
         .await
@@ -2045,7 +2469,9 @@ async fn install_mp4box_windows_inner(
     log::info!("Found MP4Box at {}", mp4box_src.display());
 
     // Copy to MeedyaDL's tool directory and verify
-    copy_and_verify_mp4box(app, &mp4box_src, "GPAC NSIS installer").await
+    // GPAC's own installer, not a package manager — stays "managed" so
+    // the update check compares it against GPAC's GitHub releases.
+    copy_and_verify_mp4box(app, &mp4box_src, "GPAC NSIS installer", None).await
 }
 
 /// Installs `MP4Box` on Linux by downloading and extracting GPAC's `.deb` package.
@@ -2293,11 +2719,17 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
 
     log::info!("Found system MP4Box at {mp4box_path}");
 
-    // Copy to MeedyaDL's managed tool directory
+    // apt is a package manager — record that ownership so the update
+    // check leaves this copy for apt to keep current, the same as the
+    // Homebrew path above.
     copy_and_verify_mp4box(
         app,
         std::path::Path::new(&mp4box_path),
         "apt (system package manager)",
+        Some(crate::services::package_manager::PackageRef::new(
+            crate::services::package_manager::PackageManagerKind::Apt,
+            "gpac",
+        )),
     )
     .await
 }
@@ -2412,7 +2844,10 @@ async fn install_mp4box_linux_inner(
     log::info!("Found MP4Box at {}", mp4box_src.display());
 
     // Copy to MeedyaDL's tool directory and verify
-    copy_and_verify_mp4box(app, &mp4box_src, "GPAC .deb package").await
+    // GPAC's own .deb, extracted by hand (not installed via apt) — stays
+    // "managed" so the update check compares it against GPAC's GitHub
+    // releases, the same as the NSIS installer path.
+    copy_and_verify_mp4box(app, &mp4box_src, "GPAC .deb package", None).await
 }
 
 /// Installs `MP4Box` using platform-specific installers with mirror fallback.
@@ -3069,4 +3504,136 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
             assert!(parse_gpac_installer_pin(&short, section).is_none());
         }
     }
+
+    // ============================================================
+    // Update-check support tests (issue #273)
+    // ============================================================
+
+    /// The whole fix for the MP4Box `.source`-marker bug, in one assertion
+    /// each: a package-manager install writes that manager's own marker
+    /// (so the update check leaves it alone), while GPAC's own installer
+    /// or the mirror — neither of which is a package manager — keeps the
+    /// plain "managed" marker MeedyaDL has always used for its own
+    /// downloads. Before this fix all three cases wrote "managed".
+    #[test]
+    fn mp4box_source_marker_distinguishes_package_manager_from_own_install() {
+        use crate::services::package_manager::{PackageManagerKind, PackageRef};
+
+        assert_eq!(
+            mp4box_source_marker(Some(&PackageRef::new(PackageManagerKind::Homebrew, "gpac"))),
+            "homebrew:gpac"
+        );
+        assert_eq!(
+            mp4box_source_marker(Some(&PackageRef::new(PackageManagerKind::Apt, "gpac"))),
+            "apt:gpac"
+        );
+        // GPAC's own installer / the mirror: no package manager involved.
+        assert_eq!(mp4box_source_marker(None), "managed");
+    }
+
+    /// Only the exact marker "managed" counts as "MeedyaDL owns this
+    /// copy" — a package-manager reference, the generic "system" find, an
+    /// empty file, and surrounding whitespace all read as "leave it
+    /// alone". This is the gate every update check added for #273 relies
+    /// on before proposing to replace a tool's binary.
+    #[test]
+    fn source_marker_managed_check_is_exact() {
+        assert!(source_marker_means_meedyadl_managed("managed"));
+        // Written with a trailing newline by some editors/tools that might
+        // touch this file by hand — trimmed before comparison.
+        assert!(source_marker_means_meedyadl_managed("managed\n"));
+        assert!(source_marker_means_meedyadl_managed("  managed  "));
+
+        assert!(!source_marker_means_meedyadl_managed("system"));
+        assert!(!source_marker_means_meedyadl_managed("homebrew:ffmpeg"));
+        assert!(!source_marker_means_meedyadl_managed("apt:gpac"));
+        assert!(!source_marker_means_meedyadl_managed(""));
+        // Not a prefix/substring match — "managed-somehow" must not pass.
+        assert!(!source_marker_means_meedyadl_managed("managed-somehow"));
+    }
+
+    /// The FFmpeg build-date check depends on three different remote
+    /// services each publishing a date in a different shape, and all
+    /// three have to parse. Rather than trust that by assumption, this
+    /// pins the exact strings each one returned when checked live on
+    /// 2026-09-23 (see `fetch_btbn_ffmpeg_build_date()`,
+    /// `fetch_evermeet_ffmpeg_build_date()`, and
+    /// `fetch_mirror_ffmpeg_build_date()`'s doc comments) and proves
+    /// `chrono` actually parses each one — most notably evermeet.cx's
+    /// `Last-Modified` header, which uses the obsolete "GMT" zone name
+    /// (RFC 7231 IMF-fixdate) rather than a numeric offset, which is
+    /// the one case that could plausibly fail to parse.
+    #[test]
+    fn ffmpeg_source_date_formats_all_parse() {
+        // BtbN's GitHub release `published_at` — plain RFC 3339.
+        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-23T15:14:33Z").is_ok());
+
+        // evermeet.cx's `Last-Modified` HTTP header — RFC 2822 with the
+        // "GMT" zone name instead of a numeric offset.
+        assert!(chrono::DateTime::parse_from_rfc2822("Fri, 18 Sep 2026 19:34:47 GMT").is_ok());
+
+        // The mirror's own versions.json "ffmpeg" entry — also RFC 3339.
+        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-22T13:38:08Z").is_ok());
+    }
+
+    /// The exact real-world case named in issue #273: the mirror's
+    /// `versions.json` records mp4decrypt as `"1-6-0-641"`; MeedyaDL's own
+    /// installed-version reader only ever produces a plain dotted triple
+    /// like `"1.6.0"`. Normalising the mirror's string must produce the
+    /// dotted form with the build number preserved as a suffix, so the
+    /// two can be compared meaningfully by `is_newer()` (a build-number-
+    /// only difference correctly reads as "no update", since MeedyaDL's
+    /// own reader can't see build numbers at all — only a genuine
+    /// major/minor/patch bump should ever show as available).
+    #[test]
+    fn normalize_bento4_version_converts_mirrors_hyphenated_form() {
+        assert_eq!(normalize_bento4_version("1-6-0-641"), "1.6.0-641");
+        // Exactly three segments, no build number.
+        assert_eq!(normalize_bento4_version("1-6-0"), "1.6.0");
+        // Two build-number-ish trailing segments both get kept, hyphenated.
+        assert_eq!(normalize_bento4_version("2-1-0-100-rc1"), "2.1.0-100-rc1");
+    }
+
+    /// Anything that doesn't look like Bento4's hyphenated shape must pass
+    /// through completely unchanged — the safe default when a future
+    /// mirror format doesn't match what this function expects.
+    #[test]
+    fn normalize_bento4_version_leaves_unrecognised_input_alone() {
+        assert_eq!(normalize_bento4_version("1.6.0"), "1.6.0");
+        assert_eq!(normalize_bento4_version("1.6.0-641"), "1.6.0-641");
+        assert_eq!(normalize_bento4_version(""), "");
+        assert_eq!(normalize_bento4_version("v1"), "v1");
+        assert_eq!(normalize_bento4_version("abc-def-ghi"), "abc-def-ghi");
+        // Fewer than three hyphen segments — not Bento4's shape.
+        assert_eq!(normalize_bento4_version("1-6"), "1-6");
+    }
+
+    /// `normalize_bento4_version()` must be a no-op on its own output —
+    /// re-normalising an already-dotted string can never change it, which
+    /// matters because both a freshly-fetched mirror string and a value
+    /// read back from some future cache should compare identically either
+    /// way.
+    #[test]
+    fn normalize_bento4_version_is_idempotent() {
+        let once = normalize_bento4_version("1-6-0-641");
+        let twice = normalize_bento4_version(&once);
+        assert_eq!(once, twice);
+    }
+
+    /// The mirror's MediaInfo entry (`"v26.05"`) needs only its leading
+    /// `v` stripped to match MeedyaDL's own reader's bare `"26.01"` shape.
+    #[test]
+    fn normalize_mediainfo_version_strips_leading_v() {
+        assert_eq!(normalize_mediainfo_version("v26.05"), "26.05");
+        // Already bare — unchanged.
+        assert_eq!(normalize_mediainfo_version("26.05"), "26.05");
+    }
+
+    // The real "2.4 -> 26.07.0" GPAC jump, and the mp4decrypt
+    // "1-6-0-641 vs 1.6.0-641" normalization-plus-comparison case, are
+    // tested against the real, shared `is_newer()` function in
+    // `update_checker.rs`'s own test module — `is_newer()` is private to
+    // that file, so a comparison test using it has to live there. See
+    // `mirror_mp4decrypt_version_compares_correctly_once_normalized()`
+    // and `is_newer_handles_mp4boxs_real_major_version_jump()` there.
 }

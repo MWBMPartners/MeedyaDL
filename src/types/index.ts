@@ -2127,6 +2127,21 @@ export interface ComponentUpdate {
    * page renders an amber "Untested" badge plus a short disclaimer when
    * this flag is set. Currently only set for the GAMDL component.
    */
+  /**
+   * Set when MeedyaDL could NOT work out whether there is an update,
+   * carrying the reason in plain words.
+   *
+   * "We could not check" and "we checked and there is nothing new" both
+   * arrive as `update_available: false`, and they are not the same thing
+   * — one means you are up to date, the other means nobody knows.
+   *
+   * This has a field of its own rather than being left to the wording of
+   * `description`, because the Updates page keeps only entries where an
+   * update IS available. Without it, a programme nobody could check
+   * simply vanished from the page, looking exactly like one that had
+   * been checked and found current.
+   */
+  not_checkable_reason?: string | null;
   is_untested: boolean;
   /**
    * Whether the latest available version has **no installable wheel**

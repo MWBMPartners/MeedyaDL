@@ -50,6 +50,46 @@ function stripDownloadSection(body: string): string {
 // Engine updates (everything else) are aggregated into a single generic card.
 const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
 
+/**
+ * A quiet note listing anything MeedyaDL could not work out an answer
+ * for, and why.
+ *
+ * This sits directly under "You're up to date!" on purpose. That heading
+ * speaks for everything MeedyaDL checked — so anything it could NOT
+ * check has to be named right beside it, or the heading is quietly
+ * claiming something about those too.
+ *
+ * It is deliberately plain rather than alarming. Not being able to tell
+ * is usually nobody's fault and usually harmless: a copy of FFmpeg
+ * installed before MeedyaDL began recording where its build came from,
+ * say. The person does not need to do anything. They just should not be
+ * told they are up to date when nobody knows.
+ */
+function NotCheckableNotice({ items }: { items: ComponentUpdate[] }) {
+  return (
+    <div className="mt-6 w-full max-w-lg text-left">
+      <p className="text-xs font-medium text-content-secondary mb-2">
+        {items.length === 1
+          ? 'One thing MeedyaDL could not check:'
+          : `${items.length} things MeedyaDL could not check:`}
+      </p>
+      <ul className="space-y-1.5">
+        {items.map((item) => (
+          <li
+            key={item.name}
+            className="text-xs text-content-tertiary rounded-platform border border-border-light bg-surface-secondary px-3 py-2"
+          >
+            <span className="font-medium text-content-secondary">{item.name}</span>
+            {item.current_version && <span> (v{item.current_version})</span>}
+            <span> — {item.not_checkable_reason}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
   const dismissed = useUpdateStore((s) => s.dismissed);
@@ -74,6 +114,23 @@ export function UpdatesPage() {
     if (!lastResult) return [];
     return lastResult.components.filter(
       (c) => c.update_available && c.is_compatible && !dismissed.includes(c.name)
+    );
+  }, [lastResult, dismissed]);
+
+  /**
+   * Things MeedyaDL could not work out an answer for.
+   *
+   * These are deliberately kept apart from the list above. That list
+   * holds only entries where an update IS available, so anything nobody
+   * could check used to fall straight through it and never reach the
+   * screen — which made "we could not tell" look exactly like "checked,
+   * you are up to date". Those are not the same thing, and the second
+   * one is a promise this app was not in a position to make.
+   */
+  const notCheckable = useMemo(() => {
+    if (!lastResult) return [];
+    return lastResult.components.filter(
+      (c) => c.not_checkable_reason && !dismissed.includes(c.name)
     );
   }, [lastResult, dismissed]);
 
@@ -196,6 +253,12 @@ export function UpdatesPage() {
                 Last checked: {new Date(lastResult.checked_at).toLocaleString()}
               </p>
             )}
+
+            {/* Anything MeedyaDL could not work out an answer for.
+                Shown here, quietly, next to "you're up to date" —
+                because otherwise that heading would be claiming
+                something for these too, and it would not be true. */}
+            {notCheckable.length > 0 && <NotCheckableNotice items={notCheckable} />}
 
             {/* Rollback option for pre-release users (#267) */}
             {lastResult?.rollback_version && (
