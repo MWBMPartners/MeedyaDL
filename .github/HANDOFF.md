@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-23 (afternoon) — see ★★★★ LATEST below
-**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and the first seven areas of the full review of the whole codebase (up to `ab725cf0`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
+**Last updated:** 2026-09-23 (evening) — see ★★★★ LATEST below
+**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
 
@@ -11,7 +11,80 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-23: a full review of the WHOLE codebase, not just the branch
+## ★★★★ LATEST — 2026-09-23 (evening): all ten review areas read, most findings fixed
+
+> **PICK UP HERE.** Still on `work/after-1.10.8`. No PR yet.
+>
+> **Codex comes back at 18:30 today.** It was probed at 17:05 and is still out.
+> It has NOT seen anything from area 5 onwards — that is areas 5-6 (no verdict,
+> it died mid-round), area 7, and everything built since. **That is now a large
+> body of unreviewed work and it is the single most important thing outstanding.**
+> Nothing merges without it.
+>
+> **Next, in order:** (1) at 18:30, give Codex everything it has not seen, in
+> batches, until a round comes back clean; (2) finish whatever the three running
+> builders hand back; (3) the reopened-issues queue, batches 4-9, not started;
+> (4) documentation sweep; (5) PR to `alpha` only when the maintainer says so.
+
+### What the review found, and what is fixed
+
+All ten areas have been read. Findings are tracked in **#1215** (the umbrella),
+**#1216** (the page's state), **#1217** (the screens), **#1218** (build and
+release machinery) and **#1219** (the part that cannot be fixed from here).
+
+**The biggest finding came from two reviewers independently** — different
+folders, neither knowing about the other, same root cause, each finding call
+sites the other missed. Every question the app asks away from the Settings
+screen was written to the page's own copy of the settings and never to disk.
+**Eight finished features did nothing**, including one that could never have run
+at all: the crash-reporting consent question only appears once setup is recorded
+as finished, and that was permanently false on every install. Another let you
+set "shut the computer down when this queue finishes", said so in the status
+bar, and never did it. Five comments asserted the persistence that was missing.
+Fixed in `b0078997`.
+
+Also fixed, in `435abebd`, `c04bc6ff` and `01ef49f5`:
+
+* Three destructive actions that did not ask, each beside one that did — clear
+  history, delete a backup, reset all settings. In every case **the action that
+  can be undone was the one that asked**.
+* Reset also put back a fixed bug: the page kept its own copy of the starting
+  settings and it had drifted, in two of the exact values a settings upgrade
+  step exists to repair.
+* Turning Desktop Notifications off did not stop desktop notifications.
+* The "stop every download" shortcut could never fire on a UK or US keyboard.
+* A switch in Settings ("Include Pre-Release Versions") that could not change
+  anything in any configuration, and could only make things worse.
+* Changing the language needed two restarts; it now needs none.
+* The last wide settings write triggered by a narrow intention.
+* A dead page store and banner pointing at a superseded backend — and verifying
+  that turned up that the Rust side had become an orphan too, so the whole
+  module went.
+
+### Three things worth carrying forward
+
+**A new audit check was wrong twice before it was right.**
+`check_settings_defaults.py` first locked onto a function signature instead of
+the struct and silently reported nothing; then it guessed how two enum values
+are spelled and flagged two perfectly correct settings. It now reads the real
+naming rules, and was proven able to fail by putting the drift back. **Prove a
+new check can fail before trusting it** — a check that cannot fail is worse than
+no check, and one that cries wolf teaches people to skim.
+
+**Two review claims did not hold, and were recorded rather than acted on.** The
+unreachable YouTube and BBC iPlayer settings tabs are deliberate groundwork; the
+snapshot delete button already had an accessible label. A third was checked
+against live data and did not hold either: the worry that alpha builds bury a
+beta release is real in principle but is not happening — the newest beta sits
+sixth in the list.
+
+**`git add -A` swept a builder's in-progress work into `c04bc6ff`.** What landed
+is correct but that commit's message does not mention it; `01ef49f5` says so.
+**Commit explicit paths while other work is running in the same tree.**
+
+---
+
+## ★★★★ Previous — 2026-09-23 (early): the full review of the WHOLE codebase begins
 
 > **PICK UP HERE (23 Sept, ~16:00).** Still on `work/after-1.10.8`. No PR yet.
 >
