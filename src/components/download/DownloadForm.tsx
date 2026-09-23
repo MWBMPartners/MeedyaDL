@@ -122,6 +122,7 @@ import {
   checkSpotifyDispatchAllowed,
   importManifest,
   setStoredPreference,
+  getSettings,
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
@@ -886,11 +887,7 @@ export function DownloadForm() {
 
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
-    const { updateSettings, settings } = useSettingsStore.getState();
-
-    // What was set before this click. Needed for the failure path
-    // below, and read BEFORE the change so it is the old value.
-    const previous = settings.after_queue_once ?? null;
+    const { updateSettings } = useSettingsStore.getState();
 
     updateSettings({ after_queue_once: stored });
 
@@ -909,42 +906,45 @@ export function DownloadForm() {
       await setStoredPreference({ kind: 'after_queue_once', action: stored });
       useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     } catch {
-      // The disk did not change, so whatever was set BEFORE is still
-      // set. Put the page's copy back to that, so the status bar tells
-      // the truth rather than showing what the person asked for.
+      // Nothing was written, so the disk still holds whatever it held
+      // before. Both the page's copy and the message are worked out from
+      // THE DISK rather than from this page, because the page's copy is
+      // exactly the thing that is not trustworthy here.
       //
-      // The first version of this cleared the page's copy and said
-      // "nothing will happen when the queue finishes". That was the
-      // dangerous way round, and a reviewer caught it: somebody
-      // CLEARING a shutdown they had set earlier would be told it was
-      // off while the computer still had it armed, and would walk away.
-      // Telling somebody their machine will stay on when it is about to
-      // shut down is worse than the fault this whole change fixed.
-      useSettingsStore.getState().updateSettings({ after_queue_once: previous });
-
-      // What will ACTUALLY happen when the queue finishes, which is not
-      // simply "the one-off action, or nothing".
+      // Three attempts got to this. The first cleared the page's copy
+      // and said "nothing will happen when the queue finishes" — which
+      // told somebody CLEARING a shutdown that it was off while the
+      // machine still had it armed. The second read the standing setting
+      // from this page, and a reviewer pointed out that copy can hold an
+      // unsaved edit from the Settings screen, so the same wrong
+      // reassurance came back by another route.
       //
-      // The backend uses the one-off if there is one and otherwise falls
-      // back to the standing choice in Settings. So "nothing was set
-      // before, so nothing will happen" is wrong whenever that standing
-      // choice is anything but "do nothing" — and it is wrong in the
-      // dangerous direction, because it can say the machine will stay on
-      // when the standing choice is to shut it down.
-      //
-      // A reviewer caught that. It is the same mistake as the one this
-      // failure path was written to fix, one level along: the message
-      // claiming something the stored state does not support.
-      const standing = useSettingsStore.getState().settings.after_queue_action;
+      // Both were wrong in the dangerous direction: saying the computer
+      // will stay on shortly before it shuts down. So this asks what is
+      // actually stored, and when it cannot be read it says so rather
+      // than making a claim. "Check this yourself" is recoverable.
       const readable = (a: string) => `“${a.replace(/_/g, ' ')}”`;
 
       let stillArmed: string;
-      if (previous) {
-        stillArmed = `${readable(previous)} is still set from before, and will still happen.`;
-      } else if (standing && standing !== 'do_nothing') {
-        stillArmed = `Your usual after-queue setting, ${readable(standing)}, still applies.`;
-      } else {
-        stillArmed = 'Nothing will happen when the queue finishes.';
+      try {
+        const onDisk = await getSettings();
+        const oneOff = onDisk.after_queue_once ?? null;
+        const standing = onDisk.after_queue_action;
+
+        // Put the page back in step with the disk, so the status bar
+        // shows what will really happen.
+        useSettingsStore.getState().updateSettings({ after_queue_once: oneOff });
+
+        if (oneOff) {
+          stillArmed = `${readable(oneOff)} is still set from before, and will still happen.`;
+        } else if (standing && standing !== 'do_nothing') {
+          stillArmed = `Your usual after-queue setting, ${readable(standing)}, still applies.`;
+        } else {
+          stillArmed = 'Nothing will happen when the queue finishes.';
+        }
+      } catch {
+        stillArmed =
+          'MeedyaDL could not check what is set, so please check your after-queue setting before leaving your computer.';
       }
 
       useUiStore
