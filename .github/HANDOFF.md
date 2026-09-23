@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-23 (evening) — see ★★★★ LATEST below
+**Last updated:** 2026-09-23 (late evening) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -11,7 +11,143 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-23 (evening): all ten review areas read, most findings fixed
+## ★★★★ LATEST — 2026-09-23 (late): review in batches, ship alpha between them
+
+> **PICK UP HERE.** Still on `work/after-1.10.8`. **A decision was taken this
+> evening about how the rest of this lands — read the plan below before doing
+> anything else.**
+>
+> **Codex is out until 00:09 (24 Sept).** When it returns, the FIRST thing is
+> **batch 4 (the release machinery)** — not because it is the biggest, but
+> because it edits `release.yml`, the workflow that builds the release. Nothing
+> else should be cut until that has come back clean.
+
+### The plan, agreed with the maintainer on 23 Sept
+
+The whole branch does not wait for the whole review. Instead:
+
+1. **Review batch 4 (CI and the release machinery) first.** It is the smallest
+   batch (10 files, ~700 lines) and the only one that can break the mechanism
+   everything else depends on. One of its changes makes a step in `release.yml`
+   fail loudly where it used to swallow a failed read — safer, and a new way
+   for the build to fail. Get that reviewed before relying on it.
+2. **Then cut an alpha.** Alpha is gated behind developer access, so it goes to
+   self-selected testers.
+3. **Then batches 3 and 5**, cutting a small alpha as each comes back clean.
+
+**Why ship before the review finishes.** Three things on this branch cannot be
+settled by any review, and are already written down as unverified: the FFmpeg
+install round trip needs a real download; the GAMDL 3.9.1 work needs a live
+smoke test on each platform (already the stated pre-stable gate); and the
+Windows-on-ARM install failure was never reproduced. Reading the code has
+nothing further to say about any of them. Meanwhile a lot of finished work is
+stranded — eight features that had never worked once, the "open any file" hole,
+the shortcut hole, three destructive actions that did not ask.
+
+**Between Codex windows**, a fresh Opus agent that did not build the work
+reviews it as a stand-in, and is **named as a stand-in in the commit**. That is
+the hand-over rule: the work continues, the review never changes hands
+silently, and Codex still sees everything afterwards — the value of the
+cross-check is that two different systems rarely make the same mistake in the
+same place.
+
+### What the review windows actually cost, measured today
+
+Worth knowing before planning the next sitting, because it is cheaper than it
+feels:
+
+* A window is roughly **three hours** from running out to working again
+  (15:36 → 18:30, then ~20:45 → 00:09).
+* **Eleven rounds fitted in one window**, about 550,000 tokens.
+* A round costs 32k–85k, averaging ~55k, and **gets cheaper as a batch
+  settles** — batch 1 ran 85k → 61k → 65k → 62k → 46k → 32k.
+* Findings fall the same way: batch 1 went **4 → 2 → 4 → 3 → 2 → 0**.
+
+Remaining: batch 2 needs 1–2 more rounds, batch 3 perhaps 3–5, batch 4 2–4,
+batch 5 3–5. So **one to two more windows, realistically two.**
+
+### Exactly how to run the next review (copy this, it needs no working out)
+
+The reviewer only ever looks at a range you give it, so the ranges matter. Each
+batch, with its commits:
+
+| Batch | Range to review | What is in it |
+|---|---|---|
+| 2 (finish) | `git diff 40047ef6~1..40047ef6` | the back-out; then anything newer |
+| 3 | `git diff 52e959b4..7e9f4695 -- src/` | the screens (41 files, ~3,400 lines) |
+| **4 (FIRST)** | `git diff 5071541f..c3dee4e7` | release machinery + the per-PR checks |
+| 5 | `git diff 7e9f4695..80bb65ee` | helper-programme update checks |
+
+The command shape, which matters — **without `</dev/null` it waits for input
+for ever**, and the effort is set per run rather than in the config file:
+
+```bash
+timeout 2400 codex exec -s read-only -c model_reasoning_effort=medium \
+  "$(cat /path/to/prompt.txt)" </dev/null > /tmp/cx-out.txt 2>&1
+```
+
+**Review only what it has not seen.** A follow-up round gets the range of the
+fix commit alone, never the whole batch again — re-reviewing settled work
+spends the allowance for nothing. Each round: read every finding, verify it
+against the code before acting (several have been wrong, and saying so is a
+useful result), fix the real ones, commit, then review only that fix.
+
+**Stop when a round comes back clean**, not when it feels finished. Batch 1
+went 4 → 2 → 4 → 3 → 2 → 0, and round 3 found faults in round 2's fixes.
+
+### In flight right now — will be LOST on a session restart
+
+Two stand-in reviewers (fresh Opus, no memory of building it) were reading
+batches 4 and 5 when this was written. **Their results had not come back.** If
+the session restarted, they are gone and nothing was lost but the time — simply
+start the batch-4 review again, either with Codex after 00:09 or with a fresh
+stand-in agent before it.
+
+Nothing is uncommitted. Everything through `40047ef6` is pushed.
+
+### Where the review has got to
+
+| Batch | What | Rounds | Verdict |
+|---|---|---|---|
+| 1 | Security fixes | 6 | **CLEAN** |
+| 2 | Settings persistence | 5 | **No verdict** — cut off mid-round |
+| 3 | The screens | 0 | not started |
+| 4 | CI and release machinery | 0 | **do this first** |
+| 5 | Helper-programme update checks | 0 | not started |
+
+### What eleven rounds found, and the pattern in it
+
+Real faults in work already committed as done. The ones that mattered:
+
+* **A shortcut named `track.mp3` pointing at a programme would still have run
+  it** — the same fault the fix was written to close, one layer down. Then
+  macOS aliases slipped the second fix too, because an alias is an ordinary
+  file rather than a shortcut.
+* **A commit message claimed the mirror download is checksum-verified. It is
+  not.** The pins are commented out and nothing fetches a published checksum.
+  Corrected in the code, since the commit itself cannot be.
+* **A failed save told people their computer would stay on shortly before it
+  shut down.** Four attempts to get that message right, every wrong version
+  erring the same way: reassuring.
+
+**Two things about this session's own work are worth carrying forward.**
+
+Rounds 3–5 of batch 1 were almost entirely **comments that were wrong**,
+including comments written specifically to correct earlier wrong comments. The
+mirror paragraph took five attempts; every version ended on a conclusion about
+what had been achieved, and the conclusion is where the overstatement kept
+getting in. **State mechanics and stop.**
+
+And in batch 2 round 4, a fix **introduced a new fault** — writing the standing
+after-queue setting back into the page would have silently discarded an unsaved
+Settings edit, which is #1175 exactly, committed from a failure handler on
+another screen. Backed out in `40047ef6`. It was found by reading the question
+the reviewer was asking when it ran out of credit, **not its answer** — which
+is not the same as a review, and is marked as such.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (evening): all ten review areas read, most findings fixed
 
 > **PICK UP HERE.** Still on `work/after-1.10.8`. No PR yet.
 >
