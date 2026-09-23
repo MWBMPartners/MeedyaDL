@@ -1040,6 +1040,45 @@ pub async fn import_profile(
                 }
                 other => format!("Failed to decrypt credentials: {other}"),
             })?;
+        // Read and check the identifiers BEFORE anything is replaced.
+        //
+        // A reviewer caught the previous order: the key was restored
+        // first and the identifiers checked afterwards, so a malformed
+        // one failed the import with the new key already in the
+        // keychain — pairing it with the previous key's identifiers and
+        // leaving a working installation unable to reach Apple Music.
+        // Everything that can be judged from the file is judged while
+        // nothing has been touched yet.
+        let identifiers_from_bundle = match reader.read_entry(entry::SETTINGS) {
+            Ok(Some(bytes)) => match serde_json::from_slice::<crate::models::settings::AppSettings>(
+                &bytes,
+            ) {
+                Ok(from_bundle) => Some((
+                    normalise_musickit_identifier(
+                        "MusicKit Team ID",
+                        from_bundle.musickit_team_id.as_deref(),
+                    )?,
+                    normalise_musickit_identifier(
+                        "MusicKit Key ID",
+                        from_bundle.musickit_key_id.as_deref(),
+                    )?,
+                )),
+                Err(e) => {
+                    return Err(format!(
+                        "The bundle's settings could not be read, so the identifiers that go \
+                         with its Apple Music key are unknown. Nothing has been changed: {e}"
+                    ))
+                }
+            },
+            Ok(None) => None,
+            Err(e) => {
+                return Err(format!(
+                    "The bundle's settings could not be read, so the identifiers that go with \
+                     its Apple Music key are unknown. Nothing has been changed: {e}"
+                ))
+            }
+        };
+
         let restored_musickit_key =
             restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
 
@@ -1066,33 +1105,14 @@ pub async fn import_profile(
         // the identifiers anyway — possibly clearing them, or pairing
         // somebody else's with a key that never changed.
         if restored_musickit_key {
-            let bundle_settings = reader
-                .read_entry(entry::SETTINGS)
-                .map_err(|e| {
-                    format!("Restored the Apple Music key, but could not read the bundle's settings to find the identifiers that go with it: {e}")
-                })?
-                .ok_or_else(|| {
-                    "Restored the Apple Music key, but the bundle has no settings, so the                      identifiers that go with it are unknown. The key will not work until                      they are entered in Settings."
-                        .to_string()
-                })?;
-            let from_bundle: crate::models::settings::AppSettings =
-                serde_json::from_slice(&bundle_settings).map_err(|e| {
-                    format!("Restored the Apple Music key, but the bundle's settings could not be read to find the identifiers that go with it: {e}")
-                })?;
-
-            // Cleaned and checked the same way the Settings screen does,
-            // rather than taken on trust. These arrive in the part of a
-            // bundle that is not encrypted, so they are no more
-            // trustworthy than anything else in it — a reviewer noted
-            // the earlier version accepted whatever was there.
-            let team_id = normalise_musickit_identifier(
-                "MusicKit Team ID",
-                from_bundle.musickit_team_id.as_deref(),
-            )?;
-            let key_id = normalise_musickit_identifier(
-                "MusicKit Key ID",
-                from_bundle.musickit_key_id.as_deref(),
-            )?;
+            let Some((team_id, key_id)) = identifiers_from_bundle else {
+                return Err(
+                    "Restored the Apple Music key, but the bundle has no settings, so the \
+                     identifiers that go with it are unknown. Enter them in Settings for the \
+                     key to work."
+                        .to_string(),
+                );
+            };
 
             // A failure here is reported, not logged and forgotten: the
             // key is already in the keychain, so leaving quietly would
