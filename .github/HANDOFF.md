@@ -22,6 +22,75 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 > because it edits `release.yml`, the workflow that builds the release. Nothing
 > else should be cut until that has come back clean.
 
+### If you are starting with no memory of any of this, read this part
+
+This branch is `work/after-1.10.8`, cut from `alpha`. It holds **60 commits,
+131 files, about 15,700 added lines**. Nothing is uncommitted. There is **no
+pull request yet** and one is opened only when the maintainer says so.
+
+What is on it, in four pieces:
+
+1. **GAMDL 3.9.1 support** (`17774965` and its follow-ups). 3.9 itself is
+   refused as known-bad; Windows on ARM is held at 3.8.5. PlayReady unlocking
+   is offered only when the installed GAMDL is new enough.
+2. **The reopened-issues queue, batches 1, 2 and 4** — #949, #397, #984, and
+   #273 (the helper-programme update checks). Batches 3 and 5–9 are NOT started.
+3. **A full review of the whole existing codebase**, split into ten areas and
+   given to reviewers with no memory of building any of it. This is the bulk of
+   the branch. Findings are tracked in #1215 (umbrella), #1216, #1217, #1218,
+   #1219 and #1220.
+4. **The fixes that review produced**, including six rounds of cross-checking on
+   the security batch alone.
+
+**Why the review happened at all:** the tool used for cross-checking only ever
+looks at the difference between two versions, so in practice it had never once
+read the code that was already there. Code older than the reviewing habit had
+never been read by anything but whatever wrote it.
+
+**The headline findings**, so you know what you would be shipping:
+
+* **Eight finished features did nothing.** Every question asked away from the
+  Settings screen was written to the page's copy of the settings and never to
+  disk. One could never run at all: the crash-reporting consent question only
+  appears once setup is recorded as finished, and that flag was permanently
+  false on every install. Another let somebody set "shut down when the queue
+  finishes", said so in the status bar, and never did it.
+* **The page could ask the computer to open any file.** On Windows, opening a
+  programme runs it. The permission's own description claimed it was "scoped
+  just to that"; it was scoped to everything.
+* **macOS and Linux downloaded an unverifiable nightly build and ran it.** The
+  same danger had already been found and fixed for Windows, with the reasoning
+  written a few hundred lines above the two places still doing it.
+* **Three destructive actions did not ask**, each sitting beside one that did.
+* **Two safety-net workflows have never run once** (#1219) — they live only on
+  `alpha`, and a workflow not on the default branch does not exist as far as
+  GitHub is concerned. Not fixable from here.
+
+### Already checked — do not spend a window re-doing these
+
+* **Batch 1 (security) is CLEAN** after six rounds. Do not re-review it.
+* The worry that alpha builds could bury a beta release and leave somebody told
+  they were up to date: **checked against the live release list, not happening**
+  — the newest release candidate, stable and beta sat at positions 1, 3 and 6.
+* The YouTube and BBC iPlayer settings tabs being unreachable: **deliberate
+  groundwork**, not a fault. Each now says so.
+* The snapshot delete button having no accessible label: **it has one**, and has
+  since it was written.
+* A comment claiming a file-name race: **traced and confirmed unreachable.**
+
+### Known NOT verified, and no review will change that
+
+These need a real machine, and are the reason for shipping an alpha rather than
+waiting:
+
+* A full FFmpeg install from each of its three sources and back through the
+  update check. Each piece is tested alone; the round trip is not.
+* The GAMDL 3.9.1 live smoke test on each platform, including one album forced
+  to AAC Legacy. This is already the stated pre-stable gate.
+* The Windows-on-ARM install failure was never reproduced.
+* None of the workflow changes have been run against the live GitHub API,
+  because they cannot be run from a working branch.
+
 ### The plan, agreed with the maintainer on 23 Sept
 
 The whole branch does not wait for the whole review. Instead:
