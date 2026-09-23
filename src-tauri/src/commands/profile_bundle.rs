@@ -588,6 +588,16 @@ fn restore_credentials_blob(
 /// found this route going through a save that does no checking, beneath
 /// a comment claiming it did.
 ///
+/// Two details worth keeping, both noted by that reviewer as useful
+/// things earlier comment deletions had taken with them:
+///
+/// * The identifiers that matter are the TOP-LEVEL pair. There are
+///   per-service copies of the same names which nothing reads — an
+///   earlier attempt at this edited those and therefore did nothing.
+/// * A bundle export replaces the account name in file paths with a
+///   placeholder, which is part of why the download folder is taken
+///   from this install rather than from the bundle.
+///
 /// **Why this is a function at all.** The sequence lived inline, and its
 /// test reimplemented it — so the test passed against a version of the
 /// real code that did nothing, which is exactly the fault it was written
@@ -1125,6 +1135,29 @@ mod tests {
         // that already has its own folders and its own cookies.
         assert_eq!(imported.output_path, "/Users/me/Music");
         assert_eq!(imported.cookies_path, local.cookies_path);
+    }
+
+    #[test]
+    fn a_malformed_key_identifier_stops_the_restore_too() {
+        // The reviewer's own note on the previous tests: every one of
+        // them supplied a valid Key ID, so all three would still pass if
+        // the checking of that second field were dropped and it were
+        // simply assigned. One of the two is not covered by testing the
+        // other.
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("ABCDE12345".to_string()),
+            musickit_key_id: Some("nope".to_string()),
+            ..Default::default()
+        };
+        let err = apply_bundle_settings_rules(
+            &mut imported,
+            &crate::models::settings::AppSettings::default(),
+        )
+        .expect_err("a malformed key identifier must stop the restore");
+        assert!(
+            err.contains("Key ID"),
+            "the message should name which one is wrong, got: {err}"
+        );
     }
 
     #[test]
