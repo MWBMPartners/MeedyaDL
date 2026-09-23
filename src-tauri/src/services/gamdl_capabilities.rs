@@ -326,6 +326,19 @@ fn numeric_version_parts(version: &str) -> Option<(u32, u32, u32)> {
 /// pre-release like `"3.9.1rc1"`, or plain garbage — matches nothing.
 #[must_use]
 pub fn known_bad_version(version: &str) -> Option<&'static KnownBadVersion> {
+    // Only a version we can read properly, in the ordinary two- or
+    // three-part shape, can match an entry on the list.
+    //
+    // An independent review found `3.9.0.1` matching the broken `3.9`,
+    // because the comparison read three numbers and stopped. Those are
+    // different releases by the packaging rules everyone else follows,
+    // so that would have refused a release that is perfectly fine. The
+    // cost of being wrong in this direction is a user unable to install
+    // something installable, with a message telling them it is broken
+    // when it is not.
+    if !is_parseable_semver(version) {
+        return None;
+    }
     let parts = numeric_version_parts(version)?;
     KNOWN_BAD_VERSIONS
         .iter()
@@ -648,11 +661,24 @@ pub fn is_above_tested_ceiling(version: &str) -> bool {
 /// and falsely pass the ceiling check. This guard keeps
 /// `should_offer_upgrade` strict.
 fn is_parseable_semver(version: &str) -> bool {
-    let mut parts = version.split('.');
-    let Some(first) = parts.next() else {
+    // EVERY part has to be a plain number, and there have to be two or
+    // three of them.
+    //
+    // This used to check only the first part, which an independent
+    // review caught: `3.garbage` and `3.8.6rc1` both passed. That
+    // mattered because the comparisons downstream replace anything they
+    // cannot read with zero, so `3.8.6rc1` quietly became 3.8.6 — a
+    // pre-release presenting itself as the finished thing, and landing
+    // inside the tested range on that basis.
+    //
+    // Being strict here is the safe direction: a version string this
+    // refuses is treated as unknown, and unknown already means "assume
+    // nothing and send no optional arguments" everywhere it is used.
+    let parts: Vec<&str> = version.trim().split('.').collect();
+    if parts.len() < 2 || parts.len() > 3 {
         return false;
-    };
-    first.parse::<u32>().is_ok()
+    }
+    parts.iter().all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
 }
 
 /// Pip version specifier string for `pip install --upgrade`.
@@ -685,11 +711,38 @@ pub fn pip_version_spec() -> String {
 #[must_use]
 pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
     let window = support_window();
-    format!(
+    let maximum = effective_maximum_tested(platform_id);
+    let mut spec = format!(
         "gamdl>={minimum},<={maximum}",
         minimum = window.minimum,
-        maximum = effective_maximum_tested(platform_id),
-    )
+    );
+
+    // Shut out every release we know to be broken, by name.
+    //
+    // An independent review caught this, and it went to the heart of the
+    // whole thing: 3.9 is refused everywhere a user can ask for a version
+    // by name, and refused in what the screen says — but the range handed
+    // to pip for an ORDINARY install was simply "3.0 up to 3.9.1", which
+    // contains 3.9. Nothing in that range said so. If 3.9.1 could not be
+    // resolved for any reason — withdrawn, briefly unavailable, or an
+    // install requirement that only 3.9 happens to satisfy — pip was free
+    // to settle on the one release we refuse, and would have reported
+    // success.
+    //
+    // "We refuse this release" has to be said in the one place the
+    // decision is actually made, not only in the places that talk about
+    // it.
+    for bad in KNOWN_BAD_VERSIONS {
+        // Only worth excluding what the range could otherwise reach.
+        if is_version_at_least(bad.version, &window.minimum)
+            && is_version_at_least(&maximum, bad.version)
+        {
+            spec.push_str(",!=");
+            spec.push_str(bad.version);
+        }
+    }
+
+    spec
 }
 
 /// Pip version specifier pinning GAMDL to a single explicit version.
@@ -869,11 +922,24 @@ pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str)
 /// template cannot serve all of them:
 ///
 /// 1. **This platform can install the release that fixes it.** The
-///    ordinary case. "or newer" is safe here because every entry in
-///    [`KNOWN_BAD_VERSIONS`] is checked
-///    (`nothing_we_recommend_or_install_is_on_the_known_bad_list`) to
-///    never point `fixed_in` at another broken release — so everything
-///    from `fixed_in` upward is fine to recommend.
+///    ordinary case, and the only one that says "or newer".
+///
+///    What that phrase can honestly promise is narrower than an earlier
+///    version of this comment claimed. A test
+///    (`nothing_we_recommend_or_install_is_on_the_known_bad_list`)
+///    proves `fixed_in` is not itself a broken release. It does NOT
+///    prove that everything released after it is fine — nobody can know
+///    that, and a release published tomorrow could join the known-bad
+///    list. An independent review pointed this out, and it was a fair
+///    hit: the comment was reasoning from a check to a conclusion the
+///    check does not support.
+///
+///    The phrase stays, because what it tells a user to do is still
+///    right: install the fix, and take ordinary updates afterwards. If
+///    a later release turns out to be broken, it goes on the list, the
+///    install range excludes it by name, and this same sentence starts
+///    pointing at whatever fixes that one. The safety comes from the
+///    list being kept current, not from a promise about the future.
 /// 2. **This platform's own ceiling sits BELOW both the fix and what is
 ///    already installed.** Today's live case: Windows on ARM, held at
 ///    3.8.5, with GAMDL 3.9 installed and 3.9.1 (the fix) needing a
@@ -907,9 +973,17 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
     let ceiling = effective_maximum_tested(platform_id);
 
     if is_version_at_least(&ceiling, fixed_in) {
-        // Case 1 — the fix itself is installable here. Every later
-        // release is fine too (the known-bad table's own invariant),
-        // so "or newer" is safe.
+        // Case 1 — the fix itself is installable here.
+        //
+        // "or newer" is what a user should do, not a promise that every
+        // future release is sound: nobody can know that, and a release
+        // published tomorrow could join the list. If one does, the list
+        // gains an entry, the install range excludes it by name, and
+        // this sentence starts pointing at whatever fixes that one. An
+        // independent review flagged the earlier wording here, which
+        // claimed the list's own check proved everything above the fix
+        // was fine. It does not; it only proves the fix itself is not
+        // on the list.
         return format!("{reason} Update to GAMDL {fixed_in} or newer.");
     }
 
@@ -1322,9 +1396,82 @@ impl GamdlFeature {
 #[must_use]
 pub fn supports(feature: GamdlFeature) -> bool {
     match detected_version() {
-        Some(ver) => feature.is_available_on(&ver),
-        None => false,
+        // A version string we cannot read properly counts as not knowing
+        // which version is installed, and not knowing always means "send
+        // nothing optional".
+        //
+        // An independent review pointed out that this was NOT true when
+        // the claim was first written: the stricter reading was added for
+        // the install range and the ceiling checks only, while these
+        // feature gates still went through a comparison that replaces
+        // anything unreadable with zero. So `3.8.6rc1` was quietly
+        // treated as 3.8.6 here — a pre-release being handed the options
+        // of the finished release. A claim in a comment is worth nothing
+        // if the code does not actually do it, so the code now does it.
+        Some(ver) if is_parseable_semver(&ver) => feature.is_available_on(&ver),
+        _ => false,
     }
+}
+
+/// Is this platform genuinely held below what everyone else can
+/// install, and by what?
+///
+/// Returns the platform's own limit only when that limit is BELOW the
+/// general tested ceiling — which is what "held back" means. An entry
+/// that has caught up with the general ceiling holds nobody back any
+/// more, and a release above it is simply above the general ceiling,
+/// which is the ordinary "untested, install it if you choose"
+/// situation every platform shares.
+///
+/// **This is the one copy of that rule**, because two places had come
+/// to different answers: the message shown to a user asked whether the
+/// entry held the platform back, while the install path refused as soon
+/// as an entry existed at all. A review round found them disagreeing —
+/// a person could be told a release was theirs to choose and then have
+/// it refused a click later. When a screen and the thing it describes
+/// disagree, the screen is the one that gets believed.
+#[must_use]
+pub fn platform_held_back_at(platform_id: &str) -> Option<&'static str> {
+    let cap = platform_ceiling_override(platform_id)?;
+    let general = support_window().maximum_tested.clone();
+    // Strictly below: equal means it has caught up.
+    if is_version_at_least(cap, &general) {
+        return None;
+    }
+    Some(cap)
+}
+
+/// May MeedyaDL pass `--mp4decrypt-path` and `--mp4box-path` to the
+/// installed GAMDL?
+///
+/// **This is the one copy of that rule.** Two places emit those two
+/// arguments, and both ask here, because asking the plain capability
+/// gets it backwards in a way that is easy to miss and expensive to get
+/// wrong.
+///
+/// The capability is "does this release do its own muxing?", which is
+/// true for newer releases. So *false* means "an older release — send
+/// the arguments it used to accept" — and false is also what every
+/// capability answers when nothing is known about the installed
+/// version. A release that does not recognise an argument refuses it
+/// outright and downloads nothing, so guessing wrong here costs the
+/// whole download.
+///
+/// Three review rounds found three different ways into that trap: one
+/// emission site with no version check at all, a second that inherited
+/// the inversion, and a version string like `3.garbage` that reads as
+/// 3.0.0 and so looks convincingly old. Hence: the version must be
+/// present, readable, and known to be one that accepts them.
+#[must_use]
+pub fn tool_path_flags_accepted() -> bool {
+    detected_version().is_some_and(|v| tool_path_flags_accepted_on(&v))
+}
+
+/// The pure half of [`tool_path_flags_accepted`], taking the version so
+/// it can be proven for releases this machine does not have.
+#[must_use]
+pub fn tool_path_flags_accepted_on(version: &str) -> bool {
+    is_parseable_semver(version) && !GamdlFeature::NativeMuxing.is_available_on(version)
 }
 
 /// Compact comma-separated list of capability flags active on the
@@ -1340,6 +1487,16 @@ pub fn active_capabilities_summary() -> String {
     let Some(ver) = detected_version() else {
         return "unknown".to_string();
     };
+    // A version string we cannot read properly means every gate is off,
+    // and this line has to say the same thing the gates did. A later
+    // review round found the two disagreeing: the gates were tightened
+    // to refuse an unreadable version, while this summary went on
+    // reading it loosely and listing features as active that were not.
+    // A diagnostic line that contradicts the behaviour it is describing
+    // is worse than no line, because it is believed.
+    if !is_parseable_semver(&ver) {
+        return "unknown".to_string();
+    }
 
     let all = [
         (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
@@ -2060,11 +2217,126 @@ mod tests {
 
     #[test]
     fn play_ready_is_off_when_no_version_has_been_detected() {
+        // Takes the shared lock, like every other test that touches the
+        // one process-wide record of which version was detected. An
+        // independent review caught this one going without it: clearing
+        // that record while another test is between its own write and
+        // its assertion makes either test fail, occasionally, for no
+        // reason anybody watching would be able to reproduce.
+        let _lock = test_lock();
         // The whole point of the gate is never to send an option a
         // release might reject, so "we do not know yet" must mean "do not
         // send it" — the same conservative default every other gate has.
         set_detected_version(None);
         assert!(!supports(GamdlFeature::PlayReadyDrmBackend));
+    }
+
+    #[test]
+    fn a_version_we_cannot_read_properly_is_treated_as_unknown() {
+        let _lock = test_lock();
+
+        // Two or three plain numbers, and nothing else.
+        for good in ["3.9", "3.9.1", "3.0", "10.20.30"] {
+            assert!(is_parseable_semver(good), "{good} should be readable");
+        }
+        for bad in ["3.garbage", "3.8.6rc1", "3", "", "3.", "3.8.6.1", "v3.9", "3.9.1-beta"] {
+            assert!(!is_parseable_semver(bad), "{bad} should NOT be readable");
+        }
+
+        // And "not readable" must actually reach the feature gates — a
+        // second review round found the strictness guarding the install
+        // range and the ceilings only, while the gates still read
+        // "3.8.6rc1" as plain 3.8.6 and handed a pre-release the
+        // finished release's options.
+        set_detected_version(Some("3.8.6rc1".to_string()));
+        assert!(
+            !supports(GamdlFeature::NativeMuxing),
+            "an unreadable version must switch every optional feature off"
+        );
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn an_unreadable_version_never_looks_like_an_old_release() {
+        // The trap that has now caught three separate places, and the
+        // reason this test exists rather than a comment.
+        //
+        // "Does this release do its own muxing?" answers false for an
+        // old release AND for a version nobody can read. Two code paths
+        // read that false as "old release — send the two arguments it
+        // used to accept", and a modern release refuses an argument it
+        // does not know, stopping the download before it starts. So
+        // false is NOT the cautious answer here; only a version we can
+        // read and have checked is.
+        let _lock = test_lock();
+
+        for unreadable in ["3.8.6rc1", "3.garbage", ""] {
+            set_detected_version(Some(unreadable.to_string()));
+            let accepted = tool_path_flags_accepted();
+            assert!(
+                !accepted,
+                "{unreadable} is not a version we can act on, so the removed arguments \
+                 must not be sent"
+            );
+            assert_eq!(
+                active_capabilities_summary(),
+                "unknown",
+                "{unreadable}: the diagnostic line must say the same thing the gates do"
+            );
+        }
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn a_four_part_version_is_a_different_release_not_the_broken_one() {
+        // Found by a second review round: `3.9.0.1` matched the broken
+        // `3.9`, because the comparison read three numbers and stopped.
+        // Refusing a release that is actually fine costs a user an
+        // install and tells them something untrue about it.
+        assert!(known_bad_version("3.9").is_some(), "3.9 itself is on the list");
+        assert!(
+            known_bad_version("3.9.0.1").is_none(),
+            "3.9.0.1 is a different release from 3.9 and is not on the list"
+        );
+    }
+
+    #[test]
+    fn the_install_range_can_never_reach_a_release_we_refuse() {
+        // The hole an independent review found, and the most important
+        // thing in this file. Every place a user can ask for a version by
+        // name refuses a known-bad release, and the screen says so — but
+        // the range handed to pip for an ORDINARY install was just "from
+        // the floor up to the ceiling", and a broken release sitting
+        // inside that range was not excluded by anything. If the release
+        // we want could not be resolved, pip was free to settle on the
+        // one we refuse, and would have called that success.
+        //
+        // Written against whatever the table holds today, so it keeps
+        // proving something after an entry is added or removed.
+        for platform_id in [
+            "macos",
+            "windows-x86_64",
+            "windows-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-armv7",
+        ] {
+            let spec = pip_version_spec_for_platform(platform_id);
+            let ceiling = effective_maximum_tested(platform_id);
+            for bad in KNOWN_BAD_VERSIONS {
+                let reachable = is_version_at_least(bad.version, &support_window().minimum)
+                    && is_version_at_least(&ceiling, bad.version);
+                if reachable {
+                    assert!(
+                        spec.contains(&format!("!={}", bad.version)),
+                        "{platform_id}: {} sits inside this range and must be excluded by name, \
+                         got: {spec}",
+                        bad.version
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -2201,9 +2473,12 @@ mod tests {
         // general one.
         let window = support_window();
         let ordinary = pip_version_spec_for_platform("macos");
-        assert_eq!(
-            ordinary,
-            format!("gamdl>={},<={}", window.minimum, window.maximum_tested)
+        assert!(
+            ordinary.starts_with(&format!(
+                "gamdl>={},<={}",
+                window.minimum, window.maximum_tested
+            )),
+            "an ordinary platform reaches the general ceiling, got: {ordinary}"
         );
 
         // Every held-back platform in the shipped table, whichever
@@ -2211,9 +2486,9 @@ mod tests {
         // (upstream finally publishes the missing package) doesn't
         // leave a test asserting a version nobody holds any more.
         for (platform_id, ceiling) in &window.platform_ceilings {
-            assert_eq!(
-                pip_version_spec_for_platform(platform_id),
-                format!("gamdl>={},<={ceiling}", window.minimum),
+            assert!(
+                pip_version_spec_for_platform(platform_id)
+                    .starts_with(&format!("gamdl>={},<={ceiling}", window.minimum)),
                 "{platform_id} must be capped at its own ceiling, not the general one"
             );
             assert_ne!(

@@ -1239,7 +1239,20 @@ impl GamdlOptions {
         // MeedyaDL still ships all three binaries for its own pipeline
         // (FFmpeg → ReplayGain / BPM analysis; MP4Box + mp4decrypt are
         // legacy GAMDL dependencies retained for <3.6 users).
-        let native_muxing = supports(GamdlFeature::NativeMuxing);
+        // "Does this release do its own muxing?" is a question where
+        // the cautious answer is NOT false. False here means "an older
+        // release, so send the two arguments it used to accept" — and a
+        // newer release refuses an argument it does not know, stopping
+        // the download before it starts.
+        //
+        // So the version must be KNOWN, and known to accept them. This
+        // is the same inversion already fixed in `inject_tool_paths`,
+        // found here by a later review round: tightening what counts as
+        // a readable version made `supports` answer false for a version
+        // string we cannot parse, which this line would have read as
+        // permission to send the old arguments.
+        let tool_paths_accepted =
+            crate::services::gamdl_capabilities::tool_path_flags_accepted();
         let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
         // --ffmpeg-path: emit when the gate says it's accepted (true on
         // <3.6 OR >=3.7; false only on the 3.6.x line).
@@ -1252,7 +1265,7 @@ impl GamdlOptions {
         // --mp4decrypt-path and --mp4box-path: still controlled by the
         // original NativeMuxing gate — these options stayed removed on
         // v3.6+ and were NOT reinstated by v3.7.
-        if !native_muxing {
+        if tool_paths_accepted {
             if let Some(ref path) = self.mp4decrypt_path {
                 args.push("--mp4decrypt-path".to_string());
                 args.push(path.clone());

@@ -454,7 +454,16 @@ pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<St
     // refuse — the user might be downgrading because of an upstream
     // regression we don't know about, and gating that would be
     // user-hostile.
-    let classification = crate::services::gamdl_capabilities::classify(Some(&version));
+    // Classified for THIS platform, not against the general window. An
+    // independent review caught the difference: a platform held below
+    // the general ceiling would otherwise be told its request is
+    // "supported" here, and then have it refused by the install path a
+    // moment later. Two answers to the same question, given seconds
+    // apart, is worse than either answer alone.
+    let classification = crate::services::gamdl_capabilities::classify_for_platform(
+        Some(&version),
+        crate::services::gamdl_capabilities::current_platform_id(),
+    );
     match &classification {
         crate::services::gamdl_capabilities::VersionSupport::Unsupported { .. } => {
             log::warn!(
