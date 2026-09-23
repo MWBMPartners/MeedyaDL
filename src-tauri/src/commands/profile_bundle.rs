@@ -539,7 +539,7 @@ fn restore_credentials_blob(
     app: &AppHandle,
     json_bytes: &[u8],
     anchor_settings: &crate::models::settings::AppSettings,
-) -> Result<bool, String> {
+) -> Result<(), String> {
     let blob: CredentialsBlobV1 = serde_json::from_slice(json_bytes)
         .map_err(|e| format!("Bundle credentials JSON malformed: {e}"))?;
 
@@ -555,13 +555,7 @@ fn restore_credentials_blob(
             .map_err(|e| format!("Failed to write cookies file: {e}"))?;
     }
 
-    // Whether an Apple Music private key was among what was restored.
-    // The caller needs to know: the identifiers that go with a key must
-    // only follow a key that actually arrived, and this function
-    // succeeds just as happily for a bundle carrying only cookies.
-    let mut restored_musickit_key = false;
     if let Some(pem) = blob.musickit_private_key {
-        restored_musickit_key = true;
         crate::services::apple_music_api::store_private_key_in_keychain(&pem)
             .map_err(|e| format!("Failed to store MusicKit private key: {e}"))?;
     }
@@ -571,37 +565,7 @@ fn restore_credentials_blob(
             .map_err(|e| format!("Failed to store web-player token: {e}"))?;
     }
 
-    Ok(restored_musickit_key)
-}
-
-/// Cleans and checks one Apple Music identifier taken from a bundle.
-///
-/// The same shape the Settings screen enforces: trimmed, upper-cased,
-/// exactly ten letters or digits. `None` stays `None` — a bundle that
-/// simply has no identifier is not an error.
-///
-/// These values arrive in the part of a bundle that is NOT encrypted, so
-/// they deserve exactly as much trust as anything else somebody sends
-/// you, which is none. A reviewer found the earlier version writing them
-/// straight through.
-fn normalise_musickit_identifier(
-    label: &str,
-    value: Option<&str>,
-) -> Result<Option<String>, String> {
-    let Some(raw) = value else {
-        return Ok(None);
-    };
-    let cleaned = raw.trim().to_ascii_uppercase();
-    if cleaned.is_empty() {
-        return Ok(None);
-    }
-    if cleaned.len() != 10 || !cleaned.chars().all(|c| c.is_ascii_alphanumeric()) {
-        return Err(format!(
-            "The bundle's {label} is not a valid one ({cleaned}). It should be ten letters or \
-             digits. The key was restored; enter the identifiers in Settings."
-        ));
-    }
-    Ok(Some(cleaned))
+    Ok(())
 }
 
 fn format_size(bytes: u64) -> String {
@@ -868,6 +832,33 @@ pub async fn import_profile(
                 &pre_import_settings,
             );
 
+            // The Apple Music identifiers come from the bundle, with
+            // the key they belong to.
+            //
+            // The shared list keeps this machine's, which is right for an
+            // ordinary settings file — nobody else's belong in one. A
+            // bundle is different: it is a restore of a whole profile,
+            // and its key travels in the encrypted part while the
+            // identifiers travel here. Keeping one and replacing the
+            // other leaves a pair that does not match, and says nothing.
+            //
+            // **This replaces six rounds of special-case code**, in which
+            // a reviewer found, in turn: the wrong pair of fields edited;
+            // the write happening before anything established a key would
+            // arrive; no validation; silent failures; and then validation
+            // running before the key that made it relevant, which broke
+            // cookies-only restores that used to work. Each fix was
+            // correct about the fault in front of it and introduced the
+            // next one.
+            //
+            // Taking them here instead needs none of that. `save_settings`
+            // below already trims, upper-cases and checks both, and
+            // refuses the whole save if either is malformed — before the
+            // credentials step runs at all. The simplest version was
+            // available the whole time, underneath the special case.
+            let bundle_team_id = imported.musickit_team_id.clone();
+            let bundle_key_id = imported.musickit_key_id.clone();
+
             // Where downloads are saved stays as this install has it.
             //
             // The shared helper deliberately does NOT keep this, because
@@ -880,6 +871,8 @@ pub async fn import_profile(
             // moving to the shared helper lost that, and a reviewer
             // caught it.
             imported.output_path = pre_import_settings.output_path.clone();
+            imported.musickit_team_id = bundle_team_id;
+            imported.musickit_key_id = bundle_key_id;
 
             // The Apple Music identifiers are NOT taken here.
             //
@@ -1040,47 +1033,7 @@ pub async fn import_profile(
                 }
                 other => format!("Failed to decrypt credentials: {other}"),
             })?;
-        // Read and check the identifiers BEFORE anything is replaced.
-        //
-        // A reviewer caught the previous order: the key was restored
-        // first and the identifiers checked afterwards, so a malformed
-        // one failed the import with the new key already in the
-        // keychain — pairing it with the previous key's identifiers and
-        // leaving a working installation unable to reach Apple Music.
-        // Everything that can be judged from the file is judged while
-        // nothing has been touched yet.
-        let identifiers_from_bundle = match reader.read_entry(entry::SETTINGS) {
-            Ok(Some(bytes)) => match serde_json::from_slice::<crate::models::settings::AppSettings>(
-                &bytes,
-            ) {
-                Ok(from_bundle) => Some((
-                    normalise_musickit_identifier(
-                        "MusicKit Team ID",
-                        from_bundle.musickit_team_id.as_deref(),
-                    )?,
-                    normalise_musickit_identifier(
-                        "MusicKit Key ID",
-                        from_bundle.musickit_key_id.as_deref(),
-                    )?,
-                )),
-                Err(e) => {
-                    return Err(format!(
-                        "The bundle's settings could not be read, so the identifiers that go \
-                         with its Apple Music key are unknown. Nothing has been changed: {e}"
-                    ))
-                }
-            },
-            Ok(None) => None,
-            Err(e) => {
-                return Err(format!(
-                    "The bundle's settings could not be read, so the identifiers that go with \
-                     its Apple Music key are unknown. Nothing has been changed: {e}"
-                ))
-            }
-        };
-
-        let restored_musickit_key =
-            restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
+        restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
 
         // The key is in. Now, and only now, take the identifiers that go
         // with it.
@@ -1099,33 +1052,7 @@ pub async fn import_profile(
         // before any of that was established — so a wrong password, or a
         // bundle with no key in it, still left somebody else's
         // identifiers behind.
-        // Only when a KEY was actually restored. This function also
-        // succeeds for a bundle carrying nothing but cookies, and a
-        // reviewer pointed out that the earlier version then overwrote
-        // the identifiers anyway — possibly clearing them, or pairing
-        // somebody else's with a key that never changed.
-        if restored_musickit_key {
-            let Some((team_id, key_id)) = identifiers_from_bundle else {
-                return Err(
-                    "Restored the Apple Music key, but the bundle has no settings, so the \
-                     identifiers that go with it are unknown. Enter them in Settings for the \
-                     key to work."
-                        .to_string(),
-                );
-            };
 
-            // A failure here is reported, not logged and forgotten: the
-            // key is already in the keychain, so leaving quietly would
-            // mean a restored key with the previous key's identifiers
-            // beside it and nothing said.
-            crate::services::config_service::update_settings_field(&app, |s| {
-                s.musickit_team_id = team_id.clone();
-                s.musickit_key_id = key_id.clone();
-            })
-            .map_err(|e| {
-                format!("Restored the Apple Music key, but could not record the identifiers that go with it: {e}")
-            })?;
-        }
         // P4 success path — clear the "skipped" flag (default false) so
         // the frontend doesn't show the misleading "skipped" toast.
         result.credentials_skipped_p4 = false;
@@ -1187,35 +1114,6 @@ fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) 
 #[cfg(test)]
 mod tests {
 
-    #[test]
-    fn an_identifier_from_a_bundle_is_cleaned_and_checked_like_any_other() {
-        // These arrive in the part of a bundle that is not encrypted, so
-        // they deserve as much trust as anything else somebody sends
-        // you. A reviewer found the earlier version writing them
-        // straight through.
-        assert_eq!(
-            normalise_musickit_identifier("Team ID", Some("  abcde12345  ")).expect("valid"),
-            Some("ABCDE12345".to_string()),
-            "trimmed and upper-cased, the way the Settings screen does it"
-        );
-
-        // Nothing is not an error — a bundle may simply have none.
-        assert_eq!(normalise_musickit_identifier("Team ID", None).expect("none"), None);
-        assert_eq!(
-            normalise_musickit_identifier("Team ID", Some("   ")).expect("blank"),
-            None
-        );
-
-        // Anything else is refused, and says why.
-        for bad in ["SHORT", "WAYTOOLONG12345", "ABCDE-1234", "ABCDE 1234"] {
-            let err = normalise_musickit_identifier("Team ID", Some(bad))
-                .expect_err("must be refused");
-            assert!(
-                err.contains("ten letters or digits"),
-                "the message should say what is wrong, got: {err}"
-            );
-        }
-    }
 
     use super::*;
 
