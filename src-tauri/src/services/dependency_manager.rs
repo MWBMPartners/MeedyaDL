@@ -2880,58 +2880,51 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
             // Fall back to mirror directly (skip get_tool_download_url which
             // returns Err for MP4Box since it uses platform-specific installers)
             //
-            // **Honest about what this does and does not check.** The
-            // mirror copy is verified ONLY when `tool-versions.toml`
-            // pins a checksum for that exact file. The
-            // `[mirror.asset_hashes]` section is entirely commented out
-            // in the shipped configuration, so today **nothing here is
-            // verified** — `download_and_extract_verified` checks a hash
-            // when it is given one and simply extracts when it is not.
+            // **What is checked here, and what is not.**
             //
-            // A commit message once described this fallback as "the
-            // checksum-verified mirror". That was wrong, and an
-            // independent reviewer caught it. It is written down here so
-            // the next person reads the truth from the code rather than
-            // from a claim made somewhere else.
+            // This is the fallback, reached only when the platform's own
+            // installer failed — a successful Homebrew or apt install
+            // returns above and never comes past this point.
             //
-            // The pins are commented out for a real reason, not an
-            // oversight: the mirror republishes its files periodically as
-            // upstream tools move, so a pinned hash goes stale and breaks
-            // every install until somebody notices. The proper answer is
-            // for the mirror to publish a checksum alongside each file
-            // and for this to fetch and check it — which is #1076, with
-            // signed build records as #1211. Both need work on the mirror
-            // itself, not here.
+            // For this download: the expected hash comes from
+            // `load_mirror_asset_hash`, which reads the
+            // `tool-versions.toml` compiled into this binary. In the
+            // shipped configuration the `[mirror.asset_hashes]` section
+            // is entirely commented out, so there is no hash, and
+            // `download_and_extract_verified` compares nothing and
+            // extracts. **This download is not verified today.**
             //
-            // What this change achieved, and what it did not. This is the
-            // third wording; the first two both overstated it and a
-            // reviewer caught both. So, only what was checked in the
-            // code:
+            // A commit message once called this "the checksum-verified
+            // mirror". It is not, and the correction is written here so
+            // it is read from the code rather than from a claim made
+            // somewhere else. Three further attempts at this paragraph
+            // were each found to overstate something, so it now says
+            // only what was read in the code:
             //
-            //  * A nightly build CAN have a checksum — any file can. What
-            //    it cannot have is one that stays valid, because the bytes
-            //    behind the address are replaced without notice. The
-            //    mirror's files are replaced the same way, so pinning
-            //    them is no better today.
+            //  * The pins are commented out deliberately, not by
+            //    oversight — the mirror replaces its files as upstream
+            //    tools move, so a fixed hash goes stale and breaks every
+            //    install until somebody notices.
+            //  * Each platform fetches a different file: the name is
+            //    built from the operating system and processor by
+            //    `get_mirror_asset_prefix`.
+            //  * Verifying would need two things that are both missing:
+            //    the mirror publishing a checksum beside each file
+            //    (#1076), AND code here to fetch and use it. This
+            //    function does reach the network — `resolve_github_release_asset`
+            //    fetches the release listing — but it asks for no
+            //    checksum.
+            //  * None of this is impossible, only absent. Any file can
+            //    have a checksum; what these files cannot have is one
+            //    that stays valid while the bytes behind them are
+            //    replaced.
             //
-            //  * Each platform still fetches its OWN file: the name is
-            //    built from the operating system and processor
-            //    (`get_mirror_asset_prefix`). They share a code path, not
-            //    a file.
-            //
-            //  * Getting the mirror to publish checksums would not, on
-            //    its own, make any of this verified. `get_mirror_download_url`
-            //    takes its expected hash from the `tool-versions.toml`
-            //    compiled into this binary and nothing else — it fetches
-            //    nothing. Using a published checksum would need code here
-            //    to go and get it. Both halves are missing, not just the
-            //    publishing half (#1076).
-            //
-            // So the gain is modest and worth stating plainly: every
-            // platform now goes through one path that already knows how
-            // to compare a hash, instead of one platform doing that and
-            // two fetching something that could never be compared to
-            // anything. Nothing is verified today.
+            // What changed for macOS and Linux is narrow and worth
+            // stating without dressing up: this fallback used to fetch a
+            // nightly build from an address whose contents change
+            // without notice. It now fetches the same kind of file
+            // Windows already did. Neither was verified before; neither
+            // is now.
             let tool_dir = get_tool_dir(app, "mp4box");
             if tool_dir.exists() {
                 std::fs::remove_dir_all(&tool_dir).ok();
