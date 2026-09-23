@@ -116,10 +116,11 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 /// whatever the format of the alias itself — which is the point: it is
 /// one question that does not depend on knowing every format.
 ///
-/// Returns `Ok(false)` when there is no such attribute at all, which is
-/// the ordinary case for an ordinary file, and also when the attribute
-/// is too short to hold flags. Any other failure to read is returned as
-/// an error so the caller can refuse rather than assume.
+/// Returns `Ok(false)` for exactly one reason: there is no such
+/// attribute, which is the ordinary case for an ordinary file. Every
+/// other outcome — including an attribute too short to hold the flags —
+/// comes back as an error, so the caller refuses rather than assumes.
+/// "Cannot tell" and "no" are never the same answer here.
 #[cfg(target_os = "macos")]
 fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
     use std::os::unix::ffi::OsStrExt;
@@ -147,9 +148,15 @@ fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
 
     if read < 0 {
         let err = std::io::Error::last_os_error();
-        // No such attribute is the normal answer for a normal file, not
-        // a failure. macOS reports it as ENOATTR, which shares a number
-        // with ENODATA.
+        // "There is no such attribute" is the normal answer for a normal
+        // file, not a failure — most files have no Finder information at
+        // all. That is the ONE failure that counts as a genuine no.
+        //
+        // The name to use is ENOATTR. A previous version of this comment
+        // said it shares a number with ENODATA; it does not. Compiled and
+        // printed on a Mac rather than assumed: ENOATTR is 93 and ENODATA
+        // is 96. They are different errors and swapping them would stop
+        // ordinary files being recognised as ordinary.
         if err.raw_os_error() == Some(libc::ENOATTR) {
             return Ok(false);
         }
@@ -158,9 +165,14 @@ fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
 
     let read = read as usize;
     if read < 10 {
-        // Too short to hold the flags. Nothing to read, so nothing is
-        // claimed.
-        return Ok(false);
+        // Present, but too short to hold the flags. That is "cannot
+        // tell", not "no" — and this function's whole promise is that
+        // those two are never confused. A reviewer caught the first
+        // version answering "no" here, which contradicted the rule the
+        // rest of the function follows.
+        return Err(format!(
+            "the file's Finder information is only {read} bytes, too short to read"
+        ));
     }
 
     let flags = u16::from_be_bytes([buf[8], buf[9]]);
