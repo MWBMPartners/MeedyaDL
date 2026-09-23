@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-23 (late evening) — see ★★★★ LATEST below
+**Last updated:** 2026-09-23 (night) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -11,7 +11,113 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-23 (late): review in batches, ship alpha between them
+## ★★★★ LATEST — 2026-09-23 (night): standing rules revised; batch 4 cleared to ship
+
+> **PICK UP HERE. This section assumes you know nothing about what came before.**
+> Read the section below this one too — it explains what is on this branch and why.
+>
+> **Two things happened since that section was written:**
+>
+> 1. **The standing rules were revised** by the maintainer (see below). The one real
+>    change: **deep analysis and planning now goes to Opus, not Fable.**
+> 2. **Batch 4 (the release machinery) was reviewed by a stand-in and came back safe to
+>    cut a release from**, with six findings, none of them blocking.
+>
+> **Next, in order:**
+> 1. Act on the six batch-4 findings listed below (none block a release).
+> 2. **Cut an alpha.** This was the agreed plan and batch 4 is now cleared for it.
+> 3. Codex catch-up when it returns (00:09) — batch 4 is still owed a proper round, the
+>    stand-in said so itself.
+> 4. Batches 2 (finish), 3 and 5, cutting a small alpha as each clears.
+> 5. The documentation sweep, before the pull request.
+
+### The standing rules changed on 23 September 2026
+
+Full text in `.claude/memory/project_standing_rules.md` (mirrored in `.OpenAI/memory/`).
+The short version of what is NEW, since most of it was already in place:
+
+* **Planning moved from Fable to Opus.** One agent at a time, in sequence, never several
+  at once. The maintainer's reason: the newest Opus is cheaper than Fable and at least as
+  good at this, so there is nothing left to fall back from. **An older note naming Fable
+  as the planner is out of date, not a rule somebody forgot.** Changed at both
+  project level and device level (`~/.claude/CLAUDE.md`, which Codex reads through a
+  symbolic link — verified still linked).
+* **Read the tier, not the model name.** "The strongest reasoning available, one agent at
+  a time" is the instruction. Which model fills it has now changed twice.
+* **Committing now comes BEFORE the review**, and updating the notes comes after it. The
+  reason is practical: the cross-checker reads a RANGE OF COMMITS, so work has to be
+  committed before it can be reviewed at all — the old order was being worked around
+  every single time. Two things keep it safe: **the commit message must say plainly
+  whether it has been independently reviewed yet**, and nothing is merged on an unreviewed
+  commit because the loop still runs until a round comes back clean.
+
+Everything else the maintainer listed was already a standing rule and was left as it was:
+plain English always, keep the handoff current, use workflows and the dev-team plugin,
+cross-system review until clean, the documentation sweep, bundle work sensibly, work
+autonomously and raise questions up front, progress tables, one pull request never
+stacked, and hand over when a service runs out.
+
+### ONE QUESTION FOR THE MAINTAINER — nothing is blocked on it
+
+The instruction said "update our Handoff documentation **in `.claude/`** of this project".
+**The handoff is not in `.claude/`** — it is `.github/HANDOFF.md`, and the standing rules
+say explicitly that it is NOT under `.claude/` "because two copies there drifted apart and
+were deleted (2026-09-01)".
+
+So either the location was a slip of the pen and the real instruction is "keep it
+updated" (which is being done), or you genuinely want it moved back. **It has been left
+where it is**, because moving it would undo a deliberate decision made three weeks ago for
+a stated reason, and that is yours to call rather than mine. Say the word and it moves.
+
+### Batch 4 (release machinery) — reviewed, safe to ship, six findings
+
+Reviewed by a **stand-in** (a fresh Opus agent with no part in writing it), because Codex
+was out of credit. **It is still owed a proper Codex round** — the stand-in said so itself
+and it is recorded here so nobody assumes otherwise.
+
+Its verdict: **safe to cut a release build from.** It rebuilt the changed release step in
+a scratch directory with a stubbed `gh` and ran every path — empty body, total failure,
+recovery on the third try, `gh` missing entirely — and could not make it fail a build that
+would previously have succeeded. It also confirmed the step is the last job, so failing it
+cannot strand anything, and the prerelease auto-publish does not depend on it.
+
+**The findings, none blocking:**
+
+1. **The same destructive read is still live 2,000 lines up**, in `ensure-release`
+   (`release.yml:287`) — and there it feeds a WRITE. A failed read becomes an empty file,
+   the "does this need healing?" check treats empty as yes, and the release body gets
+   overwritten. Narrower than the bug that was fixed (prereleases with no curated notes
+   file) but the same mistake in the same file. **Worth fixing.**
+2. **`dependency-canary.yml` has never once succeeded** since it was added on 8 September —
+   both scheduled runs failed on a GitHub rate limit. Adding it to the watchdog is right,
+   and the watchdog will correctly open a critical issue the first time it runs. Expect
+   that, and note the workflow described as "the only signal that Dependabot has quietly
+   stopped" has never worked.
+3. **A commit message of mine says "No such file has ever existed"** about
+   `protected-release-branches.json`. It did exist — added in `4419efb8`, deleted in
+   `5d80f8d0` when the ruleset was split. The fix is right; only the reasoning is wrong,
+   and it is wrong in exactly the way the commit was about. Correct it in the code, since
+   the pushed message cannot be.
+4. **A comment claims a tag ruleset exists on this repository.** There is none — the live
+   list has exactly one, and it targets branches. The change is still right.
+5. **An organisation-level ruleset would now fail the job** rather than printing a warning,
+   because the filter narrows on target but not on where the rule comes from. None exist
+   today. One-word hardening suggested.
+6. **A docstring overstates how narrow its rule is.** Measured: the rule suppresses exactly
+   one mention across the whole tree, and that one is a genuine placeholder. Harmless, but
+   the wording should match.
+
+### In flight, and LOST on a restart
+
+A second stand-in reviewer was reading **batch 5** (the helper-programme update checks) and
+had not reported. If the session restarted it is gone — nothing lost but its time. Start it
+again, or let Codex take that batch.
+
+Nothing is uncommitted.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (late): review in batches, ship alpha between them
 
 > **PICK UP HERE.** Still on `work/after-1.10.8`. **A decision was taken this
 > evening about how the rest of this lands — read the plan below before doing
