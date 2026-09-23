@@ -184,10 +184,23 @@ export function SetupWizard() {
     try {
       await setStoredPreference({ kind: 'setup_completed', completed: true });
     } catch (err) {
-      // Not fatal: the wizard has done its real work, and the only cost
-      // is that it may appear again if a tool later goes missing. Worth
-      // a line in the console rather than blocking the person here.
+      // Not fatal — the wizard has done its real work, so the person is
+      // not blocked here. But the cost is bigger than the first version
+      // of this comment admitted, and a reviewer said so.
+      //
+      // It is not only that the wizard may reappear if a tool later goes
+      // missing. The crash-reporting question only ever appears once
+      // setup is recorded as finished, so a failure here **also keeps
+      // that question from ever being asked** — the very fault this
+      // whole change was made to fix, reintroduced quietly for anybody
+      // whose settings file could not be written.
       console.error('Could not record that setup was finished:', err);
+      useUiStore
+        .getState()
+        .addToast(
+          'MeedyaDL could not save that setup is finished. The setup screen may appear again next time.',
+          'error'
+        );
     }
     setShowSetupWizard(false);
   };

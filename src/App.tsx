@@ -57,7 +57,7 @@ import { useTranslation } from 'react-i18next';
  * Used to detect pre-release versions (v0.x.x) for the first-load notice.
  * @see {@link https://v2.tauri.app/reference/javascript/api/namespaceapp/}
  */
-import { getVersion } from '@tauri-apps/api/app';
+import { getLaunchVersionInfo } from '@/lib/tauri-commands';
 
 /**
  * Tauri event listener API for receiving events emitted from the Rust backend.
@@ -651,21 +651,27 @@ function App() {
        * next launch after setup.
        */
       try {
-        const currentVersion = await getVersion();
-        // A build is a pre-release if EITHER its version starts with
-        // `0.` (anything before 1.0 is by definition unfinished) or it
-        // carries a suffix (`1.13.0-alpha.71`, `1.9.4-beta.7`,
-        // `1.0.0-rc.38`). The same rule the backend uses.
+        // Both of these now come from the backend, and both used to be
+        // worked out here — wrongly.
         //
-        // This used to ask only the first question, which was complete
-        // while the app was pre-1.0 and wrong ever since — so the notice
-        // telling somebody they are running an unfinished build has not
-        // appeared on a single pre-release since 1.0 shipped. Issue
-        // #216. A first attempt at the fix asked only the second
-        // question and dropped the pre-1.0 case; both halves are needed.
-        const isPrerelease = currentVersion.startsWith('0.') || currentVersion.includes('-');
-        const previousVersion = settingsState.settings.last_seen_version;
-        const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
+        // "Is this an unfinished build?" was written out again in this
+        // file, and the page's copy said only "does the version start
+        // with 0." That was complete while the app was pre-1.0 and wrong
+        // every day since, so this notice had not appeared on a single
+        // alpha, beta or release candidate since 1.0 shipped (#216).
+        //
+        // "Has the version changed since last time?" was read from the
+        // stored last-seen version — which startup overwrites with the
+        // CURRENT version before this page ever loads. So the two were
+        // always equal, this was always false, and the screen had never
+        // appeared once (#387). The backend keeps the real previous
+        // version in memory for the run and hands it over here.
+        //
+        // A reviewer pointed out the command existed but nothing called
+        // it, which left both faults exactly as they were.
+        const launch = await getLaunchVersionInfo();
+        const isPrerelease = launch.isUnfinishedBuild;
+        const versionChanged = launch.isFirstLaunchAfterUpgrade;
         const uiStateForNotice = useUiStore.getState();
 
         if (

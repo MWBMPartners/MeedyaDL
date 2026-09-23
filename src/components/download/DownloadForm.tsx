@@ -886,7 +886,12 @@ export function DownloadForm() {
 
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
-    const { updateSettings } = useSettingsStore.getState();
+    const { updateSettings, settings } = useSettingsStore.getState();
+
+    // What was set before this click. Needed for the failure path
+    // below, and read BEFORE the change so it is the old value.
+    const previous = settings.after_queue_once ?? null;
+
     updateSettings({ after_queue_once: stored });
 
     // Written to DISK, because the part of the app that ACTS on this
@@ -898,21 +903,33 @@ export function DownloadForm() {
     // walk away, and come back to a machine still running. The careful
     // backend written to do it had never once been reached with a value
     // set.
-    //
-    // A failure here is told to the person rather than swallowed. This
-    // is the one case where quietly carrying on is worst: they would
-    // leave believing the computer will shut itself down.
     const label = action === 'do_nothing' ? 'cleared' : action.replace(/_/g, ' ');
     setContextMenu(null);
     try {
       await setStoredPreference({ kind: 'after_queue_once', action: stored });
       useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     } catch {
-      useSettingsStore.getState().updateSettings({ after_queue_once: null });
+      // The disk did not change, so whatever was set BEFORE is still
+      // set. Put the page's copy back to that, so the status bar tells
+      // the truth rather than showing what the person asked for.
+      //
+      // The first version of this cleared the page's copy and said
+      // "nothing will happen when the queue finishes". That was the
+      // dangerous way round, and a reviewer caught it: somebody
+      // CLEARING a shutdown they had set earlier would be told it was
+      // off while the computer still had it armed, and would walk away.
+      // Telling somebody their machine will stay on when it is about to
+      // shut down is worse than the fault this whole change fixed.
+      useSettingsStore.getState().updateSettings({ after_queue_once: previous });
+
+      const stillArmed = previous
+        ? `“${previous.replace(/_/g, ' ')}” is still set from before, and will still happen.`
+        : 'Nothing was set before, so nothing will happen when the queue finishes.';
+
       useUiStore
         .getState()
         .addToast(
-          `Could not set the after-queue action — MeedyaDL was unable to save it, so nothing will happen when the queue finishes.`,
+          `MeedyaDL could not save that after-queue action. ${stillArmed}`,
           'error'
         );
     }

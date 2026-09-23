@@ -468,6 +468,32 @@ pub fn get_version_at_last_launch() -> Option<String> {
     VERSION_AT_LAST_LAUNCH.get().cloned()
 }
 
+/// Should startup switch verbose logging off for this version?
+///
+/// Yes on a finished release, no on an unfinished one. Verbose logs can
+/// hold cookies and tokens, so they must not survive a restart on a
+/// build that ordinary people run; testers on an unfinished build need
+/// them to survive, which is the whole point of having them on.
+///
+/// # Why this is its own function
+///
+/// So a test can call THE REAL DECISION. The test that used to stand for
+/// this called the shared rule and compared it against a copy of the
+/// same rule written out in the test — which passes whatever startup
+/// actually does, including going back to the old broken half-rule. A
+/// reviewer pointed out it was protecting nothing, and it is the second
+/// time a test on this exact rule has been written from the same belief
+/// as the code it was checking.
+///
+/// `load_settings_at_startup` cannot be called without a running app, so
+/// this is the largest piece of its reasoning that a test can reach.
+fn should_reset_verbose_logging(version: &str) -> bool {
+    // One shared rule, in `utils::version`, rather than written out here
+    // — see that file for what it costs when each place writes its own
+    // and one of them is later corrected.
+    !crate::utils::version::is_unfinished_build(version)
+}
+
 /// Loads the application settings for app startup.
 ///
 /// This is `read_settings_from_disk` — the plain read — plus the actions
@@ -520,10 +546,7 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     // The `last_seen_version` field tracks the previous app version so we
     // can detect version transitions.
     let current_version = env!("CARGO_PKG_VERSION");
-    // One shared rule, in `utils::version`, rather than written out here
-    // — see that file for what it costs when each place writes its own
-    // and one of them is later corrected.
-    let is_prerelease = crate::utils::version::is_unfinished_build(current_version);
+    let is_prerelease = !should_reset_verbose_logging(current_version);
 
     if is_prerelease {
         // Pre-release: preserve verbose_activity_log setting as-is.
@@ -1543,38 +1566,42 @@ pub fn get_default_output_path() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
 
-    /// The rule itself, and its own tests, live in `utils::version` now.
-    /// This one checks the thing that file cannot: that `load_settings`
-    /// actually uses it.
+    /// Startup must switch verbose logging off on a finished release and
+    /// leave it alone on an unfinished one.
     ///
-    /// It matters because the test that used to sit here wrote the rule
-    /// out a second time and checked its own copy. That passes whatever
-    /// `load_settings` does, including going back to the old half-rule,
-    /// which is how the half-rule survived here for so long. A test
-    /// built from the same belief as the code it checks cannot ever
-    /// contradict it.
+    /// This calls the real decision `load_settings_at_startup` makes.
+    /// The test that used to sit here did not: it called the shared rule
+    /// and compared it with a copy of the same rule typed into the test,
+    /// so it passed whatever startup did — including going back to the
+    /// old half-rule that let this fault live for years. A reviewer
+    /// caught that, and it is the SECOND time a test on this rule has
+    /// been written from the same belief as the code it checked.
     #[test]
-    fn the_startup_load_uses_the_shared_rule_for_unfinished_builds() {
-        // There is no way to call `load_settings_at_startup` without a
-        // running app, so this reads what it decides for this build and
-        // checks it against the shared rule — one comparison, but a real
-        // one, because the two sides come from different places.
-        let this_build = env!("CARGO_PKG_VERSION");
-        let shared = crate::utils::version::is_unfinished_build(this_build);
+    fn startup_switches_verbose_logging_off_only_on_a_finished_release() {
+        // Finished releases: logs must not survive a restart, because
+        // they can hold cookies and tokens.
+        for finished in ["1.0.0", "1.10.8", "2.4.1", "10.0.0"] {
+            assert!(
+                should_reset_verbose_logging(finished),
+                "{finished} is finished, so verbose logging must be switched off"
+            );
+        }
 
-        // A spot check that the shared rule is the one we mean, so a
-        // change of meaning over there is noticed here too.
-        assert!(crate::utils::version::is_unfinished_build("1.13.0-alpha.71"));
-        assert!(crate::utils::version::is_unfinished_build("0.49.2"));
-        assert!(!crate::utils::version::is_unfinished_build("1.10.8"));
-
-        // And what it says about this build has to follow from the
-        // version string alone.
-        assert_eq!(
-            shared,
-            this_build.starts_with("0.") || this_build.contains('-'),
-            "the rule must depend only on the version string"
-        );
+        // Unfinished builds: testers need the logs to survive, which is
+        // the whole reason for having them.
+        for unfinished in [
+            "1.13.0-alpha.71",
+            "1.9.4-beta.7",
+            "1.0.0-rc.38",
+            // Before 1.0 with no suffix — the half a first attempt at
+            // fixing this dropped.
+            "0.49.2",
+        ] {
+            assert!(
+                !should_reset_verbose_logging(unfinished),
+                "{unfinished} is unfinished, so verbose logging must be left alone"
+            );
+        }
     }
 
     // ── INI injection through the two video fields (#229) ──────────────
