@@ -178,6 +178,37 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+
+      /*
+       * A hole in the trap that the two checks below cannot close by
+       * themselves: they only ever compare `document.activeElement`
+       * against the FIRST or LAST focusable element, so they do nothing
+       * at all when focus is somewhere else entirely -- most commonly
+       * on `document.body`.
+       *
+       * That happens more often than it sounds. If the element that
+       * currently has focus is removed from the page, or has its
+       * `disabled` attribute set, while the dialog is still open (both
+       * are ordinary things a re-render can do -- a row disappearing
+       * from a list mid-dialog, a "Continue" button being disabled
+       * while a download starts), the browser does not wait for a Tab
+       * press to react: it moves focus to `document.body` immediately,
+       * on its own. From that point, pressing Tab matched neither the
+       * "first" nor the "last" check above, so the trap did nothing and
+       * the browser's own tab order took over -- walking focus straight
+       * out of the dialog and into whatever is behind it on the page.
+       *
+       * Catching "focus is not inside the panel at all" first, before
+       * the first/last checks, closes that hole regardless of how focus
+       * got out or what it currently sits on -- there is no longer a
+       * focus position this trap fails to catch.
+       */
+      if (!panelRef.current.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
+
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
