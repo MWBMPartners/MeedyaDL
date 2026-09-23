@@ -45,11 +45,44 @@ drowning in noise:
     about a literal file called "{lang}", it is describing a family of
     files, and checking the literal string would always fail for the
     wrong reason.
+  * A path containing this repository's OTHER placeholder idiom -- a
+    single uppercase letter standing in for a real value, chained with
+    literal dots, such as the "X.Y.Z" in "vX.Y.Z.md" standing in for
+    "whatever version number this release turns out to be" -- is skipped
+    for the same reason. This idiom shows up throughout the release
+    tooling comments (`.github/workflows/preserve-release-pr-body.yml`
+    among others) and is never how a real file in this repository is
+    actually named: nothing on disk has a bare single letter as its own
+    dot/dash/underscore/slash-delimited segment (checked across the whole
+    repository, 2026-09-23, before adding this rule, specifically to make
+    sure it could not paper over a real broken reference). Detected via
+    PLACEHOLDER_VERSION_RE below -- deliberately narrow (it only fires on
+    two single uppercase letters separated by a literal dot, e.g. "X.Y")
+    rather than "any short run of capitals", because a broader rule would
+    also swallow a real abbreviation like "CI" or "ID" if one ever showed
+    up in a real filename, and this script's whole job is to not look away
+    from something that might be real.
   * A path is skipped when it is preceded on the same line by "://" --
     it is almost certainly the tail end of a URL (a GitHub permalink to a
     specific historical commit, which can legitimately name a path that
     does not exist on the current tree), not a bare claim about this
     repository's current state.
+
+This also reads GitHub Actions workflow files (`.github/workflows/*.yml`).
+They were left out of the first version of this script by accident, not on
+purpose -- and that accident mattered, because this repository's workflow
+comments are, if anything, MORE densely written and MORE confidently worded
+than the source code's, and a 2026-09 review found the single worst example
+of this whole bug class sitting in one: a comment stated, as settled fact,
+that Linux ARM builds "never produce an updater signature on any release",
+and that statement was used to tell an automated guard to stop checking ARM
+at all. The statement was false. Because the one check that could have
+caught it had been told, in a comment, to stop looking, every Linux ARM
+user had no working in-app update path for the entire life of the project
+before anyone noticed. A comment stating a fact about what a file contains,
+or does not contain, is exactly the kind of claim this script exists to
+keep honest -- it should never have been scanning code comments while
+skipping the comments most likely to make that particular kind of claim.
 
 What this does NOT do: it does not check paths inside Markdown files
 (`help/*.md`, `README.md`, ...) -- `check_help_topics.py` already checks
@@ -109,9 +142,17 @@ KNOWN_TOP_LEVEL_PREFIXES = (
 # nested occurrences (e.g. src-tauri/target/...).
 SKIP_DIR_PARTS = {"node_modules", "target", "dist", "build", ".git", "__pycache__"}
 
-# File extensions this script scans for comments (source code only --
-# Markdown is deliberately out of scope, see the module docstring).
-SCAN_EXTENSIONS = {".rs", ".ts", ".tsx", ".js", ".mjs", ".py"}
+# File extensions this script scans for comments (source code and GitHub
+# Actions workflows -- Markdown is deliberately still out of scope, see the
+# module docstring). ".yml"/".yaml" were added 2026-09-23: they use the same
+# `#`-to-end-of-line comment style as Python, so they ride the existing
+# hash-comment path in extract_comment_spans() below rather than needing a
+# parser of their own.
+SCAN_EXTENSIONS = {".rs", ".ts", ".tsx", ".js", ".mjs", ".py", ".yml", ".yaml"}
+
+# Extensions that use `#`-to-end-of-line comments (Python and YAML share this
+# style; everything else scanned here uses `//` / `/* */`).
+HASH_COMMENT_EXTENSIONS = {".py", ".yml", ".yaml"}
 
 _ext_alt = "|".join(re.escape(e) for e in KNOWN_EXTENSIONS)
 PATH_RE = re.compile(
@@ -119,6 +160,11 @@ PATH_RE = re.compile(
     r"(?P<path>(?:" + "|".join(re.escape(p) for p in KNOWN_TOP_LEVEL_PREFIXES) + r")"
     r"[A-Za-z0-9_./-]*\.(?:" + _ext_alt + r"))\b"
 )
+
+# This repository's "fill in the real value" idiom for a path that stands
+# for a whole family of files rather than one literal file -- see the
+# module docstring for why this exists and how narrow it deliberately is.
+PLACEHOLDER_VERSION_RE = re.compile(r"[A-Z]\.[A-Z]")
 
 # Mentioned-path string -> reason it is not a claim about a real file in
 # THIS repository. Keyed by the exact string this script would otherwise
@@ -145,6 +191,14 @@ EXCEPTIONS: dict[str, str] = {
         "Same as help/new-page.md above -- an illustrative filename in a "
         "test comment, not a real file."
     ),
+    "src/advisories/diags.rs": (
+        "Describes cargo-deny's OWN source layout (channel-security-audit.yml "
+        "cites the exact file, inside the cargo-deny crate, that defines the "
+        "'index-failure' / 'index-cache-load-failure' diagnostic codes the "
+        "workflow checks for), not a path inside MeedyaDL. It only matches "
+        "KNOWN_TOP_LEVEL_PREFIXES by coincidence, because cargo-deny's crate "
+        "also happens to keep its code under a top-level src/ directory."
+    ),
 }
 
 
@@ -157,18 +211,19 @@ def iter_source_files():
             yield f, rel
 
 
-def extract_comment_spans(text: str, is_python: bool) -> list[tuple[int, int]]:
+def extract_comment_spans(text: str, is_hash_comment: bool) -> list[tuple[int, int]]:
     """Returns (start, end) character-offset spans of every comment in
-    `text` -- `#...` to end of line for Python, `//...` to end of line and
-    `/* ... */` for everything else. Deliberately simple: does not try to
-    tell a `//` inside a string literal from a real comment start. That
-    can only ever widen a scanned span to include a little real code,
-    which risks a missed distinction, never a false alarm about a path
-    that isn't really mentioned -- the file-path regex below still has to
-    match something path-shaped inside whatever text gets returned."""
+    `text` -- `#...` to end of line for Python and YAML (they share this
+    comment style), `//...` to end of line and `/* ... */` for everything
+    else. Deliberately simple: does not try to tell a `//` (or, for YAML, a
+    `#`) inside a string literal from a real comment start. That can only
+    ever widen a scanned span to include a little real code, which risks a
+    missed distinction, never a false alarm about a path that isn't really
+    mentioned -- the file-path regex below still has to match something
+    path-shaped inside whatever text gets returned."""
     spans: list[tuple[int, int]] = []
     n = len(text)
-    if is_python:
+    if is_hash_comment:
         i = 0
         while i < n:
             if text[i] == "#":
@@ -216,11 +271,15 @@ def check() -> int:
             continue
         files_scanned += 1
         rel_str = str(rel).replace("\\", "/")
-        for start, end in extract_comment_spans(text, is_python=f.suffix == ".py"):
+        for start, end in extract_comment_spans(
+            text, is_hash_comment=f.suffix in HASH_COMMENT_EXTENSIONS
+        ):
             comment_text = text[start:end]
             for m in PATH_RE.finditer(comment_text):
                 mentioned = m.group("path")
                 if "{" in mentioned or "<" in mentioned:
+                    continue
+                if PLACEHOLDER_VERSION_RE.search(mentioned):
                     continue
                 abs_match_start = start + m.start()
                 # Skip the tail of a URL -- "://" appearing anywhere
