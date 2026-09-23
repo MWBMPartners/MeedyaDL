@@ -5,7 +5,11 @@
 // Displays a persistent record of all completed and failed downloads.
 // Each entry shows the date, URL/title, codec badge, and status icon.
 // A search input filters entries by title, artist, album, or URL.
-// The "Clear History" button deletes all entries from disk.
+// The "Clear History" button asks for confirmation, then deletes every
+// entry from disk in one go -- it used to fire straight away with no
+// confirmation at all, unlike every other destructive action on this
+// page (see the comment on `handleClearConfirmed` below for why that
+// was a real problem, not just an inconsistency).
 // Failed entries can be retried individually (button or right-click) or
 // in bulk via the "Retry All Failed" header action (#665).
 
@@ -100,6 +104,13 @@ export function HistoryPage() {
   } | null>(null);
   const [showRetryAllConfirm, setShowRetryAllConfirm] = useState(false);
   /**
+   * "Clear History" confirmation modal (see `handleClearConfirmed` for
+   * why this exists). Same shape as `showRetryAllConfirm` above -- a
+   * plain boolean, since there's no per-item target to remember for a
+   * "delete everything" action.
+   */
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  /**
    * Per-item Delete confirmation modal target (#685). Holds the entry
    * being deleted so the modal can show a meaningful label. `null` =
    * modal closed.
@@ -133,8 +144,23 @@ export function HistoryPage() {
     return () => clearTimeout(timer);
   }, [loadEntries, searchQuery]);
 
-  /** Handles the Clear History button click. */
-  const handleClear = useCallback(async () => {
+  /**
+   * Runs the actual "Clear History" wipe, once the user has confirmed
+   * it in the modal below. This used to run straight off the header
+   * button click, with no confirmation of any kind -- for up to 1,000
+   * entries, deleted in one go, with no way back. That was already
+   * inconsistent with the rest of this page: removing a single entry
+   * asks first (see `handleDeleteConfirmed`), and so does retrying
+   * every failed download (see `handleRetryAllConfirmed`) -- an action
+   * that doesn't even delete anything. Clearing history is also not
+   * only a display change: duplicate detection's "including history"
+   * setting and the smart re-download check both read this same
+   * history, so wiping it changes what the app decides on the NEXT
+   * download too, not just what this page shows. The modal below says
+   * that in plain terms.
+   */
+  const handleClearConfirmed = useCallback(async () => {
+    setShowClearConfirm(false);
     try {
       await clearHistory();
       setEntries([]);
@@ -359,7 +385,12 @@ export function HistoryPage() {
               </Button>
             )}
             {entries.length > 0 && !searchQuery && (
-              <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={handleClear}>
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                onClick={() => setShowClearConfirm(true)}
+              >
                 Clear History
               </Button>
             )}
@@ -617,6 +648,36 @@ export function HistoryPage() {
           </Button>
           <Button variant="primary" onClick={handleRetryAllConfirmed}>
             Retry All
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Clear History confirmation modal -- see the comment on
+          `handleClearConfirmed` above for why this was missing and why
+          that mattered: this is the one action on the page that deletes
+          everything at once, and it was also the one action with no
+          confirmation at all. */}
+      <Modal
+        open={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
+        title="Clear Download History"
+      >
+        <p className="text-sm text-content-secondary mb-4">
+          This will permanently delete all {entries.length}{' '}
+          entr{entries.length === 1 ? 'y' : 'ies'} in your download history. This cannot be
+          undone.
+        </p>
+        <p className="text-sm text-content-secondary mb-6">
+          Your history isn't only a list on this page — MeedyaDL also checks it to spot
+          duplicate downloads and to tell you when something has already been downloaded,
+          so clearing it changes what happens the next time you download something too.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={() => setShowClearConfirm(false)}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={handleClearConfirmed}>
+            Clear History
           </Button>
         </div>
       </Modal>

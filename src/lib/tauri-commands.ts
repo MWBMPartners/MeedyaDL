@@ -703,6 +703,23 @@ export function getSettings(): Promise<AppSettings> {
 }
 
 /**
+ * Asks for the settings a brand-new install would have.
+ *
+ * Used by the Settings screen's "Reset" button. The page deliberately
+ * does NOT use its own copy of the defaults for this: two copies of the
+ * same list always drift, and this one had — see `DEFAULT_SETTINGS` in
+ * `src/stores/settingsStore.ts` for what the drift cost.
+ *
+ * Rust handler: `get_default_settings()` in
+ * `src-tauri/src/commands/settings.rs`
+ *
+ * @returns Promise resolving to a fresh install's settings.
+ */
+export function getDefaultSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>('get_default_settings');
+}
+
+/**
  * Saves application settings to disk and syncs relevant values to GAMDL's config.
  *
  * Rust handler: `save_settings()` in `src-tauri/src/commands/settings.rs`

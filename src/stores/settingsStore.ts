@@ -57,6 +57,29 @@ import * as commands from '@/lib/tauri-commands';
  *   - `fallback_enabled: true` -- If preferred codec unavailable, try the chain
  *   - `download_mode: 'ytdlp'` -- Use yt-dlp for stream fetching
  */
+/**
+ * A placeholder shown for the moment before the real settings arrive.
+ *
+ * **This is not where the defaults live.** The app's real defaults are in
+ * the Rust code, and the Settings screen's "Reset" button asks the
+ * backend for them (`getDefaultSettings`). This copy exists only because
+ * the screen has to render something in the instant between the page
+ * opening and the settings being read from disk.
+ *
+ * It used to be the defaults, and it had drifted. Three values disagreed
+ * with the real ones, and two of the three were exactly the values a
+ * settings upgrade step exists to REPAIR — without the identifier on the
+ * end, two playlists with the same name overwrite each other's file and
+ * two compilations with the same album name pile into one folder (#545,
+ * #552). So pressing "Reset" and then "Save" put somebody straight back
+ * onto the patterns known to lose files. There was no settings version
+ * number here either, so a reset-then-save wrote version zero and re-ran
+ * every upgrade step at the next launch.
+ *
+ * `tools/audit-checks/check_settings_defaults.py` compares this list
+ * against the Rust one on every pull request, so it cannot drift again
+ * without somebody being told.
+ */
 const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
   temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
@@ -152,7 +175,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   replaygain_album_gain: true, // Write album-level ReplayGain tags
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
-  compilation_folder_template: 'Compilations/{album}',
+  compilation_folder_template: 'Compilations/{album} ({album_id})',
   no_album_folder_template: '{artist}/Unknown Album',
   // GAMDL v3.0+ only (#618). Stored unconditionally; the Rust side gates
   // CLI emission behind the detected GAMDL version so v2.9.x falls back to
@@ -161,7 +184,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
-  playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title} ({playlist_id})',
   // Padding strategies for {track} and {disc} placeholders (#587).
   // Auto-derive widths from track_total / disc_total — sorts box sets correctly.
   track_number_padding: 'auto' as const,
@@ -174,7 +197,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   nm3u8dlre_path: null, // N_m3u8DL-RE for HLS/DASH stream downloading
   mediainfo_path: null, // MediaInfo CLI for accurate codec detection
   download_mode: 'ytdlp', // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
-  remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
+  remux_mode: 'mp4box', // Which program stitches the finished file together
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
   storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
@@ -292,10 +315,21 @@ interface SettingsState {
   updateSettings: (partial: Partial<AppSettings>) => void;
 
   /**
-   * Reset all settings to `DEFAULT_SETTINGS`. Marks `isDirty = true` so the
-   * user must explicitly save (or discard) the reset.
+   * Put every setting back to what a brand-new install would have.
+   *
+   * Asks the backend for them rather than using this file's placeholder
+   * copy, because two copies of the same list always drift — and this
+   * one had, in a way that put back a bug a settings upgrade step exists
+   * to repair. See `DEFAULT_SETTINGS` above.
+   *
+   * Marks the settings as unsaved, so nothing is written until the
+   * person presses Save.
+   *
+   * Rejects if the backend cannot be reached, leaving the settings
+   * exactly as they were. That is the right way round: doing nothing and
+   * saying so is recoverable, and half-resetting is not.
    */
-  resetToDefaults: () => void;
+  resetToDefaults: () => Promise<void>;
 }
 
 /**
@@ -418,5 +452,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * Creates a fresh copy via spread to ensure referential inequality.
    * Marks `isDirty = true` because the reset has not been saved to disk yet.
    */
-  resetToDefaults: () => set({ settings: { ...DEFAULT_SETTINGS }, isDirty: true }),
+  resetToDefaults: async () => {
+    // The real defaults come from the backend, which is the one place
+    // they are written down. This used to spread this file's own copy,
+    // which had drifted from it — see `DEFAULT_SETTINGS` above for what
+    // that cost.
+    //
+    // Deliberately no fallback to the local copy when this fails. A
+    // fallback would quietly hand back a list we already know can be
+    // wrong, at the exact moment somebody is trying to get back to a
+    // known-good state. Failing out loud is better.
+    const defaults = await commands.getDefaultSettings();
+    set({ settings: defaults, isDirty: true });
+  },
 }));
