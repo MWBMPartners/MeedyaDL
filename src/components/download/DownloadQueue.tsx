@@ -341,12 +341,21 @@ export function DownloadQueue() {
       try {
         await setStoredPreference({ kind: 'abort_queue_confirm', confirm: false });
       } catch (err) {
-        // Said out loud rather than swallowed: otherwise the tick box
-        // appears to work and the question comes back next time with no
-        // explanation.
+        // Put the page's copy back, because nothing was saved.
+        //
+        // Without this, the tick box took effect for the rest of the
+        // session even though it was never stored — so the message below
+        // was false in the only way that matters: it said the question
+        // would be asked again, while the page had already stopped
+        // asking it. A reviewer caught that.
+        //
+        // Restoring means the message is true, and the person is asked
+        // again rather than silently losing a confirmation they believe
+        // they still have.
+        updateSettings({ abort_queue_confirm: true });
         console.error('Could not remember the abort confirmation choice:', err);
         addToast(
-          'MeedyaDL could not remember that, so it will ask again before the next abort.',
+          'MeedyaDL could not remember that, so it will keep asking before an abort.',
           'error'
         );
       }
