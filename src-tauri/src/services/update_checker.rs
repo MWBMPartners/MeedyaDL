@@ -853,13 +853,12 @@ pub async fn check_all_updates(
     // Check for rollback opportunity (#267): when the current version is a
     // pre-release, fetch the latest stable release for rollback.
     let current_version = app.package_info().version.to_string();
-    // Both halves of the rule: anything before 1.0, or anything carrying
-    // a suffix. This site had only the second, so somebody on an
-    // unsuffixed pre-1.0 build was never offered the way back to a
-    // finished release — the whole point of this check. Spotted while
-    // fixing the same half-rule elsewhere; see the test beside
-    // `load_settings` in `config_service` for the rule written out.
-    let is_pre = current_version.starts_with("0.") || current_version.contains('-');
+    // One shared rule — see `utils::version`. This site once asked only
+    // half of it, so somebody on an unsuffixed pre-1.0 build was never
+    // offered the way back to a finished release, which is the whole
+    // point of this check. Each place used to write the rule out for
+    // itself, which is exactly how the halves drifted apart.
+    let is_pre = crate::utils::version::is_unfinished_build(&current_version);
     let (rollback_version, rollback_tag) = if is_pre {
         match fetch_latest_stable_release().await {
             Ok(Some((ver, tag))) => (Some(ver), Some(tag)),

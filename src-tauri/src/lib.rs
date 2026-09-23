@@ -1275,6 +1275,7 @@ pub fn run() {
             commands::credentials::deactivate_dev_access,
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
+            commands::updates::get_launch_version_info,
             commands::updates::upgrade_gamdl,
             commands::updates::upgrade_votify,
             commands::updates::upgrade_pip_engine,

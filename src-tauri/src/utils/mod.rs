@@ -181,3 +181,10 @@ pub mod bounded_log;
 /// ordinary human-written text — album notes, release notes, error
 /// messages — can never crash the app.
 pub mod text;
+
+/// Working out whether this build of the app is finished or unfinished.
+///
+/// One rule, in one place. It used to be written out separately in each
+/// place that asked, and when one copy was corrected the others were
+/// not — see the file itself for what that cost.
+pub mod version;
