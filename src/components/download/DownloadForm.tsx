@@ -887,7 +887,13 @@ export function DownloadForm() {
 
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
-    const { updateSettings } = useSettingsStore.getState();
+    const { updateSettings, settings } = useSettingsStore.getState();
+
+    // What this page believed was set before the click. Only this menu
+    // ever writes the one-off, and it writes to disk each time, so this
+    // copy tracks the disk — which makes it the best knowledge available
+    // if the disk itself cannot be read in the failure path below.
+    const previous = settings.after_queue_once ?? null;
 
     updateSettings({ after_queue_once: stored });
 
@@ -931,9 +937,19 @@ export function DownloadForm() {
         const oneOff = onDisk.after_queue_once ?? null;
         const standing = onDisk.after_queue_action;
 
-        // Put the page back in step with the disk, so the status bar
-        // shows what will really happen.
-        useSettingsStore.getState().updateSettings({ after_queue_once: oneOff });
+        // Put the page back in step with the disk — BOTH values, not
+        // just the one-off.
+        //
+        // The status bar falls back to the standing setting when there
+        // is no one-off, so restoring only the one-off left it reading
+        // this page's possibly-unsaved copy of the standing one. A
+        // reviewer caught that: stored "shut down" plus an unsaved "do
+        // nothing" showed no shutdown indicator at all, while the
+        // message beside it correctly warned about the shutdown.
+        useSettingsStore.getState().updateSettings({
+          after_queue_once: oneOff,
+          after_queue_action: standing,
+        });
 
         if (oneOff) {
           stillArmed = `${readable(oneOff)} is still set from before, and will still happen.`;
@@ -943,6 +959,16 @@ export function DownloadForm() {
           stillArmed = 'Nothing will happen when the queue finishes.';
         }
       } catch {
+        // The disk could not be read either. Put the one-off back to
+        // what this page believed before the click, rather than leaving
+        // the cleared value showing.
+        //
+        // Without this the status bar showed no after-queue action at
+        // all while one was still armed — the quietest possible way to
+        // be wrong, and a reviewer caught it. This is not certainly
+        // right, but it is the best knowledge there is, and the message
+        // says plainly that it could not be checked.
+        useSettingsStore.getState().updateSettings({ after_queue_once: previous });
         stillArmed =
           'MeedyaDL could not check what is set, so please check your after-queue setting before leaving your computer.';
       }
