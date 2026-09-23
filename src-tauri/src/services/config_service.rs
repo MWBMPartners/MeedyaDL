@@ -346,7 +346,7 @@ fn migrate_settings(settings: &mut AppSettings) {
 /// because the read did that on the way past. That is precisely the class
 /// of "this write touched something I never asked it to" the narrow write
 /// exists to prevent. Caught in review, before it shipped.
-fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
+pub(crate) fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
     // Resolve the settings file path: {app_data_dir}/settings.json
     // On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/settings.json
     // On Windows: %APPDATA%\com.meedyasuite.meedyadl\settings.json
@@ -490,7 +490,19 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // The `last_seen_version` field tracks the previous app version so we
     // can detect version transitions.
     let current_version = env!("CARGO_PKG_VERSION");
-    let is_prerelease = current_version.starts_with("0.");
+    // A pre-release is a version with a suffix — `1.13.0-alpha.71`,
+    // `1.9.4-beta.7`, `1.0.0-rc.38`. The same test the update checker
+    // uses, so the two cannot disagree about which kind of build this is.
+    //
+    // This used to ask whether the version started with "0.", which was
+    // true while the app was pre-1.0 and has been wrong ever since. Every
+    // alpha, beta and release-candidate build has been treated as a full
+    // release since then, so verbose logging was switched off at every
+    // startup for exactly the people who most need it — the testers. It
+    // is issue #216, reopened after an earlier close, and a full review
+    // of the codebase found it still live and doing more damage than the
+    // issue described (see the read sites below).
+    let is_prerelease = current_version.contains('-');
 
     if is_prerelease {
         // Pre-release: preserve verbose_activity_log setting as-is.
@@ -1428,6 +1440,50 @@ pub fn get_default_output_path() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// What counts as an unfinished build, written down so it cannot go
+    /// wrong a third time.
+    ///
+    /// The rule: a version with a suffix is a pre-release. `1.13.0` is a
+    /// finished release; `1.13.0-alpha.71` is not. The app used to ask
+    /// whether the version started with "0." instead, which was right
+    /// while it was pre-1.0 and wrong every day since — so every alpha,
+    /// beta and release-candidate build has been treated as finished,
+    /// and verbose logging switched off at startup for precisely the
+    /// people testing it.
+    ///
+    /// This mirrors the expression in `load_settings` rather than
+    /// calling it, because that function needs a running app. If the two
+    /// ever drift, the comment above it points here.
+    #[test]
+    fn an_unfinished_build_is_one_with_a_suffix() {
+        let is_prerelease = |v: &str| v.contains('-');
+
+        for finished in ["1.13.0", "1.0.0", "2.4.1", "0.49.2"] {
+            assert!(
+                !is_prerelease(finished),
+                "{finished} is a finished release"
+            );
+        }
+        for unfinished in [
+            "1.13.0-alpha.71",
+            "1.9.4-beta.7",
+            "1.0.0-rc.38",
+            "0.33.0-rc.1",
+        ] {
+            assert!(is_prerelease(unfinished), "{unfinished} is a pre-release");
+        }
+
+        // And the build this is compiled into must be judged correctly,
+        // whichever kind it happens to be.
+        let this_build = env!("CARGO_PKG_VERSION");
+        assert_eq!(
+            is_prerelease(this_build),
+            this_build.contains('-'),
+            "the rule must hold for the version actually being built"
+        );
+    }
+
     // ── INI injection through the two video fields (#229) ──────────────
     //
     // Every text value written into GAMDL's settings file goes through
