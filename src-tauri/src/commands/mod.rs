@@ -56,6 +56,14 @@ pub mod dependencies;
 /// `get_default_output_path`. Delegates to `services::config_service`.
 pub mod settings;
 
+/// Remembering one answer given outside the Settings screen.
+///
+/// Eight such answers were written to the page's own copy of the
+/// settings and never to disk, so eight finished features did nothing.
+/// See the file for the list and why it takes one named answer rather
+/// than a settings object.
+pub mod stored_preference;
+
 /// GAMDL download execution commands (start, cancel, retry, queue status).
 ///
 /// Provides `start_download`, `cancel_download`, `retry_download`,

@@ -1181,6 +1181,7 @@ pub fn run() {
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::set_sidebar_collapsed,
+            commands::stored_preference::set_stored_preference,
             commands::settings::has_embedded_acoustid_key,
             commands::settings::validate_cookies_file,
             commands::settings::check_cookies_before_download,

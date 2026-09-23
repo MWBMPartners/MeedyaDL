@@ -84,6 +84,7 @@ import {
   pauseQueue,
   resumeQueue,
   isQueuePaused,
+  setStoredPreference,
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
@@ -327,10 +328,21 @@ export function DownloadQueue() {
   const handleAbortAll = useCallback(async () => {
     setShowAbortConfirm(false);
     if (abortDontAskAgain) {
-      // User opted to skip the confirmation next time. Persist before
-      // kicking off the abort so a race between the IPC and the
-      // settings save can't lose the preference.
-      await updateSettings({ abort_queue_confirm: false });
+      // Written to DISK before the abort starts.
+      //
+      // The comment here used to claim it was persisted, and it was
+      // not: `updateSettings` only changes the copy of the settings
+      // this page is holding, and nothing saved it. It was also
+      // `await`ed, which did nothing, because that function is not
+      // asynchronous. So "don't ask again" was forgotten at the next
+      // launch — and sooner than that, since opening the Settings
+      // screen re-reads the file and throws the page's copy away.
+      updateSettings({ abort_queue_confirm: false });
+      try {
+        await setStoredPreference({ kind: 'abort_queue_confirm', confirm: false });
+      } catch (err) {
+        console.error('Could not remember the abort confirmation choice:', err);
+      }
       setAbortDontAskAgain(false);
     }
     await abortAll();

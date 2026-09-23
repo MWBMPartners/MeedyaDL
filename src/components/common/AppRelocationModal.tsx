@@ -11,7 +11,7 @@ import { useCallback, useState } from 'react';
 import { Modal } from '@/components/common';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { relocateAppBundle } from '@/lib/tauri-commands';
+import { relocateAppBundle, setStoredPreference } from '@/lib/tauri-commands';
 
 /**
  * Self-relocation offer modal shown on macOS when MeedyaDL detects it is
@@ -23,8 +23,16 @@ export default function AppRelocationModal() {
   const destination = useUiStore((s) => s.appRelocationDestination);
   const [isMoving, setIsMoving] = useState(false);
 
-  const handleDecline = useCallback(() => {
+  const handleDecline = useCallback(async () => {
+    // Written to DISK. It used to go to the page's copy only, so "Not
+    // now" was forgotten the moment the app closed and this prompt came
+    // back at every single launch, for ever.
     useSettingsStore.getState().updateSettings({ relocation_declined: true });
+    try {
+      await setStoredPreference({ kind: 'relocation_declined', declined: true });
+    } catch (err) {
+      console.error('Could not remember that the move was declined:', err);
+    }
     useUiStore.getState().setShowAppRelocationPrompt(false);
   }, []);
 
