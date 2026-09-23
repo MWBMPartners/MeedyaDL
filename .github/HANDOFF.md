@@ -24,12 +24,16 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 >    cut a release from**, with six findings, none of them blocking.
 >
 > **Next, in order:**
-> 1. Act on the six batch-4 findings listed below (none block a release).
-> 2. **Cut an alpha.** This was the agreed plan and batch 4 is now cleared for it.
-> 3. Codex catch-up when it returns (00:09) — batch 4 is still owed a proper round, the
->    stand-in said so itself.
-> 4. Batches 2 (finish), 3 and 5, cutting a small alpha as each clears.
-> 5. The documentation sweep, before the pull request.
+> 1. **Fix batch 5's finding 1** — a helper programme whose version cannot be read is
+>    treated as version 0.0.0, so it shows a permanent false "update available" with an
+>    error message where the version should be. Small fix, real user-facing cost, and it
+>    would ship in the alpha. Details below.
+> 2. Act on the rest of the batch-4 and batch-5 findings below (none of the others block).
+> 3. **Cut an alpha.** Batch 4 is cleared for it.
+> 4. Codex catch-up when it returns (00:09). **Batches 4 and 5 were reviewed by STAND-INS,
+>    not Codex, and both are still owed a proper round** — the stand-ins said so themselves.
+> 5. Batches 2 (finish) and 3, cutting a small alpha as each clears.
+> 6. The documentation sweep, before the pull request.
 
 ### The standing rules changed on 23 September 2026
 
@@ -107,11 +111,65 @@ cannot strand anything, and the prerelease auto-publish does not depend on it.
    one mention across the whole tree, and that one is a genuine placeholder. Harmless, but
    the wording should match.
 
+### Batch 5 (helper-programme update checks) — reviewed, ONE REAL PROBLEM to fix first
+
+Also reviewed by a **stand-in**, not Codex, and **still owed a proper Codex round**.
+
+The reviewer confirmed the important things by checking them live rather than reading:
+the release tag really is the word "latest" so the old check could never work; all three
+build-date formats match what the real sources return today; the 30-day rule is
+clock-independent (it subtracts two dates both given by the source, never the local
+clock); and the version-normalising cannot mangle what it does not recognise.
+
+**Finding 1 is a real bug and should be fixed before this ships.**
+
+When a helper programme runs but prints something unexpected, `get_tool_version` falls
+through to "return the first line as-is". That line is then compared as if it were a
+version, and anything unparseable is treated as **0.0.0** — older than everything. So the
+answer is always "yes, there is an update".
+
+This is not theoretical. The reviewer downloaded what MeedyaDL actually installs for
+MP4Box on Linux: the archive contains one file which needs a shared library that is not
+in the archive and that essentially no distribution ships yet. On such a machine the
+programme exits with a loader error, and **that error text becomes the "version"**. The
+Updates page then shows an MP4Box row reading "Newer version available" with a loader
+error where the version number should be. Pressing Update re-downloads the identical
+broken archive and the row comes straight back. It never resolves and never goes quiet.
+
+That is the exact opposite of what this commit set out to do. **The fix is small**: before
+comparing, require the installed string to actually parse as a version, and treat "it does
+not" as the `not_checkable_reason` this commit just created.
+
+**Finding 2 — "could not check" is marked in the narrow cases and missed in the common
+one.** A failed network call drops the whole tool from the list, so with no internet the
+page says "You're up to date!" having checked nothing. And the notice only renders when
+there are NO updates at all — so if anything else has an update, the "could not check"
+lines vanish. That second one is a one-line fix.
+
+**Finding 3 — on macOS the mirror-sourced FFmpeg is compared against the wrong entry** in
+the mirror's own file (there are two FFmpeg keys; it always reads the Linux/Windows one).
+Latent: both keys move together today. Worth noting there is no honest fix inside this
+code alone — the macOS key holds a version number, not a date, so the honest behaviour for
+macOS-plus-mirror is "not checkable".
+
+**Finding 4 — MP4Box from the mirror is compared against GPAC's own releases**, which is
+the thing the commit says must not happen. Benign today because the mirror is current, but
+it is the COMMON path, not the exception: every pinned installer route is commented out in
+the shipped configuration, so the mirror is the only managed source on Windows and Linux.
+
+**Findings 5-7, minor:** the macOS package route records no origin marker at all (latent,
+that route refuses today); the mirror's version file is fetched two or three times per
+check against an unauthenticated budget; and a documentation block in the TypeScript types
+was inserted in the wrong place so it now documents nothing.
+
+**And one claim in my own commit message is broader than the code:** "a copy MeedyaDL does
+not own is left to whatever does own it" is true of four of the five programmes. N_m3u8DL-RE
+keeps its old ungated path. Not dangerous — the upgrade is still delegated to whatever owns
+it — but the sentence covers five and the code covers four.
+
 ### In flight, and LOST on a restart
 
-A second stand-in reviewer was reading **batch 5** (the helper-programme update checks) and
-had not reported. If the session restarted it is gone — nothing lost but its time. Start it
-again, or let Codex take that batch.
+Nothing. Both stand-in reviews came back and are recorded above.
 
 Nothing is uncommitted.
 
