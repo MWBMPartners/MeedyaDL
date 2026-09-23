@@ -275,13 +275,26 @@ impl Default for CompanionMode {
 /// do is 4K music video, and only with a particular grade of device file
 /// (GAMDL's README calls it SL3000). MeedyaDL does not do anything special
 /// with that today; it simply stops being impossible.
+/// **Each value is spelled out, not derived.** `rename_all` would turn
+/// `PlayReady` into `play_ready`, while the Settings screen sends
+/// `playready` and GAMDL itself expects `playready`. Choosing PlayReady
+/// would then have made the whole settings save fail — not just this
+/// setting, the entire screen — because a value the app cannot read
+/// rejects the whole file before anything is written.
+///
+/// A whole-branch review caught it. Nothing in the tests crossed that
+/// boundary: the code on each side was consistent with itself, and the
+/// two sides had simply never been compared. The stored spelling is the
+/// same word GAMDL uses, so there is now one spelling everywhere rather
+/// than three.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum DrmBackend {
     /// GAMDL's built-in unlocking. Needs nothing from the user. The default.
     #[default]
+    #[serde(rename = "widevine")]
     Widevine,
     /// Needs a `.prd` device file the user supplies. GAMDL 3.9 and newer only.
+    #[serde(rename = "playready")]
     PlayReady,
 }
 
@@ -2579,6 +2592,51 @@ impl AppSettings {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_unlocking_setting_is_stored_with_the_spelling_everything_else_uses() {
+        // The fault this catches broke more than its own setting: a
+        // value the app cannot read rejects the WHOLE settings file, so
+        // choosing PlayReady made the entire Settings screen fail to
+        // save. Derived renaming produced `play_ready`, while the screen
+        // sends `playready` and GAMDL expects `playready`.
+        //
+        // Nothing caught it because nothing crossed the boundary — each
+        // side was consistent with itself. So this test is written from
+        // the OUTSIDE: the exact strings that travel between them.
+        use crate::models::settings::DrmBackend;
+
+        for (value, expected) in [
+            ("widevine", DrmBackend::Widevine),
+            ("playready", DrmBackend::PlayReady),
+        ] {
+            let json = format!("\"{value}\"");
+            let parsed: DrmBackend = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("the app sends {value}, which must be readable: {e}"));
+            assert_eq!(parsed, expected);
+            assert_eq!(
+                serde_json::to_string(&expected).expect("must serialise"),
+                json,
+                "what is written back must be the same word that was sent"
+            );
+            // And the same word again on GAMDL's command line.
+            assert_eq!(expected.as_gamdl_value(), value);
+        }
+
+        // The whole settings file must survive it, since that was the
+        // real damage: one unreadable value rejects everything.
+        let settings = AppSettings {
+            drm_backend: DrmBackend::PlayReady,
+            prd_path: "/somewhere/device.prd".to_string(),
+            ..Default::default()
+        };
+        let written = serde_json::to_string(&settings).expect("settings must serialise");
+        let read_back: AppSettings =
+            serde_json::from_str(&written).expect("settings must read back");
+        assert_eq!(read_back.drm_backend, DrmBackend::PlayReady);
+        assert_eq!(read_back.prd_path, "/somewhere/device.prd");
+    }
+
     use super::*;
 
     // ----------------------------------------------------------
