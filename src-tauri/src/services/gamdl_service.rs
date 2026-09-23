@@ -17,24 +17,29 @@
 // The service has three main responsibilities:
 // 1. **Installation** - `install_gamdl()` runs `pip install --upgrade gamdl`
 // 2. **Version detection** - `get_gamdl_version()` parses `pip show gamdl` output
-// 3. **Download execution** - `run_gamdl()` spawns the CLI, streams output, and
-//    emits parsed events to the frontend via Tauri's event system
+// 3. **Building the command** - `build_gamdl_command_public()` assembles
+//    the program, the addresses and every option, ready to be run
 //
-// ## Event Flow (Download Execution)
+// ## Where a download actually runs — and where it does NOT
 //
-// ```
-// run_gamdl() -> spawn GAMDL process -> pipe stdout/stderr
-//     |                                       |
-//     v                                       v
-// process::parse_gamdl_output()  -->  GamdlProgress event
-//     |
-//     v
-// app.emit("gamdl-output", progress)  -->  Frontend React listener
-// ```
+// **`run_gamdl()` in this file is not used by anything.** It has no
+// callers. Every real download goes through
+// `download_queue::processing::run_download_with_events`, which builds
+// its command here and then does its own reading of the output,
+// because it also has to track progress per item, notice a cancellation
+// and stop on a deadline.
 //
-// The `download_queue.rs` service uses `build_gamdl_command_public()` to
-// build commands and manages its own stdout/stderr reading with additional
-// queue-level progress tracking.
+// This header used to present `run_gamdl()` as "download execution",
+// complete with a diagram, and it was wrong. A full review of the
+// codebase caught it. That matters more than a tidy-up, because of what
+// the unused path lacks: it runs the program through the plain runner,
+// which has no cancellation check, no deadline, and does not stop the
+// program if the app quits. Anybody who switched to it on the strength
+// of the old description would have inherited all three gaps, and the
+// description is exactly what would have persuaded them it was safe.
+//
+// Whether the unused function should simply be deleted is recorded
+// separately; nothing depends on it either way.
 //
 // ## References
 //
@@ -557,6 +562,15 @@ pub async fn get_gamdl_version(app: &AppHandle) -> Result<Option<String>, String
 /// # Returns
 /// * `Ok(())` - The download completed (check events for per-track status)
 /// * `Err(message)` - The process failed to start or exited with a fatal error
+///
+/// # Nothing calls this
+///
+/// Real downloads go through
+/// `download_queue::processing::run_download_with_events`. **Do not
+/// switch anything to this function without adding what it is missing**:
+/// it runs the program through the plain runner, so there is no
+/// cancellation check, no deadline, and the program is not stopped if
+/// the app quits. The queue's own path has all three.
 pub async fn run_gamdl(
     app: &AppHandle,
     download_id: &str,

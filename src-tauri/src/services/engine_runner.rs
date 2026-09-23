@@ -156,6 +156,17 @@ pub async fn run_engine(
             let engine = engine.clone();
             let app = app.clone();
             async move {
+                // Colour codes are taken out before the line is read for
+                // meaning. Some engines colour their output, and the
+                // pattern that recognises an error is anchored to the
+                // START of a line — so an invisible colour code sitting
+                // in front of the word "Error" stops it matching, and a
+                // real failure quietly falls through to guesswork.
+                //
+                // The Apple Music path has always done this. This one,
+                // which is what Spotify downloads use, did not. Found by
+                // a full review of the codebase.
+                let line = process::strip_ansi_codes(&line);
                 let event = process::parse_gamdl_output(&line);
                 log::debug!("[{engine} {stream_label}] {line}");
 
@@ -354,6 +365,10 @@ fn spawn_queue_aware_reader(
         let reader = tokio::io::BufReader::new(stream);
         let mut lines = reader.lines();
         while let Ok(Some(raw_line)) = lines.next_line().await {
+            // Same reason as the other reader above: colour codes are
+            // removed before the line is read for meaning, or an error
+            // that arrives coloured is not recognised as one.
+            let raw_line = process::strip_ansi_codes(&raw_line);
             let event = process::parse_gamdl_output(&raw_line);
             log::debug!("[{engine_id} {stream_label}] {raw_line}");
 
