@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-22 (evening) — see ★★★★ below
-**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2 and the whole GAMDL 3.9.1 batch (commit `17774965`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
+**Last updated:** 2026-09-23 (afternoon) — see ★★★★ LATEST below
+**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and the first seven areas of the full review of the whole codebase (up to `ab725cf0`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
-**Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 04:30.
+**Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,83 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-22 (early hours): everything merged, stable 1.10.8 released, all green
+## ★★★★ LATEST — 2026-09-23: a full review of the WHOLE codebase, not just the branch
+
+> **PICK UP HERE (23 Sept, ~16:00).** Still on `work/after-1.10.8`. No PR yet.
+>
+> **Codex is out of credit again — it comes back at 18:30 today.** It ran most of the
+> day and got through areas 1–4 of the full review plus several rounds on this branch's
+> own changes. It died part-way through the areas 5–6 round, so **that round has no
+> verdict**, and it has never seen the area-7 work at all (commit `ab725cf0`). Both are
+> owed a round. Retry Codex first thing after 18:30 — limits reset, and trying costs one
+> failed call.
+>
+> **Next, in order:** (1) read the three Opus reviewers now running on areas 8, 9 and 10;
+> (2) fix what they find; (3) after 18:30, give Codex everything it has not seen —
+> areas 5–6, area 7, and areas 8–10 — until a round comes back clean; (4) then the
+> reopened-issues queue, batches 3–9, which has not been started; (5) documentation
+> sweep; (6) PR to `alpha` only when the maintainer says so.
+
+### Why this happened
+
+The maintainer asked for it directly: *"This repo hasn't had a proper independent codex
+review, so would prefer a review on everything in the branch."* `codex review` only ever
+looks at the diff, so it had only ever seen changes — never the code that was already
+there. The whole codebase was split into ten areas and each given to a reviewer with no
+memory of building any of it.
+
+Seven areas are done. Three are running now.
+
+### What the review found (all fixed and pushed)
+
+Ordered by how bad it was, worst first.
+
+1. **`b1e314dc` — macOS and Linux downloaded an unverifiable build and then ran it.**
+   To install MP4Box, both platforms fetched GPAC's *nightly* build from a permalink — a
+   file whose contents change on every upstream build, so no checksum can exist for it —
+   unpacked it, and installed a program the app then runs on every single download. The
+   exact same danger had already been found, written up and fixed for Windows under
+   #987, and the comment explaining why sat a few hundred lines above the two places
+   still doing it. All three platforms now share one mechanism.
+2. **`ab725cf0` — the page could ask the computer to open any file at all.** The app
+   granted itself the "open a path" permission with a scope of `**` — every path there
+   is. On Windows, opening a program runs it. The description beside that permission
+   claimed it was "scoped just to that". Opening now goes through a backend command with
+   a list of what it will open.
+3. **`93b57d8e` — a wrapper sign-in token was written into the activity log on disk.**
+4. **`e9d5995e` — an imported settings file could choose a program for the app to load**
+   (the Spotify engine's library), and a *read* of the settings could throw away the
+   user's verbose-logging choice, because the read had startup side effects.
+5. **`73ea1518` — Cancel did not stop the extra downloads** that run after the main one.
+6. **`b0aaf367`** — a file name built from Apple Music album text had only a list of bad
+   characters removed; it now keeps only known-safe ones.
+7. **`bfcfd6d4` — coloured output hid Spotify errors** from the error matcher.
+8. **`020ebbf3`** — the PlayReady unlocking choice never reached music-video downloads.
+
+### The pattern worth remembering
+
+Five of these are the same shape: **a rule that guards one door and not the one beside
+it.** A check written correctly, with its reasoning written out, sitting next to a second
+function doing nearly the same job without it — wrapper sign-in checked the address, the
+wrapper *test* button did not; Windows refused the unsigned nightly, macOS and Linux did
+not. When you add a guard, the question to ask is not "is this right?" but "what else
+does this same thing, and does it have this too?"
+
+Twice the fix was itself found wrong by the next review round — thirteen of one round's
+twenty-eight findings were faults introduced while fixing the previous round, four of
+them changes that compiled, read correctly and did nothing. That is what the review loop
+is for, and it is why a round is not finished until one comes back clean.
+
+### Verification
+
+1,989 backend tests, 741 frontend tests, `clippy -D warnings` and `tsc` all clean on
+every commit. **`cargo fmt` reformats the whole crate, not the files you name** — it
+touched 102 unrelated files today and had to be unpicked by hand. Format with an editor
+or revert everything you did not mean to touch.
+
+---
+
+## ★★★★ Previous — 2026-09-22 (early hours): everything merged, stable 1.10.8 released, all green
 
 > **PICK UP HERE (22 Sept, 09:00).** Working on the **reopened-issues queue** on
 > `work/after-1.10.8` (one PR to `alpha` later, when told). Plan and the maintainer's decisions:
