@@ -122,8 +122,7 @@ pub struct GamdlProgress {
 /// developer: what was refused, why, and what to install instead.
 pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), String> {
     use super::gamdl_capabilities::{
-        effective_maximum_tested, known_bad_advice, known_bad_version, platform_ceiling_override,
-        platform_display_name,
+        known_bad_advice, known_bad_version, platform_display_name,
     };
 
     let target = target.trim();
@@ -136,10 +135,14 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
         return Err(format!("MeedyaDL will not install GAMDL {target}. {advice}"));
     }
 
-    // Only a platform with its own entry can fail the ceiling check —
-    // see reason 2 in the doc comment above.
-    if platform_ceiling_override(platform_id).is_some() {
-        let ceiling = effective_maximum_tested(platform_id);
+    // Only a platform genuinely held BELOW what everyone else can
+    // install can fail this check — see reason 2 in the doc comment
+    // above, and `platform_held_back_at` for why "has an entry" is not
+    // the same question. A review round found this refusing a release
+    // that the Updates screen, asking the better question, had just
+    // offered as the user's to choose.
+    if let Some(ceiling) = super::gamdl_capabilities::platform_held_back_at(platform_id) {
+        let ceiling = ceiling.to_string();
         if !is_version_at_least(&ceiling, target) {
             return Err(format!(
                 "MeedyaDL will not install GAMDL {target} on {platform}. The newest version that \
@@ -820,8 +823,56 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
 /// download, because a release that does not recognise an argument stops
 /// before downloading anything.
 fn tool_paths_accepted_on(version: Option<&str>) -> bool {
-    use crate::services::gamdl_capabilities::GamdlFeature;
-    version.is_some_and(|v| !GamdlFeature::NativeMuxing.is_available_on(v))
+    version.is_some_and(crate::services::gamdl_capabilities::tool_path_flags_accepted_on)
+}
+
+#[cfg(test)]
+mod refusal_agreement_tests {
+    use crate::services::gamdl_capabilities::{
+        platform_held_back_at, support_window,
+    };
+
+    #[test]
+    fn what_the_screen_offers_is_what_the_installer_accepts() {
+        // A review round found these two asking different questions. The
+        // Updates screen asked whether a platform's entry actually held
+        // it back; the install path refused as soon as an entry existed
+        // at all. So on a platform whose entry had caught up with the
+        // general ceiling, somebody could be told a release was theirs
+        // to choose and have it refused a click later. When a screen and
+        // the thing it describes disagree, the screen is the one that
+        // gets believed.
+        //
+        // They now ask through one function. This proves the answers
+        // line up for every platform, at the boundary that matters.
+        let window = support_window();
+        for platform_id in [
+            "macos",
+            "windows-x86_64",
+            "windows-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-armv7",
+        ] {
+            // A release just above the general ceiling: the ordinary
+            // "untested, your choice" case.
+            let above_general = format!(
+                "{}.999.0",
+                window.maximum_tested.split('.').next().unwrap_or("3")
+            );
+
+            let held_back = platform_held_back_at(platform_id);
+            let refused =
+                super::refuse_unsupported_target(&above_general, platform_id).is_err();
+
+            assert_eq!(
+                held_back.is_some(),
+                refused,
+                "{platform_id}: the screen says held back = {held_back:?}, the installer says \
+                 refused = {refused} — they must agree"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
