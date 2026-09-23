@@ -25,7 +25,13 @@ use crate::utils::platform;
 /// a URL quoted inside a log line (`for url 'http://...'`) or wrapped in
 /// Markdown backticks doesn't swallow trailing prose.
 static URL_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"https?://[^\s'"<>]+"#).expect("Invalid URL redaction regex")
+    // `(?i)` — case does not matter. `HTTPS://…` is the same address as
+    // `https://…`, and text arriving here comes from settings fields,
+    // error messages and other programs' output, none of which promise
+    // a particular spelling. A reviewer found the same blind spot in the
+    // sibling rule that cleans a command line; both are fixed together,
+    // since they are the same mistake written twice.
+    Regex::new(r#"(?i)https?://[^\s'"<>]+"#).expect("Invalid URL redaction regex")
 });
 
 /// Redacts credentials from any URLs embedded in free text (crash

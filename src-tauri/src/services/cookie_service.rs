@@ -474,26 +474,35 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
 
-        let mut file = std::fs::OpenOptions::new()
+        use std::os::unix::fs::PermissionsExt;
+
+        let file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
             .mode(0o600)
             .open(&cookies_path)
             .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+
+        // Lock the OPEN file before a single cookie goes into it.
+        //
+        // The `mode` above only applies when this call creates the file.
+        // An earlier import, or a file somebody else left there, keeps
+        // the permissions it already had — so the first version of this
+        // still wrote live session cookies into a possibly-readable file
+        // and tightened it afterwards, which is the very gap it was
+        // written to close. A reviewer caught that. Setting it on the
+        // open handle closes it for both cases.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to secure the cookies file before writing: {e}"))?;
+
+        // And this now STOPS rather than logging quietly. If the file
+        // cannot be made private there is no safe way to continue: the
+        // alternative is writing somebody's live session cookies into a
+        // file anybody on the machine can read, and saying nothing.
+        let mut file = file;
         file.write_all(netscape_content.as_bytes())
             .map_err(|e| format!("Failed to write cookies file: {e}"))?;
-
-        // `mode` only applies when this call CREATES the file. If one
-        // was already there — an earlier import, or a file somebody
-        // else made — it keeps the permissions it already had, so set
-        // them explicitly as well.
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(e) =
-            std::fs::set_permissions(&cookies_path, std::fs::Permissions::from_mode(0o600))
-        {
-            log::debug!("Failed to set cookies.txt permissions: {e}");
-        }
     }
 
     // Windows has no equivalent of these permission bits, and the file
@@ -756,6 +765,50 @@ mod tests {
             mode, 0o600,
             "the file must be readable and writable by its owner and nobody else, got {mode:o}"
         );
+    }
+
+    /// The case the first attempt at this missed: a file that is ALREADY
+    /// there, left readable by an earlier import or by somebody else.
+    ///
+    /// Creating with restricted permissions does nothing when the file
+    /// exists, so cookies were still written into a readable file and
+    /// the permissions tightened afterwards — the same gap, one step
+    /// along. A reviewer caught it. The permissions are now set on the
+    /// open handle before anything is written.
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_readable_cookie_file_is_secured_before_anything_is_written() {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("cookies.txt");
+
+        // A file somebody left lying around, readable by anyone.
+        std::fs::write(&path, b"old contents").expect("pre-create");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+
+        // The same sequence the import now uses.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .expect("open");
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .expect("secure before writing");
+        let mode_before_write =
+            std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(
+            mode_before_write, 0o600,
+            "it must already be private BEFORE any cookie is written, got {mode_before_write:o}"
+        );
+
+        let mut file = file;
+        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        let mode_after = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode_after, 0o600, "and still private afterwards");
     }
 
     use super::*;

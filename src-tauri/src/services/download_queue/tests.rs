@@ -4766,3 +4766,43 @@
             DrmPlan::FallBackToBuiltIn { .. }
         ));
     }
+
+    #[test]
+    fn work_stops_for_a_cancelled_item_and_for_one_that_has_been_cleared_away() {
+        // Two ways the answer must be "stop", and a reviewer found the
+        // second missing from the first version of the companion check.
+        //
+        // Cancelled rows can be cleared straight away — that is what the
+        // Clear buttons do. Asking only "is it cancelled?" answers *no*
+        // for a row that is no longer there, so somebody who cancelled
+        // and then tidied their queue would have had the extra format
+        // downloads carry on, because the row telling them to stop had
+        // been removed.
+        let mut queue = DownloadQueue::new();
+        let settings = test_settings();
+        let id = queue.enqueue(test_request(), &settings);
+
+        assert!(
+            queue.should_keep_working_on(&id),
+            "an ordinary queued item is still worth working on"
+        );
+
+        queue.cancel(&id);
+        assert!(
+            !queue.should_keep_working_on(&id),
+            "a cancelled item must stop the work"
+        );
+
+        // Now clear it away, as the Clear buttons do.
+        queue.clear_all();
+        assert!(
+            !queue.should_keep_working_on(&id),
+            "an item that is no longer in the queue must also stop the work"
+        );
+
+        // And an id that was never here at all.
+        assert!(
+            !queue.should_keep_working_on("never-existed"),
+            "nothing is owed to an item nobody is tracking"
+        );
+    }

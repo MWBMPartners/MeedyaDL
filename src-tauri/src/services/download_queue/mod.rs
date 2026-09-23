@@ -944,9 +944,19 @@ impl DownloadQueue {
     ///   the other stop conditions are checked too. A format already
     ///   under way finishes first.
     /// * The pass that adds information to finished files is not
-    ///   interrupted. It writes to files that have already downloaded,
-    ///   takes seconds rather than minutes, and stopping it half-way
-    ///   would leave those files partly done.
+    ///   interrupted. Letting a file finish being written is right —
+    ///   stopping half-way through leaves it partly done.
+    ///
+    ///   **But that pass is not only tagging, and this comment used to
+    ///   imply it was.** It can also start whole music-video downloads
+    ///   of its own, and then go looking for more. A reviewer pointed
+    ///   out that describing it as a short pass over finished files was
+    ///   the justification for leaving it alone — and the description
+    ///   was wrong, so the justification did not hold. Cancelling can
+    ///   therefore still leave real downloading under way, with the
+    ///   queue's one slot held behind it. Recorded here rather than
+    ///   quietly fixed, because interrupting that safely is a change to
+    ///   the enrichment pass itself, not to this function.
     ///
     /// **This used to claim more than it did.** It said the companion
     /// and enrichment work would be short-circuited, and nothing in
@@ -1827,10 +1837,35 @@ impl DownloadQueue {
         self.active_count == 0 && !self.items.iter().any(|i| i.status.state == DownloadState::Queued)
     }
 
+    /// Should we still be doing work for this item?
+    ///
+    /// `false` when it has been cancelled **or when it is no longer in
+    /// the queue at all**, and that second half is the point.
+    ///
+    /// A reviewer found the first version of the companion-cancellation
+    /// check asking only "is it cancelled?", which answers *no* for an
+    /// item that is not there. Cancelled rows can be cleared straight
+    /// away — that is what the Clear buttons do — so somebody who
+    /// cancelled and then tidied up their queue would have had the work
+    /// carry on, because the row saying to stop had been removed. An
+    /// item nobody is tracking is not an item to keep working for.
+    #[must_use]
+    pub fn should_keep_working_on(&self, download_id: &str) -> bool {
+        self.items
+            .iter()
+            .find(|i| i.status.id == download_id)
+            .is_some_and(|i| i.status.state != DownloadState::Cancelled)
+    }
+
     /// Checks if a download has been cancelled by the user.
     /// Called by the cancellation polling loop in `run_download_with_events()`
     /// every 250ms to detect if the user cancelled while the process is running.
     /// If true, the caller should kill the GAMDL subprocess.
+    ///
+    /// Note this answers `false` for an item that is no longer in the
+    /// queue. For "should I keep working on this?", which is the
+    /// question with the longer-running work, use
+    /// [`Self::should_keep_working_on`].
     #[must_use]
     pub fn is_cancelled(&self, download_id: &str) -> bool {
         self.items
