@@ -26,9 +26,19 @@
  * pattern is deliberately kept for the handful of places in the app that
  * really do open a web address — widening it so a folder path could pass
  * too would also let through a URL scheme nobody has reviewed. Instead,
- * opening and revealing a path on disk now goes through a separate
- * plugin, `@tauri-apps/plugin-opener`, whose own permission is granted
- * in `capabilities/default.json` and scoped to exactly that job.
+ * revealing a path on disk goes through a separate plugin,
+ * `@tauri-apps/plugin-opener`, whose permission is granted in
+ * `capabilities/default.json`.
+ *
+ * Opening a file does NOT. It used to, and the permission that allowed
+ * it was written with a scope of `**` — every path on the computer —
+ * while the description beside it claimed it was "scoped just to that".
+ * On Windows, opening a program runs it, so in practice anything that
+ * could run code in this page could run any file on the machine. A full
+ * review of the codebase found it. The permission is gone. Opening now
+ * asks the backend (`open_downloaded_file`), which allows the kinds of
+ * file this app produces — music, video, artwork, lyrics, text — and
+ * refuses everything else, however the extension is spelled.
  *
  * These helpers do the same job and explain themselves when they fail.
  * They read the toast function from the store directly rather than
@@ -91,11 +101,24 @@ async function openOrExplain(
 ): Promise<boolean> {
   const addToast = useUiStore.getState().addToast;
   try {
-    const { openPath, revealItemInDir } = await import('@tauri-apps/plugin-opener');
     if (mode === 'reveal') {
+      // Revealing selects the item in the file manager. It does not run
+      // anything, so it stays a direct call.
+      const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
       await revealItemInDir(path);
     } else {
-      await openPath(path);
+      // Opening goes through the backend, which checks what kind of file
+      // it is first.
+      //
+      // This page used to call the plugin's own "open this path", and
+      // had permission to open ANY path. On Windows, opening a program
+      // runs it — so anything that could run code in this page could run
+      // any file on the computer. A full review of the codebase found
+      // it. The permission is gone; the backend now allows music, video,
+      // artwork and text, and refuses the rest whatever the spelling of
+      // the extension.
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('open_downloaded_file', { filePath: path });
     }
     return true;
   } catch (err) {
