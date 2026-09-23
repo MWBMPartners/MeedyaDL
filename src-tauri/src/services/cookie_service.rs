@@ -476,10 +476,19 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
 
         use std::os::unix::fs::PermissionsExt;
 
+        // Deliberately NOT truncating here.
+        //
+        // The previous version emptied the file as it opened it, and only
+        // then checked it could be made private — so if that check
+        // failed, the person was left with an empty cookies file and a
+        // sign-in that had been working a moment earlier. A reviewer
+        // caught it: refusing an unsafe write is right, destroying the
+        // working credentials on the way is not. The file is emptied
+        // below, once it is private and we know we are going to write.
         let file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
-            .truncate(true)
+            .truncate(false)
             .mode(0o600)
             .open(&cookies_path)
             .map_err(|e| format!("Failed to write cookies file: {e}"))?;
@@ -500,7 +509,10 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
         // cannot be made private there is no safe way to continue: the
         // alternative is writing somebody's live session cookies into a
         // file anybody on the machine can read, and saying nothing.
+        // Private now, so it is safe to empty and rewrite.
         let mut file = file;
+        file.set_len(0)
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
         file.write_all(netscape_content.as_bytes())
             .map_err(|e| format!("Failed to write cookies file: {e}"))?;
     }
