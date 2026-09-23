@@ -416,7 +416,11 @@ gh workflow run "Release" -f tag=v0.3.3             # Release requires a tag inp
 gh workflow run "Apply Branch Rulesets" --ref main  # Re-applies protected-branch ruleset
 ```
 
-Note: `workflow_dispatch` only shows a "Run workflow" button in the GitHub UI for workflows whose YAML is on the default branch. Until a new workflow is merged to `main`, trigger it via the CLI with an explicit `--ref`.
+Note: a workflow file that is not on the default branch does not exist as far as GitHub is concerned. It has no "Run workflow" button, its schedule never fires, and **you cannot run it by hand either** — `gh workflow run ... --ref <branch>` looks the workflow up through the same lookup that does not find it, so the command fails.
+
+This used to say the opposite: that you could trigger it from the command line with an explicit `--ref` meanwhile. That advice was wrong, and the cost of it was real. Two safety nets — `release-body-audit.yml` and `upstream-engine-watch.yml` — have lived on `alpha` only and have **never run once**, while this note said there was a way to run them. Asking GitHub about either by name returns "not found" (checked 23 September 2026). Among other things that means votify has been watched for breaking releases by nothing at all.
+
+The only way to run a new workflow is to get it onto the default branch.
 
 ### Release Please Branch Naming
 
