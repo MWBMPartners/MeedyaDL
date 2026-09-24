@@ -294,11 +294,21 @@ pub(crate) fn tool_ownership(app: &AppHandle, tool_id: &str) -> ToolOwnership {
 
 /// Pure core of [`tool_ownership()`], split out so the rule can be unit
 /// tested without touching a real file.
+///
+/// "Something else" needs positive evidence: the word "system", or a
+/// marker naming a real package manager and a safe package name. Anything
+/// else — a damaged marker such as "manag", or one written by some future
+/// version — is UNKNOWN, not "someone else's". It used to be the other way
+/// round, so an unplaceable copy was skipped in silence rather than shown
+/// as "could not check" (Codex, batch-5 review round 2).
 fn ownership_from_marker(marker: Option<&str>) -> ToolOwnership {
     match marker.map(str::trim) {
         Some("managed") => ToolOwnership::MeedyaDl,
-        None | Some("") => ToolOwnership::Unknown,
-        Some(_) => ToolOwnership::SomethingElse,
+        Some("system") => ToolOwnership::SomethingElse,
+        Some(m) if crate::services::package_manager::PackageRef::parse_marker(m).is_some() => {
+            ToolOwnership::SomethingElse
+        }
+        _ => ToolOwnership::Unknown,
     }
 }
 
@@ -1288,34 +1298,10 @@ fn may_fall_back_to_mirror(purpose: InstallPurpose, mirror_is_checked_source: bo
     }
 }
 
-/// Whether a copy MeedyaDL owns is still there and runs. Used only after an
-/// MP4Box install route fails, to tell "the old copy is still there" from
-/// "the route removed it first" — see install_mp4box_with_fallback.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExistingCopy {
-    NoneOrBroken,
-    WorkingAndOurs,
-}
-
-/// Works out [`ExistingCopy`] for `tool_id` on this machine.
-///
-/// "Working" means the programme ran and gave a proper reading. That
-/// includes FFmpeg's "nightly" — how the version reader reports a BtbN
-/// build, whose own banner carries no version number — which the
-/// is-this-a-version-number test alone would have called broken.
-async fn existing_copy(app: &AppHandle, tool_id: &str) -> ExistingCopy {
-    if tool_ownership(app, tool_id) != ToolOwnership::MeedyaDl {
-        return ExistingCopy::NoneOrBroken;
-    }
-    match read_installed_version(app, tool_id).await {
-        Ok(Some(version))
-            if version == "nightly"
-                || crate::services::update_checker::looks_like_a_version(&version) =>
-        {
-            ExistingCopy::WorkingAndOurs
-        }
-        _ => ExistingCopy::NoneOrBroken,
-    }
+/// May this install adopt a copy already installed elsewhere on the system
+/// (install_tool_for, Step 0)? Never for an update — see the comment there.
+fn may_adopt_a_system_copy(purpose: InstallPurpose) -> bool {
+    purpose == InstallPurpose::InstallOrRepair
 }
 
 /// Is the mirror the source the update check compares `tool_id` against?
@@ -1959,7 +1945,21 @@ pub async fn install_tool_for(
     // Step 0: Check if a compatible version already exists on the system. A
     // package manager is never required: when no suitable binary is present we
     // continue into the original managed download/install pipeline below.
-    if let Some((mut system_path, mut system_version)) = find_system_tool(tool_id).await {
+    //
+    // NOT for an update. An update is only ever offered for a copy MeedyaDL
+    // owns, checked against a specific source; this step would instead
+    // adopt ANY system copy that merely meets the minimum version — so an
+    // update of MeedyaDL's N_m3u8DL-RE 0.5.0, offered 0.5.1, could replace
+    // it with an older 0.4.0 found on the system, report success, and from
+    // then on be skipped as "someone else's" (Codex, batch-5 round 2,
+    // blocking). An update goes to the checked source only; adopting a
+    // system copy stays an Install/Reinstall decision.
+    let system_candidate = if may_adopt_a_system_copy(purpose) {
+        find_system_tool(tool_id).await
+    } else {
+        None
+    };
+    if let Some((mut system_path, mut system_version)) = system_candidate {
         let tool_dir = get_tool_dir(app, tool_id);
         let previous_source = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
 
@@ -2606,7 +2606,10 @@ fn mp4box_source_marker(pm_ref: Option<&crate::services::package_manager::Packag
 /// mean "MeedyaDL owns this copy".
 ///
 /// But the two routes need DIFFERENT update checks. A GPAC copy is
-/// compared against GPAC's own releases. A mirror copy must be compared
+/// compared against the version GPAC's PINNED installer provides (the
+/// optional `version` of its pin), since re-running that installer can only
+/// produce that one version — and is "could not check" when the pin does
+/// not say. A mirror copy must be compared
 /// against what the mirror holds, because installing an "update" fetches
 /// from the mirror again — comparing it against GPAC would offer a newer
 /// version the mirror does not have, and "updating" would re-fetch the
@@ -2687,7 +2690,8 @@ pub(crate) fn read_mp4box_origin(app: &AppHandle) -> Option<Mp4boxOrigin> {
 ///   installer (the pinned, checksum-verified NSIS `.exe` or `.deb`) or
 ///   the MeedyaSuite mirror — both of those are MeedyaDL's own download,
 ///   so they keep the plain `"managed"` marker and are eligible for the
-///   update check to compare against GPAC's GitHub releases.
+///   update check (which compares a GPAC copy against its pinned
+///   installer's version — see Mp4boxOrigin).
 async fn copy_and_verify_mp4box(
     app: &AppHandle,
     source_binary: &std::path::Path,
@@ -2885,7 +2889,7 @@ async fn install_mp4box_windows_inner(
 
     // Copy to MeedyaDL's tool directory and verify
     // GPAC's own installer, not a package manager — stays "managed" so
-    // the update check compares it against GPAC's GitHub releases.
+    // the update check compares it against the pinned installer's version.
     copy_and_verify_mp4box(app, &mp4box_src, "GPAC NSIS installer", None).await
 }
 
@@ -3268,21 +3272,27 @@ async fn install_mp4box_linux_inner(
 /// Installs MP4Box — or, for [`InstallPurpose::Update`], updates it from the
 /// source its update check compared against.
 ///
-/// # An update goes to the checked source, and nowhere else
+/// # An update goes to the checked source, and never leaves you worse off
 ///
 /// The normal route tries each platform's own way first — including
 /// `brew install gpac` on a Mac and `apt install gpac` on Linux ARM — and
-/// then the MeedyaSuite mirror. For an update that was wrong twice over
-/// (stand-in review, 24 Sept 2026): a copy checked against the mirror could
-/// be replaced by Homebrew's or apt's GPAC, which may be OLDER, and doing so
-/// changed the person's system too; and a copy checked against GPAC's pinned
-/// installer could quietly come from the mirror. So an update now goes:
+/// then the MeedyaSuite mirror. For an update that was wrong (stand-in
+/// review, 24 Sept 2026): a copy checked against the mirror could be
+/// replaced by an OLDER Homebrew or apt GPAC, changing the person's system
+/// too; and a copy checked against GPAC's pinned installer could quietly
+/// come from the mirror. So an update goes:
 ///
 /// * a mirror copy → straight to the mirror;
-/// * a GPAC copy → only GPAC's pinned installer, never Homebrew or apt; if
-///   that cannot be used, the update stops and the copy is left as it was —
-///   unless the failed attempt already removed it, in which case this is a
-///   repair and the mirror is allowed.
+/// * a GPAC copy → only GPAC's pinned installer, never Homebrew or apt.
+///
+/// And an update first moves the current copy ASIDE, keeping it until the
+/// new one is in place AND reports a real version. On any failure the old
+/// copy is put back. An earlier version of this instead turned a GPAC
+/// update that failed part-way (after the route had deleted the old copy)
+/// into a "repair" from the mirror — which could install an older version,
+/// the very thing an update must never do (Codex, batch-5 review round 2).
+/// Restoring the old copy makes that unnecessary: a repair from the mirror
+/// is an explicit Reinstall.
 ///
 /// Install, Reinstall and repairs keep the full route, as before.
 async fn install_mp4box_with_fallback(
@@ -3292,44 +3302,89 @@ async fn install_mp4box_with_fallback(
     // Read BEFORE anything runs: the routes below delete the tool folder,
     // and the origin record with it.
     let origin = read_mp4box_origin(app);
-    let updating = purpose == InstallPurpose::Update;
 
-    if updating && origin == Some(Mp4boxOrigin::Mirror) {
-        return install_mp4box_from_mirror(app, "this copy came from the mirror").await;
+    if purpose == InstallPurpose::Update {
+        return match origin {
+            Some(Mp4boxOrigin::Mirror) => {
+                // Already stage-and-swap, and it verifies the new copy runs
+                // before swapping — see install_mp4box_from_mirror.
+                install_mp4box_from_mirror(app, "this copy came from the mirror").await
+            }
+            Some(Mp4boxOrigin::GpacOfficial) => update_mp4box_keeping_the_old_copy(app).await,
+            // No record of where it came from, so the update check could not
+            // have compared it against anything, and no Update is offered.
+            // If one arrives anyway, treat it as the ordinary install.
+            None => install_mp4box_full_route(app).await,
+        };
     }
 
-    let platform_result = if updating && origin == Some(Mp4boxOrigin::GpacOfficial) {
-        install_mp4box_from_pinned_gpac(app).await
-    } else {
-        match std::env::consts::OS {
-            "macos" => install_mp4box_macos(app).await,
-            "windows" => install_mp4box_windows(app).await,
-            "linux" => install_mp4box_linux(app).await,
-            _ => Err(format!(
-                "MP4Box installation not supported on {}",
-                std::env::consts::OS
-            )),
-        }
-    };
+    install_mp4box_full_route(app).await
+}
 
+/// The ordinary route for Install, Reinstall and repairs: the platform's
+/// own way first, then the MeedyaSuite mirror.
+async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
+    let platform_result = match std::env::consts::OS {
+        "macos" => install_mp4box_macos(app).await,
+        "windows" => install_mp4box_windows(app).await,
+        "linux" => install_mp4box_linux(app).await,
+        _ => Err(format!(
+            "MP4Box installation not supported on {}",
+            std::env::consts::OS
+        )),
+    };
     match platform_result {
         Ok(version) => Ok(version),
         Err(primary_err) => {
-            // For an update of a GPAC copy: look at the copy AGAIN, now.
-            // GPAC's routes delete the old copy before they finish copying
-            // (copy_and_verify_mp4box and the macOS .pkg route each remove
-            // the folder first), so a route that failed late may already
-            // have removed it. Refusing the mirror then would leave the
-            // person with no MP4Box while claiming it was left as it was.
-            // If it is gone, this has become a repair.
-            let refuse = updating
-                && origin == Some(Mp4boxOrigin::GpacOfficial)
-                && existing_copy(app, "mp4box").await == ExistingCopy::WorkingAndOurs;
-            if refuse {
-                return Err(update_refused_message("mp4box", &primary_err));
-            }
             log::warn!("Platform-specific MP4Box install failed: {primary_err}. Trying mirror...");
             install_mp4box_from_mirror(app, &primary_err).await
+        }
+    }
+}
+
+/// Updates a GPAC-installed MP4Box from GPAC's pinned installer only,
+/// moving the current copy aside first and putting it back on any failure.
+///
+/// GPAC's install routes delete the tool folder before they copy the new
+/// binary in, so they cannot be run "in staging" without rewriting each of
+/// them. Moving the whole folder aside first gets the same guarantee from
+/// outside: the old copy is only thrown away once the new one is in place
+/// and reports a real version.
+async fn update_mp4box_keeping_the_old_copy(app: &AppHandle) -> Result<String, String> {
+    let tool_dir = get_tool_dir(app, "mp4box");
+    let backup = tool_dir.with_file_name("mp4box.update-backup");
+    std::fs::remove_dir_all(&backup).ok();
+    std::fs::rename(&tool_dir, &backup).map_err(|e| {
+        format!("MP4Box was not updated: could not set the current copy aside first ({e}). Nothing was changed.")
+    })?;
+
+    let outcome = match install_mp4box_from_pinned_gpac(app).await {
+        Ok(_) => match read_installed_version(app, "mp4box").await {
+            Ok(Some(v)) if crate::services::update_checker::is_a_real_version_reading(&v) => Ok(v),
+            Ok(Some(printed)) => Err(format!(
+                "the new copy does not run on this computer (it printed: {})",
+                crate::utils::text::truncate_str(printed.trim(), 160)
+            )),
+            Ok(None) => Err("the installer finished but left no MP4Box behind".to_string()),
+            Err(e) => Err(format!("the new copy could not be run ({e})")),
+        },
+        Err(e) => Err(e),
+    };
+
+    match outcome {
+        Ok(version) => {
+            std::fs::remove_dir_all(&backup).ok();
+            Ok(version)
+        }
+        Err(why) => {
+            std::fs::remove_dir_all(&tool_dir).ok();
+            match std::fs::rename(&backup, &tool_dir) {
+                Ok(()) => Err(update_refused_message("mp4box", &why)),
+                Err(e) => Err(format!(
+                    "MP4Box was not updated ({why}), and MeedyaDL could not put the previous copy \
+                     back ({e}). Reinstall MP4Box from Settings > Tools."
+                )),
+            }
         }
     }
 }
@@ -3407,6 +3462,32 @@ async fn install_mp4box_from_mirror(
                 .map_err(|e| format!("Failed to copy MP4Box binary: {e}"))?;
         }
         archive::set_executable(&staged_binary)?;
+
+        // Run it BEFORE swapping it in. Extracting and marking a file as
+        // runnable proves nothing: an archive built for the wrong kind of
+        // computer passes both, and used to replace a working copy, after
+        // which the failed version check was reported as "installed" — a
+        // success message for a broken install (Codex, batch-5 review
+        // round 2). A staged copy that does not report a real version is
+        // refused, and the current copy is left where it is.
+        let reading = get_tool_version(&staged_binary, "mp4box").await;
+        match reading {
+            Ok(v) if crate::services::update_checker::is_a_real_version_reading(&v) => {}
+            Ok(printed) => {
+                return Err(format!(
+                    "The MP4Box downloaded from the mirror does not run on this computer (it \
+                     printed: {}), so it has not been installed.",
+                    crate::utils::text::truncate_str(printed.trim(), 160)
+                ));
+            }
+            Err(e) => {
+                return Err(format!(
+                    "The MP4Box downloaded from the mirror could not be run ({e}), so it has not \
+                     been installed."
+                ));
+            }
+        }
+
         std::fs::write(staging.join(".source"), "managed").ok();
         write_mp4box_origin(&staging, Mp4boxOrigin::Mirror);
         Ok::<(), String>(())
@@ -4113,6 +4194,14 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
         ));
     }
 
+    /// An update must never adopt a system copy — it could be older than
+    /// the copy being updated (Codex, batch-5 review round 2, blocking).
+    #[test]
+    fn an_update_never_adopts_a_system_copy() {
+        assert!(!may_adopt_a_system_copy(InstallPurpose::Update));
+        assert!(may_adopt_a_system_copy(InstallPurpose::InstallOrRepair));
+    }
+
     /// The refusal message must say nothing was changed, and name the
     /// reason from the main source so the person can tell a blip from a
     /// lasting problem.
@@ -4141,16 +4230,24 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
             assert_eq!(ownership_from_marker(Some(ours)), ToolOwnership::MeedyaDl);
         }
         // Known to belong to something else.
-        for theirs in ["system", "homebrew:ffmpeg", "apt:gpac", "managed-somehow"] {
+        for theirs in ["system", "homebrew:ffmpeg", "apt:gpac"] {
             assert_eq!(
                 ownership_from_marker(Some(theirs)),
                 ToolOwnership::SomethingElse,
                 "{theirs:?} is known to belong to something else"
             );
         }
-        // Nobody recorded it. This is the case that used to be folded into
-        // "something else" and skipped with nothing on screen.
-        for unknown in [None, Some(""), Some("   \n")] {
+        // Nobody recorded it, or what is recorded names no known owner.
+        // These used to be folded into "something else" and skipped with
+        // nothing on screen.
+        for unknown in [
+            None,
+            Some(""),
+            Some("   \n"),
+            Some("manag"),
+            Some("managed-somehow"),
+            Some("nosuchmanager:gpac"),
+        ] {
             assert_eq!(ownership_from_marker(unknown), ToolOwnership::Unknown);
         }
     }

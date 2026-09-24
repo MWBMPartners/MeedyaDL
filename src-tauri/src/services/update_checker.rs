@@ -479,25 +479,58 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
 /// broken archive and the row comes straight back. It never resolves and
 /// it never goes quiet.
 ///
-/// So: anything that does not begin with a number is not a version, and
-/// the caller treats it as "could not check" rather than "out of date" —
-/// which is the honest answer and the one this app already has a way to
-/// say.
+/// So: anything that is not a version is treated as "could not check"
+/// rather than "out of date" — the honest answer, and one this app
+/// already has a way to say. What counts as a version is decided by
+/// [`normalised_version`]: numbers separated by dots, then any suffix.
+/// Real tools print `1.6.0`, `26.07.0`, `v26.05`, `2.4` and `1.6.0-641`,
+/// and all of those pass.
 ///
-/// Deliberately lenient about everything AFTER the first number. Real
-/// tools print `1.6.0`, `26.07.0`, `v26.05`, `2.4`, and
-/// `1.6.0-641`; refusing any of those would trade a confident wrong
-/// answer for a confident "cannot tell", which is no better.
+/// (This used to check only the FIRST number and be "deliberately lenient
+/// about everything after it", which let `2.unknown` through to be
+/// compared as 2.0.0. The comparison now uses the same reading as this
+/// check.)
 pub(crate) fn looks_like_a_version(v: &str) -> bool {
+    normalised_version(v).is_some()
+}
+
+/// The ONE reading of a version string used both to decide whether it is
+/// a version and to compare it. `None` when it is not a version.
+///
+/// Trims spaces and a leading "v", then requires the part before any
+/// suffix (`-`, `+`, a space, `_`, `(`) to be numbers separated by dots:
+/// "2.6.1", "1.6.0-641", "v0.3.0", "24.12", "0.5.1-beta".
+///
+/// # Why one function, and why every part
+///
+/// The readability check used to look only at the FIRST part and to strip
+/// the "v" for itself, while the comparison was then handed the ORIGINAL
+/// string. So "v2.6.0" passed the check and was then compared as 0.0.0,
+/// and "2.unknown" passed and was compared as 2.0.0 — each a confident
+/// wrong answer (Codex, batch-5 review round 2). Now the string that is
+/// checked is exactly the string that is compared.
+pub(crate) fn normalised_version(v: &str) -> Option<String> {
     let trimmed = v.trim().trim_start_matches(['v', 'V']);
-    // The first part before a dot or dash has to be a plain number.
-    // That is the whole test: a loader error, a usage message or a line
-    // of prose will not start that way, and every real version does.
-    let first = trimmed
-        .split(['.', '-', ' ', '_'])
+    let base = trimmed
+        .split(['-', '+', ' ', '_', '('])
         .next()
         .unwrap_or_default();
-    !first.is_empty() && first.chars().all(|c| c.is_ascii_digit())
+    let every_part_is_a_number = !base.is_empty()
+        && base
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    every_part_is_a_number.then(|| trimmed.to_string())
+}
+
+/// Is this what a helper programme prints when it RAN and reported
+/// itself? A version number — or FFmpeg's "nightly", which is how the
+/// version reader reports a BtbN build whose banner has no number.
+///
+/// The version reader returns whatever a programme printed, even an
+/// error, as a "success". So a programme that cannot start still hands
+/// back text. This is the test for whether that text is a real reading.
+pub(crate) fn is_a_real_version_reading(v: &str) -> bool {
+    v == "nightly" || looks_like_a_version(v)
 }
 
 /// What comparing an installed version against the latest one came to.
@@ -550,19 +583,20 @@ fn compare_installed_against_latest(
         return VersionVerdict::NothingNewer;
     };
 
-    if !looks_like_a_version(installed) {
+    // Compare exactly what was checked — see normalised_version.
+    let Some(installed) = normalised_version(installed) else {
         return VersionVerdict::Unreadable;
-    }
+    };
 
-    match latest {
-        Some(latest) if looks_like_a_version(latest) => {
-            if is_newer(installed, latest) {
+    match latest.and_then(normalised_version) {
+        Some(latest) => {
+            if is_newer(&installed, &latest) {
                 VersionVerdict::UpdateAvailable
             } else {
                 VersionVerdict::NothingNewer
             }
         }
-        _ => VersionVerdict::LatestUnreadable,
+        None => VersionVerdict::LatestUnreadable,
     }
 }
 
@@ -1794,8 +1828,9 @@ async fn aggregate_intermediate_release_notes(
 }
 
 /// Checks a helper programme for an update against its own project's
-/// latest GitHub release (#273). Used for N_m3u8DL-RE, and for MP4Box when
-/// it came from GPAC's own installer.
+/// latest GitHub release (#273). Used for N_m3u8DL-RE. (It was also used
+/// for a GPAC-installed MP4Box until that copy began to be compared against
+/// its pinned installer's version instead — see check_mp4box_update.)
 ///
 /// Reads the INSTALLED version by running the programme, and compares that
 /// against the release tag. (This comment used to say it compared against
@@ -2018,6 +2053,23 @@ async fn gate_before_comparing(
             ),
         ))),
         ToolOwnership::MeedyaDl => match read {
+            // The programme "ran", but what it printed is not a version —
+            // typically a loader error from a programme that cannot start.
+            // The version reader passes such text back as a success, so it
+            // is caught here. Otherwise FFmpeg's date-based check, which
+            // never compares version numbers, carried on and reported
+            // "nothing newer" for a copy that cannot even start (Codex,
+            // batch-5 review round 2).
+            Ok(Some(printed)) if !is_a_real_version_reading(&printed) => {
+                Err(Box::new(not_checkable_update(
+                    display_name,
+                    tool_id,
+                    None,
+                    managed_by,
+                    manual_update_command,
+                    unreadable_version_reason(display_name, &printed),
+                )))
+            }
             Ok(version) => Ok(version),
             Err(reason) => Err(Box::new(not_checkable_update(
                 display_name,
@@ -2302,7 +2354,9 @@ async fn check_mirror_only_tool_update(
 ///   manager (the `#273` note: "this task is only for programmes MeedyaDL
 ///   installed itself").
 /// * **GPAC's own installer** (the Windows `.exe`, the Linux `.deb`, the
-///   macOS `.pkg`) — compared against GPAC's own GitHub releases.
+///   macOS `.pkg`) — compared against the version the PINNED installer
+///   provides, or "could not check" when the pin does not record one.
+///   (Not GPAC's latest release: the installer never downloads that.)
 /// * **The MeedyaSuite mirror**, used when GPAC's installer route fails —
 ///   compared against what the MIRROR holds, never GPAC. Installing an
 ///   "update" fetches from the mirror again, so offering GPAC's newer
@@ -3857,5 +3911,42 @@ mod tests {
             compare_installed_against_latest(Some("command not found"), Some("unknown")),
             VersionVerdict::Unreadable
         );
+    }
+
+    #[test]
+    fn the_version_that_is_checked_is_the_version_that_is_compared() {
+        // A leading "v" used to pass the check and then be compared as
+        // 0.0.0; a word after the first number used to pass and be
+        // compared as zero (Codex, batch-5 review round 2).
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("v2.6.0")),
+            VersionVerdict::UpdateAvailable,
+            "a pinned `v2.6.0` is newer than 2.4.0"
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("v2.6.0"), Some("2.6.0")),
+            VersionVerdict::NothingNewer
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("2.unknown")),
+            VersionVerdict::LatestUnreadable,
+            "`2.unknown` is not a version and must not be read as 2.0.0"
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.unknown"), Some("2.6.0")),
+            VersionVerdict::Unreadable
+        );
+    }
+
+    #[test]
+    fn a_real_version_reading_includes_nightly_but_not_an_error() {
+        // FFmpeg's BtbN builds read as "nightly"; that means it ran.
+        assert!(is_a_real_version_reading("nightly"));
+        assert!(is_a_real_version_reading("7.1.1"));
+        // What a programme that cannot start prints is not a reading.
+        assert!(!is_a_real_version_reading(
+            "ffmpeg: error while loading shared libraries: libavdevice.so.61"
+        ));
+        assert!(!is_a_real_version_reading(""));
     }
 }
