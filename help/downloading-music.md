@@ -304,7 +304,7 @@ MeedyaDL can watch your system clipboard for supported URLs while the app is ope
 
 Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Dismiss the notification if you do not want to download.
 
-When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications are only sent while **Desktop Notifications** is switched on, and they follow the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). With Desktop Notifications off, MeedyaDL shows its messages inside the app window only, whatever the style says.
+MeedyaDL shows its usual message for a detected URL, which follows the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). When the MeedyaDL window is not focused (e.g., minimised or in the background), it also sends a **native OS notification**, so you never miss a detected URL. That extra notification is only sent while **Desktop Notifications** is switched on -- and, for a copied link, it is sent even when Notification Style is set to in-app toasts only. With Desktop Notifications off, MeedyaDL shows its messages inside the app window only.
 
 ### Privacy
 

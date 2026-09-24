@@ -633,7 +633,7 @@ export function AdvancedTab() {
 
         <Toggle
           label="Verbose Activity Log"
-          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. In pre-release versions (v0.x.x), this setting is preserved across restarts. In full releases, it resets to off on each restart as a safety measure."
+          description="Emits detailed [VERBOSE] messages to the Activity Log for issue tracking and debugging. On alpha, beta and release-candidate builds (and any build before 1.0), this setting is kept across restarts. On full releases, it resets to off on each restart as a safety measure."
           checked={verboseActivityLog.value}
           onChange={verboseActivityLog.set}
         />
@@ -649,8 +649,8 @@ export function AdvancedTab() {
               activity logs with others.
             </p>
             <p className="text-xs text-status-warning-text mt-2">
-              In pre-release versions (v0.x.x), this setting is preserved across restarts to aid
-              debugging. In full releases, it automatically resets to off on restart. You may need
+              On alpha, beta and release-candidate builds (and any build before 1.0), this setting
+              is kept across restarts to aid debugging. In full releases, it automatically resets to off on restart. You may need
               to re-enable it each session in full release builds.
             </p>
           </div>
