@@ -492,4 +492,33 @@ describe('Modal', () => {
       Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
     expect(layerOf('Second')).toBeGreaterThan(layerOf('First'));
   });
+  it('gives a new dialog its own layer even after one below it has closed', () => {
+    // Open A, open B, close A, open C: B and C both got layer 2, so the
+    // page order decided which was drawn on top (Codex, follow-up review).
+    function Three() {
+      const [a, setA] = useState(true);
+      const [c, setC] = useState(false);
+      return (
+        <>
+          <Modal open={a} onClose={() => setA(false)} title="A">
+            <button>in A</button>
+          </Modal>
+          <Modal open={true} onClose={() => {}} title="B">
+            <button onClick={() => setA(false)}>Close A</button>
+            <button onClick={() => setC(true)}>Open C</button>
+          </Modal>
+          <Modal open={c} onClose={() => {}} title="C">
+            <button>in C</button>
+          </Modal>
+        </>
+      );
+    }
+    render(<Three />);
+    fireEvent.click(screen.getByText('Close A'));
+    fireEvent.click(screen.getByText('Open C'));
+
+    const layerOf = (title: string) =>
+      Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
+    expect(layerOf('C')).toBeGreaterThan(layerOf('B'));
+  });
 });

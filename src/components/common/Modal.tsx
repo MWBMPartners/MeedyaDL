@@ -105,6 +105,16 @@ interface ModalProps {
  */
 const openDialogs: object[] = [];
 
+/**
+ * The layer each open dialog is drawn on. A new dialog goes one above the
+ * highest layer still open. Using "how many are open" instead gave two
+ * dialogs the same layer after one below them closed (open A, open B,
+ * close A, open C: B and C both 2), and the page order then decided which
+ * was drawn on top while the keyboard went to C (Codex, follow-up review).
+ * The numbers start again from 1 once every dialog has closed.
+ */
+const dialogLayers = new Map<object, number>();
+
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
   // This dialog's own place in `openDialogs`. A plain object, so identity
   // is all that is compared.
@@ -256,7 +266,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
     if (open) {
       const token = dialogToken.current;
       openDialogs.push(token);
-      setLayer(openDialogs.length);
+      const nextLayer = Math.max(0, ...dialogLayers.values()) + 1;
+      dialogLayers.set(token, nextLayer);
+      setLayer(nextLayer);
       // Save the previously focused element to restore later
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
@@ -272,6 +284,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       return () => {
         const at = openDialogs.lastIndexOf(token);
         if (at !== -1) openDialogs.splice(at, 1);
+        dialogLayers.delete(token);
         document.removeEventListener('keydown', handleKeyDown);
         // Restore focus to the element that opened the modal -- this now
         // only runs when `open` actually flips back to false (or the

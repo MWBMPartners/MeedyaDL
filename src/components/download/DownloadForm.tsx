@@ -188,6 +188,20 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
 };
 
 /**
+ * One after-queue choice at a time, for the whole app.
+ *
+ * Two overlapping choices could each remember a different "value before
+ * the click", and the slower one's failure path could put back the OTHER's
+ * value -- hiding a still-armed shutdown (Codex, batch-2 review). A second
+ * choice made while the first is still being saved is refused.
+ *
+ * Kept OUTSIDE the component on purpose: inside it, leaving the Download
+ * page and coming back gave the new page a fresh guard while the old
+ * request was still running (Codex, follow-up review).
+ */
+const afterQueueChoiceBusy = { value: false };
+
+/**
  * Renders the download page with URL input, content-type detection,
  * optional per-download quality overrides, and the "Add to Queue" action.
  *
@@ -887,26 +901,20 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  // One after-queue choice at a time. Two overlapping choices could each
-  // remember a different "value before the click", and the slower one's
-  // failure path could then put back the OTHER's value -- hiding a
-  // still-armed shutdown (Codex, batch-2 review). A second choice made
-  // while the first is still being saved is refused with a message.
-  const afterQueueBusy = useRef(false);
 
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
-    if (afterQueueBusy.current) {
+    if (afterQueueChoiceBusy.value) {
       setContextMenu(null);
       useUiStore
         .getState()
         .addToast('Still saving your previous after-queue choice -- try again in a moment.', 'info');
       return;
     }
-    afterQueueBusy.current = true;
+    afterQueueChoiceBusy.value = true;
     try {
       await setAfterQueueOnceNow(action);
     } finally {
-      afterQueueBusy.current = false;
+      afterQueueChoiceBusy.value = false;
     }
   }, []);
 

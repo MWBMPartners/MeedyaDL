@@ -3353,7 +3353,18 @@ async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
 async fn update_mp4box_keeping_the_old_copy(app: &AppHandle) -> Result<String, String> {
     let tool_dir = get_tool_dir(app, "mp4box");
     let backup = tool_dir.with_file_name("mp4box.update-backup");
-    std::fs::remove_dir_all(&backup).ok();
+    // A backup left behind by an earlier update means that update could
+    // not put the old copy back — so the backup may be the ONLY working
+    // copy there is. It used to be deleted here, and the (possibly broken)
+    // current copy backed up in its place (Codex, follow-up review of
+    // 360ea73e). Refuse instead, and say where it is.
+    if backup.exists() {
+        return Err(format!(
+            "MP4Box was not updated: an earlier update did not finish, and the copy it set \
+             aside is still at {}. Reinstall MP4Box from Settings > Tools to sort this out.",
+            backup.display()
+        ));
+    }
     std::fs::rename(&tool_dir, &backup).map_err(|e| {
         format!("MP4Box was not updated: could not set the current copy aside first ({e}). Nothing was changed.")
     })?;

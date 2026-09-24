@@ -511,15 +511,22 @@ pub(crate) fn looks_like_a_version(v: &str) -> bool {
 /// checked is exactly the string that is compared.
 pub(crate) fn normalised_version(v: &str) -> Option<String> {
     let trimmed = v.trim().trim_start_matches(['v', 'V']);
-    let base = trimmed
-        .split(['-', '+', ' ', '_', '('])
+    // Drop build labels and trailing notes ("+build", " (…)", "_x"): they
+    // never make one version newer than another, and the comparison below
+    // would misread them — "2.6.1+build" was compared as 2.6.0 and so
+    // offered an "update" to 2.6.1 (Codex, follow-up review of 360ea73e).
+    // A "-" suffix is KEPT: it marks a pre-release, which the comparison
+    // does understand.
+    let kept = trimmed
+        .split(['+', ' ', '_', '('])
         .next()
         .unwrap_or_default();
+    let base = kept.split('-').next().unwrap_or_default();
     let every_part_is_a_number = !base.is_empty()
         && base
             .split('.')
             .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
-    every_part_is_a_number.then(|| trimmed.to_string())
+    every_part_is_a_number.then(|| kept.to_string())
 }
 
 /// Is this what a helper programme prints when it RAN and reported
@@ -3948,5 +3955,19 @@ mod tests {
             "ffmpeg: error while loading shared libraries: libavdevice.so.61"
         ));
         assert!(!is_a_real_version_reading(""));
+    }
+
+    #[test]
+    fn a_build_label_does_not_make_a_version_look_older() {
+        // "2.6.1+build" used to be compared as 2.6.0 (Codex, follow-up
+        // review of 360ea73e).
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1+build.7"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1 (release)"), Some("2.6.2")),
+            VersionVerdict::UpdateAvailable
+        );
     }
 }

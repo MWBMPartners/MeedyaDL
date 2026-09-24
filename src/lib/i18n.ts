@@ -210,13 +210,19 @@ export async function changeUiLanguage(lng: string): Promise<void> {
    */
   if (base !== 'en' && !i18n.hasResourceBundle(base, 'translation')) {
     await loadLocaleResources(base);
+    // Overtaken by a newer request while this file was loading: stop now,
+    // before reporting anything. Checking only after the error below meant
+    // a late failure for a language nobody wanted any more still showed a
+    // message -- one that could also name the wrong language as the one on
+    // screen (Codex, follow-up review).
+    if (thisRequest !== latestLanguageRequest) return;
     // loadLocaleResources() hides its own failures (startup has to carry
     // on regardless). Here, a person has just CHOSEN this language, and the
     // screen staying in English with no word of why is the silent failure
     // the help text's "changes straight away" would make worse. So say so;
     // the caller shows it. English stays in use either way.
     if (!i18n.hasResourceBundle(base, 'translation')) {
-      throw new Error(`The ${lng} language file could not be loaded, so English is shown instead.`);
+      throw new Error(`The ${lng} language file could not be loaded, so the language has not changed.`);
     }
   }
   // A newer request arrived while this one's file was loading: it wins.

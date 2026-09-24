@@ -305,6 +305,27 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
     expect(i18n.language).toBe('en');
   });
 
+  it('does not report a failure for a language request that has been overtaken', async () => {
+    // "zz" fails to load, but English is chosen before it finishes. The
+    // failure is for a language nobody wants any more: say nothing
+    // (Codex, follow-up review).
+    let failZz: (() => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            failZz = () => resolve({ ok: false } as Response);
+          }),
+      ),
+    );
+    const overtaken = changeUiLanguage('zz');
+    await changeUiLanguage('en');
+    failZz?.();
+    await expect(overtaken).resolves.toBeUndefined();
+    expect(i18n.language).toBe('en');
+  });
+
   it('does not re-fetch a language that has already been loaded', async () => {
     await act(async () => {
       await changeUiLanguage('de');

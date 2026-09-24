@@ -917,6 +917,45 @@ where
     Ok(incoming)
 }
 
+/// Like [`update_settings_field`], but the running app's settings cache is
+/// ALWAYS changed too — even when writing the file fails — and both happen
+/// inside the same lock.
+///
+/// For a change that must take effect in the running app whatever the
+/// disk says: clearing a used-up one-off "shut down after the queue". The
+/// caller used to clear the cache itself after this returned an error —
+/// i.e. AFTER the lock was let go — so a Save arriving in that gap took the
+/// still-armed cache as its snapshot and wrote it back, re-arming the
+/// shutdown (Codex, follow-up review of fc0b3698). Doing it here, before
+/// the lock is released, leaves no gap.
+///
+/// Returns the file-write result; the cache is changed either way.
+pub fn update_settings_field_and_memory<F>(app: &AppHandle, apply: F) -> Result<AppSettings, String>
+where
+    F: Fn(&mut AppSettings),
+{
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    let written = read_settings_from_disk(app).and_then(|mut settings| {
+        apply(&mut settings);
+        write_settings_to_path(&settings_path, &settings).map(|()| settings)
+    });
+
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        match &written {
+            Ok(settings) => cache.refresh(settings.clone()),
+            Err(_) => {
+                cache.mutate(|s| apply(s));
+            }
+        }
+    }
+    written
+}
+
 /// The write itself. The caller must already hold `SETTINGS_WRITE_LOCK`.
 fn save_settings_while_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
@@ -2856,26 +2895,41 @@ mod tests {
         // from the file it is describing.
         let source = include_str!("config_service.rs");
 
-        let start = source
-            .find("pub fn update_settings_field")
-            .expect("update_settings_field should exist");
-        // Everything up to the next top-level `pub fn` is its body.
-        let rest = &source[start + 10..];
-        let end = rest.find("\npub fn ").map(|i| start + 10 + i).unwrap_or(source.len());
-        let body = &source[start..end];
+        // Both one-field writers: the plain one, and the one that also
+        // changes the running app's copy (added for the after-queue race).
+        // Each is found by its exact name -- the second's name begins with
+        // the first's, so a plain prefix search used to find the wrong one.
+        for (name, plain_read) in [
+            ("pub fn update_settings_field<", "read_settings_from_disk(app)?"),
+            (
+                "pub fn update_settings_field_and_memory<",
+                "read_settings_from_disk(app).and_then(",
+            ),
+        ] {
+            let start = source
+                .find(name)
+                .unwrap_or_else(|| panic!("{name} should exist"));
+            // Everything up to the next top-level `pub fn` is its body.
+            let rest = &source[start + 10..];
+            let end = rest
+                .find("\npub fn ")
+                .map(|i| start + 10 + i)
+                .unwrap_or(source.len());
+            let body = &source[start..end];
 
-        assert!(
-            body.contains("read_settings_from_disk(app)?"),
-            "update_settings_field must read through read_settings_from_disk, \
-             which is the plain read with no startup side effects"
-        );
-        assert!(
-            !body.contains("load_settings(app)?"),
-            "update_settings_field must NOT read through load_settings: that \
-             call also switches verbose logging off, records the version and \
-             rewrites GAMDL's config file, so a one-field write would quietly \
-             change things nobody asked it to"
-        );
+            assert!(
+                body.contains(plain_read),
+                "{name} must read through read_settings_from_disk, which is the \
+                 plain read with no startup side effects"
+            );
+            assert!(
+                !body.contains("load_settings(app)"),
+                "{name} must NOT read through load_settings: that call also \
+                 switches verbose logging off, records the version and rewrites \
+                 GAMDL's config file, so a one-field write would quietly change \
+                 other things too"
+            );
+        }
     }
 
     #[test]
