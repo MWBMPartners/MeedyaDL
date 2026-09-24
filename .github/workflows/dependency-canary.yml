@@ -84,7 +84,9 @@ concurrency:
 jobs:
   canary:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20, not 10: the search retries below can wait up to three minutes
+    # per branch when GitHub asks us to slow down (worst case ~13 minutes).
+    timeout-minutes: 20
     steps:
       - name: Check every channel branch for a recent dependency update, then open/update/close the tracking issue
         env:
@@ -143,9 +145,49 @@ jobs:
 
             # A small pause between search calls avoids tripping GitHub's
             # secondary rate limit on the search API when run back-to-back.
-            sleep 2
-
-            RESPONSE=$(gh api "search/issues?q=repo:${REPO}+is:pr+author:app%2Fdependabot+base:${BRANCH}&sort=created&order=desc&per_page=1")
+            # Space the searches out, and retry a refused one.
+            #
+            # This canary never once succeeded before this change (#1221):
+            # both scheduled runs got "You have exceeded a secondary rate
+            # limit" on the THIRD branch, with a valid token. That is
+            # GitHub's separate guard against bursts of requests —
+            # especially searches — and it trips on a few searches seconds
+            # apart, whatever the hourly allowance says. The gap between
+            # branches was 2 seconds. It is now 10, and a refused search is
+            # retried after 60 and then 120 seconds, which is what GitHub's
+            # own guidance asks for ("wait at least one minute"). If it is
+            # still refused, the run stops with an error naming the branch:
+            # a branch that could not be checked must never be reported as
+            # healthy, or as quiet.
+            sleep 10
+            RESPONSE=""
+            for WAIT in 0 60 120; do
+              if [ "$WAIT" -gt 0 ]; then
+                echo "::notice::GitHub asked us to slow down while checking '$BRANCH' — waiting ${WAIT}s and trying again."
+                sleep "$WAIT"
+              fi
+              SEARCH_RC=0
+              # The error text goes to its own file, never into RESPONSE:
+              # a harmless warning printed alongside a successful search
+              # would otherwise corrupt the result read below.
+              SEARCH_ERR_FILE="$(mktemp)"
+              RESPONSE=$(gh api "search/issues?q=repo:${REPO}+is:pr+author:app%2Fdependabot+base:${BRANCH}&sort=created&order=desc&per_page=1" 2>"$SEARCH_ERR_FILE") || SEARCH_RC=$?
+              SEARCH_ERR=$(cat "$SEARCH_ERR_FILE")
+              rm -f "$SEARCH_ERR_FILE"
+              if [ "$SEARCH_RC" -eq 0 ]; then
+                break
+              fi
+              # Only a rate-limit refusal is worth waiting out. Anything
+              # else is a real fault, and waiting would only hide it.
+              if ! printf '%s' "$SEARCH_ERR" | grep -qiE "rate limit|HTTP 429"; then
+                echo "::error::Could not search for Dependabot pull requests on '$BRANCH'. Stopping rather than reporting a result from an incomplete check. GitHub said: ${SEARCH_ERR}"
+                exit 1
+              fi
+            done
+            if [ "$SEARCH_RC" -ne 0 ]; then
+              echo "::error::GitHub kept refusing the search for '$BRANCH' after three tries (rate limit). Stopping rather than reporting a result from an incomplete check; the next scheduled run will try again."
+              exit 1
+            fi
             CREATED_AT=$(jq -r '.items[0].created_at // empty' <<<"$RESPONSE")
             PR_URL=$(jq -r '.items[0].html_url // empty' <<<"$RESPONSE")
 
