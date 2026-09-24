@@ -31,6 +31,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | `a6dea6c3` | #1221: dependency-canary spaces its searches and waits out GitHub's burst limit (10 s gap, retries at 60/120 s, never reports an unchecked branch as healthy) | Stand-in only — **Codex owed**; not tested live (runs only from `main`) |
 | `45e30af3` | Canary: an incomplete-and-empty search stops the run; nothing checked stops without touching the issue | Stand-in finding; **Codex owed** |
 | `f0dc9500` | Batch 3 (screens) stand-in findings: one-off shutdown came back after Save (save_settings now keeps disk value + `after-queue-once-used` event); Reset/Save claimed success on failure; language stored in browser and "Auto" did nothing; Abort-all silent on failure; paste-limit miscount and cleared box; two dialogs fighting over keys; BBC path check; message cap dropped lasting errors | Stand-in only — **Codex owed** (Codex has never seen batch 3) |
+| `672acd01` | Batch 2 stand-in (on `40047ef6`): the one-off after-queue menu no longer marks Settings unsaved (`syncAfterQueueOnce`); Reset keeps the one-off; tests for the failure path | Stand-in only — **Codex owed** |
 | `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
 
 ### Codex rounds on batch 4 so far
@@ -101,11 +102,17 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   `12f1f32c`. **Everything above is still owed a Codex round.**
 * **Codex catch-up is scheduled for 13:41** (session-only cron job — gone if the session
   restarts). If it did not run, do it by hand: batch-5 round 2 = `80d8f607`, `192d18bc`,
-  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`; batch 3 = `git diff 52e959b4..7e9f4695 -- src/` + `f0dc9500`; then batch 2.
+  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`; batch 3 = `git diff 52e959b4..7e9f4695 -- src/` + `f0dc9500`; batch 2 finish = `40047ef6` + `672acd01`.
 * **Second stand-in (batch 3, the screens + canary):** 6 should-fix, 4 minor, all checked
   and acted on in `f0dc9500` and `45e30af3`, with tests shown to fail on the old code.
   Two recorded and NOT acted on: the status bar's hidden count for screen readers repeats
   the visible one; relocation / crash-question answers that fail to save are logged only.
+* **Third stand-in (batch 2 finish, `40047ef6`):** back-out correct, nothing blocking;
+  1 should-fix + 2 minor, acted on in `672acd01`. It also found a dangerous-direction
+  status-bar problem that predates this work — opened as **#1222** (status bar can show
+  no after-queue action while a shutdown is still armed). Not fixed here.
+* **Every batch has now had at least a stand-in review.** Codex has fully cleared none
+  of 2 (finish), 3, 4 (round 8) or 5 (round 2).
 * **Lesson from the stand-in:** "is this an update?" cannot be inferred from the state
   of the copy; the Update button now says so. Guessing intent from disk state is the
   same shape of mistake as guessing shell syntax — refuse to infer what you can be told.
