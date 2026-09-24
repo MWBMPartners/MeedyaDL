@@ -150,10 +150,17 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - **Codex round owed: `6a8fcbbe` + `57f137ac`, scheduled 18:47.** When that is clean, the
     whole catch-up is done. That round (or the next) should also glance at the new standing
     rule below — a notes-only change, not yet reviewed by Codex.
-  - **18:4x: the round is RUNNING** (Codex, gpt-6-astra, medium, `timeout 2400`, background
-    command — it reports back when it exits). Prompt and output are in the session
-    scratchpad (`codex-r6-prompt.txt` / `codex-r6.out`); they are lost if the session ends,
-    so in that case start the round again.
+  - **Codex round on `6a8fcbbe` + `57f137ac` + `a651b3f2`: DONE (18:47, ~85k tokens).** Two
+    real findings, both fixed in `7972e77a`: (1) BLOCKING — the settings cache's first fill
+    read the file unlocked and overwrote the cache unconditionally, so a stale armed one-off
+    could be stored over a cleared one; now filled under SETTINGS_WRITE_LOCK and never over
+    an existing value (`fill_if_empty`, test proven to fail on the old code); (2) Reinstall
+    deleted the MP4Box update-backup whenever the installer said "success", which it says
+    even when the new copy cannot run; now removed only once the new copy reports a real
+    version, else put back. `a651b3f2` (notes) confirmed consistent. No deadlock found.
+  - **NOW RUNNING: Codex round on `7972e77a` only** (background, `timeout 2400`; prompt and
+    output `codex-r7-prompt.txt` / `codex-r7.out` in the session scratchpad — lost if the
+    session ends, so start it again then). If clean, the catch-up is done.
   - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
     the session restarts). If it never fired, run the round by hand with the command in the
     section below, as a background command with `timeout 2400`, and do not end the turn
