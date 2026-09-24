@@ -25,6 +25,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | `d5cc5ff8` | Batch 5 findings 3–7 + N_m3u8DL-RE claim | Yes — batch-5 round 1 |
 | `80d8f607` | Batch-5 Codex round 1, findings 2–6 (one ownership gate, three-way ownership, latest side checked, fresh FFmpeg date at install, GPAC pin version) | **No — batch-5 round 2** |
 | `192d18bc` | Batch-5 Codex round 1, finding 1 (blocking): an update no longer falls back to the mirror unless the mirror is what was checked | **No — batch-5 round 2** |
+| `68046c37` | MP4Box: re-check the copy after a failed install route (from Codex's cut-off round, verified by hand) | **No — stand-in now, Codex at 13:41** |
 | `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
 
 ### Codex rounds on batch 4 so far
@@ -77,10 +78,24 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
    the last pull request.
 3. Handoff location (carried over). Recommended: stay at `.github/HANDOFF.md`.
 
+### Codex ran out at ~09:25 — resets 13:34 (24 Sept)
+
+* **Batch-5 round 2 produced NO verdict** — Codex hit its usage limit part-way through.
+  Before stopping it said what it was checking; one of those leads was real and is fixed
+  in `68046c37` (MP4Box's install routes delete the old copy before they can fail, so the
+  refusal message could have been false and left the person with no MP4Box). That fix
+  is **not** a Codex finding and is **not reviewed**.
+* **Hand-over, recorded as the rules require:** a fresh Opus agent with no part in
+  building any of this is reviewing `80d8f607`, `192d18bc`, `68046c37` and `f7ff3c30` as a
+  **stand-in**. Its result goes here when it arrives. Everything it reviews is **still owed
+  a Codex round**.
+* **Codex catch-up is scheduled for 13:41** (session-only cron job — gone if the session
+  restarts). If the session restarted, run it by hand: batch-5 round 2 (`80d8f607`,
+  `192d18bc`, `68046c37`), then batch-4 round 8 (`f7ff3c30`), then batches 2 and 3.
+
 ### In flight — LOST on a restart
 
-* Codex batch-5 round 2 (`80d8f607` + `192d18bc`), started after this was written. If
-  lost, rerun it: review those two commits only.
+* The stand-in review above. If lost, simply rely on the 13:41 Codex round instead.
 
 ---
 
