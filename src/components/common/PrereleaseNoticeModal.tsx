@@ -4,8 +4,9 @@
 /**
  * @file PrereleaseNoticeModal.tsx -- First-load notice for pre-release versions.
  *
- * Displays a modal dialog on the first launch of each new pre-release version
- * (v0.x.x) to inform the user that:
+ * Displays a modal dialog on the first launch of each new unfinished build
+ * (alpha, beta, release candidate, or anything before 1.0) to inform the
+ * user that:
  *   - They are running a pre-release build
  *   - It may contain bugs (some critical)
  *   - Error logging may contain more detail than normal

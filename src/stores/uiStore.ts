@@ -262,7 +262,8 @@ interface UiState {
 
   /**
    * Controls visibility of the pre-release first-load notice modal.
-   * Shown when a new pre-release version (v0.x.x) is launched for the first
+   * Shown when a new unfinished build (alpha, beta, release candidate, or
+   * anything before 1.0) is launched for the first
    * time. Dismissed by the user, after which the modal won't appear again
    * until the next version change.
    */

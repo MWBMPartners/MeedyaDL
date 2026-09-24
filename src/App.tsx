@@ -54,7 +54,9 @@ import { useTranslation } from 'react-i18next';
 
 /**
  * Tauri app info API for retrieving the current app version at runtime.
- * Used to detect pre-release versions (v0.x.x) for the first-load notice.
+ * Used to detect unfinished builds (alpha, beta, release candidate, or
+ * anything before 1.0 — the backend's `is_unfinished_build`) for the
+ * first-load notice.
  * @see {@link https://v2.tauri.app/reference/javascript/api/namespaceapp/}
  */
 import { getLaunchVersionInfo } from '@/lib/tauri-commands';
@@ -640,11 +642,12 @@ function App() {
       /*
        * Step 5: Pre-release first-load notice.
        *
-       * On the first launch of a new pre-release version (v0.x.x), show a
+       * On the first launch of a new unfinished build (alpha, beta, release
+       * candidate, or anything before 1.0), show a
        * modal informing the user about the pre-release status, potential
        * bugs, and verbose logging behaviour. The version change is detected
        * by comparing the current app version against `last_seen_version`
-       * (which the Rust backend updates in load_settings()).
+       * (which the Rust backend updates in load_settings_at_startup()).
        *
        * The notice is suppressed if the setup wizard or the first-run update
        * prompt is shown (to avoid modal stacking) — it will appear on the

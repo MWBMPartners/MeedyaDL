@@ -333,14 +333,14 @@ fn migrate_settings(settings: &mut AppSettings) {
 /// there. On a first run — or a file too damaged to parse — it hands back
 /// the standard settings.
 ///
-/// It deliberately has NO side effects. `load_settings` below is this plus
-/// the things that only make sense when the app is starting up: resetting
+/// It deliberately has NO side effects. `load_settings_at_startup` is this
+/// plus the things that only make sense when the app is starting up: resetting
 /// verbose logging, recording the version just seen, rewriting GAMDL's
 /// config file, and setting the live logging flag.
 ///
 /// **Why the separation is load-bearing.** `update_settings_field` changes
 /// one field and writes the file straight back. If it read through
-/// `load_settings`, it would quietly carry every one of those startup
+/// `load_settings_at_startup`, it would quietly carry every one of those startup
 /// actions with it — so somebody with verbose logging switched on would
 /// have had it switched off *and saved* simply by collapsing the sidebar,
 /// because the read did that on the way past. That is precisely the class

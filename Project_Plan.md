@@ -575,7 +575,7 @@ None at this time.
 ## 📝 Notes
 
 - **All CLI tools are called as subprocesses** (`python -m gamdl`, `python -m votify`, `yt-dlp`, etc.) to maintain license compatibility
-- **Nothing is installed system-wide** — MeedyaDL's own copies of Python, GAMDL and the tools live in the app data directory; tools you already have (and, if you choose, a system Python via a private environment) are reused where they are rather than copied
+- **Nothing is installed system-wide, with one exception** (MP4Box, which MeedyaDL may install through Homebrew on a Mac or apt on Linux on ARM) — MeedyaDL's own copies of Python, GAMDL and the tools live in the app data directory; tools you already have (and, if you choose, a system Python via a private environment) are reused where they are rather than copied
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
 - **yt-dlp is shared** between YouTube (M10) and BBC iPlayer (M8) — install once, configure per-service
