@@ -220,9 +220,14 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     ended a note for the extractor but not for git-cliff; help/tools.md self-contradiction;
     Abort text; template per-line trim; commit claimed git-cliff 2.14 but releases pin
     2.13.1). All fixed in **`7b641e0a`** (extractor tests now 17). **Codex scope at 04:41 =
-    `757bcfd0`, `b19cd04a`, `014e1755`, `7b641e0a`.** git-cliff 2.13.1 is being built into
-    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` to re-check both templates and the
-    extractor against the version releases actually use — result to be recorded here.
+    `757bcfd0`, `b19cd04a`, `014e1755`, `7b641e0a`.** git-cliff 2.13.1 is built into
+    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` and **checked (00:30, 25 Sept): 0 gaps** —
+    13 sample messages, each in a throwaway one-commit repo (the `--with-commit HEAD..HEAD`
+    trick does NOT isolate a sample on 2.13.1 — it renders the whole branch), both
+    templates, both versions: everything rendered is linted or the message is refused.
+    Whole history: the ELI5 template renders identically on 2.13.1 and 2.14.2; the
+    cumulative one differs by 192 lines, but the OLD template differs by the same 192, so
+    that is a git-cliff version difference in grouping, not this change.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
