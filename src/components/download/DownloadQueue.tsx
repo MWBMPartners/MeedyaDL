@@ -1450,8 +1450,9 @@ export function DownloadQueue() {
             className="h-4 w-4 cursor-pointer"
           />
           <span>
-            Don&apos;t ask again — single-click abort from now on. Re-enable
-            in Settings &gt; General &gt; Preferences.
+            Don&apos;t ask again — single-click abort from now on. There is
+            no switch to turn this question back on yet; pressing Reset in
+            Settings and then Save Changes does.
           </span>
         </label>
         <div className="flex justify-end gap-2">
