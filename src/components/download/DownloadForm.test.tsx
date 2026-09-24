@@ -376,5 +376,34 @@ describe('DownloadForm', () => {
         finishFirst?.();
       });
     });
+    it('keeps refusing a second choice after the page is left and reopened', async () => {
+      // The guard used to live inside the page, so leaving and coming back
+      // gave a fresh one while the first save was still running (Codex,
+      // follow-up review).
+      let finishFirst: (() => void) | undefined;
+      vi.mocked(commands.setStoredPreference).mockClear();
+      vi.mocked(commands.setStoredPreference).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          }),
+      );
+
+      const first = render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      fireEvent.click(screen.getByText('After Queue: Do nothing'));
+      first.unmount();
+
+      render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('After Queue: Shut down'));
+      });
+      expect(commands.setStoredPreference).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        finishFirst?.();
+      });
+    });
   });
 });

@@ -773,18 +773,26 @@ export function CookiesStep() {
               // from a browser, and signing in) were always fine: the
               // backend writes the path itself for those. This was the
               // one of the three that did not.
-              // Saved by its own one-field write just below; not an unsaved edit.
-              useSettingsStore.getState().syncSaved({ cookies_path: path });
+              // The page's copy follows the one-field write -- AFTER it
+              // succeeds, and without marking Settings unsaved. It used to be
+              // set first, so a failed write left the path showing as if
+              // saved, with no Save button to offer (Codex, follow-up review).
+              // On failure it becomes an ordinary unsaved edit instead, so
+              // Settings > Save Changes can still keep it.
               setValidation(null);
-              void commands.setStoredPreference({ kind: 'cookies_path', path: path ?? null }).catch(
-                (err) => {
+              void commands
+                .setStoredPreference({ kind: 'cookies_path', path: path ?? null })
+                .then(() => {
+                  useSettingsStore.getState().syncSaved({ cookies_path: path });
+                })
+                .catch((err) => {
+                  useSettingsStore.getState().updateSettings({ cookies_path: path });
                   useUiStore.getState().addToast(
-                    'Could not save where your cookies file is — MeedyaDL will not find it next time.',
+                    'Could not save where your cookies file is. It is set for now -- press Save Changes in Settings to keep it.',
                     'error'
                   );
                   console.error('Could not save the cookies file path:', err);
-                }
-              );
+                });
             }}
             placeholder="No cookies file selected"
             filters={[{ name: 'Text Files', extensions: ['txt'] }]}

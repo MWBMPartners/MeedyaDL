@@ -228,9 +228,14 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         // field, writes it back properly, and refreshes the in-process
         // cache itself — so the separate cache refresh that used to sit
         // here is no longer needed (#690's requirement is still met).
-        if let Err(e) = crate::services::config_service::update_settings_field(app, |s| {
-            s.after_queue_once = None;
-        }) {
+        // update_settings_field_and_memory clears the running app's copy
+        // too, even if the file write fails, and does both inside the
+        // settings lock — see its doc for the race this closes.
+        if let Err(e) =
+            crate::services::config_service::update_settings_field_and_memory(app, |s| {
+                s.after_queue_once = None;
+            })
+        {
             log::warn!("Failed to clear the one-shot after-queue action: {e}");
 
             // The write failed — a full disk, a read-only folder — so the
@@ -255,10 +260,10 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
             // That is the safer of the two wrong answers: doing it twice in
             // one session is worse than doing it once more after a restart
             // the person chose to perform.
-            use tauri::Manager as _;
-            if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
-                cache.mutate(|s| s.after_queue_once = None);
-            }
+            // The running app's copy has already been cleared, inside the
+            // lock, by update_settings_field_and_memory. (This used to be
+            // done here, after the lock was released — which left a gap a
+            // Save could slip into and re-arm the action.)
         }
 
         // Tell the page the one-off has been used. The page keeps its own

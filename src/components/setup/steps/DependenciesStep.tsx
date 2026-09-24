@@ -304,20 +304,28 @@ export function DependenciesStep() {
                               );
                               return;
                             }
-                            const { syncSaved } = (
+                            const { syncSaved, updateSettings } = (
                               await import('@/stores/settingsStore')
                             ).useSettingsStore.getState();
-                            // Saved by its own one-field write just below; not an unsaved edit.
-                            syncSaved({ [key]: selected } as Record<string, string>);
                             try {
                               await setStoredPreference({
                                 kind: 'helper_program_path',
                                 program,
                                 path: selected,
                               });
+                              // Saved: the page's copy follows, without marking
+                              // Settings unsaved. Only AFTER success -- it used
+                              // to be set first, so a failed write looked saved
+                              // with no Save button to offer (Codex, follow-up
+                              // review).
+                              syncSaved({ [key]: selected } as Record<string, string>);
                             } catch (err) {
+                              // Not saved: keep the choice as an ordinary
+                              // unsaved edit, so Settings > Save Changes can
+                              // still keep it.
+                              updateSettings({ [key]: selected } as Record<string, string>);
                               useUiStore.getState().addToast(
-                                `Could not save where ${tool.name} is — MeedyaDL will not find it next time.`,
+                                `Could not save where ${tool.name} is. It is set for now -- press Save Changes in Settings to keep it.`,
                                 'error'
                               );
                               console.error('Could not save the helper program path:', err);
