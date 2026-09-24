@@ -148,7 +148,17 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     false wizard message; a leftover MP4Box backup blocking updates forever) and 2 minor
     (dialog layer cap and first frame; an i18n comment), all fixed in `57f137ac`.
   - **Codex round owed: `6a8fcbbe` + `57f137ac`, scheduled 18:47.** When that is clean, the
-    whole catch-up is done.
+    whole catch-up is done. That round (or the next) should also glance at the new standing
+    rule below — a notes-only change, not yet reviewed by Codex.
+  - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
+    the session restarts). If it never fired, run the round by hand with the command in the
+    section below, as a background command with `timeout 2400`, and do not end the turn
+    until its output file has Codex's final answer in it.
+  - **New standing rule (maintainer, 2026-09-24): every started job gets a watchdog** — set
+    up, when the job starts, something that comes back when it finishes; give it a
+    deadline; read the real result before the next queued step; write here what is running.
+    Added to `.claude/CLAUDE.md`, `AGENTS.md` (Codex), and section 13 of
+    `project_standing_rules.md` in both memory trees.
   - Answered, no longer open: the other two cookie paths in CookiesStep (browser import,
     sign-in) have the BACKEND write the path itself — they were never at risk.
   - Allowance this window: ~443k used by the follow-up round; the next may hit the limit.
