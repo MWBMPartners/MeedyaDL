@@ -56,12 +56,19 @@ drowning in noise:
     dot/dash/underscore/slash-delimited segment (checked across the whole
     repository, 2026-09-23, before adding this rule, specifically to make
     sure it could not paper over a real broken reference). Detected via
-    PLACEHOLDER_VERSION_RE below -- deliberately narrow (it only fires on
-    two single uppercase letters separated by a literal dot, e.g. "X.Y")
-    rather than "any short run of capitals", because a broader rule would
-    also swallow a real abbreviation like "CI" or "ID" if one ever showed
-    up in a real filename, and this script's whole job is to not look away
-    from something that might be real.
+    PLACEHOLDER_VERSION_RE below. It fires ONLY on the version placeholder
+    itself: the letters X, Y and Z, each standing alone, joined by dots,
+    two or three of them ("X.Y", "X.Y.Z", "vX.Y.Z"), with no letter or
+    digit directly either side.
+
+    The first version of this rule matched ANY two capitals around a dot,
+    and its description here claimed that was narrow. It was not: it
+    also matched the "I.C" inside a real name like `src/API.Client.ts`,
+    so a broken reference to that file would have been silently skipped
+    -- the one thing this script exists never to do. Codex found it in
+    the batch-4 review (finding E); the tests in
+    test_check_comment_paths.py pin both halves, what it must skip and
+    what it must NOT.
   * A path is skipped when it is preceded on the same line by "://" --
     it is almost certainly the tail end of a URL (a GitHub permalink to a
     specific historical commit, which can legitimately name a path that
@@ -164,7 +171,14 @@ PATH_RE = re.compile(
 # This repository's "fill in the real value" idiom for a path that stands
 # for a whole family of files rather than one literal file -- see the
 # module docstring for why this exists and how narrow it deliberately is.
-PLACEHOLDER_VERSION_RE = re.compile(r"[A-Z]\.[A-Z]")
+# The look-behind and look-ahead are what stop it matching INSIDE a real
+# name ("API.Client" has a letter right before the I and right after the
+# C). The look-behind also refuses a dot, so it cannot pick up the tail
+# end of a longer dotted run ("...X.Y.Z" matching just its "Y.Z") -- the
+# placeholder has to be a whole segment on its own. Restricting to X/Y/Z
+# is what stops it matching some other pair of capitals that merely
+# happens to sit either side of a dot.
+PLACEHOLDER_VERSION_RE = re.compile(r"(?<![A-Za-z0-9.])v?[XYZ](?:\.[XYZ]){1,2}(?![A-Za-z0-9])")
 
 # Mentioned-path string -> reason it is not a claim about a real file in
 # THIS repository. Keyed by the exact string this script would otherwise

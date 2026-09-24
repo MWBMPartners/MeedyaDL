@@ -21,10 +21,12 @@
 # change merges, because the source-tree no longer contains the
 # `protected-cron-channels` ruleset name.
 #
-# After applying source-tree rulesets, any BRANCH-targeted ruleset on the
-# repo whose name is NOT present in the source tree is deleted. A ruleset
-# that targets tags (for example, protection on release tags set up through
-# the GitHub web page) is never looked at by this workflow at all — see the
+# After applying source-tree rulesets, any BRANCH-targeted ruleset
+# belonging to this repository whose name is NOT present in the source tree
+# is deleted. A ruleset that targets tags (for example, protection on
+# release tags, if anyone ever sets it up through the GitHub web page — there
+# is none today), or one inherited from the organisation, is never looked at
+# by this workflow at all — see the
 # comment above the reconciliation step below for why that distinction has
 # to be made in the code, not just claimed in a comment. This is what
 # cleans up the legacy `protected-release-branches` ruleset after the split
@@ -58,20 +60,34 @@ jobs:
         run: |
           set -euo pipefail
 
-          # List existing rulesets (name → id map). Filtered to
-          # target == "branch" here, at the one place this list is built,
-          # so every later step — the create/update lookup just below, and
-          # the delete-what's-unmanaged step further down — only ever sees
-          # branch rulesets. GitHub's rulesets API returns tag rulesets and
-          # push rulesets in the same list as branch ones; a tag ruleset
-          # (protection on release tags set up through the GitHub web page
-          # is the real example on this repo) was previously being read
-          # into this same map and then deleted by the reconciliation step
-          # below purely because its name did not happen to match one of
-          # our `.github/rulesets/*.json` files — which it never could,
-          # since those files only ever describe branch rules. Filtering
-          # here means a tag ruleset is never even a candidate for delete.
-          EXISTING=$(gh api "repos/$REPO/rulesets" --jq '[.[] | select(.target == "branch")] | map({ (.name): .id }) | add // {}')
+          # List existing rulesets (name → id map). Narrowed here, at the
+          # one place this list is built, so every later step — the
+          # create/update lookup just below, and the delete-what's-unmanaged
+          # step further down — only ever sees rulesets this workflow is
+          # entitled to manage. Two narrowings, for two different reasons:
+          #
+          # 1. target == "branch". GitHub's rulesets API returns tag and
+          #    push rulesets in the same list as branch ones. If someone
+          #    ever added, say, protection for release tags through the
+          #    GitHub web page, the delete step below would have removed
+          #    it purely because its name matched none of our
+          #    `.github/rulesets/*.json` files — which it never could,
+          #    since those files only describe branch rules. (There is no
+          #    tag ruleset on this repository today; checked 24 Sept 2026.
+          #    An earlier version of this comment said there was.)
+          #
+          # 2. Only rulesets that belong to THIS repository. By default the
+          #    API also lists rulesets inherited from the organisation. The
+          #    delete step would try to remove one of those, GitHub would
+          #    refuse, and — since a failed delete now fails the job — this
+          #    whole workflow would go red over a rule it never owned.
+          #    `includes_parents=false` asks GitHub to leave them out, and
+          #    the `source_type` filter drops any that come back anyway, so
+          #    the protection does not rest on the request being honoured.
+          #    None exist today; this is hardening, found by Codex in the
+          #    batch-4 review (finding D).
+          EXISTING=$(gh api "repos/$REPO/rulesets?includes_parents=false" \
+            --jq '[.[] | select(.target == "branch" and .source_type == "Repository")] | map({ (.name): .id }) | add // {}')
 
           # Collect the set of names defined in the source tree so we can
           # reconcile (delete unmanaged rulesets) after applying.
@@ -100,10 +116,11 @@ jobs:
           # not present in the source tree. This cleans up renamed / split /
           # removed rulesets without manual intervention.
           #
-          # $EXISTING was already filtered to target == "branch" above, so
-          # a tag ruleset (or any other non-branch ruleset) never reaches
-          # this step and is never a delete candidate — every branch
-          # ruleset genuinely IS meant to be source-controlled in
+          # $EXISTING was already narrowed above to branch rulesets that
+          # belong to this repository, so a tag ruleset, a push ruleset or
+          # an organisation's inherited ruleset never reaches this step and
+          # is never a delete candidate — every branch ruleset this
+          # repository owns genuinely IS meant to be source-controlled in
           # `.github/rulesets/*.json`, which was the intent all along;
           # what was missing was making the code match that intent instead
           # of just asserting it in a comment while also deleting tag
