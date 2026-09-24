@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-24 (late morning) — see ★★★★ LATEST below
+**Last updated:** 2026-09-24 (midday) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -11,23 +11,21 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-24 (morning): batches 4 and 5 fixed; batch 4 in Codex round 6
+## ★★★★ LATEST — 2026-09-24 (midday): batch 5 Codex round 1 acted on; batch 4 on round 8
 
 > **PICK UP HERE.** The section below this one is still the best starting point if you
 > know nothing; this one records what changed since.
 
-### Commits this morning (all pushed to `work/after-1.10.8`)
+### Commits today (all pushed to `work/after-1.10.8`)
 
 | Commit | What | Independently reviewed? |
 |---|---|---|
-| `bdce1c32` | Batch 5 finding 1: a tool that cannot report its version was "update available" for ever | No — batch-5 Codex round |
-| `161ce75d` | Batch 5 finding 2 (+ same fault for GAMDL/app/Python): offline page said "up to date" | No — batch-5 Codex round |
-| `2bf3fdd2` | Batch 4 Codex round 1 fixes: release-notes overwrite, org rulesets, 2 leaky checks, 2 false comments | Yes — rounds 2+ |
-| `65a16c10` | Round-2 fixes (4 holes in the check fixes) | Yes — round 3 |
-| `9289b000` | Round-3 fix (replaced the shell-comment reader) | Yes — round 4 found a regression |
-| `5bc2bc36` | Round-4 fix: only a plain, complete export line counts | Yes — round 5 found 2 more |
-| `d5cc5ff8` | Batch 5 findings 3–7 + the N_m3u8DL-RE claim | No — batch-5 Codex round |
-| `1fd89c00` | Round-5 fix: two shell-error lines; unique temp file | **Round 6 running** |
+| `bdce1c32` | Batch 5 finding 1: unreadable installed version → "update available" for ever | Yes — batch-5 Codex round 1 |
+| `161ce75d` | Batch 5 finding 2: offline page said "up to date" | Yes — batch-5 round 1 |
+| `d5cc5ff8` | Batch 5 findings 3–7 + N_m3u8DL-RE claim | Yes — batch-5 round 1 |
+| `80d8f607` | Batch-5 Codex round 1, findings 2–6 (one ownership gate, three-way ownership, latest side checked, fresh FFmpeg date at install, GPAC pin version) | **No — batch-5 round 2** |
+| `192d18bc` | Batch-5 Codex round 1, finding 1 (blocking): an update no longer falls back to the mirror unless the mirror is what was checked | **No — batch-5 round 2** |
+| `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
 
 ### Codex rounds on batch 4 so far
 
@@ -38,7 +36,9 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | 3 | `65a16c10` | 2 ways past the shell-comment reader |
 | 4 | `9289b000` | 1 BLOCKING regression (a `#` inside the match) |
 | 5 | `1fd89c00`'s parent `5bc2bc36` | 1 blocking (two shell-error lines), 1 should-fix |
-| 6 | `1fd89c00` | running |
+| 6 | `1fd89c00` | shell commands in the value (`$((1/0))`); temp file left on a failed write |
+| 7 | `85028853` | a GitHub placeholder holding quoted shell code |
+| 8 | `f7ff3c30` | **not yet run** |
 
 **Lesson worth keeping:** three attempts to *reason about* shell comments were each beaten.
 What converged was refusing when unsure — only one plain, complete export form is
@@ -47,8 +47,12 @@ line switched off by other lines (a heredoc) — documented in the check.
 
 ### Everything NOT yet reviewed by Codex
 
-Batch 5 as one round: `git diff 7e9f4695..80bb65ee` plus commits `bdce1c32`, `161ce75d`,
-`d5cc5ff8`. Then batch 2 (finish) and batch 3 — ranges in the section below.
+* **Batch 5 round 2:** `git show 80d8f607` and `git show 192d18bc` (the round-1 fixes only).
+* **Batch 4 round 8:** `git show f7ff3c30`.
+* Batch 2 (finish) and batch 3 — ranges in the section below.
+
+Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midday on
+24 Sept. If a round is refused, read the message — a real credit refusal names a reset time.
 
 ### New follow-up issue
 
@@ -57,9 +61,8 @@ Batch 5 as one round: `git diff 7e9f4695..80bb65ee` plus commits `bdce1c32`, `16
 
 ### Noted, not acted on
 
-* A tool with **no `.source` marker at all** (installs before Feb 2026) is skipped
-  *silently* by every helper-programme check, rather than shown as "could not check".
-  Same for all five tools; not new. Worth a small follow-up.
+* ~~A tool with no `.source` marker is skipped silently~~ — FIXED in `80d8f607` (Codex
+  found a live case). It now says "could not check".
 * The two check self-tests (`test_check_*.py`) are not run by CI. Wiring them into
   `pr-security.yml` is an open suggestion (recorded in `tools/audit-checks/README.md`).
 * Both `UpdatesPage` files and `src/types/index.ts` already failed Prettier before this
@@ -76,8 +79,8 @@ Batch 5 as one round: `git diff 7e9f4695..80bb65ee` plus commits `bdce1c32`, `16
 
 ### In flight — LOST on a restart
 
-* Codex round 6 on `1fd89c00` (prompt was in the session scratchpad). If lost, rerun a
-  review of that one commit.
+* Codex batch-5 round 2 (`80d8f607` + `192d18bc`), started after this was written. If
+  lost, rerun it: review those two commits only.
 
 ---
 
