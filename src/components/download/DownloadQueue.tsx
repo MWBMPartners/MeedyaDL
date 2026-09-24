@@ -1452,8 +1452,8 @@ export function DownloadQueue() {
           <span>
             Don&apos;t ask again — single-click abort from now on. There is
             no switch to turn this question back on yet. The only way is
-            Reset in Settings, which puts every setting back to how it
-            started.
+            Reset in Settings and then Save Changes, which puts all your
+            settings back to their defaults.
           </span>
         </label>
         <div className="flex justify-end gap-2">
