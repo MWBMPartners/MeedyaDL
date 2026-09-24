@@ -126,10 +126,16 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - Batch-4 round 8 (`f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`): **done** — 2 should-fix
     (non-breaking space counted as a separator; an incomplete search with an OLD result
     declared a branch quiet), both fixed in `5df4f275`. **Round 9 owed on `5df4f275`.**
-  - Batch 3 (`52e959b4..7e9f4695 -- src/` + `f0dc9500`): **running now** (Codex's first look).
-  - Then: batch 2 finish (`40047ef6` + `672acd01`), batch-5 round 3 (`360ea73e`),
-    batch-4 round 9 (`5df4f275`).
-  - Allowance this window: ~113k (batch-5 r2) + ~49k (batch-4 r8).
+  - Batch 3 (`52e959b4..7e9f4695 -- src/` + `f0dc9500`): **done** — 3 blocking (Save could
+    re-arm a used one-off in two ways; an unsupported system language stopped startup —
+    both caused by my own `f0dc9500`), 6 should-fix, 1 minor; all fixed in `fc0b3698`.
+    **Batch-3 round 2 owed on `fc0b3698`.**
+  - Batch 2 finish (`40047ef6` + `672acd01`): **running now.**
+  - Then the fix-commit rounds: batch-5 round 3 (`360ea73e`), batch-4 round 9 (`5df4f275`),
+    batch-3 round 2 (`fc0b3698`).
+  - Noticed, not changed: CookiesStep.tsx ~397/496/570 set `cookies_path` in memory only —
+    check whether those cookie choices ever reach the disk.
+  - Allowance this window: ~113k (b5 r2) + ~49k (b4 r8) + ~133k (b3 r1) ≈ 295k.
 
 ---
 
