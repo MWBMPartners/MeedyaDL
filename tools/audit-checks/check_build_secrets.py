@@ -170,20 +170,26 @@ _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB
 # The VALUE may contain only things that cannot fail or run anything:
 #   * plain characters (letters, digits, and `_ . / : @ % + , = # -` and space);
 #   * a variable, `$NAME`, `${NAME}` or its length `${#NAME}`;
-#   * a GitHub placeholder, `${{ ... }}`, which GitHub fills in before the
-#     shell ever sees the line.
+#   * a GitHub placeholder that is just a plain reference, such as
+#     `${{ matrix.settings.x }}` -- letters, digits, dots, dashes, spaces.
+#     GitHub fills it in before the shell sees the line. No quoted text and
+#     no function calls inside it: `${{ '$((1/0))' }}` would hand the shell
+#     a failing command (Codex, round 7). This trusts that the values
+#     behind a reference (matrix entries, written in the same file) are
+#     not themselves shell commands -- the check reads the file, not the
+#     values GitHub will substitute.
 # Anything else -- a command (`$(...)`, backticks), arithmetic (`$((...))`),
 # a quote or a backslash -- makes the line "cannot confirm". A command can
 # fail and export nothing: `echo "X=$((1/0))" >> ...` exits 1, and
 # `echo "X=$(" >> ...` is a syntax error. This allows what is known to be
 # safe, rather than refusing what is known to be dangerous, because the
 # second approach was beaten five rounds running (Codex, batch-4 rounds
-# 2 to 6). Every export line in release.yml fits (checked 24 Sept 2026).
+# 2 to 6), and round 7 found the placeholder part still too loose. Every export line in release.yml fits (checked 24 Sept 2026).
 _EXPORT_VALUE = (
     r"(?:[A-Za-z0-9_./:@%+,=# -]"
     r"|\$[A-Za-z_][A-Za-z0-9_]*"
     r"|\$\{#?[A-Za-z_][A-Za-z0-9_]*\}"
-    r"|\$\{\{[^}\"\\`]*\}\})*"
+    r"|\$\{\{[A-Za-z0-9_. -]*\}\})*"
 )
 _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
     r'^\s*echo\s+"([A-Z0-9_]+)='
