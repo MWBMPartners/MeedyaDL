@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-24 (morning) — see ★★★★ LATEST below
+**Last updated:** 2026-09-24 (late morning) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -11,52 +11,73 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-24 (morning): batch-5 finding 1 fixed; Codex back on batch 4
+## ★★★★ LATEST — 2026-09-24 (morning): batches 4 and 5 fixed; batch 4 in Codex round 6
 
 > **PICK UP HERE.** The section below this one is still the best starting point if you
 > know nothing; this one records what changed since.
 
-### Done this morning
+### Commits this morning (all pushed to `work/after-1.10.8`)
 
-* **Batch 5's finding 1 is fixed** — `bdce1c32`, pushed. A helper programme that cannot
-  report its version is no longer shown as "update available" for ever. Both comparison
-  routes now go through one function, `compare_installed_against_latest()` in
-  `update_checker.rs`, which has three answers (out of date / nothing newer / could not
-  tell). 10 new tests, two proven able to fail. **Not yet independently reviewed** — it
-  goes to Codex in the batch-5 round.
-* **The Codex model note was wrong** and is corrected (personal memory
-  `feedback_codex_review_model.md`): use `-c model="gpt-6-astra"`, NOT `gpt-6-sol`, which
-  this account refuses. The device rules already said so.
-* **Trap found:** `update_checker.rs` already had **17 rustfmt complaints** in code nobody
-  touched. Running `rustfmt` on the file reformats all of them and buries a small fix in a
-  big diff. Check with `rustfmt --check` and fix only your own lines; the count was 17
-  before `bdce1c32` and 17 after.
+| Commit | What | Independently reviewed? |
+|---|---|---|
+| `bdce1c32` | Batch 5 finding 1: a tool that cannot report its version was "update available" for ever | No — batch-5 Codex round |
+| `161ce75d` | Batch 5 finding 2 (+ same fault for GAMDL/app/Python): offline page said "up to date" | No — batch-5 Codex round |
+| `2bf3fdd2` | Batch 4 Codex round 1 fixes: release-notes overwrite, org rulesets, 2 leaky checks, 2 false comments | Yes — rounds 2+ |
+| `65a16c10` | Round-2 fixes (4 holes in the check fixes) | Yes — round 3 |
+| `9289b000` | Round-3 fix (replaced the shell-comment reader) | Yes — round 4 found a regression |
+| `5bc2bc36` | Round-4 fix: only a plain, complete export line counts | Yes — round 5 found 2 more |
+| `d5cc5ff8` | Batch 5 findings 3–7 + the N_m3u8DL-RE claim | No — batch-5 Codex round |
+| `1fd89c00` | Round-5 fix: two shell-error lines; unique temp file | **Round 6 running** |
+
+### Codex rounds on batch 4 so far
+
+| Round | Reviewed | Found |
+|---|---|---|
+| 1 | `5071541f..c3dee4e7` | stand-in's A–E confirmed (E worse), 1 new |
+| 2 | `2bf3fdd2` | 4 holes in the two audit-check fixes; release/rulesets fixes clean |
+| 3 | `65a16c10` | 2 ways past the shell-comment reader |
+| 4 | `9289b000` | 1 BLOCKING regression (a `#` inside the match) |
+| 5 | `1fd89c00`'s parent `5bc2bc36` | 1 blocking (two shell-error lines), 1 should-fix |
+| 6 | `1fd89c00` | running |
+
+**Lesson worth keeping:** three attempts to *reason about* shell comments were each beaten.
+What converged was refusing when unsure — only one plain, complete export form is
+counted; everything else is "cannot confirm". Known, accepted silent pass: a plain export
+line switched off by other lines (a heredoc) — documented in the check.
+
+### Everything NOT yet reviewed by Codex
+
+Batch 5 as one round: `git diff 7e9f4695..80bb65ee` plus commits `bdce1c32`, `161ce75d`,
+`d5cc5ff8`. Then batch 2 (finish) and batch 3 — ranges in the section below.
+
+### New follow-up issue
+
+* **#1221** — `dependency-canary` has never succeeded: GitHub's burst limit on its third
+  search, with a valid token. On project 6.
+
+### Noted, not acted on
+
+* A tool with **no `.source` marker at all** (installs before Feb 2026) is skipped
+  *silently* by every helper-programme check, rather than shown as "could not check".
+  Same for all five tools; not new. Worth a small follow-up.
+* The two check self-tests (`test_check_*.py`) are not run by CI. Wiring them into
+  `pr-security.yml` is an open suggestion (recorded in `tools/audit-checks/README.md`).
+* Both `UpdatesPage` files and `src/types/index.ts` already failed Prettier before this
+  work; `update_checker.rs` (17) and `dependency_manager.rs` (9) already had rustfmt
+  complaints. Left alone so review diffs stay clean — a formatting-only commit someday.
 
 ### Three questions put to the maintainer (nothing waits on them)
 
-1. When to open the alpha pull request, and who merges it. Recommended: fix batch-4
-   finding 1 and batch-5 finding 2 first, Codex batches 4 + 5 + the new fixes until clean,
-   then open it and merge.
+1. When to open the alpha pull request, and who merges it. Recommended: after batch 4 is
+   clean and batch 5 has had its Codex round(s), open it and merge.
 2. How much documentation sweep before this alpha. Recommended: targeted now, full before
    the last pull request.
 3. Handoff location (carried over). Recommended: stay at `.github/HANDOFF.md`.
 
 ### In flight — LOST on a restart
 
-* **Codex round 1 on batch 4** (`git diff 5071541f..c3dee4e7`), started 08:35. Prompt was
-  in the session scratchpad (gone on restart); it asked Codex to confirm or refute the
-  stand-in's findings A–E (listed under batch 4 below) and look for new ones. If lost,
-  rerun it — nothing else depended on it.
-
-### Next, in order
-
-1. Batch-5 finding 2 (offline shows "up to date"; the could-not-check notice vanishes when
-   anything else has an update).
-2. Batch-4 finding 1 (`release.yml` ~line 287, failed read overwrites a release's notes).
-3. Act on Codex's batch-4 findings; review only the fix commits after that.
-4. Codex batch 5 **together with** `bdce1c32` and the finding-2 fix: range
-   `7e9f4695..80bb65ee` plus those commits.
-5. Then the alpha, per the maintainer's answer to question 1.
+* Codex round 6 on `1fd89c00` (prompt was in the session scratchpad). If lost, rerun a
+  review of that one commit.
 
 ---
 
