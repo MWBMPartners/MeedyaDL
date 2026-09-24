@@ -750,15 +750,26 @@ export function AdvancedTab() {
       {/* ── Setup ── */}
       <SettingsSection title="Setup" description="Re-run the first-time setup wizard.">
         <p className="text-xs text-content-secondary">
-          Verify and reinstall dependencies. Your existing settings will be preserved.
+          Verify and reinstall dependencies. Your saved settings will be preserved.
         </p>
         <Button
           variant="secondary"
           size="sm"
           onClick={async () => {
+            // "Your settings are kept" is true of SAVED settings only. The
+            // reload below throws away anything changed on this screen and
+            // not yet saved — so when there is such an edit, say so, and
+            // let the person cancel and save first. It used to promise the
+            // settings were kept either way (Codex, batch-3 review).
+            const hasUnsaved = useSettingsStore.getState().isDirty;
             const confirmed = window.confirm(
-              'This will start the setup wizard again and reload MeedyaDL. ' +
-                'Your settings are kept. Continue?'
+              hasUnsaved
+                ? 'You have changed settings that are not saved yet. Starting the setup ' +
+                    'wizard reloads MeedyaDL and those changes will be lost. Your saved ' +
+                    'settings are kept.\n\nPress Cancel, then Save Changes, to keep them — ' +
+                    'or OK to continue without them.'
+                : 'This will start the setup wizard again and reload MeedyaDL. ' +
+                    'Your settings are kept. Continue?'
             );
             if (!confirmed) return;
 

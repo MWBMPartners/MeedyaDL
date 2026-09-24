@@ -224,7 +224,6 @@ export function DownloadQueue() {
   const [abortDontAskAgain, setAbortDontAskAgain] = useState(false);
 
   const settings = useSettingsStore((s) => s.settings);
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
 
   /**
    * Queue-level status announcer (a11y audit Fix 3).
@@ -337,7 +336,8 @@ export function DownloadQueue() {
       // asynchronous. So "don't ask again" was forgotten at the next
       // launch — and sooner than that, since opening the Settings
       // screen re-reads the file and throws the page's copy away.
-      updateSettings({ abort_queue_confirm: false });
+      // Saved by its own one-field write just below; not an unsaved edit.
+      useSettingsStore.getState().syncSaved({ abort_queue_confirm: false });
       try {
         await setStoredPreference({ kind: 'abort_queue_confirm', confirm: false });
       } catch (err) {
@@ -352,7 +352,7 @@ export function DownloadQueue() {
         // Restoring means the message is true, and the person is asked
         // again rather than silently losing a confirmation they believe
         // they still have.
-        updateSettings({ abort_queue_confirm: true });
+        useSettingsStore.getState().syncSaved({ abort_queue_confirm: true });
         console.error('Could not remember the abort confirmation choice:', err);
         addToast(
           'MeedyaDL could not remember that, so it will keep asking before an abort.',
@@ -362,7 +362,7 @@ export function DownloadQueue() {
       setAbortDontAskAgain(false);
     }
     await abortAll();
-  }, [abortAll, abortDontAskAgain, updateSettings, addToast]);
+  }, [abortAll, abortDontAskAgain, addToast]);
 
   /**
    * Entry point for the "Abort Queue" action. Honours the

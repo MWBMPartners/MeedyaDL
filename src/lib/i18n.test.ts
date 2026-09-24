@@ -33,6 +33,7 @@ import i18n, {
   baseLanguageOf,
   changeUiLanguage,
   initI18n,
+  systemLanguageOrEnglish,
   isMachineAssisted,
 } from './i18n';
 
@@ -278,6 +279,32 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
     expect(detection.caches).toEqual([]);
   });
 
+  it('applies only the latest request when an earlier language file arrives late', async () => {
+    // German is slow to load; English is chosen before it arrives. The
+    // late German file used to switch the screen back to German (Codex,
+    // batch-3 review).
+    let releaseGerman: (() => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseGerman = () =>
+              resolve({ ok: true, json: () => Promise.resolve(deTranslations) } as Response);
+          }),
+      ),
+    );
+    // Make sure German is not already loaded from an earlier test.
+    i18n.removeResourceBundle('de', 'translation');
+
+    const german = changeUiLanguage('de');
+    await changeUiLanguage('en');
+    releaseGerman?.();
+    await german;
+
+    expect(i18n.language).toBe('en');
+  });
+
   it('does not re-fetch a language that has already been loaded', async () => {
     await act(async () => {
       await changeUiLanguage('de');
@@ -334,6 +361,32 @@ function placeholdersIn(value: unknown): Set<string> {
   const matches = value.match(/\{\{.*?\}\}/g);
   return new Set(matches ?? []);
 }
+
+describe('startup on a system whose language MeedyaDL does not have', () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage('en');
+    document.documentElement.lang = 'en';
+  });
+
+  it('starts in English instead of stopping the app', async () => {
+    // A Spanish system: there is no Spanish file. Startup awaits
+    // initI18n() and loads settings after it, so a failure here used to
+    // stop the whole app from starting (Codex, batch-3 review).
+    vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false } as Response)));
+
+    await expect(initI18n()).resolves.toBeUndefined();
+    expect(baseLanguageOf(i18n.language)).toBe('en');
+  });
+
+  it('"Auto" chooses English, not a language with no file', () => {
+    vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
+    expect(systemLanguageOrEnglish()).toBe('en');
+    vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
+    expect(systemLanguageOrEnglish()).toBe('de-DE');
+  });
+});
 
 describe('translation file quality', () => {
   const enKeys = flattenKeys(enTranslations);

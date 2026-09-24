@@ -100,6 +100,17 @@ impl SettingsCache {
     /// the `save_settings` IPC after a successful disk write so the
     /// cache stays in sync without forcing every reader to discover
     /// the staleness on its own.
+    /// What the cache holds right now, without loading anything.
+    ///
+    /// Unlike `get_or_load`, this never falls back to
+    /// `config_service::load_settings`, which carries startup side effects
+    /// (see `project_a_read_can_break_a_writes_promise`). A save that asks
+    /// "what does the running app currently believe?" must not trigger
+    /// those. `None` when the cache has not been filled yet.
+    pub fn peek(&self) -> Option<AppSettings> {
+        self.inner.read().ok().and_then(|guard| guard.clone())
+    }
+
     pub fn refresh(&self, settings: AppSettings) {
         if let Ok(mut guard) = self.inner.write() {
             *guard = Some(settings);

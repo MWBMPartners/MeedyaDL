@@ -121,8 +121,15 @@ function isValidManifestSource(value: unknown): value is { url: string } {
  * into via `serde_json`, which refuses the whole file the moment
  * anything doesn't match -- a missing `sources` array, a `version` that
  * isn't a number, a source object with no `url` string all fail
- * together as one error. This function is the plain-JavaScript version
- * of that same check for a manifest dropped straight onto the window,
+ * together as one error. This function is a much LIGHTER plain-JavaScript
+ * check for a manifest dropped straight onto the window: it confirms only
+ * enough structure to read the links out -- a `sources` array whose every
+ * entry has a non-empty `url` string. It is NOT equivalent to the Rust
+ * check: it does not enforce the other required fields, nor that
+ * `version` fits in the Rust side's unsigned 32-bit number, so a file such
+ * as `{"version": 4294967296, "sources": [{"url": "https://..."}]}` passes
+ * here and would fail there. (An earlier wording called this "the same
+ * check"; Codex, batch-3 review.) It is used
  * because there is nowhere in this app's Rust code we can hand a
  * dropped file's contents to instead (see the comment on `handleDrop`
  * for why the existing Import button's backend command can't be reused

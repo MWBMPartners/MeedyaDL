@@ -1142,8 +1142,13 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // be put back in the box rather than lost (see the end of the loop).
     const notAdded: string[] = [];
 
+    // Links the backend accepted without adding anything (it answers with
+    // an empty id, e.g. for a link already in the queue). Counted apart
+    // from real additions — see the pacing message below.
+    let added = 0;
+
     try {
-      for (const url of urls) {
+      for (const [index, url] of urls.entries()) {
         if (pacedStop) {
           // Already know this one would be refused too -- count it as
           // not-yet-queued without spending a real round trip to prove it.
@@ -1161,6 +1166,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             skipAutoStart,
           );
           queued++;
+          if (result.download_id) {
+            added++;
+          }
           if (result.duplicate_warning) {
             duplicateWarnings.push(result.duplicate_warning);
           }
@@ -1181,13 +1189,19 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             // links it said "the other 1" when 2 were not added, and with
             // 11 it never mentioned the refused one at all (stand-in
             // review, 24 Sept 2026).
-            const stillToAdd = urls.length - queued;
+            //
+            // "Added" counts only links that really went into the queue: an
+            // accepted link the backend did not add (already queued) used to
+            // be counted as added too (Codex, batch-3 review). And what is
+            // left is this link and every one after it -- worked out from
+            // the position, so a skipped link earlier cannot shift it.
+            const stillToAdd = urls.length - index;
             const { addToast } = useUiStore.getState();
 
             // House style: never show the words "rate limit" on
             // screen -- say what it actually means instead.
             addToast(
-              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${queued} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
+              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
               'warning',
             );
           }
@@ -1204,11 +1218,16 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // back any links that did not make it in. The box used to be cleared
       // regardless, so the message above told the person to paste links
       // again that were no longer anywhere to paste from.
+      //
+      // The download options chosen for this batch (codec and so on) stay
+      // with the links left in the box, so pressing Download again uses
+      // them. They used to be cleared regardless, and the retry quietly used
+      // the defaults (Codex, batch-3 review).
       set({
         urlInput: '',
         urlIsValid: false,
         urlContentType: 'unknown',
-        overrideOptions: null,
+        overrideOptions: notAdded.length > 0 ? overrideOptions : null,
         isSubmitting: false,
       });
       if (notAdded.length > 0) {

@@ -716,6 +716,31 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().urlInput.split('\n')).toEqual(batch.slice(10));
     });
 
+    it('counts only links that were really added, and keeps the chosen options with the rest', async () => {
+      // Twelve links; the third is already in the queue, so the backend
+      // accepts it but adds nothing (empty id); the eleventh hits the
+      // limit. Nine were added, and two are left (Codex, batch-3 review:
+      // the already-queued link used to be counted as added, and the
+      // options were cleared, so pressing Download again used defaults).
+      const batch = urls(12);
+      useDownloadStore.getState().setOverrideOptions({ song_codec: 'alac' } as never);
+      for (let i = 0; i < 10; i++) {
+        vi.mocked(commands.startDownload).mockResolvedValueOnce({
+          download_id: i === 2 ? '' : `dl-${i}`,
+          duplicate_warning: i === 2 ? 'Already in the queue' : null,
+        });
+      }
+      vi.mocked(commands.startDownload).mockRejectedValueOnce(backendPacingMessage);
+
+      await useDownloadStore.getState().submitBatchDownload(batch);
+
+      const toast = useUiStore.getState().toasts.find((t) => t.message.includes('42 seconds'));
+      expect(toast?.message).toContain('9 of your links were added');
+      expect(toast?.message).toContain('The other 2');
+      expect(useDownloadStore.getState().urlInput.split('\n')).toEqual(batch.slice(10));
+      expect(useDownloadStore.getState().overrideOptions).toEqual({ song_codec: 'alac' });
+    });
+
     it('still mentions the refused link when it was the last one in the batch', async () => {
       const batch = urls(11);
       for (let i = 0; i < 10; i++) {

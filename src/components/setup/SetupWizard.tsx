@@ -137,10 +137,6 @@ export function SetupWizard() {
   /** Hides the wizard overlay by setting showSetupWizard to false */
   const setShowSetupWizard = useUiStore((s) => s.setShowSetupWizard);
 
-  // --- Zustand settingsStore selectors ---
-  /** Persists setup_completed flag to settings JSON on disk */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-
   /**
    * Resolve the React component for the current step via the static
    * STEP_COMPONENTS lookup map. This enables dynamic rendering without
@@ -180,7 +176,8 @@ export function SetupWizard() {
     //
     // It also stays in memory so the rest of this session sees it
     // without re-reading the file.
-    updateSettings({ setup_completed: true });
+    // Not updateSettings: that would mark Settings as having unsaved work.
+    useSettingsStore.getState().syncSaved({ setup_completed: true });
     try {
       await setStoredPreference({ kind: 'setup_completed', completed: true });
     } catch (err) {

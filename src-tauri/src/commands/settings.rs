@@ -58,7 +58,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 // AppHandle for resolving app data directory paths (settings.json location).
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 // AppSettings is the Rust struct representing the full application settings.
 // It implements both Serialize (for returning to frontend) and Deserialize
@@ -169,9 +169,19 @@ pub async fn get_default_settings() -> Result<AppSettings, String> {
 /// page. Split out of `save_settings` so the rule can be tested without a
 /// running app. `previous` is what is on disk now, or `None` if that
 /// could not be read.
+///
+/// `in_memory` is the running app's settings cache. For the one-off
+/// after-queue action it is the authority, because it is the one place
+/// that always learns the action has been used: the backend clears it in
+/// the cache even when writing the file fails. Trusting the file there
+/// meant that after a failed clear (a full disk, say), the next Save copied
+/// the stale "hibernate" from the file back into the cache — re-arming it
+/// (Codex, batch-3 review). The file is used only when there is no cache
+/// (tests, or before it has been filled).
 fn keep_fields_the_settings_screen_cannot_change(
     settings: &mut AppSettings,
     previous: Option<&AppSettings>,
+    in_memory: Option<&AppSettings>,
 ) {
     // Security: `dev_access_enabled` must only be toggled by the dedicated
     // `activate_dev_access` / `deactivate_dev_access` commands, which
@@ -197,7 +207,10 @@ fn keep_fields_the_settings_screen_cannot_change(
     // the #1175 fault in a new place). If the file cannot be read, the
     // action is left disarmed: doing it once too few times is the safe
     // direction for "shut the computer down".
-    settings.after_queue_once = previous.and_then(|p| p.after_queue_once);
+    settings.after_queue_once = match in_memory {
+        Some(cache) => cache.after_queue_once,
+        None => previous.and_then(|p| p.after_queue_once),
+    };
 }
 
 /// Saves application settings to disk.
@@ -237,22 +250,19 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::read_settings_from_disk(&app).ok();
 
-    keep_fields_the_settings_screen_cannot_change(&mut settings, previous.as_ref());
-
-    // save_settings() in config_service performs two writes:
-    //   1. settings.json — full AppSettings struct as JSON
-    //   2. config.ini — relevant fields translated to GAMDL's INI format
-    config_service::save_settings(&app, &settings)?;
-
-    // #690: refresh the in-process settings cache so the next
-    // `load_settings_for_queue` reader sees the post-save snapshot
-    // without re-touching the disk. If the cache isn't registered
-    // (test contexts), this is a no-op.
-    if let Some(cache) =
-        app.try_state::<crate::services::settings_cache::SettingsCache>()
-    {
-        cache.refresh(settings.clone());
-    }
+    // Restore the fields this screen does not own, write, and refresh the
+    // in-process cache (#690) — all inside ONE lock. Reading the file for
+    // this before taking the lock let a one-off after-queue action the
+    // backend had just cleared be written straight back (Codex, batch-3
+    // review). `previous` above is for the change log only.
+    //
+    // config_service performs two writes: settings.json, and GAMDL's
+    // config.ini derived from it.
+    let settings = config_service::save_settings_from_screen(
+        &app,
+        settings,
+        keep_fields_the_settings_screen_cannot_change,
+    )?;
 
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
@@ -1532,7 +1542,7 @@ mod tests {
             ..AppSettings::default()
         };
         let on_disk = AppSettings::default();
-        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk));
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk), None);
         assert_eq!(
             from_page.after_queue_once, None,
             "the used-up action must not come back"
@@ -1544,7 +1554,7 @@ mod tests {
             after_queue_once: Some(AfterQueueAction::ShutdownComputer),
             ..AppSettings::default()
         };
-        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk));
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk), None);
         assert_eq!(
             from_page.after_queue_once,
             Some(AfterQueueAction::ShutdownComputer)
@@ -1556,7 +1566,7 @@ mod tests {
             after_queue_once: Some(AfterQueueAction::ShutdownComputer),
             ..AppSettings::default()
         };
-        keep_fields_the_settings_screen_cannot_change(&mut from_page, None);
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, None, None);
         assert_eq!(from_page.after_queue_once, None);
     }
 
@@ -1570,7 +1580,29 @@ mod tests {
         keep_fields_the_settings_screen_cannot_change(
             &mut from_page,
             Some(&AppSettings::default()),
+            None,
         );
         assert!(!from_page.dev_access_enabled);
+    }
+
+    /// After a failed clear, the file still says "hibernate" but the
+    /// running app's cache knows it was used. Save must follow the cache,
+    /// or it re-arms the action (Codex, batch-3 review).
+    #[test]
+    fn saving_follows_the_running_app_when_a_clear_failed_to_reach_the_file() {
+        use crate::models::settings::AfterQueueAction;
+
+        let mut from_page = AppSettings::default();
+        let on_disk = AppSettings {
+            after_queue_once: Some(AfterQueueAction::HibernateComputer),
+            ..AppSettings::default()
+        };
+        let in_memory = AppSettings::default(); // used and cleared
+        keep_fields_the_settings_screen_cannot_change(
+            &mut from_page,
+            Some(&on_disk),
+            Some(&in_memory),
+        );
+        assert_eq!(from_page.after_queue_once, None);
     }
 }

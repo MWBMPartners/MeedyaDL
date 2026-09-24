@@ -172,7 +172,33 @@ async function loadLocaleResources(lng: string): Promise<void> {
  *   matches how `LOCALES` and the `public/locales/<code>/` folders are
  *   keyed, via `baseLanguageOf()`, same as everywhere else in this file.
  */
+/**
+ * The system's language if MeedyaDL has a translation for it, otherwise
+ * English. What "Auto" means.
+ *
+ * Asking for a language MeedyaDL does not have (a Spanish system, say)
+ * would only ever fail to load a file that does not exist -- so it is not
+ * asked for at all. It used to be, and since a failed load now reports
+ * itself, a Spanish-system user on "Auto" would have been told on every
+ * launch that "es" could not be loaded (Codex, batch-3 review).
+ */
+export function systemLanguageOrEnglish(): string {
+  const system = typeof navigator !== 'undefined' ? navigator.language : 'en';
+  return (AVAILABLE_LOCALES as readonly string[]).includes(baseLanguageOf(system)) ? system : 'en';
+}
+
+/**
+ * Counts language requests, so only the LATEST one is applied.
+ *
+ * Loading a language file takes a moment. Choosing German and then
+ * English before German finished used to apply English at once and then,
+ * when the German file arrived, switch the screen back to German -- while
+ * the setting said English (Codex, batch-3 review, reproduced).
+ */
+let latestLanguageRequest = 0;
+
 export async function changeUiLanguage(lng: string): Promise<void> {
+  const thisRequest = ++latestLanguageRequest;
   const base = baseLanguageOf(lng);
   /*
    * English is bundled into the app at build time (see the import at
@@ -193,6 +219,8 @@ export async function changeUiLanguage(lng: string): Promise<void> {
       throw new Error(`The ${lng} language file could not be loaded, so English is shown instead.`);
     }
   }
+  // A newer request arrived while this one's file was loading: it wins.
+  if (thisRequest !== latestLanguageRequest) return;
   await i18n.changeLanguage(lng);
 }
 
@@ -246,9 +274,16 @@ export async function initI18n(): Promise<void> {
   // the event synchronously during `init()`.
   syncDocumentLanguage(i18n.language);
 
-  // If the detected language is not English, fetch its file and apply it.
+  // If the detected language is not English, fetch its file and apply it
+  // -- but only a language MeedyaDL actually has, and never letting a
+  // failure stop startup. Startup awaits this function, and settings are
+  // loaded AFTER it, so a throw here stopped the whole app from starting
+  // on, for example, a Spanish system, whatever language was saved
+  // (Codex, batch-3 review, reproduced -- caused by making a failed load
+  // report itself). A failure here just leaves English; the saved
+  // language is applied once settings load.
   const detected = baseLanguageOf(i18n.language);
-  if (detected !== 'en') {
+  if (detected !== 'en' && (AVAILABLE_LOCALES as readonly string[]).includes(detected)) {
     // `changeUiLanguage()` does two things: fetches the file (if it
     // isn't already loaded) and then calls `i18n.changeLanguage()`.
     // That second step matters on its own, separately from the fetch:
@@ -267,7 +302,15 @@ export async function initI18n(): Promise<void> {
     // Passing the language we are already on into `changeLanguage` looks
     // like a no-op, but the event it fires is the whole point — that's
     // what actually makes the screen update.
-    await changeUiLanguage(i18n.language);
+    try {
+      await changeUiLanguage(i18n.language);
+    } catch (err) {
+      console.warn('Could not load the system language at startup; using English:', err);
+    }
+  } else if (detected !== 'en') {
+    // Not a language MeedyaDL has: show English, and say so in the log.
+    console.info(`No ${detected} translation is available; using English.`);
+    await i18n.changeLanguage('en');
   }
 }
 

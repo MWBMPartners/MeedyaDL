@@ -23,7 +23,7 @@
  *   - Back click invokes `prevStep`
  *   - Last step swaps "Continue" → "Get Started"
  *   - Get Started invokes the full finish flow
- *     (finishSetup + updateSettings + setShowSetupWizard(false))
+ *     (finishSetup + syncSaved + setShowSetupWizard(false))
  *
  * @see src/components/setup/SetupWizard.tsx
  */
@@ -231,13 +231,17 @@ describe('SetupWizard', () => {
     goToStep(SETUP_STEPS.length - 1, [...SETUP_STEPS]);
     setStoredPreferenceMock.mockClear();
     const finishSpy = vi.spyOn(useSetupStore.getState(), 'finishSetup');
-    const updateSpy = vi.spyOn(useSettingsStore.getState(), 'updateSettings');
     const setShowSpy = vi.spyOn(useUiStore.getState(), 'setShowSetupWizard');
+    useSettingsStore.setState({ isDirty: false });
     render(<SetupWizard />);
     fireEvent.click(screen.getByRole('button', { name: /get started/i }));
 
     expect(finishSpy).toHaveBeenCalledTimes(1);
-    expect(updateSpy).toHaveBeenCalledWith({ setup_completed: true });
+    // The page's copy follows what was just saved -- WITHOUT marking the
+    // Settings screen as having unsaved work. It used to go through
+    // `updateSettings`, which did (Codex, batch-3 review).
+    expect(useSettingsStore.getState().settings.setup_completed).toBe(true);
+    expect(useSettingsStore.getState().isDirty).toBe(false);
 
     // The half that was missing. Writing to the page's copy of the
     // settings saves nothing, so the app never knew setup had been done

@@ -236,7 +236,7 @@ import './styles/themes/a11y-colour-blind.css';
  * on an unfetched language used to leave the screen silently in English.
  * @see ./lib/i18n.ts for configuration details
  */
-import { initI18n, changeUiLanguage } from './lib/i18n';
+import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n';
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -837,7 +837,9 @@ function App() {
    * changes, the same pattern Effect 3 above uses for the sidebar.
    */
   useEffect(() => {
-    const target = uiLanguageSetting || navigator.language || 'en';
+    // "Auto" (empty) means the system language when MeedyaDL has it, else
+    // English — never a language that has no file.
+    const target = uiLanguageSetting || systemLanguageOrEnglish();
     changeUiLanguage(target).catch((err: unknown) => {
       useUiStore
         .getState()
