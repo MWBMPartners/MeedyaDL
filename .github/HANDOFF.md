@@ -189,7 +189,20 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     rewriting history is the maintainer's call, not done. Follow-ups opened: #1223 (no switch
     to re-enable the abort confirmation), #1224 (check-acknowledgements misses
     platform-only dependencies); both on the board.
-  - **CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
+  - **UPDATE (later, 24 Sept):** the maintainer said "try Codex again" — it WAS available.
+    Rounds since: stand-in found 9 (fixed `8be6138a`); Codex on `35661974..8be6138a` found
+    5 (fixed `f74734f0`); Codex re-review of that found 2 (fixed `757bcfd0`). While
+    preparing the PR, found that 42 of this branch's release notes would render cut off
+    mid-sentence in the alpha release body (templates took only a trailer's FIRST line;
+    many trailers wrap). Fixed in the templates, not the commits (no history rewrite):
+    `b19cd04a` — both cliff templates take the first paragraph joined; the PR gate lints
+    each note whole. Verified: over all history only those 42 lines change. Two notes use
+    the word "token", which the lint rejects; they will render as written (commit
+    trailers are never linted). **NOW RUNNING: Codex on `757bcfd0` + `b19cd04a`**
+    (`codex-r12-*.txt/out` in the session scratchpad). Follow-ups opened: #1223, #1224,
+    #1225 (tool swap without start-up check; plus no way to reinstall a tool that starts
+    but fails). Then: the PR (rebase-merge), watch checks, merge, watch alpha release.
+  - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
     range. Asked the maintainer whether to open/merge the PR on the stand-in review or
