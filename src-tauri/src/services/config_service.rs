@@ -740,7 +740,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
 /// across an `.await`, so it cannot stall the async runtime.
 ///
 /// It is NOT reentrant, so nothing called while holding it may take it
-/// again. That is why `load_settings` writes `last_seen_version` through
+/// again. That is why `load_settings_at_startup` writes `last_seen_version` through
 /// `write_settings_to_path` rather than `save_settings`; see the comment
 /// at that call site.
 static SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -104,7 +104,7 @@ because the plugin does not match the rule exactly.
 
 | Task | Skill | Notes |
 | --- | --- | --- |
-| Build a feature or component from a brief | `dev-team-orchestrator` | Give it a finished brief; the Fable analysis happens before, not inside (see below). |
+| Build a feature or component from a brief | `dev-team-orchestrator` | Give it a finished brief; the planning (Opus, one agent at a time) happens before, not inside (see below). |
 | Improvement or cleanup pass on existing code | `dev-team-iterate` | |
 | Independent verification / QA pass | `dev-team-review` | **Read-only reporting mode only.** It treats the root `SECURITY.md` as its own list of security findings, and its repair mode writes back into it — here that file is the public security policy. It also expects a `PROJECT.md`, which this repo does not have. For reviewing Codex-built work, a plain fresh review agent (section 5) is usually the better choice. |
 | Documentation generation and upkeep | `dev-team-docs` | Fits the standing documentation sweep (section 7). The help-page rules and "never hand-edit `.OpenAI/CONTEXT.md`" still apply. |
@@ -131,13 +131,16 @@ never lower). That is the maintainer's implementation rule exactly.
 
 (`models` is the plugin's cost setting: `economy`, `balanced` or `max`.)
 
-**The caveat:** under `economy` the plugin's "hard reasoning" step goes to **Opus, not Fable**
-(its own `model-routing.md`, line 72). Under `balanced` or `max` it uses Fable for reasoning
-but builds features on **Opus** (mechanical edits stay on Haiku and docs on Sonnet). No
-setting matches the rule on both halves. So:
+**How it lines up:** under `economy` the plugin's "hard reasoning" step goes to **Opus**
+(its own `model-routing.md`, line 72). Since planning moved to Opus on 2026-09-23, that now
+matches the rule on both halves. (Before, the rule said Fable for planning, and no setting
+matched both halves.) Under `balanced` or `max` it uses Fable for reasoning but builds
+features on **Opus** (mechanical edits stay on Haiku and docs on Sonnet) — more expensive than
+the rule asks for. So:
 
-- Do the deep analysis and planning **yourself, with sequential Fable agents, before invoking
-  a skill**, and hand the skill a finished brief.
+- Still do the deep analysis and planning **yourself, with sequential Opus agents, before
+  invoking a skill**, and hand the skill a finished brief — the rule wants each planning step
+  to see the one before, which a skill's own internal reasoning does not promise.
 - For a one-off run where the reasoning step matters more than cost, add `models=balanced` to
   that one request.
 

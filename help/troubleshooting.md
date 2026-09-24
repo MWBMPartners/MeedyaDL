@@ -130,9 +130,9 @@ Apple Music enforces a per-account limit on **license (DRM-key) requests**. It's
 MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to process downloaded content. If these tools are missing or corrupted, you will see a tool error.
 
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
-- **Solution:** Go to **Settings > Advanced > Re-run Setup** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
+- **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
 
-> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool, and the Updates page offers to **Update via _your package manager_** when a newer version is available. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
+> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it -- that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
 
 #### Python stopped working after upgrading or changing your system Python
 
@@ -376,7 +376,7 @@ If the app freezes during downloads or shows "Output directory timed out" errors
 The embedded Python environment or the GAMDL package itself is corrupted, incomplete, or missing from the expected location.
 
 - **Cause:** The bundled Python installation or the GAMDL package has been corrupted, was not installed correctly during initial setup, or was accidentally deleted.
-- **Solution:** Go to **Settings > Advanced > Re-run Setup**. This will re-download and install both the embedded Python environment and the GAMDL package from scratch without affecting your cookies, settings, or downloaded files.
+- **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard**. This will re-download and install both the embedded Python environment and the GAMDL package from scratch without affecting your cookies, settings, or downloaded files.
 
 #### Settings Not Saving
 
@@ -543,7 +543,7 @@ When diagnosing a problem, search the log file for **ERROR** entries first. The 
 
 MeedyaDL includes a **Verbose Activity Log** setting in **Settings > Advanced** that shows detailed diagnostic information directly in the Activity Log panel.
 
-> **Session-only setting:** As a safety measure, verbose logging automatically resets to **off** every time MeedyaDL is restarted. This prevents sensitive data (authentication tokens, cookie paths, API responses, MusicKit credentials) from being logged permanently by accident. You will need to re-enable it each session if needed.
+> **Session-only on full releases:** As a safety measure, on a full (Stable) release verbose logging automatically turns back **off** every time MeedyaDL is restarted. This prevents sensitive data (authentication tokens, cookie paths, API responses, MusicKit credentials) from being logged permanently by accident, so you will need to turn it on again each session if you need it. On an unfinished build (Alpha, Beta or Release Candidate — the version number has `-alpha`, `-beta` or `-rc` in it) it stays on across restarts if you leave it on, because people testing those builds need the extra detail.
 
 When enabled, you will see:
 
@@ -582,7 +582,7 @@ $env:RUST_LOG="debug"
 
 Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.
 
-> **Note:** The `RUST_LOG` environment variable controls the *log file* verbosity and is independent of the in-app **Verbose Activity Log** toggle (which controls the Activity Log panel). Both reset when the application is restarted — `RUST_LOG` because it is an environment variable, and the in-app toggle because it is a session-only setting.
+> **Note:** The `RUST_LOG` environment variable controls the *log file* verbosity and is independent of the in-app **Verbose Activity Log** toggle (which controls the Activity Log panel). `RUST_LOG` stops applying as soon as you launch the application normally without it. The in-app toggle turns itself off at restart on a full release, but stays on across restarts on an Alpha, Beta or Release Candidate build (see above).
 
 ---
 
@@ -602,7 +602,9 @@ Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically clean
 
 ### Anonymous Crash Reporting (Optional)
 
-You can optionally help improve MeedyaDL by enabling anonymous crash reporting in **Settings > Advanced > Error Reporting**. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is disabled by default and requires explicit opt-in.
+You can optionally help improve MeedyaDL by enabling anonymous crash reporting. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is off by default and only turns on if you say yes.
+
+MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again -- unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
 
 ### Reporting a Crash via GitHub Issues
 

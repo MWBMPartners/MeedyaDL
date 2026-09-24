@@ -34,7 +34,7 @@ These pages can be translated: a translated page lives at `help/<language>/<same
 - [Animated Artwork](animated-artwork.md) -- Downloading animated cover art from Apple Music using MusicKit credentials.
 - [Audio Codecs](audio-codecs.md) -- What ALAC, Dolby Atmos, AC3 and the AAC variants actually mean, and which one to pick.
 - [Settings](settings.md) -- What each tab in the Settings screen controls.
-- [Tools](tools.md) -- The external programs MeedyaDL installs for itself, and how to manage them.
+- [Tools](tools.md) -- The external programs MeedyaDL installs for itself, how to manage them, and how they are kept up to date.
 
 ### Reference
 

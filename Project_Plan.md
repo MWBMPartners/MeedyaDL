@@ -212,7 +212,7 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 ### Key Deliverables
 
 - ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
-- ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update
+- ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update. (Correction, September 2026: of the five helper tools, only N_m3u8DL-RE was actually being checked until #273 — see Post-Release Features.)
 - ✅ **In-App Help System** - Markdown renderer, search, help topics (21 files in `help/*.md`; the in-app viewer reads and shows 20 of them — every one except `index.md`, the GitHub-only table of contents — with no separate hand-typed copy)
 - ✅ **System Tray** - Minimize to tray, download count badge
 - ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
@@ -275,7 +275,7 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 - ✅ **Fix mp4decrypt (Bento4) download 404 on Windows/Linux** - Naming changed at build 633: `win32` → `x86_64-microsoft-win32`, `linux-x86_64` → `x86_64-unknown-linux`
 - ✅ **Fix MP4Box on Windows** - GPAC discontinued ZIP archives; now downloads NSIS `.exe` installer and runs silently
 - ✅ **Fix MP4Box on Linux** - GPAC discontinued tarballs; now downloads `.deb` and extracts via `ar` + `tar`
-- ✅ **System PATH detection for external tools** - Checks system PATH for FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box before downloading; copies compatible system binaries to managed directory
+- ✅ **System PATH detection for external tools** - Checks system PATH for FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box before downloading; copies compatible system binaries to managed directory (later changed: a compatible system copy is now used where it is, with only a pointer to it stored, rather than copied)
 - ✅ **Tool version requirements config** - New `tool-versions.toml` with minimum versions per tool, compiled into binary via `include_str!()`
 - ✅ **Dependency source tracking** - `DependencyStatus.source` field ("system" or "managed") with "System" badge in setup wizard
 - ✅ **Fix ARMv7 artifact naming** - Split build/upload for ARMv7; rename `armhf`/`armhfp` → `armv7` before uploading to release
@@ -357,6 +357,8 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 - ✅ **i18n locale parity tests** (#111 partial) - Synced `de` and `fr` translation files to match `en` (49 missing keys added each — `download.*`, `queue.*`, `activity.*`, `history.*` sections were entirely absent in both non-English locales). New `src/lib/i18n.test.ts` with 6 parity tests (missing-key detection in both directions, sanity floor, `AVAILABLE_LOCALES` enumeration). Per-component `t()` migration remains a follow-up (only 1 of 64 non-test components currently uses `useTranslation`).
 - ✅ **Toggle ARIA refinement** (#125 partial) - Explicit `aria-labelledby` + `aria-describedby` (via React `useId()`) on the `Toggle` component's `role="switch"` button. The implicit `<label>` wrapper relationship was unreliable across Orca and older NVDA — the explicit attributes make the relationship machine-readable independent of screen-reader traversal heuristics. Icon-only-button audit also done: zero gaps across the 30+ component files (the team had already been disciplined). Remaining items (status indicators with icons, 200% zoom resilience, axe-core in CI) documented on the issue as a follow-up.
 - ✅ **song.link (Odesli) links on other services** (#295) - New enrichment Step 6c asks song.link where else a downloaded album is available (Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and others) and Step 6d writes what it finds as `MeedyaMeta:<Service>Url` tags on every track, plus a `cross_platform_urls` field on the album's `manifest.meedyadl`. Shipped: the on/off toggle (`odesli_lookup_enabled`, off by default) in Settings > Metadata, the access-key field (`odesli_api_key`) in Settings > Advanced > API Credentials, paced and cached lookups (`services/odesli_service.rs`), and answers remembered for 30 days so a re-download or a different codec of the same album costs no extra request. The code existed before this but had no switch anywhere in the app, so it had never actually run for anyone — that's what this closes. Needs an access key that Odesli (who run song.link) grant by application, since they closed free public access to the API in 2026.
+- ✅ **Update checks for all five helper tools** (#273) - The Updates page now checks FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo, each against the place an update would actually come from (GitHub releases, the build source FFmpeg was installed from, or the MeedyaSuite mirror). Before this only N_m3u8DL-RE was really checked. When a check cannot give an answer (no internet, a tool that will not report its version, a source that records no usable version), the page says "could not check" for that tool instead of calling it up to date. A copy that belongs to a package manager or was found already on the system is left to its owner.
+- ✅ **GAMDL 3.9.1 support** - Supported range raised to 3.9.1. GAMDL 3.9 is refused, because it cannot download Apple's web AAC formats, which are the last step in the fallback chain. Windows on ARM is held at 3.8.5 and Linux ARMv7 at 3.8.1, because newer releases cannot be installed there. GAMDL 3.9's second way of unlocking protected tracks (PlayReady, with a device file you supply) is offered in Settings > Advanced when GAMDL 3.9 or newer is installed. Full detail in `.github/audits/gamdl-v3.9-v3.9.1-audit.md`.
 
 ---
 
@@ -573,13 +575,13 @@ None at this time.
 ## 📝 Notes
 
 - **All CLI tools are called as subprocesses** (`python -m gamdl`, `python -m votify`, `yt-dlp`, etc.) to maintain license compatibility
-- **All dependencies are self-contained** in the app data directory — no system-wide installations
+- **Nothing is installed system-wide** — MeedyaDL's own copies of Python, GAMDL and the tools live in the app data directory; tools you already have (and, if you choose, a system Python via a private environment) are reused where they are rather than copied
 - **Conventional commits** are used throughout for automated changelog generation
 - **Every source file** includes copyright headers with automated year updates
 - **yt-dlp is shared** between YouTube (M10) and BBC iPlayer (M8) — install once, configure per-service
 
 ---
 
-*Last updated: 2026-09-11*
+*Last updated: 2026-09-24*
 
 (c) 2024-2026 MeedyaDL

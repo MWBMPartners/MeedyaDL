@@ -1,6 +1,6 @@
 # Terms of Service
 
-**Last updated: 2026-09-10**
+**Last updated: 2026-09-24**
 
 By downloading, installing, or using MeedyaDL ("the Software"), you agree to the following terms.
 
@@ -36,6 +36,7 @@ MeedyaDL does **not** collect personal data by default. Optional features:
 - **Crash reporting**: off unless you switch it on. Sends anonymous crash data to help fix bugs. No personal data, download history, or music library information is collected. Toggle in Settings > Advanced.
 - **Clipboard monitoring**: when enabled, checks clipboard text for URL patterns only. Clipboard contents are never stored or transmitted.
 - **Update and feature-availability checks**: from time to time the app asks our servers whether a newer version is available and whether any feature has been temporarily switched off. In these requests the app identifies its own version, operating system and processor type — the same class of information sent with an update check — and **no install identifier, account, locale or settings data is ever sent**. These checks cannot identify you, your device, or your library. If a check fails (for example, you are offline), the app simply continues with its last known state.
+- **Checks for newer versions of the download engine and helper tools**: when the app checks for updates, it also asks the public places where GAMDL and the helper tools it installed for you are published (their public release pages, and our own tools mirror) whether a newer version exists. These requests identify themselves either as MeedyaDL with its version number or as an ordinary web browser, and carry nothing about you, your account or your library.
 - **Opt-in features that contact other companies**: a small number of features are switched off by default because turning them on means MeedyaDL asks another company's service to do the one specific job you asked for. Each one sends only what that job needs — never your name, your Apple Music account, or anything about your library beyond the one item being looked up:
   - **song.link (run by a company called Odesli)**: if you turn on "Links on Other Music Services", MeedyaDL sends the downloaded album's own Apple Music link, so song.link can tell you where else that album is available.
   - **Deezer**: if you turn on the cover-art upgrade feature, MeedyaDL sends the album's release barcode, so Deezer can offer a bigger cover picture if it has one.

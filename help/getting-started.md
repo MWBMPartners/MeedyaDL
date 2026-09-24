@@ -135,7 +135,7 @@ The default audio codec is **ALAC** (Apple Lossless), which provides the highest
 To change the default quality:
 
 1. Open **Settings** from the application menu or toolbar.
-2. Navigate to the **Quality** tab.
+2. Navigate to the **Codec & Resolution** tab.
 3. Select your preferred audio codec and quality level.
 
 For a full explanation of available quality options, including lossless and Hi-Res Lossless formats, see [Quality Settings](quality-settings.md).

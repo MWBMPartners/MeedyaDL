@@ -114,6 +114,8 @@ Downloaded videos are saved in the **MP4 container format** with the `.m4v` file
 
 Files are saved to your configured output directory, the same location used for music downloads. File naming follows the template system configured in **Settings > Templates**. See [Lyrics and Metadata](lyrics-and-metadata.md) for more on how templates work.
 
+**Where a music video lands.** When GAMDL can work out which album a music video belongs to, it uses your album folder and file templates, so the video is saved in the album's folder next to its songs. Only when it cannot find an album does the video go into a separate `Music Videos` folder under the artist, with Apple Music's numeric video ID added to the file name so two videos with the same title never overwrite each other. From GAMDL 3.9.1, GAMDL finds the album far more often than before, so videos you download now may land beside the songs where older downloads went into `Music Videos`. Nothing already on disk is moved or deleted.
+
 ### Subtitles and Lyrics
 
 Music video downloads can include synchronized lyrics or subtitle tracks. The default lyric format for music videos is **TTML** (Timed Text Markup Language), which is Apple's native subtitle format. An **SRT** (SubRip) file is also downloaded alongside the TTML file for broader compatibility with media players.
