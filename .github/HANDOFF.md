@@ -25,7 +25,9 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | `d5cc5ff8` | Batch 5 findings 3–7 + N_m3u8DL-RE claim | Yes — batch-5 round 1 |
 | `80d8f607` | Batch-5 Codex round 1, findings 2–6 (one ownership gate, three-way ownership, latest side checked, fresh FFmpeg date at install, GPAC pin version) | **No — batch-5 round 2** |
 | `192d18bc` | Batch-5 Codex round 1, finding 1 (blocking): an update no longer falls back to the mirror unless the mirror is what was checked | **No — batch-5 round 2** |
-| `68046c37` | MP4Box: re-check the copy after a failed install route (from Codex's cut-off round, verified by hand) | **No — stand-in now, Codex at 13:41** |
+| `68046c37` | MP4Box: re-check the copy after a failed install route (from Codex's cut-off round, verified by hand) | Stand-in only — **Codex owed** |
+| `401cb390` | Stand-in findings on the above: installer is TOLD it is an update (`for_update`), MP4Box updates go only to the checked source (never brew/apt), MP4Box mirror route now stage-and-swap | Not reviewed — **Codex owed** |
+| `12f1f32c` | Stand-in findings on `f7ff3c30`: only matrix./env. placeholders; only exports in `shell: bash` steps | Not reviewed — **Codex owed** |
 | `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
 
 ### Codex rounds on batch 4 so far
@@ -86,16 +88,23 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   refusal message could have been false and left the person with no MP4Box). That fix
   is **not** a Codex finding and is **not reviewed**.
 * **Hand-over, recorded as the rules require:** a fresh Opus agent with no part in
-  building any of this is reviewing `80d8f607`, `192d18bc`, `68046c37` and `f7ff3c30` as a
-  **stand-in**. Its result goes here when it arrives. Everything it reviews is **still owed
-  a Codex round**.
+  building any of this reviewed `80d8f607`, `192d18bc`, `68046c37` and `f7ff3c30` as a
+  **stand-in**. Result: A minor-only; **B two blocking** (the "is this an update?" rule was
+  GUESSED from the copy on disk and was wrong both ways — BtbN FFmpeg reads as "nightly"
+  so the rule never applied to it, and an MP4Box with no origin record had every
+  Reinstall refused); C a false comment (Homebrew/apt run first for an MP4Box update);
+  D clean, two minor. All verified against the code and acted on in `401cb390` and
+  `12f1f32c`. **Everything above is still owed a Codex round.**
 * **Codex catch-up is scheduled for 13:41** (session-only cron job — gone if the session
-  restarts). If the session restarted, run it by hand: batch-5 round 2 (`80d8f607`,
-  `192d18bc`, `68046c37`), then batch-4 round 8 (`f7ff3c30`), then batches 2 and 3.
+  restarts). If it did not run, do it by hand: batch-5 round 2 = `80d8f607`, `192d18bc`,
+  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`; then batches 2 and 3.
+* **Lesson from the stand-in:** "is this an update?" cannot be inferred from the state
+  of the copy; the Update button now says so. Guessing intent from disk state is the
+  same shape of mistake as guessing shell syntax — refuse to infer what you can be told.
 
 ### In flight — LOST on a restart
 
-* The stand-in review above. If lost, simply rely on the 13:41 Codex round instead.
+* Nothing running. The 13:41 Codex job is scheduled but only lives in this session.
 
 ---
 
