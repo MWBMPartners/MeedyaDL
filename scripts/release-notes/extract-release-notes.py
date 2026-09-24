@@ -30,6 +30,15 @@ before it only ever looked at lines starting with exactly
 4. `Release-Note:` followed by a blank line and a whole description: the
    release tool renders the description as the note.
 
+A stand-in review the same night (a fresh Opus agent, while Codex was
+out) found two more, by the same method:
+
+5. `Release-Note #text` -- git-cliff also accepts the "Token #value" form
+   of a trailer, and publishes it, but the gate only looked for a colon.
+6. A line holding only an invisible control character (\x1c to \x1f).
+   Python counts those as blank; git-cliff does not, so it joined the
+   next line into the note while this script stopped short of it.
+
 The rules below close each of them. Where the release tool's own reading
 is odd or hard to predict (cases 2 and 4), this does not try to copy it:
 an empty `Release-Note:` line is REFUSED, with a message saying how to
@@ -38,14 +47,18 @@ write it. Refusing when unsure beats guessing and reporting success.
 WHAT IT DOES
 ------------
 * Carriage returns are removed first.
-* A note starts at any line beginning `Release-Note:`, with or without a
-  space after the colon.
+* A note starts at any line beginning `Release-Note:` or `Release-Note #`,
+  with or without a space after the colon.
 * It carries on over the following lines, joined with single spaces,
   until a blank line, another `Name: value` trailer line, or the end.
   (Stopping at the blank line keeps a "Generated with" line or a pasted
   description out, as the templates do.)
+* A line counts as blank only by the release tool's own rule (Rust's
+  idea of white space, which does not include \x1c to \x1f).
 * A `Release-Note:` with nothing after it on the same line is an error
-  (exit 1).
+  (exit 1). So is a note containing any control character other than a
+  tab: what the release tool would show is then hard to be sure of, and
+  no real note needs one.
 
 This joins MORE text than the templates might ever render, never less:
 an extra line that is linted but not shown costs nothing, and a line that
@@ -59,35 +72,52 @@ from __future__ import annotations
 import re
 import sys
 
-# A note starts at "Release-Note:" whether or not a space follows.
-_NOTE_START = re.compile(r"^Release-Note:[ \t]*(.*)$")
+# A note starts at "Release-Note:" whether or not a space follows, or at
+# "Release-Note #", the other trailer form the release tool accepts.
+_NOTE_START = re.compile(r"^Release-Note(?:[ \t]*:|[ \t]*#)[ \t]*(.*)$")
+# Characters Python calls white space but Rust (and so the release tool)
+# does not. A line of these is NOT blank to the release tool.
+_PYTHON_ONLY_SPACE = "\x1c\x1d\x1e\x1f"
+# Any control character except tab. A note containing one is refused.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 # Any other "Name: value" trailer line ends the note being joined. The
 # release tool starts a new footer at such a line, so its text is not part
 # of the note.
 _OTHER_TRAILER = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
 
 
-class EmptyNoteError(ValueError):
-    """A `Release-Note:` line had nothing after it on the same line."""
+class RefusedNoteError(ValueError):
+    """A note the gate refuses: empty, or holding a control character."""
+
+
+def _is_blank(line: str) -> bool:
+    """Blank by the release tool's rule, not Python's."""
+    return all(c.isspace() and c not in _PYTHON_ONLY_SPACE for c in line)
 
 
 def extract_notes(text: str) -> list[str]:
     """Every Release-Note in `text`, each joined into one line.
 
-    Raises EmptyNoteError for a `Release-Note:` line with nothing after it,
+    Raises RefusedNoteError for a `Release-Note:` line with nothing after it,
     because what the release tool would render in that case cannot be
     predicted safely.
     """
     notes: list[str] = []
     current: str | None = None
     for raw in text.replace("\r", "").split("\n"):
+        if current is not None or _NOTE_START.match(raw):
+            if _CONTROL.search(raw):
+                raise RefusedNoteError(
+                    "A 'Release-Note:' note contains an invisible control "
+                    "character. Retype the note as plain text."
+                )
         start = _NOTE_START.match(raw)
         if start:
             if current is not None:
                 notes.append(current)
             value = start.group(1).strip()
             if not value:
-                raise EmptyNoteError(
+                raise RefusedNoteError(
                     "A 'Release-Note:' line has nothing after it. Put the whole "
                     "note on the same line as 'Release-Note:' (it may wrap onto "
                     "the next lines, but must start on that one), or write "
@@ -97,7 +127,7 @@ def extract_notes(text: str) -> list[str]:
             continue
         if current is None:
             continue
-        if not raw.strip() or _OTHER_TRAILER.match(raw):
+        if _is_blank(raw) or _OTHER_TRAILER.match(raw):
             notes.append(current)
             current = None
             continue
@@ -110,7 +140,7 @@ def extract_notes(text: str) -> list[str]:
 def main() -> int:
     try:
         notes = extract_notes(sys.stdin.read())
-    except EmptyNoteError as err:
+    except RefusedNoteError as err:
         # The ::error:: prefix makes GitHub show it on the pull request.
         print(f"::error::{err}", file=sys.stderr)
         return 1

@@ -16,7 +16,8 @@
       {%- set_global rn_joined = "" -%}
       {%- for rn_part in footer.value | split(pat="\n") -%}
         {%- if rn_part | trim == "" -%}{%- break -%}{%- endif -%}
-        {%- set_global rn_joined = rn_joined ~ " " ~ rn_part | trim -%}
+        {%- set rn_line = rn_part | trim -%}
+        {%- set_global rn_joined = rn_joined ~ " " ~ rn_line -%}
       {%- endfor -%}
       {%- set line = rn_joined | trim -%}
       {%- if line and line != "none" -%}

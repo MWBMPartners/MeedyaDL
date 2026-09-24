@@ -33,7 +33,7 @@ assert _spec and _spec.loader
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 extract_notes = _mod.extract_notes
-EmptyNoteError = _mod.EmptyNoteError
+RefusedNoteError = _mod.RefusedNoteError
 
 # (label, message, expected notes)
 CASES: list[tuple[str, str, list[str]]] = [
@@ -71,15 +71,32 @@ CASES: list[tuple[str, str, list[str]]] = [
         "Release-Note: Protects private\r\nkeys during sign-in.\r\n",
         ["Protects private keys during sign-in."],
     ),
+    # --- Found by the stand-in review, 24 Sept 2026 ---
+    (
+        "stand-in 1: the 'Release-Note #text' form is a note too",
+        "Release-Note #Now reads your private keys from the keychain.\nRelease-Note: none",
+        ["Now reads your private keys from the keychain.", "none"],
+    ),
+    (
+        "a line of ordinary spaces still ends a note",
+        "Release-Note: Downloads work.\n   \nA whole description.",
+        ["Downloads work."],
+    ),
 ]
 
 # Messages that must be REFUSED: an empty Release-Note: line (Codex cases 2
-# and 4). The release tool renders the NEXT text it finds as the note, even
-# across a blank line, so the gate cannot tell safely what would show.
+# and 4), or a note holding a control character (stand-in case 2). In each,
+# the gate cannot tell safely what the release tool would show.
 REFUSED: list[tuple[str, str]] = [
     ("Codex 2: empty line, note on the next line", "Release-Note: Downloads work.\nRelease-Note:\nUses a token."),
     ("Codex 4: empty line, blank, then a description", "Release-Note: \n\nA whole PR description."),
     ("empty with only spaces", "Release-Note:    "),
+    ("stand-in 1: empty '#' form, note on the next line", "Release-Note #\nprivate keys"),
+    (
+        "stand-in 2: a control character Python calls blank but the release tool does not",
+        "Release-Note: Fixed sign-in.\n\x1f\nNow stores your private keys in the keychain.",
+    ),
+    ("a control character inside the note itself", "Release-Note: Fixed\x07 sign-in."),
 ]
 
 
@@ -88,7 +105,7 @@ def main() -> int:
     for label, message, expected in CASES:
         try:
             got = extract_notes(message)
-        except EmptyNoteError as err:
+        except RefusedNoteError as err:
             print(f"FAIL {label}: refused unexpectedly ({err})")
             failures += 1
             continue
@@ -98,7 +115,7 @@ def main() -> int:
     for label, message in REFUSED:
         try:
             got = extract_notes(message)
-        except EmptyNoteError:
+        except RefusedNoteError:
             continue
         print(f"FAIL {label}: should have been refused, got {got!r}")
         failures += 1

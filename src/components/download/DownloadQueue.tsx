@@ -1453,8 +1453,8 @@ export function DownloadQueue() {
             Don&apos;t ask again — single-click abort from now on. There is
             no switch to turn this question back on yet. The only way is
             Reset in Settings and then Save Changes, which brings this
-            question back but also puts your other settings back to their
-            defaults.
+            question back but also puts most of your other settings back to
+            their defaults.
           </span>
         </label>
         <div className="flex justify-end gap-2">
