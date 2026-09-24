@@ -80,20 +80,49 @@ impl SettingsCache {
             }
         }
 
-        // Slow path: cache empty. Load from disk, populate cache,
-        // return the loaded value. Use the same error-tolerant
-        // shape as `load_settings_for_queue`'s pre-#690 logic.
-        let loaded = match config_service::load_settings(app) {
-            Ok(settings) => settings,
-            Err(e) => {
-                log::warn!("Failed to load settings for cache: {e}, using defaults");
-                AppSettings::default()
+        // Slow path: cache empty. Load from disk and fill the cache —
+        // under the settings write lock, and only if nobody filled it
+        // first.
+        //
+        // This used to read the file with no lock and then overwrite the
+        // cache unconditionally. So a first reader could read a one-off
+        // "shut down after the queue" as still armed; meanwhile the queue
+        // finished and cleared it (file and cache, under the lock); then
+        // the first reader stored its earlier, armed copy over the cleared
+        // one. The running app's copy is what every settings write now
+        // keeps for that field, so the used-up shutdown came back and was
+        // written to disk too (Codex, review of 57f137ac). Holding the lock
+        // means no writer can run between the read and the fill; checking
+        // for an existing value means a reader never replaces something
+        // newer. Every writer of this cache is in `config_service` and
+        // holds the same lock, and nothing calls this while holding it, so
+        // this cannot deadlock.
+        config_service::with_settings_write_lock(|| {
+            if let Some(current) = self.peek() {
+                return current;
             }
-        };
-        if let Ok(mut guard) = self.inner.write() {
-            *guard = Some(loaded.clone());
+            // Same error-tolerant shape as `load_settings_for_queue`'s
+            // pre-#690 logic.
+            let loaded = match config_service::load_settings(app) {
+                Ok(settings) => settings,
+                Err(e) => {
+                    log::warn!("Failed to load settings for cache: {e}, using defaults");
+                    AppSettings::default()
+                }
+            };
+            self.fill_if_empty(loaded)
+        })
+    }
+
+    /// Stores `loaded` only if the cache is still empty, and returns what
+    /// the cache holds afterwards — the newer value if one got there
+    /// first. Split out of `get_or_load` so the "never replace something
+    /// newer" half can be tested without a running app.
+    fn fill_if_empty(&self, loaded: AppSettings) -> AppSettings {
+        match self.inner.write() {
+            Ok(mut guard) => guard.get_or_insert(loaded).clone(),
+            Err(_) => loaded,
         }
-        loaded
     }
 
     /// Force-refresh the cache with the given settings. Called by
@@ -193,6 +222,48 @@ mod tests {
             serde_json::to_value(&expected).expect("serialise the expected settings"),
             "clearing the one-shot must not disturb any other cached setting"
         );
+    }
+
+    /// A first fill of the cache must never replace a value a settings
+    /// write stored in the meantime. That is how a used-up one-off
+    /// shutdown came back: a reader that read the file before the queue
+    /// cleared it stored its armed copy over the cleared one (Codex,
+    /// review of 57f137ac).
+    #[test]
+    fn a_first_fill_never_replaces_a_newer_value() {
+        let cache = SettingsCache::new();
+        // What a writer stored while the reader was still reading the file.
+        cache.refresh(AppSettings {
+            after_queue_once: None,
+            ..Default::default()
+        });
+        // The reader's earlier copy, from before the one-off was used up.
+        let stale = AppSettings {
+            after_queue_once: Some(crate::models::settings::AfterQueueAction::ShutdownComputer),
+            ..Default::default()
+        };
+        let got = cache.fill_if_empty(stale);
+        assert_eq!(
+            got.after_queue_once, None,
+            "the reader must be given the newer value"
+        );
+        assert_eq!(
+            cache.peek().and_then(|s| s.after_queue_once),
+            None,
+            "the cache must still hold the cleared one-off, not the stale armed copy"
+        );
+    }
+
+    /// An empty cache is filled by the first reader.
+    #[test]
+    fn a_first_fill_fills_an_empty_cache() {
+        let cache = SettingsCache::new();
+        let loaded = AppSettings {
+            overwrite: true,
+            ..Default::default()
+        };
+        assert!(cache.fill_if_empty(loaded).overwrite);
+        assert!(cache.peek().is_some_and(|s| s.overwrite));
     }
 
     /// A fresh cache starts empty.

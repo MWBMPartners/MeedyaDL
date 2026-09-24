@@ -745,6 +745,20 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
 /// at that call site.
 static SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Runs `f` while holding `SETTINGS_WRITE_LOCK`.
+///
+/// For the settings cache's first fill only (`SettingsCache::get_or_load`),
+/// which must read the file and store it with no settings write able to
+/// land in between — see the comment there. Everything else that needs the
+/// lock is in this file and takes it directly. Never call this from inside
+/// a function that already holds the lock: it is not reentrant.
+pub(crate) fn with_settings_write_lock<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
 /// Writes the settings JSON to a specific path: atomic replace, 0600
 /// permissions on Unix, and the matching `.sha256` companion file.
 ///
@@ -999,19 +1013,30 @@ where
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
-    let written = read_settings_from_disk(app).and_then(|mut settings| {
-        // No "running app wins" rule here: this function's callers are
-        // setting the value on purpose (the queue clearing a used-up
-        // one-off), and it changes the running app's copy itself below.
+    // No "running app wins" rule here: this function's callers are setting
+    // the value on purpose (the queue clearing a used-up one-off), and it
+    // changes the running app's copy itself below.
+    let changed = read_settings_from_disk(app).map(|mut settings| {
         apply(&mut settings);
-        write_settings_to_path(&settings_path, &settings).map(|()| settings)
+        settings
     });
+    let written = changed
+        .clone()
+        .and_then(|settings| write_settings_to_path(&settings_path, &settings).map(|()| settings));
 
     if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
         match &written {
             Ok(settings) => cache.refresh(settings.clone()),
             Err(_) => {
-                cache.mutate(|s| apply(s));
+                // If the cache was never filled, there is nothing to change
+                // in place — and the next first fill would read the file,
+                // which still has the old value. So fill it with the changed
+                // copy instead, when the file could at least be read.
+                if cache.mutate(|s| apply(s)).is_none() {
+                    if let Ok(settings) = &changed {
+                        cache.refresh(settings.clone());
+                    }
+                }
             }
         }
     }
@@ -2971,7 +2996,7 @@ mod tests {
             ("pub fn update_settings_field<", "read_settings_from_disk(app)?"),
             (
                 "pub fn update_settings_field_and_memory<",
-                "read_settings_from_disk(app).and_then(",
+                "read_settings_from_disk(app).map(",
             ),
             (
                 "pub fn set_after_queue_once(",
