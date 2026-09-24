@@ -50,4 +50,27 @@ the next person.
   notices it. The song.link limiter is the example: putting the race back now
   fails to compile.
 
+## Stop guessing at syntax you do not really read — refuse instead
+
+The build-value audit check (batch-4 review, 24 September 2026) had to decide
+whether a line in a workflow really exported a value, or was commented out.
+**Three successive attempts to reason about shell comments were each beaten by
+Codex**: a comment straight after an operator (`true;# echo ...`), an escaped
+quote that threw the quote-tracking off, and a `#` that sat *inside* the text
+the pattern matched rather than before it. Each one passed a disabled export as
+working — a silent pass, the one failure the check exists to prevent. Then even
+the strict replacement accepted two lines the shell rejects as errors.
+
+What finally converged was giving up on understanding the syntax: **count only
+one plain, complete form, and report everything else as "cannot confirm".** It
+costs nothing, because every real line already has that form, and there is
+nothing left to out-guess. The one gap it cannot close (a line switched off by
+other lines, such as a heredoc) is written down in the check as a known silent
+pass rather than hidden.
+
+The habit: when a check keeps being beaten by edge cases in a language it does
+not truly parse, narrow what it *accepts* instead of widening what it
+*recognises*. Six rounds of review on one small script is the cost of learning
+that late.
+
 Related: [[project-comment-accuracy-hazard]], [[project-never-worked-pattern]]
