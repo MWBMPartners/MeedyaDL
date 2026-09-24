@@ -134,9 +134,12 @@ describe('things MeedyaDL could not check', () => {
 
     render(<UpdatesPage />);
 
-    // The heading still appears, because nothing needs updating...
-    expect(screen.getByText(/up to date/i)).toBeInTheDocument();
-    // ...but it no longer speaks for FFmpeg, which nobody could check.
+    // The heading no longer promises "up to date" — FFmpeg could not be
+    // checked, so that would be claiming something nobody knows. It says
+    // what IS known: nothing newer was found...
+    expect(screen.getByText(/no updates found/i)).toBeInTheDocument();
+    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
+    // ...and names what it could not check.
     expect(screen.getByText(/could not check/i)).toBeInTheDocument();
     expect(
       screen.getByText(/installed before MeedyaDL began recording/i)
@@ -178,5 +181,51 @@ describe('things MeedyaDL could not check', () => {
     render(<UpdatesPage />);
     expect(screen.getByText(/up to date/i)).toBeInTheDocument();
     expect(screen.queryByText(/could not check/i)).not.toBeInTheDocument();
+  });
+  it('keeps the notice when something else DOES have an update', () => {
+    // The fault this guards against: the notice lived only in the
+    // "no updates" view, so one available update made every "could not
+    // check" line vanish, and the list of updates read as the whole
+    // picture. (Batch 5 review, finding 2.)
+    setLastResult([
+      makeComponentUpdate({ name: 'N_m3u8DL-RE', tool_id: 'nm3u8dlre' }),
+      makeComponentUpdate({
+        name: 'MP4Box',
+        current_version: null,
+        latest_version: null,
+        update_available: false,
+        not_checkable_reason: 'The check for a newer version did not finish.',
+        tool_id: 'mp4box',
+      }),
+    ]);
+
+    render(<UpdatesPage />);
+    expect(screen.getByText(/one thing MeedyaDL could not check/i)).toBeInTheDocument();
+    expect(screen.getByText(/did not finish/i)).toBeInTheDocument();
+  });
+
+  it('with no internet, does not claim everything is up to date', () => {
+    // What the backend now sends when every check fails: every entry
+    // marked "could not check", none with an update. Before the fix the
+    // entries simply vanished and the page said "You're up to date!"
+    // having checked nothing at all.
+    const reason = 'The check for a newer version did not finish.';
+    setLastResult(
+      ['GAMDL', 'MeedyaDL', 'Python Runtime'].map((name) =>
+        makeComponentUpdate({
+          name,
+          current_version: null,
+          latest_version: null,
+          update_available: false,
+          not_checkable_reason: reason,
+          tool_id: null,
+        })
+      )
+    );
+
+    render(<UpdatesPage />);
+    expect(screen.queryByText(/up to date/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/no updates found/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 things MeedyaDL could not check/i)).toBeInTheDocument();
   });
 });
