@@ -4139,15 +4139,20 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
         //
         // The shipped configuration deliberately pins none of the three.
         // Absent a pin, each platform must refuse and let the caller use
-        // the mirror, which publishes a checksum and is verified against
-        // it. This asserts the shipped state really is "no pin" for all
-        // three — if somebody adds one, they must also supply a checksum,
-        // which the parser already enforces.
+        // the MeedyaSuite mirror — a fixed copy this project controls,
+        // rather than a nightly build that changes under us. Note what the
+        // mirror route does NOT do today: it checks a download against a
+        // checksum only when `[mirror.asset_hashes]` in tool-versions.toml
+        // lists one, and that section is commented out, so in the app a
+        // mirror download is not checked (#987). This asserts the shipped
+        // state really is "no pin" for all three — if somebody adds one,
+        // they must also supply a checksum, which the parser already
+        // enforces.
         for section in ["windows_installer", "macos_installer", "linux_installer"] {
             assert!(
                 parse_gpac_installer_pin(TOOL_VERSIONS_TOML, section).is_none(),
                 "[gpac.{section}] must not be pinned in the shipped configuration — \
-                 if it is, the upstream installer is used instead of the checked mirror"
+                 if it is, the upstream installer is used instead of the mirror"
             );
         }
     }

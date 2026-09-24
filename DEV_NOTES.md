@@ -105,7 +105,7 @@ below, which covers the same "latest work-in-progress" need.)
 | **Release** (`release.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Builds the app on all 6 platforms | **Yes** — this is the only workflow that produces installable binaries |
 | **Changelog** (`changelog.yml`) | Tag push (`v*`) or manual `workflow_dispatch` | Regenerates `CHANGELOG.md` via git-cliff | **No** — just updates the changelog file |
 | **Alpha / Beta / RC Release** (`alpha-release.yml`, `beta-release.yml`, `release-candidate-release.yml`) | Every push to the matching long-lived branch | Bumps the version to `X.Y.Z-{channel}.N` and pushes a tag to trigger `release.yml` | **Yes** — via the tag they push |
-| **Apply Branch Rulesets** (`apply-branch-rulesets.yml`) | Push to `.github/rulesets/*.json` or manual `workflow_dispatch` | Idempotently applies every ruleset in `.github/rulesets/` via the GitHub API | **No** — repo-config only |
+| **Apply Branch Rulesets** (`apply-branch-rulesets.yml`) | Push to `main` touching `.github/rulesets/*.json` (or the workflow itself), or manual `workflow_dispatch` | Idempotently applies every ruleset in `.github/rulesets/` via the GitHub API, and deletes any branch ruleset on the repository that has no file there | **No** — repo-config only |
 | **Auto-Delete Merged Branches** (`auto-delete-merged-branches.yml`) | `pull_request` closed (merged) | Deletes merged PR head branches except the protected channels | **No** — repo-config only |
 
 **Key insight**: When you push code to `main`, you'll see CI and Release Please run. These are fast and lightweight — they do NOT build binaries. The Release workflow only runs after the full release pipeline completes (see below).
@@ -299,7 +299,7 @@ silence rather than an error.
 
 **Adding a new `option_env!("NAME")` in Rust, or `import.meta.env.VITE_NAME` in
 the frontend, means adding it to all three `env:` blocks in `release.yml` in the
-same change.** There are three because the workflow builds on three runners.
+same change.** There are three because the app is built in three separate steps — "Build and publish" (Windows and Linux x64/ARM64), "Build macOS with notarization retry", and "Build ARMv7" — each with its own `env:` block. The one alternative the check accepts is a plain `echo "NAME=value" >> "$GITHUB_ENV"` in an earlier step of the same job (this is how the Chrome and Safari version numbers arrive). It only counts if the line is not commented out, the step says `shell: bash` and has no `if:` condition different from the build step's, and the value holds nothing that could fail — plain text, shell variables, or a `${{ matrix.… }}` / `${{ env.… }}` reference, never a command such as `$(...)`. Anything else is reported as "cannot confirm" rather than trusted.
 
 An uncreated secret resolves to an empty string, so wiring it early is always
 safe, and the feature switches itself on the moment the secret exists.
@@ -651,10 +651,10 @@ The app filters and enforces the channel on the client:
 - `UpdateChannel` enum in `src-tauri/src/models/settings.rs` still declares seven variants (`Nightly < Weekly < Monthly < Alpha < Beta < Rc < Stable`) for backward compatibility with old `settings.json` files, but only four are reachable today — `Nightly`/`Weekly`/`Monthly` are silently migrated to `Alpha` the first time an old settings file loads, and nothing in the app can produce them again.
 - `UpdateChannel::from_tag()` parses the pre-release suffix of any tag (`"-alpha.3"` → `Alpha`, `"-rc.1"` → `Rc`, no suffix → `Stable`).
 - `update_channel: UpdateChannel` is persisted in `AppSettings`, exposed as the **Update Channel** dropdown under *Settings > General > Updates*. Only Alpha is hidden from that dropdown unless developer access is unlocked — Beta, RC, and Stable are visible to everyone.
-- `check_all_updates` filters the GitHub releases list to the user's channel using `>=`, so (e.g.) a Beta user also sees RC and Stable releases, but never anything less stable than Beta. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=20` and picks the newest entry at or above the selection.
+- `check_all_updates` filters the GitHub releases list to the user's channel using `>=`, so (e.g.) a Beta user also sees RC and Stable releases, but never anything less stable than Beta. A Stable user fetches `releases/latest`; any other channel fetches `releases?per_page=100` (the most GitHub returns in one request) and picks the newest entry at or above the selection.
 - `download_and_install_app_update` refuses to install a tag whose channel is **less stable** than the user's current selection. This is the enforcement point: even if a cross-channel URL reaches the installer (deep link, stale cache, or manifest tampering), the installer returns a clear error instead of downgrading the user's stability tier. Switching to a less-stable channel is always an explicit action in Settings.
 
-The legacy `check_pre_releases: bool` setting still exists and is implicitly enabled whenever `update_channel != Stable` — it controls which GitHub endpoint the checker hits, but the channel drives which release is actually surfaced and installable.
+The old `check_pre_releases: bool` setting (the "Include Pre-Release Versions" switch) has been removed from Settings, because it could not change the result in any combination with the channel. The stored field is kept only so an existing settings file still loads; nothing reads it. Which GitHub endpoint the checker uses is now worked out from the channel alone: anything other than Stable uses the list.
 
 ### Branch protection + auto-delete
 
@@ -830,17 +830,18 @@ Help pages can be translated too, one Markdown file per page at `help/<language>
 
 ## GitHub Branch Protection
 
-The `main` branch is protected via a GitHub Repository Ruleset (preferred over legacy branch protection rules for flexibility).
+The four long-lived branches — `main`, `release-candidate`, `beta` and `alpha` — are protected by one GitHub Repository Ruleset (preferred over the older style of branch protection rules because it is kept as a file in the repository).
 
-**Ruleset name:** `main-protection`
+**Ruleset name:** `protected-stable-branches`, defined in `.github/rulesets/protected-stable-branches.json`
 
 **Rules applied:**
 
-- **Prevent force pushes** -- No one can rewrite `main` history
-- **Prevent branch deletion** -- `main` cannot be deleted
-- **Require CI status checks** -- PRs must pass `frontend` and `backend` CI jobs before merging
+- **Prevent force pushes** -- nobody can rewrite the history of those four branches (only fast-forward pushes are accepted)
+- **Prevent branch deletion** -- none of the four can be deleted
 
-**Bypass actors:** Repository admin (allows direct pushes to `main` for the owner's workflow)
+**Bypass actors:** none. Note what this ruleset does *not* do: it does not require pull requests or passing checks, so a plain push to one of these branches is still possible. The project rule "never push directly to a release branch without an explicit instruction" is a working rule, not something GitHub enforces.
+
+**The file is the source of truth.** `apply-branch-rulesets.yml` applies every file in `.github/rulesets/` and then **deletes any other branch ruleset set directly on this repository** that has no matching file, failing the run if a deletion does not go through. So a ruleset added by hand in the GitHub web page will be removed the next time the workflow runs — add it as a file instead. (This section used to describe a hand-made `main-protection` ruleset with required checks and an admin bypass. That ruleset no longer exists; checked against the live repository on 24 September 2026.)
 
 **Managing the ruleset:**
 
@@ -850,11 +851,9 @@ The `main` branch is protected via a GitHub Repository Ruleset (preferred over l
 
 gh api repos/MWBMPartners/MeedyaDL/rulesets
 
-# View specific ruleset details
+# Re-apply the files in .github/rulesets/
 
-gh api repos/MWBMPartners/MeedyaDL/rulesets/{ruleset_id}
-
-# Or manage via GitHub UI: Settings > Rules > Rulesets
+gh workflow run "Apply Branch Rulesets" --ref main
 
 ```
 
@@ -1098,15 +1097,15 @@ MeedyaDL/
 
 │       │   ├── profile_bundle.rs#   Diagnostic bundle export (#572)
 
-│       │   ├── service_status.rs#   Remote service status polling
-
 │       │   ├── smart_download.rs#   Cross-platform (song.link) smart download check
 
 │       │   ├── spotify_anti_ban.rs# M9 Spotify anti-ban dispatch gate IPC
 
+│       │   ├── stored_preference.rs# Saves one answer given outside the Settings screen straight to disk (such as setup finished, crash-report consent, the one-off after-queue action)
+
 │       │   └── wrapper.rs      #    Wrapper health-check commands
 
-│       ├── models/             #    Data structures (17 files)
+│       ├── models/             #    Data structures (16 files)
 
 │       │   ├── download.rs     #    Download request, state, queue status
 
@@ -1128,8 +1127,6 @@ MeedyaDL/
 
 │       │   ├── content_match.rs#    Content matching/search results
 
-│       │   ├── service_status.rs#   Service health/status state
-
 │       │   ├── feature_flags.rs#    Remote feature-flag snapshot + verdicts
 
 │       │   ├── spotify_anti_ban.rs# Anti-ban state model (M9-4)
@@ -1140,7 +1137,7 @@ MeedyaDL/
 
 │       │   └── get_iplayer_options.rs# BBC iPlayer CLI options stub
 
-│       ├── services/           #    Business logic (68 modules: 64 files + 4 directory submodules)
+│       ├── services/           #    Business logic (67 modules: 63 files + 4 directory submodules)
 
 │       │   ├── python_manager.rs    # Portable Python download/install
 
@@ -1207,8 +1204,6 @@ MeedyaDL/
 │       │   ├── bpm_service.rs       # BPM/tempo detection
 
 │       │   ├── smart_download.rs    # Cross-platform smart-download orchestration
-
-│       │   ├── service_status.rs    # Remote service operational status
 
 │       │   ├── integration_tests.rs # Backend integration tests
 
@@ -1282,7 +1277,7 @@ MeedyaDL/
 
 │       │   └── youtube_service.rs   # yt-dlp version checks (M10 stub)
 
-│       └── utils/              #    Utility modules (18 files)
+│       └── utils/              #    Utility modules (19 files)
 
 │           ├── platform.rs     #    OS detection & paths
 
@@ -1314,7 +1309,11 @@ MeedyaDL/
 
 │           ├── lyric_time.rs   #    Lyric timestamp parsing/formatting
 
-│           └── subprocess_reader.rs #    Shared `BufReader → next_line` subprocess line-reading shell
+│           ├── subprocess_reader.rs #    Shared `BufReader → next_line` subprocess line-reading shell
+
+│           ├── text.rs         #    Shortening text at a whole character, so a cut never lands mid-character and stops the app
+
+│           └── version.rs      #    The one rule for "is this an unfinished build" (before 1.0, or any -alpha/-beta/-rc suffix)
 
 ├── public/locales/             # i18n translation files
 
@@ -2246,6 +2245,7 @@ MeedyaDL supports two installer types, controlled by a `workflow_dispatch` input
   - `bundled=true, enabled=true, install_method=pip` → `pip install` into bundled-deps
   - `bundled=true, enabled=true, install_method=binary` → download from MeedyaDL-Tools mirror
 - Binary tools (FFmpeg, mp4decrypt, etc.) also downloaded from mirror
+- Every file taken from the mirror is checked against the checksum the mirror publishes for it (a `<asset>.sha256` file, `checksums.txt`, or the `SHA256SUMS` file the mirror actually uses today). A missing checksum or a mismatch stops the build rather than bundling an unchecked file (#984). Before this, the build only looked for the first two names, so no bundled tool had ever really been checked
 - Writes `manifest.json` with `offline_installer: true` so setup wizard skips downloading
 
 When a new engine is enabled in `engines.toml`, both installer types pick it up automatically — no workflow YAML changes needed.
@@ -2601,5 +2601,7 @@ Same drill as 2.9.1 → 3.x → 3.6:
 2. For each ADDED / REMOVED / RENAMED CLI option or INI key, add a `GamdlFeature` variant. Pin its threshold to the release that introduced the change. Add a per-variant `is_available_on` arm and a per-variant unit test in `services::gamdl_capabilities::tests`.
 3. For each renamed codec / value, follow the `to_runtime_cli_string()` pattern — keep the Rust variant for settings backwards-compat, runtime-dispatch the on-the-wire string.
 4. Bump `tool-versions.toml` → `[gamdl] maximum_tested_version` + `recommended_version`. Add a per-release audit block to the file's comment header documenting the four CLI / INI / output / regex surface deltas (zero-code-change is the happy path; the 3.6 entry shows the full-blown audit shape).
+   - **Check every platform can actually install it**, including the packages it depends on, not just GAMDL's own package. If a platform cannot, add it to `[gamdl.platform_ceilings]` in the same file (keys spelled exactly as `current_platform_id()` writes them — a misspelled key silently matches nothing). This table now governs the install itself, not just the labelling: Windows on ARM is held at 3.8.5 because a dependency two levels down has no Windows ARM64 build, and pip would otherwise try to compile it and fail.
+   - **If a release is broken, refuse it rather than just leaving it below the ceiling.** Add it to `KNOWN_BAD_VERSIONS` in `services/gamdl_capabilities.rs`, with the reason and the release that fixes it. The installer then refuses it, and Settings > Tools tells anyone who already has it what to do. GAMDL 3.9 is the first entry (see `.github/audits/gamdl-v3.9-v3.9.1-audit.md`).
 5. Update `help/wrapper.md`, `help/quality-settings.md`, `README.md` "Component Support Matrix", `SECURITY.md` "Wrapper service" section, and `DEV_NOTES.md` (this section).
 6. Ship as a pre-release on the `alpha` channel; hand-test before promoting to `beta` / Latest.

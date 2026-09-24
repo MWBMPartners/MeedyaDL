@@ -130,7 +130,7 @@ A `.meedyadl` file is a download manifest that MeedyaDL saves in each album's ou
 The Queue page provides two options for clearing items:
 
 - **Clear Completed** -- Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
-- **Clear All** -- Removes all items from the queue regardless of status, including failed items. Active downloads are cancelled before being removed.
+- **Clear All** -- Removes every queued, completed, failed and cancelled item. It asks you to confirm first. Anything that is downloading or being processed right now is left alone and keeps going -- to stop those too, use **Abort Queue**.
 
 Both buttons are in the queue header. If you want to keep failed items visible for review, use **Clear Completed** instead of **Clear All**.
 
@@ -232,12 +232,15 @@ There is no setting to re-enable parallel fetch — the control is internal to G
 
 ### How do I update MeedyaDL?
 
-MeedyaDL checks for updates automatically in two ways:
+MeedyaDL checks for updates automatically (you can also press **Check for Updates** on the Updates page at any time). It checks three kinds of thing:
 
 - **App updates**: The application checks GitHub Releases for new versions of MeedyaDL itself. When an update is available, a banner appears in the app with upgrade and dismiss actions.
 - **GAMDL updates**: The app checks PyPI for new versions of the GAMDL backend. When an update is available, GAMDL can be upgraded with one click directly from the update banner.
+- **Helper tool updates**: The five helper programs -- FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo -- are each checked against the place a new copy would actually come from. See [External Tools](tools.md#keeping-the-tools-up-to-date).
 
 No manual intervention is needed -- simply follow the prompts when the update banner appears.
+
+If MeedyaDL could not check something -- for example because you have no internet connection, or a tool would not tell it its version -- the Updates page says **No updates found** instead of **You're up to date!**, and lists what it could not check and why. That list is there so you are never told "up to date" when nobody actually knows.
 
 ---
 
@@ -283,7 +286,7 @@ No. The in-app updater only surfaces releases matching your selected channel (or
 
 ### How do I move back to Stable after trying a pre-release build?
 
-Open **Settings > General**, scroll down to the update settings at the bottom of the **Preferences** section, pick **Stable** from the Update Channel dropdown, and save. The next update check will surface the latest Stable release. If the Stable version number is lower than the pre-release version you're currently on, you'll need to download and install Stable manually from the [Releases page](https://github.com/MWBMPartners/MeedyaDL/releases) — the updater won't auto-downgrade your version.
+Open **Settings > General**, scroll down to the update settings at the bottom of the **Preferences** section, pick **Stable** from the Update Channel dropdown, and save. The next update check will surface the latest Stable release. While you are running a pre-release build and there is nothing newer to install, the Updates page also shows the latest Stable version with a **View Stable Release** button that opens its download page. If the Stable version number is lower than the pre-release version you're currently on, you'll need to download and install Stable manually from the [Releases page](https://github.com/MWBMPartners/MeedyaDL/releases) — the updater won't auto-downgrade your version.
 
 ### How often are pre-release builds published?
 

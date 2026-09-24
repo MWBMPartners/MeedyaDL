@@ -60,6 +60,7 @@ python3 tools/audit-checks/check_i18n.py --strict
 python3 tools/audit-checks/check_comment_paths.py --strict
 python3 tools/audit-checks/check_concurrency_claims.py --strict
 python3 tools/audit-checks/check_settings_reach_backend.py --strict
+python3 tools/audit-checks/check_settings_defaults.py --strict
 python3 tools/audit-checks/check_updater_manifest_keys.py --strict
 ```
 

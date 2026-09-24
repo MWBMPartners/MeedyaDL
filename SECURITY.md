@@ -19,7 +19,7 @@ MeedyaDL ships with a validated **component support matrix** — a pinned range 
 
 - The current support matrix lives in [README.md](./README.md#-component-support-matrix) and is the canonical, user-facing reference.
 - The machine-readable source of truth is [`src-tauri/tool-versions.toml`](./src-tauri/tool-versions.toml). Bumping a component's range requires a code change, review, and a new MeedyaDL release.
-- GAMDL specifically is bounded by `[gamdl] maximum_tested_version` so update prompts are suppressed when upstream ships beyond the validated ceiling. Users can still install newer versions manually but will see an activity-log warning and lose our support guarantees until the next MeedyaDL release validates that range.
+- GAMDL specifically is bounded by `[gamdl] maximum_tested_version`, and some platforms are held lower where newer releases cannot be installed. The ordinary install and upgrade stay inside that range. A newer upstream release is still shown, so you know it exists, but it is marked "Untested" with a warning, and installing it is your explicit choice. A release known to be broken (currently GAMDL 3.9) is refused outright. Anyone running a version outside the range sees an activity-log warning and loses our support guarantees until a MeedyaDL release validates it.
 
 Running MeedyaDL with components **outside** the listed ranges (e.g. a manually installed newer GAMDL, or a system-PATH FFmpeg below our floor) is not a supported configuration. We will triage bug reports against supported versions first, and may decline to investigate issues that do not reproduce inside the documented range.
 
@@ -62,14 +62,18 @@ MeedyaDL implements the following security measures:
 - **No shell interpolation** — all subprocess calls use parameterised arguments
 - **Content Security Policy** configured in Tauri for the webview
 - **Secrets stored in OS keychain** (not on disk)
-- **Checksum-checking code exists but is not yet turned on** — MeedyaDL can compute and check a downloaded tool's checksum against a saved value, but no download currently uses this check (tracked in issue [#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
+- **Checksum-checking code exists but is not yet turned on inside the app** — MeedyaDL can compute and check a downloaded tool's checksum against a saved value, but no download the app makes on your computer currently uses this check, because no checksums are saved for it yet (tracked in issue [#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
+- **The offline installer's bundled tools are checked** — when we build the larger offline installer, every helper tool copied into it is checked against the checksum published alongside it, and the build stops if a checksum is missing or does not match ([#984](https://github.com/MWBMPartners/MeedyaDL/issues/984))
+- **No constantly-changing "nightly" builds of helper tools** — on every platform, MP4Box is no longer taken from an upstream nightly build (a file that changes on every upstream build, so it can never be checked against a known checksum). Unless you already have your own copy installed, it now comes from our own tools mirror instead
+- **The app can only open file types it produces** — opening a file from inside the app goes through one narrow command that allows music, video, artwork, lyrics, subtitle and text files and the app's own record files, and refuses everything else (however the file extension is capitalised). It also refuses shortcuts, and on macOS Finder aliases, rather than following them to whatever they point at. The app no longer holds a general permission to open any file on the computer
+- **Imported settings cannot choose a program to run** — every setting that names a helper program or a file the app loads, including those inside the per-service settings, keeps this computer's own value when a settings file is imported
 - **GitHub Actions hardening**: all actions pinned to immutable commit SHAs
 - **cargo-deny** licence scanning and source allowlisting in CI (org-level `[sources.allow-org]`)
 - **CodeQL** static analysis for JavaScript/TypeScript and GitHub Actions, with the `security-and-quality` query suite enabled
 - **GitHub Advanced Security features**: Private Vulnerability Reporting, secret scanning + push protection, and Dependabot security updates are enabled on the repository
 - **Dependabot version updates** — weekly PRs for npm and cargo ecosystems (security updates are delivered immediately out-of-schedule)
 - **Activity log memory bounds** — capped at 10,000 entries to prevent unbounded WebView memory growth
-- **Updater artifact signing** — `.app.tar.gz.sig` signature files verified by Tauri updater before installation
+- **Updater artifact signing** — every platform's update package has a `.sig` signature file, which the in-app updater checks before installing anything
 - **macOS builds are signed and notarised** — every macOS release is signed with an Apple Developer ID and notarised by Apple, so macOS opens it without a Gatekeeper warning
 - **Windows builds are not code-signed** — Windows SmartScreen will show an "unrecognised publisher" warning on every install until code signing is added
 
