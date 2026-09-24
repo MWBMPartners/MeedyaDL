@@ -178,6 +178,23 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     Agents edit only, never commit; I read every change, run `check_help_topics.py`, commit,
     then a Codex round on the sweep commit only. If the session ends mid-sweep, `git status`
     shows what they changed; re-run the areas not finished.
+  - **Sweep DONE and pushed:** `c176e5c7` (two wrong on-screen texts: the Abort Queue
+    "re-enable in Preferences" pointer to a switch that does not exist, and "Import
+    (P3, coming next)") and `fbc69f4c` (the sweep: 11 help pages, README, SECURITY,
+    DEV_NOTES, Project_Plan, TERMS, ACKNOWLEDGEMENTS, CONTRIBUTING, PR template,
+    audit-checks README, CLAUDE.md, AGENTS.md, 6 memory files mirrored, 3 code comments).
+    All checks green (12 audit checks, vitest 837, cargo 2047, clippy, tsc, eslint).
+    **Real name found and removed** from project_gamdl_release_cadence.md (both copies) and
+    an audit retrospective; it stays in git history (since 674967fb, 22 May, on alpha) —
+    rewriting history is the maintainer's call, not done. Follow-ups opened: #1223 (no switch
+    to re-enable the abort confirmation), #1224 (check-acknowledgements misses
+    platform-only dependencies); both on the board.
+  - **CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
+    `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
+    rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
+    range. Asked the maintainer whether to open/merge the PR on the stand-in review or
+    wait for Codex. **Owed to Codex on 29 Sept regardless:** `35661974..fbc69f4c` plus
+    any fix commits after it — these are NOT fully reviewed until then.
   - **Then the PR:** branch is 110 ahead / 0 behind `origin/alpha`, merges cleanly, no other
     PR open to `alpha`. All 66 feat/fix/perf commits carry their own `Release-Note:`, so
     REBASE-merge (keeps each note; squash would lose them). Also queued, not
