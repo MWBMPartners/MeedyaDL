@@ -1783,18 +1783,23 @@ async fn aggregate_intermediate_release_notes(
     Some(combined)
 }
 
-/// Checks for Python runtime updates by comparing with python-build-standalone.
+/// Checks a helper programme for an update against its own project's
+/// latest GitHub release (#273). Used for N_m3u8DL-RE, and for MP4Box when
+/// it came from GPAC's own installer.
 ///
-/// Compares the installed Python version with the version constant in
-/// `python_manager.rs`. In the future, this could also check GitHub
-/// for newer python-build-standalone releases.
-/// Check for external tool updates via GitHub Releases API (#273).
+/// Reads the INSTALLED version by running the programme, and compares that
+/// against the release tag. (This comment used to say it compared against
+/// the minimum version in `tool-versions.toml` because the installed
+/// version was not tracked, and it opened with four lines describing the
+/// Python check — a fragment left behind by an earlier edit. Neither was
+/// true of this function.)
 ///
-/// Queries the latest release from the tool's GitHub repo and compares
-/// the tag against the minimum version from tool-versions.toml. Since
-/// we don't track the exact installed version (only minimum requirements),
-/// this reports "update may be available" when the latest release is newer
-/// than the minimum.
+/// A copy MeedyaDL does not own — one a package manager installed, or one
+/// found already on the system — is left alone, and nothing is compared.
+/// That check is made HERE rather than by each caller, so any tool routed
+/// through this function gets it. N_m3u8DL-RE used to reach this function
+/// with no such check, although a pushed commit message (80bb65ee) said
+/// all five helper programmes had one (batch-5 review).
 async fn check_github_tool_update(
     app: &AppHandle,
     tool_id: &str,
@@ -1811,6 +1816,18 @@ async fn check_github_tool_update(
     } else {
         None
     };
+
+    if !crate::services::dependency_manager::is_meedyadl_managed(app, tool_id) {
+        let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+        return Ok(pm_owned_update_skip(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+        ));
+    }
+
     let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
 
     let client = reqwest::Client::builder()
@@ -1879,9 +1896,8 @@ async fn check_github_tool_update(
         compare_installed_against_latest(current_version.as_deref(), latest_semver.as_deref());
 
     if verdict == VersionVerdict::Unreadable {
-        let reason = unreadable_version_reason_for(display_name)(
-            current_version.as_deref().unwrap_or_default(),
-        );
+        let reason =
+            unreadable_version_reason(display_name, current_version.as_deref().unwrap_or_default());
         return Ok(not_checkable_update(
             display_name,
             tool_id,
@@ -1977,23 +1993,17 @@ fn pm_owned_update_skip(
 /// Builds the "could not read a version" sentence, ready to hand to
 /// [`not_checkable_update`].
 ///
-/// Returns a closure so a caller can write
-/// `.filter(...).map(unreadable_version_reason_for(name))` without
-/// having to name the borrow twice.
-///
 /// One function so both comparison sites say the same thing. They used
 /// to have no wording at all, because neither of them asked the
 /// question.
-fn unreadable_version_reason_for(display_name: &str) -> impl Fn(&str) -> String + '_ {
-    move |raw: &str| {
-        format!(
-            "MeedyaDL could not read a version number from {display_name}. The programme is \
-             there, but instead of a version it reported: \"{}\". That usually means it is \
-             installed but cannot start — often a missing supporting file. Reinstalling it from \
-             the Tools page is the usual fix.",
-            crate::utils::text::truncate_str(raw.trim(), 160)
-        )
-    }
+fn unreadable_version_reason(display_name: &str, raw: &str) -> String {
+    format!(
+        "MeedyaDL could not read a version number from {display_name}. The programme is \
+         there, but instead of a version it reported: \"{}\". That usually means it is \
+         installed but cannot start — often a missing supporting file. Reinstalling it from \
+         the Tools page is the usual fix.",
+        crate::utils::text::truncate_str(raw.trim(), 160)
+    )
 }
 
 /// Builds a `ComponentUpdate` that honestly says "this could not be
@@ -2160,9 +2170,8 @@ async fn check_mirror_only_tool_update(
     );
 
     if verdict == VersionVerdict::Unreadable {
-        let reason = unreadable_version_reason_for(display_name)(
-            current_version.as_deref().unwrap_or_default(),
-        );
+        let reason =
+            unreadable_version_reason(display_name, current_version.as_deref().unwrap_or_default());
         return Ok(not_checkable_update(
             display_name,
             tool_id,
@@ -2204,17 +2213,31 @@ async fn check_mirror_only_tool_update(
 
 /// Checks MP4Box for an update.
 ///
-/// MP4Box has three real origins, which look identical on disk unless
-/// `dependency_manager::copy_and_verify_mp4box()` recorded which one
-/// actually happened (see that function's doc comment for the bug this
-/// fixed — every origin used to write the same "managed" marker):
-/// MeedyaDL's own download (GPAC's official pinned installer, or the
-/// MeedyaSuite mirror when that fails) — compared below against GPAC's
-/// own GitHub releases — or a package manager (Homebrew, apt) that
-/// either MeedyaDL asked to install it or the user already had it from
-/// before MeedyaDL ever ran, in which case this defers entirely and
-/// leaves the check to that manager (see the `#273` note: "this task
-/// is only for programmes MeedyaDL installed itself").
+/// MP4Box has three real origins, and each needs a different answer:
+///
+/// * **A package manager** (Homebrew, apt) — whether MeedyaDL asked it to
+///   install MP4Box or the user already had it. Left entirely to that
+///   manager (the `#273` note: "this task is only for programmes MeedyaDL
+///   installed itself").
+/// * **GPAC's own installer** (the Windows `.exe`, the Linux `.deb`, the
+///   macOS `.pkg`) — compared against GPAC's own GitHub releases.
+/// * **The MeedyaSuite mirror**, used when GPAC's installer route fails —
+///   compared against what the MIRROR holds, never GPAC. Installing an
+///   "update" fetches from the mirror again, so offering GPAC's newer
+///   release would re-fetch the same bytes: the one mistake #273 says to
+///   avoid above all.
+///
+/// The last two both write the `.source` marker "managed", so they are
+/// told apart by the separate origin record
+/// (`dependency_manager::Mp4boxOrigin`). Before that record existed, every
+/// managed copy was compared against GPAC — and since every pinned GPAC
+/// installer is commented out in the shipped configuration, that was
+/// wrong for nearly every managed copy on Windows and Linux (batch-5
+/// review, finding 4).
+///
+/// A managed copy with no origin record was installed before the record
+/// existed. It is reported as "could not check", with the fix, rather than
+/// guessed at — the same approach FFmpeg takes.
 async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     if !crate::services::dependency_manager::is_meedyadl_managed(app, "mp4box") {
         let binary = crate::services::dependency_manager::get_tool_binary_path(app, "mp4box");
@@ -2235,7 +2258,45 @@ async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         ));
     }
 
-    check_github_tool_update(app, "mp4box", "gpac/gpac", "MP4Box").await
+    use crate::services::dependency_manager::{read_mp4box_origin, Mp4boxOrigin};
+    match read_mp4box_origin(app) {
+        Some(Mp4boxOrigin::GpacOfficial) => {
+            check_github_tool_update(app, "mp4box", "gpac/gpac", "MP4Box").await
+        }
+        Some(Mp4boxOrigin::Mirror) => {
+            // The mirror records MP4Box's version as it comes; drop a
+            // leading "v" so it compares like the installed copy's
+            // reading. (As of 24 Sept 2026 the mirror records NO version
+            // for MP4Box — an empty entry — which that check already
+            // reports as "could not check".)
+            check_mirror_only_tool_update(app, "mp4box", "mp4box", "MP4Box", |v| {
+                v.trim().trim_start_matches(['v', 'V']).to_string()
+            })
+            .await
+        }
+        None => {
+            let binary = crate::services::dependency_manager::get_tool_binary_path(app, "mp4box");
+            let current_version = if binary.exists() {
+                crate::services::dependency_manager::get_tool_version(&binary, "mp4box")
+                    .await
+                    .ok()
+            } else {
+                None
+            };
+            let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
+            Ok(not_checkable_update(
+                "MP4Box",
+                "mp4box",
+                current_version,
+                managed_by,
+                manual_update_command,
+                "Cannot check for an MP4Box update — this copy was installed before MeedyaDL \
+                 began recording where it came from. Reinstalling MP4Box (Settings > Tools) lets \
+                 future checks work."
+                    .to_string(),
+            ))
+        }
+    }
 }
 
 /// Checks FFmpeg for an update.
@@ -2303,6 +2364,29 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
                 .to_string(),
         ));
     };
+
+    // Asked BEFORE looking at the recorded date. A Mac copy installed
+    // before this rule existed does have a date recorded — but it is the
+    // Linux/Windows build's date, so comparing it would still be wrong.
+    // See `mirror_records_ffmpeg_build_date_for` (batch-5 review, finding 3).
+    if info.source == "mirror"
+        && !crate::services::dependency_manager::mirror_records_ffmpeg_build_date_for(
+            std::env::consts::OS,
+        )
+    {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — this copy came from MeedyaDL's backup download \
+             source, which records a version number for the Mac build rather than a build date, \
+             so its age cannot be compared. Reinstalling FFmpeg (Settings > Tools) normally \
+             fetches it from its main source instead, which can be checked."
+                .to_string(),
+        ));
+    }
 
     let Some(recorded_date) = info.build_date.as_deref() else {
         return Ok(not_checkable_update(
@@ -3506,7 +3590,8 @@ mod tests {
         // The person reading this needs the programme's own words: that
         // is what they will search for, and what tells them whether it
         // is a missing library, a permission problem or something else.
-        let reason = unreadable_version_reason_for("MP4Box")(
+        let reason = unreadable_version_reason(
+            "MP4Box",
             "MP4Box: error while loading shared libraries: libgpac.so.16",
         );
         assert!(reason.contains("MP4Box"), "names the programme");
@@ -3527,7 +3612,7 @@ mod tests {
         // program — that is issue #229, and this wording is built from
         // text MeedyaDL did not write, so it has to use the safe cut.
         let long_and_accented = "é".repeat(500);
-        let reason = unreadable_version_reason_for("MediaInfo")(&long_and_accented);
+        let reason = unreadable_version_reason("MediaInfo", &long_and_accented);
         assert!(reason.len() < 500, "the quoted part is shortened");
         // Reaching here at all is most of the test: a cut mid-character
         // would have stopped the program before this line.
