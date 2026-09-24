@@ -136,7 +136,13 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - **Every batch has now had a first Codex round.**
   - Follow-up round over all four fix commits: **done** — `5df4f275` **CLEAN**; the rest 1
     blocking (a lock gap in the failed-clear path) + 6 should-fix, all fixed in `6a8fcbbe`.
-  - **Next: a round on `6a8fcbbe` only.** When that comes back clean, the catch-up is done.
+  - Round on `6a8fcbbe`: **cut off by Codex's usage limit at ~14:25, no verdict** (it had
+    confirmed only that the new helper clears the cache before releasing the lock, with
+    no nested lock or await). Codex resets **18:41**; the round is **scheduled for 18:47**
+    (session-only cron — if the session restarted, run it by hand on `6a8fcbbe` plus any
+    fix commits made after it).
+  - Meanwhile a **stand-in** (fresh Opus agent) is reviewing `6a8fcbbe`. Its result goes
+    here; it does NOT replace the Codex round.
   - Answered, no longer open: the other two cookie paths in CookiesStep (browser import,
     sign-in) have the BACKEND write the path itself — they were never at risk.
   - Allowance this window: ~443k used by the follow-up round; the next may hit the limit.
