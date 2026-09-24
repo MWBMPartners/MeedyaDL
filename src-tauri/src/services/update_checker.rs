@@ -510,9 +510,13 @@ fn looks_like_a_version(v: &str) -> bool {
 #[derive(Debug, PartialEq, Eq)]
 enum VersionVerdict {
     /// The installed string is not a version at all, so no comparison
-    /// is possible. Carries what the programme actually printed, for
-    /// the message the person reads.
+    /// is possible.
     Unreadable,
+    /// The installed version is fine, but the LATEST one — a release tag
+    /// or the mirror's entry — is missing or not a version. Nothing can be
+    /// compared, so "nothing newer" would be a guess (Codex, batch-5
+    /// review, finding 4: only the installed side used to be checked).
+    LatestUnreadable,
     /// Compared properly: there is something newer.
     UpdateAvailable,
     /// Compared properly: nothing newer — or there was nothing to
@@ -551,8 +555,14 @@ fn compare_installed_against_latest(
     }
 
     match latest {
-        Some(latest) if is_newer(installed, latest) => VersionVerdict::UpdateAvailable,
-        _ => VersionVerdict::NothingNewer,
+        Some(latest) if looks_like_a_version(latest) => {
+            if is_newer(installed, latest) {
+                VersionVerdict::UpdateAvailable
+            } else {
+                VersionVerdict::NothingNewer
+            }
+        }
+        _ => VersionVerdict::LatestUnreadable,
     }
 }
 
@@ -1806,27 +1816,11 @@ async fn check_github_tool_update(
     github_repo: &str,
     display_name: &str,
 ) -> Result<ComponentUpdate, String> {
-    // Reuse the centralized dependency-manager logic so each tool uses its
-    // configured version flag and parser instead of assuming `--version`.
-    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
-    let current_version = if binary.exists() {
-        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
-            .await
-            .ok()
-    } else {
-        None
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, tool_id, display_name).await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
     };
-
-    if !crate::services::dependency_manager::is_meedyadl_managed(app, tool_id) {
-        let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
-        return Ok(pm_owned_update_skip(
-            display_name,
-            tool_id,
-            current_version,
-            managed_by,
-            manual_update_command,
-        ));
-    }
 
     let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
 
@@ -1908,6 +1902,20 @@ async fn check_github_tool_update(
         ));
     }
 
+    if verdict == VersionVerdict::LatestUnreadable {
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            format!(
+                "Cannot check for a {display_name} update — the latest release does not carry a \
+                 version number MeedyaDL can read, so it cannot tell whether it is newer."
+            ),
+        ));
+    }
+
     let update_available = verdict == VersionVerdict::UpdateAvailable;
 
     Ok(ComponentUpdate {
@@ -1955,10 +1963,82 @@ fn tool_pm_attribution(app: &AppHandle, tool_id: &str) -> (Option<String>, Optio
     }
 }
 
+/// The checks every helper programme passes before anything is compared.
+/// Returns `Ok(installed_version)` to go on and compare, or `Err(row)` when
+/// the answer is already settled without asking any server.
+///
+/// # Why this is one function
+///
+/// Each of the four helper-programme checks used to do this itself, and
+/// each did it the same slightly-wrong way: an unknown owner was treated as
+/// "someone else's" and a copy that could not be run was treated as "not
+/// installed" — both skipped with nothing on screen (Codex, batch-5 review,
+/// findings 3 and 5). Four copies of one rule is how a fix reaches three of
+/// them. Now there is one.
+///
+/// The answers, in order:
+/// * owned by something else (a package manager, or found on the system):
+///   left to it — no comparison, no Update button;
+/// * owner never recorded: left alone too, but reported as "could not
+///   check", so it is not mistaken for "up to date";
+/// * ours, but running it to ask its version failed: "could not check",
+///   with the reason;
+/// * ours, and its version read: go on and compare.
+async fn gate_before_comparing(
+    app: &AppHandle,
+    tool_id: &str,
+    display_name: &str,
+) -> Result<Option<String>, Box<ComponentUpdate>> {
+    use crate::services::dependency_manager::{
+        read_installed_version, tool_ownership, ToolOwnership,
+    };
+
+    let read = read_installed_version(app, tool_id).await;
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+
+    match tool_ownership(app, tool_id) {
+        ToolOwnership::SomethingElse => Err(Box::new(pm_owned_update_skip(
+            display_name,
+            tool_id,
+            read.ok().flatten(),
+            managed_by,
+            manual_update_command,
+        ))),
+        ToolOwnership::Unknown => Err(Box::new(not_checkable_update(
+            display_name,
+            tool_id,
+            read.ok().flatten(),
+            managed_by,
+            manual_update_command,
+            format!(
+                "MeedyaDL cannot tell who installed this copy of {display_name}, so it has left \
+                 it alone and not checked it for updates. Reinstalling it from Settings > Tools \
+                 lets MeedyaDL look after it."
+            ),
+        ))),
+        ToolOwnership::MeedyaDl => match read {
+            Ok(version) => Ok(version),
+            Err(reason) => Err(Box::new(not_checkable_update(
+                display_name,
+                tool_id,
+                None,
+                managed_by,
+                manual_update_command,
+                format!(
+                    "MeedyaDL could not run {display_name} to ask which version it is ({}). \
+                     That usually means it is damaged or is the wrong kind of file for this \
+                     computer. Reinstalling it from Settings > Tools is the usual fix.",
+                    crate::utils::text::truncate_str(reason.trim(), 160)
+                ),
+            ))),
+        },
+    }
+}
+
 /// Builds the "nothing to check" `ComponentUpdate` used whenever a
 /// binary tool's `.source` marker shows a package manager owns this
 /// copy (or MeedyaDL merely found it on the system with no known owner)
-/// — see `dependency_manager::is_meedyadl_managed()`. Shared by every
+/// — see `dependency_manager::tool_ownership()`. Shared by every
 /// binary-tool check added for issue #273 so all of them treat this
 /// case identically rather than four near-identical inline structs
 /// quietly drifting apart later.
@@ -2110,7 +2190,7 @@ fn check_did_not_complete(name: &str, tool_id: Option<&str>) -> ComponentUpdate 
 /// `normalize_mediainfo_version()`.
 ///
 /// Only runs the comparison at all when MeedyaDL manages this copy
-/// itself (see `dependency_manager::is_meedyadl_managed()`) — a copy a
+/// itself (see `dependency_manager::tool_ownership()`) — a copy a
 /// package manager installed is left for that manager to keep current.
 async fn check_mirror_only_tool_update(
     app: &AppHandle,
@@ -2119,25 +2199,12 @@ async fn check_mirror_only_tool_update(
     display_name: &str,
     normalize: impl Fn(&str) -> String,
 ) -> Result<ComponentUpdate, String> {
-    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
-    let current_version = if binary.exists() {
-        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
-            .await
-            .ok()
-    } else {
-        None
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, tool_id, display_name).await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
     };
     let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
-
-    if !crate::services::dependency_manager::is_meedyadl_managed(app, tool_id) {
-        return Ok(pm_owned_update_skip(
-            display_name,
-            tool_id,
-            current_version,
-            managed_by,
-            manual_update_command,
-        ));
-    }
 
     let versions = crate::services::dependency_manager::fetch_mirror_versions().await?;
     let raw_latest = versions
@@ -2179,6 +2246,20 @@ async fn check_mirror_only_tool_update(
             managed_by,
             manual_update_command,
             reason,
+        ));
+    }
+
+    if verdict == VersionVerdict::LatestUnreadable {
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            format!(
+                "Cannot check for a {display_name} update — the latest release does not carry a \
+                 version number MeedyaDL can read, so it cannot tell whether it is newer."
+            ),
         ));
     }
 
@@ -2239,29 +2320,76 @@ async fn check_mirror_only_tool_update(
 /// existed. It is reported as "could not check", with the fix, rather than
 /// guessed at — the same approach FFmpeg takes.
 async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
-    if !crate::services::dependency_manager::is_meedyadl_managed(app, "mp4box") {
-        let binary = crate::services::dependency_manager::get_tool_binary_path(app, "mp4box");
-        let current_version = if binary.exists() {
-            crate::services::dependency_manager::get_tool_version(&binary, "mp4box")
-                .await
-                .ok()
-        } else {
-            None
-        };
-        let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
-        return Ok(pm_owned_update_skip(
-            "MP4Box",
-            "mp4box",
-            current_version,
-            managed_by,
-            manual_update_command,
-        ));
-    }
+    // Ownership and the installed version first — see gate_before_comparing.
+    // The two checks routed to below run the same gate again, which costs
+    // one extra `MP4Box -version`; that is cheaper than a second copy of
+    // the rule.
+    let current_version = match gate_before_comparing(app, "mp4box", "MP4Box").await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
+    };
 
     use crate::services::dependency_manager::{read_mp4box_origin, Mp4boxOrigin};
     match read_mp4box_origin(app) {
         Some(Mp4boxOrigin::GpacOfficial) => {
-            check_github_tool_update(app, "mp4box", "gpac/gpac", "MP4Box").await
+            // Compared against the version the PINNED installer contains,
+            // never GPAC's latest release: re-running the installer can
+            // only produce the pinned version, so "latest" would be offered
+            // for ever and never arrive (Codex, batch-5 review, finding 2).
+            let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
+            let Some(pinned) =
+                crate::services::dependency_manager::gpac_pinned_version_for_this_platform()
+            else {
+                return Ok(not_checkable_update(
+                    "MP4Box",
+                    "mp4box",
+                    current_version,
+                    managed_by,
+                    manual_update_command,
+                    "Cannot check for an MP4Box update — this copy came from GPAC's own \
+                     installer, and this build of MeedyaDL does not record which version that \
+                     installer provides."
+                        .to_string(),
+                ));
+            };
+            let verdict =
+                compare_installed_against_latest(current_version.as_deref(), Some(&pinned));
+            let update_available = verdict == VersionVerdict::UpdateAvailable;
+            if matches!(
+                verdict,
+                VersionVerdict::Unreadable | VersionVerdict::LatestUnreadable
+            ) {
+                return Ok(not_checkable_update(
+                    "MP4Box",
+                    "mp4box",
+                    current_version,
+                    managed_by,
+                    manual_update_command,
+                    "Cannot check for an MP4Box update — either the installed version or the \
+                     version the installer provides could not be read."
+                        .to_string(),
+                ));
+            }
+            Ok(ComponentUpdate {
+                name: "MP4Box".to_string(),
+                current_version,
+                latest_version: Some(pinned),
+                update_available,
+                not_checkable_reason: None,
+                is_compatible: true,
+                is_untested: false,
+                no_compatible_wheel: false,
+                description: update_available
+                    .then(|| "A newer MP4Box is available from GPAC's installer".to_string()),
+                release_url: Some("https://github.com/gpac/gpac/releases".to_string()),
+                release_body: None,
+                is_prerelease: false,
+                tag_name: None,
+                pip_package: None,
+                tool_id: Some("mp4box".to_string()),
+                managed_by,
+                manual_update_command,
+            })
         }
         Some(Mp4boxOrigin::Mirror) => {
             // The mirror records MP4Box's version as it comes; drop a
@@ -2275,14 +2403,6 @@ async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String>
             .await
         }
         None => {
-            let binary = crate::services::dependency_manager::get_tool_binary_path(app, "mp4box");
-            let current_version = if binary.exists() {
-                crate::services::dependency_manager::get_tool_version(&binary, "mp4box")
-                    .await
-                    .ok()
-            } else {
-                None
-            };
             let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
             Ok(not_checkable_update(
                 "MP4Box",
@@ -2328,25 +2448,12 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // about 30 days newer."
     const STALE_AFTER_DAYS: i64 = 30;
 
-    let binary = crate::services::dependency_manager::get_tool_binary_path(app, "ffmpeg");
-    let current_version = if binary.exists() {
-        crate::services::dependency_manager::get_tool_version(&binary, "ffmpeg")
-            .await
-            .ok()
-    } else {
-        None
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, "ffmpeg", "FFmpeg").await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
     };
     let (managed_by, manual_update_command) = tool_pm_attribution(app, "ffmpeg");
-
-    if !crate::services::dependency_manager::is_meedyadl_managed(app, "ffmpeg") {
-        return Ok(pm_owned_update_skip(
-            "FFmpeg",
-            "ffmpeg",
-            current_version,
-            managed_by,
-            manual_update_command,
-        ));
-    }
 
     let info_path = crate::services::dependency_manager::ffmpeg_build_info_path(app);
     let Some(info) = std::fs::read_to_string(&info_path).ok().and_then(|s| {
@@ -2419,7 +2526,8 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // check in this file: it means "couldn't reach the source right
     // now", not "this copy can never be checked".
     let current_build_date =
-        crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source).await?;
+        crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source, false)
+            .await?;
 
     let age_days = (current_build_date - recorded_date).num_days();
     let update_available = age_days > STALE_AFTER_DAYS;
@@ -3723,5 +3831,30 @@ mod tests {
             assert_eq!(entry.tool_id, None, "{name} must not get a tool id");
             assert!(entry.not_checkable_reason.is_some());
         }
+    }
+
+    #[test]
+    fn an_unreadable_latest_version_is_not_called_nothing_newer() {
+        // Only the installed side used to be checked. A release tag with
+        // no number, or a mirror entry like "unknown", read as 0.0.0 and so
+        // as "nothing newer" -- a guess dressed up as an answer (Codex,
+        // batch-5 review, finding 4).
+        for latest in [None, Some("unknown"), Some("latest"), Some("")] {
+            assert_eq!(
+                compare_installed_against_latest(Some("2.4.0"), latest),
+                VersionVerdict::LatestUnreadable,
+                "latest = {latest:?} cannot be compared against"
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_installed_version_is_still_reported_first() {
+        // When BOTH sides are unreadable, the installed side is the one
+        // the person can act on (reinstall), so it is the one reported.
+        assert_eq!(
+            compare_installed_against_latest(Some("command not found"), Some("unknown")),
+            VersionVerdict::Unreadable
+        );
     }
 }
