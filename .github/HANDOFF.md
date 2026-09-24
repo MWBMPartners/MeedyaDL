@@ -123,10 +123,13 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - Batch-5 round 2 (`80d8f607`, `192d18bc`, `68046c37`, `401cb390`): **done** — 1 blocking
     (an Update could adopt an OLDER system copy via Step 0) + 5 should-fix + 1 minor, all
     real, all fixed in `360ea73e`. **Batch-5 round 3 owed on `360ea73e` only.**
-  - Batch-4 round 8 (`f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`): **running now.**
-  - Then: batch 3 (`52e959b4..7e9f4695 -- src/` + `f0dc9500`), batch 2 finish (`40047ef6`
-    + `672acd01`), batch-5 round 3 (`360ea73e`).
-  - Allowance: ~113k used on batch-5 round 2.
+  - Batch-4 round 8 (`f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`): **done** — 2 should-fix
+    (non-breaking space counted as a separator; an incomplete search with an OLD result
+    declared a branch quiet), both fixed in `5df4f275`. **Round 9 owed on `5df4f275`.**
+  - Batch 3 (`52e959b4..7e9f4695 -- src/` + `f0dc9500`): **running now** (Codex's first look).
+  - Then: batch 2 finish (`40047ef6` + `672acd01`), batch-5 round 3 (`360ea73e`),
+    batch-4 round 9 (`5df4f275`).
+  - Allowance this window: ~113k (batch-5 r2) + ~49k (batch-4 r8).
 
 ---
 
