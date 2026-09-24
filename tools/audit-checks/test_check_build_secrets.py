@@ -172,6 +172,12 @@ CASES = [
         False,
         True,
     ),
+    (
+        "a GitHub placeholder holding quoted text is not trusted",
+        "      - name: Export it\n        run: |\n          echo \"SAFARI=${{ '$((1/0))' }}\" >> \"$GITHUB_ENV\"",
+        False,
+        True,
+    ),
     # What the real release.yml actually uses must keep counting.
     (
         "a plain variable in the value still counts",
