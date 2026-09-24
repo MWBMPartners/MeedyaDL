@@ -162,10 +162,25 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - **THE CODEX CATCH-UP IS DONE.** Every commit on `work/after-1.10.8` up to `7972e77a` has
     now had a Codex review, with every real finding fixed and the last round clean. Nothing
     is running and no Codex round is owed.
-  - **Next, waiting on the maintainer (three open questions):** (1) when to open the one PR
-    to `alpha` and who merges it (recommended: open it now and merge it myself once CI is
-    green); (2) documentation sweep size (recommended: targeted now, full before the last
-    PR); (3) handoff location (recommended: keep `.github/HANDOFF.md`). Also queued, not
+  - The two handoff-only commits after it (`5f9256eb`, `35661974`) were also checked by
+    Codex: clean.
+  - **MAINTAINER DECISIONS (24 Sept, evening):** (1) open the PR to `alpha` once Codex is
+    clean, watch its checks, merge it when green, then watch and fix the merge, the alpha
+    auto-release and the packaging/deployment runs until fully deployed; (2) do the FULL
+    documentation sweep, including the in-app help, BEFORE that PR. (3) handoff location
+    still unanswered — keep `.github/HANDOFF.md`.
+  - **IN PROGRESS: full documentation sweep**, split across three background agents with
+    disjoint areas: in-app help (`help/*.md`); top-level and developer docs (README,
+    SECURITY, DEV_NOTES, Project_Plan, CONTRIBUTING, TERMS, licences, `.github/**/*.md`
+    except this file and audits, `tools/audit-checks/README.md`); assistant notes
+    (`.claude/CLAUDE.md`, `.claude/memory/`, `AGENTS.md` — then mirror to `.OpenAI/memory/`
+    and run the sync script by hand). Brief: `docsweep-brief.txt` in the session scratchpad.
+    Agents edit only, never commit; I read every change, run `check_help_topics.py`, commit,
+    then a Codex round on the sweep commit only. If the session ends mid-sweep, `git status`
+    shows what they changed; re-run the areas not finished.
+  - **Then the PR:** branch is 110 ahead / 0 behind `origin/alpha`, merges cleanly, no other
+    PR open to `alpha`. All 66 feat/fix/perf commits carry their own `Release-Note:`, so
+    REBASE-merge (keeps each note; squash would lose them). Also queued, not
     started: #1222 (status bar can hide an armed shutdown); issue comments for this batch
     (#1216/#1217/#273).
   - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
