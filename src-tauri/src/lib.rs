@@ -1179,6 +1179,7 @@ pub fn run() {
             commands::dependencies::get_component_versions,
             // Settings management commands
             commands::settings::get_settings,
+            commands::settings::get_after_queue_status,
             commands::settings::get_default_settings,
             commands::settings::save_settings,
             commands::settings::set_sidebar_collapsed,

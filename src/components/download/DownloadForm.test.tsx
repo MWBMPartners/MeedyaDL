@@ -49,7 +49,7 @@ vi.mock('@/lib/tauri-commands', () => ({
   // The one-off after-queue menu's own write, and its failure path's read
   // of what is really on disk. Set per test below.
   setStoredPreference: vi.fn(),
-  getSettings: vi.fn(),
+  getAfterQueueStatus: vi.fn(),
 }));
 
 /**
@@ -298,10 +298,9 @@ describe('DownloadForm', () => {
         }));
       });
       vi.mocked(commands.setStoredPreference).mockRejectedValueOnce(new Error('disk full'));
-      // What is really on disk: a shutdown is armed once; the standing
-      // action is still the saved "do nothing".
-      vi.mocked(commands.getSettings).mockResolvedValueOnce({
-        ...useSettingsStore.getState().settings,
+      // What the queue will act on (the running app's settings): a
+      // shutdown is armed once; the standing action is "do nothing".
+      vi.mocked(commands.getAfterQueueStatus).mockResolvedValueOnce({
         after_queue_action: 'do_nothing',
         after_queue_once: 'shutdown_computer',
       });
@@ -332,7 +331,7 @@ describe('DownloadForm', () => {
         }));
       });
       vi.mocked(commands.setStoredPreference).mockRejectedValueOnce(new Error('disk full'));
-      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('unreadable'));
+      vi.mocked(commands.getAfterQueueStatus).mockRejectedValueOnce(new Error('unreadable'));
 
       render(<DownloadForm />);
       fireEvent.click(screen.getByLabelText('After-queue actions'));
@@ -345,6 +344,37 @@ describe('DownloadForm', () => {
       expect(useSettingsStore.getState().isDirty).toBe(false);
       const toast = useUiStore.getState().toasts.find((t) => t.type === 'error');
       expect(toast?.message).toContain('could not check what is set');
+    });
+    it('refuses a second choice while the first is still being saved', async () => {
+      // Two overlapping choices could each remember a different "value
+      // before the click", and the slower one's failure path could put back
+      // the other's value, hiding a still-armed shutdown (Codex, batch-2
+      // review). The second is now refused with a message.
+      let finishFirst: (() => void) | undefined;
+      vi.mocked(commands.setStoredPreference).mockClear();
+      vi.mocked(commands.setStoredPreference).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          }),
+      );
+
+      render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      fireEvent.click(screen.getByText('After Queue: Do nothing'));
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('After Queue: Shut down'));
+      });
+
+      expect(commands.setStoredPreference).toHaveBeenCalledTimes(1);
+      expect(
+        useUiStore.getState().toasts.some((t) => t.message.includes('Still saving your previous')),
+      ).toBe(true);
+
+      await act(async () => {
+        finishFirst?.();
+      });
     });
   });
 });

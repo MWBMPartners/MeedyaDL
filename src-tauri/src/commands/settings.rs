@@ -125,6 +125,44 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
     config_service::read_settings_from_disk(&app)
 }
 
+/// What will happen when the queue finishes: the one-off action (if any)
+/// and the standing one — as the QUEUE will read them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AfterQueueStatus {
+    /// The one-off action, if one is armed.
+    pub after_queue_once: Option<crate::models::settings::AfterQueueAction>,
+    /// The standing action, used when no one-off is armed.
+    pub after_queue_action: crate::models::settings::AfterQueueAction,
+}
+
+/// Reports what the queue will actually do when it finishes.
+///
+/// # Why not just read the settings file
+///
+/// The Download page used `get_settings` for this when saving a one-off
+/// action failed. But the queue acts on the running app's settings cache,
+/// not the file; and a missing or damaged file reads as the DEFAULTS. So
+/// with a shutdown armed in the cache and the file damaged, the page said
+/// "Nothing will happen when the queue finishes" — the dangerous direction
+/// (Codex, batch-2 review). This reads the cache when it has been filled.
+/// When it has not, the queue would load the file itself on first use, so
+/// reading the file then is exactly what the queue will see.
+#[tauri::command]
+pub async fn get_after_queue_status(app: AppHandle) -> Result<AfterQueueStatus, String> {
+    use tauri::Manager as _;
+    let settings = match app
+        .try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek())
+    {
+        Some(cached) => cached,
+        None => config_service::read_settings_from_disk(&app)?,
+    };
+    Ok(AfterQueueStatus {
+        after_queue_once: settings.after_queue_once,
+        after_queue_action: settings.after_queue_action,
+    })
+}
+
 /// Hands back the settings a brand-new install would have.
 ///
 /// **Frontend caller:** `getDefaultSettings()` in
