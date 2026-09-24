@@ -260,7 +260,7 @@ There are three ways to re-download content from a `.meedyadl` manifest:
 
 3. **Queue Import** -- The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
 
-In all cases, the downloads use your current global settings as the base, with any per-download overrides from the file applied on top.
+A manifest brought in through the Download page (the **Import** button or drag and drop) only fills in the links: the downloads use your current settings, plus any choices you make on screen before adding them. A file brought in through the Queue page's **Import** also restores the per-download choices that were exported with it, applied on top of your current settings.
 
 ### Manifest File Location
 
