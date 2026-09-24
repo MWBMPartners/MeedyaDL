@@ -26,9 +26,11 @@ the build. Codex's second round found four more holes (a comment after
 code on the same line, a YAML comment cutting a step short, and two
 multi-line conditions compared by their `>-` marker); its third round
 found two ways past the shell-comment reader that fixed the first of
-those. Rather than a third patch, any `#` before an export on its line
-is now reported as "cannot confirm". Every case Codex used has a case
-here, including the one where BOTH steps use `>-`.
+those, and its fourth round beat the rule that replaced the reader (a
+`#` INSIDE the loose match). Now only a line that is, in its entirety, a
+plain export is counted. Every case Codex used has a case here, and the
+round-4 one is also run end to end through the whole check, because a
+function-level case cannot show a finding actually reaches the report.
 
 Pure stdlib, no pytest, same house style as the checks themselves.
 Run directly: `python3 tools/audit-checks/test_check_build_secrets.py`
@@ -125,8 +127,20 @@ CASES = [
         False,
         True,
     ),
-    # A `#` AFTER the export starts is part of the value, and must not
-    # cost a working export.
+    (
+        "a `#` INSIDE what the loose pattern matches cannot smuggle an export through",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=1" # " >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
+    (
+        "anything after the export on the line means it is not counted",
+        f"      - name: Export it\n        run: |\n{EXPORT} ; exit 0",
+        False,
+        True,
+    ),
+    # A `#` inside the value is part of the value, and must not cost a
+    # working export.
     (
         "a `#` inside the exported value does not stop it counting",
         '      - name: Export it\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
@@ -169,8 +183,50 @@ BOTH_MULTILINE = (
 )
 
 
+def end_to_end_failure() -> str | None:
+    """Runs the WHOLE check against a copy of the real release.yml whose
+    Safari export has been replaced by Codex's round-4 line, and requires
+    a failing exit and a printed finding. The function-level cases above
+    cannot show that a finding actually reaches the report; this does.
+
+    The copy is written inside the audit-checks folder -- never under
+    .github/workflows/, where a stray file would be a live workflow -- and
+    is deleted afterwards even if this fails."""
+    import contextlib
+    import io as _io
+
+    real = check.RELEASE_WORKFLOW
+    text = real.read_text(encoding="utf-8")
+    working = '            echo "MEEDYADL_SAFARI_VERSION=$VALUE" >> "$GITHUB_ENV"'
+    if working not in text:
+        return "could not find the Safari export line in release.yml to replace"
+    disabled = '            echo "MEEDYADL_SAFARI_VERSION=1" # " >> "$GITHUB_ENV"'
+    copy = HERE / ".tmp-release-copy-for-test.yml"
+    saved_argv = sys.argv[:]
+    try:
+        copy.write_text(text.replace(working, disabled, 1), encoding="utf-8")
+        check.RELEASE_WORKFLOW = copy
+        sys.argv = [sys.argv[0], "--strict"]
+        out = _io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = check.check()
+        report = out.getvalue()
+    finally:
+        check.RELEASE_WORKFLOW = real
+        sys.argv = saved_argv
+        copy.unlink(missing_ok=True)
+    if code != 1:
+        return f"end to end: --strict exited {code}, want 1"
+    if "###" not in report or "MEEDYADL_SAFARI_VERSION" not in report:
+        return "end to end: no finding naming MEEDYADL_SAFARI_VERSION under a ### heading"
+    return None
+
+
 def main() -> int:
     failures: list[str] = []
+    problem = end_to_end_failure()
+    if problem:
+        failures.append(problem)
     description, step = BOTH_MULTILINE
     certain, uncertain = exports_for(job(step, build_if=">-\n          runner.os == 'macOS'"))
     if "SAFARI" in certain or "SAFARI" not in uncertain:
@@ -189,7 +245,7 @@ def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print(f"OK -- {len(CASES) + 1} cases")
+    print(f"OK -- {len(CASES) + 1} cases, plus the end-to-end run")
     return 0
 
 

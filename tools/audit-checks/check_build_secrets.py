@@ -154,7 +154,24 @@ _ENV_KEY_RE = re.compile(r"^\s*([A-Za-z0-9_]+):")
 # major version resolution" note in release.yml itself for why this exists:
 # a value resolved once, early in the job, does not need to be typed again
 # into each build step's own env: block to reach that step.
+#
+# Two patterns, on purpose. This first, LOOSE one only spots lines that
+# look like an export. It is never trusted on its own: its value part can
+# stretch across a closing quote and a comment to reach `>>`, so
+# `echo "X=1" # " >> "$GITHUB_ENV"` -- which exports nothing -- matches it
+# (Codex, batch-4 round 4).
 _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB_ENV"?')
+
+# The only form COUNTED as a working export: the whole line is nothing but
+# `echo "NAME=value" >> "$GITHUB_ENV"`, indentation allowed, with no quote
+# inside the value and nothing before `echo` or after `$GITHUB_ENV`. A line
+# the loose pattern spots but this one does not is reported as "cannot
+# confirm", never counted. Every export line in release.yml fits this form
+# (checked 24 Sept 2026), so being strict costs nothing today; a new export
+# written some other way gets reported, and can be rewritten to fit.
+_GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
+    r'^\s*echo\s+"([A-Z0-9_]+)=[^"]*"\s*>>\s*"?\$GITHUB_ENV"?\s*$'
+)
 
 # A step's own `if:` key, capturing its indentation so _step_if() can tell
 # the step's condition apart from an `if` line inside its shell script.
@@ -335,11 +352,18 @@ def _github_env_exports_before(
 
     Only steps with a `- name:` line are read (the same limit as
     _step_ranges). An export inside an unnamed step is missed -- but that
-    produces a loud "not supplied" finding, never a false "fine". Nor does
-    it look inside the shell: an export wrapped in the script's own `if`
-    (the Chrome and Safari steps export only when their lookup worked) is
-    counted, because the app falls back to a compiled-in value when that
-    export is absent, by design.
+    produces a loud "not supplied" finding, never a false "fine".
+
+    It does not read the shell's structure, and two consequences follow.
+    An export inside the script's own `if` (the Chrome and Safari steps
+    export only when their lookup worked) is counted -- deliberately,
+    because the app falls back to a compiled-in value when that export is
+    absent. And a plain export line switched off by something on OTHER
+    lines -- for example fed into a heredoc (`: <<'OFF'` ... `OFF`) -- is
+    still counted as working. That second one IS a silent pass. It is
+    accepted because nothing in release.yml disables lines that way, and
+    reading shell structure well enough to catch it is exactly what three
+    earlier attempts here got wrong. Codex noted it in batch-4 round 4.
     """
     scan_end = build_step[2]  # stop where the build step itself begins
     build_indent, build_start, build_end = build_step[1], build_step[2], build_step[3]
@@ -349,36 +373,36 @@ def _github_env_exports_before(
     uncertain: dict[str, list[str]] = {}
     for step_name, indent, sstart, send in _step_ranges(lines, job_start, scan_end):
         exported: set[str] = set()
-        # Exports on a line where a `#` comes BEFORE the export. Whether
-        # that `#` starts a comment -- and so disables the export -- is
-        # a question about shell syntax this script will not try to
-        # answer. It tried: two successive attempts to recognise shell
-        # comments properly were each beaten by Codex (`true;# echo ...`
-        # after an operator, and an escaped quote that threw the quote
-        # tracking off), both passing a disabled export as working
-        # (batch-4 rounds 2 and 3). Shell comment rules have a long tail,
-        # so instead of chasing it this refuses: such a line is reported
-        # as "cannot confirm", never counted. No export line in
-        # release.yml has a `#` before it, so this costs nothing today,
-        # and a `#` AFTER the start of the export (`"X=${#list}"`) is
-        # unaffected.
+        # Lines that look like an export but are not in the one plain form
+        # this script trusts. Whether such a line really exports anything
+        # -- or is commented out part-way, or wrapped in something -- is a
+        # question about shell syntax this script will not try to answer.
+        #
+        # It tried, three times. A reader for shell comments was beaten
+        # twice (`true;# echo ...` after an operator; an escaped quote that
+        # threw its quote tracking off), and the rule that replaced it
+        # ("a `#` before the export") was beaten by a `#` INSIDE the match
+        # (`echo "X=1" # " >> ...`). Each passed a disabled export as
+        # working (Codex, batch-4 rounds 2, 3 and 4). So now only a line
+        # that is, in its entirety, a plain export is counted, and every
+        # other export-shaped line is reported as "cannot confirm".
         ambiguous: set[str] = set()
         for i in range(sstart, send):
             line = lines[i - 1]
             # A whole-line comment (shell or YAML) never runs.
             if line.lstrip().startswith("#"):
                 continue
-            m = _GITHUB_ENV_EXPORT_RE.search(line)
-            if not m:
+            exact = _GITHUB_ENV_EXPORT_EXACT_RE.match(line)
+            if exact:
+                exported.add(exact.group(1))
                 continue
-            if "#" in line[: m.start()]:
-                ambiguous.add(m.group(1))
-            else:
-                exported.add(m.group(1))
+            loose = _GITHUB_ENV_EXPORT_RE.search(line)
+            if loose:
+                ambiguous.add(loose.group(1))
         for name in ambiguous - exported:
             uncertain.setdefault(name, []).append(
-                f"'{step_name}' (a `#` comes before the export on its line, so this "
-                f"check cannot tell whether it is commented out)"
+                f"'{step_name}' (the line is not a plain `echo \"NAME=value\" >> "
+                f"\"$GITHUB_ENV\"`, so this check cannot tell whether it really exports it)"
             )
         if not exported:
             continue
