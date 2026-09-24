@@ -26,7 +26,9 @@ must NOT skip anything else -- or it goes back to looking away.
 Proven able to fail: with the old pattern put back, the "must still be
 checked" test fails on `src/API.Client.ts` and four others. It also
 caught the first attempt at the new pattern, which still matched the
-"Y.Z" at the end of `scripts/v2X.Y.Z.sh`.
+"Y.Z" at the end of `scripts/v2X.Y.Z.sh`; and Codex's second round found
+the next attempt still matched the start of `src/X.Y.Client.ts`, which is
+why the rule now only accepts a complete file name.
 
 Pure stdlib, no pytest, same house style as the checks themselves.
 Run directly: `python3 tools/audit-checks/test_check_comment_paths.py`
@@ -64,6 +66,8 @@ MUST_STILL_BE_CHECKED = [
     "src/X.Yaml.ts",  # X.Y followed straight by more letters
     "scripts/v2X.Y.Z.sh",  # a digit glued to the front
     "src/A.Y.Z.ts",  # the placeholder's tail inside a longer dotted run
+    "src/X.Y.Client.ts",  # the placeholder as the START of a longer name (Codex, round 2)
+    "src/vX.Y.Z.Client.ts",  # the same, with the "v"
     "src/normal/file.ts",  # no capitals at all
 ]
 
