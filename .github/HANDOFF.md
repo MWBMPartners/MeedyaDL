@@ -202,6 +202,19 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     (`codex-r12-*.txt/out` in the session scratchpad). Follow-ups opened: #1223, #1224,
     #1225 (tool swap without start-up check; plus no way to reinstall a tool that starts
     but fails). Then: the PR (rebase-merge), watch checks, merge, watch alpha release.
+  - **LATER STILL (23:55, 24 Sept):** Codex re-review of `f74734f0` found 2 (fixed `757bcfd0`).
+    Codex then started on `757bcfd0` + `b19cd04a` and **hit its limit again — back 25 Sept
+    04:36**, no verdict; but its tests showed 4 ways the PR gate could let part of a note reach
+    the release notes unlinted (all older than b19cd04a). Fixed in `014e1755`: new
+    `scripts/release-notes/extract-release-notes.py` (+ `test_extract_release_notes.py`, run by
+    the gate), refuses an empty `Release-Note:` line; verified against git-cliff with both
+    templates. Found `test_lint_notes.py` already failing on `v1.13.0-alpha.47.md` → #1226,
+    kept out of the gate. **A stand-in (fresh Opus) is reviewing `757bcfd0`, `b19cd04a`,
+    `014e1755` now.** **Watchdog: session-only scheduled prompt at 04:41 on 25 Sept** runs the
+    Codex round on those (+ any stand-in fix commits), then — once clean — opens the PR,
+    watches checks, rebase-merges, and watches the alpha release through to published. If the
+    session ended, run that by hand. PR body draft: session scratchpad `pr-body.md` (passes
+    extract + lint); title passes commitlint.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
