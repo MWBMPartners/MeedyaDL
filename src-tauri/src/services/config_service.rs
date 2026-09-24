@@ -70,7 +70,7 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
-use crate::models::settings::AppSettings;
+use crate::models::settings::{AfterQueueAction, AppSettings};
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
 use crate::utils::platform;
@@ -867,7 +867,38 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     let _guard = SETTINGS_WRITE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    save_settings_while_locked(app, settings)
+    // A whole-object write never decides the one-off after-queue action;
+    // the running app's value wins (see one_off_in_memory).
+    let mut settings = settings.clone();
+    if let Some(running) = one_off_in_memory(app) {
+        settings.after_queue_once = running;
+    }
+    save_settings_while_locked(app, &settings)
+}
+
+/// The running app's value of the one-off after-queue action, if the
+/// settings cache has been filled. `None` means "no running copy yet" (not
+/// "no action").
+///
+/// # Why every write asks this
+///
+/// The one-off "shut down / hibernate after the queue" has TWO homes: the
+/// settings file and the running app's cache. When the queue uses it up and
+/// the file write fails (a full disk), only the cache is cleared. From then
+/// on the FILE is wrong — and every writer that read the file and wrote it
+/// back, then refreshed the cache from what it wrote, put the used-up action
+/// back: ticking "don't ask again", importing cookies, signing in… and the
+/// computer shut down again after the next queue, unasked (stand-in review,
+/// 24 Sept 2026, after Codex's review closed the same gap for the Settings
+/// screen's Save alone). Fixing each writer one by one is how that gap
+/// survived; so the rule lives here and every write goes through it: the
+/// running app's value wins, unless the write is itself changing the
+/// one-off.
+fn one_off_in_memory(app: &AppHandle) -> Option<Option<AfterQueueAction>> {
+    use tauri::Manager as _;
+    app.try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek())
+        .map(|running| running.after_queue_once)
 }
 
 /// Saves a whole settings object from the Settings screen, putting back —
@@ -917,6 +948,34 @@ where
     Ok(incoming)
 }
 
+/// Sets the one-off after-queue action — the ONLY write that decides it.
+///
+/// Every other write keeps whatever the running app holds (see
+/// one_off_in_memory), so this is how a choice from the Download page's
+/// after-queue menu gets in. It writes the file and, only once that has
+/// worked, the running app's copy, both inside the settings lock. A
+/// separate function rather than a general rule that guesses intent: the
+/// first attempt guessed ("did the value change?"), and would have dropped
+/// a deliberate choice that happened to match a stale file.
+pub fn set_after_queue_once(
+    app: &AppHandle,
+    action: Option<AfterQueueAction>,
+) -> Result<AppSettings, String> {
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    let mut settings = read_settings_from_disk(app)?;
+    settings.after_queue_once = action;
+    write_settings_to_path(&settings_path, &settings)?;
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        cache.refresh(settings.clone());
+    }
+    Ok(settings)
+}
+
 /// Like [`update_settings_field`], but the running app's settings cache is
 /// ALWAYS changed too — even when writing the file fails — and both happen
 /// inside the same lock.
@@ -941,6 +1000,9 @@ where
 
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
     let written = read_settings_from_disk(app).and_then(|mut settings| {
+        // No "running app wins" rule here: this function's callers are
+        // setting the value on purpose (the queue clearing a used-up
+        // one-off), and it changes the running app's copy itself below.
         apply(&mut settings);
         write_settings_to_path(&settings_path, &settings).map(|()| settings)
     });
@@ -1017,6 +1079,12 @@ where
     // impossible. See `read_settings_from_disk`.
     let mut settings = read_settings_from_disk(app)?;
     apply(&mut settings);
+    // A general one-field write never decides the one-off after-queue
+    // action: the running app's value wins over the file's (see
+    // one_off_in_memory). Only set_after_queue_once changes it.
+    if let Some(running) = one_off_in_memory(app) {
+        settings.after_queue_once = running;
+    }
     write_settings_to_path(&settings_path, &settings)?;
 
     // Deliberately NOT calling `save_settings` here. It takes this same
@@ -2905,6 +2973,10 @@ mod tests {
                 "pub fn update_settings_field_and_memory<",
                 "read_settings_from_disk(app).and_then(",
             ),
+            (
+                "pub fn set_after_queue_once(",
+                "read_settings_from_disk(app)?",
+            ),
         ] {
             let start = source
                 .find(name)
@@ -2928,6 +3000,30 @@ mod tests {
                  switches verbose logging off, records the version and rewrites \
                  GAMDL's config file, so a one-field write would quietly change \
                  other things too"
+            );
+        }
+    }
+
+    /// Every GENERAL settings writer must keep the running app's one-off
+    /// after-queue action rather than the file's. When one did not, a
+    /// used-up "shut down after the queue" came back after an unrelated
+    /// write (stand-in review, 24 Sept 2026). Checked by reading the source,
+    /// for the same reason as the test above: these need a running app.
+    #[test]
+    fn every_general_writer_keeps_the_running_one_off() {
+        let source = include_str!("config_service.rs");
+        for name in ["pub fn save_settings(", "pub fn update_settings_field<"] {
+            let start = source
+                .find(name)
+                .unwrap_or_else(|| panic!("{name} should exist"));
+            let rest = &source[start + 10..];
+            let end = rest
+                .find("\npub fn ")
+                .map(|i| start + 10 + i)
+                .unwrap_or(source.len());
+            assert!(
+                source[start..end].contains("one_off_in_memory(app)"),
+                "{name} must keep the running app's one-off after-queue action"
             );
         }
     }

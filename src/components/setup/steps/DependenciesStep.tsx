@@ -304,7 +304,7 @@ export function DependenciesStep() {
                               );
                               return;
                             }
-                            const { syncSaved, updateSettings } = (
+                            const { syncSaved } = (
                               await import('@/stores/settingsStore')
                             ).useSettingsStore.getState();
                             try {
@@ -320,12 +320,13 @@ export function DependenciesStep() {
                               // review).
                               syncSaved({ [key]: selected } as Record<string, string>);
                             } catch (err) {
-                              // Not saved: keep the choice as an ordinary
-                              // unsaved edit, so Settings > Save Changes can
-                              // still keep it.
-                              updateSettings({ [key]: selected } as Record<string, string>);
+                              // Not saved: change NOTHING and say so. (Keeping
+                              // it as an "unsaved edit" was tried and was false:
+                              // nothing else in MeedyaDL sees an unsaved edit,
+                              // and opening Settings reloads from disk and
+                              // discards it -- stand-in review.)
                               useUiStore.getState().addToast(
-                                `Could not save where ${tool.name} is. It is set for now -- press Save Changes in Settings to keep it.`,
+                                `Could not save where ${tool.name} is, so nothing was changed. Please choose it again.`,
                                 'error'
                               );
                               console.error('Could not save the helper program path:', err);

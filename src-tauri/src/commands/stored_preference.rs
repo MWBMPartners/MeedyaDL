@@ -138,6 +138,12 @@ pub async fn set_stored_preference(
     app: AppHandle,
     preference: StoredPreference,
 ) -> Result<(), String> {
+    // The one-off after-queue action has its own writer: general writes
+    // deliberately never decide it (see config_service::one_off_in_memory).
+    if let StoredPreference::AfterQueueOnce { action } = &preference {
+        config_service::set_after_queue_once(&app, *action)?;
+        return Ok(());
+    }
     config_service::update_settings_field(&app, |s| apply(s, &preference))?;
     Ok(())
 }

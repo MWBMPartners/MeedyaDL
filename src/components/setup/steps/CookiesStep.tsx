@@ -773,12 +773,14 @@ export function CookiesStep() {
               // from a browser, and signing in) were always fine: the
               // backend writes the path itself for those. This was the
               // one of the three that did not.
-              // The page's copy follows the one-field write -- AFTER it
-              // succeeds, and without marking Settings unsaved. It used to be
-              // set first, so a failed write left the path showing as if
-              // saved, with no Save button to offer (Codex, follow-up review).
-              // On failure it becomes an ordinary unsaved edit instead, so
-              // Settings > Save Changes can still keep it.
+              // The page's copy follows the one-field write only AFTER it
+              // succeeds, without marking Settings unsaved. If the write
+              // fails, NOTHING changes and the message says so. (An earlier
+              // version kept the choice as an "unsaved edit" and told the
+              // person to press Save Changes -- but the rest of MeedyaDL never
+              // sees an unsaved edit, and opening Settings reloads from disk
+              // and discards it, so both halves of that message were false.
+              // Codex follow-up review, then a stand-in review.)
               setValidation(null);
               void commands
                 .setStoredPreference({ kind: 'cookies_path', path: path ?? null })
@@ -786,9 +788,8 @@ export function CookiesStep() {
                   useSettingsStore.getState().syncSaved({ cookies_path: path });
                 })
                 .catch((err) => {
-                  useSettingsStore.getState().updateSettings({ cookies_path: path });
                   useUiStore.getState().addToast(
-                    'Could not save where your cookies file is. It is set for now -- press Save Changes in Settings to keep it.',
+                    'Could not save that cookies file, so nothing was changed. Please choose it again.',
                     'error'
                   );
                   console.error('Could not save the cookies file path:', err);
