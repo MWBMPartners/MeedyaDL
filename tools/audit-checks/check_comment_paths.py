@@ -56,19 +56,21 @@ drowning in noise:
     dot/dash/underscore/slash-delimited segment (checked across the whole
     repository, 2026-09-23, before adding this rule, specifically to make
     sure it could not paper over a real broken reference). Detected via
-    PLACEHOLDER_VERSION_RE below. It fires ONLY on the version placeholder
-    itself: the letters X, Y and Z, each standing alone, joined by dots,
-    two or three of them ("X.Y", "X.Y.Z", "vX.Y.Z"), with no letter or
-    digit directly either side.
+    PLACEHOLDER_VERSION_RE below. It fires ONLY when the whole file name
+    is the placeholder: the letters X, Y and Z joined by dots, two or
+    three of them, optionally after a "v", and then just the extension
+    ("vX.Y.Z.md", "X.Y.md"). A placeholder used as a folder name is not
+    skipped, and gets checked like any other path.
 
     The first version of this rule matched ANY two capitals around a dot,
     and its description here claimed that was narrow. It was not: it
-    also matched the "I.C" inside a real name like `src/API.Client.ts`,
-    so a broken reference to that file would have been silently skipped
-    -- the one thing this script exists never to do. Codex found it in
-    the batch-4 review (finding E); the tests in
-    test_check_comment_paths.py pin both halves, what it must skip and
-    what it must NOT.
+    matched the "I.C" inside a real name like `src/API.Client.ts`, so a
+    broken reference to that file would have been silently skipped --
+    the one thing this script exists never to do. The second version
+    still matched the "X.Y" at the start of `src/X.Y.Client.ts`. Codex
+    found both (batch-4 review, rounds 1 and 2); the tests in
+    test_check_comment_paths.py pin what it must skip and what it must
+    NOT.
   * A path is skipped when it is preceded on the same line by "://" --
     it is almost certainly the tail end of a URL (a GitHub permalink to a
     specific historical commit, which can legitimately name a path that
@@ -171,14 +173,18 @@ PATH_RE = re.compile(
 # This repository's "fill in the real value" idiom for a path that stands
 # for a whole family of files rather than one literal file -- see the
 # module docstring for why this exists and how narrow it deliberately is.
-# The look-behind and look-ahead are what stop it matching INSIDE a real
-# name ("API.Client" has a letter right before the I and right after the
-# C). The look-behind also refuses a dot, so it cannot pick up the tail
-# end of a longer dotted run ("...X.Y.Z" matching just its "Y.Z") -- the
-# placeholder has to be a whole segment on its own. Restricting to X/Y/Z
-# is what stops it matching some other pair of capitals that merely
-# happens to sit either side of a dot.
-PLACEHOLDER_VERSION_RE = re.compile(r"(?<![A-Za-z0-9.])v?[XYZ](?:\.[XYZ]){1,2}(?![A-Za-z0-9])")
+# It must be the WHOLE file name -- "vX.Y.Z" or "X.Y" and then only the
+# extension -- never a piece of one. Two looser versions both got this
+# wrong: the first matched any two capitals around a dot (the "I.C"
+# inside a file called API.Client.ts), and the second still matched the
+# "X.Y" at the start of one called X.Y.Client.ts (Codex, batch-4 rounds 1
+# and 2). The examples here carry no folder on purpose: with one, this
+# very comment would be reported as naming a missing file. Matching only a
+# complete file name leaves nothing inside a longer name to latch onto.
+# The price: a placeholder used as a FOLDER name (".../vX.Y.Z/notes.md")
+# is checked like any other path and would be reported -- the loud
+# direction, which is the right one for this script.
+PLACEHOLDER_VERSION_RE = re.compile(r"(?:^|/)v?[XYZ](?:\.[XYZ]){1,2}\.[A-Za-z0-9]+$")
 
 # Mentioned-path string -> reason it is not a claim about a real file in
 # THIS repository. Keyed by the exact string this script would otherwise

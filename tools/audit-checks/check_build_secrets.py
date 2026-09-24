@@ -209,7 +209,13 @@ def _step_ranges(
         j = i + 1
         while j < end:
             nxt = lines[j - 1]
-            if nxt.strip() == "":
+            # A blank line never ends a step, and nor does a YAML comment,
+            # however shallow its indentation: comments are not part of
+            # the structure. Treating a comment at the dash's own depth as
+            # the end of the step cut the step short, so an export after
+            # it was missed and a working value was reported as missing
+            # (Codex, batch-4 round 2).
+            if nxt.strip() == "" or nxt.lstrip().startswith("#"):
                 j += 1
                 continue
             nxt_indent = len(nxt) - len(nxt.lstrip(" "))
@@ -238,7 +244,8 @@ def _step_env_names(
             j = i + 1
             while j < step_end:
                 inner = lines[j - 1]
-                if inner.strip() == "":
+                # Same rule as _step_ranges: a comment is not structure.
+                if inner.strip() == "" or inner.lstrip().startswith("#"):
                     j += 1
                     continue
                 inner_indent = len(inner) - len(inner.lstrip(" "))
@@ -282,6 +289,32 @@ def _find_build_steps(
                 continue
             found[name] = (jstart, indent, sstart, send)
     return found, dupes
+
+
+def _strip_shell_comment(line: str) -> str:
+    """The part of a shell line that runs: everything before a `#` that
+    starts a comment. In the shell a `#` starts a comment only at the start
+    of a word (after a space or at the start of the line) and outside
+    quotes -- so `"${#name}"`, `a#b` and `'# not a comment'` all survive.
+
+    Needed because `true # echo "X=1" >> "$GITHUB_ENV"` exports nothing,
+    yet the export pattern matched it. Codex showed in batch-4 round 2 that
+    disabling the Safari export this way still printed "OK".
+
+    What it does not handle: a heredoc body, or a backslash-escaped quote
+    inside double quotes. Both are absent from release.yml's export lines;
+    if one ever appeared, the effect would be a missed export -- a loud
+    false finding, not a silent pass."""
+    in_single = in_double = False
+    for idx, ch in enumerate(line):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double:
+            if idx == 0 or line[idx - 1] in " \t":
+                return line[:idx]
+    return line
 
 
 def _step_if(lines: list[str], step_indent: int, step_start: int, step_end: int) -> str | None:
@@ -344,17 +377,26 @@ def _github_env_exports_before(
         exported: set[str] = set()
         for i in range(sstart, send):
             line = lines[i - 1]
-            # A shell comment and a YAML comment look the same here, and
-            # neither runs.
+            # A whole-line comment (shell or YAML) never runs, and nor does
+            # the tail of a line after a shell comment starts.
             if line.lstrip().startswith("#"):
                 continue
-            m = _GITHUB_ENV_EXPORT_RE.search(line)
+            m = _GITHUB_ENV_EXPORT_RE.search(_strip_shell_comment(line))
             if m:
                 exported.add(m.group(1))
         if not exported:
             continue
         cond = _step_if(lines, indent, sstart, send)
-        if cond is None or cond == build_if:
+        # A condition written over several lines (`if: >-` or `if: |`)
+        # shows up here as just its marker, `>-` or `|`. Comparing markers
+        # would call a Linux-only export and a macOS-only build "the same
+        # condition" (Codex, batch-4 round 2). Reading YAML's multi-line
+        # forms properly is more than this stdlib-only script should
+        # attempt, so such a condition is never counted as matching -- it
+        # is reported as "cannot confirm" instead.
+        multiline = cond is not None and cond[:1] in (">", "|")
+        build_multiline = build_if is not None and build_if[:1] in (">", "|")
+        if cond is None or (cond == build_if and not multiline and not build_multiline):
             certain |= exported
         else:
             for name in exported:

@@ -22,7 +22,10 @@ own functions -- no copy of the real release.yml is touched.
 
 Proven able to fail: with the old line-by-line scan put back, the
 commented-out and `if: false` cases both report the value as reaching
-the build.
+the build. Codex's second round found four more holes (a comment after
+code on the same line, a YAML comment cutting a step short, and two
+multi-line conditions compared by their `>-` marker); each has a case
+here, including the one where BOTH steps use `>-`.
 
 Pure stdlib, no pytest, same house style as the checks themselves.
 Run directly: `python3 tools/audit-checks/test_check_build_secrets.py`
@@ -100,6 +103,30 @@ CASES = [
         False,
     ),
     (
+        "an export commented out AFTER other code on the line does NOT count",
+        f"      - name: Export it\n        run: |\n          true # {EXPORT.strip()}",
+        False,
+        False,
+    ),
+    (
+        "a `#` inside quotes is not a comment, so the export still counts",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
+        True,
+        False,
+    ),
+    (
+        "a YAML comment inside the step does not cut the step short",
+        f"      - name: Export it\n      # a note at the dash's own depth\n        run: |\n{EXPORT}",
+        True,
+        False,
+    ),
+    (
+        "a multi-line condition is never taken to match the build's",
+        f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        run: |\n{EXPORT}",
+        False,
+        True,
+    ),
+    (
         "an `if` inside the shell script is not mistaken for the step's condition",
         f"      - name: Export it\n        run: |\n          if: nonsense\n{EXPORT}",
         True,
@@ -108,8 +135,21 @@ CASES = [
 ]
 
 
+# Both steps written with `if: >-`: the markers are identical, the
+# conditions are not. This is the exact case Codex reproduced.
+BOTH_MULTILINE = (
+    "a multi-line export condition and a multi-line build condition are not "
+    "assumed equal just because both start `>-`",
+    f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        run: |\n{EXPORT}",
+)
+
+
 def main() -> int:
     failures: list[str] = []
+    description, step = BOTH_MULTILINE
+    certain, uncertain = exports_for(job(step, build_if=">-\n          runner.os == 'macOS'"))
+    if "SAFARI" in certain or "SAFARI" not in uncertain:
+        failures.append(f"{description}: counted as reaching={'SAFARI' in certain} (want False)")
     for description, step, want_certain, want_uncertain in CASES:
         certain, uncertain = exports_for(job(step))
         got_certain = "SAFARI" in certain
@@ -124,7 +164,7 @@ def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print(f"OK -- {len(CASES)} cases")
+    print(f"OK -- {len(CASES) + 1} cases")
     return 0
 
 
