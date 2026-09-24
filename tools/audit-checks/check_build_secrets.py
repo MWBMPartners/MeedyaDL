@@ -164,19 +164,31 @@ _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB
 
 # The only form COUNTED as a working export: the whole line is nothing but
 # `echo "NAME=value" >> "$GITHUB_ENV"`, indentation allowed, and nothing
-# before `echo` or after `$GITHUB_ENV`. Within that:
-#   * the value holds no quote and no backslash -- a backslash could escape
-#     the closing quote (`"X=1\" >> ...` is a shell error, not an export);
-#   * `$GITHUB_ENV` is either fully quoted or not quoted at all -- a lone
-#     quote on one side is also a shell error.
-# Codex found both of those accepted by the first version of this pattern
-# (batch-4 round 5). A line the loose pattern spots but this one does not
-# is reported as "cannot confirm", never counted. Every export line in
-# release.yml fits this form (checked 24 Sept 2026), so being strict costs
-# nothing today; a new export written some other way gets reported, and
-# can be rewritten to fit.
+# before `echo` or after `$GITHUB_ENV`. `$GITHUB_ENV` must be fully quoted
+# or not quoted at all -- a lone quote on one side is a shell error.
+#
+# The VALUE may contain only things that cannot fail or run anything:
+#   * plain characters (letters, digits, and `_ . / : @ % + , = # -` and space);
+#   * a variable, `$NAME`, `${NAME}` or its length `${#NAME}`;
+#   * a GitHub placeholder, `${{ ... }}`, which GitHub fills in before the
+#     shell ever sees the line.
+# Anything else -- a command (`$(...)`, backticks), arithmetic (`$((...))`),
+# a quote or a backslash -- makes the line "cannot confirm". A command can
+# fail and export nothing: `echo "X=$((1/0))" >> ...` exits 1, and
+# `echo "X=$(" >> ...` is a syntax error. This allows what is known to be
+# safe, rather than refusing what is known to be dangerous, because the
+# second approach was beaten five rounds running (Codex, batch-4 rounds
+# 2 to 6). Every export line in release.yml fits (checked 24 Sept 2026).
+_EXPORT_VALUE = (
+    r"(?:[A-Za-z0-9_./:@%+,=# -]"
+    r"|\$[A-Za-z_][A-Za-z0-9_]*"
+    r"|\$\{#?[A-Za-z_][A-Za-z0-9_]*\}"
+    r"|\$\{\{[^}\"\\`]*\}\})*"
+)
 _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
-    r'^\s*echo\s+"([A-Z0-9_]+)=[^"\\]*"\s*>>\s*(?:"\$GITHUB_ENV"|\$GITHUB_ENV)\s*$'
+    r'^\s*echo\s+"([A-Z0-9_]+)='
+    + _EXPORT_VALUE
+    + r'"\s*>>\s*(?:"\$GITHUB_ENV"|\$GITHUB_ENV)\s*$'
 )
 
 # A step's own `if:` key, capturing its indentation so _step_if() can tell
