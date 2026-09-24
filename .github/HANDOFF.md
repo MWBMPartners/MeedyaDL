@@ -150,6 +150,10 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - **Codex round owed: `6a8fcbbe` + `57f137ac`, scheduled 18:47.** When that is clean, the
     whole catch-up is done. That round (or the next) should also glance at the new standing
     rule below — a notes-only change, not yet reviewed by Codex.
+  - **18:4x: the round is RUNNING** (Codex, gpt-6-astra, medium, `timeout 2400`, background
+    command — it reports back when it exits). Prompt and output are in the session
+    scratchpad (`codex-r6-prompt.txt` / `codex-r6.out`); they are lost if the session ends,
+    so in that case start the round again.
   - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
     the session restarts). If it never fired, run the round by hand with the command in the
     section below, as a background command with `timeout 2400`, and do not end the turn
