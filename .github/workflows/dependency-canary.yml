@@ -187,16 +187,22 @@ jobs:
               exit 1
             fi
             # GitHub's search can answer successfully but say it did not
-            # look everywhere ("incomplete_results": true). An empty answer
-            # like that is NOT evidence that no pull request exists, so it
-            # must not be reported as "never recorded" -- stop instead
-            # (stand-in review, 24 Sept 2026).
-            if [ "$(jq -r '.incomplete_results // false' <<<"$RESPONSE")" = "true" ] \
-              && [ "$(jq -r '.items | length' <<<"$RESPONSE")" = "0" ]; then
-              echo "::error::GitHub's search for '$BRANCH' came back incomplete and empty, so it proves nothing. Stopping rather than reporting a result from an incomplete check; the next scheduled run will try again."
-              exit 1
-            fi
+            # look everywhere ("incomplete_results": true). Such an answer
+            # can prove a branch HEALTHY (a recent pull request it did find
+            # is real), but never QUIET: a newer pull request may sit in the
+            # part it did not search. So an incomplete answer is used only
+            # when it shows a recent pull request; anything else stops the
+            # run. (First version rejected only an incomplete EMPTY answer —
+            # an incomplete answer with an OLD pull request still declared
+            # the branch quiet. Stand-in review, then Codex batch-4 round 8.)
+            INCOMPLETE=$(jq -r '.incomplete_results // false' <<<"$RESPONSE")
             CREATED_AT=$(jq -r '.items[0].created_at // empty' <<<"$RESPONSE")
+            if [ "$INCOMPLETE" = "true" ]; then
+              if [ -z "$CREATED_AT" ] || [ "$(date -u -d "$CREATED_AT" +%s)" -lt "$CUTOFF_EPOCH" ]; then
+                echo "::error::GitHub's search for '$BRANCH' came back incomplete without a recent pull request, so it cannot show whether the branch has gone quiet. Stopping rather than reporting a result from an incomplete check; the next scheduled run will try again."
+                exit 1
+              fi
+            fi
             PR_URL=$(jq -r '.items[0].html_url // empty' <<<"$RESPONSE")
 
             if [ -z "$CREATED_AT" ]; then

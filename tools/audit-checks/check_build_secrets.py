@@ -194,10 +194,17 @@ _EXPORT_VALUE = (
     r"|\$\{#?[A-Za-z_][A-Za-z0-9_]*\}"
     r"|\$\{\{ *(?:matrix|env)\.[A-Za-z0-9_.-]+ *\}\})*"
 )
+#
+# `[ \t]`, never `\s`: Python's `\s` also matches Unicode spaces such as a
+# non-breaking space, which bash does NOT treat as a separator — so
+# `echo<NBSP>"X=1" >> "$GITHUB_ENV"` counted as an export while bash failed
+# with "command not found" (Codex, batch-4 round 8). Only the two spaces
+# bash itself splits on are accepted; anything else leaves the line to the
+# loose pattern, which reports it as "cannot confirm".
 _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
-    r'^\s*echo\s+"([A-Z0-9_]+)='
+    r'^[ \t]*echo[ \t]+"([A-Z0-9_]+)='
     + _EXPORT_VALUE
-    + r'"\s*>>\s*(?:"\$GITHUB_ENV"|\$GITHUB_ENV)\s*$'
+    + r'"[ \t]*>>[ \t]*(?:"\$GITHUB_ENV"|\$GITHUB_ENV)[ \t]*$'
 )
 
 # A step's own `if:` key, capturing its indentation so _step_if() can tell

@@ -190,6 +190,12 @@ CASES = [
         False,
         True,
     ),
+    (
+        "a non-breaking space after `echo` is not a working export (bash does not split on it)",
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo\u00a0"SAFARI=1" >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
     # What the real release.yml actually uses must keep counting.
     (
         "a plain variable in the value still counts",
