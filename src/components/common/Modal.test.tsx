@@ -466,4 +466,30 @@ describe('Modal', () => {
     expect(closeUpper).toHaveBeenCalledTimes(1);
     expect(closeLower).not.toHaveBeenCalled();
   });
+  /**
+   * The dialog opened second must also be DRAWN on top, or the keyboard
+   * (which follows opening order) would drive one dialog while another
+   * is shown above it (Codex, batch-3 review).
+   */
+  it('draws a dialog opened later above one opened earlier', () => {
+    function Pair() {
+      const [second, setSecond] = useState(false);
+      return (
+        <>
+          <Modal open={true} onClose={() => {}} title="First">
+            <button onClick={() => setSecond(true)}>Open second</button>
+          </Modal>
+          <Modal open={second} onClose={() => {}} title="Second">
+            <button>Inside second</button>
+          </Modal>
+        </>
+      );
+    }
+    render(<Pair />);
+    fireEvent.click(screen.getByText('Open second'));
+
+    const layerOf = (title: string) =>
+      Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
+    expect(layerOf('Second')).toBeGreaterThan(layerOf('First'));
+  });
 });

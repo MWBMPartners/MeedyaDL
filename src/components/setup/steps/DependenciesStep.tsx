@@ -304,10 +304,11 @@ export function DependenciesStep() {
                               );
                               return;
                             }
-                            const { updateSettings } = (
+                            const { syncSaved } = (
                               await import('@/stores/settingsStore')
                             ).useSettingsStore.getState();
-                            updateSettings({ [key]: selected } as Record<string, string>);
+                            // Saved by its own one-field write just below; not an unsaved edit.
+                            syncSaved({ [key]: selected } as Record<string, string>);
                             try {
                               await setStoredPreference({
                                 kind: 'helper_program_path',

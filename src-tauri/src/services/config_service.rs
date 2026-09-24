@@ -867,7 +867,58 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     let _guard = SETTINGS_WRITE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    save_settings_while_locked(app, settings)
+}
 
+/// Saves a whole settings object from the Settings screen, putting back —
+/// inside the SAME lock as the write — the fields that screen does not own.
+///
+/// `keep(incoming, on_disk, in_memory)` restores those fields. `on_disk` is
+/// the file as it is at this moment; `in_memory` is the running app's
+/// settings cache, which may know something the file does not (see
+/// `commands::settings::keep_fields_the_settings_screen_cannot_change`).
+///
+/// # Why the whole sequence is under one lock
+///
+/// The Save command used to read the file, THEN take the lock to write,
+/// and refresh the cache after letting go. So: Save read a one-off "shut
+/// down after the queue" as still armed; the queue finished and the
+/// backend cleared it; Save then wrote its earlier copy back — and the
+/// computer shut down again after the next queue, unasked (Codex, batch-3
+/// review). Reading, restoring, writing and refreshing the cache as one
+/// locked step closes that gap: the backend's clear (which takes this same
+/// lock, through `update_settings_field`) happens wholly before or wholly
+/// after.
+///
+/// Returns what was written.
+pub fn save_settings_from_screen<F>(
+    app: &AppHandle,
+    mut incoming: AppSettings,
+    keep: F,
+) -> Result<AppSettings, String>
+where
+    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>),
+{
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let on_disk = read_settings_from_disk(app).ok();
+    let in_memory = app
+        .try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek());
+    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref());
+
+    save_settings_while_locked(app, &incoming)?;
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        cache.refresh(incoming.clone());
+    }
+    Ok(incoming)
+}
+
+/// The write itself. The caller must already hold `SETTINGS_WRITE_LOCK`.
+fn save_settings_while_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
     write_settings_to_path(&settings_path, settings)?;
 

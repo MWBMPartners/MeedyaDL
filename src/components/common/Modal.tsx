@@ -28,7 +28,7 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -109,6 +109,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
   // This dialog's own place in `openDialogs`. A plain object, so identity
   // is all that is compared.
   const dialogToken = useRef<object>({});
+  // This dialog's layer on screen: 1 for the first open dialog, 2 for one
+  // opened on top of it, and so on. See the `style` on the overlay below.
+  const [layer, setLayer] = useState(1);
   /** i18n translation function -- reuses the generic "common.close" word,
    * since that's exactly what the close button says everywhere else. */
   const { t } = useTranslation();
@@ -253,6 +256,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
     if (open) {
       const token = dialogToken.current;
       openDialogs.push(token);
+      setLayer(openDialogs.length);
       // Save the previously focused element to restore later
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
@@ -285,7 +289,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
     /*
      * Backdrop overlay.
      * - fixed inset-0: covers the entire viewport.
-     * - z-50: stacks above normal content (but below toasts at z-[100]).
+     * - z-50, overridden by the inline zIndex: stacks above normal content
+     *   (but below toasts at z-[100]), one layer per open dialog in the
+     *   order they opened — see the `style` below.
      * - flex items-center justify-center: centres the panel vertically
      *   and horizontally.
      * - bg-surface-overlay: semi-transparent dark background (defined
@@ -294,6 +300,14 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
      */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-surface-overlay"
+      // Drawn in OPENING order, the same order the keyboard uses. Every
+      // dialog used to share `z-50`, so which one appeared on top was
+      // decided by where it sat in the page — while Tab and Escape went to
+      // the most recently opened. Opening keyboard-shortcut help over the
+      // pre-release notice put the help UNDER the notice yet gave it the
+      // keys (Codex, batch-3 review). 49 + layer stays well below toasts
+      // (z-index 100), even with several dialogs open.
+      style={{ zIndex: 49 + layer }}
       onClick={onClose}
     >
       {/*

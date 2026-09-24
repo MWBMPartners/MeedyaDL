@@ -25,7 +25,8 @@ export default function CrashReportOptInModal() {
   //
   // Saying yes takes effect at the next launch, for that same reason.
   const record = useCallback(async (enabled: boolean) => {
-    useSettingsStore.getState().updateSettings({
+    // Saved by its own one-field write just below; not an unsaved edit.
+    useSettingsStore.getState().syncSaved({
       sentry_enabled: enabled,
       crash_report_prompt_shown: true,
     });

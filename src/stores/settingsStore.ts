@@ -312,6 +312,12 @@ interface SettingsState {
   syncAfterQueueOnce: (action: AfterQueueAction | null) => void;
 
   /**
+   * Set in-memory fields that have just been saved by their own one-field
+   * command, without marking the Settings screen as unsaved.
+   */
+  syncSaved: (fields: Partial<AppSettings>) => void;
+
+  /**
    * Merge partial changes into the current settings (in-memory only).
    * Uses the spread operator to produce a new `settings` object, ensuring
    * Zustand detects the change via reference inequality.
@@ -451,6 +457,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    */
   syncAfterQueueOnce: (action) =>
     set((state) => ({ settings: { ...state.settings, after_queue_once: action } })),
+
+  /**
+   * Match the in-memory copy to fields that have JUST been written to disk
+   * by their own one-field command — without setting `isDirty`.
+   *
+   * Every one-field write (the crash-reporting answer, "don't ask again"
+   * before an abort, the "move MeedyaDL" answer, the setup wizard's choices)
+   * used to update the page's copy with `updateSettings`, which also sets
+   * `isDirty`. So after a successful save the Settings screen still said
+   * there were unsaved changes, and the "Re-run Setup Wizard" confirmation
+   * warned about edits that did not exist (Codex, batch-3 review). Any
+   * edit the person really has pending is left exactly as it is, and so is
+   * the flag.
+   */
+  syncSaved: (fields) =>
+    set((state) => ({ settings: { ...state.settings, ...fields } })),
 
   /**
    * Merge a partial settings update into the current settings object.

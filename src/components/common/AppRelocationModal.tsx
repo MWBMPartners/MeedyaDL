@@ -27,7 +27,8 @@ export default function AppRelocationModal() {
     // Written to DISK. It used to go to the page's copy only, so "Not
     // now" was forgotten the moment the app closed and this prompt came
     // back at every single launch, for ever.
-    useSettingsStore.getState().updateSettings({ relocation_declined: true });
+    // Saved by its own one-field write just below; not an unsaved edit.
+    useSettingsStore.getState().syncSaved({ relocation_declined: true });
     try {
       await setStoredPreference({ kind: 'relocation_declined', declined: true });
     } catch (err) {

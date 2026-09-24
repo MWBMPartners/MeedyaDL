@@ -773,7 +773,8 @@ export function CookiesStep() {
               // from a browser, and signing in) were always fine: the
               // backend writes the path itself for those. This was the
               // one of the three that did not.
-              updateSettings({ cookies_path: path });
+              // Saved by its own one-field write just below; not an unsaved edit.
+              useSettingsStore.getState().syncSaved({ cookies_path: path });
               setValidation(null);
               void commands.setStoredPreference({ kind: 'cookies_path', path: path ?? null }).catch(
                 (err) => {
