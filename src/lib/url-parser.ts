@@ -392,13 +392,18 @@ export function detectService(url: string): MediaServiceId | null {
       } else {
         /*
          * A host with a required path prefix, e.g. "bbc.co.uk/iplayer".
-         * Both the host AND the path have to match -- otherwise a BBC
-         * News article whose own path happened to contain "/sounds"
-         * would be misread as a BBC Sounds link.
+         * Both the host AND the path have to match, and the path must
+         * START with the prefix as a whole segment -- "/sounds" or
+         * "/sounds/...", never "/news/soundscape-..." or
+         * "/news/iplayer-changes". The check used to be `includes()`,
+         * which matched the prefix anywhere in the path, so exactly the
+         * BBC News case this comment said was prevented still happened
+         * (stand-in review, 24 Sept 2026).
          */
         const domainHost = domain.slice(0, slash);
         const domainPath = domain.slice(slash); // keeps the leading "/"
-        if (hostMatchesDomain(hostname, domainHost) && pathname.includes(domainPath)) {
+        const pathMatches = pathname === domainPath || pathname.startsWith(`${domainPath}/`);
+        if (hostMatchesDomain(hostname, domainHost) && pathMatches) {
           return service;
         }
       }

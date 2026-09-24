@@ -165,6 +165,41 @@ pub async fn get_default_settings() -> Result<AppSettings, String> {
     Ok(AppSettings::default())
 }
 
+/// Puts back the fields a whole-settings save must never take from the
+/// page. Split out of `save_settings` so the rule can be tested without a
+/// running app. `previous` is what is on disk now, or `None` if that
+/// could not be read.
+fn keep_fields_the_settings_screen_cannot_change(
+    settings: &mut AppSettings,
+    previous: Option<&AppSettings>,
+) {
+    // Security: `dev_access_enabled` must only be toggled by the dedicated
+    // `activate_dev_access` / `deactivate_dev_access` commands, which
+    // validate a passphrase (or clear the keychain sentinel) before
+    // persisting via `config_service::save_settings` directly — a path this
+    // clamp does NOT intercept. A general settings write (this IPC) must
+    // never be able to flip the flag on, regardless of what the incoming
+    // payload contains.
+    settings.dev_access_enabled = previous.is_some_and(|p| p.dev_access_enabled);
+
+    // `after_queue_once` — "do this once, when the queue finishes": shut
+    // down, hibernate, and so on — is never edited on the Settings screen.
+    // It is armed and disarmed only by its own one-field write, and the
+    // backend clears it after using it. So what is on disk is always the
+    // truth, and this whole-settings save keeps it.
+    //
+    // It used to write the value from the page's memory, which was never
+    // told when the backend had used the action up. So: arm "Hibernate",
+    // let the queue finish (the machine hibernates, the backend clears it on
+    // disk), then change any setting and press Save — and the stale
+    // "hibernate" in memory was written back, so the machine hibernated
+    // again after the next queue, unasked (stand-in review, 24 Sept 2026 —
+    // the #1175 fault in a new place). If the file cannot be read, the
+    // action is left disarmed: doing it once too few times is the safe
+    // direction for "shut the computer down".
+    settings.after_queue_once = previous.and_then(|p| p.after_queue_once);
+}
+
 /// Saves application settings to disk.
 ///
 /// **Frontend caller:** `saveSettings(settings)` in `src/lib/tauri-commands.ts`
@@ -202,16 +237,7 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::read_settings_from_disk(&app).ok();
 
-    // Security: `dev_access_enabled` must only be toggled by the dedicated
-    // `activate_dev_access` / `deactivate_dev_access` commands, which
-    // validate a passphrase (or clear the keychain sentinel) before
-    // persisting via `config_service::save_settings` directly — a path this
-    // clamp does NOT intercept. A general settings write (this IPC) must
-    // never be able to flip the flag on, regardless of what the incoming
-    // payload contains.
-    settings.dev_access_enabled = previous
-        .as_ref()
-        .is_some_and(|p| p.dev_access_enabled);
+    keep_fields_the_settings_screen_cannot_change(&mut settings, previous.as_ref());
 
     // save_settings() in config_service performs two writes:
     //   1. settings.json — full AppSettings struct as JSON
@@ -1490,5 +1516,61 @@ mod tests {
         preserve_local_only_settings(&mut imported, &current);
         assert_eq!(imported.activity_log_path_override, "/Users/them/logs");
     }
-}
 
+    /// A whole-settings save must keep the one-off after-queue action that
+    /// is on disk, not the page's stale copy (stand-in review, 24 Sept
+    /// 2026): after the backend used and cleared "hibernate", a later Save
+    /// wrote it back and the machine hibernated again, unasked.
+    #[test]
+    fn saving_keeps_the_one_off_after_queue_action_from_disk() {
+        use crate::models::settings::AfterQueueAction;
+
+        // The page still thinks "hibernate" is armed; the disk says it was
+        // used and cleared.
+        let mut from_page = AppSettings {
+            after_queue_once: Some(AfterQueueAction::HibernateComputer),
+            ..AppSettings::default()
+        };
+        let on_disk = AppSettings::default();
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk));
+        assert_eq!(
+            from_page.after_queue_once, None,
+            "the used-up action must not come back"
+        );
+
+        // And the other way round: armed on disk, page never heard.
+        let mut from_page = AppSettings::default();
+        let on_disk = AppSettings {
+            after_queue_once: Some(AfterQueueAction::ShutdownComputer),
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk));
+        assert_eq!(
+            from_page.after_queue_once,
+            Some(AfterQueueAction::ShutdownComputer)
+        );
+
+        // Disk unreadable: left disarmed — once too few is the safe side
+        // for "shut the computer down".
+        let mut from_page = AppSettings {
+            after_queue_once: Some(AfterQueueAction::ShutdownComputer),
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, None);
+        assert_eq!(from_page.after_queue_once, None);
+    }
+
+    /// The older rule in the same function, pinned alongside it.
+    #[test]
+    fn saving_never_switches_developer_access_on() {
+        let mut from_page = AppSettings {
+            dev_access_enabled: true,
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(
+            &mut from_page,
+            Some(&AppSettings::default()),
+        );
+        assert!(!from_page.dev_access_enabled);
+    }
+}

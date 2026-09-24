@@ -260,6 +260,18 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
                 cache.mutate(|s| s.after_queue_once = None);
             }
         }
+
+        // Tell the page the one-off has been used. The page keeps its own
+        // copy of the settings, and nothing else would tell it: the status
+        // bar went on showing a finished action as still armed, and that
+        // stale copy is what a later whole-settings Save used to write back
+        // (see save_settings, which now ignores it — this keeps the screen
+        // honest too). Best effort: a page that misses it is corrected the
+        // next time the settings are read.
+        use tauri::Emitter as _;
+        if let Err(e) = app.emit("after-queue-once-used", ()) {
+            log::debug!("Could not tell the page the one-off after-queue action was used: {e}");
+        }
     }
 
     match action {

@@ -683,12 +683,20 @@ function App() {
           useUiStore.getState().setShowPrereleaseNotice(true);
         }
 
-        // Show crash report opt-in prompt on first launch (after setup wizard)
+        // Show crash report opt-in prompt on first launch (after setup wizard).
+        //
+        // Not while the pre-release notice is showing: the two could open
+        // together on the first launch of a new pre-release, and Escape
+        // meant for the notice also closed this question — recording "no"
+        // for good, unseen (stand-in review, 24 Sept 2026). Held back, it
+        // is simply asked at the next launch: `crash_report_prompt_shown`
+        // is only set once the question has really been answered.
         if (
           !settingsState.settings.crash_report_prompt_shown &&
           settingsState.settings.setup_completed &&
           !uiStateForNotice.showSetupWizard &&
-          !uiStateForNotice.showFirstRunUpdatePrompt
+          !uiStateForNotice.showFirstRunUpdatePrompt &&
+          !useUiStore.getState().showPrereleaseNotice
         ) {
           useUiStore.getState().setShowCrashReportPrompt(true);
         }
@@ -818,17 +826,23 @@ function App() {
    * switching to it, so even the very first time this runs -- at
    * startup -- it works without a second restart.
    *
-   * An empty string means "no explicit choice", so nothing is done for
-   * that case -- `initI18n()` in Effect 2 already applied whatever the
-   * OS/browser reported.
+   * An empty string means "Auto": follow the system's language. That has
+   * to be applied too, not skipped. Skipping it meant choosing "Auto"
+   * after "Deutsch" left the app in German (stand-in review, 24 Sept 2026).
+   *
+   * A language file that cannot be loaded is reported, not swallowed:
+   * the screen staying in English with no word of why was the failure.
    *
    * Dependency: [uiLanguageSetting] -- re-runs whenever the setting
    * changes, the same pattern Effect 3 above uses for the sidebar.
    */
   useEffect(() => {
-    if (uiLanguageSetting) {
-      changeUiLanguage(uiLanguageSetting).catch(() => {});
-    }
+    const target = uiLanguageSetting || navigator.language || 'en';
+    changeUiLanguage(target).catch((err: unknown) => {
+      useUiStore
+        .getState()
+        .addToast(err instanceof Error ? err.message : String(err), 'warning', undefined, 'ui-language');
+    });
   }, [uiLanguageSetting]);
 
   /*
@@ -920,6 +934,40 @@ function App() {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isReady, checkForUpdates]);
+
+  /*
+   * ─── Effect 4a2: the one-off after-queue action has been used ─────────
+   *
+   * The backend clears `after_queue_once` ("shut down / hibernate / … once,
+   * when the queue finishes") on disk after using it, then sends this
+   * event. Without it, this page's copy kept the old value: the status bar
+   * showed a finished action as still armed, and a later Save used to
+   * write it back so it fired again, unasked. Save no longer does that (the
+   * backend keeps the disk value), but the screen should still tell the
+   * truth.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    let unlistenOnce: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unlistenOnce = await listen('after-queue-once-used', () => {
+          // Directly, not through `updateSettings`: that marks the Settings
+          // screen as having unsaved changes, and this is not a change the
+          // person made. Any unsaved edits they DO have are left as they are.
+          useSettingsStore.setState((state) => ({
+            settings: { ...state.settings, after_queue_once: null },
+          }));
+        });
+      } catch {
+        /* Tauri API unavailable */
+      }
+    };
+    setup();
+
+    return () => unlistenOnce?.();
+  }, [isReady]);
 
   /*
    * ─── Effect 4b: macOS About Menu → Help > About ────────────────────

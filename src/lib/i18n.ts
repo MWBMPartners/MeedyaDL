@@ -6,8 +6,11 @@
  *
  * Sets up i18next with browser language detection and dynamic locale loading
  * from `public/locales/{lang}/translation.json`. English is the fallback
- * language. The detected (or user-selected) language is cached in localStorage
- * under the key `meedyadl-ui-language`.
+ * language. Only the system's language is detected; nothing is remembered by
+ * the browser. A language someone chooses is remembered by the saved
+ * `ui_language` setting alone (older builds also kept a copy in localStorage
+ * under `meedyadl-ui-language`; that copy is no longer read or written — see
+ * the `detection` block in initI18n()).
  *
  * Usage:
  *   1. Import this module in App.tsx (side-effect import)
@@ -181,6 +184,14 @@ export async function changeUiLanguage(lng: string): Promise<void> {
    */
   if (base !== 'en' && !i18n.hasResourceBundle(base, 'translation')) {
     await loadLocaleResources(base);
+    // loadLocaleResources() hides its own failures (startup has to carry
+    // on regardless). Here, a person has just CHOSEN this language, and the
+    // screen staying in English with no word of why is the silent failure
+    // the help text's "changes straight away" would make worse. So say so;
+    // the caller shows it. English stays in use either way.
+    if (!i18n.hasResourceBundle(base, 'translation')) {
+      throw new Error(`The ${lng} language file could not be loaded, so English is shown instead.`);
+    }
   }
   await i18n.changeLanguage(lng);
 }
@@ -207,10 +218,23 @@ export async function initI18n(): Promise<void> {
       interpolation: {
         escapeValue: false, // React already escapes
       },
+      // The system language only, and nothing remembered by the browser.
+      //
+      // This used to read `localStorage` FIRST and write every language
+      // change into it (`caches: ['localStorage']`). Since the dropdown
+      // switches the language the moment it changes — before Save — a
+      // language merely tried out and never saved came back after a
+      // restart, while the dropdown said "Auto"; and choosing "Auto"
+      // afterwards could never take effect, because the browser's copy
+      // still said otherwise (stand-in review, 24 Sept 2026). The saved
+      // `ui_language` setting is now the only thing that remembers a
+      // choice; App.tsx applies it once settings load. The cost: someone
+      // who saved a non-English language may see English for a moment at
+      // startup, until then. A stale value left in `localStorage` by older
+      // builds is simply never read.
       detection: {
-        order: ['localStorage', 'navigator'],
-        lookupLocalStorage: 'meedyadl-ui-language',
-        caches: ['localStorage'],
+        order: ['navigator'],
+        caches: [],
       },
       resources: {
         en: { translation: enTranslations },

@@ -418,6 +418,16 @@ describe('detectService', () => {
     expect(detectService('https://www.bbc.co.uk/iplayer/episode/abc123')).toBe('bbc-iplayer');
   });
 
+  it('does not read a BBC News article as iPlayer just because its path contains "iplayer"', () => {
+    // The prefix must start the path as a whole segment. This used to be
+    // an `includes()` check, so both of these were misread (stand-in
+    // review, 24 Sept 2026).
+    expect(detectService('https://www.bbc.co.uk/news/iplayer-changes-123')).not.toBe('bbc-iplayer');
+    expect(detectService('https://www.bbc.co.uk/news/entertainment/iplayer')).not.toBe('bbc-iplayer');
+    // The service's own address, with nothing after it, still counts.
+    expect(detectService('https://www.bbc.co.uk/iplayer')).toBe('bbc-iplayer');
+  });
+
   it('returns null for unknown URLs', () => {
     expect(detectService('https://example.com/music')).toBeNull();
   });

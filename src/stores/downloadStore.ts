@@ -572,9 +572,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     const removed = await commands.clearQueue();
     // Refresh the queue to remove cleared items from the UI. Only
     // reached on success -- a failed clear has nothing new to reflect,
-    // and the line above already threw.
-    const status = await commands.getQueueStatus();
-    set({ queueItems: status.items });
+    // and the line above already threw. The refresh is guarded on its
+    // own: the clear has HAPPENED, and a failed refresh must not reach
+    // the caller as "Could not clear finished downloads" (see abortAll).
+    try {
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+    } catch (refreshError) {
+      console.warn('Cleared, but could not refresh the queue list:', refreshError);
+    }
     return removed;
   },
 
@@ -598,8 +604,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       .flatMap((i) => i.urls ?? []);
 
     const removed = await commands.clearAllQueue();
-    const status = await commands.getQueueStatus();
-    set({ queueItems: status.items, _undoBuffer: clearableUrls.length > 0 ? clearableUrls : null });
+    // The clear has happened. A failed refresh must not turn into
+    // "Could not clear the queue" at the caller — see abortAll.
+    try {
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+    } catch (refreshError) {
+      console.warn('Cleared, but could not refresh the queue list:', refreshError);
+    }
+    set({ _undoBuffer: clearableUrls.length > 0 ? clearableUrls : null });
 
     // Show undo toast with 5-second timeout
     if (removed > 0 && clearableUrls.length > 0) {
@@ -703,11 +716,18 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
       // Refresh the queue snapshot so the UI reflects the state change
       // without waiting for the subsequent `queue-updated` event.
-      const status = await commands.getQueueStatus();
-      set({
-        queueItems: status.items,
-        _undoBuffer: abortableUrls.length > 0 ? abortableUrls : null,
-      });
+      //
+      // Guarded on its own: by this point the abort has HAPPENED. A failed
+      // refresh must not fall into the catch below and be reported as
+      // "could not stop the downloads" — the `queue-updated` event brings
+      // the list up to date anyway (stand-in review, 24 Sept 2026).
+      try {
+        const status = await commands.getQueueStatus();
+        set({ queueItems: status.items });
+      } catch (refreshError) {
+        console.warn('Aborted, but could not refresh the queue list:', refreshError);
+      }
+      set({ _undoBuffer: abortableUrls.length > 0 ? abortableUrls : null });
 
       if (total > 0) {
         const { addToast } = useUiStore.getState();
@@ -788,7 +808,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
 
       return total;
     } catch (e) {
-      set({ error: String(e) });
+      // Say so. This used to store the error in a field nothing on screen
+      // reads and return 0, so every caller — the Abort button, the status
+      // bar, the keyboard shortcut — showed nothing at all when the abort
+      // failed: someone trying to stop a runaway batch got no answer
+      // (stand-in review, 24 Sept 2026). The success message is shown from
+      // here, so the failure is too, and every caller is covered at once.
+      const message = e instanceof Error ? e.message : String(e);
+      set({ error: message });
+      useUiStore
+        .getState()
+        .addToast(`Could not stop the downloads: ${message}`, 'error', undefined, 'abort-failed');
       return 0;
     }
   },
@@ -1091,10 +1121,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // What this does instead: recognise the backend's own wording for
     // this specific rejection (it starts "Too many requests.") and, the
     // first time it happens, stop making further calls for the rest of
-    // this batch. There is no point trying the rest -- a slot is only
-    // used up by a call that succeeds, so every further attempt made a
-    // few milliseconds later in this same loop is certain to be
-    // refused for the identical reason. The untried links are still
+    // this batch. There is no point trying the rest -- the limit has just
+    // been reached, so every further attempt made a few milliseconds
+    // later in this same loop is certain to be refused for the identical
+    // reason. (This comment used to say a slot is only used up by a call
+    // that SUCCEEDS; in fact every call that gets past the backend's
+    // check uses one, whatever happens to it afterwards.) The untried links are still
     // counted as `failed` (so `queued + failed` always adds up to the
     // number of links pasted, keeping the caller's own summary honest)
     // and a single toast explains, in plain terms, what happened and
@@ -1106,6 +1138,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // more than ten links at once); telling the person plainly and
     // letting them paste again is simpler and cannot fail quietly.
     let pacedStop = false;
+    // Every link that did not make it in, in the order pasted, so they can
+    // be put back in the box rather than lost (see the end of the loop).
+    const notAdded: string[] = [];
 
     try {
       for (const url of urls) {
@@ -1113,6 +1148,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           // Already know this one would be refused too -- count it as
           // not-yet-queued without spending a real round trip to prove it.
           failed++;
+          notAdded.push(url);
           continue;
         }
 
@@ -1131,6 +1167,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         } catch (e) {
           // Individual URL failure — continue with remaining URLs
           failed++;
+          notAdded.push(url);
 
           const msg = e instanceof Error ? e.message : String(e);
           const waitMatch = msg.match(/wait (\d+) seconds/i);
@@ -1138,15 +1175,19 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           if (msg.startsWith('Too many requests') && waitMatch) {
             pacedStop = true;
             const waitSeconds = waitMatch[1];
-            const remaining = urls.length - queued - failed;
+            // Everything not yet added: this refused link plus every link
+            // after it. This used to be worked out AFTER the refused link
+            // had been counted as failed, so it was left out -- with 12
+            // links it said "the other 1" when 2 were not added, and with
+            // 11 it never mentioned the refused one at all (stand-in
+            // review, 24 Sept 2026).
+            const stillToAdd = urls.length - queued;
             const { addToast } = useUiStore.getState();
 
             // House style: never show the words "rate limit" on
             // screen -- say what it actually means instead.
             addToast(
-              remaining > 0
-                ? `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. So far ${queued} of your links got added; the other ${remaining} will need pasting again in about ${waitSeconds} seconds.`
-                : `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${queued} of your links got added. Wait about ${waitSeconds} seconds before adding more.`,
+              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${queued} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
               'warning',
             );
           }
@@ -1159,7 +1200,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         }
       }
 
-      // Clear the input form after batch submission is complete.
+      // Clear the input form after batch submission is complete -- but put
+      // back any links that did not make it in. The box used to be cleared
+      // regardless, so the message above told the person to paste links
+      // again that were no longer anywhere to paste from.
       set({
         urlInput: '',
         urlIsValid: false,
@@ -1167,6 +1211,9 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
         overrideOptions: null,
         isSubmitting: false,
       });
+      if (notAdded.length > 0) {
+        get().setUrlInput(notAdded.join('\n'));
+      }
 
       return { queued, failed, duplicateWarnings };
     } catch (e) {

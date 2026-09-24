@@ -648,7 +648,9 @@ export function DownloadForm() {
           parts.push(`${result.queued} download${result.queued !== 1 ? 's' : ''} added to queue`);
         }
         if (result.failed > 0) {
-          parts.push(`${result.failed} failed to queue`);
+          // The store now puts every link that did not make it in back in
+          // the box, so say where they are.
+          parts.push(`${result.failed} not added — left in the box`);
         }
         // Two separate sentences, because they are two different situations
         // and lumping them together as "invalid" was misleading (#1157).

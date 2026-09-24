@@ -92,7 +92,23 @@ interface ModalProps {
  * @param children - Modal body content
  * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
  */
+/**
+ * Every open dialog, in the order it opened; the last one is on top.
+ *
+ * Each open dialog listens for keys across the whole page. With two open
+ * at once, both acted on every key: the lower one pulled focus back into
+ * itself on each Tab and the upper one pulled it straight back, so Tab
+ * only ever landed on the first or last button; and Escape closed BOTH —
+ * which, for the crash-reporting question, recorded "no" for good without
+ * the person having seen it (stand-in review, 24 Sept 2026). Now only the
+ * top-most dialog handles Tab and Escape.
+ */
+const openDialogs: object[] = [];
+
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
+  // This dialog's own place in `openDialogs`. A plain object, so identity
+  // is all that is compared.
+  const dialogToken = useRef<object>({});
   /** i18n translation function -- reuses the generic "common.close" word,
    * since that's exactly what the close button says everywhere else. */
   const { t } = useTranslation();
@@ -160,6 +176,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
    * See: https://github.com/MWBMPartners/MeedyaDL/issues/218
    */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Only the top-most open dialog answers keys — see `openDialogs`.
+    if (openDialogs[openDialogs.length - 1] !== dialogToken.current) return;
     if (e.key === 'Escape') {
       onCloseRef.current();
       return;
@@ -233,6 +251,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
    */
   useEffect(() => {
     if (open) {
+      const token = dialogToken.current;
+      openDialogs.push(token);
       // Save the previously focused element to restore later
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
@@ -246,6 +266,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
         }
       });
       return () => {
+        const at = openDialogs.lastIndexOf(token);
+        if (at !== -1) openDialogs.splice(at, 1);
         document.removeEventListener('keydown', handleKeyDown);
         // Restore focus to the element that opened the modal -- this now
         // only runs when `open` actually flips back to false (or the

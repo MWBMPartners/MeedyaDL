@@ -452,6 +452,34 @@ describe('downloadStore', () => {
   // =========================================================================
   // Queue Management
   // =========================================================================
+  describe('abortAll', () => {
+    it('says so when the abort fails, instead of doing nothing on screen', async () => {
+      // It used to store the error where nothing reads it and return 0,
+      // so the Abort button, the status bar and the keyboard shortcut all
+      // showed nothing (stand-in review, 24 Sept 2026).
+      vi.mocked(commands.abortAllDownloads).mockRejectedValueOnce(new Error('backend unavailable'));
+      const total = await useDownloadStore.getState().abortAll();
+      expect(total).toBe(0);
+      const toasts = useUiStore.getState().toasts;
+      expect(toasts.some((t) => t.type === 'error' && t.message.includes('backend unavailable'))).toBe(
+        true,
+      );
+    });
+
+    it('does not report a successful abort as failed when only the list refresh fails', async () => {
+      vi.mocked(commands.abortAllDownloads).mockResolvedValueOnce({
+        queuedCancelled: 2,
+        downloadingStopped: 0,
+        processingStopped: 0,
+      });
+      vi.mocked(commands.getQueueStatus).mockRejectedValueOnce(new Error('refresh failed'));
+      const total = await useDownloadStore.getState().abortAll();
+      expect(total).toBe(2);
+      const toasts = useUiStore.getState().toasts;
+      expect(toasts.some((t) => t.type === 'error')).toBe(false);
+    });
+  });
+
   describe('cancelDownload', () => {
     it('calls the cancel command', async () => {
       vi.mocked(commands.cancelDownload).mockResolvedValueOnce(undefined);
@@ -677,12 +705,18 @@ describe('downloadStore', () => {
       // don't just parrot the backend's technical wording either.
       expect(pacingToast?.message.toLowerCase()).not.toContain('rate limit');
       expect(pacingToast?.message.toLowerCase()).not.toContain('too many requests');
-      // Says how many were added and how many are left to paste again.
-      expect(pacingToast?.message).toContain('10');
-      expect(pacingToast?.message).toContain('the other 4');
+      // Says how many were added and how many were NOT: 15 pasted, 10
+      // added, so 5 -- the refused link plus the 4 after it. This test used
+      // to expect "the other 4", pinning the miscount the stand-in review
+      // found (24 Sept 2026): the refused link was left out.
+      expect(pacingToast?.message).toContain('10 of your links were added');
+      expect(pacingToast?.message).toContain('The other 5');
+      // And they are really in the box to press Download on again -- the
+      // box used to be cleared, so there was nothing left to paste.
+      expect(useDownloadStore.getState().urlInput.split('\n')).toEqual(batch.slice(10));
     });
 
-    it('drops the "paste the rest again" phrasing when the rejected link was the last one in the batch', async () => {
+    it('still mentions the refused link when it was the last one in the batch', async () => {
       const batch = urls(11);
       for (let i = 0; i < 10; i++) {
         vi.mocked(commands.startDownload).mockResolvedValueOnce({
@@ -698,9 +732,12 @@ describe('downloadStore', () => {
       const toasts = useUiStore.getState().toasts;
       const pacingToast = toasts.find((t) => t.message.includes('42 seconds'));
       expect(pacingToast).toBeDefined();
-      // Nothing is left to paste again, so the message must not claim
-      // there is a "rest" to come back to.
-      expect(pacingToast?.message).not.toContain('the other');
+      // The refused link itself was NOT added, so there is one left. This
+      // test used to insist the message said nothing about it -- which is
+      // how an 11-link paste told the person all was well while one link
+      // was silently dropped (stand-in review, 24 Sept 2026).
+      expect(pacingToast?.message).toContain('The other 1');
+      expect(useDownloadStore.getState().urlInput).toBe(batch[10]);
     });
 
     it('does not treat an ordinary per-link failure as the pacing case, and keeps trying the rest of the batch', async () => {

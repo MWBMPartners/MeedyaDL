@@ -116,12 +116,19 @@ export function CrashReportSection() {
 
   /** Deletes a crash report and removes it from the displayed list. */
   const handleDelete = async (id: string) => {
-    const ok = await withErrorToast(() => deleteCrashReport(id), {
+    // `deleteCrashReport` resolves with nothing, which arrives here as
+    // `null` — so the check below only worked because `null !== undefined`.
+    // Returning `true` makes "it succeeded" explicit rather than an
+    // accident of how an empty reply is represented.
+    const ok = await withErrorToast(async () => {
+      await deleteCrashReport(id);
+      return true;
+    }, {
       successMsg: 'Crash report deleted',
       successVariant: 'info',
       errorMsg: (err) => `Failed to delete crash report: ${err}`,
     });
-    if (ok !== undefined) {
+    if (ok) {
       setReports((prev) => prev.filter((r) => r.id !== id));
     }
   };

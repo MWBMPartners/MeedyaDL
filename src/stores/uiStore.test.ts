@@ -645,6 +645,23 @@ describe('uiStore', () => {
       );
     });
 
+    it('drops a message that would go away by itself before a lasting one', () => {
+      // A lasting error, then passing notes, then one more to overflow.
+      // The lasting error stays: it is there because the person has to act
+      // on it. The oldest PASSING note goes instead (stand-in review, 24
+      // Sept 2026 -- the plain oldest used to be dropped, whatever it was).
+      useUiStore.getState().addToast('Nothing will happen after the queue', 'error', 0);
+      for (let i = 0; i < MAX_TOASTS; i += 1) {
+        useUiStore.getState().addToast(`Note ${i}`, 'info', 5000);
+      }
+
+      const messages = useUiStore.getState().toasts.map((t) => t.message);
+      expect(messages).toHaveLength(MAX_TOASTS);
+      expect(messages).toContain('Nothing will happen after the queue');
+      expect(messages).not.toContain('Note 0');
+      expect(messages[messages.length - 1]).toBe(`Note ${MAX_TOASTS - 1}`);
+    });
+
     it('does not trim the list while it is at or under the ceiling', () => {
       for (let i = 0; i < MAX_TOASTS; i += 1) {
         useUiStore.getState().addToast(`Item ${i}`, 'info', 0);
