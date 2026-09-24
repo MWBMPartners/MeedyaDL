@@ -655,13 +655,19 @@ export function detectExternalGamdl(): Promise<ExternalGamdlInfo | null> {
  * The Rust backend downloads the platform/arch-appropriate binary from
  * the official release source and places it in the app data directory.
  *
- * Called by: SetupWizard dependencies step
+ * Called by: SetupWizard dependencies step, Settings > Tools, and (with
+ * `forUpdate`) the Update button on the Updates page.
  *
  * @param name - Name of the dependency to install
+ * @param forUpdate - `true` only for the Update button. It tells the
+ *   backend this is an UPDATE, which must not quietly fall back to
+ *   MeedyaDL's backup download source — that source can hold the same or
+ *   an older version, so the update would never actually arrive. Leave it
+ *   out for setup, Install and Reinstall, which keep the full route.
  * @returns Promise resolving to a success message string
  */
-export function installDependency(name: string): Promise<string> {
-  return invoke<string>('install_dependency', { name });
+export function installDependency(name: string, forUpdate?: boolean): Promise<string> {
+  return invoke<string>('install_dependency', { name, forUpdate: forUpdate ?? false });
 }
 
 /**

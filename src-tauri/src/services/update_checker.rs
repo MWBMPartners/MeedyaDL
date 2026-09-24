@@ -519,9 +519,9 @@ enum VersionVerdict {
     LatestUnreadable,
     /// Compared properly: there is something newer.
     UpdateAvailable,
-    /// Compared properly: nothing newer — or there was nothing to
-    /// compare against, which is not the same thing but leads to the
-    /// same quiet result.
+    /// Compared properly and nothing is newer — or nothing is installed
+    /// at all (the Tools page handles that case). An unreadable latest
+    /// version is NOT this: it has its own answer, `LatestUnreadable`.
     NothingNewer,
 }
 
@@ -2013,7 +2013,8 @@ async fn gate_before_comparing(
             format!(
                 "MeedyaDL cannot tell who installed this copy of {display_name}, so it has left \
                  it alone and not checked it for updates. Reinstalling it from Settings > Tools \
-                 lets MeedyaDL look after it."
+                 usually lets MeedyaDL look after it — unless a suitable copy is already \
+                 installed elsewhere on this computer, which MeedyaDL then uses instead."
             ),
         ))),
         ToolOwnership::MeedyaDl => match read {
