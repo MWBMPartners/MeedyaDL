@@ -148,6 +148,12 @@ fn parse_mirror_asset_hash(toml_src: &str, asset_filename: &str) -> Option<Strin
 struct GpacWindowsInstallerPin {
     url: String,
     sha256: String,
+    /// The GPAC version the pinned installer contains, if the pin says.
+    /// Optional, and used only by the update check: a copy from GPAC's own
+    /// installer can only ever be "updated" to exactly this version, since
+    /// the installer downloads this one fixed file. See
+    /// [`gpac_pinned_version_for_this_platform`].
+    version: Option<String>,
 }
 
 /// Loads the pinned Windows GPAC NSIS installer configuration, if present.
@@ -200,7 +206,40 @@ fn parse_gpac_installer_pin(toml_src: &str, section: &str) -> Option<GpacWindows
         return None;
     }
 
-    Some(GpacWindowsInstallerPin { url, sha256 })
+    let version = table
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    Some(GpacWindowsInstallerPin {
+        url,
+        sha256,
+        version,
+    })
+}
+
+/// The version the GPAC installer pinned for THIS operating system
+/// contains, or `None` when there is no pin or the pin does not say.
+///
+/// # Why the update check needs this
+///
+/// A copy of MP4Box from GPAC's own installer used to be compared against
+/// GPAC's latest GitHub release. But the installer never downloads "the
+/// latest": it downloads the one fixed, checksum-verified file pinned in
+/// `tool-versions.toml`. So with a pin at 2.6.0 and GPAC at 2.8, the page
+/// would offer 2.8 for ever, and every Update would reinstall 2.6.0 — the
+/// "same bytes again" mistake #273 warns against above all (Codex, batch-5
+/// review, finding 2). The right thing to compare against is the pinned
+/// version. It cannot happen today, since every pin is commented out.
+pub(crate) fn gpac_pinned_version_for_this_platform() -> Option<String> {
+    let pin = match std::env::consts::OS {
+        "windows" => load_gpac_windows_installer_pin(),
+        "macos" => load_gpac_macos_installer_pin(),
+        "linux" => load_gpac_linux_installer_pin(),
+        _ => None,
+    }?;
+    pin.version
 }
 
 // ============================================================
@@ -217,33 +256,71 @@ fn parse_gpac_installer_pin(toml_src: &str, section: &str) -> Option<GpacWindows
 // `update_checker.rs` for why a date, not a version number, is the only
 // honest thing to compare FFmpeg against.
 
-/// Returns `true` only when MeedyaDL downloaded and manages this copy of
-/// `tool_id` itself.
+/// Who owns an installed copy of a helper programme — the gate every
+/// update check added for issue #273 uses before proposing a "newer version
+/// available".
 ///
-/// This is the gate every update check added for issue #273 uses before
-/// proposing a "newer version available" — a copy a package manager
-/// installed (Homebrew, apt, …) or one this app merely found already on
-/// the system with no identifiable owner must be left alone. Offering our
-/// own reinstall for either would fight with whatever already keeps that
-/// copy current, and for the "found on the system, owner unknown" case we
-/// have no idea whether replacing it is even wanted.
+/// # Three answers, not two
 ///
-/// Reads the same `.source` marker file `install_tool()` and
-/// `copy_and_verify_mp4box()` write. A marker of exactly `"managed"`
-/// means MeedyaDL's own download; anything else — a package-manager
-/// reference (`"homebrew:ffmpeg"`, `"apt:gpac"`, …), the generic
-/// `"system"` fallback, or the file simply not existing yet — means
-/// "leave it alone".
-pub(crate) fn is_meedyadl_managed(app: &AppHandle, tool_id: &str) -> bool {
-    let tool_dir = get_tool_dir(app, tool_id);
-    let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
-    source_marker_means_meedyadl_managed(&marker)
+/// This used to be a yes/no, `is_meedyadl_managed()`, and "no" covered two
+/// very different situations: a copy we KNOW belongs to something else (a
+/// package manager, or one found on the system), and a copy whose owner
+/// nobody recorded (no `.source` file at all, or an unreadable one). Both
+/// were skipped with nothing on screen — so an old copy with no marker,
+/// such as an MP4Box from the macOS `.pkg` route before it wrote one, was
+/// never checked and never said so (Codex, batch-5 review, finding 5).
+/// Both are still left untouched; only the unknown one now says it could
+/// not be checked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolOwnership {
+    /// MeedyaDL downloaded this copy itself (`.source` is exactly "managed").
+    MeedyaDl,
+    /// Known to belong to something else: a package-manager reference
+    /// (`"homebrew:ffmpeg"`, `"apt:gpac"`, …) or the generic `"system"`.
+    /// Offering our own reinstall would fight whatever keeps it current.
+    SomethingElse,
+    /// Nobody recorded who installed it: no `.source` file, an unreadable
+    /// one, or an empty one. Left alone — replacing a copy we cannot place
+    /// could be unwanted — but reported as "could not check".
+    Unknown,
 }
 
-/// Pure core of [`is_meedyadl_managed()`], split out so the "what counts
-/// as managed" rule can be unit tested without touching a real file.
-fn source_marker_means_meedyadl_managed(marker: &str) -> bool {
-    marker.trim() == "managed"
+/// Reads the `.source` marker `install_tool()` and `copy_and_verify_mp4box()`
+/// write. See [`ToolOwnership`].
+pub(crate) fn tool_ownership(app: &AppHandle, tool_id: &str) -> ToolOwnership {
+    let marker = std::fs::read_to_string(get_tool_dir(app, tool_id).join(".source")).ok();
+    ownership_from_marker(marker.as_deref())
+}
+
+/// Pure core of [`tool_ownership()`], split out so the rule can be unit
+/// tested without touching a real file.
+fn ownership_from_marker(marker: Option<&str>) -> ToolOwnership {
+    match marker.map(str::trim) {
+        Some("managed") => ToolOwnership::MeedyaDl,
+        None | Some("") => ToolOwnership::Unknown,
+        Some(_) => ToolOwnership::SomethingElse,
+    }
+}
+
+/// Reads the installed version of a helper programme, keeping the reason
+/// when it could not be read.
+///
+/// `Ok(None)` means there is no copy at all. `Err(reason)` means a copy
+/// IS there but running it to ask its version failed — no permission to
+/// run it, the wrong kind of file for this computer, and so on. Callers
+/// used to write `get_tool_version(..).await.ok()`, which turned that
+/// failure into `None`, which every check then read as "not installed" —
+/// so a copy that could not even start was reported as nothing to update,
+/// with nothing on screen (Codex, batch-5 review, finding 3).
+pub(crate) async fn read_installed_version(
+    app: &AppHandle,
+    tool_id: &str,
+) -> Result<Option<String>, String> {
+    let binary = get_tool_binary_path(app, tool_id);
+    if !binary.exists() {
+        return Ok(None);
+    }
+    get_tool_version(&binary, tool_id).await.map(Some)
 }
 
 /// Normalises the MeedyaSuite mirror's Bento4 (mp4decrypt) version string
@@ -331,8 +408,19 @@ pub(crate) async fn fetch_mirror_versions() -> Result<serde_json::Value, String>
     // several places that do not share state, and threading a copy
     // through all of them would touch far more code than the problem is
     // worth. Five minutes is well past the length of one check, and
-    // update checks are already limited to one a minute, so the most a
-    // person could see is a mirror change arriving five minutes late.
+    // update checks are already limited to one a minute.
+    //
+    // This store is for update CHECKS only. Anything that records an
+    // identity for good — the FFmpeg install's build date — reads fresh
+    // instead. An earlier version of this comment said the worst case was
+    // "a mirror change arriving five minutes late"; that was only true for
+    // checks. Recorded at install time, a stale date became permanent and
+    // later produced a false update offer (Codex, batch-5 review,
+    // finding 6).
+    //
+    // Even a fresh read cannot promise the date belongs to the exact bytes
+    // just downloaded: the mirror could publish between the download and
+    // this read. That window is seconds wide and existed before the store.
     const MIRROR_VERSIONS_REUSE_FOR: std::time::Duration = std::time::Duration::from_secs(300);
     static CACHED: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
         std::sync::Mutex::new(None);
@@ -460,13 +548,23 @@ pub(crate) fn ffmpeg_build_info_path(app: &AppHandle) -> PathBuf {
 /// compared only against a later reading of the SAME source, never
 /// across sources, since BtbN and evermeet.cx build FFmpeg completely
 /// independently of each other.
+///
+/// `fresh` matters only for the mirror. The install passes `true`: the date
+/// it records becomes the permanent identity of the copy just installed,
+/// so it must never come from the five-minute store of the mirror's
+/// versions file — a store read before the mirror published a new build
+/// would stamp the NEW build with the OLD date, and a later check would
+/// then offer that same build as an update (Codex, batch-5 review,
+/// finding 6). The update check passes `false`, where a few minutes' delay
+/// is harmless.
 pub(crate) async fn fetch_ffmpeg_source_build_date(
     source: &str,
+    fresh: bool,
 ) -> Result<chrono::DateTime<chrono::Utc>, String> {
     match source {
         "btbn" => fetch_btbn_ffmpeg_build_date().await,
         "evermeet" => fetch_evermeet_ffmpeg_build_date().await,
-        "mirror" => fetch_mirror_ffmpeg_build_date().await,
+        "mirror" => fetch_mirror_ffmpeg_build_date(fresh).await,
         other => Err(format!(
             "'{other}' is not a recognised FFmpeg source — cannot look up its build date"
         )),
@@ -576,7 +674,9 @@ pub(crate) fn mirror_records_ffmpeg_build_date_for(os: &str) -> bool {
 /// `"2026-09-22T13:38:08Z"`) — the simplest of the three sources to read,
 /// since no reshaping is needed at all. On a Mac this refuses: see
 /// [`mirror_records_ffmpeg_build_date_for`].
-async fn fetch_mirror_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_mirror_ffmpeg_build_date(
+    fresh: bool,
+) -> Result<chrono::DateTime<chrono::Utc>, String> {
     if !mirror_records_ffmpeg_build_date_for(std::env::consts::OS) {
         return Err(
             "The mirror records a version number, not a build date, for its macOS FFmpeg — \
@@ -584,7 +684,11 @@ async fn fetch_mirror_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc
                 .to_string(),
         );
     }
-    let versions = fetch_mirror_versions().await?;
+    let versions = if fresh {
+        fetch_mirror_versions_uncached().await?
+    } else {
+        fetch_mirror_versions().await?
+    };
     let raw = versions
         .get("ffmpeg")
         .and_then(|v| v.as_str())
@@ -1874,7 +1978,9 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
             ToolInstallSource::Primary if cfg!(target_os = "macos") => "evermeet",
             ToolInstallSource::Primary => "btbn",
         };
-        let build_date = fetch_ffmpeg_source_build_date(ffmpeg_source).await;
+        // Fresh, never the stored copy: this date becomes the installed
+        // copy's identity. See fetch_ffmpeg_source_build_date.
+        let build_date = fetch_ffmpeg_source_build_date(ffmpeg_source, true).await;
         // A mirror copy on a Mac getting no date is expected, not a failure:
         // the mirror gives no date for the Mac build, and the update check
         // says so in plain words.
@@ -2351,7 +2457,7 @@ fn mp4box_source_marker(pm_ref: Option<&crate::services::package_manager::Packag
 /// "MeedyaDL's own download": GPAC's official installer, or the
 /// MeedyaSuite mirror when that fails. Both write the same `.source`
 /// marker, `"managed"` — and that word has to stay exactly as it is,
-/// because [`is_meedyadl_managed()`] and the tool-status screen read it to
+/// because [`tool_ownership()`] and the tool-status screen read it to
 /// mean "MeedyaDL owns this copy".
 ///
 /// But the two routes need DIFFERENT update checks. A GPAC copy is
@@ -3638,6 +3744,29 @@ release_tag = "latest"
     /// well-formed pin (non-empty URL + exactly-64-hex-char SHA-256);
     /// a missing section, a missing/short/non-hex hash all degrade to
     /// `None` rather than passing a broken pin through to the downloader.
+    /// The pin's optional `version` is what a GPAC-installed MP4Box is
+    /// compared against (Codex, batch-5 review, finding 2). Absent or
+    /// blank must read as "not recorded", never as some other value.
+    #[test]
+    fn parse_gpac_pin_reads_its_optional_version() {
+        let with = |version_line: &str| {
+            format!(
+                "[gpac.windows_installer]\nurl = \"https://example.invalid/gpac.exe\"\n\
+                 sha256 = \"{}\"\n{version_line}\n",
+                "a".repeat(64)
+            )
+        };
+        let pin = parse_gpac_installer_pin(&with("version = \"2.6.0\""), "windows_installer")
+            .expect("a valid pin");
+        assert_eq!(pin.version.as_deref(), Some("2.6.0"));
+
+        for blank in ["", "version = \"\"", "version = \"   \""] {
+            let pin = parse_gpac_installer_pin(&with(blank), "windows_installer")
+                .expect("a pin without a version is still a valid pin");
+            assert_eq!(pin.version, None, "{blank:?} records no version");
+        }
+    }
+
     #[test]
     fn parse_gpac_pin_requires_wellformed_url_and_hash() {
         let good = r#"
@@ -3799,25 +3928,30 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
         assert_eq!(mp4box_source_marker(None), "managed");
     }
 
-    /// Only the exact marker "managed" counts as "MeedyaDL owns this
-    /// copy" — a package-manager reference, the generic "system" find, an
-    /// empty file, and surrounding whitespace all read as "leave it
-    /// alone". This is the gate every update check added for #273 relies
-    /// on before proposing to replace a tool's binary.
+    /// Only the exact marker "managed" counts as "MeedyaDL owns this copy".
+    /// A package-manager reference or "system" is known to belong to
+    /// something else; a missing or empty marker is UNKNOWN — a separate
+    /// answer, because the update check must say it could not check such a
+    /// copy rather than skip it in silence (Codex, batch-5 review, finding 5).
     #[test]
-    fn source_marker_managed_check_is_exact() {
-        assert!(source_marker_means_meedyadl_managed("managed"));
-        // Written with a trailing newline by some editors/tools that might
-        // touch this file by hand — trimmed before comparison.
-        assert!(source_marker_means_meedyadl_managed("managed\n"));
-        assert!(source_marker_means_meedyadl_managed("  managed  "));
-
-        assert!(!source_marker_means_meedyadl_managed("system"));
-        assert!(!source_marker_means_meedyadl_managed("homebrew:ffmpeg"));
-        assert!(!source_marker_means_meedyadl_managed("apt:gpac"));
-        assert!(!source_marker_means_meedyadl_managed(""));
-        // Not a prefix/substring match — "managed-somehow" must not pass.
-        assert!(!source_marker_means_meedyadl_managed("managed-somehow"));
+    fn ownership_marker_has_three_answers() {
+        // Exactly "managed" — ours. Whitespace an editor might add is fine.
+        for ours in ["managed", "managed\n", "  managed  "] {
+            assert_eq!(ownership_from_marker(Some(ours)), ToolOwnership::MeedyaDl);
+        }
+        // Known to belong to something else.
+        for theirs in ["system", "homebrew:ffmpeg", "apt:gpac", "managed-somehow"] {
+            assert_eq!(
+                ownership_from_marker(Some(theirs)),
+                ToolOwnership::SomethingElse,
+                "{theirs:?} is known to belong to something else"
+            );
+        }
+        // Nobody recorded it. This is the case that used to be folded into
+        // "something else" and skipped with nothing on screen.
+        for unknown in [None, Some(""), Some("   \n")] {
+            assert_eq!(ownership_from_marker(unknown), ToolOwnership::Unknown);
+        }
     }
 
     /// The FFmpeg build-date check depends on three different remote

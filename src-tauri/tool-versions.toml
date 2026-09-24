@@ -129,6 +129,14 @@ version_flag = "version"
 # [gpac.windows_installer]
 # url = "https://download.tsi.telecom-paristech.fr/gpac/release/2.6/gpac-2.6.0-rev0-g.exe"
 # sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+# version = "2.6.0"
+#
+# `version` is optional, and only the update check reads it. It must be the
+# version the pinned file actually contains: an MP4Box that came from this
+# installer is compared against it, because re-running the installer can
+# only ever produce this one version. Leave it out and that copy of MP4Box
+# is reported as "could not check" rather than compared against GPAC's
+# latest release, which the installer would never download.
 #
 # `sha256` must be exactly 64 lowercase hex characters — anything else is
 # treated as "not configured" (logged via `log::warn!`) and the installer
