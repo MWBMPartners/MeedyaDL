@@ -134,12 +134,12 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     FILE, which reads as defaults when damaged, not what the queue acts on) + 1 should-fix
     (overlapping choices); fixed in `b9d3370b` (new command `get_after_queue_status`).
   - **Every batch has now had a first Codex round.**
-  - Follow-up round over ALL FOUR fix commits at once (`360ea73e`, `5df4f275`, `fc0b3698`,
-    `b9d3370b`): **running now.** If it comes back clean on all four, the whole
-    catch-up is done.
-  - Noticed, not changed: CookiesStep.tsx ~397/496/570 set `cookies_path` in memory only —
-    check whether those cookie choices ever reach the disk.
-  - Allowance this window: ~113k (b5 r2) + ~49k (b4 r8) + ~133k (b3 r1) + ~56k (b2) ≈ 351k.
+  - Follow-up round over all four fix commits: **done** — `5df4f275` **CLEAN**; the rest 1
+    blocking (a lock gap in the failed-clear path) + 6 should-fix, all fixed in `6a8fcbbe`.
+  - **Next: a round on `6a8fcbbe` only.** When that comes back clean, the catch-up is done.
+  - Answered, no longer open: the other two cookie paths in CookiesStep (browser import,
+    sign-in) have the BACKEND write the path itself — they were never at risk.
+  - Allowance this window: ~443k used by the follow-up round; the next may hit the limit.
 
 ---
 
