@@ -1052,7 +1052,7 @@ export function GeneralTab() {
       {/* Section: Profile Bundle (#876 P2) */}
       <SettingsSection title="Profile Bundle">
         <p className="text-xs text-content-secondary mb-2">
-          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it via the Import button (P3, coming next) or from the first-launch wizard.
+          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it with the Import Profile button below, or from the first-launch wizard.
         </p>
         {/* Fix 10 (a11y audit): fieldset/legend say these checkboxes
             are one group ("which sections to include"), not a list of
