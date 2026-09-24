@@ -130,12 +130,16 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     re-arm a used one-off in two ways; an unsupported system language stopped startup —
     both caused by my own `f0dc9500`), 6 should-fix, 1 minor; all fixed in `fc0b3698`.
     **Batch-3 round 2 owed on `fc0b3698`.**
-  - Batch 2 finish (`40047ef6` + `672acd01`): **running now.**
-  - Then the fix-commit rounds: batch-5 round 3 (`360ea73e`), batch-4 round 9 (`5df4f275`),
-    batch-3 round 2 (`fc0b3698`).
+  - Batch 2 finish (`40047ef6` + `672acd01`): **done** — 1 blocking (failure message read the
+    FILE, which reads as defaults when damaged, not what the queue acts on) + 1 should-fix
+    (overlapping choices); fixed in `b9d3370b` (new command `get_after_queue_status`).
+  - **Every batch has now had a first Codex round.**
+  - Follow-up round over ALL FOUR fix commits at once (`360ea73e`, `5df4f275`, `fc0b3698`,
+    `b9d3370b`): **running now.** If it comes back clean on all four, the whole
+    catch-up is done.
   - Noticed, not changed: CookiesStep.tsx ~397/496/570 set `cookies_path` in memory only —
     check whether those cookie choices ever reach the disk.
-  - Allowance this window: ~113k (b5 r2) + ~49k (b4 r8) + ~133k (b3 r1) ≈ 295k.
+  - Allowance this window: ~113k (b5 r2) + ~49k (b4 r8) + ~133k (b3 r1) + ~56k (b2) ≈ 351k.
 
 ---
 
