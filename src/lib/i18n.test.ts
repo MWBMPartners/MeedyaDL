@@ -59,28 +59,16 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // it falls through to reading `navigator.language`, exactly like a
     // real browser reporting the OS locale would.
     //
-    // The detector has two places to look, in this order: the language
-    // it remembered last time, then the browser. This test sets BOTH to
-    // German rather than picking one, because which of them is available
-    // is not the same everywhere.
+    // The detector now reads ONLY the system (browser) language -- it no
+    // longer keeps or reads a remembered copy in localStorage (see the
+    // `detection` block in initI18n()). So the browser language below is
+    // the whole of the setup.
     //
-    // That is not caution for its own sake. This test passed here and
-    // failed on all three build machines. The reason turned out to be
-    // the version of Node: on this machine `localStorage` is not usable
-    // at all, so the detector fell through to the browser setting below
-    // and found German. On the build machines it works, so the detector
-    // answered from what it had remembered and never looked at the
-    // browser -- and the test was quietly checking nothing.
-    //
-    // Setting both means the answer is German whichever one it consults,
-    // on whatever version of Node it happens to be running.
-    try {
-      window.localStorage.setItem('meedyadl-ui-language', 'de-DE');
-    } catch {
-      // No usable localStorage here. The browser setting below is then
-      // the only source, and it says German too.
-    }
-
+    // (This test used to set localStorage to German as well, because the
+    // detector read that first -- and on some versions of Node it was
+    // available and on others not, which once made this test quietly
+    // check nothing on the build machines. With localStorage out of the
+    // picture, that trap is gone too.)
     vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
 
     // There is no real network in a test run, so stand in for the browser
@@ -110,13 +98,6 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // listener will have moved it, and it is shared, real jsdom state
     // for the rest of this file's tests.
     document.documentElement.lang = 'en';
-    // Clear the remembered language too, so this test does not decide the
-    // language for anything that runs after it.
-    try {
-      window.localStorage.removeItem('meedyadl-ui-language');
-    } catch {
-      // No usable localStorage here; nothing was remembered to clear.
-    }
   });
 
   it('renders German text after startup for a German-OS user who never opened Settings', async () => {
@@ -276,6 +257,25 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
     // restart needed.
     expect(i18n.language).toBe('de');
     expect(screen.getByTestId('probe')).toHaveTextContent('Warteschlange');
+  });
+
+  it('reports a language file that could not be loaded, instead of staying English in silence', async () => {
+    // "zz" has no file, and the stand-in fetch refuses anything but German.
+    // Before, the loader swallowed that and the switch "worked" -- with
+    // every string still English and nothing said.
+    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not be loaded/);
+  });
+
+  it('keeps no copy of the language in the browser -- the saved setting is the only record', () => {
+    // A language merely tried out in Settings used to be written into
+    // localStorage and read back FIRST at the next start, so it came back
+    // although Save was never pressed. This pins the configuration itself
+    // rather than poking localStorage, because whether localStorage is
+    // usable here depends on the Node version -- which once made a test in
+    // this file quietly check nothing.
+    const detection = i18n.options.detection as { order?: string[]; caches?: string[] };
+    expect(detection.order).toEqual(['navigator']);
+    expect(detection.caches).toEqual([]);
   });
 
   it('does not re-fetch a language that has already been loaded', async () => {

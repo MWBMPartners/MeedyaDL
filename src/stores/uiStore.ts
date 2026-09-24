@@ -115,11 +115,18 @@ export function __resetToastWorkerForTests(): void {
  * a corner that most of them auto-dismiss out of on their own -- more
  * can be on screen at once before the stack stops being readable.
  *
- * When the cap is hit, the newest toast is kept and the oldest is
+ * When the cap is hit, the newest toast is kept and an older one is
  * dropped, not the other way round: the newest failure is the one that
- * still describes what is happening right now, while the oldest has
- * usually already been overtaken by events by the time there are this
- * many stacked up.
+ * still describes what is happening right now.
+ *
+ * WHICH older one: the oldest that would have gone away by itself anyway
+ * (it has an auto-dismiss deadline). Only if every toast on screen is a
+ * lasting one is the oldest lasting one dropped. This used to drop the
+ * plain oldest, which could be a lasting error such as "nothing will
+ * happen after the queue" or "this service is paused" -- messages that
+ * stay precisely because the person has to act on them -- while a
+ * "Copied" note that was about to vanish anyway survived (stand-in
+ * review, 24 Sept 2026).
  */
 export const MAX_TOASTS = 8;
 
@@ -717,13 +724,16 @@ export const useUiStore = create<UiState>((set, get) => ({
       ];
 
       // Enforce the MAX_TOASTS ceiling (see the comment on that constant
-      // above for why this exists at all). Toasts are always appended to
-      // the end of the array above, so the oldest one is reliably at
-      // index 0 -- slicing from the front drops the oldest entries first
-      // and keeps the newest ones, including the one just added.
-      const toasts = withNewToast.length > MAX_TOASTS
-        ? withNewToast.slice(withNewToast.length - MAX_TOASTS)
-        : withNewToast;
+      // for why, and for which toast goes). Toasts are always appended to
+      // the end of the array above, so the oldest is at index 0. The one
+      // just added (the last) is never dropped.
+      const toasts = [...withNewToast];
+      while (toasts.length > MAX_TOASTS) {
+        const oldestPassing = toasts.findIndex(
+          (t, i) => i < toasts.length - 1 && t.expiresAt !== null,
+        );
+        toasts.splice(oldestPassing === -1 ? 0 : oldestPassing, 1);
+      }
 
       return { toasts };
     });

@@ -440,4 +440,30 @@ describe('Modal', () => {
     const lastButton = screen.getByText('Last body button');
     expect(document.activeElement).toBe(lastButton);
   });
+  /**
+   * With two dialogs open, Escape must close only the one on top. Both used
+   * to act on it: on the first launch of a new pre-release, Escape meant
+   * for the pre-release notice also closed the crash-reporting question
+   * beneath it, which counted as "no" (stand-in review, 24 Sept 2026).
+   */
+  it('with two dialogs open, Escape closes only the top one', () => {
+    const closeLower = vi.fn();
+    const closeUpper = vi.fn();
+
+    render(
+      <>
+        <Modal open={true} onClose={closeLower} title="Lower">
+          <button>Lower button</button>
+        </Modal>
+        <Modal open={true} onClose={closeUpper} title="Upper">
+          <button>Upper button</button>
+        </Modal>
+      </>
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(closeUpper).toHaveBeenCalledTimes(1);
+    expect(closeLower).not.toHaveBeenCalled();
+  });
 });
