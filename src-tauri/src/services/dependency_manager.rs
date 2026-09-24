@@ -3325,14 +3325,39 @@ async fn install_mp4box_with_fallback(
 /// own way first, then the MeedyaSuite mirror.
 async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
     let result = install_mp4box_full_route_inner(app).await;
-    // A fresh install replaces whatever was there, so a copy an earlier
-    // update left set aside is no longer needed. Leaving it would only
-    // make the next update stop to sort it out.
-    if result.is_ok() {
-        let backup = get_tool_dir(app, "mp4box").with_file_name("mp4box.update-backup");
-        std::fs::remove_dir_all(&backup).ok();
+    let backup = get_tool_dir(app, "mp4box").with_file_name("mp4box.update-backup");
+    if result.is_err() || !backup.exists() {
+        return result;
     }
-    result
+    // A copy an earlier update left set aside. It may be the only working
+    // MP4Box on this computer, so it is only thrown away once the fresh
+    // install is shown to RUN. "Succeeded" is not enough: the platform
+    // routes report success even when the new copy cannot start (a missing
+    // library, say), and removing the backup on that alone deleted the only
+    // working copy (Codex, review of 57f137ac).
+    let new_copy_runs = matches!(
+        read_installed_version(app, "mp4box").await,
+        Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
+    );
+    if new_copy_runs {
+        std::fs::remove_dir_all(&backup).ok();
+        return result;
+    }
+    // The fresh copy does not run: put the set-aside copy back, and say so.
+    let tool_dir = get_tool_dir(app, "mp4box");
+    std::fs::remove_dir_all(&tool_dir).ok();
+    match std::fs::rename(&backup, &tool_dir) {
+        Ok(()) => Err(
+            "MP4Box was reinstalled, but the new copy does not run on this computer, so the \
+             copy that was there before has been put back."
+                .to_string(),
+        ),
+        Err(e) => Err(format!(
+            "MP4Box was reinstalled, but the new copy does not run on this computer, and the \
+             previous copy (at {}) could not be put back ({e}).",
+            backup.display()
+        )),
+    }
 }
 
 async fn install_mp4box_full_route_inner(app: &AppHandle) -> Result<String, String> {
