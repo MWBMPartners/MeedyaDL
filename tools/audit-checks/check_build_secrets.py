@@ -170,14 +170,17 @@ _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB
 # The VALUE may contain only things that cannot fail or run anything:
 #   * plain characters (letters, digits, and `_ . / : @ % + , = # -` and space);
 #   * a variable, `$NAME`, `${NAME}` or its length `${#NAME}`;
-#   * a GitHub placeholder that is just a plain reference, such as
-#     `${{ matrix.settings.x }}` -- letters, digits, dots, dashes, spaces.
-#     GitHub fills it in before the shell sees the line. No quoted text and
-#     no function calls inside it: `${{ '$((1/0))' }}` would hand the shell
-#     a failing command (Codex, round 7). This trusts that the values
-#     behind a reference (matrix entries, written in the same file) are
-#     not themselves shell commands -- the check reads the file, not the
-#     values GitHub will substitute.
+#   * a GitHub placeholder that is a plain reference to a `matrix.` or
+#     `env.` value, such as `${{ matrix.settings.x }}`. GitHub fills it in
+#     before the shell sees the line. No quoted text and no function calls
+#     inside it: `${{ '$((1/0))' }}` would hand the shell a failing command
+#     (Codex, round 7). Only `matrix.` and `env.`, because those values are
+#     written in the workflow file itself; a reference such as
+#     `${{ github.head_ref }}` or `${{ inputs.x }}` carries text from
+#     outside it, which can hold a quote or `$(...)` and break the line
+#     (stand-in review, 24 Sept 2026). This still trusts that the matrix
+#     and env values in the file are not shell commands -- the check reads
+#     the file, not what GitHub will substitute.
 # Anything else -- a command (`$(...)`, backticks), arithmetic (`$((...))`),
 # a quote or a backslash -- makes the line "cannot confirm". A command can
 # fail and export nothing: `echo "X=$((1/0))" >> ...` exits 1, and
@@ -189,7 +192,7 @@ _EXPORT_VALUE = (
     r"(?:[A-Za-z0-9_./:@%+,=# -]"
     r"|\$[A-Za-z_][A-Za-z0-9_]*"
     r"|\$\{#?[A-Za-z_][A-Za-z0-9_]*\}"
-    r"|\$\{\{[A-Za-z0-9_. -]*\}\})*"
+    r"|\$\{\{ *(?:matrix|env)\.[A-Za-z0-9_.-]+ *\}\})*"
 )
 _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
     r'^\s*echo\s+"([A-Z0-9_]+)='
@@ -200,6 +203,9 @@ _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
 # A step's own `if:` key, capturing its indentation so _step_if() can tell
 # the step's condition apart from an `if` line inside its shell script.
 _STEP_IF_RE = re.compile(r"^(\s*)if:\s*(.+?)\s*$")
+
+# A step's own `shell:` key. See _step_shell().
+_STEP_SHELL_RE = re.compile(r"^(\s*)shell:\s*(.+?)\s*$")
 
 
 def _find_job_ranges(lines: list[str]) -> list[tuple[str, int, int]]:
@@ -346,6 +352,18 @@ def _step_if(lines: list[str], step_indent: int, step_start: int, step_end: int)
     return None
 
 
+def _step_shell(lines: list[str], step_indent: int, step_start: int, step_end: int) -> str | None:
+    """This step's own `shell:` value, or None if it names none. Same key
+    depth rule as _step_if."""
+    want = step_indent + 2
+    for i in range(step_start, step_end):
+        line = lines[i - 1]
+        m = _STEP_SHELL_RE.match(line)
+        if m and len(m.group(1)) == want:
+            return m.group(2).strip()
+    return None
+
+
 def _github_env_exports_before(
     lines: list[str], job_start: int, build_step: tuple[int, int, int, int]
 ) -> tuple[set[str], dict[str, list[str]]]:
@@ -423,6 +441,20 @@ def _github_env_exports_before(
             loose = _GITHUB_ENV_EXPORT_RE.search(line)
             if loose:
                 ambiguous.add(loose.group(1))
+        # The plain export form is bash. A step that does not say
+        # `shell: bash` runs under the runner's default shell, which on a
+        # Windows runner is PowerShell -- where `$GITHUB_ENV` is not set and
+        # the line exports nothing (stand-in review, 24 Sept 2026). Such a
+        # step's exports are "cannot confirm". The price: a job that makes
+        # bash its default with `defaults: run: shell: bash` is not read, so
+        # its steps would be reported too -- the loud direction.
+        if exported and _step_shell(lines, indent, sstart, send) != "bash":
+            for name in exported:
+                uncertain.setdefault(name, []).append(
+                    f"'{step_name}' (the step does not say `shell: bash`, so on some "
+                    f"runners the export may not run at all)"
+                )
+            exported = set()
         for name in ambiguous - exported:
             uncertain.setdefault(name, []).append(
                 f"'{step_name}' (the line is not a plain `echo \"NAME=value\" >> "

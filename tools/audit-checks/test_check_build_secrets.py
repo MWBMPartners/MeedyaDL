@@ -79,31 +79,31 @@ CASES = [
     # (description, exporting step, expected certain?, expected uncertain?)
     (
         "an ordinary export with no condition reaches the build",
-        f"      - name: Export it\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n        shell: bash\n        run: |\n{EXPORT}",
         True,
         False,
     ),
     (
         "a commented-out export does NOT count",
-        f"      - name: Export it\n        run: |\n          # {EXPORT.strip()}",
+        f"      - name: Export it\n        shell: bash\n        run: |\n          # {EXPORT.strip()}",
         False,
         False,
     ),
     (
         "an export in a step that never runs is not counted as reaching it",
-        f"      - name: Export it\n        if: false\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n        if: false\n        shell: bash\n        run: |\n{EXPORT}",
         False,
         True,
     ),
     (
         "an export under some OTHER condition is reported, not assumed",
-        f"      - name: Export it\n        if: runner.os == 'Linux'\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n        if: runner.os == 'Linux'\n        shell: bash\n        run: |\n{EXPORT}",
         False,
         True,
     ),
     (
         "an export under the build step's OWN condition does count",
-        f"      - name: Export it\n        if: runner.os == 'macOS'\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n        if: runner.os == 'macOS'\n        shell: bash\n        run: |\n{EXPORT}",
         True,
         False,
     ),
@@ -111,31 +111,31 @@ CASES = [
     # reported. The three shapes Codex used, across rounds 2 and 3.
     (
         "an export after `true #` is not counted, and is reported",
-        f"      - name: Export it\n        run: |\n          true # {EXPORT.strip()}",
+        f"      - name: Export it\n        shell: bash\n        run: |\n          true # {EXPORT.strip()}",
         False,
         True,
     ),
     (
         "an export after `true;#` (a comment straight after an operator) is not counted",
-        f"      - name: Export it\n        run: |\n          true;# {EXPORT.strip()}",
+        f"      - name: Export it\n        shell: bash\n        run: |\n          true;# {EXPORT.strip()}",
         False,
         True,
     ),
     (
         "an escaped quote before a `#` cannot smuggle an export through",
-        f'      - name: Export it\n        run: |\n          printf "%s" "\\"" # {EXPORT.strip()}',
+        f'      - name: Export it\n        shell: bash\n        run: |\n          printf "%s" "\\"" # {EXPORT.strip()}',
         False,
         True,
     ),
     (
         "a `#` INSIDE what the loose pattern matches cannot smuggle an export through",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=1" # " >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=1" # " >> "$GITHUB_ENV"',
         False,
         True,
     ),
     (
         "anything after the export on the line means it is not counted",
-        f"      - name: Export it\n        run: |\n{EXPORT} ; exit 0",
+        f"      - name: Export it\n        shell: bash\n        run: |\n{EXPORT} ; exit 0",
         False,
         True,
     ),
@@ -143,57 +143,69 @@ CASES = [
     # (Codex, batch-4 round 5).
     (
         "a backslash escaping the closing quote is not a working export",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=1\\" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=1\\" >> "$GITHUB_ENV"',
         False,
         True,
     ),
     (
         "an unbalanced quote around $GITHUB_ENV is not a working export",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=1" >> "$GITHUB_ENV',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=1" >> "$GITHUB_ENV',
         False,
         True,
     ),
     # Commands and arithmetic can fail and export nothing (Codex, round 6).
     (
         "an unfinished command in the value is not a working export",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=$(" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=$(" >> "$GITHUB_ENV"',
         False,
         True,
     ),
     (
         "arithmetic that fails is not a working export",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=$((1/0))" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=$((1/0))" >> "$GITHUB_ENV"',
         False,
         True,
     ),
     (
         "any command at all is refused, since it might fail",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=`date`" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=`date`" >> "$GITHUB_ENV"',
         False,
         True,
     ),
     (
         "a GitHub placeholder holding quoted text is not trusted",
-        "      - name: Export it\n        run: |\n          echo \"SAFARI=${{ '$((1/0))' }}\" >> \"$GITHUB_ENV\"",
+        "      - name: Export it\n        shell: bash\n        run: |\n          echo \"SAFARI=${{ '$((1/0))' }}\" >> \"$GITHUB_ENV\"",
+        False,
+        True,
+    ),
+    (
+        "an export in a step that does not say `shell: bash` is not counted",
+        f"      - name: Export it\n        run: |\n{EXPORT}",
+        False,
+        True,
+    ),
+    (
+        "a placeholder carrying text from outside the file is not trusted",
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=${{ github.head_ref }}" >> "$GITHUB_ENV"',
         False,
         True,
     ),
     # What the real release.yml actually uses must keep counting.
     (
         "a plain variable in the value still counts",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=$VALUE" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=$VALUE" >> "$GITHUB_ENV"',
         True,
         False,
     ),
     (
         "a GitHub ${{ }} placeholder in the value still counts",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=/usr/${{ matrix.x }}/y" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=/usr/${{ matrix.x }}/y" >> "$GITHUB_ENV"',
         True,
         False,
     ),
     (
         "$GITHUB_ENV with no quotes at all is still a working export",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=1" >> $GITHUB_ENV',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=1" >> $GITHUB_ENV',
         True,
         False,
     ),
@@ -201,31 +213,31 @@ CASES = [
     # working export.
     (
         "a `#` inside the exported value does not stop it counting",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
         True,
         False,
     ),
     (
         "a `${#...}` length inside the value does not stop it counting",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=${#list}" >> "$GITHUB_ENV"',
+        '      - name: Export it\n        shell: bash\n        run: |\n          echo "SAFARI=${#list}" >> "$GITHUB_ENV"',
         True,
         False,
     ),
     (
         "a YAML comment inside the step does not cut the step short",
-        f"      - name: Export it\n      # a note at the dash's own depth\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n      # a note at the dash's own depth\n        shell: bash\n        run: |\n{EXPORT}",
         True,
         False,
     ),
     (
         "a multi-line condition is never taken to match the build's",
-        f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        run: |\n{EXPORT}",
+        f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        shell: bash\n        run: |\n{EXPORT}",
         False,
         True,
     ),
     (
         "an `if` inside the shell script is not mistaken for the step's condition",
-        f"      - name: Export it\n        run: |\n          if: nonsense\n{EXPORT}",
+        f"      - name: Export it\n        shell: bash\n        run: |\n          if: nonsense\n{EXPORT}",
         True,
         False,
     ),
@@ -237,7 +249,7 @@ CASES = [
 BOTH_MULTILINE = (
     "a multi-line export condition and a multi-line build condition are not "
     "assumed equal just because both start `>-`",
-    f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        run: |\n{EXPORT}",
+    f"      - name: Export it\n        if: >-\n          runner.os == 'Linux'\n        shell: bash\n        run: |\n{EXPORT}",
 )
 
 
