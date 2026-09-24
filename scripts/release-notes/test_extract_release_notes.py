@@ -1,0 +1,114 @@
+#!/usr/bin/env python3
+# Copyright (c) 2024-2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+"""
+scripts/release-notes/test_extract_release_notes.py
+====================================================
+Tests for `extract-release-notes.py`, the step that decides what text the
+Release Note Gate lints.
+
+WHY THIS EXISTS
+---------------
+If that step reads a note differently from the release templates, part of
+a note reaches the published release notes without ever being checked.
+Each case here is a way that happened, or nearly did. The four "Codex"
+cases are the ones Codex found on 24 Sept 2026, by feeding sample messages
+to both the gate and the real release tool and comparing. Each was checked
+against git-cliff 2.14 locally when this was written.
+
+Pure stdlib, no pytest. Run directly:
+`python3 scripts/release-notes/test_extract_release_notes.py`.
+"""
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+_PATH = Path(__file__).resolve().parent / "extract-release-notes.py"
+# The file name has hyphens (the CLI-script convention here), so it is
+# loaded by path rather than imported.
+_spec = importlib.util.spec_from_file_location("extract_release_notes", _PATH)
+assert _spec and _spec.loader
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+extract_notes = _mod.extract_notes
+EmptyNoteError = _mod.EmptyNoteError
+
+# (label, message, expected notes)
+CASES: list[tuple[str, str, list[str]]] = [
+    ("one line", "Body.\n\nRelease-Note: Downloads work.", ["Downloads work."]),
+    (
+        "wrapped note is joined, as the templates now render it",
+        "Release-Note: Fixed a case where a single could be given the\nwrong album's details.",
+        ["Fixed a case where a single could be given the wrong album's details."],
+    ),
+    (
+        "stops at a blank line, so a Generated-with line is left out",
+        "Release-Note: Downloads work.\n\n🤖 Generated with [Claude Code](x)",
+        ["Downloads work."],
+    ),
+    (
+        "stops at the next trailer",
+        "Release-Note: Downloads work.\nCo-Authored-By: Someone <a@b>",
+        ["Downloads work."],
+    ),
+    (
+        "two notes in a row",
+        "Release-Note: First.\nRelease-Note: Second\nwraps.",
+        ["First.", "Second wraps."],
+    ),
+    ("none is still a note, for the linter to allow", "Release-Note: none", ["none"]),
+    ("no note at all", "Just a description.\n", []),
+    # --- The four found by Codex, 24 Sept 2026 ---
+    (
+        "Codex 1: no space after the colon is still a note",
+        "Release-Note: Downloads work.\n\nRelease-Note:Uses a token.",
+        ["Downloads work.", "Uses a token."],
+    ),
+    (
+        "Codex 3: Windows line endings do not split a phrase",
+        "Release-Note: Protects private\r\nkeys during sign-in.\r\n",
+        ["Protects private keys during sign-in."],
+    ),
+]
+
+# Messages that must be REFUSED: an empty Release-Note: line (Codex cases 2
+# and 4). The release tool renders the NEXT text it finds as the note, even
+# across a blank line, so the gate cannot tell safely what would show.
+REFUSED: list[tuple[str, str]] = [
+    ("Codex 2: empty line, note on the next line", "Release-Note: Downloads work.\nRelease-Note:\nUses a token."),
+    ("Codex 4: empty line, blank, then a description", "Release-Note: \n\nA whole PR description."),
+    ("empty with only spaces", "Release-Note:    "),
+]
+
+
+def main() -> int:
+    failures = 0
+    for label, message, expected in CASES:
+        try:
+            got = extract_notes(message)
+        except EmptyNoteError as err:
+            print(f"FAIL {label}: refused unexpectedly ({err})")
+            failures += 1
+            continue
+        if got != expected:
+            print(f"FAIL {label}: expected {expected!r}, got {got!r}")
+            failures += 1
+    for label, message in REFUSED:
+        try:
+            got = extract_notes(message)
+        except EmptyNoteError:
+            continue
+        print(f"FAIL {label}: should have been refused, got {got!r}")
+        failures += 1
+    total = len(CASES) + len(REFUSED)
+    if failures:
+        print(f"{failures} of {total} cases failed.")
+        return 1
+    print(f"All {total} cases passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
