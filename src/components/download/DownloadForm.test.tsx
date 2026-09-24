@@ -28,6 +28,8 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useUiStore } from '@/stores/uiStore';
 import { DownloadForm } from '@/components/download/DownloadForm';
+import * as commands from '@/lib/tauri-commands';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 // `tauri-commands` is mocked module-level. The default mock from
 // src/test/setup.ts already silences `invoke()`, but DownloadForm
@@ -44,6 +46,10 @@ vi.mock('@/lib/tauri-commands', () => ({
   checkOutputPathBeforeDownload: vi.fn().mockResolvedValue({ writable: true }),
   checkRedownloadStatus: vi.fn().mockResolvedValue(null),
   importManifest: vi.fn().mockResolvedValue(null),
+  // The one-off after-queue menu's own write, and its failure path's read
+  // of what is really on disk. Set per test below.
+  setStoredPreference: vi.fn(),
+  getSettings: vi.fn(),
 }));
 
 /**
@@ -276,5 +282,69 @@ describe('DownloadForm', () => {
     // category — just check no exception was thrown by interacting
     // with the toggle and that the form hasn't unmounted.)
     expect(screen.getByLabelText('Media URL input')).toBeInTheDocument();
+  });
+  // ===========================================================================
+  // One-off after-queue action: the failure path
+  // ===========================================================================
+
+  describe('one-off after-queue action when saving it fails', () => {
+    it('leaves the standing setting alone, follows the disk, and does not claim unsaved changes', async () => {
+      // The person has an UNSAVED edit on the Settings screen to the
+      // standing after-queue action, and nothing else pending.
+      act(() => {
+        useSettingsStore.setState((s) => ({
+          settings: { ...s.settings, after_queue_action: 'play_sound', after_queue_once: null },
+          isDirty: false,
+        }));
+      });
+      vi.mocked(commands.setStoredPreference).mockRejectedValueOnce(new Error('disk full'));
+      // What is really on disk: a shutdown is armed once; the standing
+      // action is still the saved "do nothing".
+      vi.mocked(commands.getSettings).mockResolvedValueOnce({
+        ...useSettingsStore.getState().settings,
+        after_queue_action: 'do_nothing',
+        after_queue_once: 'shutdown_computer',
+      });
+
+      render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('After Queue: Play sound'));
+      });
+
+      const state = useSettingsStore.getState();
+      // Three earlier attempts got this wrong; each property below is one
+      // of them (see the comments in DownloadForm's failure path).
+      expect(state.settings.after_queue_action).toBe('play_sound'); // unsaved edit kept
+      expect(state.settings.after_queue_once).toBe('shutdown_computer'); // follows disk
+      expect(state.isDirty).toBe(false); // no false "unsaved changes"
+      const toast = useUiStore.getState().toasts.find((t) => t.type === 'error');
+      expect(toast?.message).toContain('could not save that after-queue action');
+      expect(toast?.message).toContain('shutdown computer');
+      expect(toast?.message).toContain('will still happen');
+    });
+
+    it('when even the disk cannot be read, says it could not check', async () => {
+      act(() => {
+        useSettingsStore.setState((s) => ({
+          settings: { ...s.settings, after_queue_once: 'restart_computer' },
+          isDirty: false,
+        }));
+      });
+      vi.mocked(commands.setStoredPreference).mockRejectedValueOnce(new Error('disk full'));
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('unreadable'));
+
+      render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('After Queue: Do nothing'));
+      });
+
+      // Put back to the best guess, and the message makes no claim.
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('restart_computer');
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+      const toast = useUiStore.getState().toasts.find((t) => t.type === 'error');
+      expect(toast?.message).toContain('could not check what is set');
+    });
   });
 });

@@ -889,15 +889,21 @@ export function DownloadForm() {
 
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
-    const { updateSettings, settings } = useSettingsStore.getState();
+    const { syncAfterQueueOnce, settings } = useSettingsStore.getState();
 
-    // What this page believed was set before the click. Only this menu
-    // ever writes the one-off, and it writes to disk each time, so this
-    // copy tracks the disk — which makes it the best knowledge available
-    // if the disk itself cannot be read in the failure path below.
+    // What this page believed was set before the click. This menu writes
+    // the one-off straight to disk, and the backend tells the page when it
+    // uses it up, so this copy USUALLY matches the disk — it is the best
+    // knowledge available if the disk itself cannot be read in the failure
+    // path below. It is a best guess, not a certainty. (This comment used
+    // to say the copy tracks the disk outright; a stand-in review, 24 Sept
+    // 2026, found ways it could differ.)
     const previous = settings.after_queue_once ?? null;
 
-    updateSettings({ after_queue_once: stored });
+    // `syncAfterQueueOnce`, not `updateSettings`: the latter armed the
+    // Settings screen's "Save Changes" button although nothing on that
+    // screen had changed.
+    syncAfterQueueOnce(stored);
 
     // Written to DISK, because the part of the app that ACTS on this
     // reads it from the file, not from this page.
@@ -958,7 +964,7 @@ export function DownloadForm() {
         // for the standing setting while an edit is pending is a
         // separate, pre-existing question about the whole Settings
         // screen, and not one to answer by overwriting.
-        useSettingsStore.getState().updateSettings({ after_queue_once: oneOff });
+        useSettingsStore.getState().syncAfterQueueOnce(oneOff);
 
         if (oneOff) {
           stillArmed = `${readable(oneOff)} is still set from before, and will still happen.`;
@@ -977,7 +983,7 @@ export function DownloadForm() {
         // be wrong, and a reviewer caught it. This is not certainly
         // right, but it is the best knowledge there is, and the message
         // says plainly that it could not be checked.
-        useSettingsStore.getState().updateSettings({ after_queue_once: previous });
+        useSettingsStore.getState().syncAfterQueueOnce(previous);
         stillArmed =
           'MeedyaDL could not check what is set, so please check your after-queue setting before leaving your computer.';
       }

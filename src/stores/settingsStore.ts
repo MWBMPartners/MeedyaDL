@@ -37,7 +37,7 @@ import { create } from 'zustand';
 
 // AppSettings -- the full settings shape mirroring the Rust `AppSettings` struct.
 // Every field is non-optional at rest; partial updates use `Partial<AppSettings>`.
-import type { AppSettings } from '@/types';
+import type { AfterQueueAction, AppSettings } from '@/types';
 
 // Type-safe wrappers around `invoke()` -- each maps to a `#[tauri::command]` in Rust.
 // `getSettings` -> Rust `get_settings`, `saveSettings` -> Rust `save_settings`.
@@ -306,6 +306,12 @@ interface SettingsState {
   syncSidebarCollapsed: (collapsed: boolean) => void;
 
   /**
+   * Set the in-memory one-off after-queue action without marking the
+   * Settings screen as having unsaved changes. See the implementation.
+   */
+  syncAfterQueueOnce: (action: AfterQueueAction | null) => void;
+
+  /**
    * Merge partial changes into the current settings (in-memory only).
    * Uses the spread operator to produce a new `settings` object, ensuring
    * Zustand detects the change via reference inequality.
@@ -432,6 +438,21 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set((state) => ({ settings: { ...state.settings, sidebar_collapsed: collapsed } })),
 
   /**
+   * Match the in-memory one-off after-queue action to what is on disk (or,
+   * when the disk cannot be read, to the best guess available).
+   *
+   * Deliberately does NOT set `isDirty`, for the same reason as
+   * `syncSidebarCollapsed`: this value is written to disk by its own
+   * narrow command, and the Settings screen neither edits nor saves it.
+   * Going through `updateSettings` armed the "Save Changes" button just for
+   * choosing an after-queue action on the Download page — telling the
+   * person they had unsaved work when they had none (stand-in review, 24
+   * Sept 2026).
+   */
+  syncAfterQueueOnce: (action) =>
+    set((state) => ({ settings: { ...state.settings, after_queue_once: action } })),
+
+  /**
    * Merge a partial settings update into the current settings object.
    * Produces a new object reference via spread so Zustand detects the change.
    *
@@ -463,6 +484,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     // wrong, at the exact moment somebody is trying to get back to a
     // known-good state. Failing out loud is better.
     const defaults = await commands.getDefaultSettings();
-    set({ settings: defaults, isDirty: true });
+    // The one-off "after the queue, do this once" is not a setting the
+    // Settings screen edits or saves (save_settings keeps the value on
+    // disk), so Reset leaves this page's copy of it as it was. Replacing
+    // it with the default (nothing) made the status bar show no one-off
+    // while one was still armed on disk (stand-in review, 24 Sept 2026).
+    set((state) => ({
+      settings: { ...defaults, after_queue_once: state.settings.after_queue_once },
+      isDirty: true,
+    }));
   },
 }));
