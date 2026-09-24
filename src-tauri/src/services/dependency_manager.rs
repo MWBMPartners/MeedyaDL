@@ -318,6 +318,43 @@ pub(crate) fn normalize_mediainfo_version(raw: &str) -> String {
 /// default branch name for a raw.githubusercontent.com URL) so this
 /// keeps working even if that branch is ever renamed.
 pub(crate) async fn fetch_mirror_versions() -> Result<serde_json::Value, String> {
+    // One update check reads this file for FFmpeg, mp4decrypt, MediaInfo
+    // and MP4Box. It used to be fetched afresh for each — two to four
+    // requests a check, against GitHub's allowance for requests made
+    // without signing in, which is small (batch-5 review, finding 6). A
+    // successful read is now kept for a few minutes and reused.
+    //
+    // Only a SUCCESS is kept. A failure is never cached, so a blip does
+    // not turn into minutes of "could not check".
+    //
+    // Why a time limit rather than "once per check": the check runs in
+    // several places that do not share state, and threading a copy
+    // through all of them would touch far more code than the problem is
+    // worth. Five minutes is well past the length of one check, and
+    // update checks are already limited to one a minute, so the most a
+    // person could see is a mirror change arriving five minutes late.
+    const MIRROR_VERSIONS_REUSE_FOR: std::time::Duration = std::time::Duration::from_secs(300);
+    static CACHED: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
+        std::sync::Mutex::new(None);
+    if let Ok(guard) = CACHED.lock() {
+        if let Some((when, value)) = guard.as_ref() {
+            if when.elapsed() < MIRROR_VERSIONS_REUSE_FOR {
+                return Ok(value.clone());
+            }
+        }
+    }
+    // The lock is released before the network request below: holding a
+    // standard lock across an `.await` could block the async runtime.
+    let fresh = fetch_mirror_versions_uncached().await?;
+    if let Ok(mut guard) = CACHED.lock() {
+        *guard = Some((std::time::Instant::now(), fresh.clone()));
+    }
+    Ok(fresh)
+}
+
+/// The actual request behind [`fetch_mirror_versions`], which keeps a
+/// successful result for a few minutes.
+async fn fetch_mirror_versions_uncached() -> Result<serde_json::Value, String> {
     let mirror = load_mirror_config().ok_or_else(|| {
         "Mirror not configured in tool-versions.toml — cannot check its versions.json".to_string()
     })?;
@@ -512,11 +549,41 @@ async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::U
         .map_err(|e| format!("Could not parse evermeet.cx's Last-Modified '{header}': {e}"))
 }
 
-/// The mirror's own `versions.json` records FFmpeg's entry as an RFC 3339
-/// timestamp already (confirmed live on 2026-09-23: `"2026-09-22T13:38:08Z"`)
-/// — the simplest of the three sources to read, since no reshaping is
-/// needed at all.
+/// Does the mirror record a build DATE for the FFmpeg it serves to this
+/// operating system?
+///
+/// The mirror's `versions.json` has two FFmpeg entries. `"ffmpeg"` is the
+/// date of the Linux/Windows build (`"2026-09-23T15:14:33Z"`, checked live
+/// on 24 Sept 2026). `"ffmpeg_macos_arm"` is the Mac build's entry — and it
+/// holds a version NUMBER (`"9"`), not a date. A build's age cannot be
+/// worked out from a version number, so for a Mac the honest answer to
+/// "how old is the mirror's FFmpeg?" is "the mirror does not say".
+///
+/// This used to go unasked: a Mac copy from the mirror was dated using the
+/// Linux/Windows build's entry, both at install and at every update check
+/// — a comparison between two things that have nothing to do with the
+/// copy on the Mac (batch-5 review, finding 3). It only looked right
+/// because both builds happen to be refreshed together.
+///
+/// One rule, used by both the install and the update check, so the two
+/// cannot disagree.
+pub(crate) fn mirror_records_ffmpeg_build_date_for(os: &str) -> bool {
+    os != "macos"
+}
+
+/// The mirror's own `versions.json` records FFmpeg's Linux/Windows entry as
+/// an RFC 3339 timestamp already (confirmed live on 2026-09-23:
+/// `"2026-09-22T13:38:08Z"`) — the simplest of the three sources to read,
+/// since no reshaping is needed at all. On a Mac this refuses: see
+/// [`mirror_records_ffmpeg_build_date_for`].
 async fn fetch_mirror_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+    if !mirror_records_ffmpeg_build_date_for(std::env::consts::OS) {
+        return Err(
+            "The mirror records a version number, not a build date, for its macOS FFmpeg — \
+             its age cannot be compared"
+                .to_string(),
+        );
+    }
     let versions = fetch_mirror_versions().await?;
     let raw = versions
         .get("ffmpeg")
@@ -1808,7 +1875,13 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
             ToolInstallSource::Primary => "btbn",
         };
         let build_date = fetch_ffmpeg_source_build_date(ffmpeg_source).await;
-        if let Err(ref e) = build_date {
+        // A mirror copy on a Mac getting no date is expected, not a failure:
+        // the mirror gives no date for the Mac build, and the update check
+        // says so in plain words.
+        if ffmpeg_source == "mirror" && !mirror_records_ffmpeg_build_date_for(std::env::consts::OS)
+        {
+            log::info!("FFmpeg came from the mirror on macOS; it records no build date to compare");
+        } else if let Err(ref e) = build_date {
             log::warn!(
                 "Could not record FFmpeg's build date at install time (future update checks \
                  for this copy will report 'not checkable' until it's reinstalled): {e}"
@@ -2169,6 +2242,14 @@ async fn install_mp4box_from_pkg_inner(
     // Step 6: Set executable permissions and verify
     archive::set_executable(&mp4box_dest)?;
 
+    // This route used to write no `.source` marker at all, so a copy it
+    // installed read as "not MeedyaDL's" and was never checked for
+    // updates — and nothing said why (batch-5 review, finding 5). It is
+    // GPAC's own installer, so it gets the same records as the other
+    // GPAC routes.
+    std::fs::write(tool_dir.join(".source"), "managed").ok();
+    write_mp4box_origin(&tool_dir, Mp4boxOrigin::GpacOfficial);
+
     let version = get_tool_version(&mp4box_dest, "mp4box")
         .await
         .unwrap_or_else(|_| "installed".to_string());
@@ -2262,6 +2343,82 @@ fn mp4box_source_marker(pm_ref: Option<&crate::services::package_manager::Packag
         .unwrap_or_else(|| "managed".to_string())
 }
 
+/// Where a copy of MP4Box that MeedyaDL installed itself came from.
+///
+/// # Why this is recorded separately from the `.source` marker
+///
+/// MP4Box can reach the tool folder by two routes that are both
+/// "MeedyaDL's own download": GPAC's official installer, or the
+/// MeedyaSuite mirror when that fails. Both write the same `.source`
+/// marker, `"managed"` — and that word has to stay exactly as it is,
+/// because [`is_meedyadl_managed()`] and the tool-status screen read it to
+/// mean "MeedyaDL owns this copy".
+///
+/// But the two routes need DIFFERENT update checks. A GPAC copy is
+/// compared against GPAC's own releases. A mirror copy must be compared
+/// against what the mirror holds, because installing an "update" fetches
+/// from the mirror again — comparing it against GPAC would offer a newer
+/// version the mirror does not have, and "updating" would re-fetch the
+/// same bytes. That is the one mistake issue #273 says above all to avoid.
+/// Before this record existed, both routes looked the same, and every
+/// managed copy was compared against GPAC — even though every pinned GPAC
+/// installer is commented out in the shipped configuration, so the mirror
+/// is in practice the only managed route on Windows and Linux (batch-5
+/// review, finding 4).
+///
+/// So the origin is written to its own small file, the same approach
+/// FFmpeg already takes with `.ffmpeg-build-info.json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Mp4boxOrigin {
+    /// GPAC's own installer: the Windows NSIS `.exe`, the Linux `.deb`, or
+    /// the macOS `.pkg`.
+    GpacOfficial,
+    /// The MeedyaSuite mirror, used when the platform's own route fails.
+    Mirror,
+}
+
+impl Mp4boxOrigin {
+    /// The word written to the file.
+    fn as_marker(self) -> &'static str {
+        match self {
+            Self::GpacOfficial => "gpac",
+            Self::Mirror => "mirror",
+        }
+    }
+
+    /// Reads the word back. Anything unrecognised is `None`, never a guess:
+    /// a wrong guess would send the update check to the wrong source.
+    fn from_marker(text: &str) -> Option<Self> {
+        match text.trim() {
+            "gpac" => Some(Self::GpacOfficial),
+            "mirror" => Some(Self::Mirror),
+            _ => None,
+        }
+    }
+}
+
+/// The file inside the MP4Box tool folder that records [`Mp4boxOrigin`].
+const MP4BOX_ORIGIN_FILE: &str = ".mp4box-origin";
+
+/// Records where this copy of MP4Box came from. Best effort: a failure
+/// only means a later update check says "could not check", which it
+/// says plainly.
+fn write_mp4box_origin(tool_dir: &std::path::Path, origin: Mp4boxOrigin) {
+    if let Err(e) = std::fs::write(tool_dir.join(MP4BOX_ORIGIN_FILE), origin.as_marker()) {
+        log::warn!("Could not record where MP4Box came from: {e}");
+    }
+}
+
+/// Where the installed MP4Box came from, or `None` when that was never
+/// recorded — a copy installed before this record existed, or one a
+/// package manager owns.
+pub(crate) fn read_mp4box_origin(app: &AppHandle) -> Option<Mp4boxOrigin> {
+    std::fs::read_to_string(get_tool_dir(app, "mp4box").join(MP4BOX_ORIGIN_FILE))
+        .ok()
+        .as_deref()
+        .and_then(Mp4boxOrigin::from_marker)
+}
+
 /// Copies an `MP4Box` binary to `MeedyaDL`'s tool directory and verifies it works.
 ///
 /// Used by the Homebrew, apt, GPAC-NSIS-installer, and GPAC-.deb-extraction
@@ -2321,6 +2478,13 @@ async fn copy_and_verify_mp4box(
     // comment for why this must NOT always be the literal "managed".
     let source_marker = tool_dir.join(".source");
     std::fs::write(&source_marker, mp4box_source_marker(pm_ref.as_ref())).ok();
+    // With no package manager involved, the only callers are GPAC's own
+    // installers (the NSIS `.exe` and the `.deb`). See Mp4boxOrigin for
+    // why this is recorded. A package manager's copy gets no origin
+    // record: the update check leaves it to that manager anyway.
+    if pm_ref.is_none() {
+        write_mp4box_origin(&tool_dir, Mp4boxOrigin::GpacOfficial);
+    }
 
     let version = get_tool_version(&expected_binary, "mp4box")
         .await
@@ -2972,9 +3136,13 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
 
             archive::set_executable(&expected_binary)?;
 
-            // Write .source marker for the mirror-sourced install
+            // Write .source marker for the mirror-sourced install, plus
+            // the origin record that tells the update check to compare
+            // this copy against the mirror rather than GPAC (see
+            // Mp4boxOrigin).
             let source_marker = tool_dir.join(".source");
             std::fs::write(&source_marker, "managed").ok();
+            write_mp4box_origin(&tool_dir, Mp4boxOrigin::Mirror);
 
             let version = get_tool_version(&expected_binary, "mp4box")
                 .await
@@ -3565,6 +3733,56 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
     /// or the mirror — neither of which is a package manager — keeps the
     /// plain "managed" marker MeedyaDL has always used for its own
     /// downloads. Before this fix all three cases wrote "managed".
+    /// The origin record must read back exactly what was written, and
+    /// anything else must read as "unknown" rather than a guess — a wrong
+    /// guess would send MP4Box's update check to the wrong source, which
+    /// is the fault this record exists to fix (batch-5 review, finding 4).
+    #[test]
+    fn mp4box_origin_reads_back_what_was_written_and_nothing_else() {
+        for origin in [Mp4boxOrigin::GpacOfficial, Mp4boxOrigin::Mirror] {
+            assert_eq!(Mp4boxOrigin::from_marker(origin.as_marker()), Some(origin));
+            // Written by hand or by another tool with a trailing newline.
+            assert_eq!(
+                Mp4boxOrigin::from_marker(&format!("{}\n", origin.as_marker())),
+                Some(origin)
+            );
+        }
+        for unknown in [
+            "",
+            "managed",
+            "GPAC",
+            "Mirror",
+            "homebrew:gpac",
+            "gpac-official",
+        ] {
+            assert_eq!(
+                Mp4boxOrigin::from_marker(unknown),
+                None,
+                "{unknown:?} must read as unknown, not be guessed at"
+            );
+        }
+    }
+
+    /// Writing and reading through a real folder, so the file name the
+    /// writer uses and the one the reader looks for cannot drift apart.
+    #[test]
+    fn mp4box_origin_survives_a_round_trip_through_a_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_mp4box_origin(dir.path(), Mp4boxOrigin::Mirror);
+        let text = std::fs::read_to_string(dir.path().join(MP4BOX_ORIGIN_FILE)).expect("written");
+        assert_eq!(Mp4boxOrigin::from_marker(&text), Some(Mp4boxOrigin::Mirror));
+    }
+
+    /// The mirror dates the Linux/Windows FFmpeg but gives the Mac build a
+    /// version number, so only a Mac is refused (batch-5 review, finding
+    /// 3). Both the install and the update check ask this one function.
+    #[test]
+    fn only_a_mac_gets_no_mirror_ffmpeg_build_date() {
+        assert!(!mirror_records_ffmpeg_build_date_for("macos"));
+        assert!(mirror_records_ffmpeg_build_date_for("linux"));
+        assert!(mirror_records_ffmpeg_build_date_for("windows"));
+    }
+
     #[test]
     fn mp4box_source_marker_distinguishes_package_manager_from_own_install() {
         use crate::services::package_manager::{PackageManagerKind, PackageRef};
