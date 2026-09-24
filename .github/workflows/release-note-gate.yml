@@ -143,9 +143,19 @@ jobs:
             exit 0
           fi
 
+          # Each note is linted WHOLE. The release templates join a note that
+          # wraps onto more lines back into one (up to a blank line or the
+          # next "Name: value" trailer), so linting only the first line would
+          # let the rest reach the release notes unchecked. This awk mirrors
+          # that joining exactly.
           printf '%s\n' "$PR_BODY" \
-            | grep -E '^Release-Note: ' \
-            | sed 's/^Release-Note: //' \
+            | awk '
+                /^Release-Note: / { if (inn) print n; n = substr($0, 15); inn = 1; next }
+                inn && /^[[:space:]]*$/ { print n; n = ""; inn = 0; next }
+                inn && /^[A-Za-z][A-Za-z-]*: / { print n; n = ""; inn = 0; next }
+                inn { sub(/^[ \t]+/, ""); n = n " " $0; next }
+                END { if (inn) print n }
+              ' \
             | python3 scripts/release-notes/lint-notes.py --trailer
 
   # ------------------------------------------------------------------
