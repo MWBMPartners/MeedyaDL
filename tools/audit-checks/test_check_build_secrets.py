@@ -153,6 +153,38 @@ CASES = [
         False,
         True,
     ),
+    # Commands and arithmetic can fail and export nothing (Codex, round 6).
+    (
+        "an unfinished command in the value is not a working export",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=$(" >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
+    (
+        "arithmetic that fails is not a working export",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=$((1/0))" >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
+    (
+        "any command at all is refused, since it might fail",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=`date`" >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
+    # What the real release.yml actually uses must keep counting.
+    (
+        "a plain variable in the value still counts",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=$VALUE" >> "$GITHUB_ENV"',
+        True,
+        False,
+    ),
+    (
+        "a GitHub ${{ }} placeholder in the value still counts",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=/usr/${{ matrix.x }}/y" >> "$GITHUB_ENV"',
+        True,
+        False,
+    ),
     (
         "$GITHUB_ENV with no quotes at all is still a working export",
         '      - name: Export it\n        run: |\n          echo "SAFARI=1" >> $GITHUB_ENV',
@@ -217,6 +249,7 @@ def end_to_end_failure() -> str | None:
     because the check reports paths relative to it."""
     import contextlib
     import io as _io
+    import os
     import tempfile
 
     real = check.RELEASE_WORKFLOW
@@ -225,18 +258,16 @@ def end_to_end_failure() -> str | None:
     if working not in text:
         return "could not find the Safari export line in release.yml to replace"
     disabled = '            echo "MEEDYADL_SAFARI_VERSION=1" # " >> "$GITHUB_ENV"'
-    with tempfile.NamedTemporaryFile(
-        mode="w",
-        encoding="utf-8",
-        dir=HERE,
-        prefix=".tmp-release-copy-",
-        suffix=".yml",
-        delete=False,
-    ) as handle:
-        handle.write(text.replace(working, disabled, 1))
-        copy = Path(handle.name)
+    # mkstemp creates the file and hands back its name BEFORE anything is
+    # written, so the clean-up below covers a failed write too (a full
+    # disk, say). The first version wrote first and only then entered the
+    # try, so a failed write left the copy behind (Codex, round 6).
+    fd, name = tempfile.mkstemp(dir=HERE, prefix=".tmp-release-copy-", suffix=".yml")
+    copy = Path(name)
     saved_argv = sys.argv[:]
     try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text.replace(working, disabled, 1))
         check.RELEASE_WORKFLOW = copy
         sys.argv = [sys.argv[0], "--strict"]
         out = _io.StringIO()
