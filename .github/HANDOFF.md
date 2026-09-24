@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-23 (night) — see ★★★★ LATEST below
+**Last updated:** 2026-09-24 (morning) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -11,7 +11,56 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-23 (night): standing rules revised; batch 4 cleared to ship
+## ★★★★ LATEST — 2026-09-24 (morning): batch-5 finding 1 fixed; Codex back on batch 4
+
+> **PICK UP HERE.** The section below this one is still the best starting point if you
+> know nothing; this one records what changed since.
+
+### Done this morning
+
+* **Batch 5's finding 1 is fixed** — `bdce1c32`, pushed. A helper programme that cannot
+  report its version is no longer shown as "update available" for ever. Both comparison
+  routes now go through one function, `compare_installed_against_latest()` in
+  `update_checker.rs`, which has three answers (out of date / nothing newer / could not
+  tell). 10 new tests, two proven able to fail. **Not yet independently reviewed** — it
+  goes to Codex in the batch-5 round.
+* **The Codex model note was wrong** and is corrected (personal memory
+  `feedback_codex_review_model.md`): use `-c model="gpt-6-astra"`, NOT `gpt-6-sol`, which
+  this account refuses. The device rules already said so.
+* **Trap found:** `update_checker.rs` already had **17 rustfmt complaints** in code nobody
+  touched. Running `rustfmt` on the file reformats all of them and buries a small fix in a
+  big diff. Check with `rustfmt --check` and fix only your own lines; the count was 17
+  before `bdce1c32` and 17 after.
+
+### Three questions put to the maintainer (nothing waits on them)
+
+1. When to open the alpha pull request, and who merges it. Recommended: fix batch-4
+   finding 1 and batch-5 finding 2 first, Codex batches 4 + 5 + the new fixes until clean,
+   then open it and merge.
+2. How much documentation sweep before this alpha. Recommended: targeted now, full before
+   the last pull request.
+3. Handoff location (carried over). Recommended: stay at `.github/HANDOFF.md`.
+
+### In flight — LOST on a restart
+
+* **Codex round 1 on batch 4** (`git diff 5071541f..c3dee4e7`), started 08:35. Prompt was
+  in the session scratchpad (gone on restart); it asked Codex to confirm or refute the
+  stand-in's findings A–E (listed under batch 4 below) and look for new ones. If lost,
+  rerun it — nothing else depended on it.
+
+### Next, in order
+
+1. Batch-5 finding 2 (offline shows "up to date"; the could-not-check notice vanishes when
+   anything else has an update).
+2. Batch-4 finding 1 (`release.yml` ~line 287, failed read overwrites a release's notes).
+3. Act on Codex's batch-4 findings; review only the fix commits after that.
+4. Codex batch 5 **together with** `bdce1c32` and the finding-2 fix: range
+   `7e9f4695..80bb65ee` plus those commits.
+5. Then the alpha, per the maintainer's answer to question 1.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (night): standing rules revised; batch 4 cleared to ship
 
 > **PICK UP HERE. This section assumes you know nothing about what came before.**
 > Read the section below this one too — it explains what is on this branch and why.
