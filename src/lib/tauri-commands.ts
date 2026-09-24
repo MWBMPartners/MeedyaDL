@@ -691,6 +691,20 @@ export function getComponentVersions(): Promise<ComponentVersion[]> {
 // ============================================================
 
 /**
+ * What will happen when the queue finishes, as the QUEUE will read it --
+ * from the running app's settings cache, not the file. See the Rust
+ * `get_after_queue_status` for why the file is not good enough here.
+ *
+ * Rust handler: `get_after_queue_status()` in `src-tauri/src/commands/settings.rs`
+ */
+export function getAfterQueueStatus(): Promise<{
+  after_queue_once: AfterQueueAction | null;
+  after_queue_action: AfterQueueAction;
+}> {
+  return invoke('get_after_queue_status');
+}
+
+/**
  * Loads the current application settings from disk.
  *
  * Rust handler: `get_settings()` in `src-tauri/src/commands/settings.rs`

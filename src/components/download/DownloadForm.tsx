@@ -122,7 +122,7 @@ import {
   checkSpotifyDispatchAllowed,
   importManifest,
   setStoredPreference,
-  getSettings,
+  getAfterQueueStatus,
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
@@ -887,7 +887,30 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  // One after-queue choice at a time. Two overlapping choices could each
+  // remember a different "value before the click", and the slower one's
+  // failure path could then put back the OTHER's value -- hiding a
+  // still-armed shutdown (Codex, batch-2 review). A second choice made
+  // while the first is still being saved is refused with a message.
+  const afterQueueBusy = useRef(false);
+
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
+    if (afterQueueBusy.current) {
+      setContextMenu(null);
+      useUiStore
+        .getState()
+        .addToast('Still saving your previous after-queue choice -- try again in a moment.', 'info');
+      return;
+    }
+    afterQueueBusy.current = true;
+    try {
+      await setAfterQueueOnceNow(action);
+    } finally {
+      afterQueueBusy.current = false;
+    }
+  }, []);
+
+  const setAfterQueueOnceNow = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
     const { syncAfterQueueOnce, settings } = useSettingsStore.getState();
 
@@ -905,8 +928,9 @@ export function DownloadForm() {
     // screen had changed.
     syncAfterQueueOnce(stored);
 
-    // Written to DISK, because the part of the app that ACTS on this
-    // reads it from the file, not from this page.
+    // Sent to the BACKEND, because the part of the app that ACTS on this
+    // never sees this page: it reads the running app's settings, which
+    // this one-field write updates (on disk, and in the running app).
     //
     // It used to be set in memory only. So the status bar said the
     // action was armed, the toast below said so too, and nothing ever
@@ -920,10 +944,13 @@ export function DownloadForm() {
       await setStoredPreference({ kind: 'after_queue_once', action: stored });
       useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     } catch {
-      // Nothing was written, so the disk still holds whatever it held
-      // before. Both the page's copy and the message are worked out from
-      // THE DISK rather than from this page, because the page's copy is
-      // exactly the thing that is not trustworthy here.
+      // Nothing was written, so the running app still holds whatever it
+      // held before. Both the page's copy and the message are worked out
+      // from what the QUEUE will act on (getAfterQueueStatus), not from this
+      // page, because the page's copy is exactly the thing that is not
+      // trustworthy here. (This used to read the settings FILE, which the
+      // queue does not act on, and which reads as the defaults when
+      // damaged -- Codex, batch-2 review.)
       //
       // Three attempts got to this. The first cleared the page's copy
       // and said "nothing will happen when the queue finishes" — which
@@ -941,9 +968,13 @@ export function DownloadForm() {
 
       let stillArmed: string;
       try {
-        const onDisk = await getSettings();
-        const oneOff = onDisk.after_queue_once ?? null;
-        const standing = onDisk.after_queue_action;
+        // What the QUEUE will act on -- the running app's settings, not the
+        // file. Reading the file here said "nothing will happen" when the
+        // file was damaged (it then reads as the defaults) while a shutdown
+        // was still armed in the running app (Codex, batch-2 review).
+        const willHappen = await getAfterQueueStatus();
+        const oneOff = willHappen.after_queue_once ?? null;
+        const standing = willHappen.after_queue_action;
 
         // Put the page back in step with the disk — the ONE-OFF only.
         //
