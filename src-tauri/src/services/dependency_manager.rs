@@ -1239,66 +1239,79 @@ async fn get_mirror_download_url(
     Ok((url, format, expected_sha256))
 }
 
-/// Where an existing copy of a helper programme stands, as far as falling
-/// back to the MeedyaSuite mirror is concerned.
+/// Why a helper programme is being installed. The Updates page says
+/// `Update`; first-time setup, Install and Reinstall say `InstallOrRepair`.
+///
+/// # Why the installer has to be told
+///
+/// The Update button and the Install/Reinstall buttons run the same
+/// installer, and only an UPDATE must never quietly come from the
+/// MeedyaSuite mirror (see [`may_fall_back_to_mirror`]). The first attempt
+/// at that rule (192d18bc) tried to GUESS which it was from the state of
+/// the copy on disk, and got it wrong both ways (stand-in review, 24 Sept
+/// 2026): every BtbN FFmpeg reports its version as the word "nightly", so
+/// it read as "broken" and the rule never applied to the very case it was
+/// written for; and an MP4Box with no origin record, which the Updates
+/// page tells you to reinstall, had that Reinstall refused every time,
+/// with a message that was not true. Being told cannot be wrong that way.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExistingCopy {
-    /// No copy, one MeedyaDL does not own, or one whose version cannot be
-    /// read (broken). Installing here is a first install or a repair.
-    NoneOrBroken,
-    /// A working copy MeedyaDL owns. Installing here is an update.
-    WorkingAndOurs,
+pub enum InstallPurpose {
+    /// First install, Install, Reinstall, or a repair.
+    InstallOrRepair,
+    /// The Update button on the Updates page.
+    Update,
 }
 
 /// May an install fall back to the mirror when the programme's own source
-/// fails?
+/// cannot be used?
 ///
-/// # Why this is not always "yes"
+/// # Why an update is different
 ///
-/// The Update button runs the same installer as first-time setup, and the
-/// installer used to fall back to the mirror whenever the main source
-/// failed. But the update check compared the installed copy against a
-/// SPECIFIC source — N_m3u8DL-RE against its own GitHub releases, a BtbN or
-/// evermeet.cx FFmpeg against that same site, a GPAC-installed MP4Box
-/// against GPAC's pinned installer. The mirror can hold the same version or
-/// an older one. So a blip at the checked source turned "Update" into
-/// "reinstall the same bytes, or older ones" — and the check then offered
-/// the update again, for ever. That is the one mistake issue #273 says to
-/// avoid above all (Codex, batch-5 review, finding 1, blocking).
+/// Each update check compares the installed copy against a SPECIFIC source —
+/// N_m3u8DL-RE against its GitHub releases, a BtbN or evermeet.cx FFmpeg
+/// against that same site, a GPAC-installed MP4Box against GPAC's pinned
+/// installer. The mirror can hold the same version or an older one. So a
+/// blip at the checked source used to turn "Update" into "reinstall the
+/// same bytes, or older ones" — and the check then offered the update again,
+/// for ever. That is the one mistake issue #273 says to avoid above all
+/// (Codex, batch-5 review, finding 1, blocking).
 ///
-/// The rule: when replacing a working copy MeedyaDL owns, fall back to the
-/// mirror only when the mirror IS the source the update check compared
-/// against. Otherwise stop, and leave the current copy exactly as it was —
-/// the person already has a working programme, so refusing costs nothing.
-/// A first install, or a repair of a missing or broken copy, still falls
-/// back as before: there, any working copy beats none.
-///
-/// `mirror_is_checked_source`: mp4decrypt and MediaInfo come only from the
-/// mirror; an FFmpeg or MP4Box whose recorded origin is the mirror is
-/// checked against the mirror. Anything with no record of where it came
-/// from is treated as checked against its main source.
-///
-/// What this does NOT promise: that an update comes from the very source
-/// that was checked. The installer still tries the programme's own source
-/// FIRST, even for a copy checked against the mirror. For FFmpeg that is
-/// harmless — the mirror copies BtbN's builds, so BtbN's is the same age
-/// or newer, never older. For MP4Box it would matter only if a GPAC
-/// installer pin were configured (none is today): a mirror-origin copy
-/// could then be replaced by the pinned GPAC version, which might be older.
-fn may_fall_back_to_mirror(existing: ExistingCopy, mirror_is_checked_source: bool) -> bool {
-    match existing {
-        ExistingCopy::NoneOrBroken => true,
-        ExistingCopy::WorkingAndOurs => mirror_is_checked_source,
+/// So an update may fall back to the mirror only when the mirror IS the
+/// source the check compared against. Otherwise it stops, and the current
+/// copy is left as it was. Install, Reinstall and repairs still fall back
+/// as before: there, any working copy beats none, and getting the same
+/// bytes again is exactly what a Reinstall asks for.
+fn may_fall_back_to_mirror(purpose: InstallPurpose, mirror_is_checked_source: bool) -> bool {
+    match purpose {
+        InstallPurpose::InstallOrRepair => true,
+        InstallPurpose::Update => mirror_is_checked_source,
     }
 }
 
+/// Whether a copy MeedyaDL owns is still there and runs. Used only after an
+/// MP4Box install route fails, to tell "the old copy is still there" from
+/// "the route removed it first" — see install_mp4box_with_fallback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingCopy {
+    NoneOrBroken,
+    WorkingAndOurs,
+}
+
 /// Works out [`ExistingCopy`] for `tool_id` on this machine.
+///
+/// "Working" means the programme ran and gave a proper reading. That
+/// includes FFmpeg's "nightly" — how the version reader reports a BtbN
+/// build, whose own banner carries no version number — which the
+/// is-this-a-version-number test alone would have called broken.
 async fn existing_copy(app: &AppHandle, tool_id: &str) -> ExistingCopy {
     if tool_ownership(app, tool_id) != ToolOwnership::MeedyaDl {
         return ExistingCopy::NoneOrBroken;
     }
     match read_installed_version(app, tool_id).await {
-        Ok(Some(version)) if crate::services::update_checker::looks_like_a_version(&version) => {
+        Ok(Some(version))
+            if version == "nightly"
+                || crate::services::update_checker::looks_like_a_version(&version) =>
+        {
             ExistingCopy::WorkingAndOurs
         }
         _ => ExistingCopy::NoneOrBroken,
@@ -1306,7 +1319,20 @@ async fn existing_copy(app: &AppHandle, tool_id: &str) -> ExistingCopy {
 }
 
 /// Is the mirror the source the update check compares `tool_id` against?
-/// See [`may_fall_back_to_mirror`].
+/// Asked only for an update. See [`may_fall_back_to_mirror`].
+///
+/// mp4decrypt and MediaInfo come only from the mirror. A FFmpeg copy is
+/// checked against the source recorded when it was installed. (MP4Box is
+/// handled by its own route; see install_mp4box_with_fallback.)
+///
+/// What this does NOT promise: that an update comes from the very source
+/// that was checked. For FFmpeg the installer still tries its own main
+/// source FIRST, even for a copy checked against the mirror. On Linux and
+/// Windows that is harmless — the mirror copies BtbN's builds, so BtbN's is
+/// the same age or newer. On a Mac the main source is evermeet.cx, not
+/// BtbN, so that reasoning does not hold there — but a Mac FFmpeg from the
+/// mirror is reported as "could not check", so it is never offered an
+/// update in the first place.
 fn mirror_is_checked_source(app: &AppHandle, tool_id: &str) -> bool {
     match tool_id {
         "mp4decrypt" | "mediainfo" => true,
@@ -1314,7 +1340,6 @@ fn mirror_is_checked_source(app: &AppHandle, tool_id: &str) -> bool {
             .ok()
             .and_then(|s| serde_json::from_str::<FfmpegBuildInfo>(&s).ok())
             .is_some_and(|info| info.source == "mirror"),
-        "mp4box" => read_mp4box_origin(app) == Some(Mp4boxOrigin::Mirror),
         _ => false,
     }
 }
@@ -1329,14 +1354,14 @@ fn update_refused_message(tool_id: &str, main_source_error: &str) -> String {
         .find(|t| t.id == tool_id)
         .map_or(tool_id, |t| t.name);
     format!(
-        "{name} was not updated: the place MeedyaDL checks for {name} updates did not \
-         answer ({}). Your current copy has been left exactly as it was — try again later. \
-         MeedyaDL does not use its backup download source for an update, because that source \
-         can hold the same version you already have, or an older one.",
+        "{name} was not updated: the source MeedyaDL checks for {name} updates could not be \
+         used ({}). Your current copy has been left as it was. MeedyaDL does not take an \
+         update from its backup download source instead, because that source can hold the \
+         same version you already have, or an older one. To reinstall {name} anyway, use \
+         Settings > Tools.",
         crate::utils::text::truncate_str(main_source_error.trim(), 200)
     )
 }
-
 /// Downloads a tool's archive and extracts it to the tool directory,
 /// with automatic fallback to the mirror repository if the primary
 /// upstream source fails.
@@ -1917,6 +1942,16 @@ fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
 /// * `Ok(version)` - The installed version string (or "installed" if version detection fails)
 /// * `Err(message)` - A descriptive error if installation failed
 pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, String> {
+    install_tool_for(app, name_or_id, InstallPurpose::InstallOrRepair).await
+}
+
+/// [`install_tool`], told why it is running. Only the Update button passes
+/// [`InstallPurpose::Update`]; see [`may_fall_back_to_mirror`].
+pub async fn install_tool_for(
+    app: &AppHandle,
+    name_or_id: &str,
+    purpose: InstallPurpose,
+) -> Result<String, String> {
     // Resolve display name to canonical tool ID (e.g., "FFmpeg" -> "ffmpeg")
     let tool_id = resolve_tool_id(name_or_id)?;
     log::info!("Starting installation of tool: {tool_id}");
@@ -2020,7 +2055,7 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     //   Linux:   .deb package (extracted using ar + tar without installation)
     // If the platform-specific installer fails, falls back to the mirror.
     if tool_id == "mp4box" {
-        return install_mp4box_with_fallback(app).await;
+        return install_mp4box_with_fallback(app, purpose).await;
     }
 
     // Step 1-3: Download with automatic mirror fallback.
@@ -2029,13 +2064,9 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     // The return value records which of the two actually supplied the
     // binary — only FFmpeg's install (Step 5b below) acts on it.
     let tool_dir = get_tool_dir(app, tool_id);
-    // Decided BEFORE downloading, from the copy as it is now — see
-    // may_fall_back_to_mirror for why an update must not quietly use the
-    // mirror.
-    let allow_mirror = may_fall_back_to_mirror(
-        existing_copy(app, tool_id).await,
-        mirror_is_checked_source(app, tool_id),
-    );
+    // Decided before downloading — see may_fall_back_to_mirror for why an
+    // update must not quietly use the mirror.
+    let allow_mirror = may_fall_back_to_mirror(purpose, mirror_is_checked_source(app, tool_id));
     let install_source = download_tool_with_fallback(tool_id, &tool_dir, allow_mirror).await?;
 
     // Step 4: Find the binary in the extracted contents.
@@ -3234,164 +3265,165 @@ async fn install_mp4box_linux_inner(
     copy_and_verify_mp4box(app, &mp4box_src, "GPAC .deb package", None).await
 }
 
-/// Installs `MP4Box` using platform-specific installers with mirror fallback.
+/// Installs MP4Box — or, for [`InstallPurpose::Update`], updates it from the
+/// source its update check compared against.
 ///
-/// First tries the platform's native installation method:
-///   - macOS: Homebrew → .pkg extraction
-///   - Windows: NSIS silent installer
-///   - Linux x86_64: .deb extraction from GPAC nightly builds
-///   - Linux ARM (aarch64/armv7): `apt-get install gpac`
+/// # An update goes to the checked source, and nowhere else
 ///
-/// If the platform-specific method fails, falls back to the
-/// MeedyaSuite/MeedyaDL-Tools mirror repository for a generic binary archive.
-async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
-    // Where the update check compared this copy, read BEFORE anything runs:
-    // the platform routes below delete the tool folder, and the origin
-    // record with it. See may_fall_back_to_mirror.
-    let checked_against_mirror = mirror_is_checked_source(app, "mp4box");
+/// The normal route tries each platform's own way first — including
+/// `brew install gpac` on a Mac and `apt install gpac` on Linux ARM — and
+/// then the MeedyaSuite mirror. For an update that was wrong twice over
+/// (stand-in review, 24 Sept 2026): a copy checked against the mirror could
+/// be replaced by Homebrew's or apt's GPAC, which may be OLDER, and doing so
+/// changed the person's system too; and a copy checked against GPAC's pinned
+/// installer could quietly come from the mirror. So an update now goes:
+///
+/// * a mirror copy → straight to the mirror;
+/// * a GPAC copy → only GPAC's pinned installer, never Homebrew or apt; if
+///   that cannot be used, the update stops and the copy is left as it was —
+///   unless the failed attempt already removed it, in which case this is a
+///   repair and the mirror is allowed.
+///
+/// Install, Reinstall and repairs keep the full route, as before.
+async fn install_mp4box_with_fallback(
+    app: &AppHandle,
+    purpose: InstallPurpose,
+) -> Result<String, String> {
+    // Read BEFORE anything runs: the routes below delete the tool folder,
+    // and the origin record with it.
+    let origin = read_mp4box_origin(app);
+    let updating = purpose == InstallPurpose::Update;
 
-    // Try platform-specific installer first
-    let platform_result = match std::env::consts::OS {
-        "macos" => install_mp4box_macos(app).await,
-        "windows" => install_mp4box_windows(app).await,
-        "linux" => install_mp4box_linux(app).await,
-        _ => Err(format!(
-            "MP4Box installation not supported on {}",
-            std::env::consts::OS
-        )),
+    if updating && origin == Some(Mp4boxOrigin::Mirror) {
+        return install_mp4box_from_mirror(app, "this copy came from the mirror").await;
+    }
+
+    let platform_result = if updating && origin == Some(Mp4boxOrigin::GpacOfficial) {
+        install_mp4box_from_pinned_gpac(app).await
+    } else {
+        match std::env::consts::OS {
+            "macos" => install_mp4box_macos(app).await,
+            "windows" => install_mp4box_windows(app).await,
+            "linux" => install_mp4box_linux(app).await,
+            _ => Err(format!(
+                "MP4Box installation not supported on {}",
+                std::env::consts::OS
+            )),
+        }
     };
 
     match platform_result {
         Ok(version) => Ok(version),
         Err(primary_err) => {
-            // Look at the copy AGAIN, now. Both platform routes delete the
-            // old copy before they finish (copy_and_verify_mp4box and the
-            // macOS .pkg route each remove the tool folder, then copy), so a
-            // route that failed late may already have removed it. Deciding
-            // from the state before the route ran would then refuse the
-            // mirror AND claim the copy was "left exactly as it was" — while
-            // leaving the person with no MP4Box at all. If it is gone, this
-            // has become a repair, and the mirror is allowed. (Codex was
-            // checking exactly this when its batch-5 round 2 hit its usage
-            // limit; confirmed here by reading both routes.)
-            let allow_mirror =
-                may_fall_back_to_mirror(existing_copy(app, "mp4box").await, checked_against_mirror);
-            if !allow_mirror {
+            // For an update of a GPAC copy: look at the copy AGAIN, now.
+            // GPAC's routes delete the old copy before they finish copying
+            // (copy_and_verify_mp4box and the macOS .pkg route each remove
+            // the folder first), so a route that failed late may already
+            // have removed it. Refusing the mirror then would leave the
+            // person with no MP4Box while claiming it was left as it was.
+            // If it is gone, this has become a repair.
+            let refuse = updating
+                && origin == Some(Mp4boxOrigin::GpacOfficial)
+                && existing_copy(app, "mp4box").await == ExistingCopy::WorkingAndOurs;
+            if refuse {
                 return Err(update_refused_message("mp4box", &primary_err));
             }
             log::warn!("Platform-specific MP4Box install failed: {primary_err}. Trying mirror...");
-
-            // Fall back to mirror directly (skip get_tool_download_url which
-            // returns Err for MP4Box since it uses platform-specific installers)
-            //
-            // **What is checked here, and what is not.**
-            //
-            // This is the fallback, reached only when the platform's own
-            // installer failed — a successful Homebrew or apt install
-            // returns above and never comes past this point.
-            //
-            // For this download: the expected hash comes from
-            // `load_mirror_asset_hash`, which reads the
-            // `tool-versions.toml` compiled into this binary. In the
-            // shipped configuration the `[mirror.asset_hashes]` section
-            // is entirely commented out, so there is no hash, and
-            // `download_and_extract_verified` compares nothing and
-            // extracts. **This download is not verified today.**
-            //
-            // A commit message once called this "the checksum-verified
-            // mirror". It is not, and the correction is written here so
-            // it is read from the code rather than from a claim made
-            // somewhere else. Three further attempts at this paragraph
-            // were each found to overstate something, so it now says
-            // only what was read in the code:
-            //
-            //  * The pins are commented out deliberately, not by
-            //    oversight — the mirror replaces its files as upstream
-            //    tools move, so a fixed hash goes stale and breaks every
-            //    install until somebody notices.
-            //  * Each platform fetches a different file: the name is
-            //    built from the operating system and processor by
-            //    `get_mirror_asset_prefix`.
-            //  * The machinery to verify already exists and works: pin a
-            //    hash in `[mirror.asset_hashes]` and this download is
-            //    checked against it. What is missing is a hash that
-            //    stays right. Fetching one published beside each file
-            //    (#1076) is the way out being pursued, and it needs both
-            //    the mirror to publish it and code here to go and get
-            //    it — this function does reach the network, through
-            //    `resolve_github_release_asset` for the release listing,
-            //    but asks for no checksum. That is one route to a
-            //    durable answer, not the only conceivable one.
-            //  * None of this is impossible, only absent. Any file can
-            //    have a checksum; what these files cannot have is one
-            //    that stays valid while the bytes behind them are
-            //    replaced.
-            //
-            // What changed for macOS and Linux is narrow and worth
-            // stating without dressing up: this fallback used to fetch a
-            // nightly build from an address whose contents change
-            // without notice. It now fetches the same kind of file
-            // Windows already did. Neither was verified before; neither
-            // is now.
-            let tool_dir = get_tool_dir(app, "mp4box");
-            if tool_dir.exists() {
-                std::fs::remove_dir_all(&tool_dir).ok();
-            }
-            std::fs::create_dir_all(&tool_dir)
-                .map_err(|e| format!("Failed to create tool directory: {e}"))?;
-
-            let (mirror_url, mirror_format, mirror_sha256) =
-                get_mirror_download_url("mp4box").await.map_err(|e| {
-                    format!(
-                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: {e}"
-                    )
-                })?;
-
-            log::info!("Downloading MP4Box from mirror: {mirror_url}");
-            archive::download_and_extract_verified(
-                &mirror_url,
-                &tool_dir,
-                mirror_format,
-                mirror_sha256.as_deref(),
-            )
-            .await
-            .map_err(|e| {
-                format!(
-                    "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror download: {e}"
-                )
-            })?;
-
-            // Find binary in extracted mirror archive
-            let expected_binary = get_tool_binary_path(app, "mp4box");
-            if !expected_binary.exists() {
-                if let Some(found) = find_binary_recursive(&tool_dir, "mp4box") {
-                    std::fs::copy(&found, &expected_binary)
-                        .map_err(|e| format!("Failed to copy MP4Box binary: {e}"))?;
-                } else {
-                    return Err(format!(
-                        "All sources failed for MP4Box.\n  Platform: {primary_err}\n  Mirror: binary not found in archive"
-                    ));
-                }
-            }
-
-            archive::set_executable(&expected_binary)?;
-
-            // Write .source marker for the mirror-sourced install, plus
-            // the origin record that tells the update check to compare
-            // this copy against the mirror rather than GPAC (see
-            // Mp4boxOrigin).
-            let source_marker = tool_dir.join(".source");
-            std::fs::write(&source_marker, "managed").ok();
-            write_mp4box_origin(&tool_dir, Mp4boxOrigin::Mirror);
-
-            let version = get_tool_version(&expected_binary, "mp4box")
-                .await
-                .unwrap_or_else(|_| "installed".to_string());
-
-            log::info!("MP4Box {version} installed from mirror");
-            Ok(version)
+            install_mp4box_from_mirror(app, &primary_err).await
         }
     }
+}
+
+/// GPAC's own pinned installer for this platform, and nothing else — no
+/// Homebrew, no apt. Used only to update a copy that came from it.
+async fn install_mp4box_from_pinned_gpac(app: &AppHandle) -> Result<String, String> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", _) => install_mp4box_windows(app).await,
+        ("macos", _) => install_mp4box_from_pkg(app).await,
+        // Only x86_64 Linux has a GPAC .deb; install_mp4box_linux reaches it
+        // there. On ARM it would go to apt, which this must not do.
+        ("linux", "x86_64") => install_mp4box_linux(app).await,
+        (os, arch) => Err(format!(
+            "GPAC publishes no installer for {os} on {arch}, so this copy cannot be updated from it"
+        )),
+    }
+}
+
+/// Installs MP4Box from the MeedyaSuite mirror.
+///
+/// Downloads into a separate staging folder and only swaps it in once the
+/// whole download has worked — the same stage-and-swap the other tools use
+/// (see promote_staged_install). This route used to delete the current
+/// copy BEFORE downloading, so a failed download left no MP4Box at all;
+/// that mattered more once an update of a mirror copy started coming
+/// straight here.
+///
+/// `earlier_error` is why the mirror is being used, for the message if the
+/// mirror fails too.
+async fn install_mp4box_from_mirror(
+    app: &AppHandle,
+    earlier_error: &str,
+) -> Result<String, String> {
+    let tool_dir = get_tool_dir(app, "mp4box");
+    let staging = tool_dir.with_file_name("mp4box.staging");
+    std::fs::remove_dir_all(&staging).ok();
+    std::fs::create_dir_all(&staging)
+        .map_err(|e| format!("Failed to create staging directory: {e}"))?;
+
+    let result = async {
+        let (mirror_url, mirror_format, mirror_sha256) =
+            get_mirror_download_url("mp4box").await.map_err(|e| {
+                format!("All sources failed for MP4Box.\n  Platform: {earlier_error}\n  Mirror: {e}")
+            })?;
+
+        log::info!("Downloading MP4Box from mirror: {mirror_url}");
+        archive::download_and_extract_verified(
+            &mirror_url,
+            &staging,
+            mirror_format,
+            mirror_sha256.as_deref(),
+        )
+        .await
+        .map_err(|e| {
+            format!(
+                "All sources failed for MP4Box.\n  Platform: {earlier_error}\n  Mirror download: {e}"
+            )
+        })?;
+
+        // Put the binary where the tool folder expects it, INSIDE staging,
+        // before anything is swapped.
+        let binary_name = get_tool_binary_path(app, "mp4box")
+            .file_name()
+            .map(std::ffi::OsStr::to_os_string)
+            .ok_or("MP4Box's binary path has no file name")?;
+        let staged_binary = staging.join(&binary_name);
+        if !staged_binary.exists() {
+            let found = find_binary_recursive(&staging, "mp4box").ok_or_else(|| {
+                format!(
+                    "All sources failed for MP4Box.\n  Platform: {earlier_error}\n  Mirror: binary not found in archive"
+                )
+            })?;
+            std::fs::copy(&found, &staged_binary)
+                .map_err(|e| format!("Failed to copy MP4Box binary: {e}"))?;
+        }
+        archive::set_executable(&staged_binary)?;
+        std::fs::write(staging.join(".source"), "managed").ok();
+        write_mp4box_origin(&staging, Mp4boxOrigin::Mirror);
+        Ok::<(), String>(())
+    }
+    .await;
+
+    if let Err(e) = result {
+        std::fs::remove_dir_all(&staging).ok();
+        return Err(e);
+    }
+    promote_staged_install(&staging, &tool_dir)?;
+
+    let version = get_tool_version(&get_tool_binary_path(app, "mp4box"), "mp4box")
+        .await
+        .unwrap_or_else(|_| "installed".to_string());
+    log::info!("MP4Box {version} installed from mirror");
+    Ok(version)
 }
 
 /// Searches recursively for a tool's binary within a directory.
@@ -4064,19 +4096,21 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
 
     /// An update must not quietly come from the mirror unless the mirror
     /// is what the update check compared against (Codex, batch-5 review,
-    /// finding 1). First installs and repairs still fall back.
+    /// finding 1). Install, Reinstall and repairs always may — the
+    /// stand-in review showed a Reinstall being refused for good when the
+    /// rule was guessed from the copy on disk instead of being told.
     #[test]
-    fn an_update_only_falls_back_to_the_mirror_it_was_checked_against() {
-        // Replacing a working copy of ours: only if the mirror was checked.
-        assert!(!may_fall_back_to_mirror(
-            ExistingCopy::WorkingAndOurs,
+    fn only_an_update_is_kept_off_the_mirror() {
+        assert!(!may_fall_back_to_mirror(InstallPurpose::Update, false));
+        assert!(may_fall_back_to_mirror(InstallPurpose::Update, true));
+        assert!(may_fall_back_to_mirror(
+            InstallPurpose::InstallOrRepair,
             false
         ));
-        assert!(may_fall_back_to_mirror(ExistingCopy::WorkingAndOurs, true));
-        // No copy, someone else's, or a broken one: any working copy beats
-        // none, so the mirror is always allowed.
-        assert!(may_fall_back_to_mirror(ExistingCopy::NoneOrBroken, false));
-        assert!(may_fall_back_to_mirror(ExistingCopy::NoneOrBroken, true));
+        assert!(may_fall_back_to_mirror(
+            InstallPurpose::InstallOrRepair,
+            true
+        ));
     }
 
     /// The refusal message must say nothing was changed, and name the
@@ -4089,7 +4123,9 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
             message.starts_with("N_m3u8DL-RE was not updated"),
             "{message}"
         );
-        assert!(message.contains("left exactly as it was"));
+        assert!(message.contains("left as it was"));
+        // "did not answer" was wrong when the cause was a missing pin.
+        assert!(!message.contains("did not answer"));
         assert!(message.contains("HTTP 503"));
     }
 

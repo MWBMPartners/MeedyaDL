@@ -1039,13 +1039,29 @@ async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
 /// # Returns
 /// * `Ok(String)` - Success message with the installed tool path.
 /// * `Err(String)` - Download, extraction, or verification failure message.
+///
+/// `for_update` is `true` only from the Update button on the Updates page.
+/// An update must not quietly fall back to MeedyaDL's backup download
+/// source (it can hold the same or an older version), so the installer
+/// has to be TOLD it is an update rather than guess — see
+/// `dependency_manager::InstallPurpose`. Absent or `false` (setup,
+/// Install, Reinstall) keeps the full install route.
 #[tauri::command]
-pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, String> {
+pub async fn install_dependency(
+    app: AppHandle,
+    name: String,
+    for_update: Option<bool>,
+) -> Result<String, String> {
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
-    log::info!("Installing dependency: {name}");
+    let purpose = if for_update == Some(true) {
+        dependency_manager::InstallPurpose::Update
+    } else {
+        dependency_manager::InstallPurpose::InstallOrRepair
+    };
+    log::info!("Installing dependency: {name} ({purpose:?})");
     emit_app_log(&app, &format!("Updating {name}..."));
-    match dependency_manager::install_tool(&app, &name).await {
+    match dependency_manager::install_tool_for(&app, &name, purpose).await {
         Ok(result) => {
             emit_app_log(&app, &format!("{name} updated successfully"));
             Ok(result)
