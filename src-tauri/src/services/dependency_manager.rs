@@ -3324,6 +3324,18 @@ async fn install_mp4box_with_fallback(
 /// The ordinary route for Install, Reinstall and repairs: the platform's
 /// own way first, then the MeedyaSuite mirror.
 async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
+    let result = install_mp4box_full_route_inner(app).await;
+    // A fresh install replaces whatever was there, so a copy an earlier
+    // update left set aside is no longer needed. Leaving it would only
+    // make the next update stop to sort it out.
+    if result.is_ok() {
+        let backup = get_tool_dir(app, "mp4box").with_file_name("mp4box.update-backup");
+        std::fs::remove_dir_all(&backup).ok();
+    }
+    result
+}
+
+async fn install_mp4box_full_route_inner(app: &AppHandle) -> Result<String, String> {
     let platform_result = match std::env::consts::OS {
         "macos" => install_mp4box_macos(app).await,
         "windows" => install_mp4box_windows(app).await,
@@ -3353,17 +3365,39 @@ async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
 async fn update_mp4box_keeping_the_old_copy(app: &AppHandle) -> Result<String, String> {
     let tool_dir = get_tool_dir(app, "mp4box");
     let backup = tool_dir.with_file_name("mp4box.update-backup");
-    // A backup left behind by an earlier update means that update could
-    // not put the old copy back — so the backup may be the ONLY working
-    // copy there is. It used to be deleted here, and the (possibly broken)
-    // current copy backed up in its place (Codex, follow-up review of
-    // 360ea73e). Refuse instead, and say where it is.
+    // A backup left behind by an earlier update. It used to be deleted here
+    // — possibly the only working copy (Codex, follow-up review). Then it
+    // was refused outright, with advice ("Reinstall from Settings > Tools")
+    // that never removed it, so every later update refused for good; and a
+    // successful update whose clean-up merely failed left one behind too
+    // (stand-in review). Now it is resolved by looking at which copy works:
+    //   * the current copy runs → the backup is stale: remove it;
+    //   * the current copy does not run → the backup is the good one: put
+    //     it back.
+    // Either way the update then carries on from a working copy.
     if backup.exists() {
-        return Err(format!(
-            "MP4Box was not updated: an earlier update did not finish, and the copy it set \
-             aside is still at {}. Reinstall MP4Box from Settings > Tools to sort this out.",
-            backup.display()
-        ));
+        let current_runs = matches!(
+            read_installed_version(app, "mp4box").await,
+            Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
+        );
+        if current_runs {
+            std::fs::remove_dir_all(&backup).map_err(|e| {
+                format!(
+                    "MP4Box was not updated: an old copy set aside by an earlier update, at {}, \
+                     could not be removed ({e}). Nothing was changed.",
+                    backup.display()
+                )
+            })?;
+        } else {
+            std::fs::remove_dir_all(&tool_dir).ok();
+            std::fs::rename(&backup, &tool_dir).map_err(|e| {
+                format!(
+                    "MP4Box was not updated: the working copy set aside by an earlier update is \
+                     at {}, and could not be put back ({e}).",
+                    backup.display()
+                )
+            })?;
+        }
     }
     std::fs::rename(&tool_dir, &backup).map_err(|e| {
         format!("MP4Box was not updated: could not set the current copy aside first ({e}). Nothing was changed.")

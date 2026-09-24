@@ -220,7 +220,7 @@ export async function changeUiLanguage(lng: string): Promise<void> {
     // on regardless). Here, a person has just CHOSEN this language, and the
     // screen staying in English with no word of why is the silent failure
     // the help text's "changes straight away" would make worse. So say so;
-    // the caller shows it. English stays in use either way.
+    // the caller shows it. The language on screen does not change.
     if (!i18n.hasResourceBundle(base, 'translation')) {
       throw new Error(`The ${lng} language file could not be loaded, so the language has not changed.`);
     }

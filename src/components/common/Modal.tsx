@@ -28,7 +28,7 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -262,11 +262,18 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
    * parent re-render -- is the entire point of this fix (see the long
    * comment above `onCloseRef`).
    */
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: the layer must be known BEFORE the
+  // dialog is first drawn, or its first frame is drawn at the starting
+  // layer and a second dialog can flash underneath the first (stand-in
+  // review).
+  useLayoutEffect(() => {
     if (open) {
       const token = dialogToken.current;
       openDialogs.push(token);
-      const nextLayer = Math.max(0, ...dialogLayers.values()) + 1;
+      // Capped at 50, so a dialog never covers a toast (z-index 100) even if
+      // the layers keep climbing -- which they can while one dialog stays
+      // open and others below it keep opening and closing (stand-in review).
+      const nextLayer = Math.min(Math.max(0, ...dialogLayers.values()) + 1, 50);
       dialogLayers.set(token, nextLayer);
       setLayer(nextLayer);
       // Save the previously focused element to restore later
@@ -318,8 +325,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       // decided by where it sat in the page — while Tab and Escape went to
       // the most recently opened. Opening keyboard-shortcut help over the
       // pre-release notice put the help UNDER the notice yet gave it the
-      // keys (Codex, batch-3 review). 49 + layer stays well below toasts
-      // (z-index 100), even with several dialogs open.
+      // keys (Codex, batch-3 review). 49 + layer stays below toasts
+      // (z-index 100): the layer is capped at 50.
       style={{ zIndex: 49 + layer }}
       onClick={onClose}
     >
