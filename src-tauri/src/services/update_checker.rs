@@ -905,7 +905,10 @@ pub async fn check_all_updates(
     // This is the most important check since GAMDL receives frequent updates.
     match check_gamdl_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("GAMDL check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("GAMDL check failed: {e}"));
+            components.push(check_did_not_complete("GAMDL", None));
+        }
     }
 
     // Check for app self-updates via GitHub Releases API.
@@ -915,14 +918,20 @@ pub async fn check_all_updates(
     // subscribed stability tier (e.g., a beta user won't see nightly builds).
     match check_app_update(app, check_pre_releases, user_channel).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("App update check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("App update check failed: {e}"));
+            components.push(check_did_not_complete("MeedyaDL", None));
+        }
     }
 
     // Check Python runtime update by comparing the installed version
     // against the target version defined in python_manager.rs constants.
     match check_python_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("Python check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("Python check failed: {e}"));
+            components.push(check_did_not_complete("Python Runtime", None));
+        }
     }
 
     // Check all enabled pip-based engines from engines.toml for updates.
@@ -945,7 +954,18 @@ pub async fn check_all_updates(
 
         match result {
             Ok(update) => components.push(update),
-            Err(e) => errors.push(format!("{name} check failed: {e}")),
+            Err(e) => {
+                errors.push(format!("{name} check failed: {e}"));
+                // votify's own check names itself "votify"; the rest use
+                // the engine's display name. Match whichever the normal
+                // entry would have used, so a dismissal carries over.
+                let shown_as = if package == "votify" {
+                    "votify"
+                } else {
+                    name.as_str()
+                };
+                components.push(check_did_not_complete(shown_as, None));
+            }
         }
     }
 
@@ -965,7 +985,10 @@ pub async fn check_all_updates(
     if crate::services::dependency_manager::get_tool_binary_path(app, "ffmpeg").exists() {
         match check_ffmpeg_update(app).await {
             Ok(update) => components.push(update),
-            Err(e) => log::debug!("FFmpeg update check failed: {e}"),
+            Err(e) => {
+                log::debug!("FFmpeg update check failed: {e}");
+                components.push(check_did_not_complete("FFmpeg", Some("ffmpeg")));
+            }
         }
     }
 
@@ -977,6 +1000,7 @@ pub async fn check_all_updates(
                 Ok(update) => components.push(update),
                 Err(e) => {
                     log::debug!("Tool update check failed for {tool_id}: {e}");
+                    components.push(check_did_not_complete(display_name, Some(tool_id)));
                 }
             }
         }
@@ -985,7 +1009,10 @@ pub async fn check_all_updates(
     if crate::services::dependency_manager::get_tool_binary_path(app, "mp4box").exists() {
         match check_mp4box_update(app).await {
             Ok(update) => components.push(update),
-            Err(e) => log::debug!("MP4Box update check failed: {e}"),
+            Err(e) => {
+                log::debug!("MP4Box update check failed: {e}");
+                components.push(check_did_not_complete("MP4Box", Some("mp4box")));
+            }
         }
     }
 
@@ -1000,7 +1027,10 @@ pub async fn check_all_updates(
         .await
         {
             Ok(update) => components.push(update),
-            Err(e) => log::debug!("mp4decrypt update check failed: {e}"),
+            Err(e) => {
+                log::debug!("mp4decrypt update check failed: {e}");
+                components.push(check_did_not_complete("mp4decrypt", Some("mp4decrypt")));
+            }
         }
     }
 
@@ -1015,7 +1045,10 @@ pub async fn check_all_updates(
         .await
         {
             Ok(update) => components.push(update),
-            Err(e) => log::debug!("MediaInfo update check failed: {e}"),
+            Err(e) => {
+                log::debug!("MediaInfo update check failed: {e}");
+                components.push(check_did_not_complete("MediaInfo", Some("mediainfo")));
+            }
         }
     }
 
@@ -2006,6 +2039,47 @@ fn not_checkable_update(
         managed_by,
         manual_update_command,
     }
+}
+
+/// What the person reads when a check did not finish at all.
+///
+/// Deliberately does not guess the cause from the error. The usual one is
+/// no internet connection, but a site that did not answer, or answered
+/// with something unreadable, looks the same from here, and a confident
+/// wrong guess is worse than an honest general one. The real error still
+/// goes to the log for anyone diagnosing it.
+const CHECK_DID_NOT_COMPLETE: &str = "The check for a newer version did not finish — usually \
+    because there is no internet connection right now, or the site MeedyaDL asks was not \
+    answering. It will be tried again at the next check.";
+
+/// A component whose update check failed outright.
+///
+/// # Why this exists
+///
+/// A failed check used to make the component vanish. For the five helper
+/// programmes the failure went only to the debug log; for GAMDL, the app
+/// itself and Python it went into an `errors` list that nothing on screen
+/// ever shows. So with no internet every check failed, nothing was
+/// listed, and the Updates page said "You're up to date!" having checked
+/// nothing at all. An independent review (batch 5, finding 2) found it.
+///
+/// Now a failed check stays on the list, marked as "could not check",
+/// which is the one honest answer.
+///
+/// `tool_id` is `None` for GAMDL, the app and Python: their normal
+/// entries carry no tool id either, and a made-up one could send an
+/// Update button somewhere it should not go.
+fn check_did_not_complete(name: &str, tool_id: Option<&str>) -> ComponentUpdate {
+    let mut update = not_checkable_update(
+        name,
+        tool_id.unwrap_or_default(),
+        None,
+        None,
+        None,
+        CHECK_DID_NOT_COMPLETE.to_string(),
+    );
+    update.tool_id = tool_id.map(str::to_string);
+    update
 }
 
 /// Checks a tool that is distributed EXCLUSIVELY through the
@@ -3535,5 +3609,34 @@ mod tests {
             compare_installed_against_latest(Some("command not found"), None),
             VersionVerdict::Unreadable
         );
+    }
+
+    #[test]
+    fn a_check_that_did_not_finish_is_listed_not_dropped() {
+        // The fault: a failed check made the component vanish, so with no
+        // internet the page said "You're up to date!" having checked
+        // nothing. The entry must carry a reason, so the page lists it
+        // under "could not check", and must never claim an update.
+        let entry = check_did_not_complete("MP4Box", Some("mp4box"));
+        assert_eq!(entry.name, "MP4Box");
+        assert!(!entry.update_available, "a failed check is never an update");
+        assert_eq!(
+            entry.not_checkable_reason.as_deref(),
+            Some(CHECK_DID_NOT_COMPLETE),
+            "the reason is what puts it on the 'could not check' list"
+        );
+        assert_eq!(entry.tool_id.as_deref(), Some("mp4box"));
+    }
+
+    #[test]
+    fn gamdl_the_app_and_python_get_no_made_up_tool_id() {
+        // Their normal entries have no tool id. Inventing one could route
+        // an Update button to the tool installer for something that is
+        // not a tool.
+        for name in ["GAMDL", "MeedyaDL", "Python Runtime"] {
+            let entry = check_did_not_complete(name, None);
+            assert_eq!(entry.tool_id, None, "{name} must not get a tool id");
+            assert!(entry.not_checkable_reason.is_some());
+        }
     }
 }

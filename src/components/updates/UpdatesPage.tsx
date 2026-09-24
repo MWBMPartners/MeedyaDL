@@ -54,10 +54,12 @@ const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
  * A quiet note listing anything MeedyaDL could not work out an answer
  * for, and why.
  *
- * This sits directly under "You're up to date!" on purpose. That heading
- * speaks for everything MeedyaDL checked — so anything it could NOT
- * check has to be named right beside it, or the heading is quietly
- * claiming something about those too.
+ * It appears in BOTH views: under the heading when there are no
+ * updates, and under the list when there are. A heading or a list speaks
+ * for everything MeedyaDL checked, so anything it could NOT check has to
+ * be named right beside it, or the page is quietly claiming something
+ * about those too. (It used to appear only in the "no updates" view, so
+ * a single available update made every "could not check" line vanish.)
  *
  * It is deliberately plain rather than alarming. Not being able to tell
  * is usually nobody's fault and usually harmless: a copy of FFmpeg
@@ -242,8 +244,12 @@ export function UpdatesPage() {
           /* No updates available state */
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <CheckCircle size={48} className="text-status-success mb-4" />
+            {/* "You're up to date!" is a promise about everything. When
+                something could not be checked it would be claiming that
+                for those too, so the heading steps back to what is
+                actually known: nothing newer was found. */}
             <h3 className="text-lg font-semibold text-content-primary mb-1">
-              You&apos;re up to date!
+              {notCheckable.length > 0 ? 'No updates found' : <>You&apos;re up to date!</>}
             </h3>
             {currentVersion && (
               <p className="text-sm text-content-secondary">Current version: v{currentVersion}</p>
@@ -672,6 +678,13 @@ export function UpdatesPage() {
                 )}
               </div>
             ))}
+
+            {/* The same notice as in the "no updates" view. It used to
+                appear ONLY there, so the moment anything else had an
+                update, every "could not check" line vanished — and the
+                list of updates then read as the complete picture. An
+                independent review (batch 5, finding 2) found it. */}
+            {notCheckable.length > 0 && <NotCheckableNotice items={notCheckable} />}
           </div>
         )}
       </div>
