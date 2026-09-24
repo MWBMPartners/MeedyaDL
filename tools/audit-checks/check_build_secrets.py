@@ -64,6 +64,16 @@ earlier in the same job — never by trusting that the name merely appears
 somewhere in the file, which is exactly the looseness that would hide a
 value wired to only one of the three.
 
+An export only counts if it will actually run whenever the build does:
+it must not be commented out, and the step it sits in must have no `if:`
+condition of its own, or exactly the same condition as the build step.
+An export under any other condition is reported as "cannot confirm", not
+assumed to work, because this check cannot evaluate GitHub's expression
+language. (The first per-step version counted any line shaped like an
+export. Codex showed in the batch-4 review that commenting out the only
+Safari export still printed "OK". test_check_build_secrets.py now pins
+this, and fails on that old behaviour.)
+
 What it does NOT do: it cannot tell whether a secret has a value on GitHub —
 that needs repository admin rights the CI job does not have, and should not
 have. It only checks the wiring, which is the half that lives in the
@@ -145,6 +155,10 @@ _ENV_KEY_RE = re.compile(r"^\s*([A-Za-z0-9_]+):")
 # a value resolved once, early in the job, does not need to be typed again
 # into each build step's own env: block to reach that step.
 _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB_ENV"?')
+
+# A step's own `if:` key, capturing its indentation so _step_if() can tell
+# the step's condition apart from an `if` line inside its shell script.
+_STEP_IF_RE = re.compile(r"^(\s*)if:\s*(.+?)\s*$")
 
 
 def _find_job_ranges(lines: list[str]) -> list[tuple[str, int, int]]:
@@ -270,15 +284,86 @@ def _find_build_steps(
     return found, dupes
 
 
-def _github_env_export_names(lines: list[str], start: int, end: int) -> set[str]:
-    """Names exported via `echo "NAME=..." >> "$GITHUB_ENV"` anywhere in the
-    1-indexed line range [start, end)."""
-    names: set[str] = set()
-    for i in range(start, end):
-        m = _GITHUB_ENV_EXPORT_RE.search(lines[i - 1])
-        if m:
-            names.add(m.group(1))
-    return names
+def _step_if(lines: list[str], step_indent: int, step_start: int, step_end: int) -> str | None:
+    """This step's own `if:` condition, whitespace-collapsed, or None if it
+    has none. Only a key at the step's own key depth counts (two spaces
+    deeper than its dash), so an `if` inside its shell script is not
+    mistaken for the step's condition."""
+    want = step_indent + 2
+    for i in range(step_start, step_end):
+        line = lines[i - 1]
+        m = _STEP_IF_RE.match(line)
+        if m and len(m.group(1)) == want:
+            return " ".join(m.group(2).split())
+    return None
+
+
+def _github_env_exports_before(
+    lines: list[str], job_start: int, build_step: tuple[int, int, int, int]
+) -> tuple[set[str], dict[str, list[str]]]:
+    """Names exported via `echo "NAME=..." >> "$GITHUB_ENV"` by earlier
+    steps of the same job, split by whether they are CERTAIN to reach the
+    build step.
+
+    Returns `(certain, uncertain)`:
+      * `certain`: exported by a step that runs whenever the build step
+        does -- one with no `if:` of its own, or with exactly the same
+        `if:` as the build step.
+      * `uncertain`: `{NAME: ["'step name' (if: condition)", ...]}` for
+        names exported only by a step with some OTHER condition. This check
+        cannot evaluate GitHub's expression language, so it cannot tell
+        whether that step runs; it reports it rather than assuming.
+
+    # Why it works step by step, not line by line
+
+    The first version read every line between the start of the job and the
+    build step, and counted any line shaped like an export. So a
+    commented-out export counted, and so did one in a step with
+    `if: false`, which never runs. Codex proved both in the batch-4 review:
+    with the only Safari-version export commented out, `--strict` still
+    printed "OK" and exited 0 -- the exact silent pass this whole script
+    exists to prevent.
+
+    # What it still cannot see
+
+    Only steps with a `- name:` line are read (the same limit as
+    _step_ranges). An export inside an unnamed step is missed -- but that
+    produces a loud "not supplied" finding, never a false "fine". Nor does
+    it look inside the shell: an export wrapped in the script's own `if`
+    (the Chrome and Safari steps export only when their lookup worked) is
+    counted, because the app falls back to a compiled-in value when that
+    export is absent, by design.
+    """
+    scan_end = build_step[2]  # stop where the build step itself begins
+    build_indent, build_start, build_end = build_step[1], build_step[2], build_step[3]
+    build_if = _step_if(lines, build_indent, build_start, build_end)
+
+    certain: set[str] = set()
+    uncertain: dict[str, list[str]] = {}
+    for step_name, indent, sstart, send in _step_ranges(lines, job_start, scan_end):
+        exported: set[str] = set()
+        for i in range(sstart, send):
+            line = lines[i - 1]
+            # A shell comment and a YAML comment look the same here, and
+            # neither runs.
+            if line.lstrip().startswith("#"):
+                continue
+            m = _GITHUB_ENV_EXPORT_RE.search(line)
+            if m:
+                exported.add(m.group(1))
+        if not exported:
+            continue
+        cond = _step_if(lines, indent, sstart, send)
+        if cond is None or cond == build_if:
+            certain |= exported
+        else:
+            for name in exported:
+                uncertain.setdefault(name, []).append(f"'{step_name}' (if: {cond})")
+    # A name also exported unconditionally somewhere is certain; the
+    # conditional copy does not make it less so.
+    for name in certain:
+        uncertain.pop(name, None)
+    return certain, uncertain
 
 
 def _iter_source(root: Path, suffixes: tuple[str, ...]):
@@ -419,10 +504,17 @@ def check() -> int:
     # the same job (see the module docstring's "CHECKED PER BUILD STEP"
     # section for why the second half of that union has to exist too).
     wired_per_step: dict[str, set[str]] = {}
+    # (value, build step) -> the conditional steps that export it. Only
+    # used to explain a finding: such a value is NOT counted as wired.
+    unconfirmed: dict[tuple[str, str], list[str]] = {}
     for name, (job_start, indent, sstart, send) in build_steps.items():
-        wired_per_step[name] = _step_env_names(
-            lines, indent, sstart, send
-        ) | _github_env_export_names(lines, job_start, sstart)
+        certain, uncertain = _github_env_exports_before(
+            lines, job_start, (job_start, indent, sstart, send)
+        )
+        wired_per_step[name] = _step_env_names(lines, indent, sstart, send) | certain
+        for value, sources in uncertain.items():
+            if value not in wired_per_step[name]:
+                unconfirmed[(value, name)] = sources
 
     fully_missing: list[tuple[str, list[str]]] = []
     partially_missing: list[tuple[str, list[str], list[str]]] = []
@@ -471,6 +563,21 @@ def check() -> int:
                 )
                 for extra in sites[1:]:
                     print(f"      also read at {extra}")
+            print()
+        notes = [
+            (value, step, sources)
+            for (value, step), sources in sorted(unconfirmed.items())
+            if any(value == n for n, *_ in fully_missing + partially_missing)
+        ]
+        if notes:
+            print(
+                "Some of the above ARE exported earlier in the job, but only by a step "
+                "with its own `if:` condition. This check cannot work out whether that "
+                "step runs, so it does not count it:"
+            )
+            print()
+            for value, step, sources in notes:
+                print(f"      {value} for '{step}': only via {', '.join(sources)}")
             print()
         print("  Each of these makes a feature silently inert on the affected build(s).")
         print("  Either add the value to every one of the three build steps' env:")

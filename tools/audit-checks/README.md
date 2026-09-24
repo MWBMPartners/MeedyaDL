@@ -91,18 +91,29 @@ python3 tools/audit-checks/check_updater_manifest_keys.py --strict
   or change a check.
 
   Better still, make that negative test a file anyone can run, so it keeps
-  proving itself rather than being done once and forgotten. Two exist:
-  `check_user_agent.py --self-test` (fixtures inside the script itself) and
+  proving itself rather than being done once and forgotten. Four exist:
+  `check_user_agent.py --self-test` (fixtures inside the script itself),
   `test_check_updater_manifest_keys.py` (a separate file that builds small,
   deliberately-broken fake repositories and runs the real check against them
-  as a subprocess). A check nobody has ever seen fail is not evidence of
+  as a subprocess), and `test_check_comment_paths.py` (pins which paths
+  count as a `vX.Y.Z` placeholder, so the one rule that lets that check
+  skip something cannot quietly widen again — its first version skipped
+  real names like `src/API.Client.ts`), and `test_check_build_secrets.py`
+  (pins when an export earlier in the job really reaches a build step — its
+  first version counted commented-out exports and ones in steps that never
+  run). A check nobody has ever seen fail is not evidence of
   anything — from the outside, "caught nothing because there was nothing" and
   "caught nothing because it stopped looking" print the same tick.
 
   ```bash
   python3 tools/audit-checks/check_user_agent.py --self-test
   python3 tools/audit-checks/test_check_updater_manifest_keys.py
+  python3 tools/audit-checks/test_check_comment_paths.py
+  python3 tools/audit-checks/test_check_build_secrets.py
   ```
+
+  None of these is run by CI yet — they are run by hand when a check
+  changes. Wiring them into `pr-security.yml` is an open suggestion.
 - **Default exit 0, `--strict` exit 1.** CI runs them advisory; local hooks
   can opt into blocking.
 

@@ -283,8 +283,27 @@ jobs:
             # maintainer signs off on stable release copy (see the
             # ::error below, unchanged from before).
             if [[ "$STRIPPED" == *-* ]]; then
-              gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
-                > "$LIVE_BODY_FILE" 2>/dev/null || echo "" > "$LIVE_BODY_FILE"
+              # Read the live notes through the shared reader, which tells
+              # a FAILED read apart from an EMPTY one. This used to be
+              # `... 2>/dev/null || echo "" > "$LIVE_BODY_FILE"`: any
+              # failure became an empty file, the commit-speak check below
+              # treats empty as "needs healing", and the healing step then
+              # wrote regenerated notes OVER whatever the release really
+              # said. Found by the batch-4 stand-in, confirmed by Codex.
+              #
+              # On a failed read this leaves the notes alone and lets the
+              # build carry on — deliberately unlike finalize-release,
+              # which stops. That job is the last one, so stopping there
+              # strands nothing. This is the FIRST job and every platform
+              # build waits on it: failing here would cancel a whole
+              # release over a blip in reading its notes, when all that is
+              # at stake is whether the notes get tidied. Re-running this
+              # job later does the tidying; a lost build cannot be got
+              # back that way.
+              if ! bash scripts/release/fetch-release-body.sh "$TAG" "$REPO" > "$LIVE_BODY_FILE"; then
+                echo "::warning::Could not read the current release notes for $TAG after 3 attempts, so they have been LEFT AS THEY ARE rather than checked and possibly rewritten. If they turn out to be raw commit messages, re-run this workflow for $TAG once GitHub is answering, or run: bash scripts/release-notes/apply-notes.sh $TAG"
+                exit 0
+              fi
               if python3 scripts/release-notes/detect-commit-speak.py < "$LIVE_BODY_FILE"; then
                 echo "::notice::Release $TAG exists with a commit-speak/bare body — regenerating ELI5 notes and self-healing (#1046)"
                 SELF_HEAL=1
@@ -2262,27 +2281,17 @@ jobs:
           #     so the loss was permanent. A failed read must stop this
           #     step, never stand in for an empty body.
           #
-          # fetch_release_body() is the one place that talks to GitHub for
-          # this step. It prints the body and returns success (0) only
-          # when a read genuinely succeeded, even if what it read back was
-          # an empty string. On repeated failure it returns 1 and prints
-          # nothing, and the caller below treats that as fatal.
-          fetch_release_body() {
-            local tag="$1" repo="$2" attempt body
-            for attempt in 1 2 3; do
-              if body=$(gh release view "$tag" --repo "$repo" --json body --jq '.body' 2>/dev/null); then
-                printf '%s' "$body"
-                return 0
-              fi
-              echo "::warning::Could not read release notes for $tag (attempt $attempt of 3) — retrying" >&2
-              if [ "$attempt" -lt 3 ]; then
-                sleep 2
-              fi
-            done
-            return 1
-          }
-
-          if ! RAW_BODY=$(fetch_release_body "$TAG" "$REPO"); then
+          # scripts/release/fetch-release-body.sh is the one place that
+          # talks to GitHub for this read, and the same script guards the
+          # matching read in ensure-release. It used to be a function
+          # written out here; when the same mistake turned up in
+          # ensure-release, a second copy would have meant two versions of
+          # one rule, which is how the second bug outlived the first fix.
+          # It prints the body and exits 0 only when a read genuinely
+          # succeeded, even if what came back was empty. On repeated
+          # failure it exits 1 and prints nothing, and this step treats
+          # that as fatal (see ensure-release for why that job does not).
+          if ! RAW_BODY=$(bash scripts/release/fetch-release-body.sh "$TAG" "$REPO"); then
             echo "::error::Could not read the current release notes for $TAG after 3 attempts. Refusing to write anything, because guessing here (treating the failed read as 'no notes yet') is exactly what previously overwrote a real release's notes with just the download table. Re-run this job once GitHub is answering again."
             exit 1
           fi
