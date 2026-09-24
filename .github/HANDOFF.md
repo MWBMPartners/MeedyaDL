@@ -215,6 +215,14 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     watches checks, rebase-merges, and watches the alpha release through to published. If the
     session ended, run that by hand. PR body draft: session scratchpad `pr-body.md` (passes
     extract + lint); title passes commitlint.
+  - **Stand-in on `757bcfd0`/`b19cd04a`/`014e1755` DONE:** 6 findings (1 blocking:
+    "Release-Note #text" form published but never linted; a \x1c-\x1f control-char line
+    ended a note for the extractor but not for git-cliff; help/tools.md self-contradiction;
+    Abort text; template per-line trim; commit claimed git-cliff 2.14 but releases pin
+    2.13.1). All fixed in **`7b641e0a`** (extractor tests now 17). **Codex scope at 04:41 =
+    `757bcfd0`, `b19cd04a`, `014e1755`, `7b641e0a`.** git-cliff 2.13.1 is being built into
+    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` to re-check both templates and the
+    extractor against the version releases actually use — result to be recorded here.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
