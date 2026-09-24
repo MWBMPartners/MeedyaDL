@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-24 (midday) — see ★★★★ LATEST below
+**Last updated:** 2026-09-24 (evening, Codex catch-up done) — see ★★★★ LATEST below
 **Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
 **Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
@@ -158,9 +158,16 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     deleted the MP4Box update-backup whenever the installer said "success", which it says
     even when the new copy cannot run; now removed only once the new copy reports a real
     version, else put back. `a651b3f2` (notes) confirmed consistent. No deadlock found.
-  - **NOW RUNNING: Codex round on `7972e77a` only** (background, `timeout 2400`; prompt and
-    output `codex-r7-prompt.txt` / `codex-r7.out` in the session scratchpad — lost if the
-    session ends, so start it again then). If clean, the catch-up is done.
+  - **Codex round on `7972e77a`: CLEAN ("NO REAL FINDINGS", ~88k tokens).**
+  - **THE CODEX CATCH-UP IS DONE.** Every commit on `work/after-1.10.8` up to `7972e77a` has
+    now had a Codex review, with every real finding fixed and the last round clean. Nothing
+    is running and no Codex round is owed.
+  - **Next, waiting on the maintainer (three open questions):** (1) when to open the one PR
+    to `alpha` and who merges it (recommended: open it now and merge it myself once CI is
+    green); (2) documentation sweep size (recommended: targeted now, full before the last
+    PR); (3) handoff location (recommended: keep `.github/HANDOFF.md`). Also queued, not
+    started: #1222 (status bar can hide an armed shutdown); issue comments for this batch
+    (#1216/#1217/#273).
   - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
     the session restarts). If it never fired, run the round by hand with the command in the
     section below, as a background command with `timeout 2400`, and do not end the turn
