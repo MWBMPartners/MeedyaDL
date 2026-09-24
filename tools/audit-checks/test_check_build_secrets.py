@@ -24,7 +24,10 @@ Proven able to fail: with the old line-by-line scan put back, the
 commented-out and `if: false` cases both report the value as reaching
 the build. Codex's second round found four more holes (a comment after
 code on the same line, a YAML comment cutting a step short, and two
-multi-line conditions compared by their `>-` marker); each has a case
+multi-line conditions compared by their `>-` marker); its third round
+found two ways past the shell-comment reader that fixed the first of
+those. Rather than a third patch, any `#` before an export on its line
+is now reported as "cannot confirm". Every case Codex used has a case
 here, including the one where BOTH steps use `>-`.
 
 Pure stdlib, no pytest, same house style as the checks themselves.
@@ -102,15 +105,37 @@ CASES = [
         True,
         False,
     ),
+    # Any `#` before the export on its line: never counted, always
+    # reported. The three shapes Codex used, across rounds 2 and 3.
     (
-        "an export commented out AFTER other code on the line does NOT count",
+        "an export after `true #` is not counted, and is reported",
         f"      - name: Export it\n        run: |\n          true # {EXPORT.strip()}",
         False,
+        True,
+    ),
+    (
+        "an export after `true;#` (a comment straight after an operator) is not counted",
+        f"      - name: Export it\n        run: |\n          true;# {EXPORT.strip()}",
+        False,
+        True,
+    ),
+    (
+        "an escaped quote before a `#` cannot smuggle an export through",
+        f'      - name: Export it\n        run: |\n          printf "%s" "\\"" # {EXPORT.strip()}',
+        False,
+        True,
+    ),
+    # A `#` AFTER the export starts is part of the value, and must not
+    # cost a working export.
+    (
+        "a `#` inside the exported value does not stop it counting",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
+        True,
         False,
     ),
     (
-        "a `#` inside quotes is not a comment, so the export still counts",
-        '      - name: Export it\n        run: |\n          echo "SAFARI=#1" >> "$GITHUB_ENV"',
+        "a `${#...}` length inside the value does not stop it counting",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=${#list}" >> "$GITHUB_ENV"',
         True,
         False,
     ),
