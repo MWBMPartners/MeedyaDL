@@ -139,10 +139,16 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - Round on `6a8fcbbe`: **cut off by Codex's usage limit at ~14:25, no verdict** (it had
     confirmed only that the new helper clears the cache before releasing the lock, with
     no nested lock or await). Codex resets **18:41**; the round is **scheduled for 18:47**
-    (session-only cron — if the session restarted, run it by hand on `6a8fcbbe` plus any
-    fix commits made after it).
-  - Meanwhile a **stand-in** (fresh Opus agent) is reviewing `6a8fcbbe`. Its result goes
-    here; it does NOT replace the Codex round.
+    (session-only cron — if the session restarted, run it by hand on `6a8fcbbe` + `57f137ac`).
+  - Stand-in (fresh Opus agent) reviewed `6a8fcbbe`: **1 blocking** — after a failed clear,
+    ANY successful settings write (not just Save) re-armed the used-up shutdown, because
+    every writer read the stale file. Fixed in ONE place in `57f137ac`: general writers take
+    the one-off from the running app (`config_service::one_off_in_memory`); only
+    `config_service::set_after_queue_once` sets it. Plus 3 should-fix (stale comments; a
+    false wizard message; a leftover MP4Box backup blocking updates forever) and 2 minor
+    (dialog layer cap and first frame; an i18n comment), all fixed in `57f137ac`.
+  - **Codex round owed: `6a8fcbbe` + `57f137ac`, scheduled 18:47.** When that is clean, the
+    whole catch-up is done.
   - Answered, no longer open: the other two cookie paths in CookiesStep (browser import,
     sign-in) have the BACKEND write the path itself — they were never at risk.
   - Allowance this window: ~443k used by the follow-up round; the next may hit the limit.
