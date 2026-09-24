@@ -457,6 +457,105 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
     Ok(filenames)
 }
 
+/// Does this string actually look like a version number?
+///
+/// # Why this has to be asked before comparing anything
+///
+/// Reading a helper programme's version is not allowed to fail. If the
+/// programme runs but prints something unexpected, the reader hands back
+/// the first line it printed, whatever that line says. And
+/// [`parse_base_semver`] below turns anything it cannot read into
+/// **0.0.0** — which is older than every real version. So an error
+/// message compares as "very old indeed", and the app confidently
+/// reports that an update is available, for ever.
+///
+/// That is not a thought experiment. An independent reviewer downloaded
+/// what this app actually installs for MP4Box on Linux and found the
+/// archive needs a shared library it does not contain and that almost no
+/// system has yet. On such a machine the programme exits with a loader
+/// error, that error text becomes the "version", and the Updates page
+/// shows "Newer version available" with the loader error printed where
+/// the version number belongs. Pressing Update re-fetches the identical
+/// broken archive and the row comes straight back. It never resolves and
+/// it never goes quiet.
+///
+/// So: anything that does not begin with a number is not a version, and
+/// the caller treats it as "could not check" rather than "out of date" —
+/// which is the honest answer and the one this app already has a way to
+/// say.
+///
+/// Deliberately lenient about everything AFTER the first number. Real
+/// tools print `1.6.0`, `26.07.0`, `v26.05`, `2.4`, and
+/// `1.6.0-641`; refusing any of those would trade a confident wrong
+/// answer for a confident "cannot tell", which is no better.
+fn looks_like_a_version(v: &str) -> bool {
+    let trimmed = v.trim().trim_start_matches(['v', 'V']);
+    // The first part before a dot or dash has to be a plain number.
+    // That is the whole test: a loader error, a usage message or a line
+    // of prose will not start that way, and every real version does.
+    let first = trimmed
+        .split(['.', '-', ' ', '_'])
+        .next()
+        .unwrap_or_default();
+    !first.is_empty() && first.chars().all(|c| c.is_ascii_digit())
+}
+
+/// What comparing an installed version against the latest one came to.
+///
+/// There are three answers, not two, and the third is the one this app
+/// kept getting wrong: **nobody could tell**. Before this existed the
+/// code asked a yes/no question, so "could not tell" had to come back
+/// as one of the other two — and it came back as "yes, out of date",
+/// because an unreadable version reads as 0.0.0.
+#[derive(Debug, PartialEq, Eq)]
+enum VersionVerdict {
+    /// The installed string is not a version at all, so no comparison
+    /// is possible. Carries what the programme actually printed, for
+    /// the message the person reads.
+    Unreadable,
+    /// Compared properly: there is something newer.
+    UpdateAvailable,
+    /// Compared properly: nothing newer — or there was nothing to
+    /// compare against, which is not the same thing but leads to the
+    /// same quiet result.
+    NothingNewer,
+}
+
+/// The one place this app decides whether a helper programme is out of
+/// date.
+///
+/// # Why it is a function rather than two comparisons
+///
+/// There are two routes to this decision — a tool tracked through its
+/// own GitHub releases, and a tool tracked only through the MeedyaSuite
+/// mirror — and they used to make the comparison separately. Adding the
+/// unreadable-version check to one and not the other would have been
+/// exactly the fault this project keeps finding: a rule that guards one
+/// door and not the one beside it. Both routes now call this, so the
+/// check cannot be present in one and missing from the other.
+///
+/// It also means the decision can be tested without a network call,
+/// which the two original comparison sites could not be.
+fn compare_installed_against_latest(
+    installed: Option<&str>,
+    latest: Option<&str>,
+) -> VersionVerdict {
+    let Some(installed) = installed else {
+        // Nothing installed. Not an error, and not an update either —
+        // the Tools page handles "not installed" separately.
+        return VersionVerdict::NothingNewer;
+    };
+
+    if !looks_like_a_version(installed) {
+        return VersionVerdict::Unreadable;
+    }
+
+    match latest {
+        Some(latest) if is_newer(installed, latest) => VersionVerdict::UpdateAvailable,
+        _ => VersionVerdict::NothingNewer,
+    }
+}
+
 /// Parses the `(major, minor, patch)` base version out of a version string,
 /// ignoring any pre-release suffix (everything from the first `-` onward).
 ///
@@ -1731,11 +1830,6 @@ async fn check_github_tool_update(
     // 1. Both versions are known
     // 2. The GitHub tag contains a parseable semver (skip non-version tags like "latest")
     // 3. The latest semver is genuinely newer than the installed version
-    let update_available = match (&current_version, &latest_semver) {
-        (Some(cur), Some(latest)) => is_newer(cur, latest),
-        _ => false,
-    };
-
     // If this tool was adopted from a system package manager (Homebrew, apt,
     // pipx, …), surface how to update it through that manager: the frontend
     // relabels the Upgrade button "Update via <label>" (routing unchanged —
@@ -1743,20 +1837,44 @@ async fn check_github_tool_update(
     // command as transparency / elevation fallback.
     let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
 
+    // Before comparing anything, check the installed string really IS a
+    // version — see `looks_like_a_version`. Without this, a programme
+    // that prints an error instead of a version reads as 0.0.0, which is
+    // older than everything, so the app reports an update for ever and
+    // the error text appears where the version number belongs.
+    let verdict =
+        compare_installed_against_latest(current_version.as_deref(), latest_semver.as_deref());
+
+    if verdict == VersionVerdict::Unreadable {
+        let reason = unreadable_version_reason_for(display_name)(
+            current_version.as_deref().unwrap_or_default(),
+        );
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            reason,
+        ));
+    }
+
+    let update_available = verdict == VersionVerdict::UpdateAvailable;
+
     Ok(ComponentUpdate {
         name: display_name.to_string(),
         current_version,
         latest_version: latest_semver.or(latest_version),
         update_available,
         not_checkable_reason: None,
-        is_compatible: true,
-        is_untested: false,
-        no_compatible_wheel: false, // Only computed for GAMDL
         description: if update_available {
             Some(format!("Newer version of {display_name} available"))
         } else {
             None
         },
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false, // Only computed for GAMDL
         release_url: Some(format!("https://github.com/{github_repo}/releases/latest")),
         release_body: None,
         is_prerelease: false,
@@ -1820,6 +1938,28 @@ fn pm_owned_update_skip(
         tool_id: Some(tool_id.to_string()),
         managed_by,
         manual_update_command,
+    }
+}
+
+/// Builds the "could not read a version" sentence, ready to hand to
+/// [`not_checkable_update`].
+///
+/// Returns a closure so a caller can write
+/// `.filter(...).map(unreadable_version_reason_for(name))` without
+/// having to name the borrow twice.
+///
+/// One function so both comparison sites say the same thing. They used
+/// to have no wording at all, because neither of them asked the
+/// question.
+fn unreadable_version_reason_for(display_name: &str) -> impl Fn(&str) -> String + '_ {
+    move |raw: &str| {
+        format!(
+            "MeedyaDL could not read a version number from {display_name}. The programme is \
+             there, but instead of a version it reported: \"{}\". That usually means it is \
+             installed but cannot start — often a missing supporting file. Reinstalling it from \
+             the Tools page is the usual fix.",
+            crate::utils::text::truncate_str(raw.trim(), 160)
+        )
     }
 }
 
@@ -1934,10 +2074,32 @@ async fn check_mirror_only_tool_update(
         ));
     };
 
+    // Same guard as the GitHub-release check above, for the same reason:
+    // an installed string that is not a version reads as 0.0.0 and would
+    // show a permanent false "update available". This check has to exist
+    // at BOTH comparison sites — guarding one door and not the one beside
+    // it is the exact shape of fault this project keeps finding.
     let latest_normalized = normalize(raw_latest);
-    let update_available = current_version
-        .as_ref()
-        .is_some_and(|cur| is_newer(cur, &latest_normalized));
+    let verdict = compare_installed_against_latest(
+        current_version.as_deref(),
+        Some(latest_normalized.as_str()),
+    );
+
+    if verdict == VersionVerdict::Unreadable {
+        let reason = unreadable_version_reason_for(display_name)(
+            current_version.as_deref().unwrap_or_default(),
+        );
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            reason,
+        ));
+    }
+
+    let update_available = verdict == VersionVerdict::UpdateAvailable;
 
     Ok(ComponentUpdate {
         name: display_name.to_string(),
@@ -3193,5 +3355,185 @@ mod tests {
         let mirror_newer =
             crate::services::dependency_manager::normalize_bento4_version("1-6-1-650");
         assert!(is_newer(installed, &mirror_newer));
+    }
+
+    /// The exact fault this guard exists to stop.
+    ///
+    /// This test does NOT call the guard. It shows what the comparison
+    /// does on its own, so the reason for the guard stays written down
+    /// even if somebody later decides the guard looks unnecessary.
+    #[test]
+    fn an_error_message_compares_as_older_than_every_real_version() {
+        // What a helper programme actually prints when it is installed
+        // but cannot start. An independent reviewer found the archive
+        // this app downloads for MP4Box on Linux needs a shared library
+        // it does not contain.
+        let what_it_printed = "MP4Box: error while loading shared libraries: \
+                               libgpac.so.16: cannot open shared object file";
+
+        // Left to itself, the comparison says this is out of date —
+        // because anything unreadable is read as 0.0.0.
+        assert!(
+            is_newer(what_it_printed, "2.6.1"),
+            "this is the fault: an error message reads as version 0.0.0, \
+             so every real version looks newer than it"
+        );
+    }
+
+    #[test]
+    fn an_error_message_is_not_a_version() {
+        for not_a_version in [
+            // The real one, from the MP4Box report.
+            "MP4Box: error while loading shared libraries: libgpac.so.16: \
+             cannot open shared object file: No such file or directory",
+            // The other shapes a programme that will not start produces.
+            "dyld: Library not loaded: /opt/homebrew/lib/libgpac.12.dylib",
+            "command not found",
+            "Permission denied",
+            "Usage: mp4decrypt [options] <input> <output>",
+            "error: unrecognised option '--version'",
+            "",
+            "   ",
+            // A version number is not a version if nothing precedes it.
+            "unknown",
+        ] {
+            assert!(
+                !looks_like_a_version(not_a_version),
+                "{not_a_version:?} is not a version number"
+            );
+        }
+    }
+
+    #[test]
+    fn the_real_shapes_tools_print_are_all_accepted() {
+        // Taken from what the five helper programmes this app installs
+        // actually print, not invented. Refusing any of these would
+        // trade a confident wrong answer for a confident "cannot tell",
+        // which is no improvement.
+        for a_version in [
+            "2.6.1",      // MP4Box
+            "1.6.0-641",  // mp4decrypt, as the mirror records it
+            "26.07.0",    // FFmpeg, zero-padded month
+            "v0.3.0",     // N_m3u8DL-RE, tag form
+            "24.12",      // MediaInfo, two components only
+            "7.1.1",      // FFmpeg, ordinary
+            "0.5.1-beta", // a pre-release suffix
+            "  3.8.5  ",  // whitespace either side
+        ] {
+            assert!(
+                looks_like_a_version(a_version),
+                "{a_version:?} is a version this app has to be able to read"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reason_quotes_what_the_programme_actually_said() {
+        // The person reading this needs the programme's own words: that
+        // is what they will search for, and what tells them whether it
+        // is a missing library, a permission problem or something else.
+        let reason = unreadable_version_reason_for("MP4Box")(
+            "MP4Box: error while loading shared libraries: libgpac.so.16",
+        );
+        assert!(reason.contains("MP4Box"), "names the programme");
+        assert!(
+            reason.contains("libgpac.so.16"),
+            "quotes what it actually said, so the person can act on it"
+        );
+        assert!(
+            !reason.contains("0.0.0"),
+            "never shows the made-up version the comparison would have used"
+        );
+    }
+
+    #[test]
+    fn a_very_long_error_is_cut_at_a_whole_character() {
+        // Some programmes print a whole paragraph. Cutting by bytes
+        // through the middle of an accented character stops the
+        // program — that is issue #229, and this wording is built from
+        // text MeedyaDL did not write, so it has to use the safe cut.
+        let long_and_accented = "é".repeat(500);
+        let reason = unreadable_version_reason_for("MediaInfo")(&long_and_accented);
+        assert!(reason.len() < 500, "the quoted part is shortened");
+        // Reaching here at all is most of the test: a cut mid-character
+        // would have stopped the program before this line.
+        assert!(reason.contains("MediaInfo"));
+    }
+
+    /// Proves the guard is actually WIRED IN, not merely present.
+    ///
+    /// The earlier tests in this file check `looks_like_a_version` on
+    /// its own — they would pass just as happily if nothing ever called
+    /// it. This one goes through the function both comparison sites
+    /// use, so deleting the guard from that function fails this test.
+    /// (Checked by deleting it: this test and
+    /// `an_unreadable_version_is_caught_even_when_there_is_nothing_to_compare_against`
+    /// then fail — two in all — while the predicate tests above carry on
+    /// passing, which is exactly why this test had to exist.)
+    #[test]
+    fn a_programme_that_cannot_report_its_version_is_not_called_out_of_date() {
+        let verdict = compare_installed_against_latest(
+            Some("MP4Box: error while loading shared libraries: libgpac.so.16"),
+            Some("2.6.1"),
+        );
+        assert_eq!(
+            verdict,
+            VersionVerdict::Unreadable,
+            "an error message must never be compared as if it were a version"
+        );
+        assert_ne!(
+            verdict,
+            VersionVerdict::UpdateAvailable,
+            "this is the false 'update available' that never went away, \
+             however many times the person pressed Update"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_out_of_date_tool_is_still_reported() {
+        // The guard must not have made the check useless.
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("2.6.1")),
+            VersionVerdict::UpdateAvailable
+        );
+    }
+
+    #[test]
+    fn a_current_tool_stays_quiet() {
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+        // Newer than the latest published — someone building from
+        // source. Not an update, and not an error either.
+        assert_eq!(
+            compare_installed_against_latest(Some("2.7.0"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+    }
+
+    #[test]
+    fn nothing_installed_is_not_the_same_as_unreadable() {
+        // "Not installed" is handled elsewhere, by the Tools page. It
+        // must not come back here as a thing that could not be checked,
+        // or every missing optional tool would raise a notice.
+        assert_eq!(
+            compare_installed_against_latest(None, Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+    }
+
+    #[test]
+    fn an_unreadable_version_is_caught_even_when_there_is_nothing_to_compare_against() {
+        // The order matters. If the "is there a latest version?" check
+        // came first, a tool whose upstream tag is unparseable (FFmpeg's
+        // builds use tags like "latest") would quietly skip the
+        // readability check — and the next time that tag did parse, the
+        // false update would reappear. Ask about the installed string
+        // first, always.
+        assert_eq!(
+            compare_installed_against_latest(Some("command not found"), None),
+            VersionVerdict::Unreadable
+        );
     }
 }
