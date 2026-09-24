@@ -119,7 +119,9 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
 
 ### In flight — LOST on a restart
 
-* Nothing running. The 13:41 Codex job is scheduled but only lives in this session.
+* **Codex catch-up started 13:41.** Round in progress: batch-5 round 2 (`80d8f607`, `192d18bc`,
+  `68046c37`, `401cb390`). Then batch-4 round 8, batch 3, batch 2 finish, one at a time.
+  If lost, rerun from the batch that has no verdict recorded here.
 
 ---
 
