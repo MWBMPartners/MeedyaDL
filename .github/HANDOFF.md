@@ -28,6 +28,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | `68046c37` | MP4Box: re-check the copy after a failed install route (from Codex's cut-off round, verified by hand) | Stand-in only — **Codex owed** |
 | `401cb390` | Stand-in findings on the above: installer is TOLD it is an update (`for_update`), MP4Box updates go only to the checked source (never brew/apt), MP4Box mirror route now stage-and-swap | Not reviewed — **Codex owed** |
 | `12f1f32c` | Stand-in findings on `f7ff3c30`: only matrix./env. placeholders; only exports in `shell: bash` steps | Not reviewed — **Codex owed** |
+| `a6dea6c3` | #1221: dependency-canary spaces its searches and waits out GitHub's burst limit (10 s gap, retries at 60/120 s, never reports an unchecked branch as healthy) | Not reviewed — **Codex owed**; not tested live (runs only from `main`) |
 | `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
 
 ### Codex rounds on batch 4 so far
@@ -60,7 +61,8 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
 ### New follow-up issue
 
 * **#1221** — `dependency-canary` has never succeeded: GitHub's burst limit on its third
-  search, with a valid token. On project 6.
+  search, with a valid token. On project 6. **Fixed in `a6dea6c3`**; left open until it has
+  run successfully for real (it only runs from `main`).
 
 ### Noted, not acted on
 
@@ -97,7 +99,7 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   `12f1f32c`. **Everything above is still owed a Codex round.**
 * **Codex catch-up is scheduled for 13:41** (session-only cron job — gone if the session
   restarts). If it did not run, do it by hand: batch-5 round 2 = `80d8f607`, `192d18bc`,
-  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`; then batches 2 and 3.
+  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`, `a6dea6c3`; then batches 2 and 3.
 * **Lesson from the stand-in:** "is this an update?" cannot be inferred from the state
   of the copy; the Update button now says so. Guessing intent from disk state is the
   same shape of mistake as guessing shell syntax — refuse to infer what you can be told.
