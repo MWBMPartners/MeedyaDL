@@ -1,6 +1,6 @@
 ---
 name: project-standing-rules
-description: The maintainer's standing rules and standing tasks for MeedyaDL, restated 2026-09-21 (#1198) — plain English, one handoff, how to think and build, plugins and the Codex review loop, the after-each-task checklist, the documentation sweep, autonomy, progress tables, one PR, hand-over
+description: The maintainer's standing rules and standing tasks for MeedyaDL, restated 2026-09-21 (#1198) — plain English, one handoff, how to think and build, plugins and the Codex review loop, the after-each-task checklist, the documentation sweep, autonomy, progress tables, one PR, hand-over, a watchdog on every started job
 metadata:
   type: project
 ---
@@ -410,7 +410,43 @@ machine-wide files for every project on this device.
 
 ---
 
-## 13. Small habits that are also rules (harvested from earlier sessions)
+## 13. Every started job gets a watchdog, so no result is missed
+
+**Set by the maintainer on 2026-09-24.** Whenever work is started that finishes later — a
+Codex review round, a CI run, a build or test run left in the background, a sub-agent, a
+workflow, a scheduled check — set up something that will **come back when it finishes**, at
+the moment it is started. Then act on the result and move to the next step in the queue.
+Never start a job and simply carry on hoping to notice it later.
+
+**Why:** a result nobody comes back for is lost work. A review that finished with findings
+nobody read looks, from outside, exactly like a review that was never run — and the queue
+stalls behind it without anything saying so.
+
+**How, in practice:**
+
+- **Pick a watcher that is told when the job ends, not one that guesses.** In Claude Code: a
+  background command or agent reports back by itself when it exits; for something outside
+  the session (a GitHub Actions run, a release), use a watcher that loops until the result
+  exists, or a scheduled wake-up timed to how long the job really takes. In Codex, or any
+  tool with no such notice: stay with the job and check it until it finishes.
+- **Give every job a deadline** (for example `timeout 2400` on a Codex round), so a hung job
+  turns into a visible failure instead of a silent wait.
+- **Check the watcher is watching the right thing.** On 2026-09-24 a Codex round was started
+  with a second `&` inside an already-background command; the notice fired the moment the
+  outer command returned, long before Codex finished. The fix was a waiter that loops until
+  Codex's output file is complete. A watcher that fires early is worse than none, because it
+  looks like a result.
+- **When it fires, read the actual result** (the exit code, the output file, the run's
+  conclusion) before taking the next step — never assume success from the fact that it
+  ended.
+- **Write down what is running and how it is being watched** in `.github/HANDOFF.md`
+  before leaving it. Some watchers (Claude Code's scheduled prompts) last only while the
+  session is open; if the session ends, the handoff must say exactly what to run to pick
+  the job back up.
+
+---
+
+## 14. Small habits that are also rules (harvested from earlier sessions)
 
 - **One issue, one commit, one security read of the diff, per unit** (2026-07-18).
 - **`rustfmt` only on touched files; never whole-crate `cargo fmt`.** If the tree is ever

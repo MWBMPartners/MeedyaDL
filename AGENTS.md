@@ -66,6 +66,11 @@ through `.claude/`; both tools are meant to work by the same rules.
   suitable one** only if the context survives the move; switch back at the next natural
   break, and try the usual one first at the start of every new run; when it is back, run a
   full review of everything done while it was away; a review never changes hands silently.
+- **Every started job gets a watchdog.** When you start anything that finishes later (a
+  review, a CI run, a background build or test), arrange at that moment to come back when it
+  ends — and if nothing will tell you, stay with it and check until it finishes. Give it a
+  deadline, read the real result before the next step, and note in the handoff what is still
+  running. A result nobody comes back for is lost work.
 
 ## Conventions that catch people out
 
