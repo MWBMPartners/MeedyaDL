@@ -291,32 +291,6 @@ def _find_build_steps(
     return found, dupes
 
 
-def _strip_shell_comment(line: str) -> str:
-    """The part of a shell line that runs: everything before a `#` that
-    starts a comment. In the shell a `#` starts a comment only at the start
-    of a word (after a space or at the start of the line) and outside
-    quotes -- so `"${#name}"`, `a#b` and `'# not a comment'` all survive.
-
-    Needed because `true # echo "X=1" >> "$GITHUB_ENV"` exports nothing,
-    yet the export pattern matched it. Codex showed in batch-4 round 2 that
-    disabling the Safari export this way still printed "OK".
-
-    What it does not handle: a heredoc body, or a backslash-escaped quote
-    inside double quotes. Both are absent from release.yml's export lines;
-    if one ever appeared, the effect would be a missed export -- a loud
-    false finding, not a silent pass."""
-    in_single = in_double = False
-    for idx, ch in enumerate(line):
-        if ch == "'" and not in_double:
-            in_single = not in_single
-        elif ch == '"' and not in_single:
-            in_double = not in_double
-        elif ch == "#" and not in_single and not in_double:
-            if idx == 0 or line[idx - 1] in " \t":
-                return line[:idx]
-    return line
-
-
 def _step_if(lines: list[str], step_indent: int, step_start: int, step_end: int) -> str | None:
     """This step's own `if:` condition, whitespace-collapsed, or None if it
     has none. Only a key at the step's own key depth counts (two spaces
@@ -375,15 +349,37 @@ def _github_env_exports_before(
     uncertain: dict[str, list[str]] = {}
     for step_name, indent, sstart, send in _step_ranges(lines, job_start, scan_end):
         exported: set[str] = set()
+        # Exports on a line where a `#` comes BEFORE the export. Whether
+        # that `#` starts a comment -- and so disables the export -- is
+        # a question about shell syntax this script will not try to
+        # answer. It tried: two successive attempts to recognise shell
+        # comments properly were each beaten by Codex (`true;# echo ...`
+        # after an operator, and an escaped quote that threw the quote
+        # tracking off), both passing a disabled export as working
+        # (batch-4 rounds 2 and 3). Shell comment rules have a long tail,
+        # so instead of chasing it this refuses: such a line is reported
+        # as "cannot confirm", never counted. No export line in
+        # release.yml has a `#` before it, so this costs nothing today,
+        # and a `#` AFTER the start of the export (`"X=${#list}"`) is
+        # unaffected.
+        ambiguous: set[str] = set()
         for i in range(sstart, send):
             line = lines[i - 1]
-            # A whole-line comment (shell or YAML) never runs, and nor does
-            # the tail of a line after a shell comment starts.
+            # A whole-line comment (shell or YAML) never runs.
             if line.lstrip().startswith("#"):
                 continue
-            m = _GITHUB_ENV_EXPORT_RE.search(_strip_shell_comment(line))
-            if m:
+            m = _GITHUB_ENV_EXPORT_RE.search(line)
+            if not m:
+                continue
+            if "#" in line[: m.start()]:
+                ambiguous.add(m.group(1))
+            else:
                 exported.add(m.group(1))
+        for name in ambiguous - exported:
+            uncertain.setdefault(name, []).append(
+                f"'{step_name}' (a `#` comes before the export on its line, so this "
+                f"check cannot tell whether it is commented out)"
+            )
         if not exported:
             continue
         cond = _step_if(lines, indent, sstart, send)
