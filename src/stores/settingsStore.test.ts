@@ -539,4 +539,22 @@ describe('settingsStore', () => {
       expect(useSettingsStore.getState().isDirty).toBe(false);
     });
   });
+  describe('the one-off after-queue action is not a Settings-screen edit', () => {
+    it('syncAfterQueueOnce does not mark the Settings screen as unsaved', () => {
+      useSettingsStore.setState({ isDirty: false });
+      useSettingsStore.getState().syncAfterQueueOnce('shutdown_computer');
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('shutdown_computer');
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+    });
+
+    it('Reset to Defaults keeps the one-off as it was', async () => {
+      useSettingsStore.getState().syncAfterQueueOnce('hibernate_computer');
+      vi.mocked(commands.getDefaultSettings).mockResolvedValueOnce({
+        ...MOCK_SETTINGS,
+        after_queue_once: null,
+      });
+      await useSettingsStore.getState().resetToDefaults();
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('hibernate_computer');
+    });
+  });
 });

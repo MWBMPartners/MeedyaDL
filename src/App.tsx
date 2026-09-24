@@ -953,12 +953,9 @@ function App() {
     const setup = async () => {
       try {
         unlistenOnce = await listen('after-queue-once-used', () => {
-          // Directly, not through `updateSettings`: that marks the Settings
-          // screen as having unsaved changes, and this is not a change the
-          // person made. Any unsaved edits they DO have are left as they are.
-          useSettingsStore.setState((state) => ({
-            settings: { ...state.settings, after_queue_once: null },
-          }));
+          // Not `updateSettings`: that marks the Settings screen as having
+          // unsaved changes, and this is not a change the person made.
+          useSettingsStore.getState().syncAfterQueueOnce(null);
         });
       } catch {
         /* Tauri API unavailable */
