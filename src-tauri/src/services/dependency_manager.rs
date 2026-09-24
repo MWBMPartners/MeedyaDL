@@ -1239,6 +1239,96 @@ async fn get_mirror_download_url(
     Ok((url, format, expected_sha256))
 }
 
+/// Where an existing copy of a helper programme stands, as far as falling
+/// back to the MeedyaSuite mirror is concerned.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingCopy {
+    /// No copy, one MeedyaDL does not own, or one whose version cannot be
+    /// read (broken). Installing here is a first install or a repair.
+    NoneOrBroken,
+    /// A working copy MeedyaDL owns. Installing here is an update.
+    WorkingAndOurs,
+}
+
+/// May an install fall back to the mirror when the programme's own source
+/// fails?
+///
+/// # Why this is not always "yes"
+///
+/// The Update button runs the same installer as first-time setup, and the
+/// installer used to fall back to the mirror whenever the main source
+/// failed. But the update check compared the installed copy against a
+/// SPECIFIC source — N_m3u8DL-RE against its own GitHub releases, a BtbN or
+/// evermeet.cx FFmpeg against that same site, a GPAC-installed MP4Box
+/// against GPAC's pinned installer. The mirror can hold the same version or
+/// an older one. So a blip at the checked source turned "Update" into
+/// "reinstall the same bytes, or older ones" — and the check then offered
+/// the update again, for ever. That is the one mistake issue #273 says to
+/// avoid above all (Codex, batch-5 review, finding 1, blocking).
+///
+/// The rule: when replacing a working copy MeedyaDL owns, fall back to the
+/// mirror only when the mirror IS the source the update check compared
+/// against. Otherwise stop, and leave the current copy exactly as it was —
+/// the person already has a working programme, so refusing costs nothing.
+/// A first install, or a repair of a missing or broken copy, still falls
+/// back as before: there, any working copy beats none.
+///
+/// `mirror_is_checked_source`: mp4decrypt and MediaInfo come only from the
+/// mirror; an FFmpeg or MP4Box whose recorded origin is the mirror is
+/// checked against the mirror. Anything with no record of where it came
+/// from is treated as checked against its main source.
+fn may_fall_back_to_mirror(existing: ExistingCopy, mirror_is_checked_source: bool) -> bool {
+    match existing {
+        ExistingCopy::NoneOrBroken => true,
+        ExistingCopy::WorkingAndOurs => mirror_is_checked_source,
+    }
+}
+
+/// Works out [`ExistingCopy`] for `tool_id` on this machine.
+async fn existing_copy(app: &AppHandle, tool_id: &str) -> ExistingCopy {
+    if tool_ownership(app, tool_id) != ToolOwnership::MeedyaDl {
+        return ExistingCopy::NoneOrBroken;
+    }
+    match read_installed_version(app, tool_id).await {
+        Ok(Some(version)) if crate::services::update_checker::looks_like_a_version(&version) => {
+            ExistingCopy::WorkingAndOurs
+        }
+        _ => ExistingCopy::NoneOrBroken,
+    }
+}
+
+/// Is the mirror the source the update check compares `tool_id` against?
+/// See [`may_fall_back_to_mirror`].
+fn mirror_is_checked_source(app: &AppHandle, tool_id: &str) -> bool {
+    match tool_id {
+        "mp4decrypt" | "mediainfo" => true,
+        "ffmpeg" => std::fs::read_to_string(ffmpeg_build_info_path(app))
+            .ok()
+            .and_then(|s| serde_json::from_str::<FfmpegBuildInfo>(&s).ok())
+            .is_some_and(|info| info.source == "mirror"),
+        "mp4box" => read_mp4box_origin(app) == Some(Mp4boxOrigin::Mirror),
+        _ => false,
+    }
+}
+
+/// The message when an update is refused rather than taken from the
+/// mirror. Plain words: what happened, that nothing was changed, and why.
+fn update_refused_message(tool_id: &str, main_source_error: &str) -> String {
+    // The name a person knows ("N_m3u8DL-RE"), not the internal id
+    // ("nm3u8dlre"); falls back to whatever it was given.
+    let name = TOOLS
+        .iter()
+        .find(|t| t.id == tool_id)
+        .map_or(tool_id, |t| t.name);
+    format!(
+        "{name} was not updated: the place MeedyaDL checks for {name} updates did not \
+         answer ({}). Your current copy has been left exactly as it was — try again later. \
+         MeedyaDL does not use its backup download source for an update, because that source \
+         can hold the same version you already have, or an older one.",
+        crate::utils::text::truncate_str(main_source_error.trim(), 200)
+    )
+}
+
 /// Downloads a tool's archive and extracts it to the tool directory,
 /// with automatic fallback to the mirror repository if the primary
 /// upstream source fails.
@@ -1266,6 +1356,7 @@ async fn get_mirror_download_url(
 async fn download_tool_with_fallback(
     tool_id: &str,
     tool_dir: &std::path::Path,
+    allow_mirror: bool,
 ) -> Result<ToolInstallSource, String> {
     // Sibling staging directory — never the real tool_dir. Named
     // `{tool_dir}.staging` so it lives alongside (not inside) the real
@@ -1303,6 +1394,14 @@ async fn download_tool_with_fallback(
             e
         }
     };
+
+    // Primary failed. If this is an update the mirror cannot honestly
+    // serve, stop here — see may_fall_back_to_mirror. tool_dir is
+    // untouched: the primary attempt only ever wrote into staging.
+    if !allow_mirror {
+        std::fs::remove_dir_all(&staging).ok();
+        return Err(update_refused_message(tool_id, &primary_error));
+    }
 
     // Primary failed — reset staging (tool_dir is untouched) and try mirror.
     std::fs::remove_dir_all(&staging).ok();
@@ -1922,7 +2021,14 @@ pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, S
     // The return value records which of the two actually supplied the
     // binary — only FFmpeg's install (Step 5b below) acts on it.
     let tool_dir = get_tool_dir(app, tool_id);
-    let install_source = download_tool_with_fallback(tool_id, &tool_dir).await?;
+    // Decided BEFORE downloading, from the copy as it is now — see
+    // may_fall_back_to_mirror for why an update must not quietly use the
+    // mirror.
+    let allow_mirror = may_fall_back_to_mirror(
+        existing_copy(app, tool_id).await,
+        mirror_is_checked_source(app, tool_id),
+    );
+    let install_source = download_tool_with_fallback(tool_id, &tool_dir, allow_mirror).await?;
 
     // Step 4: Find the binary in the extracted contents.
     // Archives often contain nested directory structures. For example:
@@ -3131,6 +3237,13 @@ async fn install_mp4box_linux_inner(
 /// If the platform-specific method fails, falls back to the
 /// MeedyaSuite/MeedyaDL-Tools mirror repository for a generic binary archive.
 async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
+    // Decided before anything runs, from the copy as it is now — the
+    // platform routes below can replace it. See may_fall_back_to_mirror.
+    let allow_mirror = may_fall_back_to_mirror(
+        existing_copy(app, "mp4box").await,
+        mirror_is_checked_source(app, "mp4box"),
+    );
+
     // Try platform-specific installer first
     let platform_result = match std::env::consts::OS {
         "macos" => install_mp4box_macos(app).await,
@@ -3145,6 +3258,9 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
     match platform_result {
         Ok(version) => Ok(version),
         Err(primary_err) => {
+            if !allow_mirror {
+                return Err(update_refused_message("mp4box", &primary_err));
+            }
             log::warn!("Platform-specific MP4Box install failed: {primary_err}. Trying mirror...");
 
             // Fall back to mirror directly (skip get_tool_download_url which
@@ -3926,6 +4042,37 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
         );
         // GPAC's own installer / the mirror: no package manager involved.
         assert_eq!(mp4box_source_marker(None), "managed");
+    }
+
+    /// An update must not quietly come from the mirror unless the mirror
+    /// is what the update check compared against (Codex, batch-5 review,
+    /// finding 1). First installs and repairs still fall back.
+    #[test]
+    fn an_update_only_falls_back_to_the_mirror_it_was_checked_against() {
+        // Replacing a working copy of ours: only if the mirror was checked.
+        assert!(!may_fall_back_to_mirror(
+            ExistingCopy::WorkingAndOurs,
+            false
+        ));
+        assert!(may_fall_back_to_mirror(ExistingCopy::WorkingAndOurs, true));
+        // No copy, someone else's, or a broken one: any working copy beats
+        // none, so the mirror is always allowed.
+        assert!(may_fall_back_to_mirror(ExistingCopy::NoneOrBroken, false));
+        assert!(may_fall_back_to_mirror(ExistingCopy::NoneOrBroken, true));
+    }
+
+    /// The refusal message must say nothing was changed, and name the
+    /// reason from the main source so the person can tell a blip from a
+    /// lasting problem.
+    #[test]
+    fn a_refused_update_says_nothing_was_changed() {
+        let message = update_refused_message("nm3u8dlre", "HTTP 503");
+        assert!(
+            message.starts_with("N_m3u8DL-RE was not updated"),
+            "{message}"
+        );
+        assert!(message.contains("left exactly as it was"));
+        assert!(message.contains("HTTP 503"));
     }
 
     /// Only the exact marker "managed" counts as "MeedyaDL owns this copy".

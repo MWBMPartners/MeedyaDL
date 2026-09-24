@@ -488,7 +488,7 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
 /// tools print `1.6.0`, `26.07.0`, `v26.05`, `2.4`, and
 /// `1.6.0-641`; refusing any of those would trade a confident wrong
 /// answer for a confident "cannot tell", which is no better.
-fn looks_like_a_version(v: &str) -> bool {
+pub(crate) fn looks_like_a_version(v: &str) -> bool {
     let trimmed = v.trim().trim_start_matches(['v', 'V']);
     // The first part before a dot or dash has to be a plain number.
     // That is the whole test: a loader error, a usage message or a line
