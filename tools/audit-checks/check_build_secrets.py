@@ -163,14 +163,20 @@ _ENV_KEY_RE = re.compile(r"^\s*([A-Za-z0-9_]+):")
 _GITHUB_ENV_EXPORT_RE = re.compile(r'echo\s+"([A-Z0-9_]+)=.*?"\s*>>\s*"?\$GITHUB_ENV"?')
 
 # The only form COUNTED as a working export: the whole line is nothing but
-# `echo "NAME=value" >> "$GITHUB_ENV"`, indentation allowed, with no quote
-# inside the value and nothing before `echo` or after `$GITHUB_ENV`. A line
-# the loose pattern spots but this one does not is reported as "cannot
-# confirm", never counted. Every export line in release.yml fits this form
-# (checked 24 Sept 2026), so being strict costs nothing today; a new export
-# written some other way gets reported, and can be rewritten to fit.
+# `echo "NAME=value" >> "$GITHUB_ENV"`, indentation allowed, and nothing
+# before `echo` or after `$GITHUB_ENV`. Within that:
+#   * the value holds no quote and no backslash -- a backslash could escape
+#     the closing quote (`"X=1\" >> ...` is a shell error, not an export);
+#   * `$GITHUB_ENV` is either fully quoted or not quoted at all -- a lone
+#     quote on one side is also a shell error.
+# Codex found both of those accepted by the first version of this pattern
+# (batch-4 round 5). A line the loose pattern spots but this one does not
+# is reported as "cannot confirm", never counted. Every export line in
+# release.yml fits this form (checked 24 Sept 2026), so being strict costs
+# nothing today; a new export written some other way gets reported, and
+# can be rewritten to fit.
 _GITHUB_ENV_EXPORT_EXACT_RE = re.compile(
-    r'^\s*echo\s+"([A-Z0-9_]+)=[^"]*"\s*>>\s*"?\$GITHUB_ENV"?\s*$'
+    r'^\s*echo\s+"([A-Z0-9_]+)=[^"\\]*"\s*>>\s*(?:"\$GITHUB_ENV"|\$GITHUB_ENV)\s*$'
 )
 
 # A step's own `if:` key, capturing its indentation so _step_if() can tell

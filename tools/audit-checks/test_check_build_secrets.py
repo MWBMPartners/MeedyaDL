@@ -139,6 +139,26 @@ CASES = [
         False,
         True,
     ),
+    # Two shell ERRORS that the first strict pattern still accepted
+    # (Codex, batch-4 round 5).
+    (
+        "a backslash escaping the closing quote is not a working export",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=1\\" >> "$GITHUB_ENV"',
+        False,
+        True,
+    ),
+    (
+        "an unbalanced quote around $GITHUB_ENV is not a working export",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=1" >> "$GITHUB_ENV',
+        False,
+        True,
+    ),
+    (
+        "$GITHUB_ENV with no quotes at all is still a working export",
+        '      - name: Export it\n        run: |\n          echo "SAFARI=1" >> $GITHUB_ENV',
+        True,
+        False,
+    ),
     # A `#` inside the value is part of the value, and must not cost a
     # working export.
     (
@@ -190,10 +210,14 @@ def end_to_end_failure() -> str | None:
     cannot show that a finding actually reaches the report; this does.
 
     The copy is written inside the audit-checks folder -- never under
-    .github/workflows/, where a stray file would be a live workflow -- and
-    is deleted afterwards even if this fails."""
+    .github/workflows/, where a stray file would be a live workflow -- under
+    a name unique to this run, so two runs at once cannot overwrite or
+    delete each other's copy (Codex, batch-4 round 5), and it is deleted
+    afterwards even if this fails. It has to be inside the repository,
+    because the check reports paths relative to it."""
     import contextlib
     import io as _io
+    import tempfile
 
     real = check.RELEASE_WORKFLOW
     text = real.read_text(encoding="utf-8")
@@ -201,10 +225,18 @@ def end_to_end_failure() -> str | None:
     if working not in text:
         return "could not find the Safari export line in release.yml to replace"
     disabled = '            echo "MEEDYADL_SAFARI_VERSION=1" # " >> "$GITHUB_ENV"'
-    copy = HERE / ".tmp-release-copy-for-test.yml"
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=HERE,
+        prefix=".tmp-release-copy-",
+        suffix=".yml",
+        delete=False,
+    ) as handle:
+        handle.write(text.replace(working, disabled, 1))
+        copy = Path(handle.name)
     saved_argv = sys.argv[:]
     try:
-        copy.write_text(text.replace(working, disabled, 1), encoding="utf-8")
         check.RELEASE_WORKFLOW = copy
         sys.argv = [sys.argv[0], "--strict"]
         out = _io.StringIO()
