@@ -1277,6 +1277,14 @@ enum ExistingCopy {
 /// mirror; an FFmpeg or MP4Box whose recorded origin is the mirror is
 /// checked against the mirror. Anything with no record of where it came
 /// from is treated as checked against its main source.
+///
+/// What this does NOT promise: that an update comes from the very source
+/// that was checked. The installer still tries the programme's own source
+/// FIRST, even for a copy checked against the mirror. For FFmpeg that is
+/// harmless — the mirror copies BtbN's builds, so BtbN's is the same age
+/// or newer, never older. For MP4Box it would matter only if a GPAC
+/// installer pin were configured (none is today): a mirror-origin copy
+/// could then be replaced by the pinned GPAC version, which might be older.
 fn may_fall_back_to_mirror(existing: ExistingCopy, mirror_is_checked_source: bool) -> bool {
     match existing {
         ExistingCopy::NoneOrBroken => true,
@@ -3237,12 +3245,10 @@ async fn install_mp4box_linux_inner(
 /// If the platform-specific method fails, falls back to the
 /// MeedyaSuite/MeedyaDL-Tools mirror repository for a generic binary archive.
 async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String> {
-    // Decided before anything runs, from the copy as it is now — the
-    // platform routes below can replace it. See may_fall_back_to_mirror.
-    let allow_mirror = may_fall_back_to_mirror(
-        existing_copy(app, "mp4box").await,
-        mirror_is_checked_source(app, "mp4box"),
-    );
+    // Where the update check compared this copy, read BEFORE anything runs:
+    // the platform routes below delete the tool folder, and the origin
+    // record with it. See may_fall_back_to_mirror.
+    let checked_against_mirror = mirror_is_checked_source(app, "mp4box");
 
     // Try platform-specific installer first
     let platform_result = match std::env::consts::OS {
@@ -3258,6 +3264,18 @@ async fn install_mp4box_with_fallback(app: &AppHandle) -> Result<String, String>
     match platform_result {
         Ok(version) => Ok(version),
         Err(primary_err) => {
+            // Look at the copy AGAIN, now. Both platform routes delete the
+            // old copy before they finish (copy_and_verify_mp4box and the
+            // macOS .pkg route each remove the tool folder, then copy), so a
+            // route that failed late may already have removed it. Deciding
+            // from the state before the route ran would then refuse the
+            // mirror AND claim the copy was "left exactly as it was" — while
+            // leaving the person with no MP4Box at all. If it is gone, this
+            // has become a repair, and the mirror is allowed. (Codex was
+            // checking exactly this when its batch-5 round 2 hit its usage
+            // limit; confirmed here by reading both routes.)
+            let allow_mirror =
+                may_fall_back_to_mirror(existing_copy(app, "mp4box").await, checked_against_mirror);
             if !allow_mirror {
                 return Err(update_refused_message("mp4box", &primary_err));
             }
