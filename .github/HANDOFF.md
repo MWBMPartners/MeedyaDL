@@ -254,6 +254,19 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     approval, **opening the PR to alpha now** (branch 131 ahead / 0 behind, clean merge, no
     other PR open to alpha). Codex still owes `f74734f0..HEAD` at 14:48 (two small rounds;
     fixes → one follow-up PR).
+  - **MERGED (25 Sept, 10:29 BST): PR #1227 → alpha**, all 15 PR checks green (2 skipped as
+    not applicable). **Merged with a MERGE COMMIT (`5f0c35ff`), not a rebase:** GitHub
+    refused to rebase the 131-commit PR ("This branch can't be rebased" — no merge commits
+    on it, so most likely GitHub's size limit on rebase-merges), and a squash would have lost
+    every commit's own Release-Note. Simulated first in a throwaway worktree: git-cliff
+    2.13.1 renders all 63 notes, drops the merge commit, cuts none off. alpha-release.yml
+    bumped to `1.13.0-alpha.72` (`3174608d`) and tagged `v1.13.0-alpha.72`; **release run
+    36118762326 is being watched** (background), plus CI on alpha. `work/after-1.10.8` was
+    auto-deleted on merge; **the new working branch is `work/after-alpha-72`** (from
+    origin/alpha at 3174608d) — Codex's 14:48 follow-up fixes and handoff notes go here.
+    PR-security advisory comment reviewed: capabilities change only narrows (opener `**`
+    grant removed); the two new `unsafe` blocks (Mac alias check) are sound but lack a
+    "SAFETY:" label — small follow-up.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
