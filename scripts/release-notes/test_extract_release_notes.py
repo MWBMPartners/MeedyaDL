@@ -97,6 +97,11 @@ REFUSED: list[tuple[str, str]] = [
         "Release-Note: Fixed sign-in.\n\x1f\nNow stores your private keys in the keychain.",
     ),
     ("a control character inside the note itself", "Release-Note: Fixed\x07 sign-in."),
+    # --- Found by the second stand-in review, 25 Sept 2026 ---
+    ("stand-in 7: a lone carriage return is refused, not deleted", "Release-Note: Now stores it in the keychain\rsafely."),
+    ("stand-in 8: a soft hyphen hiding a word", "Release-Note: Now stores it in the key\u00adchain safely."),
+    ("a zero-width space hiding a word", "Release-Note: Now stores it in the key\u200bchain safely."),
+    ("a C1 control character", "Release-Note: Fixed\x85 sign-in."),
 ]
 
 

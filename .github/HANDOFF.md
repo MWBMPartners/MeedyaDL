@@ -221,7 +221,10 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     Abort text; template per-line trim; commit claimed git-cliff 2.14 but releases pin
     2.13.1). All fixed in **`7b641e0a`** (extractor tests now 17). **Codex scope at 04:41 =
     `757bcfd0`, `b19cd04a`, `014e1755`, `7b641e0a`.** git-cliff 2.13.1 is built into
-    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` and **checked (00:30, 25 Sept): 0 gaps** —
+    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` and checked (00:30, 25 Sept): 0 gaps across those 13 samples — **but that claim was too
+    broad: a second stand-in (04:50) found two more gaps the samples did not include (a
+    lone carriage return; invisible formatting characters such as a soft hyphen), both
+    fixed in the commit after `7b641e0a`** —
     13 sample messages, each in a throwaway one-commit repo (the `--with-commit HEAD..HEAD`
     trick does NOT isolate a sample on 2.13.1 — it renders the whole branch), both
     templates, both versions: everything rendered is linted or the message is refused.

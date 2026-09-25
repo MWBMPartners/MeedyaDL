@@ -2054,9 +2054,9 @@ async fn gate_before_comparing(
             manual_update_command,
             format!(
                 "MeedyaDL cannot tell who installed this copy of {display_name}, so it has left \
-                 it alone and not checked it for updates. Reinstalling it from Settings > Tools \
-                 usually lets MeedyaDL look after it — unless a suitable copy is already \
-                 installed elsewhere on this computer, which MeedyaDL then uses instead."
+                 it alone and not checked it for updates. It works as it is. (There is no \
+                 button yet to reinstall a tool that is already installed, which would let \
+                 MeedyaDL look after it; that is being added.)"
             ),
         ))),
         ToolOwnership::MeedyaDl => match read {
@@ -2140,8 +2140,8 @@ fn unreadable_version_reason(display_name: &str, raw: &str) -> String {
     format!(
         "MeedyaDL could not read a version number from {display_name}. The programme is \
          there, but instead of a version it reported: \"{}\". That usually means it is \
-         installed but cannot start — often a missing supporting file. Reinstalling it from \
-         the Tools page is the usual fix.",
+         installed but cannot start — often a missing supporting file. There is no button yet \
+         to reinstall a tool in this state; that is being added.",
         crate::utils::text::truncate_str(raw.trim(), 160)
     )
 }

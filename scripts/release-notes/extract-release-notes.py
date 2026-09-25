@@ -39,6 +39,17 @@ out) found two more, by the same method:
    Python counts those as blank; git-cliff does not, so it joined the
    next line into the note while this script stopped short of it.
 
+A second stand-in review (25 Sept, Codex out again) found two more:
+
+7. A lone carriage return (not part of a Windows line ending). This
+   script used to delete every carriage return first, which glued two
+   words together in its copy ("keychain\rsafely" became
+   "keychainsafely"), so a banned word no longer matched -- while the
+   release notes kept the character, which a reader sees as a break.
+8. Invisible formatting characters, such as a soft hyphen inside a word
+   ("key\u00adchain"): not shown to a reader, but they stop a banned word
+   from matching.
+
 The rules below close each of them. Where the release tool's own reading
 is odd or hard to predict (cases 2 and 4), this does not try to copy it:
 an empty `Release-Note:` line is REFUSED, with a message saying how to
@@ -46,7 +57,9 @@ write it. Refusing when unsure beats guessing and reporting success.
 
 WHAT IT DOES
 ------------
-* Carriage returns are removed first.
+* Windows line endings (carriage return + line feed) become plain line
+  feeds. Any OTHER carriage return is left in place, and is then refused
+  with the other control characters below.
 * A note starts at any line beginning `Release-Note:` or `Release-Note #`,
   with or without a space after the colon.
 * It carries on over the following lines, joined with single spaces,
@@ -57,8 +70,10 @@ WHAT IT DOES
   idea of white space, which does not include \x1c to \x1f).
 * A `Release-Note:` with nothing after it on the same line is an error
   (exit 1). So is a note containing any control character other than a
-  tab: what the release tool would show is then hard to be sure of, and
-  no real note needs one.
+  tab, or any invisible formatting character (Unicode category Cf, such
+  as a soft hyphen or zero-width space): what the release tool would show
+  is then hard to be sure of, a banned word could hide behind one, and no
+  real note needs one.
 
 This joins MORE text than the templates might ever render, never less:
 an extra line that is linted but not shown costs nothing, and a line that
@@ -71,6 +86,7 @@ from __future__ import annotations
 
 import re
 import sys
+import unicodedata
 
 # A note starts at "Release-Note:" whether or not a space follows, or at
 # "Release-Note #", the other trailer form the release tool accepts.
@@ -78,8 +94,9 @@ _NOTE_START = re.compile(r"^Release-Note(?:[ \t]*:|[ \t]*#)[ \t]*(.*)$")
 # Characters Python calls white space but Rust (and so the release tool)
 # does not. A line of these is NOT blank to the release tool.
 _PYTHON_ONLY_SPACE = "\x1c\x1d\x1e\x1f"
-# Any control character except tab. A note containing one is refused.
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+# Any control character except tab (including a lone carriage return and
+# the C1 range 0x80-0x9F). A note containing one is refused.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 # Any other "Name: value" trailer line ends the note being joined. The
 # release tool starts a new footer at such a line, so its text is not part
 # of the note.
@@ -104,12 +121,14 @@ def extract_notes(text: str) -> list[str]:
     """
     notes: list[str] = []
     current: str | None = None
-    for raw in text.replace("\r", "").split("\n"):
+    for raw in text.replace("\r\n", "\n").split("\n"):
         if current is not None or _NOTE_START.match(raw):
-            if _CONTROL.search(raw):
+            if _CONTROL.search(raw) or any(
+                unicodedata.category(c) == "Cf" for c in raw
+            ):
                 raise RefusedNoteError(
-                    "A 'Release-Note:' note contains an invisible control "
-                    "character. Retype the note as plain text."
+                    "A 'Release-Note:' note contains an invisible control or "
+                    "formatting character. Retype the note as plain text."
                 )
         start = _NOTE_START.match(raw)
         if start:
