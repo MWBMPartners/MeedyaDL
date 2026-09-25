@@ -54,6 +54,17 @@ CATCHES: list[tuple[str, str, str]] = [
         "mechanism-syllable-lyrics",
     ),
     (
+        # The rule allows any spacing (\s+) between its words, and U+2028
+        # counts as spacing -- but only if the linter does not first split
+        # the line there. It used to (str.splitlines()), so this phrase
+        # was never matched. Rules written with a literal space, such as
+        # "private key", cannot match across U+2028 however the text is
+        # split; the release-notes extractor refuses the character instead.
+        "a spaced phrase across a line separator (U+2028) is still caught",
+        "The access\u2028token is now refreshed sooner.",
+        "mechanism-token-phrase",
+    ),
+    (
         "word-level timing is caught",
         "It preserves word-level timing in a plain-text-editable document.",
         "mechanism-syllable-lyrics",

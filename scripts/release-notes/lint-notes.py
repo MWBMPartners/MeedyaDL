@@ -260,7 +260,13 @@ def lint_text(text: str, path: str, strip_footer: bool = False) -> list[Finding]
     """Run every rule against `text`, returning findings in
     error-then-warning, file-order sequence. `path` is only used for
     reporting — pass a synthetic label like "trailer" for stdin input."""
-    lines = text.splitlines()
+    # "\n" only, for the same reason as lint_trailer_stream: splitlines()
+    # also breaks at U+2028/U+2029, which split a banned phrase across one
+    # into two lines so it never matched. Files come through read_text(),
+    # which has already turned "\r\n" into "\n". (The first fix changed
+    # only lint_trailer_stream, which hands each line straight back here to
+    # be split again, so it did nothing — stand-in review, 25 Sept 2026.)
+    lines = text.split("\n")
     if strip_footer:
         lines = _strip_footer(lines)
 

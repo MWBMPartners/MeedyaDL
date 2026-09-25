@@ -2145,9 +2145,6 @@ fn pm_owned_update_skip(
     }
 }
 
-/// Builds the "could not read a version" sentence, ready to hand to
-/// [`not_checkable_update`].
-///
 /// The message for a tool MeedyaDL could not run at all. Such a tool shows
 /// as missing on the Tools page, so its Install button really is there —
 /// which is why this one, unlike `unreadable_version_reason`, can point to
@@ -2161,6 +2158,9 @@ fn could_not_run_reason(display_name: &str, reason: &str) -> String {
     )
 }
 
+/// Builds the "could not read a version" sentence, ready to hand to
+/// [`not_checkable_update`].
+///
 /// One function so both comparison sites say the same thing. They used
 /// to have no wording at all, because neither of them asked the
 /// question.
