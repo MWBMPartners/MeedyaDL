@@ -282,7 +282,13 @@ export function ToolsTab() {
       {/* ============================================================ */}
       {/* Section: GAMDL Version Management (#522)                      */}
       {/* ============================================================ */}
-      {gamdl?.installed && <GamdlVersionManagement installedVersion={gamdl.version ?? null} />}
+      {gamdl?.installed && (
+        <GamdlVersionManagement
+          installedVersion={gamdl.version ?? null}
+          classification={gamdl.classification ?? null}
+          knownBadMessage={gamdl.known_bad_message ?? null}
+        />
+      )}
 
       {/* ============================================================ */}
       {/* Section: External Tools                                       */}
@@ -494,26 +500,103 @@ export function ToolsTab() {
 }
 
 /**
+ * Maps the backend's authoritative `DependencyStatus.classification`
+ * value ("supported" | "untested" | "unsupported" | "known-bad") to the
+ * badge shape this component renders. Returns `null` for a value this
+ * component doesn't recognise (including `null`/`undefined` — e.g. an
+ * older cached status from before this field existed, or a transient
+ * failure to fetch it), so the caller can fall back to
+ * {@link classifyLocally}.
+ *
+ * `known-bad` renders with the SAME `error` tone as `unsupported` —
+ * per review, no new badge colour, reusing the existing warning/error
+ * styling already in this file.
+ */
+function classifyFromBackend(
+  classification: string | null | undefined,
+): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } | null {
+  switch (classification) {
+    case 'supported':
+      return { label: 'Supported', tone: 'success' };
+    case 'untested':
+      return { label: 'Untested', tone: 'warning' };
+    case 'unsupported':
+      return { label: 'Unsupported', tone: 'error' };
+    case 'known-bad':
+      return { label: 'Known Issue', tone: 'error' };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Cheap client-side fallback classification, used ONLY when the
+ * backend hasn't supplied `classification` (see {@link classifyFromBackend}).
+ * Mirrors `gamdl_capabilities::classify`'s min/max comparison, but — by
+ * construction — has no way to know about a specific known-bad release
+ * like GAMDL 3.9, because "is this exact release broken" isn't a
+ * min/max question. That gap is exactly why the backend classification
+ * is preferred whenever it's present.
+ */
+function classifyLocally(
+  v: string | null,
+  minimum: string,
+  maximumTested: string,
+): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } {
+  if (!v) return { label: 'Unknown', tone: 'neutral' };
+  if (compareVersions(v, minimum) < 0) return { label: 'Unsupported', tone: 'error' };
+  if (compareVersions(v, maximumTested) > 0) return { label: 'Untested', tone: 'warning' };
+  return { label: 'Supported', tone: 'success' };
+}
+
+/**
  * GAMDL version management section (#522). Renders below Core
  * Dependencies when GAMDL is installed. Lets the user:
  *
  *   - See the support classification for the installed version
- *     (Supported / Untested / Unsupported) compared against the
- *     MeedyaDL-tested window from `tool-versions.toml`.
+ *     (Supported / Untested / Unsupported / Known Issue) compared
+ *     against the MeedyaDL-tested window from `tool-versions.toml`.
+ *     The classification itself comes from the backend
+ *     (`DependencyStatus.classification`, set by `check_gamdl_status`)
+ *     rather than being recomputed here — see {@link classifyFromBackend}.
+ *     A known-bad release (e.g. GAMDL 3.9, which cannot download
+ *     Apple's web AAC formats) additionally shows the backend's
+ *     plain-English `known_bad_message` explaining the fault and what
+ *     to install instead.
  *   - Click "Install recommended (vX.Y.Z)" to force-reinstall the
  *     recommended version (works for both upgrades AND downgrades —
  *     uses `pip install --force-reinstall` under the hood, unlike the
  *     setup-wizard install button which uses `--upgrade` and can't
  *     downgrade).
  *   - Type a specific version (e.g., "2.9.3") and force-install it.
- *     Bypasses the support window — for power-user rollback /
- *     manual-validation scenarios.
+ *     Goes outside the tested range on purpose — for power-user
+ *     rollback / manual-validation scenarios.
  *
- * The backend (`install_gamdl_version`) classifies the requested
- * version and emits an activity-log advisory when it falls outside
- * the supported range, but does NOT refuse — the user has opted in.
+ * The backend (`install_gamdl_version`) warns rather than refuses for
+ * anything the user is entitled to judge for themselves: an older
+ * release, or a newer one nobody has tested yet. It DOES refuse two
+ * things, because neither is a judgement call — a release we have
+ * checked and found broken, and a release that cannot be installed on
+ * this machine at all (some platforms are held at an older version
+ * because something a newer GAMDL needs is not published for them).
+ * Both refusals arrive as an ordinary error toast explaining what to
+ * install instead.
+ *
+ * The version numbers shown here are for THIS machine: on a held-back
+ * platform the ceiling and the recommended version both read lower, so
+ * the "Install recommended" button always names something installable.
  */
-function GamdlVersionManagement({ installedVersion }: { installedVersion: string | null }) {
+function GamdlVersionManagement({
+  installedVersion,
+  classification,
+  knownBadMessage,
+}: {
+  installedVersion: string | null;
+  /** Backend-computed `DependencyStatus.classification` for GAMDL. */
+  classification: string | null;
+  /** Backend-computed `DependencyStatus.known_bad_message` for GAMDL. */
+  knownBadMessage: string | null;
+}) {
   const fetchAll = useDependencyStore((s) => s.checkAll);
   const addToast = useUiStore((s) => s.addToast);
   const [supportWindow, setSupportWindow] = useState<GamdlSupportWindow | null>(null);
@@ -534,19 +617,14 @@ function GamdlVersionManagement({ installedVersion }: { installedVersion: string
 
   const { minimum, maximum_tested, recommended } = supportWindow;
 
-  // Cheap client-side classification mirroring `gamdl_capabilities::classify`
-  // — used for the badge only; the authoritative classification runs in
-  // Rust on every install.
-  const classify = (
-    v: string | null,
-  ): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } => {
-    if (!v) return { label: 'Unknown', tone: 'neutral' };
-    if (compareVersions(v, minimum) < 0) return { label: 'Unsupported', tone: 'error' };
-    if (compareVersions(v, maximum_tested) > 0) return { label: 'Untested', tone: 'warning' };
-    return { label: 'Supported', tone: 'success' };
-  };
-
-  const status = classify(installedVersion);
+  // Prefer the backend's authoritative classification. Only fall back
+  // to the local min/max approximation when the backend hasn't
+  // supplied one (e.g. this status was fetched before the field
+  // existed) — see both helpers' doc comments above.
+  const status =
+    classifyFromBackend(classification) ??
+    classifyLocally(installedVersion, minimum, maximum_tested);
+  const isKnownBad = classification === 'known-bad';
 
   const handleInstallRecommended = async () => {
     setIsInstallingRecommended(true);
@@ -614,6 +692,19 @@ function GamdlVersionManagement({ installedVersion }: { installedVersion: string
             {status.label}
           </span>
         </div>
+
+        {/*
+         * Known-bad message -- the backend's plain-English explanation
+         * of what is actually broken and what to install instead. Only
+         * rendered for a genuine "known-bad" classification (never
+         * invented client-side); reuses the same error styling as the
+         * page's other error box below rather than a new colour.
+         */}
+        {isKnownBad && knownBadMessage && (
+          <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
+            {knownBadMessage}
+          </div>
+        )}
 
         {/* Install recommended button */}
         <div className="flex items-center gap-2">
@@ -718,6 +809,17 @@ function BackupManagement() {
   const [snapshots, setSnapshots] = useState<BackupEntry[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [restoreTarget, setRestoreTarget] = useState<BackupEntry | null>(null);
+  /**
+   * Delete confirmation target. This used to be missing entirely: the
+   * Delete button (an icon-only "X", right beside Restore) deleted a
+   * snapshot on the very first click, while Restore -- sitting right
+   * next to it -- already asks first. Only the 10 most recent
+   * snapshots are kept, and each one holds settings, queue AND
+   * history, so a slipped click aimed at Restore could permanently
+   * destroy the one snapshot someone needed, with no way to get it
+   * back. `null` = modal closed, mirroring `restoreTarget` above.
+   */
+  const [deleteTarget, setDeleteTarget] = useState<BackupEntry | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -767,10 +869,20 @@ function BackupManagement() {
     }
   };
 
-  const handleDelete = async (entry: BackupEntry) => {
+  /**
+   * Runs the actual delete, once the user has confirmed it in the
+   * modal below. Deleting a snapshot cannot be undone -- unlike
+   * Restore, there's no "restart to apply" step that gives a moment
+   * to reconsider; the file on disk is just gone. See the comment on
+   * `deleteTarget` above for why this needed a confirmation at all.
+   */
+  const handleDeleteConfirmed = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
     setBusy(true);
     try {
-      await deleteBackup(entry.path);
+      await deleteBackup(target.path);
       addToast('Snapshot deleted.', 'info');
       await refresh();
     } catch (e) {
@@ -838,7 +950,7 @@ function BackupManagement() {
                   size="sm"
                   icon={<XCircle size={14} />}
                   disabled={busy}
-                  onClick={() => handleDelete(s)}
+                  onClick={() => setDeleteTarget(s)}
                   aria-label={`Delete snapshot ${s.name}`}
                 />
               </div>
@@ -875,6 +987,41 @@ function BackupManagement() {
               </Button>
               <Button variant="primary" onClick={handleRestoreConfirmed}>
                 Restore
+              </Button>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      {/* Delete confirmation modal -- see the comment on `deleteTarget`
+          above for why this was missing and why that mattered: this
+          button sits right beside Restore, looks nothing like it (an
+          icon with no visible text versus a labelled button), and used
+          to act on the very first click with nothing to stop a
+          mis-click from destroying a snapshot for good. */}
+      <Modal
+        open={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete snapshot?"
+      >
+        {deleteTarget && (
+          <>
+            <p className="text-sm text-content-secondary mb-4">
+              This will permanently delete{' '}
+              <span className="font-mono">{formatSnapshotName(deleteTarget.name)}</span>. This
+              cannot be undone.
+            </p>
+            <p className="text-sm text-content-secondary mb-6">
+              Only the 10 most recent snapshots are kept, and each one holds your settings,
+              queue, and history together. If this was the snapshot you'd need to undo a
+              mistake, deleting it removes that option.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </Button>
+              <Button variant="primary" onClick={handleDeleteConfirmed}>
+                Delete
               </Button>
             </div>
           </>

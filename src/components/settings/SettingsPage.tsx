@@ -100,6 +100,7 @@ import {
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
+import { useConfirmation } from '@/lib/useConfirmation';
 
 // Shared UI components used in the header action bar.
 import { Button, Modal } from '@/components/common';
@@ -370,12 +371,24 @@ export function SettingsPage() {
     // load-or-last-save — not against the current in-memory value, which
     // is what the user is about to persist.
     const preSaveSnapshot = templateSnapshot.current;
-    await withErrorToast(() => saveSettings(), {
-      successMsg: 'Settings saved successfully',
-      errorMsg: 'Failed to save settings',
-    });
-    // saveSettings() throws on failure (withErrorToast re-surfaces),
-    // so reaching this line implies a successful disk write.
+    // `withErrorToast` does NOT pass a failure on: it shows the error and
+    // returns undefined. So the only proof the save worked is getting
+    // `true` back. This used to be followed by a comment saying the
+    // failure was "re-surfaced", so reaching the next line proved a
+    // successful write — which was false, and after a failed save the page
+    // went on to record the new values as saved (stand-in review, 24 Sept
+    // 2026).
+    const saved = await withErrorToast(
+      async () => {
+        await saveSettings();
+        return true;
+      },
+      {
+        successMsg: 'Settings saved successfully',
+        errorMsg: 'Failed to save settings',
+      },
+    );
+    if (!saved) return;
     const post = useSettingsStore.getState().settings;
     const changed =
       preSaveSnapshot !== null &&
@@ -414,15 +427,66 @@ Please quit and reopen MeedyaDL manually.`,
   };
 
   /**
-   * Resets all settings to their compiled-in defaults by calling the
-   * Zustand store's `resetToDefaults` action. Note that this only updates
-   * the in-memory state (sets `isDirty = true`) -- the user must still
-   * click "Save Changes" to persist the defaults to disk.
+   * Puts every setting back to what a brand-new install would have.
+   *
+   * # Why this now asks first
+   *
+   * It did not, and it sits immediately beside "Save Changes" — the
+   * button the "unsaved changes" mark then invites you to press. Two
+   * clicks, neither of which asked anything, wiped the person's cookies
+   * file, all five programme paths, both Apple Music credentials, both
+   * API keys, all three wrapper addresses, their download folder and
+   * their accepted terms. Exactly one setting survived. Every other
+   * action in this app that destroys something asks first.
+   *
+   * The old message also read "Settings reset to defaults" — in the
+   * past tense, although nothing had been written yet.
+   *
+   * The defaults come from the backend, not from this page's own copy of
+   * them, which had drifted. See `DEFAULT_SETTINGS` in the settings store.
    */
-  const handleReset = () => {
-    resetToDefaults();
-    addToast('Settings reset to defaults', 'info');
-  };
+  const confirmReset = useConfirmation({
+    title: 'Put every setting back to how it started?',
+    description: (
+      <div className="space-y-3">
+        <p>
+          This clears everything you have set up, including things that are not
+          on this screen and are awkward to get back:
+        </p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li>where your cookies file is</li>
+          <li>where your copies of FFmpeg, mp4decrypt, MP4Box, MediaInfo and N_m3u8DL-RE are</li>
+          <li>your Apple Music credentials and any API keys you have entered</li>
+          <li>your wrapper addresses</li>
+          <li>the folder your music is saved to</li>
+        </ul>
+        <p>
+          Nothing is written until you press <strong>Save Changes</strong>. Until
+          then you can close Settings and open it again to get your
+          settings back as they were.
+        </p>
+      </div>
+    ),
+    confirmLabel: 'Reset everything',
+    onConfirm: async () => {
+      // Only say it worked if it did: `withErrorToast` shows the error and
+      // returns undefined, it does not stop this function. It used to show
+      // "put back to how they started" straight after the error message,
+      // with nothing reset (stand-in review, 24 Sept 2026).
+      const reset = await withErrorToast(
+        async () => {
+          await resetToDefaults();
+          return true;
+        },
+        { errorMsg: 'Could not reset the settings' },
+      );
+      if (!reset) return;
+      addToast(
+        'Settings put back to how they started — press Save Changes to keep it, or close and reopen Settings to undo it.',
+        'info'
+      );
+    },
+  });
 
   /**
    * Resolve the active tab's React component from the TABS configuration.
@@ -498,7 +562,12 @@ Please quit and reopen MeedyaDL manually.`,
             )}
 
             {/* Reset to defaults */}
-            <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleReset}>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<RotateCcw size={14} />}
+              onClick={confirmReset.open}
+            >
               Reset
             </Button>
 
@@ -589,6 +658,10 @@ Please quit and reopen MeedyaDL manually.`,
           <ActiveComponent />
         </div>
       </div>
+
+      {/* The "are you sure you want to reset everything" question. It
+          renders nothing until it is opened. */}
+      {confirmReset.modal}
     </div>
   );
 }

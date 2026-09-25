@@ -362,4 +362,163 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(closeButton);
     expect(disabledButton).not.toHaveFocus();
   });
+
+  // ===========================================================================
+  // Focus trap catches focus landing outside the panel entirely (review fix)
+  // ===========================================================================
+
+  /**
+   * Regression test for the hole the review found: the trap only ever
+   * compared `document.activeElement` against the FIRST or LAST
+   * focusable element, so it did nothing at all when focus was
+   * somewhere else -- most commonly `document.body`, which is where a
+   * real browser moves focus the instant the element that had it
+   * disappears from the page (a row removed from a list, a control
+   * hidden by a re-render) while the dialog is still open. From that
+   * point Tab matched neither check, so the trap did nothing and focus
+   * was free to walk out into the page behind the dialog.
+   *
+   * jsdom reproduces the real browser's "focused element removed ->
+   * focus moves to body" behaviour exactly, so this test drives the
+   * real scenario rather than just poking `document.activeElement`
+   * directly: focus a button inside the dialog, remove that button
+   * from the page, confirm the browser really did move focus to
+   * `<body>`, then press Tab and check the dialog's own fixed control
+   * (the header Close button) ends up focused instead of focus staying
+   * loose on `<body>` or escaping further.
+   */
+  it('recaptures focus into the dialog when it has landed on the page body, instead of doing nothing', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()} title="Test">
+        <button id="removable">Removable body button</button>
+        <button id="stays">Stays</button>
+      </Modal>
+    );
+
+    const removable = document.getElementById('removable') as HTMLElement;
+    removable.focus();
+    expect(document.activeElement).toBe(removable);
+
+    /* Remove the focused element from the page while the dialog is
+     * still open -- this is the trigger the review described, and
+     * jsdom (like a real browser) reacts by moving focus to <body> on
+     * its own, without waiting for any key press. */
+    removable.remove();
+    expect(document.activeElement).toBe(document.body);
+
+    /* Before the fix this Tab press would have done nothing, because
+     * document.body is neither the trap's "first" nor "last" element. */
+    fireEvent.keyDown(document, { key: 'Tab' });
+
+    const closeButton = screen.getByLabelText('Close');
+    expect(document.activeElement).toBe(closeButton);
+  });
+
+  /**
+   * Same hole, but from the Shift+Tab direction: when focus has
+   * escaped to the page body, Shift+Tab should land on the dialog's
+   * LAST focusable element (matching the ordinary "wrap from first to
+   * last" direction the existing trap already used), not the first.
+   */
+  it('recaptures focus to the dialog\'s last element on Shift+Tab when focus was on the page body', () => {
+    render(
+      <Modal open={true} onClose={vi.fn()} title="Test">
+        <button>First body button</button>
+        <button>Last body button</button>
+      </Modal>
+    );
+
+    /* document.body is a valid script focus target even with no
+     * explicit tabindex -- this stands in for focus having escaped the
+     * dialog by whatever route, matching what the removed-element test
+     * above confirms jsdom (and real browsers) do on their own. */
+    document.body.focus();
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+
+    const lastButton = screen.getByText('Last body button');
+    expect(document.activeElement).toBe(lastButton);
+  });
+  /**
+   * With two dialogs open, Escape must close only the one on top. Both used
+   * to act on it: on the first launch of a new pre-release, Escape meant
+   * for the pre-release notice also closed the crash-reporting question
+   * beneath it, which counted as "no" (stand-in review, 24 Sept 2026).
+   */
+  it('with two dialogs open, Escape closes only the top one', () => {
+    const closeLower = vi.fn();
+    const closeUpper = vi.fn();
+
+    render(
+      <>
+        <Modal open={true} onClose={closeLower} title="Lower">
+          <button>Lower button</button>
+        </Modal>
+        <Modal open={true} onClose={closeUpper} title="Upper">
+          <button>Upper button</button>
+        </Modal>
+      </>
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(closeUpper).toHaveBeenCalledTimes(1);
+    expect(closeLower).not.toHaveBeenCalled();
+  });
+  /**
+   * The dialog opened second must also be DRAWN on top, or the keyboard
+   * (which follows opening order) would drive one dialog while another
+   * is shown above it (Codex, batch-3 review).
+   */
+  it('draws a dialog opened later above one opened earlier', () => {
+    function Pair() {
+      const [second, setSecond] = useState(false);
+      return (
+        <>
+          <Modal open={true} onClose={() => {}} title="First">
+            <button onClick={() => setSecond(true)}>Open second</button>
+          </Modal>
+          <Modal open={second} onClose={() => {}} title="Second">
+            <button>Inside second</button>
+          </Modal>
+        </>
+      );
+    }
+    render(<Pair />);
+    fireEvent.click(screen.getByText('Open second'));
+
+    const layerOf = (title: string) =>
+      Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
+    expect(layerOf('Second')).toBeGreaterThan(layerOf('First'));
+  });
+  it('gives a new dialog its own layer even after one below it has closed', () => {
+    // Open A, open B, close A, open C: B and C both got layer 2, so the
+    // page order decided which was drawn on top (Codex, follow-up review).
+    function Three() {
+      const [a, setA] = useState(true);
+      const [c, setC] = useState(false);
+      return (
+        <>
+          <Modal open={a} onClose={() => setA(false)} title="A">
+            <button>in A</button>
+          </Modal>
+          <Modal open={true} onClose={() => {}} title="B">
+            <button onClick={() => setA(false)}>Close A</button>
+            <button onClick={() => setC(true)}>Open C</button>
+          </Modal>
+          <Modal open={c} onClose={() => {}} title="C">
+            <button>in C</button>
+          </Modal>
+        </>
+      );
+    }
+    render(<Three />);
+    fireEvent.click(screen.getByText('Close A'));
+    fireEvent.click(screen.getByText('Open C'));
+
+    const layerOf = (title: string) =>
+      Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
+    expect(layerOf('C')).toBeGreaterThan(layerOf('B'));
+  });
 });

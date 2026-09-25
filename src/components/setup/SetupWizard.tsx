@@ -62,6 +62,7 @@ import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 // uiStore provides setShowSetupWizard to dismiss the wizard overlay.
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { setStoredPreference } from '@/lib/tauri-commands';
 
 // Shared Button component for the navigation bar.
 import { Button } from '@/components/common';
@@ -136,10 +137,6 @@ export function SetupWizard() {
   /** Hides the wizard overlay by setting showSetupWizard to false */
   const setShowSetupWizard = useUiStore((s) => s.setShowSetupWizard);
 
-  // --- Zustand settingsStore selectors ---
-  /** Persists setup_completed flag to settings JSON on disk */
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-
   /**
    * Resolve the React component for the current step via the static
    * STEP_COMPONENTS lookup map. This enables dynamic rendering without
@@ -167,9 +164,41 @@ export function SetupWizard() {
    * 3. Calling `setShowSetupWizard(false)` on the uiStore, which
    *    removes the full-screen overlay and reveals the main application.
    */
-  const handleFinish = () => {
+  const handleFinish = async () => {
     finishSetup();
-    updateSettings({ setup_completed: true });
+    // Written to DISK, not just to this page's copy of the settings.
+    //
+    // It used to call `updateSettings`, which only changes the copy the
+    // page is holding. Nothing ever saved it, so the app never knew
+    // setup had been done — and because the crash-reporting question
+    // only appears once setup is recorded as finished, that question
+    // could never be asked on any install either.
+    //
+    // It also stays in memory so the rest of this session sees it
+    // without re-reading the file.
+    // Not updateSettings: that would mark Settings as having unsaved work.
+    useSettingsStore.getState().syncSaved({ setup_completed: true });
+    try {
+      await setStoredPreference({ kind: 'setup_completed', completed: true });
+    } catch (err) {
+      // Not fatal — the wizard has done its real work, so the person is
+      // not blocked here. But the cost is bigger than the first version
+      // of this comment admitted, and a reviewer said so.
+      //
+      // It is not only that the wizard may reappear if a tool later goes
+      // missing. The crash-reporting question only ever appears once
+      // setup is recorded as finished, so a failure here **also keeps
+      // that question from ever being asked** — the very fault this
+      // whole change was made to fix, reintroduced quietly for anybody
+      // whose settings file could not be written.
+      console.error('Could not record that setup was finished:', err);
+      useUiStore
+        .getState()
+        .addToast(
+          'MeedyaDL could not save that setup is finished. The setup screen may appear again next time.',
+          'error'
+        );
+    }
     setShowSetupWizard(false);
   };
 

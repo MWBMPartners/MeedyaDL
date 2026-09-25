@@ -52,8 +52,10 @@ export async function upgradeGenericComponent(c: ComponentUpdate): Promise<strin
     const { upgradePipEngine } = await import('@/lib/tauri-commands');
     return upgradePipEngine(c.pip_package);
   } else if (c.tool_id) {
+    // `true`: this IS an update, so the backend must not quietly take it
+    // from its backup download source — see `installDependency`.
     const { installDependency } = await import('@/lib/tauri-commands');
-    return installDependency(c.tool_id);
+    return installDependency(c.tool_id, true);
   }
   throw new Error(`No upgrade method for ${c.name}`);
 }

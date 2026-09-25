@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/permissions.schema.json",
   "identifier": "default",
-  "description": "Default capability set for the MeedyaDL application. Grants permissions for file system access, native dialogs, shell execution, OS detection, opening/revealing files and folders, and process management. `shell:allow-open` is for web addresses only (its address pattern refuses anything that is not mailto:/tel:/http(s):, so it can never be used to open a file on disk); opening or revealing a file/folder goes through the separate `opener:*` permissions below instead, scoped just to that.",
+  "description": "Default capability set for the MeedyaDL application. Grants permissions for file system access, native dialogs, shell execution, OS detection, opening/revealing files and folders, and process management. `shell:allow-open` is for web addresses only (its address pattern refuses anything that is not mailto:/tel:/http(s):, so it can never be used to open a file on disk). Revealing a file or folder — which selects it in the file manager and runs nothing — is `opener:allow-reveal-item-in-dir`. OPENING a file is deliberately NOT granted here: it used to be, with a scope of `**`, and this description used to claim it was \"scoped just to that\" when it was scoped to everything. On Windows, opening a program runs it, so that was in effect permission for anything running in the page to run any file on the computer. Opening now goes through the `open_downloaded_file` command, which allows music, video, artwork and text and refuses the rest regardless of how the extension is spelled.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -11,10 +11,6 @@
     "process:default",
     "os:default",
     "notification:default",
-    "opener:allow-reveal-item-in-dir",
-    {
-      "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "**" }]
-    }
+    "opener:allow-reveal-item-in-dir"
   ]
 }

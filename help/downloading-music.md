@@ -60,7 +60,9 @@ MeedyaDL also accepts personal library URLs from Apple Music. These are URLs tha
 
 Paste an Apple Music or Spotify URL into the download form's URL input field. The app automatically detects the content type (song, album, playlist, or artist) from the URL path for Apple Music links -- there is no need to manually specify what you are downloading. URLs from `music.apple.com` (plus its `classical.apple.com` / `itunes.apple.com` variants) and `open.spotify.com` are accepted; other domains are rejected with a validation error. Spotify links are accepted as input but are dispatched through their own eligibility checks -- see [Supported Services](supported-services.md) for details.
 
-To download multiple items, submit each URL individually. Each submission adds the content to the download queue, so you can paste and submit several URLs in succession without waiting for earlier downloads to complete.
+To download several items at once, paste one URL per line (**Shift + Enter** starts a new line; **Enter** or the **Add to Queue** button submits). Each line becomes its own item in the queue, and you can keep adding more while earlier downloads are still running.
+
+MeedyaDL only starts a limited number of new downloads each minute (about ten), to keep things steady. If you paste more links than that at once, the first ones are added and a message tells you how many were added and how many were not. The links that were not added are left in the box, so you only need to press **Add to Queue** again after the wait the message gives. The same happens with any link that could not be added for another reason: it stays in the box rather than disappearing.
 
 ### Selecting Quality
 
@@ -91,16 +93,29 @@ Each item in the queue displays:
 
 The following queue actions are available:
 
-- **Cancel** -- stops the active download immediately and marks it as cancelled
+- **Cancel** -- stops the active download immediately and marks it as cancelled. Any extra format copies it was making alongside (see [Companion Downloads](#companion-downloads)) are stopped too
 - **Retry** -- re-queues a failed download so it can be attempted again. When a partial download exists on disk, MeedyaDL reads the album's `manifest.meedyadl` and re-runs only the tracks that actually failed (smart retry). If every expected track is already on disk, the retry is refused with a friendly message instead of pointlessly re-fetching
 - **Retry without Wrapper** -- (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
 - **Retry All Failed** -- header button; re-queues every failed item in one click. Confirmation modal shows the count first
 - **Right-click any row** -- opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
 - **Clear Completed** -- removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear All** if you want the failures gone too
+- **Clear All** -- after asking you to confirm, removes every queued, completed, failed and cancelled item. Anything downloading or being processed right now is left running
+- **Abort Queue** -- stops the current download straight away and cancels everything still waiting. Completed downloads are kept. It asks you to confirm first; tick **Don't ask again** in that window if you would rather it did not. The same action is on the status bar at the bottom of the window and on the keyboard shortcut **Cmd/Ctrl + Shift + .**. If the abort cannot be carried out, MeedyaDL tells you
 - **Export** -- saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
 - **Import** -- loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
 
 The History page exposes the same Retry / Retry All Failed actions for entries already moved out of the queue. Re-enqueuing from History creates a fresh queue item; the original History entry is preserved.
+
+**Clear History** on the History page asks you to confirm first. Clearing it cannot be undone, and it also changes what MeedyaDL knows about past downloads -- the history is what it uses to spot a duplicate or tell you that something was downloaded before.
+
+### After the queue finishes
+
+MeedyaDL can do something by itself when the whole queue has finished: open the output folder, play a notification sound, close MeedyaDL, or restart, sleep/hibernate or shut down the computer.
+
+- **Every time** -- choose it in **Settings > General > Preferences > After Queue Completes**, and save.
+- **Just this once** -- right-click an empty part of the Download page and pick one of the **After Queue:** options. This is saved straight away (no need to press Save Changes). It is used the next time the queue finishes and then cleared, so it will not happen again unless you choose it again. While it is waiting, it takes the place of your usual setting.
+
+The status bar at the bottom of the window shows what is set to happen, for example "After queue: Shut down (once)". If MeedyaDL cannot save a one-off choice, it tells you, and says what will actually happen when the queue finishes instead -- an earlier one-off that is still set, your usual setting, or nothing -- so you are not caught out when you leave your computer running.
 
 ### Queue Persistence and Crash Recovery
 
@@ -239,13 +254,13 @@ Because manifests capture the exact parameters of the original download, re-impo
 
 There are three ways to re-download content from a `.meedyadl` manifest:
 
-1. **Import button on the Download page** -- Click the **Import** button on the Download page and select a `.meedyadl` file from the native file picker. The items are added to the download queue using the manifest's stored URLs and your current device settings.
+1. **Import button on the Download page** -- Click the **Import** button on the Download page and select a `.meedyadl` file from the native file picker. The manifest's links are put into the URL box, one per line, so you can look them over; press **Add to Queue** to download them.
 
-2. **Drag and drop** -- Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. The app detects the manifest, parses its contents, and adds the items to the queue automatically.
+2. **Drag and drop** -- Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. MeedyaDL checks the file first. If it is not a manifest it understands, or has no links in it, you are told so and nothing is changed. Otherwise the links are put into the URL box on the Download page, just like the Import button (up to 500 links from one file -- if there are more, a message says only the first 500 were used). Press **Add to Queue** to download them.
 
-3. **Queue Import** -- The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature.
+3. **Queue Import** -- The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
 
-In all cases, the imported items use your current global settings as the base, with any per-download overrides from the manifest applied on top.
+A manifest brought in through the Download page (the **Import** button or drag and drop) only fills in the links: the downloads use your current settings, plus any choices you make on screen before adding them. A file brought in through the Queue page's **Import** also restores the per-download choices that were exported with it, applied on top of your current settings.
 
 ### Manifest File Location
 
@@ -287,9 +302,9 @@ Smart re-download detection relies on metadata changes exposed through the Apple
 
 MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a notification offering to download that content.
 
-Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). Dismiss the notification if you do not want to download.
+Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Dismiss the notification if you do not want to download.
 
-When the MeedyaDL window is not focused (e.g., minimised or in the background), a **native OS notification** is sent instead of the in-app toast, so you never miss a detected URL. Native notifications respect the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both).
+MeedyaDL shows its usual message for a detected URL, which follows the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). When the MeedyaDL window is not focused (e.g., minimised or in the background), it also sends a **native OS notification**, so you never miss a detected URL. That extra notification is only sent while **Desktop Notifications** is switched on -- and, for a copied link, it is sent even when Notification Style is set to in-app toasts only. With Desktop Notifications off, MeedyaDL shows its messages inside the app window only.
 
 ### Privacy
 

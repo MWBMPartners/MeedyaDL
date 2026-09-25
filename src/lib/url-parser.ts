@@ -308,21 +308,104 @@ const SERVICE_DOMAINS: Array<{ service: MediaServiceId; domains: string[] }> = [
 ];
 
 /**
+ * Checks whether `hostname` IS `domain`, or a genuine subdomain of it.
+ *
+ * "Genuine subdomain" means `domain` sits right after a "." boundary at
+ * the END of `hostname` -- e.g. "www.youtube.com" counts as
+ * "youtube.com" because it ends with ".youtube.com". Just CONTAINING the
+ * domain text somewhere is not the same thing and must not count:
+ * "music.apple.com.evil.example" contains the text "music.apple.com",
+ * but it is really a subdomain of "evil.example" -- a completely
+ * different, attacker-controlled domain. There is no "." right before
+ * "music.apple.com" in that string (what comes right before it is
+ * ".evil.example"), so anchoring the check at the end of the hostname,
+ * with a leading ".", is what tells a real subdomain apart from a
+ * look-alike one.
+ */
+function hostMatchesDomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+/**
  * Detects which media service a URL belongs to.
  *
- * Checks the URL against known service domains. Returns the service ID
- * if recognised, or `null` if the URL doesn't match any supported service.
- * This is a pure client-side check — no IPC call needed.
+ * Checks the URL's host (and, for a `SERVICE_DOMAINS` entry that also
+ * names a path, the path too) against the known service domains below.
+ * Returns the service ID if recognised, or `null` if the URL doesn't
+ * match any supported service. This is a pure client-side check — no IPC
+ * call needed.
+ *
+ * This used to check whether the domain TEXT showed up anywhere in the
+ * whole URL string (`url.toLowerCase().includes(domain)`), which also
+ * matched a domain name sitting inside a query parameter, path segment,
+ * or fragment that belonged to a completely different site --
+ * "https://example.com/album/x/1?ref=music.apple.com&i=2" was read as an
+ * Apple Music link purely because the text "music.apple.com" happened to
+ * appear in the `ref` value. That let a link to some other service skip
+ * whatever this page does based on the detected service — the Spotify
+ * pre-download consent step, and the "this service is temporarily
+ * paused" notice, both key off it. Worth being honest about how far that
+ * actually went: the backend re-checks the real host before anything is
+ * downloaded (`start_download` in `commands/gamdl.rs`), so a link like
+ * that was never going to download AS the wrong service — what it could
+ * skip was this page's own courtesy checks, which exist only here on the
+ * frontend.
+ *
+ * `isAppleMusicUrl` above already gets this right, by parsing the URL
+ * and comparing `hostname` on its own. `detectPlatform` in
+ * `platform-config.ts` does much the same, over `hostname + pathname`.
+ * This follows the same approach, generalised to the services list
+ * below — some of whose entries (BBC iPlayer) need a path check too,
+ * since BBC iPlayer and BBC Sounds share one host and are told apart
+ * only by path.
  *
  * @param url - The URL string to check
  * @returns The detected MediaServiceId, or null if unrecognised
  */
 export function detectService(url: string): MediaServiceId | null {
-  const lower = url.toLowerCase();
+  let parsed: URL;
+  try {
+    /*
+     * The URL constructor strips leading/trailing whitespace itself (part
+     * of the standard URL-parsing steps), so callers do not need to trim
+     * first. A string with no scheme (e.g. a link typed without
+     * "https://") throws here rather than being read as loose text --
+     * that matches `isAppleMusicUrl` above, which already rejects the
+     * same shape of input for the same reason.
+     */
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+
+  const hostname = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+
   for (const { service, domains } of SERVICE_DOMAINS) {
     for (const domain of domains) {
-      if (lower.includes(domain)) {
-        return service;
+      const slash = domain.indexOf('/');
+      if (slash === -1) {
+        /* A plain host, e.g. "music.apple.com". */
+        if (hostMatchesDomain(hostname, domain)) {
+          return service;
+        }
+      } else {
+        /*
+         * A host with a required path prefix, e.g. "bbc.co.uk/iplayer".
+         * Both the host AND the path have to match, and the path must
+         * START with the prefix as a whole segment -- "/sounds" or
+         * "/sounds/...", never "/news/soundscape-..." or
+         * "/news/iplayer-changes". The check used to be `includes()`,
+         * which matched the prefix anywhere in the path, so exactly the
+         * BBC News case this comment said was prevented still happened
+         * (stand-in review, 24 Sept 2026).
+         */
+        const domainHost = domain.slice(0, slash);
+        const domainPath = domain.slice(slash); // keeps the leading "/"
+        const pathMatches = pathname === domainPath || pathname.startsWith(`${domainPath}/`);
+        if (hostMatchesDomain(hostname, domainHost) && pathMatches) {
+          return service;
+        }
       }
     }
   }

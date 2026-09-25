@@ -1,11 +1,11 @@
 ---
 name: project-audit-checks-inventory
-description: The eleven cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
+description: The twelve cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
 metadata:
   type: project
 ---
 
-# The eleven scripts in `tools/audit-checks/`
+# The twelve scripts in `tools/audit-checks/`
 
 Each script checks that one part of the codebase still agrees with another
 part — the kind of thing that no compiler catches, because both sides are
@@ -17,8 +17,17 @@ and are runnable locally with nothing beyond Python 3's standard library.
 
 - **`check_build_secrets.py`** — every build-time value the code reads
   (`option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the
-  frontend) is either passed through by `release.yml` or named on a
-  deliberate "not needed" list in the script itself. This is the check
+  frontend) reaches EACH of the three build steps in `release.yml` that
+  compile the app (Windows/Linux, macOS, ARMv7 — each has its own `env:`
+  block), either in that step's block or through a plain `export` into
+  `$GITHUB_ENV` earlier in the same job, or is named on a deliberate "not
+  needed" list in the script itself. Until September 2026 it only looked for
+  the name anywhere in the file, so a value wired into one step would have
+  passed while the feature shipped dead on macOS; it now tells "missing
+  everywhere" apart from "present in some steps only". It reads those
+  exports strictly — a value that runs a command, or any placeholder other
+  than a plain `matrix`/`env` reference, is refused rather than trusted —
+  and it has its own tests (`test_check_build_secrets.py`). This is the check
   that would have caught the three inert features in
   [[project-never-worked-pattern]] before they shipped.
 - **`check_help_topics.py`** — every file in `help/*.md` has a line in
@@ -32,7 +41,11 @@ and are runnable locally with nothing beyond Python 3's standard library.
   translation. Also reports, informationally rather than as a fault, how
   many translation keys nothing in `src/` looks up yet.
 - **`check_comment_paths.py`** — every file path named in a comment
-  actually exists on disk. See [[project-comment-accuracy-hazard]].
+  actually exists on disk — in Rust, TypeScript, JavaScript, Python and,
+  since September 2026, GitHub Actions workflow files too (the densest
+  comments in the repo, and where a comment named a rules file that had
+  never existed). Has its own tests (`test_check_comment_paths.py`). See
+  [[project-comment-accuracy-hazard]].
 - **`check_concurrency_claims.py`** — every comment claiming two things
   happen "in parallel" or "concurrently" sits near code that actually
   contains a mechanism that could make that true. A deliberately rough
@@ -60,6 +73,16 @@ and are runnable locally with nothing beyond Python 3's standard library.
   control that saves correctly and changes nothing, because nothing
   downstream ever reads it — the shape the old video "resolution fallback"
   list turned out to be (#1176).
+- **`check_settings_defaults.py`** — the page's starting settings
+  (`DEFAULT_SETTINGS` in `settingsStore.ts`) still match the app's own
+  (`AppSettings::default()` in Rust): same values, nothing missing that the
+  page's type requires. Enum values are compared by the name serde really
+  uses, read from the enum's own attributes. Anything it cannot compare is
+  named at the end of a clean run, so "OK" never quietly means "half were
+  skipped". Added September 2026 after three values were found to disagree —
+  two of them values a settings upgrade step exists to repair, so "Reset"
+  then "Save" put somebody back on file-name patterns that let two
+  playlists overwrite each other (#545, #552).
 - **`check_updater_manifest_keys.py`** — no platform key for the updater
   manifest (`darwin-aarch64`, `linux-armv7-deb`, and the rest) is written by
   hand into a workflow; they all come from `manifest_rows()` in

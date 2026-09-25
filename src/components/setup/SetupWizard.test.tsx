@@ -23,12 +23,12 @@
  *   - Back click invokes `prevStep`
  *   - Last step swaps "Continue" → "Get Started"
  *   - Get Started invokes the full finish flow
- *     (finishSetup + updateSettings + setShowSetupWizard(false))
+ *     (finishSetup + syncSaved + setShowSetupWizard(false))
  *
  * @see src/components/setup/SetupWizard.tsx
  */
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -39,6 +39,16 @@ import type { SetupStep } from '@/types';
 // verify the dispatch table without exercising 1700+ lines of step
 // behaviour. Each placeholder includes a data-testid so the test
 // can assert which step is being rendered.
+// The finish handler now writes `setup_completed` to DISK, not only to
+// the page's copy of the settings. That write is the whole point of the
+// fix, so it is mocked here and asserted below — a test that only
+// checked the in-memory half would have passed throughout the years this
+// was broken.
+const setStoredPreferenceMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/lib/tauri-commands', () => ({
+  setStoredPreference: (p: unknown) => setStoredPreferenceMock(p),
+}));
+
 vi.mock('@/components/setup/steps/WelcomeStep', () => ({
   WelcomeStep: () => <div data-testid="step-welcome" />,
 }));
@@ -217,16 +227,48 @@ describe('SetupWizard', () => {
     ).toBeInTheDocument();
   });
 
-  it('Get Started fires the full finish flow (finishSetup + updateSettings + setShowSetupWizard)', () => {
+  it('Get Started fires the full finish flow, and records setup as finished ON DISK', async () => {
     goToStep(SETUP_STEPS.length - 1, [...SETUP_STEPS]);
+    setStoredPreferenceMock.mockClear();
     const finishSpy = vi.spyOn(useSetupStore.getState(), 'finishSetup');
-    const updateSpy = vi.spyOn(useSettingsStore.getState(), 'updateSettings');
+    const setShowSpy = vi.spyOn(useUiStore.getState(), 'setShowSetupWizard');
+    useSettingsStore.setState({ isDirty: false });
+    render(<SetupWizard />);
+    fireEvent.click(screen.getByRole('button', { name: /get started/i }));
+
+    expect(finishSpy).toHaveBeenCalledTimes(1);
+    // The page's copy follows what was just saved -- WITHOUT marking the
+    // Settings screen as having unsaved work. It used to go through
+    // `updateSettings`, which did (Codex, batch-3 review).
+    expect(useSettingsStore.getState().settings.setup_completed).toBe(true);
+    expect(useSettingsStore.getState().isDirty).toBe(false);
+
+    // The half that was missing. Writing to the page's copy of the
+    // settings saves nothing, so the app never knew setup had been done
+    // — which in turn meant the crash-reporting question, which only
+    // appears once setup is recorded as finished, could never be asked
+    // on any install.
+    expect(setStoredPreferenceMock).toHaveBeenCalledWith({
+      kind: 'setup_completed',
+      completed: true,
+    });
+
+    // The handler is asynchronous now, so the overlay closes after the
+    // write settles.
+    await waitFor(() => expect(setShowSpy).toHaveBeenCalledWith(false));
+  });
+
+  it('still closes the wizard when the setting cannot be written', async () => {
+    // Failing to record it is not a reason to trap somebody in the
+    // wizard. The worst it costs is that the wizard may appear again if
+    // a tool later goes missing.
+    goToStep(SETUP_STEPS.length - 1, [...SETUP_STEPS]);
+    setStoredPreferenceMock.mockRejectedValueOnce(new Error('disk full'));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const setShowSpy = vi.spyOn(useUiStore.getState(), 'setShowSetupWizard');
     render(<SetupWizard />);
     fireEvent.click(screen.getByRole('button', { name: /get started/i }));
-    expect(finishSpy).toHaveBeenCalledTimes(1);
-    expect(updateSpy).toHaveBeenCalledWith({ setup_completed: true });
-    expect(setShowSpy).toHaveBeenCalledWith(false);
+    await waitFor(() => expect(setShowSpy).toHaveBeenCalledWith(false));
   });
 
   // ===========================================================================

@@ -54,10 +54,12 @@ import { useTranslation } from 'react-i18next';
 
 /**
  * Tauri app info API for retrieving the current app version at runtime.
- * Used to detect pre-release versions (v0.x.x) for the first-load notice.
+ * Used to detect unfinished builds (alpha, beta, release candidate, or
+ * anything before 1.0 — the backend's `is_unfinished_build`) for the
+ * first-load notice.
  * @see {@link https://v2.tauri.app/reference/javascript/api/namespaceapp/}
  */
-import { getVersion } from '@tauri-apps/api/app';
+import { getLaunchVersionInfo } from '@/lib/tauri-commands';
 
 /**
  * Tauri event listener API for receiving events emitted from the Rust backend.
@@ -230,10 +232,13 @@ import './styles/themes/a11y-colour-blind.css';
  * Internationalization setup using i18next.
  * `initI18n` initializes the translation system with OS language detection.
  * Must be called before any component uses `useTranslation()`.
+ * `changeUiLanguage` switches to a specific language, fetching its
+ * translation file first if needed -- see that function's own comment in
+ * `lib/i18n.ts` for why calling i18next's own `changeLanguage()` directly
+ * on an unfetched language used to leave the screen silently in English.
  * @see ./lib/i18n.ts for configuration details
  */
-import { initI18n } from './lib/i18n';
-import i18next from 'i18next';
+import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n';
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -374,6 +379,15 @@ function App() {
    */
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const sidebarCollapsedSetting = useSettingsStore((s) => s.settings.sidebar_collapsed);
+  /**
+   * The chosen UI language, read reactively so Effect 3b below re-runs
+   * the moment it changes -- whether that's settings loading for the
+   * first time at startup, or someone picking a different language from
+   * the Settings > General dropdown while the app is already open. Empty
+   * string means "no explicit choice; follow the OS/browser language",
+   * which `initI18n()` already handles in Effect 2 above.
+   */
+  const uiLanguageSetting = useSettingsStore((s) => s.settings.ui_language);
 
   /*
    * ─── Dependency Store Selectors ────────────────────────────────────
@@ -502,13 +516,19 @@ function App() {
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */
       await loadSettings();
 
-      /* Step 1.5: Sync UI language from settings if explicitly set.
-       * If ui_language is non-empty, override i18next's auto-detected language.
-       * Empty string means "use auto-detected language" (from OS locale). */
-      const uiLang = useSettingsStore.getState().settings.ui_language;
-      if (uiLang) {
-        i18next.changeLanguage(uiLang).catch(() => {});
-      }
+      /* Step 1.5 used to live here: reading `ui_language` out of the
+       * just-loaded settings and calling `i18next.changeLanguage()` on
+       * it directly. That call was moved into its own reactive effect
+       * below (search this file for "uiLanguageSetting"), for two
+       * reasons: it now goes through `changeUiLanguage()`, which fetches
+       * the chosen language's translation file first -- calling
+       * `changeLanguage()` on a language nobody had fetched is exactly
+       * why picking a new language used to need two restarts before it
+       * actually showed up (see that function's comment in lib/i18n.ts)
+       * -- and a reactive effect also picks up a language switch made
+       * *while the app is already running*, from Settings > General,
+       * with no restart needed at all. A one-off read here, like this
+       * used to be, could only ever catch the language at startup. */
 
       /* Step 2: Check for app updates BEFORE dependency checks.
        * On first launch the installed version may already be outdated, so we
@@ -622,21 +642,39 @@ function App() {
       /*
        * Step 5: Pre-release first-load notice.
        *
-       * On the first launch of a new pre-release version (v0.x.x), show a
+       * On the first launch of a new unfinished build (alpha, beta, release
+       * candidate, or anything before 1.0), show a
        * modal informing the user about the pre-release status, potential
        * bugs, and verbose logging behaviour. The version change is detected
        * by comparing the current app version against `last_seen_version`
-       * (which the Rust backend updates in load_settings()).
+       * (which the Rust backend updates in load_settings_at_startup()).
        *
        * The notice is suppressed if the setup wizard or the first-run update
        * prompt is shown (to avoid modal stacking) — it will appear on the
        * next launch after setup.
        */
       try {
-        const currentVersion = await getVersion();
-        const isPrerelease = currentVersion.startsWith('0.');
-        const previousVersion = settingsState.settings.last_seen_version;
-        const versionChanged = previousVersion !== '' && previousVersion !== currentVersion;
+        // Both of these now come from the backend, and both used to be
+        // worked out here — wrongly.
+        //
+        // "Is this an unfinished build?" was written out again in this
+        // file, and the page's copy said only "does the version start
+        // with 0." That was complete while the app was pre-1.0 and wrong
+        // every day since, so this notice had not appeared on a single
+        // alpha, beta or release candidate since 1.0 shipped (#216).
+        //
+        // "Has the version changed since last time?" was read from the
+        // stored last-seen version — which startup overwrites with the
+        // CURRENT version before this page ever loads. So the two were
+        // always equal, this was always false, and the screen had never
+        // appeared once (#387). The backend keeps the real previous
+        // version in memory for the run and hands it over here.
+        //
+        // A reviewer pointed out the command existed but nothing called
+        // it, which left both faults exactly as they were.
+        const launch = await getLaunchVersionInfo();
+        const isPrerelease = launch.isUnfinishedBuild;
+        const versionChanged = launch.isFirstLaunchAfterUpgrade;
         const uiStateForNotice = useUiStore.getState();
 
         if (
@@ -648,12 +686,20 @@ function App() {
           useUiStore.getState().setShowPrereleaseNotice(true);
         }
 
-        // Show crash report opt-in prompt on first launch (after setup wizard)
+        // Show crash report opt-in prompt on first launch (after setup wizard).
+        //
+        // Not while the pre-release notice is showing: the two could open
+        // together on the first launch of a new pre-release, and Escape
+        // meant for the notice also closed this question — recording "no"
+        // for good, unseen (stand-in review, 24 Sept 2026). Held back, it
+        // is simply asked at the next launch: `crash_report_prompt_shown`
+        // is only set once the question has really been answered.
         if (
           !settingsState.settings.crash_report_prompt_shown &&
           settingsState.settings.setup_completed &&
           !uiStateForNotice.showSetupWizard &&
-          !uiStateForNotice.showFirstRunUpdatePrompt
+          !uiStateForNotice.showFirstRunUpdatePrompt &&
+          !useUiStore.getState().showPrereleaseNotice
         ) {
           useUiStore.getState().setShowCrashReportPrompt(true);
         }
@@ -764,6 +810,47 @@ function App() {
   }, [sidebarCollapsedSetting]);
 
   /*
+   * ─── Effect 3b: Apply the UI Language, Live ────────────────────────
+   *
+   * Re-applies `ui_language` every time it changes: once at startup,
+   * right after Effect 2 loads settings for the first time, and again
+   * immediately if the user picks a different language from Settings >
+   * General while the app is already running.
+   *
+   * That second case used to not work at all. `ui_language` was only
+   * ever read once, inside Effect 2's one-shot startup sequence, so
+   * choosing a different language while MeedyaDL was open did nothing
+   * until it was closed and reopened -- and even then, the FIRST restart
+   * silently kept showing English (see `changeUiLanguage()` in
+   * lib/i18n.ts for exactly why). This effect fixes both problems at
+   * once: reacting to the setting like this means a language switch
+   * applies straight away, with no restart needed at all, and
+   * `changeUiLanguage()` fetches the chosen language's file before
+   * switching to it, so even the very first time this runs -- at
+   * startup -- it works without a second restart.
+   *
+   * An empty string means "Auto": follow the system's language. That has
+   * to be applied too, not skipped. Skipping it meant choosing "Auto"
+   * after "Deutsch" left the app in German (stand-in review, 24 Sept 2026).
+   *
+   * A language file that cannot be loaded is reported, not swallowed:
+   * the screen staying in English with no word of why was the failure.
+   *
+   * Dependency: [uiLanguageSetting] -- re-runs whenever the setting
+   * changes, the same pattern Effect 3 above uses for the sidebar.
+   */
+  useEffect(() => {
+    // "Auto" (empty) means the system language when MeedyaDL has it, else
+    // English — never a language that has no file.
+    const target = uiLanguageSetting || systemLanguageOrEnglish();
+    changeUiLanguage(target).catch((err: unknown) => {
+      useUiStore
+        .getState()
+        .addToast(err instanceof Error ? err.message : String(err), 'warning', undefined, 'ui-language');
+    });
+  }, [uiLanguageSetting]);
+
+  /*
    * ─── Effect 4: Auto-Update Check and Tray Listener ─────────────────
    *
    * Two responsibilities:
@@ -852,6 +939,37 @@ function App() {
       if (intervalId) clearInterval(intervalId);
     };
   }, [isReady, checkForUpdates]);
+
+  /*
+   * ─── Effect 4a2: the one-off after-queue action has been used ─────────
+   *
+   * The backend clears `after_queue_once` ("shut down / hibernate / … once,
+   * when the queue finishes") on disk after using it, then sends this
+   * event. Without it, this page's copy kept the old value: the status bar
+   * showed a finished action as still armed, and a later Save used to
+   * write it back so it fired again, unasked. Save no longer does that (the
+   * backend keeps the disk value), but the screen should still tell the
+   * truth.
+   */
+  useEffect(() => {
+    if (!isReady) return;
+
+    let unlistenOnce: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        unlistenOnce = await listen('after-queue-once-used', () => {
+          // Not `updateSettings`: that marks the Settings screen as having
+          // unsaved changes, and this is not a change the person made.
+          useSettingsStore.getState().syncAfterQueueOnce(null);
+        });
+      } catch {
+        /* Tauri API unavailable */
+      }
+    };
+    setup();
+
+    return () => unlistenOnce?.();
+  }, [isReady]);
 
   /*
    * ─── Effect 4b: macOS About Menu → Help > About ────────────────────

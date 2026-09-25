@@ -83,6 +83,7 @@ import { listen } from '@tauri-apps/api/event';
 // Zustand stores for settings and wizard state.
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSetupStore } from '@/stores/setupStore';
+import { useUiStore } from '@/stores/uiStore';
 
 // Tauri IPC command wrappers.
 import * as commands from '@/lib/tauri-commands';
@@ -762,8 +763,37 @@ export function CookiesStep() {
             description="Select your exported cookies.txt file"
             value={settings.cookies_path}
             onChange={(path) => {
-              updateSettings({ cookies_path: path });
+              // Written to DISK. It used to change the page's copy only
+              // and nothing saved it, so a person who exported a cookies
+              // file and chose it here had no cookies configured
+              // afterwards — and their first download failed the cookie
+              // check with no hint as to why.
+              //
+              // The other two ways of supplying cookies here (importing
+              // from a browser, and signing in) were always fine: the
+              // backend writes the path itself for those. This was the
+              // one of the three that did not.
+              // The page's copy follows the one-field write only AFTER it
+              // succeeds, without marking Settings unsaved. If the write
+              // fails, NOTHING changes and the message says so. (An earlier
+              // version kept the choice as an "unsaved edit" and told the
+              // person to press Save Changes -- but the rest of MeedyaDL never
+              // sees an unsaved edit, and opening Settings reloads from disk
+              // and discards it, so both halves of that message were false.
+              // Codex follow-up review, then a stand-in review.)
               setValidation(null);
+              void commands
+                .setStoredPreference({ kind: 'cookies_path', path: path ?? null })
+                .then(() => {
+                  useSettingsStore.getState().syncSaved({ cookies_path: path });
+                })
+                .catch((err) => {
+                  useUiStore.getState().addToast(
+                    'Could not save that cookies file, so nothing was changed. Please choose it again.',
+                    'error'
+                  );
+                  console.error('Could not save the cookies file path:', err);
+                });
             }}
             placeholder="No cookies file selected"
             filters={[{ name: 'Text Files', extensions: ['txt'] }]}

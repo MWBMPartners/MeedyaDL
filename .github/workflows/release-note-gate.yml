@@ -143,9 +143,21 @@ jobs:
             exit 0
           fi
 
+          # The script that picks the notes out is tested first, so a broken
+          # one cannot quietly let a note through unchecked. (lint-notes.py
+          # has its own test, test_lint_notes.py, but it currently fails on
+          # an older committed notes file, so it is not run here yet — see
+          # #1226.)
+          python3 scripts/release-notes/test_extract_release_notes.py
+
+          # Each note is linted WHOLE, exactly as the release templates will
+          # show it: a wrapped note joined back into one line. Linting only
+          # the first line would let the rest reach the release notes
+          # unchecked. extract-release-notes.py explains the rules, and
+          # REFUSES an empty "Release-Note:" line rather than guess what the
+          # release tool would make of it.
           printf '%s\n' "$PR_BODY" \
-            | grep -E '^Release-Note: ' \
-            | sed 's/^Release-Note: //' \
+            | python3 scripts/release-notes/extract-release-notes.py \
             | python3 scripts/release-notes/lint-notes.py --trailer
 
   # ------------------------------------------------------------------

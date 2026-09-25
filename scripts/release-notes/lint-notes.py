@@ -260,7 +260,19 @@ def lint_text(text: str, path: str, strip_footer: bool = False) -> list[Finding]
     """Run every rule against `text`, returning findings in
     error-then-warning, file-order sequence. `path` is only used for
     reporting — pass a synthetic label like "trailer" for stdin input."""
-    lines = text.splitlines()
+    # "\n" only, for the same reason as lint_trailer_stream: splitlines()
+    # also breaks at U+2028/U+2029, which split a banned phrase across one
+    # into two lines so it never matched. (The first fix changed only
+    # lint_trailer_stream, which hands each line straight back here to be
+    # split again, so it did nothing — stand-in review, 25 Sept 2026.)
+    #
+    # Carriage returns are turned into line breaks FIRST, as splitlines()
+    # did. Not every caller has done that already: --live reads a published
+    # release body from stdin, and a body edited on GitHub's web page has
+    # "\r\n" endings. Left in, the "\r" sits at the end of every line and
+    # the one rule anchored to the end of a line (a bare "(#123)" issue
+    # citation) never matches (fifth stand-in review, 25 Sept 2026).
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if strip_footer:
         lines = _strip_footer(lines)
 
@@ -288,7 +300,11 @@ def lint_trailer_stream(stream: str) -> list[Finding]:
     report therefore mean "the Nth trailer line on stdin", not a position
     inside a file."""
     findings: list[Finding] = []
-    for i, line in enumerate(stream.splitlines(), start=1):
+    # Split on "\n" only. str.splitlines() also splits on U+2028/U+2029
+    # (and a few others), which cut ONE note into two lint lines — so a
+    # banned phrase spanning that character was never matched, although the
+    # release notes publish it as one piece (stand-in review, 25 Sept 2026).
+    for i, line in enumerate(stream.split("\n"), start=1):
         if not line.strip():
             continue
         line_findings = lint_text(line, "trailer", strip_footer=False)

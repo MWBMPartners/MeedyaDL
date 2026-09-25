@@ -568,6 +568,69 @@ fn restore_credentials_blob(
     Ok(())
 }
 
+/// Decides which of a restored profile's settings are kept and which are
+/// this machine's, and checks what it keeps.
+///
+/// Three things, in an order that matters:
+///
+/// 1. The bundle's Apple Music identifiers are read FIRST, because step
+///    two replaces them.
+/// 2. The shared list runs — the same one the ordinary settings import
+///    uses, which keeps every path and credential that belongs to this
+///    machine rather than to whoever made the bundle.
+/// 3. Two values are then put back deliberately: the download folder
+///    stays as this install has it, because a bundle is a restore onto a
+///    machine that already has its own folders; and the Apple Music
+///    identifiers come from the bundle, because its key does too and a
+///    key without its matching identifiers does not work.
+///
+/// The identifiers are checked here, not left to the save. A reviewer
+/// found this route going through a save that does no checking, beneath
+/// a comment claiming it did.
+///
+/// Two details worth keeping, both noted by that reviewer as useful
+/// things earlier comment deletions had taken with them:
+///
+/// * The identifiers that matter are the TOP-LEVEL pair. There are
+///   per-service copies of the same names which nothing reads — an
+///   earlier attempt at this edited those and therefore did nothing.
+/// * A bundle export replaces the account name in file paths with a
+///   placeholder, which is part of why the download folder is taken
+///   from this install rather than from the bundle.
+///
+/// **Why this is a function at all.** The sequence lived inline, and its
+/// test reimplemented it — so the test passed against a version of the
+/// real code that did nothing, which is exactly the fault it was written
+/// to catch. A reviewer pointed that out. Both now call this.
+///
+/// # What it deliberately does NOT do
+///
+/// It does not check whether the bundle contains a key. Restore the
+/// settings without the credentials and the bundle's identifiers arrive
+/// beside the key already installed. That is the person choosing one and
+/// not the other; every attempt to be cleverer about it produced a worse
+/// fault than the one it fixed.
+fn apply_bundle_settings_rules(
+    imported: &mut crate::models::settings::AppSettings,
+    pre_import: &crate::models::settings::AppSettings,
+) -> Result<(), String> {
+    // 1. Before the shared list can replace them.
+    let bundle_team_id = imported.musickit_team_id.clone();
+    let bundle_key_id = imported.musickit_key_id.clone();
+
+    // 2.
+    crate::commands::settings::preserve_local_only_settings(imported, pre_import);
+
+    // 3.
+    imported.output_path = pre_import.output_path.clone();
+    imported.musickit_team_id =
+        crate::commands::settings::normalise_musickit_id("MusicKit Team ID", bundle_team_id)?;
+    imported.musickit_key_id =
+        crate::commands::settings::normalise_musickit_id("MusicKit Key ID", bundle_key_id)?;
+
+    Ok(())
+}
+
 fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = 1024 * 1024;
@@ -813,17 +876,24 @@ pub async fn import_profile(
                 serde_json::from_slice(&settings_bytes)
                     .map_err(|e| format!("Bundle settings.json is malformed: {e}"))?;
             crate::commands::settings::sanitize_imported_settings(&mut imported);
-            // Security-sensitive fields are NEVER taken from the bundle —
-            // always clamped to what this install already had configured.
-            imported.dev_access_enabled = pre_import_settings.dev_access_enabled;
-            imported.ffmpeg_path = pre_import_settings.ffmpeg_path.clone();
-            imported.mp4decrypt_path = pre_import_settings.mp4decrypt_path.clone();
-            imported.mp4box_path = pre_import_settings.mp4box_path.clone();
-            imported.nm3u8dlre_path = pre_import_settings.nm3u8dlre_path.clone();
-            imported.wrapper_url = pre_import_settings.wrapper_url.clone();
-            imported.wrapper_decrypt_ip = pre_import_settings.wrapper_decrypt_ip.clone();
-            imported.cookies_path = pre_import_settings.cookies_path.clone();
-            imported.output_path = pre_import_settings.output_path.clone();
+            // Everything that must never arrive from somebody else's file
+            // is clamped to what this install already had — through the
+            // SAME function the ordinary settings import uses.
+            //
+            // This used to be its own shorter list, written out by hand
+            // here. It had already fallen behind: it did not mention the
+            // MediaInfo path, the PlayReady device file, the per-service
+            // paths (one of which is a program the Spotify engine loads),
+            // or where the activity log is written. So a bundle could set
+            // all of those while an ordinary settings file could not —
+            // the same door, left open beside the one that was locked.
+            //
+            // A reviewer found it. Two lists guarding the same thing is
+            // the arrangement that produced the gap; there is now one.
+
+            // One function, called here and by its test, so the test
+            // cannot pass against a broken version of this.
+            apply_bundle_settings_rules(&mut imported, &pre_import_settings)?;
 
             crate::services::config_service::save_settings(&app, &imported)
                 .map_err(|e| format!("Failed to write settings.json: {e}"))?;
@@ -973,6 +1043,7 @@ pub async fn import_profile(
                 other => format!("Failed to decrypt credentials: {other}"),
             })?;
         restore_credentials_blob(&app, &plaintext, &pre_import_settings)?;
+
         // P4 success path — clear the "skipped" flag (default false) so
         // the frontend doesn't show the misleading "skipped" toast.
         result.credentials_skipped_p4 = false;
@@ -1033,6 +1104,94 @@ fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) 
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_restored_profile_keeps_its_apple_music_identifiers_with_its_key() {
+        // Calls the SAME function the import calls. The previous version
+        // of this test wrote out the sequence itself, so it passed
+        // against a real version that did nothing — which is the fault
+        // it existed to catch. A reviewer said so plainly.
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("BUNDLETEAM".to_string()),
+            musickit_key_id: Some("BUNDLEKEY1".to_string()),
+            output_path: "/Users/them/Music".to_string(),
+            cookies_path: Some("/Users/them/cookies.txt".to_string()),
+            ..Default::default()
+        };
+        let local = crate::models::settings::AppSettings {
+            musickit_team_id: Some("LOCALTEAM1".to_string()),
+            musickit_key_id: Some("LOCALKEY12".to_string()),
+            output_path: "/Users/me/Music".to_string(),
+            cookies_path: Some("/Users/me/cookies.txt".to_string()),
+            ..Default::default()
+        };
+
+        apply_bundle_settings_rules(&mut imported, &local).expect("valid identifiers");
+
+        // From the bundle, because the key it restores belongs with them.
+        assert_eq!(imported.musickit_team_id, Some("BUNDLETEAM".to_string()));
+        assert_eq!(imported.musickit_key_id, Some("BUNDLEKEY1".to_string()));
+        // From this machine, because a bundle is restored onto an install
+        // that already has its own folders and its own cookies.
+        assert_eq!(imported.output_path, "/Users/me/Music");
+        assert_eq!(imported.cookies_path, local.cookies_path);
+    }
+
+    #[test]
+    fn a_malformed_key_identifier_stops_the_restore_too() {
+        // The reviewer's own note on the previous tests: every one of
+        // them supplied a valid Key ID, so all three would still pass if
+        // the checking of that second field were dropped and it were
+        // simply assigned. One of the two is not covered by testing the
+        // other.
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("ABCDE12345".to_string()),
+            musickit_key_id: Some("nope".to_string()),
+            ..Default::default()
+        };
+        let err = apply_bundle_settings_rules(
+            &mut imported,
+            &crate::models::settings::AppSettings::default(),
+        )
+        .expect_err("a malformed key identifier must stop the restore");
+        assert!(
+            err.contains("Key ID"),
+            "the message should name which one is wrong, got: {err}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_identifier_in_a_bundle_stops_the_restore() {
+        // Checked here rather than left to the save: a reviewer found
+        // this route going through a save that does no checking, under a
+        // comment claiming it did.
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("NOT A VALID ONE".to_string()),
+            ..Default::default()
+        };
+        let local = crate::models::settings::AppSettings::default();
+
+        let err = apply_bundle_settings_rules(&mut imported, &local)
+            .expect_err("a malformed identifier must stop the restore");
+        assert!(
+            err.contains("10 uppercase letters/numbers"),
+            "the message should say what is wrong, got: {err}"
+        );
+    }
+
+    #[test]
+    fn an_identifier_is_tidied_the_same_way_the_settings_screen_tidies_it() {
+        let mut imported = crate::models::settings::AppSettings {
+            musickit_team_id: Some("  abcde12345  ".to_string()),
+            ..Default::default()
+        };
+        apply_bundle_settings_rules(&mut imported, &crate::models::settings::AppSettings::default())
+            .expect("valid once tidied");
+        assert_eq!(imported.musickit_team_id, Some("ABCDE12345".to_string()));
+    }
+
+
+
     use super::*;
 
     #[test]

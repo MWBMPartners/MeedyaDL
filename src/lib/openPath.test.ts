@@ -15,12 +15,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // `openContainingFolder` reveals (selects the folder in its parent) and
 // `openDownloadedFile` opens (launches the file in its own app) -- see
 // the file header for why these went from the shell plugin to the
-// opener plugin, and why they use two different opener functions.
+// opener plugin, and why they take two different routes.
+//
+// Revealing still calls the opener plugin directly: it only selects the
+// item in the file manager, and runs nothing.
+//
+// Opening goes to the backend instead. It used to call the plugin's own
+// "open this path", with permission to open ANY path -- and on Windows,
+// opening a program runs it, so anything that could run code in this
+// page could run any file on the computer. The test below pins the
+// route, so putting the direct call back fails here rather than quietly
+// needing that permission again.
 const revealItemInDirMock = vi.fn();
 const openPathMock = vi.fn();
 vi.mock('@tauri-apps/plugin-opener', () => ({
   revealItemInDir: (p: string) => revealItemInDirMock(p),
   openPath: (p: string) => openPathMock(p),
+}));
+
+const invokeMock = vi.fn();
+vi.mock('@tauri-apps/api/core', () => ({
+  invoke: (cmd: string, args?: unknown) => invokeMock(cmd, args),
 }));
 
 const addToastMock = vi.fn();
@@ -34,6 +49,7 @@ describe('openPath', () => {
   beforeEach(() => {
     revealItemInDirMock.mockReset();
     openPathMock.mockReset();
+    invokeMock.mockReset();
     addToastMock.mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -61,11 +77,16 @@ describe('openPath', () => {
       expect(revealItemInDirMock).toHaveBeenCalledWith('C:\\Users\\me\\Music\\Album');
     });
 
-    it('opens a file as given', async () => {
-      openPathMock.mockResolvedValue(undefined);
+    it('opens a file as given, through the backend rather than the plugin', async () => {
+      invokeMock.mockResolvedValue(undefined);
       const ok = await openDownloadedFile('/Users/me/Music/Artist/Album/01 Track.m4a');
       expect(ok).toBe(true);
-      expect(openPathMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album/01 Track.m4a');
+      expect(invokeMock).toHaveBeenCalledWith('open_downloaded_file', {
+        filePath: '/Users/me/Music/Artist/Album/01 Track.m4a',
+      });
+      // The whole point of the change: the page no longer opens paths
+      // itself, so the app no longer needs permission to open any path.
+      expect(openPathMock).not.toHaveBeenCalled();
     });
   });
 
@@ -85,7 +106,7 @@ describe('openPath', () => {
 
     it('says "folder" for a folder and "file" for a file', async () => {
       revealItemInDirMock.mockRejectedValue(new Error('nope'));
-      openPathMock.mockRejectedValue(new Error('nope'));
+      invokeMock.mockRejectedValue(new Error('nope'));
 
       await openContainingFolder('/some/folder', true);
       expect(addToastMock.mock.calls[0][0]).toContain('That folder');
@@ -98,7 +119,7 @@ describe('openPath', () => {
     it('does not claim to know why it failed', async () => {
       // The likely causes are not reliably distinguishable from the error,
       // and a confident wrong guess is worse than an honest general one.
-      openPathMock.mockRejectedValue(new Error('EACCES: permission denied'));
+      invokeMock.mockRejectedValue(new Error('EACCES: permission denied'));
       await openDownloadedFile('/some/file.m4a');
       const message = addToastMock.mock.calls[0][0] as string;
       expect(message).toContain('may have been');
@@ -107,7 +128,7 @@ describe('openPath', () => {
 
     it('replaces its own message instead of stacking copies', async () => {
       // Clicking a dead button five times should leave one message, not five.
-      openPathMock.mockRejectedValue(new Error('nope'));
+      invokeMock.mockRejectedValue(new Error('nope'));
       await openDownloadedFile('/a.m4a');
       await openDownloadedFile('/a.m4a');
       const firstKey = addToastMock.mock.calls[0][3];

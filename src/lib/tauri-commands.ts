@@ -61,6 +61,7 @@ import { invoke } from '@tauri-apps/api/core';
  * @see src/types/index.ts for full type definitions
  */
 import type {
+  AfterQueueAction,
   AppSettings,
   ArtworkResult,
   ComponentUpdate,
@@ -553,6 +554,17 @@ export interface GamdlCapabilities {
    * dropdown's `(Experimental)` labels, which stay unconditional (#965).
    */
   assets_api_unlocks_lossy_codecs: boolean;
+  /**
+   * ≥3.9 -- GAMDL understands the PlayReady unlocking method (a second
+   * option alongside its original, built-in Widevine one), and will
+   * accept a user-supplied `.prd` device file for it. `false` on every
+   * older GAMDL release, and `false` on the cache-empty default before
+   * the dependency probe has run -- deliberately conservative, since
+   * offering a choice the installed GAMDL can't actually act on would
+   * be worse than not offering it. Drives whether Settings > Advanced
+   * shows the "Unlocking Method" section at all; see `AdvancedTab.tsx`.
+   */
+  play_ready_drm: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');
@@ -643,13 +655,19 @@ export function detectExternalGamdl(): Promise<ExternalGamdlInfo | null> {
  * The Rust backend downloads the platform/arch-appropriate binary from
  * the official release source and places it in the app data directory.
  *
- * Called by: SetupWizard dependencies step
+ * Called by: SetupWizard dependencies step, Settings > Tools, and (with
+ * `forUpdate`) the Update button on the Updates page.
  *
  * @param name - Name of the dependency to install
+ * @param forUpdate - `true` only for the Update button. It tells the
+ *   backend this is an UPDATE, which must not quietly fall back to
+ *   MeedyaDL's backup download source — that source can hold the same or
+ *   an older version, so the update would never actually arrive. Leave it
+ *   out for setup, Install and Reinstall, which keep the full route.
  * @returns Promise resolving to a success message string
  */
-export function installDependency(name: string): Promise<string> {
-  return invoke<string>('install_dependency', { name });
+export function installDependency(name: string, forUpdate?: boolean): Promise<string> {
+  return invoke<string>('install_dependency', { name, forUpdate: forUpdate ?? false });
 }
 
 /**
@@ -673,6 +691,20 @@ export function getComponentVersions(): Promise<ComponentVersion[]> {
 // ============================================================
 
 /**
+ * What will happen when the queue finishes, as the QUEUE will read it --
+ * from the running app's settings cache, not the file. See the Rust
+ * `get_after_queue_status` for why the file is not good enough here.
+ *
+ * Rust handler: `get_after_queue_status()` in `src-tauri/src/commands/settings.rs`
+ */
+export function getAfterQueueStatus(): Promise<{
+  after_queue_once: AfterQueueAction | null;
+  after_queue_action: AfterQueueAction;
+}> {
+  return invoke('get_after_queue_status');
+}
+
+/**
  * Loads the current application settings from disk.
  *
  * Rust handler: `get_settings()` in `src-tauri/src/commands/settings.rs`
@@ -688,6 +720,61 @@ export function getComponentVersions(): Promise<ComponentVersion[]> {
  */
 export function getSettings(): Promise<AppSettings> {
   return invoke<AppSettings>('get_settings');
+}
+
+/**
+ * What version was running at the previous launch, and is this build an
+ * unfinished one.
+ *
+ * Both answers come from the backend on purpose. The page used to work
+ * them out itself and got both wrong: its copy of "is this unfinished"
+ * only asked whether the version starts with `0.`, which stopped being
+ * a complete answer the day 1.0 shipped; and it read the previous
+ * version from the settings, which startup overwrites with the current
+ * one before the page loads, so the two were always equal.
+ *
+ * Rust handler: `get_launch_version_info()` in
+ * `src-tauri/src/commands/updates.rs`
+ */
+export interface LaunchVersionInfo {
+  /** The version running now. */
+  currentVersion: string;
+  /**
+   * The version running at the previous launch. An empty string means a
+   * fresh install — there was no previous version. `null` means settings
+   * have not been read yet this run, so nobody knows.
+   */
+  previousVersion: string | null;
+  /** An alpha, beta, release candidate, or anything before 1.0. */
+  isUnfinishedBuild: boolean;
+  /**
+   * True only when the version actually changed since the previous
+   * launch. False on a fresh install and false when nothing changed, so
+   * the caller never has to tell those apart itself — getting that wrong
+   * means showing somebody a list of changes to a version they never ran.
+   */
+  isFirstLaunchAfterUpgrade: boolean;
+}
+
+export function getLaunchVersionInfo(): Promise<LaunchVersionInfo> {
+  return invoke<LaunchVersionInfo>('get_launch_version_info');
+}
+
+/**
+ * Asks for the settings a brand-new install would have.
+ *
+ * Used by the Settings screen's "Reset" button. The page deliberately
+ * does NOT use its own copy of the defaults for this: two copies of the
+ * same list always drift, and this one had — see `DEFAULT_SETTINGS` in
+ * `src/stores/settingsStore.ts` for what the drift cost.
+ *
+ * Rust handler: `get_default_settings()` in
+ * `src-tauri/src/commands/settings.rs`
+ *
+ * @returns Promise resolving to a fresh install's settings.
+ */
+export function getDefaultSettings(): Promise<AppSettings> {
+  return invoke<AppSettings>('get_default_settings');
 }
 
 /**
@@ -2732,4 +2819,64 @@ export function getFeatureFlags(): Promise<FeatureFlagsSnapshot> {
  */
 export function refreshFeatureFlags(): Promise<FeatureFlagsSnapshot> {
   return invoke<FeatureFlagsSnapshot>('refresh_feature_flags');
+}
+
+// ============================================================================
+// One-off answers given outside the Settings screen
+// ============================================================================
+
+/**
+ * Which of the five helper programs a remembered path belongs to.
+ *
+ * Mirrors the Rust `HelperProgram` enum. A closed list rather than a
+ * field name as free text, so only these five can ever be named.
+ */
+export type HelperProgram = 'ffmpeg' | 'mp4_decrypt' | 'mp4_box' | 'nm3u8_dl_re' | 'media_info';
+
+/**
+ * One answer, given outside the Settings screen, that should be
+ * remembered on disk.
+ *
+ * Mirrors the Rust `StoredPreference` enum, which is where the full
+ * explanation lives. The short version: writing to `updateSettings()`
+ * only changes the copy of the settings this page is holding. Nothing
+ * saves it, so eight finished features did nothing at all — finishing
+ * the setup wizard, answering the crash-reporting question, "Not now"
+ * on the macOS move prompt, "don't ask again" before aborting the
+ * queue, the one-off after-queue action, the wizard's Browse buttons
+ * for the five helper programs, and the wizard's manual cookies-file
+ * picker.
+ *
+ * Deliberately one named answer at a time. Sending the whole settings
+ * object is the bug that was backed out twice (#1175): this page's copy
+ * may hold half-finished edits from the Settings screen that nobody has
+ * pressed Save on.
+ */
+export type StoredPreference =
+  | { kind: 'setup_completed'; completed: boolean }
+  | { kind: 'crash_reporting_choice'; enabled: boolean }
+  | { kind: 'relocation_declined'; declined: boolean }
+  | { kind: 'abort_queue_confirm'; confirm: boolean }
+  | { kind: 'after_queue_once'; action: AfterQueueAction | null }
+  | { kind: 'helper_program_path'; program: HelperProgram; path: string | null }
+  | { kind: 'cookies_path'; path: string | null };
+
+/**
+ * Remembers one answer given outside the Settings screen, on disk.
+ *
+ * Call this INSTEAD OF `updateSettings()` for anything that has to
+ * survive a restart. `updateSettings()` is still right for the Settings
+ * screen itself, where "Save Changes" writes the lot on purpose.
+ *
+ * Rust handler: `set_stored_preference()` in
+ * `src-tauri/src/commands/stored_preference.rs`
+ *
+ * @param preference The single answer to remember.
+ * @returns Promise that rejects if the settings file cannot be written —
+ *   which the caller should surface, rather than carrying on as though
+ *   the answer had been remembered. That silence is the whole fault this
+ *   command exists to fix.
+ */
+export function setStoredPreference(preference: StoredPreference): Promise<void> {
+  return invoke<void>('set_stored_preference', { preference });
 }

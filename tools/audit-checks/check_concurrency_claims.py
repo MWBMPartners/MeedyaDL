@@ -54,13 +54,25 @@ direction (missing a real mechanism, not inventing a fake one):
      doc comment at the top of a file, before any code) falls back to
      scanning the ENTIRE file, which is deliberately the most forgiving
      choice available, not a precise one.
+  4. The comment is a CONDITIONAL warning about a change nobody has made
+     yet -- "if you ever make the queue run items in parallel, this needs
+     a lock first" is a guard for a future maintainer, not a claim that
+     today's code runs anything in parallel. This script's two negation
+     checks (searching a window around the match for "not"/"never"/
+     "nothing"/"none"/"without") only catch a direct negation next to the
+     word -- "not run in parallel" -- and don't understand the different
+     grammar of "IF you do X in parallel, do Y first", so a true,
+     carefully-hedged warning like that still needs its own recorded
+     exception.
 
 None of that makes the check useless -- it made exactly the five findings
 described above, correctly, with nothing else in this repository falsely
 caught alongside them. But when it flags something and the comment is
 actually correct because the real mechanism lives somewhere this script
-can't see, the fix is an entry in EXCEPTIONS with the reason, not a
-rewording of a true comment just to satisfy a script.
+can't see (or because, as in reason 4, there is no mechanism to find --
+the comment is honestly describing something that hasn't happened), the
+fix is an entry in EXCEPTIONS with the reason, not a rewording of a true
+comment just to satisfy a script.
 
 Exit code:
   0 -- no findings, OR findings without --strict
@@ -232,6 +244,26 @@ EXCEPTIONS: dict[str, str] = {
         "\"a parallel click\" describes a user clicking twice in quick "
         "succession -- human behaviour the UI has to tolerate, not a "
         "claim about this code running two things at once."
+    ),
+    # --- Reason 4 (see the module docstring): a CONDITIONAL warning about
+    # a change nobody has made -- "if you ever do X in parallel, you'll
+    # need a lock first" -- not a claim that the code runs anything in
+    # parallel today. ---
+    "/// items in parallel, this needs a lock first.** The merging is what": (
+        "Conditional, not descriptive: the full sentence is 'If you add a "
+        "second caller on the same path, or make the queue run items in "
+        "parallel, this needs a lock first.' That is a guard aimed at a "
+        "future maintainer, not a claim about how write_manifest() runs "
+        "today. The three paragraphs directly above this one, in the same "
+        "doc comment, spell out -- with reasons -- why the queue does NOT "
+        "run items in parallel today (one item at a time; one caller per "
+        "service path; every other-format copy finishes before this pass "
+        "starts), which is exactly why write_manifest() itself has no "
+        "join!/spawn of its own: it isn't supposed to have one yet, and "
+        "the comment's whole job is to say what has to change before it "
+        "would need one. Checked against the code around it 2026-09-23: "
+        "the premise still holds -- write_manifest() is called once per "
+        "queue item, from the single-item-at-a-time completion path."
     ),
 }
 

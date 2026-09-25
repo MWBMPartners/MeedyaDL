@@ -283,8 +283,27 @@ jobs:
             # maintainer signs off on stable release copy (see the
             # ::error below, unchanged from before).
             if [[ "$STRIPPED" == *-* ]]; then
-              gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
-                > "$LIVE_BODY_FILE" 2>/dev/null || echo "" > "$LIVE_BODY_FILE"
+              # Read the live notes through the shared reader, which tells
+              # a FAILED read apart from an EMPTY one. This used to be
+              # `... 2>/dev/null || echo "" > "$LIVE_BODY_FILE"`: any
+              # failure became an empty file, the commit-speak check below
+              # treats empty as "needs healing", and the healing step then
+              # wrote regenerated notes OVER whatever the release really
+              # said. Found by the batch-4 stand-in, confirmed by Codex.
+              #
+              # On a failed read this leaves the notes alone and lets the
+              # build carry on — deliberately unlike finalize-release,
+              # which stops. That job is the last one, so stopping there
+              # strands nothing. This is the FIRST job and every platform
+              # build waits on it: failing here would cancel a whole
+              # release over a blip in reading its notes, when all that is
+              # at stake is whether the notes get tidied. Re-running this
+              # job later does the tidying; a lost build cannot be got
+              # back that way.
+              if ! bash scripts/release/fetch-release-body.sh "$TAG" "$REPO" > "$LIVE_BODY_FILE"; then
+                echo "::warning::Could not read the current release notes for $TAG after 3 attempts, so they have been LEFT AS THEY ARE rather than checked and possibly rewritten. If they turn out to be raw commit messages, re-run this workflow for $TAG once GitHub is answering, or run: bash scripts/release-notes/apply-notes.sh $TAG"
+                exit 0
+              fi
               if python3 scripts/release-notes/detect-commit-speak.py < "$LIVE_BODY_FILE"; then
                 echo "::notice::Release $TAG exists with a commit-speak/bare body — regenerating ELI5 notes and self-healing (#1046)"
                 SELF_HEAL=1
@@ -1203,27 +1222,45 @@ jobs:
                 exit 1
               fi
 
-              # --- Opportunistic checksum verification (#984 consumer side) ---
+              # --- Checksum verification (#984) ---
               #
-              # The producer side — the MeedyaDL-Tools mirror repo actually
-              # publishing a checksum alongside each asset — lives in a
-              # different repo and is out of scope for this change. This
-              # step is the consumer half: IF a checksum is published, we
-              # verify it and hard-fail on mismatch (refusing to bundle a
-              # possibly-corrupted or tampered binary into a signed
-              # installer); IF one isn't published yet, we fall back to the
-              # pre-existing behaviour (a loud `::warning` plus the
-              # non-empty + archive-integrity checks below) so this is
-              # purely additive — it never blocks a release on a mirror
-              # asset that predates checksum publishing.
-              #
-              # Two conventions are tried, newest/most-specific first:
+              # The mirror repo (MeedyaSuite/MeedyaDL-Tools) publishes one
+              # checksum file covering every asset in a release, named
+              # "SHA256SUMS" — confirmed by hand against the live release
+              # while writing this fix. Three conventions are looked for,
+              # most specific first, and the FIRST checksum file that
+              # exists on the release is the only one read (the others are
+              # not consulted as a fallback):
               #   (a) a sibling "<asset-name>.sha256" asset in the same
               #       mirror release (one line: "<hex>  <filename>" or a
               #       bare hex digest — both are common `sha256sum`/
               #       `shasum` output shapes, so the awk grabs field 1),
               #   (b) a repo-wide "checksums.txt" asset listing every
-              #       asset's hash, one "<hex>  <filename>" line each.
+              #       asset's hash, one "<hex>  <filename>" line each,
+              #   (c) the mirror's actual "SHA256SUMS" asset — same
+              #       "<hex>  <filename>" line shape as (b), just a
+              #       different file name (a common naming habit for
+              #       such lists; the checking tools do not require it).
+              #
+              # A missing checksum now STOPS the build — it used to only
+              # print a warning and bundle the file unverified. That is
+              # safe to make a hard stop because the mirror always
+              # publishes SHA256SUMS today, and this whole step only ever
+              # runs when a human deliberately starts an offline-installer
+              # build by hand (`workflow_dispatch` with
+              # `bundle_engines=true` — never on an ordinary tag-push
+              # release), so a failed run is noticed immediately by the
+              # person who started it, not discovered later inside a
+              # shipped installer.
+              #
+              # Honest limit of what this catches: a checksum published
+              # next to the file it describes proves the download arrived
+              # intact — it does NOT prove the file is the one we meant to
+              # ship. Anyone who can edit the mirror release can change
+              # the binary and its published checksum together, and this
+              # check would still pass. Signed, independently-verifiable
+              # build records for the mirror are tracked separately in
+              # #1211.
               ASSET_NAME=$(basename "$ASSET_URL")
               EXPECTED_SHA256=""
 
@@ -1247,28 +1284,58 @@ jobs:
                   print(asset['browser_download_url'])
                   break
           " || true)
+                # A line in these files is: the hash, a two-character
+                # separator, then the file name. The file name is the whole
+                # of the rest of the line and may itself contain spaces, so
+                # it is compared in full.
+                #
+                # This used to compare only up to the first space, which an
+                # independent review caught: a published line naming
+                # "thing.tar.gz backup" would have been accepted as the
+                # checksum for "thing.tar.gz". Since the whole point of this
+                # step is to refuse bytes that are not the ones the mirror
+                # published, a near-match is not good enough.
+                #
+                # Every matching line is printed, deliberately. If a file
+                # name somehow appears twice, the result is two hashes, the
+                # comparison below cannot match, and the build stops — which
+                # is the right answer to a checksum list that contradicts
+                # itself.
                 if [ -n "$CHECKSUMS_URL" ]; then
-                  EXPECTED_SHA256=$(curl -fsSL "$CHECKSUMS_URL" | awk -v name="$ASSET_NAME" '$2 == name {print $1}')
+                  EXPECTED_SHA256=$(curl -fsSL "$CHECKSUMS_URL" | awk -v name="$ASSET_NAME" '{ i = index($0, " "); if (i == 0) next; rest = substr($0, i + 1); sub(/^[ *]/, "", rest); if (rest == name) print $1 }')
+                else
+                  SHA256SUMS_URL=$(echo "$ASSETS_JSON" | python3 -c "
+          import json, sys
+          data = json.load(sys.stdin)
+          for asset in data.get('assets', []):
+              if asset['name'] == 'SHA256SUMS':
+                  print(asset['browser_download_url'])
+                  break
+          " || true)
+                  if [ -n "$SHA256SUMS_URL" ]; then
+                    EXPECTED_SHA256=$(curl -fsSL "$SHA256SUMS_URL" | awk -v name="$ASSET_NAME" '{ i = index($0, " "); if (i == 0) next; rest = substr($0, i + 1); sub(/^[ *]/, "", rest); if (rest == name) print $1 }')
+                  fi
                 fi
               fi
 
-              if [ -n "$EXPECTED_SHA256" ]; then
-                # sha256sum is available on Linux/Windows (Git Bash/MSYS)
-                # runners; macOS runners ship `shasum` instead. Try both
-                # rather than assuming one is on PATH.
-                if command -v sha256sum >/dev/null 2>&1; then
-                  ACTUAL_SHA256=$(sha256sum "/tmp/${tool}.${EXT}" | awk '{print $1}')
-                else
-                  ACTUAL_SHA256=$(shasum -a 256 "/tmp/${tool}.${EXT}" | awk '{print $1}')
-                fi
-                if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
-                  echo "::error::Checksum mismatch for $tool ($ASSET_URL) — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to bundle a possibly-corrupted or tampered mirror asset."
-                  exit 1
-                fi
-                echo "  → checksum verified for $tool (sha256: ${ACTUAL_SHA256})"
-              else
-                echo "::warning::No published checksum found for ${ASSET_NAME} — skipping verification (mirror does not yet publish one for this asset; producer side tracked in #984)"
+              if [ -z "$EXPECTED_SHA256" ]; then
+                echo "::error::No published checksum found for ${ASSET_NAME} — refusing to bundle an unverified mirror asset into a signed installer. Looked for <asset>.sha256, checksums.txt and SHA256SUMS on the mirror release, in that order; the first one present did not name this file, or none was present."
+                exit 1
               fi
+
+              # sha256sum is available on Linux/Windows (Git Bash/MSYS)
+              # runners; macOS runners ship `shasum` instead. Try both
+              # rather than assuming one is on PATH.
+              if command -v sha256sum >/dev/null 2>&1; then
+                ACTUAL_SHA256=$(sha256sum "/tmp/${tool}.${EXT}" | awk '{print $1}')
+              else
+                ACTUAL_SHA256=$(shasum -a 256 "/tmp/${tool}.${EXT}" | awk '{print $1}')
+              fi
+              if [ "$ACTUAL_SHA256" != "$EXPECTED_SHA256" ]; then
+                echo "::error::Checksum mismatch for $tool ($ASSET_URL) — expected ${EXPECTED_SHA256}, got ${ACTUAL_SHA256}. Refusing to bundle a possibly-corrupted or tampered mirror asset."
+                exit 1
+              fi
+              echo "  → checksum verified for $tool (sha256: ${ACTUAL_SHA256})"
 
               if [ "$EXT" = "zip" ]; then
                 if ! unzip -tqq "/tmp/${tool}.${EXT}" >/dev/null; then
@@ -1452,7 +1519,7 @@ jobs:
             echo ""
             echo "MeedyaDL does NOT currently modify any of these components."
             echo "If a future release does, the modified source tree will be"
-            echo "published in MWBMPartners/MeedyaDL-Tools alongside the binary."
+            echo "published in MeedyaSuite/MeedyaDL-Tools alongside the binary."
             echo ""
             echo "--- Components covered ---"
             echo ""
@@ -2183,8 +2250,70 @@ jobs:
           # Base URL for release assets
           BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
-          # Get the current release body
-          CURRENT_BODY=$(gh release view "$TAG" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+          # Get the current release body.
+          #
+          # This has to be read reliably, because the next few steps decide
+          # what to write back based on what it says. Getting this wrong
+          # once destroyed a whole release's notes (see the big comment
+          # right below), so it is worth spelling out exactly what "read
+          # reliably" means here:
+          #
+          #   - GitHub can refuse a request for no real reason — a blip,
+          #     not a fault of ours. The project's own notes record this
+          #     happening TWICE within two seconds during a past incident,
+          #     so one failed attempt proves nothing. We try up to three
+          #     times, two seconds apart, before giving up.
+          #   - If every attempt fails, that is NOT the same thing as "this
+          #     release has no notes yet". A brand-new release genuinely
+          #     has an empty body and `gh` reports that successfully; a
+          #     network hiccup makes `gh` fail outright. Those two cases
+          #     must never be treated the same way.
+          #   - The old version of this step could not tell them apart. It
+          #     wrote `2>/dev/null || echo ""`, so ANY failure — a timeout,
+          #     a rate limit, anything — turned into a silent empty string.
+          #     That empty string then walked through every check below as
+          #     if it were the real (short) body. The "has the guide
+          #     already been added?" check found nothing in it, so the
+          #     step went ahead and wrote the download table over — not
+          #     alongside, over — whatever plain-English release notes a
+          #     person had actually published. A later run would see the
+          #     table, conclude "already done", and never touch it again,
+          #     so the loss was permanent. A failed read must stop this
+          #     step, never stand in for an empty body.
+          #
+          # scripts/release/fetch-release-body.sh is the one place that
+          # talks to GitHub for this read, and the same script guards the
+          # matching read in ensure-release. It used to be a function
+          # written out here; when the same mistake turned up in
+          # ensure-release, a second copy would have meant two versions of
+          # one rule, which is how the second bug outlived the first fix.
+          # It prints the body and exits 0 only when a read genuinely
+          # succeeded, even if what came back was empty. On repeated
+          # failure it exits 1 and prints nothing, and this step treats
+          # that as fatal (see ensure-release for why that job does not).
+          if ! RAW_BODY=$(bash scripts/release/fetch-release-body.sh "$TAG" "$REPO"); then
+            echo "::error::Could not read the current release notes for $TAG after 3 attempts. Refusing to write anything, because guessing here (treating the failed read as 'no notes yet') is exactly what previously overwrote a real release's notes with just the download table. Re-run this job once GitHub is answering again."
+            exit 1
+          fi
+
+          # Detect whether the RAW body (before any stripping) still has
+          # the "Release in progress..." placeholder in it, so later steps
+          # know whether a cleanup write is needed even when the download
+          # guide is already present. This reads $RAW_BODY directly rather
+          # than asking GitHub a second time — one read for the whole step
+          # means one place that can fail, not two, and it also removes a
+          # second silent-failure spot the old version of this step had
+          # here (a failed second `gh release view` fed an empty string
+          # into `grep`, which just quietly reported "no placeholder found"
+          # instead of raising anything).
+          # Anchored to the start of a line for the same reason as the
+          # verify step below: prose that merely mentions the placeholder
+          # in passing must not trigger a spurious cleanup-write.
+          if printf '%s' "$RAW_BODY" | grep -qE "^Release in progress"; then
+            NEEDS_PLACEHOLDER_CLEANUP="1"
+          else
+            NEEDS_PLACEHOLDER_CLEANUP="0"
+          fi
 
           # Strip any "Release in progress..." placeholder + the optional
           # `---` separator that follows it (#857). The placeholder is
@@ -2204,7 +2333,7 @@ jobs:
           # at the first match) and prune the optional `---` separator
           # that immediately follows it. We also collapse the extra
           # blank lines left behind.
-          CURRENT_BODY=$(printf '%s' "$CURRENT_BODY" | python3 -c "
+          CURRENT_BODY=$(printf '%s' "$RAW_BODY" | python3 -c "
           import re,sys
           body = sys.stdin.read()
           # Strip the placeholder line + optional '---' separator + the
@@ -2219,22 +2348,6 @@ jobs:
           body = body.lstrip('\n')
           sys.stdout.write(body)
           ")
-
-          # Detect whether the body looked broken before the strip.
-          # If the placeholder appeared anywhere, we need to write the
-          # cleaned body back even if the download guide is already
-          # present (because the guide check comes BEFORE the cleanup
-          # write in the legacy flow). Set a flag the post-cleanup
-          # branch reads.
-          # Anchored for the same reason as the verify step below: prose
-          # that merely mentions the placeholder must not trigger a
-          # spurious cleanup-write.
-          if gh release view "$TAG" --repo "$REPO" --json body --jq '.body' \
-            | grep -qE "^Release in progress"; then
-            NEEDS_PLACEHOLDER_CLEANUP="1"
-          else
-            NEEDS_PLACEHOLDER_CLEANUP="0"
-          fi
 
           # Check if the download guide has already been appended (idempotent).
           # If so AND no placeholder cleanup is needed → exit clean. If a
@@ -2316,7 +2429,11 @@ jobs:
           # Strip leading whitespace from heredoc indentation
           DOWNLOAD_GUIDE=$(echo "$DOWNLOAD_GUIDE" | sed 's/^          //')
 
-          # Append the guide to the existing body
+          # Append the guide to the existing body. This is safe to do
+          # unconditionally at this point — the script already exited
+          # above if the read of $CURRENT_BODY could not be trusted, so
+          # by the time we reach here it holds either the release's real
+          # notes or a genuinely empty body, never a failed-read stand-in.
           NEW_BODY="${CURRENT_BODY}${DOWNLOAD_GUIDE}"
 
           # Update the release

@@ -829,14 +829,81 @@ pub fn process_queue(
                 &download_id,
                 &format!("Authentication: Wrapper ({safe_url})"),
             );
-            // Verbose: show full wrapper URL (not redacted) for troubleshooting
-            emit_verbose_download_log(&app, &download_id, &format!("Wrapper URL (full): {url}"));
+            // The address again, still with its query string removed.
+            //
+            // This line used to print the address in full, on purpose,
+            // "for troubleshooting" — two lines after the code above had
+            // gone to the trouble of removing the token from it. Verbose
+            // lines are written to the log file on disk whatever the
+            // screen is set to show, that file is kept for a week, and
+            // the app offers a button to export it and another to reveal
+            // it in a folder. So a sign-in token ended up in a file made
+            // to be sent to somebody else.
+            //
+            // Nothing is lost by removing it. What a person needs when a
+            // wrapper will not connect is which machine, which port and
+            // which path — all of which survive. Found by an independent
+            // review of the whole codebase, and it contradicted this
+            // project's own written rule that wrapper addresses are
+            // redacted before they are logged.
+            emit_verbose_download_log(
+                &app,
+                &download_id,
+                &format!("Wrapper address in use: {safe_url}"),
+            );
         } else {
             emit_download_log(
                 &app,
                 &download_id,
                 "Authentication: Cookie-based (no wrapper)",
             );
+        }
+
+        // Settle the copy-protection question HERE, immediately before the
+        // download runs, and let that one answer drive both the command
+        // line and what the person is told.
+        //
+        // `merge_options` already made this decision once, but it made it
+        // when the item was ADDED TO THE QUEUE, which can be a long time
+        // ago — a queue can sit for hours. Everything the decision rests
+        // on can change in between: the setting itself, whether the `.prd`
+        // device file is still on disk, even which GAMDL is installed.
+        // Deciding again now is not belt-and-braces, it is the only way
+        // the two can be the same answer. A review caught the earlier
+        // version, which claimed they could not disagree; they could, in
+        // both directions, and the worst of them was silent — a device
+        // file deleted after queueing still reached GAMDL, which then
+        // stopped with a Python traceback.
+        //
+        // The download is never refused over this. When PlayReady cannot
+        // be used, GAMDL's own built-in unlocking is used instead — what
+        // every download did before this setting existed — and one plain
+        // sentence says why.
+        // Both sets of options are updated, not just the one used for this
+        // download. The companion downloads (the extra copies in other
+        // formats) were copied from the queued options further up, before
+        // this point, so leaving them alone would hand GAMDL the stale
+        // answer on every companion run — including a device file that has
+        // since been deleted, which is the case that ends in a traceback
+        // rather than a message.
+        let (drm_backend, prd_path, fallback_reason) =
+            match super::options::plan_drm_backend_for_now(&settings_for_companion) {
+                super::options::DrmPlan::PlayReady { prd_path } => (
+                    Some(crate::models::settings::DrmBackend::PlayReady),
+                    Some(prd_path),
+                    None,
+                ),
+                super::options::DrmPlan::LeaveToGamdl => (None, None, None),
+                super::options::DrmPlan::FallBackToBuiltIn { reason } => {
+                    (None, None, Some(reason))
+                }
+            };
+        download_options.drm_backend = drm_backend;
+        download_options.prd_path.clone_from(&prd_path);
+        companion_base_options.drm_backend = drm_backend;
+        companion_base_options.prd_path = prd_path;
+        if let Some(reason) = fallback_reason {
+            emit_download_log(&app, &download_id, &reason);
         }
 
         // Per-download GAMDL version + capability flags (#755). The
@@ -2175,16 +2242,71 @@ pub fn process_queue(
                                         .album_name
                                         .as_deref()
                                         .unwrap_or("Unknown Album");
-                                    // Sanitize album name for filesystem safety: strip characters
-                                    // that are illegal or problematic on macOS/Windows/Linux.
+                                    // An album name comes from Apple Music, which means a
+                                    // record label typed it, which means it can contain
+                                    // anything at all. This is the one place in the download
+                                    // path where such a name becomes a FILE NAME directly
+                                    // rather than being appended to one the download engine
+                                    // already wrote, so it is cleaned properly.
+                                    //
+                                    // A review found the previous version listing the
+                                    // characters to remove and stopping there: it missed
+                                    // spaces and dots at either end, which Windows quietly
+                                    // strips or refuses, control characters, and any limit on
+                                    // length. A list of what to remove is always missing
+                                    // something; keeping only what is known to be safe is
+                                    // not.
+                                    //
+                                    // Only ever a diagnostic file written when verbose
+                                    // logging is on, so nothing much rode on it — but it
+                                    // was the one spot that needed the careful version and
+                                    // had the casual one.
                                     let safe_name: String = album_name
                                         .chars()
-                                        .map(|c| match c {
-                                            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
-                                            _ => c,
+                                        .map(|c| {
+                                            if c.is_alphanumeric()
+                                                || matches!(c, ' ' | '-' | '_' | '(' | ')' | '\'')
+                                            {
+                                                c
+                                            } else {
+                                                '_'
+                                            }
                                         })
                                         .collect();
-                                    let json_filename = format!("{safe_name}-applemusic-data.json");
+                                    // Trim what Windows treats specially at either end, and
+                                    // cap the length so a very long title cannot push the
+                                    // whole name past what a filesystem accepts.
+                                    //
+                                    // Capped by BYTES, not by characters, and this matters.
+                                    // It used to take eighty characters — which is eighty
+                                    // bytes of English and two hundred and forty bytes of
+                                    // Chinese or Japanese, because those characters are
+                                    // three bytes each. Filesystems count bytes: Linux
+                                    // allows 255 per name. So an album with a long enough
+                                    // non-Latin title produced a name the filesystem
+                                    // refused, and the diagnostic file was never written.
+                                    // An independent reviewer worked out the exact case.
+                                    //
+                                    // The budget leaves room for everything added after
+                                    // the name: the fixed ending, and the ` .1`-style
+                                    // number used when a file of that name already exists
+                                    // with different contents.
+                                    const NAME_SUFFIX: &str = "-applemusic-data.json";
+                                    // Enough for a two-digit disambiguating number.
+                                    const ROOM_FOR_A_NUMBER: usize = 4;
+                                    let name_budget =
+                                        255usize.saturating_sub(NAME_SUFFIX.len() + ROOM_FOR_A_NUMBER);
+                                    let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
+                                    let safe_name = crate::utils::text::truncate_str(safe_name, name_budget);
+                                    let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
+                                    // Never empty: a name of nothing but punctuation would
+                                    // otherwise produce a file called just the suffix.
+                                    let safe_name = if safe_name.is_empty() {
+                                        "Unknown Album"
+                                    } else {
+                                        safe_name
+                                    };
+                                    let json_filename = format!("{safe_name}{NAME_SUFFIX}");
                                     let album_dir_path = std::path::Path::new(&album_dir);
                                     match serde_json::to_string_pretty(&metadata.raw_json) {
                                         Ok(json_str) => {
@@ -4858,10 +4980,18 @@ pub fn process_queue(
                         // auth and the user has opted in, automatically re-queue
                         // with wrapper disabled (cookie-based auth) instead of
                         // treating this as a terminal failure.
+                        // The address with its query string removed, like
+                        // everywhere else it is written down. This line
+                        // printed it whole — and a reviewer pointed out
+                        // that this is the failure path, which is exactly
+                        // the moment somebody exports the log and sends
+                        // it to whoever might help.
                         log::debug!(
                             "Download {dl_id} terminal error path: \
                          wrapper_url={}, error_category={error_category}",
-                            wrapper_url_for_logging.as_deref().unwrap_or("none"),
+                            wrapper_url_for_logging
+                                .as_deref()
+                                .map_or_else(|| "none".to_string(), redact_url_query),
                         );
                         // Skip the cookie auto-retry for rate limits — a 429 is a
                         // per-account server-side cooldown, so re-running via
@@ -5566,7 +5696,10 @@ pub(crate) async fn run_download_with_events(
     emit_verbose_download_log(
         app,
         download_id,
-        &format!("GAMDL CLI args: {:?}", options.to_cli_args()),
+        &format!(
+            "GAMDL CLI args: {:?}",
+            crate::utils::process::redact_cli_args(&options.to_cli_args())
+        ),
     );
 
     // Configure piped stdout/stderr for real-time parsing

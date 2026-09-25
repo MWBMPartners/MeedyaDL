@@ -121,6 +121,8 @@ import {
   checkRedownloadStatus,
   checkSpotifyDispatchAllowed,
   importManifest,
+  setStoredPreference,
+  getAfterQueueStatus,
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
@@ -184,6 +186,20 @@ const CONTENT_TYPE_LABELS: Record<AppleMusicContentType, string> = {
   recording: 'Classical Recording',
   unknown: 'Unknown',
 };
+
+/**
+ * One after-queue choice at a time, for the whole app.
+ *
+ * Two overlapping choices could each remember a different "value before
+ * the click", and the slower one's failure path could put back the OTHER's
+ * value -- hiding a still-armed shutdown (Codex, batch-2 review). A second
+ * choice made while the first is still being saved is refused.
+ *
+ * Kept OUTSIDE the component on purpose: inside it, leaving the Download
+ * page and coming back gave the new page a fresh guard while the old
+ * request was still running (Codex, follow-up review).
+ */
+const afterQueueChoiceBusy = { value: false };
 
 /**
  * Renders the download page with URL input, content-type detection,
@@ -646,7 +662,9 @@ export function DownloadForm() {
           parts.push(`${result.queued} download${result.queued !== 1 ? 's' : ''} added to queue`);
         }
         if (result.failed > 0) {
-          parts.push(`${result.failed} failed to queue`);
+          // The store now puts every link that did not make it in back in
+          // the box, so say where they are.
+          parts.push(`${result.failed} not added — left in the box`);
         }
         // Two separate sentences, because they are two different situations
         // and lumping them together as "invalid" was misleading (#1157).
@@ -883,12 +901,139 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const setAfterQueueOnce = useCallback((action: AfterQueueAction) => {
-    const { updateSettings } = useSettingsStore.getState();
-    updateSettings({ after_queue_once: action === 'do_nothing' ? null : action });
+
+  const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
+    if (afterQueueChoiceBusy.value) {
+      setContextMenu(null);
+      useUiStore
+        .getState()
+        .addToast('Still saving your previous after-queue choice -- try again in a moment.', 'info');
+      return;
+    }
+    afterQueueChoiceBusy.value = true;
+    try {
+      await setAfterQueueOnceNow(action);
+    } finally {
+      afterQueueChoiceBusy.value = false;
+    }
+  }, []);
+
+  const setAfterQueueOnceNow = useCallback(async (action: AfterQueueAction) => {
+    const stored = action === 'do_nothing' ? null : action;
+    const { syncAfterQueueOnce, settings } = useSettingsStore.getState();
+
+    // What this page believed was set before the click. This menu writes
+    // the one-off straight to disk, and the backend tells the page when it
+    // uses it up, so this copy USUALLY matches the disk — it is the best
+    // knowledge available if the disk itself cannot be read in the failure
+    // path below. It is a best guess, not a certainty. (This comment used
+    // to say the copy tracks the disk outright; a stand-in review, 24 Sept
+    // 2026, found ways it could differ.)
+    const previous = settings.after_queue_once ?? null;
+
+    // `syncAfterQueueOnce`, not `updateSettings`: the latter armed the
+    // Settings screen's "Save Changes" button although nothing on that
+    // screen had changed.
+    syncAfterQueueOnce(stored);
+
+    // Sent to the BACKEND, because the part of the app that ACTS on this
+    // never sees this page: it reads the running app's settings, which
+    // this one-field write updates (on disk, and in the running app).
+    //
+    // It used to be set in memory only. So the status bar said the
+    // action was armed, the toast below said so too, and nothing ever
+    // happened: somebody could set "shut down when the queue finishes",
+    // walk away, and come back to a machine still running. The careful
+    // backend written to do it had never once been reached with a value
+    // set.
     const label = action === 'do_nothing' ? 'cleared' : action.replace(/_/g, ' ');
-    useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     setContextMenu(null);
+    try {
+      await setStoredPreference({ kind: 'after_queue_once', action: stored });
+      useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
+    } catch {
+      // Nothing was written, so the running app still holds whatever it
+      // held before. Both the page's copy and the message are worked out
+      // from what the QUEUE will act on (getAfterQueueStatus), not from this
+      // page, because the page's copy is exactly the thing that is not
+      // trustworthy here. (This used to read the settings FILE, which the
+      // queue does not act on, and which reads as the defaults when
+      // damaged -- Codex, batch-2 review.)
+      //
+      // Three attempts got to this. The first cleared the page's copy
+      // and said "nothing will happen when the queue finishes" — which
+      // told somebody CLEARING a shutdown that it was off while the
+      // machine still had it armed. The second read the standing setting
+      // from this page, and a reviewer pointed out that copy can hold an
+      // unsaved edit from the Settings screen, so the same wrong
+      // reassurance came back by another route.
+      //
+      // Both were wrong in the dangerous direction: saying the computer
+      // will stay on shortly before it shuts down. So this asks what is
+      // actually stored, and when it cannot be read it says so rather
+      // than making a claim. "Check this yourself" is recoverable.
+      const readable = (a: string) => `“${a.replace(/_/g, ' ')}”`;
+
+      let stillArmed: string;
+      try {
+        // What the QUEUE will act on -- the running app's settings, not the
+        // file. Reading the file here said "nothing will happen" when the
+        // file was damaged (it then reads as the defaults) while a shutdown
+        // was still armed in the running app (Codex, batch-2 review).
+        const willHappen = await getAfterQueueStatus();
+        const oneOff = willHappen.after_queue_once ?? null;
+        const standing = willHappen.after_queue_action;
+
+        // Put the page back in step with the disk — the ONE-OFF only.
+        //
+        // The standing setting is deliberately left alone, and that is a
+        // correction of something attempted here a moment ago. Writing
+        // it back would have fixed the status bar in one case, and would
+        // have done so by silently throwing away an unsaved edit the
+        // person had made on the Settings screen and not yet saved.
+        //
+        // That is the exact fault this whole batch of work exists to
+        // fix: one part of the app committing, or discarding, edits the
+        // person never chose to commit (#1175). Doing it here, in a
+        // failure handler on a different screen, would have been a
+        // particularly quiet version of it.
+        //
+        // So the message below tells the truth from the disk, and the
+        // person's unsaved edit stays theirs. What the status bar shows
+        // for the standing setting while an edit is pending is a
+        // separate, pre-existing question about the whole Settings
+        // screen, and not one to answer by overwriting.
+        useSettingsStore.getState().syncAfterQueueOnce(oneOff);
+
+        if (oneOff) {
+          stillArmed = `${readable(oneOff)} is still set from before, and will still happen.`;
+        } else if (standing && standing !== 'do_nothing') {
+          stillArmed = `Your usual after-queue setting, ${readable(standing)}, still applies.`;
+        } else {
+          stillArmed = 'Nothing will happen when the queue finishes.';
+        }
+      } catch {
+        // The disk could not be read either. Put the one-off back to
+        // what this page believed before the click, rather than leaving
+        // the cleared value showing.
+        //
+        // Without this the status bar showed no after-queue action at
+        // all while one was still armed — the quietest possible way to
+        // be wrong, and a reviewer caught it. This is not certainly
+        // right, but it is the best knowledge there is, and the message
+        // says plainly that it could not be checked.
+        useSettingsStore.getState().syncAfterQueueOnce(previous);
+        stillArmed =
+          'MeedyaDL could not check what is set, so please check your after-queue setting before leaving your computer.';
+      }
+
+      useUiStore
+        .getState()
+        .addToast(
+          `MeedyaDL could not save that after-queue action. ${stillArmed}`,
+          'error'
+        );
+    }
   }, []);
 
   const afterQueueMenuItems = [

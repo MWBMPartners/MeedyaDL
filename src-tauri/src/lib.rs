@@ -239,7 +239,7 @@ fn resolve_activity_log_dir(
     app_data_dir: &std::path::Path,
 ) -> std::path::PathBuf {
     let default_dir = app_data_dir.join("logs");
-    let override_path = services::config_service::load_settings(app)
+    let override_path = services::config_service::load_settings_at_startup(app)
         .ok()
         .map(|s| s.activity_log_path_override)
         .unwrap_or_default();
@@ -509,7 +509,7 @@ fn setup_queue_recovery(app: &tauri::App) {
     }
 
     let count = persisted_items.len();
-    let settings = services::config_service::load_settings(&app_handle).unwrap_or_default();
+    let settings = services::config_service::load_settings_at_startup(&app_handle).unwrap_or_default();
 
     // Get the queue handle from managed state
     let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> = app.state();
@@ -1179,8 +1179,11 @@ pub fn run() {
             commands::dependencies::get_component_versions,
             // Settings management commands
             commands::settings::get_settings,
+            commands::settings::get_after_queue_status,
+            commands::settings::get_default_settings,
             commands::settings::save_settings,
             commands::settings::set_sidebar_collapsed,
+            commands::stored_preference::set_stored_preference,
             commands::settings::has_embedded_acoustid_key,
             commands::settings::validate_cookies_file,
             commands::settings::check_cookies_before_download,
@@ -1275,6 +1278,7 @@ pub fn run() {
             commands::credentials::deactivate_dev_access,
             // Update checking and auto-update commands
             commands::updates::check_all_updates,
+            commands::updates::get_launch_version_info,
             commands::updates::upgrade_gamdl,
             commands::updates::upgrade_votify,
             commands::updates::upgrade_pip_engine,
@@ -1306,12 +1310,12 @@ pub fn run() {
             commands::history::delete_history_entry,
             commands::history::get_lifetime_stats,
             commands::history::resolve_reveal_path,
+            commands::history::open_downloaded_file,
             // API field audit command (diagnostic tool)
             commands::api_audit::audit_api_fields,
             // Clipboard monitoring command
             commands::clipboard::read_clipboard,
             // Service status checking
-            commands::service_status::check_service_status,
             // Remote feature availability (#1071)
             commands::feature_flags::get_feature_flags,
             commands::feature_flags::refresh_feature_flags,
@@ -1728,7 +1732,7 @@ pub fn run() {
                 );
 
                 // Log concise settings summary at startup for diagnostics
-                if let Ok(s) = services::config_service::load_settings(&startup_handle) {
+                if let Ok(s) = services::config_service::load_settings_at_startup(&startup_handle) {
                     emit_startup_settings_summary(&startup_handle, &s);
                 }
 

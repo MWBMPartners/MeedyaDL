@@ -1,6 +1,6 @@
 ---
 name: project-standing-rules
-description: The maintainer's standing rules and standing tasks for MeedyaDL, restated 2026-09-21 (#1198) — plain English, one handoff, how to think and build, plugins and the Codex review loop, the after-each-task checklist, the documentation sweep, autonomy, progress tables, one PR, hand-over
+description: The maintainer's standing rules and standing tasks for MeedyaDL, restated 2026-09-21 (#1198) — plain English, one handoff, how to think and build, plugins and the Codex review loop, the after-each-task checklist, the documentation sweep, autonomy, progress tables, one PR, hand-over, a watchdog on every started job
 metadata:
   type: project
 ---
@@ -71,16 +71,26 @@ and do a piece of work) runs only when the maintainer has opted in. The maintain
 
 | Stage | Model | How |
 | --- | --- | --- |
-| Deep analysis, deep planning, orchestration | **Fable** | **One agent at a time, in sequence — never several in parallel.** If Fable is unavailable (spend limit, outage), fall back to **Opus** and say so. **Try Fable again on every later analysis or planning run**, even if it failed last time. |
+| Deep analysis, deep planning, orchestration | **Opus** | **One agent at a time, in sequence — never several in parallel**, because each planning step should see what the previous one established. |
 | Implementation | **Sonnet or Haiku**, whichever fits — Haiku for mechanical edits (renames, formatting, boilerplate), Sonnet for ordinary building | If the implementation is genuinely complex, use **Opus**. |
 | Verification / review | never below **Opus** | Matches the dev-team plugin's own rule, and the cross-system loop in section 5. |
 
 **Why:** the philosophy is to spend tokens where judgement is needed and save them where it is
 not, while still producing correct code the first time (GIRFT — Get It Right First Time).
 
-Seen in practice: on 2026-09-11 Fable returned a monthly spend limit on all three agents of a
-planning run; the work moved to Opus, the switch was stated plainly, and Fable was retried the
-next run. See [[project-hand-over-when-an-assistant-runs-out]].
+**Planning moved from Fable to Opus on 2026-09-23.** The maintainer's reason: the newest Opus
+is cheaper than Fable and at least as good at this work, so there is no longer anything to
+fall back from. The old rule — "Fable, falling back to Opus, and retry Fable next run" — is
+gone, not forgotten. An older note naming Fable as the planner is simply out of date.
+
+**Read the tier, not the model name.** The instruction is "the strongest reasoning available,
+one agent at a time". Which model fills that has now changed twice and will change again.
+
+Worth keeping for the shape of it: on 2026-09-11 Fable returned a spend limit on all three
+agents of a planning run, the work moved to Opus, the switch was stated plainly, and Fable was
+retried next run. That is still exactly how a hand-over should go — see
+[[project-hand-over-when-an-assistant-runs-out]] — even though the model at the top of the
+table has changed.
 
 ---
 
@@ -94,7 +104,7 @@ because the plugin does not match the rule exactly.
 
 | Task | Skill | Notes |
 | --- | --- | --- |
-| Build a feature or component from a brief | `dev-team-orchestrator` | Give it a finished brief; the Fable analysis happens before, not inside (see below). |
+| Build a feature or component from a brief | `dev-team-orchestrator` | Give it a finished brief; the planning (Opus, one agent at a time) happens before, not inside (see below). |
 | Improvement or cleanup pass on existing code | `dev-team-iterate` | |
 | Independent verification / QA pass | `dev-team-review` | **Read-only reporting mode only.** It treats the root `SECURITY.md` as its own list of security findings, and its repair mode writes back into it — here that file is the public security policy. It also expects a `PROJECT.md`, which this repo does not have. For reviewing Codex-built work, a plain fresh review agent (section 5) is usually the better choice. |
 | Documentation generation and upkeep | `dev-team-docs` | Fits the standing documentation sweep (section 7). The help-page rules and "never hand-edit `.OpenAI/CONTEXT.md`" still apply. |
@@ -121,13 +131,16 @@ never lower). That is the maintainer's implementation rule exactly.
 
 (`models` is the plugin's cost setting: `economy`, `balanced` or `max`.)
 
-**The caveat:** under `economy` the plugin's "hard reasoning" step goes to **Opus, not Fable**
-(its own `model-routing.md`, line 72). Under `balanced` or `max` it uses Fable for reasoning
-but builds features on **Opus** (mechanical edits stay on Haiku and docs on Sonnet). No
-setting matches the rule on both halves. So:
+**How it lines up:** under `economy` the plugin's "hard reasoning" step goes to **Opus**
+(its own `model-routing.md`, line 72). Since planning moved to Opus on 2026-09-23, that now
+matches the rule on both halves. (Before, the rule said Fable for planning, and no setting
+matched both halves.) Under `balanced` or `max` it uses Fable for reasoning but builds
+features on **Opus** (mechanical edits stay on Haiku and docs on Sonnet) — more expensive than
+the rule asks for. So:
 
-- Do the deep analysis and planning **yourself, with sequential Fable agents, before invoking
-  a skill**, and hand the skill a finished brief.
+- Still do the deep analysis and planning **yourself, with sequential Opus agents, before
+  invoking a skill**, and hand the skill a finished brief — the rule wants each planning step
+  to see the one before, which a skill's own internal reasoning does not promise.
 - For a one-off run where the reasoning step matters more than cost, add `models=balanced` to
   that one request.
 
@@ -197,8 +210,15 @@ codex review --commit <commit-id>
 # custom prompt alongside --uncommitted or --base ("cannot be used with
 # [PROMPT]", checked 2026-09-21), so use `codex exec` in read-only mode and
 # tell it what to look at. -o saves its final answer to a file.
-codex exec -s read-only -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff HEAD, which includes staged changes, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
+codex exec -s read-only -m gpt-6-sol -c model_reasoning_effort=medium -o /tmp/codex-review.txt "Review the uncommitted changes in this repo (git diff HEAD, which includes staged changes, plus untracked files from git status). Check correctness, security, and that every comment and message is plain English. List each finding with file and line, or say there are none."
 ```
+
+**Model and effort (maintainer's decision, 22 September 2026):** keep the model
+`gpt-6-sol`, but run reviews at **medium** reasoning effort, passed on the command line
+as above. The model is the right one for reviewing; the top effort tier is not needed for
+it, and Codex's allowance has run out repeatedly — four times in one day, and once for
+five days. **Set it per run, never by editing the Codex config file on this Mac**: that
+config is the maintainer's own and covers work outside this project.
 
 **The loop:**
 
@@ -228,13 +248,31 @@ fully reviewed; include it in the full catch-up review when Codex is back. Full 
 One "piece of work" = one unit with its own GitHub issue and its own commit. Do these in
 order; do not start the next unit until they are done.
 
+**The order changed on 2026-09-23.** Committing now comes BEFORE the review, and updating the
+notes comes after it. The reason is practical: the cross-checker reads a **range of commits**,
+so work has to be committed before it can be reviewed at all — the old order was being worked
+around every single time. Two things keep that safe. **The commit message must say plainly
+whether it has been independently reviewed yet**, never letting silence imply it has. And
+nothing is merged on an unreviewed commit: the loop still runs until a round comes back clean.
+Putting the notes last also means they describe what the work finally settled as, rather than
+what it looked like halfway through.
+
 1. **Verify it yourself.** Run the tests (`cargo test` in `src-tauri/` — what CI runs; `--lib` alone skips
    the examples written inside code comments — plus `npm run type-check` and `npm run test`) and **read their exit codes directly** — never pipe a check
    into `grep` or `tail` and then rely on `&&` (that once let a commit go in on a failing test, 2026-09-10).
    Run `rustfmt` **only on the files you touched** — never whole-crate `cargo fmt`, the tree has
    pre-existing drift and CI does not gate on it. Read the diff once for security (secrets,
    shell interpolation, paths, credentials in logs).
-2. **Update the notes so the next session can pick up:**
+2. **Commit and push to the working branch.** The commit title starts with its type
+   (`feat:`, `fix:`, `docs:` …, the "conventional commit" format the release tooling reads);
+   every `feat`/`fix`/`perf` commit ends with a `Release-Note:` line — one plain-English sentence
+   for the release notes (or `Release-Note: none`); the `Co-Authored-By`
+   line the session reminder gives; the GitHub username `Salem874`, never a real name. Then
+   `git push`. **Never force-push, hard-reset, or change a remote without an explicit
+   instruction.** A small follow-up `docs(handoff):` commit to record the pushed commit ID is fine.
+3. **Cross-system review until clean** (section 5) — of the code **and** the note changes
+   from step 2, so nothing is committed unreviewed. One exception: a handoff-only update that just records progress does not wait for its own review round; the next round covers it.
+4. **Update the notes so the next session can pick up:**
    - `.claude/memory/` — add or update the memory file(s), and its one-line entry in the
      index, `.claude/memory/MEMORY.md`.
    - `.claude/CLAUDE.md` — the affected bullet(s), if behaviour, settings or architecture changed.
@@ -246,15 +284,6 @@ order; do not start the next unit until they are done.
      `.OpenAI/CONTEXT.md` (never hand-edit `CONTEXT.md`) and copies memory to the home folder.
      Check with `cmp .claude/CLAUDE.md .OpenAI/CONTEXT.md`.
    - `.github/HANDOFF.md` — the LATEST section (section 2).
-3. **Cross-system review until clean** (section 5) — of the code **and** the note changes
-   from step 2, so nothing is committed unreviewed. One exception: a handoff-only update that just records progress does not wait for its own review round; the next round covers it.
-4. **Commit and push to the working branch.** The commit title starts with its type
-   (`feat:`, `fix:`, `docs:` …, the "conventional commit" format the release tooling reads);
-   every `feat`/`fix`/`perf` commit ends with a `Release-Note:` line — one plain-English sentence
-   for the release notes (or `Release-Note: none`); the `Co-Authored-By`
-   line the session reminder gives; the GitHub username `Salem874`, never a real name. Then
-   `git push`. **Never force-push, hard-reset, or change a remote without an explicit
-   instruction.** A small follow-up `docs(handoff):` commit to record the pushed commit ID is fine.
 5. **The GitHub issue, individually for each task:** create it if it does not exist
    (`gh issue create`); comment with what landed and the commit ID; link parent/child issues;
    add it to the project — `gh project item-add 6 --owner MWBMPartners --url <issue-url>` — and
@@ -384,7 +413,43 @@ machine-wide files for every project on this device.
 
 ---
 
-## 13. Small habits that are also rules (harvested from earlier sessions)
+## 13. Every started job gets a watchdog, so no result is missed
+
+**Set by the maintainer on 2026-09-24.** Whenever work is started that finishes later — a
+Codex review round, a CI run, a build or test run left in the background, a sub-agent, a
+workflow, a scheduled check — set up something that will **come back when it finishes**, at
+the moment it is started. Then act on the result and move to the next step in the queue.
+Never start a job and simply carry on hoping to notice it later.
+
+**Why:** a result nobody comes back for is lost work. A review that finished with findings
+nobody read looks, from outside, exactly like a review that was never run — and the queue
+stalls behind it without anything saying so.
+
+**How, in practice:**
+
+- **Pick a watcher that is told when the job ends, not one that guesses.** In Claude Code: a
+  background command or agent reports back by itself when it exits; for something outside
+  the session (a GitHub Actions run, a release), use a watcher that loops until the result
+  exists, or a scheduled wake-up timed to how long the job really takes. In Codex, or any
+  tool with no such notice: stay with the job and check it until it finishes.
+- **Give every job a deadline** (for example `timeout 2400` on a Codex round), so a hung job
+  turns into a visible failure instead of a silent wait.
+- **Check the watcher is watching the right thing.** On 2026-09-24 a Codex round was started
+  with a second `&` inside an already-background command; the notice fired the moment the
+  outer command returned, long before Codex finished. The fix was a waiter that loops until
+  Codex's output file is complete. A watcher that fires early is worse than none, because it
+  looks like a result.
+- **When it fires, read the actual result** (the exit code, the output file, the run's
+  conclusion) before taking the next step — never assume success from the fact that it
+  ended.
+- **Write down what is running and how it is being watched** in `.github/HANDOFF.md`
+  before leaving it. Some watchers (Claude Code's scheduled prompts) last only while the
+  session is open; if the session ends, the handoff must say exactly what to run to pick
+  the job back up.
+
+---
+
+## 14. Small habits that are also rules (harvested from earlier sessions)
 
 - **One issue, one commit, one security read of the diff, per unit** (2026-07-18).
 - **`rustfmt` only on touched files; never whole-crate `cargo fmt`.** If the tree is ever

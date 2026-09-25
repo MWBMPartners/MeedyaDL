@@ -187,10 +187,6 @@ UNREACHABLE_BY_DESIGN: dict[str, str] = {
         "Groundwork for finding the same album on another service. Needs the "
         "other services to work first — see the multi-service milestones."
     ),
-    "check_service_status": (
-        "Reads the interim service-status file, which #1069 is replacing with "
-        "the remote feature-availability system. Superseded rather than unused."
-    ),
     "detect_service": (
         "The frontend works out the service itself, in url-parser.ts, because "
         "it needs the answer while the user is still typing. This is the same "

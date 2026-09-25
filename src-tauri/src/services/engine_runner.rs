@@ -156,6 +156,17 @@ pub async fn run_engine(
             let engine = engine.clone();
             let app = app.clone();
             async move {
+                // Colour codes are taken out before the line is read for
+                // meaning. Some engines colour their output, and the
+                // pattern that recognises an error is anchored to the
+                // START of a line — so an invisible colour code sitting
+                // in front of the word "Error" stops it matching, and a
+                // real failure quietly falls through to guesswork.
+                //
+                // The Apple Music path has always done this. This one,
+                // which is what Spotify downloads use, did not. Found by
+                // a full review of the codebase.
+                let line = process::strip_ansi_codes(&line);
                 let event = process::parse_gamdl_output(&line);
                 log::debug!("[{engine} {stream_label}] {line}");
 
@@ -354,6 +365,10 @@ fn spawn_queue_aware_reader(
         let reader = tokio::io::BufReader::new(stream);
         let mut lines = reader.lines();
         while let Ok(Some(raw_line)) = lines.next_line().await {
+            // Same reason as the other reader above: colour codes are
+            // removed before the line is read for meaning, or an error
+            // that arrives coloured is not recognised as one.
+            let raw_line = process::strip_ansi_codes(&raw_line);
             let event = process::parse_gamdl_output(&raw_line);
             log::debug!("[{engine_id} {stream_label}] {raw_line}");
 
@@ -456,7 +471,7 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
 
 /// Command builder stub for yt-dlp (YouTube / BBC iPlayer downloads).
 ///
-/// Not yet functional — will be implemented in milestones M9/M10.
+/// Not yet functional — will be implemented in milestones M8/M10.
 /// yt-dlp is a pip-installed Python package shared between YouTube
 /// and BBC iPlayer services.
 pub struct YtdlpCommandBuilder;
@@ -472,13 +487,13 @@ impl EngineCommandBuilder for YtdlpCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("yt-dlp engine is not yet implemented (planned for v2.1.0)".to_string())
+        Err("yt-dlp engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 
 /// Command builder stub for get_iplayer (BBC iPlayer primary engine).
 ///
-/// Not yet functional — will be implemented in milestone M10.
+/// Not yet functional — will be implemented in milestone M8.
 /// get_iplayer uses a different installation method (system binary,
 /// not pip) and has a distinct CLI interface.
 pub struct GetIplayerCommandBuilder;
@@ -494,7 +509,7 @@ impl EngineCommandBuilder for GetIplayerCommandBuilder {
         _urls: &[String],
         _cli_args: &[String],
     ) -> Result<Command, String> {
-        Err("get_iplayer engine is not yet implemented (planned for v2.2.0)".to_string())
+        Err("get_iplayer engine is not yet implemented (planned for v2.0.0)".to_string())
     }
 }
 

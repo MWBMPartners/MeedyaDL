@@ -47,6 +47,6 @@ When reporting an issue for any pre-release channel, please include:
 
 - The **exact version** shown in _Help > About_ (includes the channel suffix, e.g., `1.13.0-alpha.56`).
 - Your selected **Update Channel**.
-- Reproduction steps and relevant log output (Settings > Advanced > Open Log Folder).
+- Reproduction steps and relevant log output (the **Open folder** button in **Settings > Advanced > Diagnostics** shows you where the log files are).
 
 See [Troubleshooting](troubleshooting.md) for log-collection tips.

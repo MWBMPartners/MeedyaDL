@@ -158,7 +158,7 @@ Release-Note: none
 
 Rules for the trailer itself:
 
-- One line. Only the first line is used if you accidentally wrap it.
+- One sentence, ideally on one line. If it wraps onto more lines, they are joined back into one, up to the first blank line — anything after a blank line is left out.
 - No markdown headings inside the trailer.
 - Written exactly the way it should appear in the release notes — it is used **verbatim**, per this guide's rules above.
 - No link inside the trailer. The text must stand on its own; issue links are added separately when the release notes are assembled.

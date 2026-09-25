@@ -17,7 +17,7 @@ Upstream GAMDL has been shipping at an unusual cadence — four releases between
 
 **Why:** This is a recurring pattern (3 audits in ~3 weeks) that the user runs the same way each time. Capturing the workflow saves re-deriving the integration-surface checklist on every release. The fact that every audit has been zero-code-change so far is itself useful signal — the GAMDL team isn't shifting CLI/INI surface in patch releases, so the audit's primary value is verification + documentation, not finding regressions.
 
-**How to apply:** When the user asks to audit a new GAMDL release, follow the checklist above. Default expectation is "ceiling bump only" — flag any deviation prominently. The audit document goes in `.github/audits/`, and a tracking issue should be filed (Lance always wants an issue per piece of work — see `feedback_github_issues.md`).
+**How to apply:** When the user asks to audit a new GAMDL release, follow the checklist above. Default expectation is "ceiling bump only" — flag any deviation prominently. The audit document goes in `.github/audits/`, and a tracking issue should be filed (Salem874 always wants an issue per piece of work — see `feedback_github_issues.md`).
 
 ## v3.8.2 — admitted, after a stale-data false hold (2026-07-10)
 

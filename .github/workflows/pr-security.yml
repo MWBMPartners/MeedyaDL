@@ -9,9 +9,13 @@
 # MeedyaDL's Rust + TypeScript + Tauri stack.
 #
 # IMPORTANT: every check here is NON-BLOCKING (continue-on-error). The
-# merge gate stays with ci.yml — which already enforces the hard gates this
-# repo cares about (`cargo clippy -D warnings`, `cargo test`, `cargo-deny`,
-# `tsc`/`npm run type-check`, `eslint`, CodeQL for JS/TS + Actions). This
+# merge gate is `ci.yml` plus the separate `CodeQL` and `Licences`
+# workflows — together they enforce the hard gates this repo cares about
+# (`cargo clippy -D warnings`, `cargo test`, `cargo-deny`, `tsc`/`npm run
+# type-check`, `eslint`, and CodeQL static analysis for JS/TS + Actions).
+# CodeQL is its own workflow, not a step inside ci.yml — an earlier version
+# of this comment said CodeQL ran "already hard-gates" as part of ci.yml,
+# which was never true; it just happened to run on the same PRs. This
 # workflow adds the *heuristic* layer those gates don't cover, and posts a
 # single advisory comment on the PR. These are HEURISTICS — false positives
 # are expected. Review the findings; don't blindly act on them.
@@ -564,6 +568,21 @@ jobs:
           MANIFEST_KEYS=$(python3 tools/audit-checks/check_updater_manifest_keys.py 2>&1 || true)
           if echo "$MANIFEST_KEYS" | grep -q '•'; then
             add_section "Updater manifest key drift (keys listed outside the shared script)" "$(echo "$MANIFEST_KEYS" | grep -A100 '###')"
+          fi
+
+          # --- The page's starting settings vs the app's -----------------
+          # These are written down twice: once in Rust, once in the page.
+          # The Rust one is real; the page's is a placeholder shown for
+          # the instant before the settings are read from disk. Nothing
+          # compared them, so they drifted — and two of the three values
+          # that drifted were exactly the ones a settings upgrade step
+          # exists to REPAIR, so pressing "Reset" then "Save" put somebody
+          # back onto file name patterns known to let two playlists
+          # overwrite each other (#545, #552). Whole-repo, because either
+          # side can drift in a PR that never opens the other file.
+          SETTINGS_DEFAULTS=$(python3 tools/audit-checks/check_settings_defaults.py 2>&1 || true)
+          if echo "$SETTINGS_DEFAULTS" | grep -q '•'; then
+            add_section "Starting settings differ between the app and the page" "$(echo "$SETTINGS_DEFAULTS" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

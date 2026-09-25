@@ -15,13 +15,24 @@
 # v1.11.0 along with their branches. The remaining protected channel set
 # is just the active long-lived branches (main / alpha / beta / rc).
 #
-# The `protected-release-branches` ruleset (applied via
+# The `protected-stable-branches` ruleset (applied via
 # apply-branch-rulesets.yml) provides the hard guarantee — GitHub will
 # reject the DELETE call on protected branches. This workflow's allowlist
 # is the soft guardrail that avoids even attempting the delete and keeps
 # the Actions log clean.
 #
-# Keep this workflow aligned with .github/rulesets/protected-release-branches.json.
+# Keep this workflow aligned with .github/rulesets/protected-stable-branches.json.
+# (This comment used to name protected-release-branches.json. That file
+# DID exist once — added in 4419efb8 and removed in 5d80f8d0, when the
+# branch rules were split and renamed — so the comment was out of date, not
+# invented. The current file is protected-stable-branches.json, the same
+# one line 56 below names. Fixed 2026-09-23 after check_comment_paths.py
+# was extended to read workflow files.
+#
+# Corrected again 2026-09-24: the first fix said the old name "was never
+# the real name", and its commit message (c3dee4e7) said "no such file has
+# ever existed". Both were wrong, found by the batch-4 review. A pushed
+# commit message cannot be edited, so the correction lives here.)
 
 name: Auto-Delete Merged Branches
 

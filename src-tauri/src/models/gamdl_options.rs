@@ -26,6 +26,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::settings::DrmBackend;
+
 /// All audio codec options supported by GAMDL's `--song-codec` flag.
 ///
 /// These codecs correspond to the stream types available on Apple Music.
@@ -892,6 +894,19 @@ pub struct GamdlOptions {
     pub nm3u8dlre_path: Option<String>,
     /// Path to .wvd (Widevine Device) file
     pub wvd_path: Option<String>,
+    /// Which way of unlocking copy-protected tracks GAMDL should use.
+    ///
+    /// `None` means "say nothing", which leaves GAMDL on its own default
+    /// (its built-in Widevine unlocking) and keeps the command line
+    /// identical to what it was before this option existed. It is set to
+    /// `Some(PlayReady)` only when the user chose PlayReady, supplied a
+    /// device file that is actually there, AND the installed GAMDL is new
+    /// enough to understand the option — see `merge_options`.
+    pub drm_backend: Option<DrmBackend>,
+    /// Path to the user's own `.prd` device file. Only ever set alongside
+    /// `drm_backend: Some(PlayReady)`; GAMDL refuses to start without it
+    /// in that case.
+    pub prd_path: Option<String>,
 
     // --- Modes ---
     /// Download mode selection (yt-dlp or N_m3u8DL-RE)
@@ -1224,7 +1239,20 @@ impl GamdlOptions {
         // MeedyaDL still ships all three binaries for its own pipeline
         // (FFmpeg → ReplayGain / BPM analysis; MP4Box + mp4decrypt are
         // legacy GAMDL dependencies retained for <3.6 users).
-        let native_muxing = supports(GamdlFeature::NativeMuxing);
+        // "Does this release do its own muxing?" is a question where
+        // the cautious answer is NOT false. False here means "an older
+        // release, so send the two arguments it used to accept" — and a
+        // newer release refuses an argument it does not know, stopping
+        // the download before it starts.
+        //
+        // So the version must be KNOWN, and known to accept them. This
+        // is the same inversion already fixed in `inject_tool_paths`,
+        // found here by a later review round: tightening what counts as
+        // a readable version made `supports` answer false for a version
+        // string we cannot parse, which this line would have read as
+        // permission to send the old arguments.
+        let tool_paths_accepted =
+            crate::services::gamdl_capabilities::tool_path_flags_accepted();
         let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
         // --ffmpeg-path: emit when the gate says it's accepted (true on
         // <3.6 OR >=3.7; false only on the 3.6.x line).
@@ -1237,7 +1265,7 @@ impl GamdlOptions {
         // --mp4decrypt-path and --mp4box-path: still controlled by the
         // original NativeMuxing gate — these options stayed removed on
         // v3.6+ and were NOT reinstated by v3.7.
-        if !native_muxing {
+        if tool_paths_accepted {
             if let Some(ref path) = self.mp4decrypt_path {
                 args.push("--mp4decrypt-path".to_string());
                 args.push(path.clone());
@@ -1253,6 +1281,20 @@ impl GamdlOptions {
         }
         if let Some(ref path) = self.wvd_path {
             args.push("--wvd-path".to_string());
+            args.push(path.clone());
+        }
+        // The two PlayReady options (GAMDL 3.9+). Both are set together or
+        // not at all: GAMDL logs a fatal error and stops without
+        // downloading anything if it is told to use PlayReady with no
+        // device file, and from MeedyaDL's side that looks like a download
+        // that ended with no output and no explanation. `merge_options`
+        // is where that "both or neither" decision is made and explained.
+        if let Some(backend) = self.drm_backend {
+            args.push("--drm-backend".to_string());
+            args.push(backend.as_gamdl_value().to_string());
+        }
+        if let Some(ref path) = self.prd_path {
+            args.push("--prd-path".to_string());
             args.push(path.clone());
         }
 

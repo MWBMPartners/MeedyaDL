@@ -90,6 +90,29 @@ pub struct DependencyStatus {
     /// `Some("managed")` if downloaded by the app,
     /// `None` for Python/GAMDL (always managed) or if not installed.
     pub source: Option<String>,
+    /// GAMDL-only: how the installed version compares to this MeedyaDL
+    /// build's tested support window, computed once here by
+    /// [`crate::services::gamdl_capabilities::classify_for_platform`] so
+    /// the Settings > Tools screen shows the authoritative answer instead
+    /// of recomputing (and risking drifting from) its own copy of the
+    /// classification logic — the same values as
+    /// [`ExternalGamdlInfo::classification`]: `"supported"` |
+    /// `"untested"` | `"unsupported"` | `"known-bad"`. `None` for every
+    /// other component, and for GAMDL itself before a version has been
+    /// detected.
+    #[serde(default)]
+    pub classification: Option<String>,
+    /// GAMDL-only, populated exactly when `classification` is
+    /// `Some("known-bad")`: a ready-to-show plain-English sentence
+    /// naming the specific fault and what to do about it, worded
+    /// correctly for this platform's own install ceiling — never an
+    /// "update to" that is really a downgrade, never an "or newer" that
+    /// re-permits the broken release, never a version this platform's
+    /// own install path would refuse. See
+    /// `gamdl_capabilities::known_bad_advice`. `None` for every other
+    /// classification and every other component.
+    #[serde(default)]
+    pub known_bad_message: Option<String>,
 }
 
 /// Checks whether the portable Python runtime is installed in the app data directory.
@@ -146,6 +169,9 @@ pub async fn check_python_status(app: AppHandle) -> Result<DependencyStatus, Str
         // Convert PathBuf to String for JSON serialization
         path: python_bin.to_str().map(std::string::ToString::to_string),
         source,
+        // Support-window classification is a GAMDL-only concept.
+        classification: None,
+        known_bad_message: None,
     })
 }
 
@@ -236,6 +262,8 @@ pub async fn use_system_python(
         version: Some(version),
         path: python_bin.to_str().map(std::string::ToString::to_string),
         source: Some("system".to_string()),
+        classification: None,
+        known_bad_message: None,
     })
 }
 
@@ -263,6 +291,56 @@ pub async fn diagnose_python_venv(
     Ok(python_manager::diagnose_python_venv(&app).await.to_dto())
 }
 
+/// Computes the `classification` / `known_bad_message` pair on
+/// [`DependencyStatus`] for an already-detected GAMDL version.
+///
+/// Pure and synchronous (no pip subprocess) so this is directly unit
+/// testable. Delegates entirely to
+/// [`crate::services::gamdl_capabilities::classify_for_platform`] — the
+/// SAME classification the startup activity-log line
+/// (`emit_gamdl_support_status`) and [`ExternalGamdlInfo::classification`]
+/// already use — rather than re-deriving a weaker approximation from raw
+/// version-number comparisons. That distinction is the whole point:
+/// before this existed, the Settings > Tools screen computed its own
+/// min/max comparison client-side, which could never learn about a
+/// specific known-bad release (GAMDL 3.9) no matter how carefully it
+/// was written, because "is this exact release broken" is not a
+/// min/max question at all — it needs the hand-maintained
+/// `KNOWN_BAD_VERSIONS` list, which only the backend has.
+///
+/// # Returns
+/// `(classification, known_bad_message)`:
+/// * `classification` — `None` when GAMDL isn't installed, otherwise
+///   `Some("supported" | "untested" | "unsupported" | "known-bad")`.
+/// * `known_bad_message` — `Some(message)` only when `classification`
+///   is `Some("known-bad")`: a ready-to-show sentence naming the fault
+///   and what to do about it, worded for this platform's own install
+///   ceiling (see
+///   [`crate::services::gamdl_capabilities::known_bad_advice`] — a
+///   held-back platform is told to move back to what it can actually
+///   install, never "update to" a version it cannot).
+fn gamdl_classification_fields(
+    version: Option<&str>,
+    platform_id: &str,
+) -> (Option<String>, Option<String>) {
+    use crate::services::gamdl_capabilities::{classify_for_platform, known_bad_advice, VersionSupport};
+
+    match classify_for_platform(version, platform_id) {
+        VersionSupport::Supported { .. } => (Some("supported".to_string()), None),
+        VersionSupport::Untested { .. } => (Some("untested".to_string()), None),
+        VersionSupport::Unsupported { .. } => (Some("unsupported".to_string()), None),
+        VersionSupport::KnownBad {
+            installed,
+            reason,
+            fixed_in,
+        } => {
+            let message = known_bad_advice(&reason, &fixed_in, &installed, platform_id);
+            (Some("known-bad".to_string()), Some(message))
+        }
+        VersionSupport::NotInstalled => (None, None),
+    }
+}
+
 /// Checks whether GAMDL is installed in the portable Python environment.
 ///
 /// **Frontend caller:** `checkGamdlStatus()` in `src/lib/tauri-commands.ts`
@@ -280,13 +358,20 @@ pub async fn diagnose_python_venv(
 /// # Returns
 /// * `Ok(DependencyStatus)` - GAMDL status with version info.
 ///   `path` is always `None` because GAMDL is a Python package invoked
-///   via `python -m gamdl`, not a standalone binary.
+///   via `python -m gamdl`, not a standalone binary. `classification` /
+///   `known_bad_message` are computed here (see
+///   [`gamdl_classification_fields`]) so the frontend never has to
+///   re-derive them.
 /// * `Err(String)` - Error if the pip check command itself fails to execute.
 #[tauri::command]
 pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, String> {
     // get_gamdl_version() runs pip and parses the "Version:" line from output.
     // Returns Some("x.y.z") if installed, None if not found.
     let version = gamdl_service::get_gamdl_version(&app).await?;
+
+    let platform_id = crate::services::gamdl_capabilities::current_platform_id();
+    let (classification, known_bad_message) =
+        gamdl_classification_fields(version.as_deref(), platform_id);
 
     Ok(DependencyStatus {
         name: "GAMDL".to_string(),
@@ -295,6 +380,8 @@ pub async fn check_gamdl_status(app: AppHandle) -> Result<DependencyStatus, Stri
         version,
         path: None,   // GAMDL is a Python package, not a standalone binary
         source: None, // GAMDL is always managed (pip package)
+        classification,
+        known_bad_message,
     })
 }
 
@@ -367,7 +454,16 @@ pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<St
     // refuse — the user might be downgrading because of an upstream
     // regression we don't know about, and gating that would be
     // user-hostile.
-    let classification = crate::services::gamdl_capabilities::classify(Some(&version));
+    // Classified for THIS platform, not against the general window. An
+    // independent review caught the difference: a platform held below
+    // the general ceiling would otherwise be told its request is
+    // "supported" here, and then have it refused by the install path a
+    // moment later. Two answers to the same question, given seconds
+    // apart, is worse than either answer alone.
+    let classification = crate::services::gamdl_capabilities::classify_for_platform(
+        Some(&version),
+        crate::services::gamdl_capabilities::current_platform_id(),
+    );
     match &classification {
         crate::services::gamdl_capabilities::VersionSupport::Unsupported { .. } => {
             log::warn!(
@@ -395,6 +491,17 @@ pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<St
                 ),
             );
         }
+        crate::services::gamdl_capabilities::VersionSupport::KnownBad { reason, .. } => {
+            // The install itself is refused a few lines below, inside
+            // `gamdl_service::install_gamdl_version`. This entry is
+            // here so the activity log records WHY, in the user's own
+            // terms, next to the attempt that was turned away.
+            log::warn!("User-requested GAMDL v{version} is on the known-bad list — refusing");
+            emit_app_log(
+                &app,
+                &format!("GAMDL v{version} will not be installed: {reason}"),
+            );
+        }
         _ => {
             // Supported or NotInstalled — no advisory needed.
         }
@@ -415,13 +522,26 @@ pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<St
 ///
 /// Reads from the compiled-in `tool-versions.toml` (`include_str!`).
 /// Zero I/O, always succeeds.
+///
+/// **Answers for the machine it is running on, not in general.** On a
+/// platform held below the general ceiling — Windows on ARM, 32-bit ARM
+/// Linux — both the ceiling and the recommended version come back
+/// lower. The alternative was a Settings screen telling such a user
+/// that a version is tested and recommended while the install path
+/// refuses it, which is a worse kind of wrong than simply being
+/// cautious: it puts a button on screen whose only possible outcome is
+/// an error message.
 #[tauri::command]
 pub fn get_gamdl_support_window() -> GamdlSupportWindowResponse {
-    let window = crate::services::gamdl_capabilities::support_window();
+    use crate::services::gamdl_capabilities::{
+        current_platform_id, effective_maximum_tested, recommended_for_platform, support_window,
+    };
+
+    let platform_id = current_platform_id();
     GamdlSupportWindowResponse {
-        minimum: window.minimum.clone(),
-        maximum_tested: window.maximum_tested.clone(),
-        recommended: window.recommended.clone(),
+        minimum: support_window().minimum.clone(),
+        maximum_tested: effective_maximum_tested(platform_id),
+        recommended: recommended_for_platform(platform_id),
     }
 }
 
@@ -481,6 +601,15 @@ pub struct GamdlCapabilities {
     /// note) via the `useGamdlCapabilities` hook — the codec dropdown's
     /// `(Experimental)` labels themselves stay unconditional (#965).
     pub assets_api_unlocks_lossy_codecs: bool,
+    /// Whether the installed GAMDL knows about PlayReady, the second way
+    /// of unlocking copy-protected tracks, added in GAMDL 3.9. `true` for
+    /// 3.9 and newer.
+    ///
+    /// The Settings screen uses this to decide whether to offer the choice
+    /// at all: an older GAMDL rejects an option it does not recognise
+    /// outright rather than ignoring it, so offering it there would only
+    /// produce downloads that stop before they start.
+    pub play_ready_drm: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -507,6 +636,7 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
         ffmpeg_path: supports(GamdlFeature::FFmpegPath),
         assets_api_unlocks_lossy_codecs: supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
+        play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend),
     }
 }
 
@@ -528,6 +658,8 @@ pub async fn check_votify_status(app: AppHandle) -> Result<DependencyStatus, Str
         version,
         path: None,
         source: None,
+        classification: None,
+        known_bad_message: None,
     })
 }
 
@@ -573,6 +705,8 @@ pub async fn check_ofscraper_status(app: AppHandle) -> Result<DependencyStatus, 
         version,
         path: None,
         source: None,
+        classification: None,
+        known_bad_message: None,
     })
 }
 
@@ -727,6 +861,8 @@ pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStat
                 None
             },
             source,
+            classification: None,
+            known_bad_message: None,
         });
     }
 
@@ -750,7 +886,9 @@ pub struct ExternalGamdlInfo {
     /// Whether that version is inside MeedyaDL's tested support window
     /// (per the current platform's ceiling).
     pub in_support_window: bool,
-    /// Human classification: `supported` | `untested` | `unsupported`.
+    /// Human classification: `supported` | `untested` | `known-bad` |
+    /// `unsupported`. Free-form text on the frontend side, so adding a
+    /// value here needs no TypeScript change.
     pub classification: String,
 }
 
@@ -847,6 +985,12 @@ async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
             match classify_for_platform(Some(&version), current_platform_id()) {
                 VersionSupport::Supported { .. } => (true, "supported"),
                 VersionSupport::Untested { .. } => (false, "untested"),
+                // A release we have checked and found broken. Reported
+                // separately from "unsupported" so the wizard can say
+                // something more useful than "outside the range" about
+                // an external copy of GAMDL the user installed by some
+                // other means.
+                VersionSupport::KnownBad { .. } => (false, "known-bad"),
                 VersionSupport::Unsupported { .. } | VersionSupport::NotInstalled => {
                     (false, "unsupported")
                 }
@@ -895,13 +1039,29 @@ async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
 /// # Returns
 /// * `Ok(String)` - Success message with the installed tool path.
 /// * `Err(String)` - Download, extraction, or verification failure message.
+///
+/// `for_update` is `true` only from the Update button on the Updates page.
+/// An update must not quietly fall back to MeedyaDL's backup download
+/// source (it can hold the same or an older version), so the installer
+/// has to be TOLD it is an update rather than guess — see
+/// `dependency_manager::InstallPurpose`. Absent or `false` (setup,
+/// Install, Reinstall) keeps the full install route.
 #[tauri::command]
-pub async fn install_dependency(app: AppHandle, name: String) -> Result<String, String> {
+pub async fn install_dependency(
+    app: AppHandle,
+    name: String,
+    for_update: Option<bool>,
+) -> Result<String, String> {
     // Delegates to dependency_manager which handles platform-specific
     // URL resolution, download, archive extraction, and binary verification.
-    log::info!("Installing dependency: {name}");
+    let purpose = if for_update == Some(true) {
+        dependency_manager::InstallPurpose::Update
+    } else {
+        dependency_manager::InstallPurpose::InstallOrRepair
+    };
+    log::info!("Installing dependency: {name} ({purpose:?})");
     emit_app_log(&app, &format!("Updating {name}..."));
-    match dependency_manager::install_tool(&app, &name).await {
+    match dependency_manager::install_tool_for(&app, &name, purpose).await {
         Ok(result) => {
             emit_app_log(&app, &format!("{name} updated successfully"));
             Ok(result)
@@ -1122,8 +1282,8 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
 /// of a global one that platform can't actually install.
 fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
     use crate::services::gamdl_capabilities::{
-        classify_for_platform, current_platform_id, effective_maximum_tested, support_window,
-        VersionSupport,
+        classify_for_platform, current_platform_id, effective_maximum_tested, known_bad_advice,
+        support_window, VersionSupport,
     };
 
     let window = support_window();
@@ -1158,15 +1318,181 @@ fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
              fail on CLI changes; consider downgrading to \
              {recommended}.",
         ),
+        // A known-bad release is not "old" or "new" — it is a version
+        // we have checked and found broken, so the entry says what is
+        // broken and what to move to rather than talking about the
+        // supported range at all. The user sees this at every startup
+        // until they act on it, which is the intention: the damage
+        // (a download failing that would otherwise have recovered)
+        // is invisible otherwise.
+        VersionSupport::KnownBad {
+            installed,
+            reason,
+            fixed_in,
+        } => {
+            let advice = known_bad_advice(reason, fixed_in, installed, platform_id);
+            format!(
+                "GAMDL support: version {installed} has a known problem and should be replaced. \
+                 {advice}"
+            )
+        }
     };
 
     emit_app_log(app, &line);
     match &status {
-        VersionSupport::Unsupported { .. } | VersionSupport::Untested { .. } => {
+        VersionSupport::Unsupported { .. }
+        | VersionSupport::Untested { .. }
+        | VersionSupport::KnownBad { .. } => {
             log::warn!("{line}");
         }
         VersionSupport::Supported { .. } | VersionSupport::NotInstalled => {
             log::info!("{line}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ----------------------------------------------------------------
+    // gamdl_classification_fields (independent review fix — Settings >
+    // Tools used to compute its own approximate classification
+    // client-side instead of using this backend-authoritative one)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn gamdl_classification_fields_reports_supported() {
+        let window = crate::services::gamdl_capabilities::support_window();
+        let (classification, message) =
+            gamdl_classification_fields(Some(&window.minimum), "macos");
+        assert_eq!(classification.as_deref(), Some("supported"));
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn gamdl_classification_fields_reports_unsupported_below_the_floor() {
+        let (classification, message) = gamdl_classification_fields(Some("2.8.4"), "macos");
+        assert_eq!(classification.as_deref(), Some("unsupported"));
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn gamdl_classification_fields_reports_untested_above_the_ceiling() {
+        let (classification, message) = gamdl_classification_fields(Some("99.0.0"), "macos");
+        assert_eq!(classification.as_deref(), Some("untested"));
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn gamdl_classification_fields_reports_not_installed() {
+        let (classification, message) = gamdl_classification_fields(None, "macos");
+        assert_eq!(classification, None);
+        assert_eq!(message, None);
+    }
+
+    #[test]
+    fn gamdl_classification_fields_names_the_fault_and_the_fix_for_a_known_bad_release() {
+        // macOS tracks the global ceiling, which is itself the fix for
+        // the 3.9 entry — the ordinary case where "advise 3.9.1" and
+        // "or newer" are both correct.
+        let (classification, message) = gamdl_classification_fields(Some("3.9"), "macos");
+        assert_eq!(classification.as_deref(), Some("known-bad"));
+        let message = message.expect("known-bad must carry a plain-English message");
+        assert!(
+            message.contains("3.9.1"),
+            "must name the fixed-in release, got: {message}"
+        );
+        assert!(
+            message.to_lowercase().contains("aac"),
+            "must say what is actually broken, got: {message}"
+        );
+        assert!(
+            message.contains("or newer"),
+            "a platform that can install the fix may say 'or newer', got: {message}"
+        );
+    }
+
+    #[test]
+    fn gamdl_classification_fields_never_names_an_uninstallable_fix() {
+        // Windows on ARM is held below 3.9.1 (the 3.9 entry's own
+        // `fixed_in`). The message must point at what THAT platform can
+        // actually install, must not dress up the (lower) version it
+        // DOES recommend as an "update" (relative to the installed 3.9
+        // it is a downgrade), and must never say "or newer" — but it
+        // MUST still say why 3.9.1 itself is out of reach, which means
+        // naming it as part of that explanation.
+        //
+        // Strengthened from the earlier version of this test, which only
+        // checked the message didn't contain "3.9.1" ANYWHERE — a check
+        // that kept passing even while the sentence read "Update to
+        // GAMDL 3.8.5 or newer", which is wrong twice over: 3.8.5 is
+        // older than the 3.9 already installed, and "or newer" literally
+        // re-permits the broken 3.9 the message exists to move the user
+        // away from. The fix is not to hide "3.9.1" from the message —
+        // the user needs to know it exists and why it's not for them —
+        // it is to make sure it's never framed as something to install.
+        let window = crate::services::gamdl_capabilities::support_window();
+        if !window.platform_ceilings.contains_key("windows-aarch64") {
+            return; // Entry removed — nothing left to prove.
+        }
+        let ceiling =
+            crate::services::gamdl_capabilities::effective_maximum_tested("windows-aarch64");
+        let (classification, message) = gamdl_classification_fields(Some("3.9"), "windows-aarch64");
+        assert_eq!(classification.as_deref(), Some("known-bad"));
+        let message = message.expect("known-bad must carry a plain-English message");
+
+        assert!(
+            !message.contains("or newer"),
+            "windows-aarch64 cannot install past its own ceiling — 'or newer' re-permits the \
+             broken 3.9 release, got: {message}"
+        );
+        assert!(
+            !message.contains("Update to GAMDL 3.9.1") && !message.contains("Install GAMDL 3.9.1"),
+            "3.9.1 must never be framed as something to install here, got: {message}"
+        );
+        assert!(
+            !message.contains(&format!("Update to GAMDL {ceiling}")),
+            "windows-aarch64's own ceiling ({ceiling}) is BELOW the installed 3.9 — it must not \
+             be presented as an update, got: {message}"
+        );
+        assert!(
+            message.contains("move back"),
+            "the advised version is a downgrade from what's installed and must say so plainly, \
+             got: {message}"
+        );
+        assert!(
+            message.contains(&ceiling),
+            "must still say what CAN be installed here, got: {message}"
+        );
+        assert!(
+            message.contains("3.9.1"),
+            "must still name 3.9.1 as part of explaining why it's unavailable, got: {message}"
+        );
+        assert!(
+            message.contains("has been published"),
+            "must say why 3.9.1 specifically is out of reach on this platform, got: {message}"
+        );
+    }
+
+    #[test]
+    fn gamdl_classification_fields_uses_the_same_sentence_as_known_bad_advice() {
+        // The point of routing all three call sites through one helper:
+        // this message and `known_bad_advice`'s own output must be
+        // identical on both an ordinary platform and a held-back one,
+        // not merely similar.
+        use crate::services::gamdl_capabilities::known_bad_advice;
+
+        for platform_id in ["macos", "windows-aarch64"] {
+            let (_, message) = gamdl_classification_fields(Some("3.9"), platform_id);
+            let message = message.expect("known-bad must carry a plain-English message");
+            let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+                .expect("3.9 must be on the known-bad list");
+            let expected = known_bad_advice(bad.reason, bad.fixed_in, "3.9", platform_id);
+            assert_eq!(
+                message, expected,
+                "{platform_id}: gamdl_classification_fields must produce exactly known_bad_advice's sentence"
+            );
         }
     }
 }

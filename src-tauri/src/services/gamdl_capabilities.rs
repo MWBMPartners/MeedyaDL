@@ -192,6 +192,24 @@ pub enum VersionSupport {
         maximum_tested: String,
         recommended: String,
     },
+    /// Installed version is on the [`KNOWN_BAD_VERSIONS`] list: a
+    /// release we have specifically checked and found broken, not
+    /// merely one we haven't got round to testing.
+    ///
+    /// This is a stronger statement than [`Self::Untested`] and takes
+    /// precedence over every other classification, including being
+    /// below the supported floor — "this exact release is broken, here
+    /// is what to move to" is more useful to a user than "this release
+    /// is old" or "this release is new".
+    KnownBad {
+        installed: String,
+        /// Plain-English description of what is broken, ready to show
+        /// to a user. Comes from [`KnownBadVersion::reason`].
+        reason: String,
+        /// The version to move to instead. From
+        /// [`KnownBadVersion::fixed_in`].
+        fixed_in: String,
+    },
 }
 
 impl VersionSupport {
@@ -205,6 +223,128 @@ impl VersionSupport {
     }
 }
 
+// ============================================================
+// Known-bad releases — versions we refuse on purpose
+// ============================================================
+//
+// The support window answers "how old / how new is this?". It cannot
+// answer "is this particular release broken?", because a broken
+// release usually sits comfortably INSIDE the window: it is newer than
+// the floor, older than the ceiling, and looks perfectly ordinary to
+// every version comparison we make. GAMDL 3.9 is exactly that case.
+//
+// So this is a short, hand-maintained list of releases we have checked
+// and found broken in a way that matters to MeedyaDL. It is short by
+// design: an entry here is a claim we have verified, not a suspicion.
+// Every entry must say, in words a user can act on, what is broken and
+// which version fixes it.
+//
+// The list is enforced in three places, and all three matter:
+//   * the explicit-version install paths refuse it outright, so nobody
+//     can land on it by clicking an "install this version" button;
+//   * `classify` / `classify_for_platform` report it, so a user who
+//     already has it installed is told at startup rather than being
+//     left to work out why downloads fail;
+//   * the routine bounded install never picks it anyway, because a
+//     fixed release with a higher version number exists — but that is
+//     luck, not enforcement, and it would stop being true if a broken
+//     release were ever the newest one.
+
+/// One release we refuse on purpose, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownBadVersion {
+    /// The exact release, written the way upstream writes it
+    /// (e.g. `"3.9"`). Matched on the numbers only, so `"3.9"` and
+    /// `"3.9.0"` are the same release — see [`known_bad_version`].
+    pub version: &'static str,
+    /// What is broken, in plain English, ready to put in front of a
+    /// user. No code identifiers, no issue numbers.
+    pub reason: &'static str,
+    /// The release that fixes it — what we tell the user to move to.
+    pub fixed_in: &'static str,
+}
+
+/// Releases MeedyaDL refuses to install, and will warn about if it
+/// finds one already installed.
+///
+/// GAMDL 3.9 is the first and, at the time of writing, only entry.
+///
+/// What went wrong: 3.9 changed how it finds the copy-protection key
+/// for a track, looking it up by a label on the key. Apple's web AAC
+/// streams present a key carrying no such label, so the lookup found
+/// nothing and the download stopped outright. That is the `aac-web`
+/// and `aac-he-web` formats — the two at the very bottom of MeedyaDL's
+/// default audio fallback chain, so they are what every other format
+/// falls back TO when it is unavailable. Losing them means losing the
+/// safety net rather than one option among many, and the failure looks
+/// to a user like "this track just isn't available". That is why this
+/// is a refusal and not a warning. Upstream fixed it the next day in
+/// 3.9.1, which restores the old behaviour whenever the labelled
+/// lookup comes back empty.
+pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
+    version: "3.9",
+    reason: "GAMDL 3.9 cannot download Apple's web AAC formats at all — it looks for the \
+             track's copy-protection key by a label that Apple's web streams do not put on \
+             it, and stops when it finds none. Those formats are the last resort in MeedyaDL's \
+             fallback chain, so downloads that would otherwise have recovered simply fail.",
+    fixed_in: "3.9.1",
+}];
+
+/// Splits a version string into its first three numbers, or `None` if
+/// any of them is not a plain number.
+///
+/// Deliberately stricter than [`is_version_at_least`], which silently
+/// substitutes `0` for anything it cannot parse. That leniency is fine
+/// for "is this at least X?" comparisons but wrong here: under it,
+/// `"3.9.1rc1"` would read as `(3, 9, 0)` and match the known-bad
+/// entry for 3.9 — refusing a pre-release of the very fix we are
+/// telling people to install. Returning `None` for anything that is
+/// not plainly numeric means a string we cannot read with confidence
+/// is never treated as a known-bad release.
+///
+/// A missing minor or patch counts as zero, so `"3.9"` and `"3.9.0"`
+/// both give `(3, 9, 0)` — upstream writes the same release both ways.
+fn numeric_version_parts(version: &str) -> Option<(u32, u32, u32)> {
+    let mut parts = version.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = match parts.next() {
+        Some(p) => p.parse().ok()?,
+        None => 0,
+    };
+    let patch: u32 = match parts.next() {
+        Some(p) => p.parse().ok()?,
+        None => 0,
+    };
+    Some((major, minor, patch))
+}
+
+/// Returns the [`KNOWN_BAD_VERSIONS`] entry matching `version`, or
+/// `None` when the version is fine (or is a string we cannot read).
+///
+/// Matching is on the numbers only, so `"3.9"` and `"3.9.0"` both
+/// match the 3.9 entry. Anything with a non-numeric part — a
+/// pre-release like `"3.9.1rc1"`, or plain garbage — matches nothing.
+#[must_use]
+pub fn known_bad_version(version: &str) -> Option<&'static KnownBadVersion> {
+    // Only a version we can read properly, in the ordinary two- or
+    // three-part shape, can match an entry on the list.
+    //
+    // An independent review found `3.9.0.1` matching the broken `3.9`,
+    // because the comparison read three numbers and stopped. Those are
+    // different releases by the packaging rules everyone else follows,
+    // so that would have refused a release that is perfectly fine. The
+    // cost of being wrong in this direction is a user unable to install
+    // something installable, with a message telling them it is broken
+    // when it is not.
+    if !is_parseable_semver(version) {
+        return None;
+    }
+    let parts = numeric_version_parts(version)?;
+    KNOWN_BAD_VERSIONS
+        .iter()
+        .find(|bad| numeric_version_parts(bad.version) == Some(parts))
+}
+
 /// Classifies `installed` against the compiled support window.
 ///
 /// A `None` installed version means GAMDL is not installed; we
@@ -216,6 +356,17 @@ pub fn classify(installed: Option<&str>) -> VersionSupport {
         return VersionSupport::NotInstalled;
     };
     let window = support_window();
+
+    // Checked before anything else: a release on the known-bad list is
+    // broken in a specific, describable way, and saying so is more
+    // useful than any statement about how it compares with the window.
+    if let Some(bad) = known_bad_version(installed) {
+        return VersionSupport::KnownBad {
+            installed: installed.to_string(),
+            reason: bad.reason.to_string(),
+            fixed_in: bad.fixed_in.to_string(),
+        };
+    }
 
     if !is_version_at_least(installed, &window.minimum) {
         return VersionSupport::Unsupported {
@@ -257,13 +408,28 @@ pub fn classify(installed: Option<&str>) -> VersionSupport {
 // reachable there by building the compiled extension from source,
 // which MeedyaDL's managed Python environment can't do.
 //
-// The functions below layer a narrow, additive per-platform override on
-// top of the existing global window WITHOUT changing `classify()` or
-// `support_window()` themselves, so every existing caller and test
-// keeps its current behaviour untouched. A platform with no entry in
-// `[gamdl.platform_ceilings]` — which is every platform except Linux
-// ARMv7 today — sees byte-identical results from the platform-aware
-// functions as from the plain ones.
+// The functions below layer a per-platform override on top of the
+// global window. `support_window()` and `classify()` still report the
+// global picture; everything that decides what to INSTALL or what to
+// TELL THE USER about their own machine goes through the per-platform
+// ceiling — `pip_version_spec()`, `is_above_tested_ceiling()`,
+// `classify_for_platform()`, and the explicit-version install path in
+// `gamdl_service`.
+//
+// That was not always so. The table originally affected labelling
+// only, on the assumption that pip would resolve down by itself when a
+// platform had no installable package. That assumption held for Linux
+// ARMv7, where the missing package is GAMDL's own, and broke for
+// Windows ARM64 at GAMDL 3.9, where the missing package belongs to a
+// dependency two levels down and pip therefore tries to compile it
+// instead. Relying on a resolver noticing a problem is not the same as
+// refusing outright, and only one of the two can explain itself to the
+// user.
+//
+// A platform with no entry in `[gamdl.platform_ceilings]` sees
+// byte-identical results from the platform-aware functions as from the
+// plain ones — which is every platform except Linux ARMv7 and Windows
+// ARM64 today.
 
 /// Returns a canonical platform identifier used to key
 /// `[gamdl.platform_ceilings]` overrides in `tool-versions.toml`.
@@ -295,6 +461,41 @@ pub fn current_platform_id() -> &'static str {
     }
 }
 
+/// Returns a human-readable name for a platform ID, for messages shown
+/// to users ("Windows on ARM", not `windows-aarch64`).
+///
+/// An ID we don't recognise is handed back unchanged rather than
+/// replaced with something vague like "your platform" — if this ever
+/// reaches a user it should at least be searchable.
+#[must_use]
+pub fn platform_display_name(platform_id: &str) -> &str {
+    match platform_id {
+        "macos" => "macOS",
+        "windows-x86_64" => "64-bit Windows",
+        "windows-aarch64" => "Windows on ARM",
+        "linux-x86_64" => "64-bit Linux",
+        "linux-aarch64" => "Linux on 64-bit ARM",
+        "linux-armv7" => "Linux on 32-bit ARM",
+        other => other,
+    }
+}
+
+/// Returns the `[gamdl.platform_ceilings]` entry for `platform_id`, or
+/// `None` when that platform simply tracks the global ceiling.
+///
+/// Callers use this to tell the two cases apart, which matters: a
+/// version above the GLOBAL ceiling is merely untested, and a user is
+/// allowed to install it deliberately. A version above a HELD-BACK
+/// platform's ceiling cannot be installed there at all, so it is
+/// refused rather than warned about.
+#[must_use]
+pub fn platform_ceiling_override(platform_id: &str) -> Option<&'static str> {
+    support_window()
+        .platform_ceilings
+        .get(platform_id)
+        .map(String::as_str)
+}
+
 /// Returns the effective `maximum_tested_version` for `platform_id`
 /// (#1014): the platform-specific override from
 /// `[gamdl.platform_ceilings]` when one exists, otherwise this build's
@@ -309,6 +510,26 @@ pub fn effective_maximum_tested(platform_id: &str) -> String {
         .get(platform_id)
         .cloned()
         .unwrap_or_else(|| support_window().maximum_tested.clone())
+}
+
+/// Returns the version to recommend on `platform_id`: this build's
+/// `recommended_version`, brought down to that platform's ceiling when
+/// the recommendation is above what the platform can install.
+///
+/// Without this, the "Install recommended" button in Settings > Tools
+/// would point a held-back platform at a version the install path then
+/// refuses — a button that exists only to produce an error message.
+/// The ceilings are always real, published releases, so the version
+/// this hands back is always installable.
+#[must_use]
+pub fn recommended_for_platform(platform_id: &str) -> String {
+    let window = support_window();
+    let ceiling = effective_maximum_tested(platform_id);
+    if is_version_at_least(&ceiling, &window.recommended) {
+        window.recommended.clone()
+    } else {
+        ceiling
+    }
 }
 
 /// Platform-aware counterpart to [`classify`] (#1014): classifies
@@ -330,6 +551,16 @@ pub fn classify_for_platform(installed: Option<&str>, platform_id: &str) -> Vers
     let window = support_window();
     let maximum_tested = effective_maximum_tested(platform_id);
 
+    // Same precedence as `classify`: a known-bad release is broken
+    // everywhere, so it outranks any per-platform ceiling question.
+    if let Some(bad) = known_bad_version(installed) {
+        return VersionSupport::KnownBad {
+            installed: installed.to_string(),
+            reason: bad.reason.to_string(),
+            fixed_in: bad.fixed_in.to_string(),
+        };
+    }
+
     if !is_version_at_least(installed, &window.minimum) {
         return VersionSupport::Unsupported {
             installed: installed.to_string(),
@@ -341,7 +572,15 @@ pub fn classify_for_platform(installed: Option<&str>, platform_id: &str) -> Vers
         return VersionSupport::Untested {
             installed: installed.to_string(),
             maximum_tested,
-            recommended: window.recommended.clone(),
+            // Clamped to what this platform can actually install, NOT
+            // the general recommendation. An independent review caught
+            // the unclamped version: on Windows on ARM (held at 3.8.5)
+            // the startup log said "consider downgrading to 3.9.1" —
+            // naming, as the thing to downgrade TO, a release that
+            // cannot be installed there at all, and which the install
+            // path then refuses. A suggestion the app itself will not
+            // carry out is worse than no suggestion.
+            recommended: recommended_for_platform(platform_id),
         };
     }
 
@@ -374,22 +613,43 @@ pub fn should_offer_upgrade(latest_available: &str) -> bool {
     is_parseable_semver(latest_available)
 }
 
-/// Is `version` strictly above this MeedyaDL build's
-/// `maximum_tested_version`?
+/// Is `version` above the ceiling for `platform_id`?
 ///
-/// Used by [`crate::services::update_checker`] to set the `is_untested`
-/// flag on a `ComponentUpdate`, which in turn drives the frontend's
-/// "Untested" warning badge. `false` for unparseable strings — we can't
-/// reason about them, so we don't claim they're untested.
+/// The pure, platform-explicit half of [`is_above_tested_ceiling`] —
+/// takes the platform as an argument so it can be tested for a
+/// platform other than the one the test happens to be running on.
+///
+/// `false` for unparseable strings: we can't reason about them, so we
+/// don't claim they're untested.
 #[must_use]
-pub fn is_above_tested_ceiling(version: &str) -> bool {
+pub fn is_above_ceiling_for_platform(version: &str, platform_id: &str) -> bool {
     if !is_parseable_semver(version) {
         return false;
     }
-    let window = support_window();
+    let maximum_tested = effective_maximum_tested(platform_id);
     // `is_version_at_least(a, b)` ⇔ `a >= b`. Above-ceiling means
     // `version > maximum_tested`, i.e. `!(maximum_tested >= version)`.
-    !is_version_at_least(&window.maximum_tested, version)
+    !is_version_at_least(&maximum_tested, version)
+}
+
+/// Is `version` above the highest release this machine has been
+/// validated up to?
+///
+/// Used by [`crate::services::update_checker`] to set the `is_untested`
+/// flag on a `ComponentUpdate`, which in turn drives the frontend's
+/// amber "Untested" warning badge.
+///
+/// **This asks about the machine it is running on, not about the build
+/// in general.** It used to compare against the global
+/// `maximum_tested_version` only, which was wrong for any platform held
+/// below that global ceiling: on Windows ARM64, where GAMDL 3.9.1
+/// cannot be installed at all, the user was shown 3.9.1 as an ordinary,
+/// fully tested upgrade with no warning — and clicking it produced a
+/// wall of compiler output. It now compares against that platform's own
+/// effective ceiling, so the warning appears where it is deserved.
+#[must_use]
+pub fn is_above_tested_ceiling(version: &str) -> bool {
+    is_above_ceiling_for_platform(version, current_platform_id())
 }
 
 /// Returns `true` if `version` is a leading-numeric semver-ish string
@@ -401,27 +661,88 @@ pub fn is_above_tested_ceiling(version: &str) -> bool {
 /// and falsely pass the ceiling check. This guard keeps
 /// `should_offer_upgrade` strict.
 fn is_parseable_semver(version: &str) -> bool {
-    let mut parts = version.split('.');
-    let Some(first) = parts.next() else {
+    // EVERY part has to be a plain number, and there have to be two or
+    // three of them.
+    //
+    // This used to check only the first part, which an independent
+    // review caught: `3.garbage` and `3.8.6rc1` both passed. That
+    // mattered because the comparisons downstream replace anything they
+    // cannot read with zero, so `3.8.6rc1` quietly became 3.8.6 — a
+    // pre-release presenting itself as the finished thing, and landing
+    // inside the tested range on that basis.
+    //
+    // Being strict here is the safe direction: a version string this
+    // refuses is treated as unknown, and unknown already means "assume
+    // nothing and send no optional arguments" everywhere it is used.
+    let parts: Vec<&str> = version.trim().split('.').collect();
+    if parts.len() < 2 || parts.len() > 3 {
         return false;
-    };
-    first.parse::<u32>().is_ok()
+    }
+    parts.iter().all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
 }
 
 /// Pip version specifier string for `pip install --upgrade`.
 ///
-/// Example output: `gamdl>=3.0,<=3.8.1`. Consumers pass this to
+/// Example output: `gamdl>=3.0,<=3.9.1`. Consumers pass this to
 /// `pip install --upgrade {spec}` so the resolver can pick the
 /// newest validated release without jumping to an untested version
 /// (and never resolves down to a dropped v2 release).
+///
+/// **The upper bound is this machine's ceiling, not the global one.**
+/// A platform listed in `[gamdl.platform_ceilings]` gets its own,
+/// lower bound here. Before that, the per-platform table governed only
+/// what the app SAID about a version, never what it installed — the
+/// install was left to pip resolving down by itself when no package
+/// existed. That worked for Linux ARMv7, where the missing package is
+/// GAMDL's own and `--only-binary=gamdl` makes the newer releases
+/// unsatisfiable. It does not work for Windows ARM64, where the
+/// missing package belongs to a dependency two levels down: pip has no
+/// reason to resolve down there, so it tries to compile from source
+/// and fails. Putting the real ceiling in the range makes the cap
+/// deterministic on both.
 #[must_use]
 pub fn pip_version_spec() -> String {
+    pip_version_spec_for_platform(current_platform_id())
+}
+
+/// The pure, platform-explicit half of [`pip_version_spec`] — takes the
+/// platform as an argument so it can be tested for a platform other
+/// than the one the test happens to be running on.
+#[must_use]
+pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
     let window = support_window();
-    format!(
+    let maximum = effective_maximum_tested(platform_id);
+    let mut spec = format!(
         "gamdl>={minimum},<={maximum}",
         minimum = window.minimum,
-        maximum = window.maximum_tested,
-    )
+    );
+
+    // Shut out every release we know to be broken, by name.
+    //
+    // An independent review caught this, and it went to the heart of the
+    // whole thing: 3.9 is refused everywhere a user can ask for a version
+    // by name, and refused in what the screen says — but the range handed
+    // to pip for an ORDINARY install was simply "3.0 up to 3.9.1", which
+    // contains 3.9. Nothing in that range said so. If 3.9.1 could not be
+    // resolved for any reason — withdrawn, briefly unavailable, or an
+    // install requirement that only 3.9 happens to satisfy — pip was free
+    // to settle on the one release we refuse, and would have reported
+    // success.
+    //
+    // "We refuse this release" has to be said in the one place the
+    // decision is actually made, not only in the places that talk about
+    // it.
+    for bad in KNOWN_BAD_VERSIONS {
+        // Only worth excluding what the range could otherwise reach.
+        if is_version_at_least(bad.version, &window.minimum)
+            && is_version_at_least(&maximum, bad.version)
+        {
+            spec.push_str(",!=");
+            spec.push_str(bad.version);
+        }
+    }
+
+    spec
 }
 
 /// Pip version specifier pinning GAMDL to a single explicit version.
@@ -433,9 +754,13 @@ pub fn pip_version_spec() -> String {
 /// v3.3" — confusing UX and not what the user asked for. This helper
 /// pins to exactly the version the frontend showed in the banner.
 ///
-/// `target` should be a parseable semver. We don't sanity-check it here
-/// because the caller (`install_gamdl`) has already obtained it from
-/// `check_latest_gamdl_version` (PyPI) and surfaced it to the user.
+/// `target` should be a parseable semver. This helper only formats the
+/// string — it deliberately makes no judgement about whether the
+/// version is a sensible one to install. That judgement belongs to
+/// [`crate::services::gamdl_service::refuse_unsupported_target`], which
+/// every explicit-version install path calls first: it turns away a
+/// release on the known-bad list, and one above this platform's
+/// ceiling, with a reason the user can act on.
 #[must_use]
 pub fn pip_target_spec(target: &str) -> String {
     format!("gamdl=={target}")
@@ -466,23 +791,63 @@ pub fn pip_target_spec(target: &str) -> String {
 pub const LAST_WRAPPER_V1_VERSION: &str = "3.5.2";
 
 /// Returns the recommended upgrade target for a user currently on
-/// `installed`, taking their wrapper usage into account (#1001).
+/// `installed` on THIS machine's platform, taking their wrapper usage
+/// into account (#1001).
 ///
 /// | `installed` state         | `use_wrapper` | Target                              |
 /// |----------------------------|---------------|--------------------------------------|
 /// | below this build's floor (v2.x) | `true`  | [`LAST_WRAPPER_V1_VERSION`] ("3.5.2") — the newest release that doesn't require migrating to wrapper-v2 |
-/// | below this build's floor (v2.x) | `false` | `support_window().recommended` — no wrapper to protect, so the best-tested release |
-/// | already `>=` this build's floor (v3.x+), or `None` (nothing installed yet) | either | `support_window().recommended` — the v2→v3 wrapper-protocol concern doesn't apply once already on v3, or when there's no prior install to protect |
+/// | below this build's floor (v2.x) | `false` | [`recommended_for_platform`] for the current platform — no wrapper to protect, so the best-tested release this machine can actually install |
+/// | already `>=` this build's floor (v3.x+), or `None` (nothing installed yet) | either | [`recommended_for_platform`] for the current platform — the v2→v3 wrapper-protocol concern doesn't apply once already on v3, or when there's no prior install to protect |
 ///
 /// This function only *encodes* the target table above — it does not
 /// itself decide whether an upgrade is warranted. Callers should gate
 /// on `classify(installed) == VersionSupport::Unsupported` (i.e.
 /// `installed` is still on the pre-floor v2.x line) before consulting
 /// it for the v2→v3 migration flow; called with an already-v3+
-/// `installed`, it safely degrades to the ordinary `recommended`
-/// target rather than ever recommending a downgrade.
+/// `installed`, it safely degrades to the ordinary recommended-for-
+/// platform target rather than ever recommending a downgrade.
+///
+/// Thin wrapper over [`recommended_upgrade_target_for_platform`] that
+/// fixes `platform_id` to [`current_platform_id`]. Kept `String` (not
+/// `&'static str`) even though [`LAST_WRAPPER_V1_VERSION`] is a
+/// compile-time constant, because the other branch —
+/// [`recommended_for_platform`] — is itself platform-clamped and
+/// therefore computed, not static; a caller can't tell the two
+/// branches apart from the return type anyway, so one owned `String`
+/// return type is simpler than a `Cow`.
 #[must_use]
-pub fn recommended_upgrade_target(installed: Option<&str>, use_wrapper: bool) -> &'static str {
+pub fn recommended_upgrade_target(installed: Option<&str>, use_wrapper: bool) -> String {
+    recommended_upgrade_target_for_platform(installed, use_wrapper, current_platform_id())
+}
+
+/// The pure, platform-explicit half of [`recommended_upgrade_target`] —
+/// takes the platform as an argument so it can be tested for a platform
+/// other than the one the test happens to be running on. Mirrors the
+/// `_for_platform` pattern used by [`classify_for_platform`] /
+/// [`pip_version_spec_for_platform`] / [`is_above_ceiling_for_platform`]
+/// elsewhere in this module.
+///
+/// **Why this exists**: before this split, the v2→v3 "no wrapper to
+/// protect" and "already on v3" branches both returned the GLOBAL
+/// `support_window().recommended` — on a platform held below that
+/// (Windows on ARM, held at 3.8.5 while the global recommended tracks
+/// 3.9.1), this named a version the platform-aware install path
+/// (`refuse_unsupported_target`) then refused outright. Both branches
+/// now go through [`recommended_for_platform`], which is already
+/// clamped to whatever `platform_id` can install — exactly the
+/// guarantee [`recommended_for_platform`]'s own doc comment describes
+/// for the "Install recommended" button in Settings > Tools. The
+/// [`LAST_WRAPPER_V1_VERSION`] branch needs no clamping: it is a fixed
+/// historical release (3.5.2) that predates every per-platform ceiling
+/// entry in `[gamdl.platform_ceilings]` today, so it is installable
+/// everywhere regardless of platform.
+#[must_use]
+pub fn recommended_upgrade_target_for_platform(
+    installed: Option<&str>,
+    use_wrapper: bool,
+    platform_id: &str,
+) -> String {
     // `None` (nothing installed yet, e.g. a fresh setup) is NOT the
     // "still on v2.x" case — there's no existing wrapper-v1 setup to
     // protect, so it falls straight through to `recommended` just like
@@ -492,9 +857,155 @@ pub fn recommended_upgrade_target(installed: Option<&str>, use_wrapper: bool) ->
         installed.is_some_and(|v| !is_version_at_least(v, &support_window().minimum));
 
     if use_wrapper && is_pre_floor_v2 {
-        LAST_WRAPPER_V1_VERSION
+        LAST_WRAPPER_V1_VERSION.to_string()
     } else {
-        support_window().recommended.as_str()
+        recommended_for_platform(platform_id)
+    }
+}
+
+/// Returns the version to tell a user to move to when `installed` is a
+/// [`KNOWN_BAD_VERSIONS`] release, already brought down to whatever
+/// `platform_id` can actually install. Returns `None` when `installed`
+/// is not on the known-bad list.
+///
+/// [`KnownBadVersion::fixed_in`] names the release that fixes the
+/// specific fault (e.g. `"3.9.1"` for the GAMDL 3.9 entry), but that
+/// release can sit ABOVE a held-back platform's ceiling — pointing such
+/// a user at a version their own platform's install path then refuses
+/// (see [`crate::services::gamdl_service::refuse_unsupported_target`])
+/// would just move the same confusion one step later. When
+/// `fixed_in` is out of reach for `platform_id`, this falls back to
+/// [`recommended_for_platform`], which is always installable there.
+#[must_use]
+pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str) -> Option<String> {
+    let bad = known_bad_version(installed)?;
+    if is_version_at_least(&effective_maximum_tested(platform_id), bad.fixed_in) {
+        Some(bad.fixed_in.to_string())
+    } else {
+        Some(recommended_for_platform(platform_id))
+    }
+}
+
+// ============================================================
+// Known-bad advice sentence (independent-review fix, 2026-09-22)
+// ============================================================
+//
+// What went wrong before this existed: three separate call sites each
+// hand-built their own sentence about a known-bad release, and every
+// one of them assumed the release named in `KnownBadVersion::fixed_in`
+// could always be installed on the user's own machine. That is true on
+// most platforms, and was false on exactly the platform GAMDL 3.9
+// created the first real test of: Windows on ARM, held at 3.8.5 while
+// the fix for 3.9 is 3.9.1. On that platform the old wording read
+// "Update to GAMDL 3.8.5 or newer" — a straight downgrade dressed up as
+// an update, AND "or newer" re-permits the very 3.9 release the
+// sentence exists to move the user away from, AND (in two of the three
+// sites) the literal, un-installable "3.9.1" was named outright, which
+// this platform's own install path then refuses the moment it's tried.
+//
+// This is the one place that sentence is built now. Every call site
+// passes in the same four facts (why it's broken, what fixes it, what
+// is actually installed, which platform) and gets back the same words.
+
+/// Builds the plain-English sentence telling a user what to do about a
+/// GAMDL release on the [`KNOWN_BAD_VERSIONS`] list, worded correctly
+/// for `platform_id`.
+///
+/// `reason` and `fixed_in` come from the matching [`KnownBadVersion`]
+/// entry (`bad.reason`, `bad.fixed_in`). `installed` is the version
+/// actually detected or requested — it does not need to be spelled
+/// identically to [`KnownBadVersion::version`] (pip might report
+/// `"3.9.0"` where the table says `"3.9"`; [`known_bad_version`]
+/// matches those numerically as the same release).
+///
+/// Three cases, and why a single "name the fix, add 'or newer'"
+/// template cannot serve all of them:
+///
+/// 1. **This platform can install the release that fixes it.** The
+///    ordinary case, and the only one that says "or newer".
+///
+///    What that phrase can honestly promise is narrower than an earlier
+///    version of this comment claimed. A test
+///    (`nothing_we_recommend_or_install_is_on_the_known_bad_list`)
+///    proves `fixed_in` is not itself a broken release. It does NOT
+///    prove that everything released after it is fine — nobody can know
+///    that, and a release published tomorrow could join the known-bad
+///    list. An independent review pointed this out, and it was a fair
+///    hit: the comment was reasoning from a check to a conclusion the
+///    check does not support.
+///
+///    The phrase stays, because what it tells a user to do is still
+///    right: install the fix, and take ordinary updates afterwards. If
+///    a later release turns out to be broken, it goes on the list, the
+///    install range excludes it by name, and this same sentence starts
+///    pointing at whatever fixes that one. The safety comes from the
+///    list being kept current, not from a promise about the future.
+/// 2. **This platform's own ceiling sits BELOW both the fix and what is
+///    already installed.** Today's live case: Windows on ARM, held at
+///    3.8.5, with GAMDL 3.9 installed and 3.9.1 (the fix) needing a
+///    package with no Windows ARM64 build. Naming the fix here would
+///    send the user straight into a refusal from
+///    [`crate::services::gamdl_service::refuse_unsupported_target`], so
+///    instead this says to move BACK to the platform's own ceiling —
+///    worded as a downgrade, because it is one — and says in plain
+///    words why the fix itself is out of reach.
+/// 3. **This platform's own ceiling sits below the fix, but at or above
+///    what is installed.** Not seen on any platform this build ships
+///    today, but handled for correctness: the platform can still move
+///    forward, just not all the way to the fix, so this is worded as an
+///    ordinary (if capped) install rather than a downgrade.
+///
+/// Never says "or newer" outside case 1, and never names a version
+/// [`crate::services::gamdl_service::refuse_unsupported_target`] would
+/// then refuse.
+///
+/// Cases 2 and 3 deliberately say only that no working version has been
+/// published for the platform, without naming what is missing. An
+/// earlier wording said "one of its required packages" — true of
+/// Windows on ARM, where it is a dependency with no ARM64 build, but
+/// false of Linux on 32-bit ARM, where it is GAMDL's own package that
+/// stops being published. The reason differs per platform and would
+/// have to be maintained alongside `[gamdl.platform_ceilings]`, which a
+/// future ceiling entry would quietly get wrong. The user's options are
+/// the same either way, so the sentence stays true for all of them.
+#[must_use]
+pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_id: &str) -> String {
+    let ceiling = effective_maximum_tested(platform_id);
+
+    if is_version_at_least(&ceiling, fixed_in) {
+        // Case 1 — the fix itself is installable here.
+        //
+        // "or newer" is what a user should do, not a promise that every
+        // future release is sound: nobody can know that, and a release
+        // published tomorrow could join the list. If one does, the list
+        // gains an entry, the install range excludes it by name, and
+        // this sentence starts pointing at whatever fixes that one. An
+        // independent review flagged the earlier wording here, which
+        // claimed the list's own check proved everything above the fix
+        // was fine. It does not; it only proves the fix itself is not
+        // on the list.
+        return format!("{reason} Update to GAMDL {fixed_in} or newer.");
+    }
+
+    let platform_name = platform_display_name(platform_id);
+
+    if !is_version_at_least(&ceiling, installed) {
+        // Case 2 — this platform's ceiling is even below what's
+        // already installed. This is a downgrade, and must be said as
+        // one, not dressed up as an "update".
+        format!(
+            "{reason} {platform_name} can only install GAMDL up to {ceiling} — move back to \
+             that version. GAMDL {fixed_in} fixes this, but no version of it that works on \
+             {platform_name} has been published."
+        )
+    } else {
+        // Case 3 — capped below the fix, but still a genuine step
+        // forward from what's installed.
+        format!(
+            "{reason} {platform_name} can install GAMDL up to {ceiling} — install that \
+             version. GAMDL {fixed_in} fixes this, but no version of it that works on \
+             {platform_name} has been published."
+        )
     }
 }
 
@@ -790,6 +1301,26 @@ pub enum GamdlFeature {
     /// field on the `GamdlCapabilities` DTO (`commands::dependencies`) via
     /// the `useGamdlCapabilities` hook — not in the codec label itself.
     AssetsApiUnlocksLossyCodecs,
+
+    /// GAMDL 3.9 added a second way of unlocking copy-protected tracks,
+    /// called PlayReady, alongside the built-in Widevine one. It is offered
+    /// through two options, `--drm-backend` and `--prd-path`, and needs a
+    /// `.prd` device file the user supplies themselves.
+    ///
+    /// Available from **3.9**. In practice the lowest release that can ever
+    /// reach this is 3.9.1, because 3.9 itself is on the known-bad list
+    /// (see [`KNOWN_BAD_VERSIONS`]) and MeedyaDL refuses to install it. The
+    /// threshold is still written as 3.9, because that is the release that
+    /// added the feature — tying it to 3.9.1 would be recording the wrong
+    /// fact, and would silently become wrong if the known-bad entry were
+    /// ever lifted.
+    ///
+    /// Older GAMDL releases reject an option they do not know about
+    /// outright rather than ignoring it, so passing either option to them
+    /// would end the download before it started. That is why this gate
+    /// exists, and why the Settings screen hides the choice entirely
+    /// unless this is true.
+    PlayReadyDrmBackend,
 }
 
 impl GamdlFeature {
@@ -797,7 +1328,7 @@ impl GamdlFeature {
     ///
     /// Version comparison uses [`is_version_at_least`] which tolerates
     /// two-part ("2.9") and unparseable version strings gracefully.
-    fn is_available_on(self, version: &str) -> bool {
+    pub(crate) fn is_available_on(self, version: &str) -> bool {
         match self {
             // Added in v2.9.1.
             Self::NativeCodecPriority => is_version_at_least(version, "2.9.1"),
@@ -852,6 +1383,7 @@ impl GamdlFeature {
             // `/v1/play/assets` unlocked every non-web codec except ALAC
             // for wrapper-less downloads.
             Self::AssetsApiUnlocksLossyCodecs => is_version_at_least(version, "3.8"),
+            Self::PlayReadyDrmBackend => is_version_at_least(version, "3.9"),
         }
     }
 }
@@ -864,9 +1396,82 @@ impl GamdlFeature {
 #[must_use]
 pub fn supports(feature: GamdlFeature) -> bool {
     match detected_version() {
-        Some(ver) => feature.is_available_on(&ver),
-        None => false,
+        // A version string we cannot read properly counts as not knowing
+        // which version is installed, and not knowing always means "send
+        // nothing optional".
+        //
+        // An independent review pointed out that this was NOT true when
+        // the claim was first written: the stricter reading was added for
+        // the install range and the ceiling checks only, while these
+        // feature gates still went through a comparison that replaces
+        // anything unreadable with zero. So `3.8.6rc1` was quietly
+        // treated as 3.8.6 here — a pre-release being handed the options
+        // of the finished release. A claim in a comment is worth nothing
+        // if the code does not actually do it, so the code now does it.
+        Some(ver) if is_parseable_semver(&ver) => feature.is_available_on(&ver),
+        _ => false,
     }
+}
+
+/// Is this platform genuinely held below what everyone else can
+/// install, and by what?
+///
+/// Returns the platform's own limit only when that limit is BELOW the
+/// general tested ceiling — which is what "held back" means. An entry
+/// that has caught up with the general ceiling holds nobody back any
+/// more, and a release above it is simply above the general ceiling,
+/// which is the ordinary "untested, install it if you choose"
+/// situation every platform shares.
+///
+/// **This is the one copy of that rule**, because two places had come
+/// to different answers: the message shown to a user asked whether the
+/// entry held the platform back, while the install path refused as soon
+/// as an entry existed at all. A review round found them disagreeing —
+/// a person could be told a release was theirs to choose and then have
+/// it refused a click later. When a screen and the thing it describes
+/// disagree, the screen is the one that gets believed.
+#[must_use]
+pub fn platform_held_back_at(platform_id: &str) -> Option<&'static str> {
+    let cap = platform_ceiling_override(platform_id)?;
+    let general = support_window().maximum_tested.clone();
+    // Strictly below: equal means it has caught up.
+    if is_version_at_least(cap, &general) {
+        return None;
+    }
+    Some(cap)
+}
+
+/// May MeedyaDL pass `--mp4decrypt-path` and `--mp4box-path` to the
+/// installed GAMDL?
+///
+/// **This is the one copy of that rule.** Two places emit those two
+/// arguments, and both ask here, because asking the plain capability
+/// gets it backwards in a way that is easy to miss and expensive to get
+/// wrong.
+///
+/// The capability is "does this release do its own muxing?", which is
+/// true for newer releases. So *false* means "an older release — send
+/// the arguments it used to accept" — and false is also what every
+/// capability answers when nothing is known about the installed
+/// version. A release that does not recognise an argument refuses it
+/// outright and downloads nothing, so guessing wrong here costs the
+/// whole download.
+///
+/// Three review rounds found three different ways into that trap: one
+/// emission site with no version check at all, a second that inherited
+/// the inversion, and a version string like `3.garbage` that reads as
+/// 3.0.0 and so looks convincingly old. Hence: the version must be
+/// present, readable, and known to be one that accepts them.
+#[must_use]
+pub fn tool_path_flags_accepted() -> bool {
+    detected_version().is_some_and(|v| tool_path_flags_accepted_on(&v))
+}
+
+/// The pure half of [`tool_path_flags_accepted`], taking the version so
+/// it can be proven for releases this machine does not have.
+#[must_use]
+pub fn tool_path_flags_accepted_on(version: &str) -> bool {
+    is_parseable_semver(version) && !GamdlFeature::NativeMuxing.is_available_on(version)
 }
 
 /// Compact comma-separated list of capability flags active on the
@@ -882,6 +1487,16 @@ pub fn active_capabilities_summary() -> String {
     let Some(ver) = detected_version() else {
         return "unknown".to_string();
     };
+    // A version string we cannot read properly means every gate is off,
+    // and this line has to say the same thing the gates did. A later
+    // review round found the two disagreeing: the gates were tightened
+    // to refuse an unreadable version, while this summary went on
+    // reading it loosely and listing features as active that were not.
+    // A diagnostic line that contradicts the behaviour it is describing
+    // is worse than no line, because it is believed.
+    if !is_parseable_semver(&ver) {
+        return "unknown".to_string();
+    }
 
     let all = [
         (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
@@ -900,6 +1515,7 @@ pub fn active_capabilities_summary() -> String {
             GamdlFeature::AssetsApiUnlocksLossyCodecs,
             "assets_api_unlocks_lossy_codecs",
         ),
+        (GamdlFeature::PlayReadyDrmBackend, "play_ready_drm_backend"),
     ];
 
     let active: Vec<&str> = all
@@ -1193,6 +1809,565 @@ mod tests {
         }
     }
 
+    // ----------------------------------------------------------------
+    // Known-bad releases (GAMDL 3.9)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn known_bad_matches_the_same_release_written_either_way() {
+        // Upstream calls it 3.9; pip will happily report 3.9.0. They
+        // are the same release and both must match — and, more than
+        // just both being present, both spellings must resolve to the
+        // SAME table entry (not e.g. two different releases that both
+        // happen to be listed). Asserting on the whole struct, rather
+        // than restating one hardcoded field, means this actually
+        // fails if the numeric-matching logic ever starts treating
+        // "3.9" and "3.9.0" as different lookups.
+        let by_short_form = known_bad_version("3.9");
+        let by_long_form = known_bad_version("3.9.0");
+        assert!(by_short_form.is_some());
+        assert_eq!(by_short_form, by_long_form);
+
+        let entry = by_short_form.expect("3.9 must be on the known-bad list");
+        assert!(
+            entry.reason.contains("AAC"),
+            "the reason must say what is broken in the user's terms, got: {}",
+            entry.reason
+        );
+    }
+
+    #[test]
+    fn known_bad_does_not_catch_neighbouring_releases() {
+        // The release that FIXES the problem must not be caught by the
+        // entry describing the problem.
+        assert!(known_bad_version("3.9.1").is_none());
+        assert!(known_bad_version("3.8.5").is_none());
+        assert!(known_bad_version("3.10").is_none());
+
+        // Nor must a pre-release of the fix. This is the reason the
+        // matcher refuses to guess at non-numeric parts: the lenient
+        // comparison used elsewhere reads "3.9.1rc1" as 3.9.0, which
+        // would have blocked a release carrying the very repair we are
+        // telling people to install.
+        assert!(known_bad_version("3.9.1rc1").is_none());
+
+        // And nothing unreadable is ever treated as a known-bad
+        // release.
+        assert!(known_bad_version("").is_none());
+        assert!(known_bad_version("garbage").is_none());
+        assert!(known_bad_version("v3.9").is_none());
+    }
+
+    #[test]
+    fn classify_reports_a_known_bad_release_with_what_to_do_about_it() {
+        match classify(Some("3.9")) {
+            VersionSupport::KnownBad {
+                installed,
+                reason,
+                fixed_in,
+            } => {
+                assert_eq!(installed, "3.9");
+                // Cross-checked against `known_bad_version` itself rather
+                // than restating the "3.9.1" literal a second time — this
+                // fails if `classify`'s `KnownBad` arm ever drifts from
+                // the table it is supposed to be reporting (e.g. a
+                // copy-paste of the wrong field), which a hardcoded
+                // literal comparison would not catch since both call
+                // sites would happen to agree by coincidence.
+                let table_entry =
+                    known_bad_version("3.9").expect("3.9 must be on the known-bad list");
+                assert_eq!(fixed_in, table_entry.fixed_in);
+                assert_eq!(reason, table_entry.reason);
+            }
+            other => panic!("Expected KnownBad, got {other:?}"),
+        }
+
+        // Same answer on every platform — a broken release is broken
+        // everywhere, so the per-platform ceiling never gets a look in.
+        for platform_id in [
+            "macos",
+            "windows-aarch64",
+            "windows-x86_64",
+            "linux-armv7",
+            "linux-x86_64",
+        ] {
+            assert!(
+                matches!(
+                    classify_for_platform(Some("3.9.0"), platform_id),
+                    VersionSupport::KnownBad { .. }
+                ),
+                "{platform_id} must report 3.9.0 as known-bad"
+            );
+        }
+
+        // And the classification is NOT applied to anything else.
+        assert!(!matches!(
+            classify(Some("3.9.1")),
+            VersionSupport::KnownBad { .. }
+        ));
+    }
+
+    #[test]
+    fn nothing_we_recommend_or_install_is_on_the_known_bad_list() {
+        // The load-bearing guard. A known-bad release sitting inside
+        // the support window is invisible to every version comparison
+        // we make, so the only thing stopping us shipping people onto
+        // one is this check. It covers the general ceiling, the
+        // recommended version, the floor, and every per-platform
+        // ceiling.
+        let window = support_window();
+        for (label, version) in [
+            ("minimum_version", &window.minimum),
+            ("maximum_tested_version", &window.maximum_tested),
+            ("recommended_version", &window.recommended),
+        ] {
+            assert!(
+                known_bad_version(version).is_none(),
+                "{label} is set to {version}, which is on the known-bad list"
+            );
+        }
+        for (platform_id, ceiling) in &window.platform_ceilings {
+            assert!(
+                known_bad_version(ceiling).is_none(),
+                "the ceiling for {platform_id} is {ceiling}, which is on the known-bad list"
+            );
+        }
+
+        // Every fix named on the list must itself be clean, or we
+        // would be sending users from one broken release to another.
+        for bad in KNOWN_BAD_VERSIONS {
+            assert!(
+                known_bad_version(bad.fixed_in).is_none(),
+                "{} points at {} as the fix, but that is itself on the list",
+                bad.version,
+                bad.fixed_in
+            );
+            assert!(
+                is_version_at_least(bad.fixed_in, bad.version),
+                "{} names {} as its fix, which is an older release",
+                bad.version,
+                bad.fixed_in
+            );
+        }
+    }
+
+    #[test]
+    fn known_bad_upgrade_target_names_the_fix_on_a_platform_that_can_install_it() {
+        // macOS tracks the global ceiling (3.9.1), which is itself the
+        // fix for the 3.9 entry — so the fix is directly reachable and
+        // should be named as-is, not swapped for something else.
+        let target = known_bad_upgrade_target_for_platform("3.9", "macos")
+            .expect("3.9 must be on the known-bad list");
+        assert_eq!(target, "3.9.1");
+    }
+
+    #[test]
+    fn known_bad_upgrade_target_falls_back_when_the_fix_is_out_of_reach() {
+        // Windows on ARM is held at 3.8.5 — BELOW the 3.9 entry's own
+        // `fixed_in` (3.9.1). Naming 3.9.1 here would send a user
+        // straight into a refusal from `refuse_unsupported_target`, so
+        // this must fall back to whatever that platform can actually
+        // install instead.
+        let window = support_window();
+        assert!(
+            window.platform_ceilings.contains_key("windows-aarch64"),
+            "this test only proves something if windows-aarch64 is genuinely held back"
+        );
+
+        let target = known_bad_upgrade_target_for_platform("3.9", "windows-aarch64")
+            .expect("3.9 must be on the known-bad list");
+        assert_eq!(target, effective_maximum_tested("windows-aarch64"));
+        assert_ne!(
+            target, "3.9.1",
+            "windows-aarch64 cannot install 3.9.1 — must not be told to"
+        );
+    }
+
+    #[test]
+    fn known_bad_upgrade_target_is_none_for_a_clean_release() {
+        assert_eq!(known_bad_upgrade_target_for_platform("3.9.1", "macos"), None);
+        assert_eq!(
+            known_bad_upgrade_target_for_platform(&support_window().minimum, "macos"),
+            None
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // known_bad_advice (independent-review fix, 2026-09-22)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn known_bad_advice_advises_the_fix_with_or_newer_where_it_can_be_installed() {
+        // A platform with no ceiling of its own can install the fix
+        // outright — "or newer" is correct, and the fix must be named.
+        let bad = known_bad_version("3.9").expect("3.9 must be on the known-bad list");
+        for platform_id in ["macos", "linux-x86_64", "linux-aarch64", "windows-x86_64"] {
+            let advice = known_bad_advice(bad.reason, bad.fixed_in, "3.9", platform_id);
+            assert!(
+                advice.contains("3.9.1"),
+                "{platform_id}: must advise the fixed-in release, got: {advice}"
+            );
+            assert!(
+                advice.contains("or newer"),
+                "{platform_id}: safe to say 'or newer' when the fix is installable, got: {advice}"
+            );
+            assert!(
+                advice.contains(bad.reason),
+                "{platform_id}: must still say what is broken, got: {advice}"
+            );
+        }
+    }
+
+    #[test]
+    fn known_bad_advice_on_a_held_back_platform_never_says_or_newer() {
+        // Windows on ARM: held at 3.8.5, below the 3.9 entry's own fix
+        // (3.9.1). This is the exact case an independent review found
+        // broken — the message used to say "Update to GAMDL 3.8.5 or
+        // newer", which named a downgrade AND re-permitted the broken
+        // 3.9 release in the same sentence.
+        //
+        // The fix does NOT mean hiding "3.9.1" from the message — the
+        // user needs to be told it exists and why it isn't reachable
+        // here — it means the fix is never framed as something to
+        // install ("Update to ... 3.9.1" / "... 3.9.1 or newer").
+        let window = support_window();
+        if !window.platform_ceilings.contains_key("windows-aarch64") {
+            return; // Entry removed — nothing left to prove.
+        }
+        let bad = known_bad_version("3.9").expect("3.9 must be on the known-bad list");
+        let advice = known_bad_advice(bad.reason, bad.fixed_in, "3.9", "windows-aarch64");
+
+        assert!(
+            !advice.contains("or newer"),
+            "must never say 'or newer' when the fix cannot be installed here, got: {advice}"
+        );
+        assert!(
+            !advice.contains("Update to GAMDL 3.9.1") && !advice.contains("Install GAMDL 3.9.1"),
+            "3.9.1 must never be framed as something to install here, got: {advice}"
+        );
+        assert!(
+            advice.contains("move back"),
+            "3.8.5 is BELOW the installed 3.9 — must be said as a downgrade, not an update, \
+             got: {advice}"
+        );
+        assert!(
+            advice.contains(&effective_maximum_tested("windows-aarch64")),
+            "must still say what CAN be installed here, got: {advice}"
+        );
+        assert!(
+            advice.contains("3.9.1"),
+            "must still name 3.9.1 as part of explaining why it's unavailable, got: {advice}"
+        );
+        assert!(
+            advice.contains("has been published"),
+            "must say why 3.9.1 specifically is unreachable on this platform, got: {advice}"
+        );
+    }
+
+    #[test]
+    fn known_bad_advice_on_every_held_back_platform_never_offers_the_fix_as_an_update() {
+        // Generalised across whichever platforms `[gamdl.platform_ceilings]`
+        // actually lists today, so this doesn't quietly stop proving
+        // anything if the table's membership changes (mirrors the style
+        // of `nothing_we_recommend_or_install_is_on_the_known_bad_list`
+        // and `pip_version_spec_caps_held_back_platforms_lower` above).
+        let window = support_window();
+        let bad = known_bad_version("3.9").expect("3.9 must be on the known-bad list");
+
+        for platform_id in window.platform_ceilings.keys() {
+            let advice = known_bad_advice(bad.reason, bad.fixed_in, "3.9", platform_id);
+            let ceiling = effective_maximum_tested(platform_id);
+            if is_version_at_least(&ceiling, bad.fixed_in) {
+                // This platform's ceiling has caught up to the fix —
+                // nothing left to prove about it being held back.
+                continue;
+            }
+            assert!(
+                !advice.contains("or newer"),
+                "{platform_id}: 'or newer' would re-permit the broken release, got: {advice}"
+            );
+            assert!(
+                !advice.contains(&format!("Update to GAMDL {}", bad.fixed_in))
+                    && !advice.contains(&format!("Install GAMDL {}", bad.fixed_in)),
+                "{platform_id}: must not offer {} as something to install, got: {advice}",
+                bad.fixed_in
+            );
+        }
+    }
+
+    #[test]
+    fn known_bad_advice_says_install_not_move_back_when_the_ceiling_is_still_forward() {
+        // The rarer, third case: a platform's ceiling is below the fix
+        // but still AT OR ABOVE what's installed — a genuine (if capped)
+        // step forward, not a downgrade.
+        //
+        // No platform this build ships is in that position today, and an
+        // earlier version of this test papered over that by passing
+        // macOS, which returns at case 1 and so never reached the branch
+        // the test is named after. An independent review caught it. The
+        // helper is pure, so the honest way to reach case 3 is to call
+        // it directly with a broken release BELOW a held-back platform's
+        // ceiling — i.e. the shape a future known-bad entry would have.
+        let held_back = support_window()
+            .platform_ceilings
+            .iter()
+            .find(|(_, ceiling)| !is_version_at_least(ceiling, &support_window().recommended))
+            .map(|(platform_id, ceiling)| (platform_id.clone(), ceiling.clone()));
+        let Some((platform_id, ceiling)) = held_back else {
+            return; // No platform is capped below the fix any more.
+        };
+
+        // Installed is deliberately the supported floor, which is below
+        // every ceiling in the table — so the ceiling is a step forward.
+        let floor = support_window().minimum.clone();
+        assert!(
+            is_version_at_least(&ceiling, &floor),
+            "test premise: {ceiling} must be at or above the floor {floor}"
+        );
+        let advice = known_bad_advice(
+            "A made-up fault, used only to reach the third branch.",
+            &support_window().recommended,
+            &floor,
+            &platform_id,
+        );
+
+        assert!(
+            !advice.contains("move back"),
+            "{platform_id}: {floor} is below the ceiling — a step forward must not be worded \
+             as a downgrade, got: {advice}"
+        );
+        assert!(
+            advice.contains(&format!("install GAMDL up to {ceiling} — install that version")),
+            "{platform_id}: must name the capped version as the thing to install, got: {advice}"
+        );
+        assert!(
+            !advice.contains("or newer"),
+            "{platform_id}: 'or newer' would reach past the ceiling, got: {advice}"
+        );
+    }
+
+    #[test]
+    fn untested_never_suggests_a_version_this_platform_cannot_install() {
+        // Found by an independent review: `classify_for_platform`'s
+        // `Untested` arm handed back the GENERAL recommendation while
+        // clamping everything else to the platform. The startup
+        // activity-log line renders that as "consider downgrading to
+        // {recommended}", so a Windows-on-ARM user running 3.9.1 was
+        // told to downgrade to 3.9.1 — and anyone above it was pointed
+        // at a version `refuse_unsupported_target` then refuses.
+        let window = support_window();
+
+        // A version comfortably above any real ceiling, built by keeping
+        // the major number (so it stays above the supported floor) and
+        // pushing the minor far past anything upstream has shipped. A
+        // fourth component (`3.8.5.99`) is NOT usable here: the version
+        // comparison reads three numbers, so a four-part string is not
+        // the "clearly newer" value it looks like.
+        let far_future = |version: &str| {
+            format!("{}.999.0", version.split('.').next().unwrap_or("3"))
+        };
+
+        for (platform_id, ceiling) in &window.platform_ceilings {
+            let above = far_future(ceiling);
+            let VersionSupport::Untested { recommended, .. } =
+                classify_for_platform(Some(&above), platform_id)
+            else {
+                panic!("{platform_id}: {above} is above the ceiling, so it must be Untested");
+            };
+            assert!(
+                is_version_at_least(ceiling, &recommended),
+                "{platform_id} is pointed at {recommended}, above its own ceiling of {ceiling}"
+            );
+            assert!(
+                known_bad_version(&recommended).is_none(),
+                "{platform_id} is pointed at {recommended}, which is a known-bad release"
+            );
+        }
+
+        // A platform with no ceiling of its own is unaffected: above the
+        // global ceiling it still gets the general recommendation.
+        let above_global = far_future(&window.maximum_tested);
+        let VersionSupport::Untested { recommended, .. } =
+            classify_for_platform(Some(&above_global), "macos")
+        else {
+            panic!("{above_global} is above the global ceiling, so it must be Untested");
+        };
+        assert_eq!(recommended, window.recommended);
+    }
+
+    #[test]
+    fn play_ready_gate_starts_at_3_9() {
+        // GAMDL 3.9 is the release that added PlayReady, so that is the
+        // threshold, even though 3.9 itself is refused as known-bad and
+        // 3.9.1 is the lowest version anybody can actually be running.
+        // Recording 3.9.1 here would be recording the wrong fact.
+        for older in ["3.0", "3.6", "3.8", "3.8.5"] {
+            assert!(
+                !GamdlFeature::PlayReadyDrmBackend.is_available_on(older),
+                "{older} predates PlayReady and rejects options it does not know"
+            );
+        }
+        for newer in ["3.9", "3.9.1", "3.10", "4.0"] {
+            assert!(
+                GamdlFeature::PlayReadyDrmBackend.is_available_on(newer),
+                "{newer} understands PlayReady"
+            );
+        }
+    }
+
+    #[test]
+    fn play_ready_is_off_when_no_version_has_been_detected() {
+        // Takes the shared lock, like every other test that touches the
+        // one process-wide record of which version was detected. An
+        // independent review caught this one going without it: clearing
+        // that record while another test is between its own write and
+        // its assertion makes either test fail, occasionally, for no
+        // reason anybody watching would be able to reproduce.
+        let _lock = test_lock();
+        // The whole point of the gate is never to send an option a
+        // release might reject, so "we do not know yet" must mean "do not
+        // send it" — the same conservative default every other gate has.
+        set_detected_version(None);
+        assert!(!supports(GamdlFeature::PlayReadyDrmBackend));
+    }
+
+    #[test]
+    fn a_version_we_cannot_read_properly_is_treated_as_unknown() {
+        let _lock = test_lock();
+
+        // Two or three plain numbers, and nothing else.
+        for good in ["3.9", "3.9.1", "3.0", "10.20.30"] {
+            assert!(is_parseable_semver(good), "{good} should be readable");
+        }
+        for bad in ["3.garbage", "3.8.6rc1", "3", "", "3.", "3.8.6.1", "v3.9", "3.9.1-beta"] {
+            assert!(!is_parseable_semver(bad), "{bad} should NOT be readable");
+        }
+
+        // And "not readable" must actually reach the feature gates — a
+        // second review round found the strictness guarding the install
+        // range and the ceilings only, while the gates still read
+        // "3.8.6rc1" as plain 3.8.6 and handed a pre-release the
+        // finished release's options.
+        set_detected_version(Some("3.8.6rc1".to_string()));
+        assert!(
+            !supports(GamdlFeature::NativeMuxing),
+            "an unreadable version must switch every optional feature off"
+        );
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn an_unreadable_version_never_looks_like_an_old_release() {
+        // The trap that has now caught three separate places, and the
+        // reason this test exists rather than a comment.
+        //
+        // "Does this release do its own muxing?" answers false for an
+        // old release AND for a version nobody can read. Two code paths
+        // read that false as "old release — send the two arguments it
+        // used to accept", and a modern release refuses an argument it
+        // does not know, stopping the download before it starts. So
+        // false is NOT the cautious answer here; only a version we can
+        // read and have checked is.
+        let _lock = test_lock();
+
+        for unreadable in ["3.8.6rc1", "3.garbage", ""] {
+            set_detected_version(Some(unreadable.to_string()));
+            let accepted = tool_path_flags_accepted();
+            assert!(
+                !accepted,
+                "{unreadable} is not a version we can act on, so the removed arguments \
+                 must not be sent"
+            );
+            assert_eq!(
+                active_capabilities_summary(),
+                "unknown",
+                "{unreadable}: the diagnostic line must say the same thing the gates do"
+            );
+        }
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn a_four_part_version_is_a_different_release_not_the_broken_one() {
+        // Found by a second review round: `3.9.0.1` matched the broken
+        // `3.9`, because the comparison read three numbers and stopped.
+        // Refusing a release that is actually fine costs a user an
+        // install and tells them something untrue about it.
+        assert!(known_bad_version("3.9").is_some(), "3.9 itself is on the list");
+        assert!(
+            known_bad_version("3.9.0.1").is_none(),
+            "3.9.0.1 is a different release from 3.9 and is not on the list"
+        );
+    }
+
+    #[test]
+    fn the_install_range_can_never_reach_a_release_we_refuse() {
+        // The hole an independent review found, and the most important
+        // thing in this file. Every place a user can ask for a version by
+        // name refuses a known-bad release, and the screen says so — but
+        // the range handed to pip for an ORDINARY install was just "from
+        // the floor up to the ceiling", and a broken release sitting
+        // inside that range was not excluded by anything. If the release
+        // we want could not be resolved, pip was free to settle on the
+        // one we refuse, and would have called that success.
+        //
+        // Written against whatever the table holds today, so it keeps
+        // proving something after an entry is added or removed.
+        for platform_id in [
+            "macos",
+            "windows-x86_64",
+            "windows-aarch64",
+            "linux-x86_64",
+            "linux-aarch64",
+            "linux-armv7",
+        ] {
+            let spec = pip_version_spec_for_platform(platform_id);
+            let ceiling = effective_maximum_tested(platform_id);
+            for bad in KNOWN_BAD_VERSIONS {
+                let reachable = is_version_at_least(bad.version, &support_window().minimum)
+                    && is_version_at_least(&ceiling, bad.version);
+                if reachable {
+                    assert!(
+                        spec.contains(&format!("!={}", bad.version)),
+                        "{platform_id}: {} sits inside this range and must be excluded by name, \
+                         got: {spec}",
+                        bad.version
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn recommended_for_platform_never_names_a_version_that_cannot_be_installed() {
+        let window = support_window();
+
+        // A platform with no ceiling of its own gets the general
+        // recommendation unchanged.
+        assert_eq!(recommended_for_platform("macos"), window.recommended);
+        assert_eq!(recommended_for_platform("linux-x86_64"), window.recommended);
+
+        // A held-back platform is never told to install something
+        // above its own ceiling — which is exactly what the install
+        // path would refuse.
+        for (platform_id, ceiling) in &window.platform_ceilings {
+            let recommended = recommended_for_platform(platform_id);
+            assert!(
+                is_version_at_least(ceiling, &recommended),
+                "{platform_id} is told to install {recommended}, above its ceiling of {ceiling}"
+            );
+            assert!(
+                is_version_at_least(&recommended, &window.minimum),
+                "{platform_id} is told to install {recommended}, below the supported floor"
+            );
+            assert!(
+                known_bad_version(&recommended).is_none(),
+                "{platform_id} is told to install {recommended}, which is on the known-bad list"
+            );
+        }
+    }
+
     #[test]
     fn should_offer_upgrade_inside_window() {
         // Latest available equals our ceiling → offer.
@@ -1223,10 +2398,18 @@ mod tests {
 
     #[test]
     fn is_above_tested_ceiling_flags_future_versions() {
+        // Everything here is judged against the ceiling for the
+        // machine the test is running on, which is what the function
+        // now asks. On a platform held below the general ceiling
+        // (Windows on ARM, 32-bit ARM Linux) the general ceiling is
+        // itself above the local one, so the test reads the local one
+        // rather than hard-coding the general figure.
+        let local_ceiling = effective_maximum_tested(current_platform_id());
+
         // Above the ceiling → flagged.
         assert!(is_above_tested_ceiling("99.0.0"));
-        // At the ceiling → not flagged (it's the highest tested).
-        assert!(!is_above_tested_ceiling(&support_window().maximum_tested));
+        // At the ceiling → not flagged (it's the highest tested here).
+        assert!(!is_above_tested_ceiling(&local_ceiling));
         // Below the ceiling → not flagged.
         assert!(!is_above_tested_ceiling(&support_window().minimum));
         // Unparseable → not flagged (we can't reason about it).
@@ -1235,12 +2418,97 @@ mod tests {
     }
 
     #[test]
+    fn is_above_ceiling_for_platform_warns_only_where_the_ceiling_is_lower() {
+        // The case this exists for: a platform held below the general
+        // ceiling must read the general ceiling as "above the ceiling",
+        // because that is what puts the amber warning on the Updates
+        // page instead of offering the version as an ordinary upgrade.
+        // Windows on ARM is the live example — held at 3.8.5 because
+        // GAMDL 3.9 onwards needs a package with no build for it.
+        let general = &support_window().maximum_tested;
+        for platform_id in support_window().platform_ceilings.keys() {
+            assert!(
+                is_above_ceiling_for_platform(general, platform_id),
+                "{general} must be flagged as above {platform_id}'s own, lower ceiling"
+            );
+        }
+
+        // A platform with no entry of its own tracks the general
+        // ceiling, so the same version is perfectly ordinary there.
+        assert!(!is_above_ceiling_for_platform(general, "macos"));
+        assert!(!is_above_ceiling_for_platform(general, "linux-x86_64"));
+        assert!(!is_above_ceiling_for_platform(general, "windows-x86_64"));
+
+        // The held-back platform's own ceiling is not above itself.
+        assert!(!is_above_ceiling_for_platform(
+            &effective_maximum_tested("windows-aarch64"),
+            "windows-aarch64"
+        ));
+
+        // Unreadable strings are never claimed to be above anything.
+        assert!(!is_above_ceiling_for_platform("garbage", "windows-aarch64"));
+        assert!(!is_above_ceiling_for_platform("", "windows-aarch64"));
+    }
+
+    #[test]
     fn pip_version_spec_bounds_the_range() {
         let spec = pip_version_spec();
         let window = support_window();
         assert!(spec.starts_with("gamdl>="));
         assert!(spec.contains(&format!(">={}", window.minimum)));
-        assert!(spec.contains(&format!("<={}", window.maximum_tested)));
+        // Upper bound is this machine's ceiling, which equals the
+        // general one on every platform without an entry of its own.
+        assert!(spec.contains(&format!(
+            "<={}",
+            effective_maximum_tested(current_platform_id())
+        )));
+    }
+
+    #[test]
+    fn pip_version_spec_caps_held_back_platforms_lower() {
+        // The point of the change: the per-platform table governs what
+        // gets INSTALLED, not just what the app says about it. A
+        // held-back platform must be offered a range that stops at its
+        // own ceiling, while an ordinary platform's range reaches the
+        // general one.
+        let window = support_window();
+        let ordinary = pip_version_spec_for_platform("macos");
+        assert!(
+            ordinary.starts_with(&format!(
+                "gamdl>={},<={}",
+                window.minimum, window.maximum_tested
+            )),
+            "an ordinary platform reaches the general ceiling, got: {ordinary}"
+        );
+
+        // Every held-back platform in the shipped table, whichever
+        // they happen to be — written this way so removing an entry
+        // (upstream finally publishes the missing package) doesn't
+        // leave a test asserting a version nobody holds any more.
+        for (platform_id, ceiling) in &window.platform_ceilings {
+            assert!(
+                pip_version_spec_for_platform(platform_id)
+                    .starts_with(&format!("gamdl>={},<={ceiling}", window.minimum)),
+                "{platform_id} must be capped at its own ceiling, not the general one"
+            );
+            assert_ne!(
+                pip_version_spec_for_platform(platform_id),
+                ordinary,
+                "{platform_id} is held below the general ceiling, so its range must differ"
+            );
+        }
+
+        // And the two we hold today are actually in that table — a
+        // guard against an entry being dropped or renamed by accident,
+        // since a missing entry silently means "no cap at all".
+        assert!(
+            window.platform_ceilings.contains_key("windows-aarch64"),
+            "Windows on ARM must stay capped: GAMDL 3.9+ needs a package with no build for it"
+        );
+        assert!(
+            window.platform_ceilings.contains_key("linux-armv7"),
+            "32-bit ARM Linux must stay capped: GAMDL 3.8.2+ publishes no package for it"
+        );
     }
 
     #[test]
@@ -1276,40 +2544,82 @@ mod tests {
 
     #[test]
     fn recommended_upgrade_target_v2_without_wrapper_gets_recommended() {
-        // No wrapper to protect — offer the best-tested release.
+        // No wrapper to protect — offer the best-tested release THIS
+        // machine can install. Compared against `recommended_for_platform`
+        // (not the raw global `support_window().recommended`) so this
+        // stays correct on a held-back platform too, not just on a
+        // machine with no `[gamdl.platform_ceilings]` override.
         let target = recommended_upgrade_target(Some("2.9.3"), false);
-        assert_eq!(target, support_window().recommended);
+        assert_eq!(target, recommended_for_platform(current_platform_id()));
     }
 
     #[test]
     fn recommended_upgrade_target_already_v3_ignores_wrapper_flag() {
         // Once already on v3.x (>= this build's floor), the v2->v3
         // wrapper-protocol migration concern doesn't apply — both
-        // branches degrade to `recommended` regardless of `use_wrapper`.
+        // branches degrade to the platform-clamped recommended version
+        // regardless of `use_wrapper`.
         let installed = support_window().minimum.clone();
+        let expected = recommended_for_platform(current_platform_id());
         assert_eq!(
             recommended_upgrade_target(Some(&installed), true),
-            support_window().recommended
+            expected
         );
         assert_eq!(
             recommended_upgrade_target(Some(&installed), false),
-            support_window().recommended
+            expected
         );
     }
 
     #[test]
     fn recommended_upgrade_target_none_installed_gets_recommended() {
         // No installed version at all (fresh setup) — nothing to
-        // protect, offer the best-tested release regardless of the
-        // wrapper toggle's current setting.
-        assert_eq!(
-            recommended_upgrade_target(None, true),
-            support_window().recommended
+        // protect, offer the best-tested release this machine can
+        // install, regardless of the wrapper toggle's current setting.
+        let expected = recommended_for_platform(current_platform_id());
+        assert_eq!(recommended_upgrade_target(None, true), expected);
+        assert_eq!(recommended_upgrade_target(None, false), expected);
+    }
+
+    #[test]
+    fn recommended_upgrade_target_never_names_a_version_a_held_back_platform_refuses() {
+        // Regression test for the bug an independent review caught: the
+        // "no wrapper to protect" and "already on v3" branches used to
+        // return the GLOBAL `support_window().recommended` regardless of
+        // platform. On Windows ARM64 (held at 3.8.5 while the global
+        // recommended tracks 3.9.1), that named a version
+        // `refuse_unsupported_target` then turns around and refuses —
+        // a button whose only possible outcome is an error message.
+        //
+        // Exercised via the pure `_for_platform` half so this is
+        // provable for "windows-aarch64" regardless of which platform
+        // actually runs this test suite.
+        let window = support_window();
+        assert!(
+            window.platform_ceilings.contains_key("windows-aarch64"),
+            "this test only proves something if windows-aarch64 is genuinely held back"
         );
-        assert_eq!(
-            recommended_upgrade_target(None, false),
-            support_window().recommended
-        );
+
+        for (installed, use_wrapper) in [
+            (None, true),
+            (None, false),
+            (Some("2.9.3"), false),
+            (Some(window.minimum.as_str()), true),
+            (Some(window.minimum.as_str()), false),
+        ] {
+            let target =
+                recommended_upgrade_target_for_platform(installed, use_wrapper, "windows-aarch64");
+            assert!(
+                is_version_at_least(&effective_maximum_tested("windows-aarch64"), &target),
+                "recommended_upgrade_target_for_platform(installed={installed:?}, \
+                 use_wrapper={use_wrapper}) returned {target}, which windows-aarch64's own \
+                 install path cannot install"
+            );
+            // And it must actually equal what the platform-aware helper
+            // says is installable there — not merely "some version
+            // below the ceiling" by coincidence.
+            assert_eq!(target, effective_maximum_tested("windows-aarch64"));
+        }
     }
 
     // ----------------------------------------------------------------
@@ -1337,17 +2647,71 @@ mod tests {
 
     #[test]
     fn effective_maximum_tested_falls_back_without_override() {
-        // No platform in the *shipped* tool-versions.toml is expected to
-        // have an override except "linux-armv7" (as of #1014's initial
-        // ARMv7 entry) — every other platform ID must see the global
-        // ceiling unchanged.
-        for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-x86_64", "linux-aarch64"] {
+        // Two platforms in the shipped tool-versions.toml are held
+        // below the general ceiling: "linux-armv7" (#1014 — GAMDL
+        // itself publishes nothing for it from 3.8.2) and
+        // "windows-aarch64" (GAMDL 3.9+ needs a package that has no
+        // Windows ARM64 build). Every OTHER platform must see the
+        // general ceiling unchanged.
+        for platform_id in ["macos", "windows-x86_64", "linux-x86_64", "linux-aarch64"] {
             assert_eq!(
                 effective_maximum_tested(platform_id),
                 support_window().maximum_tested,
                 "{platform_id}: expected no override, got a different effective ceiling"
             );
         }
+    }
+
+    #[test]
+    fn effective_maximum_tested_uses_windows_arm_override_when_present() {
+        // Mirrors the ARMv7 test below: tolerant of the entry being
+        // removed one day (if `pyplayready` relaxes its requirement, or
+        // a Windows ARM64 build of what it needs appears), but while it
+        // IS there it must be honoured and must actually be lower than
+        // the general ceiling — an override equal to the general
+        // ceiling would be a no-op pretending to be a safeguard.
+        let window = support_window();
+        if let Some(ceiling) = window.platform_ceilings.get("windows-aarch64") {
+            assert_eq!(&effective_maximum_tested("windows-aarch64"), ceiling);
+            assert_ne!(ceiling, &window.maximum_tested);
+            assert!(
+                is_version_at_least(&window.maximum_tested, ceiling),
+                "the Windows-on-ARM ceiling ({ceiling}) must be BELOW the general one ({}), \
+                 not above it",
+                window.maximum_tested
+            );
+        }
+    }
+
+    #[test]
+    fn classify_for_platform_windows_arm_is_untested_at_the_general_ceiling() {
+        // A Windows-on-ARM machine running the general ceiling version
+        // is in untested territory even though the same version is
+        // perfectly ordinary everywhere else. This is what the startup
+        // activity-log line reads from.
+        let window = support_window();
+        let Some(ceiling) = window.platform_ceilings.get("windows-aarch64") else {
+            return; // Entry removed — nothing to assert (see above).
+        };
+
+        let at_own_ceiling = classify_for_platform(Some(ceiling), "windows-aarch64");
+        assert!(
+            at_own_ceiling.is_supported(),
+            "Windows on ARM at its own ceiling ({ceiling}) must be Supported, got \
+             {at_own_ceiling:?}"
+        );
+
+        let at_general = classify_for_platform(Some(&window.maximum_tested), "windows-aarch64");
+        assert!(
+            matches!(at_general, VersionSupport::Untested { .. }),
+            "the general ceiling ({}) is above the Windows-on-ARM ceiling ({ceiling}), so it \
+             must classify as Untested there, got {at_general:?}",
+            window.maximum_tested
+        );
+        assert!(
+            classify(Some(&window.maximum_tested)).is_supported(),
+            "the same version must still be Supported on the general window"
+        );
     }
 
     #[test]

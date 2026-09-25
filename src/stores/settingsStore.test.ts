@@ -26,6 +26,10 @@ import type { AppSettings } from '@/types';
 vi.mock('@/lib/tauri-commands', () => ({
   getSettings: vi.fn(),
   saveSettings: vi.fn(),
+  // "Reset" asks the backend for the real starting settings rather than
+  // using this file's own copy of them, because that copy had drifted
+  // from the real ones — see `DEFAULT_SETTINGS` in the store.
+  getDefaultSettings: vi.fn(),
 }));
 
 /**
@@ -132,6 +136,8 @@ const MOCK_SETTINGS: AppSettings = {
   wrapper_m3u8_ip: '127.0.0.1:20020',
   wrapper_decrypt_ip: '127.0.0.1:10020',
   wrapper_url: 'http://127.0.0.1',
+  drm_backend: 'widevine',
+  prd_path: '',
   truncate: 100,
   content_advisory_in_filenames: false,
   exclude_tags: ['rating'],
@@ -259,6 +265,8 @@ beforeEach(() => {
       wrapper_m3u8_ip: '127.0.0.1:20020',
       wrapper_decrypt_ip: '127.0.0.1:10020',
       wrapper_url: 'http://127.0.0.1',
+      drm_backend: 'widevine',
+      prd_path: '',
       truncate: null,
       content_advisory_in_filenames: true,
       exclude_tags: [],
@@ -440,7 +448,23 @@ describe('settingsStore', () => {
   // resetToDefaults
   // =========================================================================
   describe('resetToDefaults', () => {
-    it('resets all settings to default values', () => {
+    /*
+     * The starting settings the backend would hand back. Deliberately
+     * NOT this file's own `MOCK_SETTINGS` and not the store's own
+     * placeholder copy: the whole point of the change these tests cover
+     * is that the real values come from one place, the Rust code, and
+     * the page asks for them.
+     */
+    const BACKEND_DEFAULTS = {
+      ...MOCK_SETTINGS,
+      default_song_codec: 'alac',
+      cover_size: 10000,
+      output_path: '',
+    } as AppSettings;
+
+    it('takes the starting settings from the backend, not from its own copy', async () => {
+      vi.mocked(commands.getDefaultSettings).mockResolvedValue(BACKEND_DEFAULTS);
+
       /* First change some settings */
       useSettingsStore.getState().updateSettings({
         default_song_codec: 'atmos',
@@ -448,17 +472,37 @@ describe('settingsStore', () => {
         output_path: '/custom/path',
       });
 
-      useSettingsStore.getState().resetToDefaults();
+      await useSettingsStore.getState().resetToDefaults();
 
+      expect(commands.getDefaultSettings).toHaveBeenCalled();
       const { settings } = useSettingsStore.getState();
       expect(settings.default_song_codec).toBe('alac');
       expect(settings.cover_size).toBe(10000);
       expect(settings.output_path).toBe('');
     });
 
-    it('marks the store as dirty after reset', () => {
-      useSettingsStore.getState().resetToDefaults();
+    it('marks the store as dirty after reset', async () => {
+      vi.mocked(commands.getDefaultSettings).mockResolvedValue(BACKEND_DEFAULTS);
+      await useSettingsStore.getState().resetToDefaults();
       expect(useSettingsStore.getState().isDirty).toBe(true);
+    });
+
+    it('changes nothing when the backend cannot be reached', async () => {
+      /*
+       * Deliberately no falling back to the page's own copy of the
+       * defaults. That copy is a placeholder and had drifted from the
+       * real values — handing it back at the exact moment somebody is
+       * trying to get to a known-good state is the worst time to use a
+       * list we know can be wrong. Failing and changing nothing is
+       * recoverable; half-resetting is not.
+       */
+      vi.mocked(commands.getDefaultSettings).mockRejectedValue(new Error('no backend'));
+
+      useSettingsStore.getState().updateSettings({ output_path: '/keep/me' });
+      const before = useSettingsStore.getState().settings;
+
+      await expect(useSettingsStore.getState().resetToDefaults()).rejects.toThrow();
+      expect(useSettingsStore.getState().settings).toEqual(before);
     });
   });
 
@@ -493,6 +537,24 @@ describe('settingsStore', () => {
       // having edits they have not committed. The "Save Changes" button
       // must stay disabled.
       expect(useSettingsStore.getState().isDirty).toBe(false);
+    });
+  });
+  describe('the one-off after-queue action is not a Settings-screen edit', () => {
+    it('syncAfterQueueOnce does not mark the Settings screen as unsaved', () => {
+      useSettingsStore.setState({ isDirty: false });
+      useSettingsStore.getState().syncAfterQueueOnce('shutdown_computer');
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('shutdown_computer');
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+    });
+
+    it('Reset to Defaults keeps the one-off as it was', async () => {
+      useSettingsStore.getState().syncAfterQueueOnce('hibernate_computer');
+      vi.mocked(commands.getDefaultSettings).mockResolvedValueOnce({
+        ...MOCK_SETTINGS,
+        after_queue_once: null,
+      });
+      await useSettingsStore.getState().resetToDefaults();
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('hibernate_computer');
     });
   });
 });

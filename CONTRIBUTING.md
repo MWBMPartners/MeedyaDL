@@ -127,15 +127,15 @@ MeedyaDL uses a four-tier release-channel ladder (least → most stable): `alpha
 
 All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **long-lived and protected** against deletion and non-fast-forward pushes. The `Auto-Delete Merged Branches` workflow keeps merged `feat/*` / `fix/*` branches from accumulating but exempts the four protected ones.
 
-- Open PRs against `main`. Your branch name should start with `feat/` or `fix/`.
+- Open PRs against `alpha`, which is where all active development lands; work reaches `beta`, `release-candidate` and `main` by being promoted from there. Your branch name should start with `feat/` or `fix/`.
 - Pushing to `alpha`, `beta`, or `release-candidate` (a maintainer's direct push, or a merged PR) triggers that channel's own release build — see [DEV_NOTES.md → Release Channels](DEV_NOTES.md#release-channels) for the full pipeline and in-app update-channel guard.
 
 ## Pull Request Process
 
-1. Create a feature branch from `main`: `git checkout -b feat/your-feature`
+1. Create a feature branch from `alpha`: `git checkout alpha && git checkout -b feat/your-feature`
 2. Make your changes with conventional commit messages
 3. Ensure the checks CI will run actually pass: `npm run lint && npm run type-check && npm run test`, then from inside `src-tauri/`, `cargo clippy -- -D warnings && cargo test`. CI fails the pull request on any one of these.
-4. Push and open a pull request against `main`
+4. Push and open a pull request against `alpha`
 5. Link related GitHub Issues in the PR description (e.g., "Fixes #123")
 6. Wait for CI to pass and a maintainer to review
 

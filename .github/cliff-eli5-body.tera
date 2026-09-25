@@ -5,7 +5,21 @@
 {%- for commit in commits -%}
   {%- for footer in commit.footers -%}
     {%- if footer.token == "Release-Note" -%}
-      {%- set line = footer.value | split(pat="\n") | first | trim -%}
+      {#- The whole first paragraph of the note, joined into one line: every
+          line up to the first blank one. This used to take only the first
+          line, so a note wrapped across lines in a commit message was cut off
+          mid-sentence ("Fixed a case where a downloaded single could be given
+          the") — about forty notes on one branch in September 2026. Stopping
+          at the first blank line keeps anything written after the note, such
+          as a "Generated with" line or a pasted pull request description, out
+          of the release notes, which is what the first-line rule was for. -#}
+      {%- set_global rn_joined = "" -%}
+      {%- for rn_part in footer.value | split(pat="\n") -%}
+        {%- if rn_part | trim == "" -%}{%- break -%}{%- endif -%}
+        {%- set rn_line = rn_part | trim -%}
+        {%- set_global rn_joined = rn_joined ~ " " ~ rn_line -%}
+      {%- endfor -%}
+      {%- set line = rn_joined | trim -%}
       {%- if line and line != "none" -%}
         {%- if commit.group is containing("Features") -%}
           {%- set_global news = news | concat(with=line) -%}

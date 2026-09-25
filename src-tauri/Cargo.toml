@@ -661,3 +661,11 @@ tauri-plugin-opener = "2"
 # media/subtitle files for testing enrichment pipeline services end-to-end.
 # @see https://docs.rs/tempfile/ -- tempfile crate documentation
 tempfile = "3"
+
+# macOS only. Used for one thing: reading the flag Finder sets on an
+# alias, so MeedyaDL can refuse to open one. See the note on
+# `open_downloaded_file` in `commands/history.rs` for why that matters.
+# Already compiled as part of the dependency tree; naming it here just
+# makes it callable directly.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

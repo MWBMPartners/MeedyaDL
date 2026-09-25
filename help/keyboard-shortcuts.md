@@ -25,7 +25,7 @@ MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
 |----------|--------|
 | **Enter** | Submit download (when the URL input is focused) |
 | **Shift + Enter** | Insert a newline in the URL input (multi-URL mode) |
-| **Cmd/Ctrl + Shift + .** | Abort every active and queued download |
+| **Cmd/Ctrl + Shift + .** | Abort every active and queued download. It asks you to confirm first, unless you ticked **Don't ask again** in the Abort Queue window. (On most keyboards this is the key with the full stop and the > sign.) |
 | **Cmd/Ctrl + Shift + ?** | Open this keyboard-shortcuts reference from anywhere in the app |
 | **Escape** | Close the active modal or dialog |
 

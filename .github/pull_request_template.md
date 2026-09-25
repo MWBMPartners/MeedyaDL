@@ -20,7 +20,7 @@ don't apply.
 - [ ] Settings schema (`models/settings.rs` + TS types)
 - [ ] Engine / codec / tool config (`engines.toml`, `codecs.toml`, `tool-versions.toml`, `tags.toml`)
 - [ ] CI / workflows (`.github/`)
-- [ ] Documentation (README, CHANGELOG, CLAUDE.md, `Project_Plan.md`, `help/*.md`)
+- [ ] Documentation (README, CLAUDE.md, `Project_Plan.md`, `help/*.md`)
 - [ ] Other: _____
 
 ## Test plan
@@ -57,6 +57,7 @@ heuristically, but a clean bot comment is not a substitute for this pass.
 ### Secrets / credentials
 
 - [ ] No API keys, developer tokens, `.p8` keys, passwords, or wrapper auth tokens are committed (embedded keys come from `option_env!` build secrets only)
+- [ ] Any new build-time value (`option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the frontend) reaches all three app-building steps in `release.yml`, and `python3 tools/audit-checks/check_build_secrets.py` is clean — a value that never reaches a build step ships the feature switched off, with nothing reporting it
 - [ ] Sensitive values are stored in the OS keychain (`keyring`), not in `settings.json`
 - [ ] Wrapper URLs are passed through `redact_url_query()` before any logging
 - [ ] No new file was added under a server/secret-managed path without justification
@@ -76,6 +77,7 @@ heuristically, but a clean bot comment is not a substitute for this pass.
 
 - [ ] If `AppSettings` changed: `settings_version` bumped + `migrate_settings()` updated, and the TypeScript type mirror updated
 - [ ] If `AppSettings` gained a field someone can change: `python3 tools/audit-checks/check_settings_reach_backend.py` is clean (a setting nothing in the backend reads is a control that silently does nothing)
+- [ ] If the starting settings changed (`AppSettings::default()` in Rust or `DEFAULT_SETTINGS` in `settingsStore.ts`): `python3 tools/audit-checks/check_settings_defaults.py` is clean (the two copies must match, or "Reset" puts somebody on different settings from a fresh install)
 - [ ] If `codecs.toml` changed: `python3 tools/audit-checks/check_codec_registry.py` is clean
 
 ### Dependencies / licensing
@@ -95,7 +97,7 @@ heuristically, but a clean bot comment is not a substitute for this pass.
 
 ## Documentation
 
-- [ ] Updated all affected docs (README, CHANGELOG, CLAUDE.md, `Project_Plan.md`, `help/*.md`) — feature lists, settings, commands, file counts, structure trees
+- [ ] Updated all affected docs (README, CLAUDE.md and its `.OpenAI/` mirror, `Project_Plan.md`, `DEV_NOTES.md`, `help/*.md`) — feature lists, settings, commands, file counts, structure trees. Not `CHANGELOG.md`: it is rebuilt from commit messages on every release, so a hand edit is lost — fix the commit message instead
 
 ## Related issues
 
