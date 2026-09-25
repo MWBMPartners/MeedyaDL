@@ -283,7 +283,7 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     2.13.1, 26 samples, 0 gaps; 4,140 history messages, 0 refused). Durable wording fix in
     `5093f3e3` (cliff.toml commit_preprocessors; only those 3 notes change across history).
     **Round B (wording) did not start — Codex out again until 19:44** (one small round per
-    window). Stand-in reviewing `9d7671ba` + `5093f3e3` now. **Watchdog: scheduled prompt
+    window). Stand-in on `9d7671ba` + `5093f3e3`: 5093f3e3 clean; 2 findings in 9d7671ba (U+FE0F still hid SHA-256 etc.; the information emoji wrongly refused) — fixed in `c1e5c83a` (U+FE0F now removed before linting). **Watchdog: scheduled prompt
     at 19:49** → Codex re-review of the fix commits (`codex-r16-prompt.txt`), then round B
     (`codex-r15b-prompt.txt`) in the next window, then ONE follow-up PR from
     `work/after-alpha-72` → alpha, watched through to a published alpha release.
