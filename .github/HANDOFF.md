@@ -329,6 +329,17 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     reached: the 1 fork and GitHub's 535 pull-request refs (old commits stay viewable on
     closed PR pages until GitHub Support purges them). Current git identity is already
     Salem874 (personal email last used 10 July), so nothing new leaks.
+  - **Maintainer APPROVED the push (25 Sept ~18:20). Claude Code's automatic permission check
+    BLOCKED it** (turning Actions/branch protection off + force-push). Nothing changed on
+    GitHub (verified: Actions on, ruleset active, alpha unchanged). Do NOT work around the
+    block. The maintainer can run `/private/tmp/claude-501/rewrite-dry/push-rewrite.sh`
+    themselves (it refuses if a run is in progress or GitHub moved on since the rewrite, and
+    always restores Actions + ruleset), or allow the action in their permission settings.
+    The rewrite in `work.git` is from GitHub's state at ~18:25 (alpha 1d52e372); if anything
+    lands on GitHub before the push, redo the rewrite first (same three commands as in
+    this note's earlier entry; rules and mailmap files are beside it). After a push: all
+    commit IDs change — update the Codex prompts' commit IDs via
+    `work.git/filter-repo/commit-map`, and re-clone local copies.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
