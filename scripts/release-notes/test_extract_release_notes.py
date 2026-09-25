@@ -120,6 +120,11 @@ CASES: list[tuple[str, str, list[str]]] = [
         ["Step 1\u20e3 is clearer."],
     ),
     (
+        "U+FE0F on a continuation line is removed too",
+        "Release-Note: Fixed the\nkey\ufe0fchain problem.",
+        ["Fixed the keychain problem."],
+    ),
+    (
         "a warning emoji is not refused",
         "Release-Note: The \u26a0\ufe0f warning now explains itself.",
         ["The \u26a0 warning now explains itself."],
@@ -154,6 +159,9 @@ REFUSED: list[tuple[str, str]] = [
     ("stand-in 9: a paragraph separator inside a note", "Release-Note: Moved your private\u2029key into safer storage."),
     ("stand-in 10: a combining grapheme joiner hiding a word", "Release-Note: Moved your key\u034fchain."),
     ("stand-in 10: a text variation selector hiding a word", "Release-Note: Moved your key\ufe0echain."),
+    ("a supplementary variation selector hiding a word", "Release-Note: Fixed the key\U000e0100chain problem."),
+    ("a note of nothing but U+FE0F is empty", "Release-Note: \ufe0f"),
+    ("'none' with U+FE0F in it would publish a 'none' bullet", "Release-Note: \ufe0fnone"),
 ]
 
 

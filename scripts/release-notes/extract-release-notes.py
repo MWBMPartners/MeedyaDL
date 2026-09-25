@@ -127,8 +127,11 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
 # missed digits and punctuation (SHA-256, (#123)) and wrongly refused the
 # information emoji, whose base character Unicode counts as a letter
 # (Codex, then a stand-in review, 25 Sept 2026).
+# U+E0100 to U+E01EF are the 240 "supplementary" variation selectors: just
+# as invisible as U+FE00-FE0E (stand-in review, 25 Sept 2026).
 _INVISIBLE = re.compile(
-    "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0e\uffa0]"
+    "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0e\uffa0"
+    "\U000e0100-\U000e01ef]"
 )
 
 
@@ -187,12 +190,22 @@ def extract_notes(text: str) -> list[str]:
             if current is not None:
                 notes.append(current)
             value = start.group(1).strip()
-            if not value:
+            # Judged after removing U+FE0F: a note of nothing but that
+            # character is empty to a reader, yet used to pass as not
+            # empty and publish a blank bullet (stand-in review).
+            if not value.replace("\ufe0f", "").strip():
                 raise RefusedNoteError(
                     "A 'Release-Note:' line has nothing after it. Put the whole "
                     "note on the same line as 'Release-Note:' (it may wrap onto "
                     "the next lines, but must start on that one), or write "
                     "'Release-Note: none'."
+                )
+            if "\ufe0f" in value and value.replace("\ufe0f", "").strip() == "none":
+                # The templates skip a note that is exactly "none"; with the
+                # selector in it they would publish a "none" bullet instead.
+                raise RefusedNoteError(
+                    "A 'Release-Note: none' line contains an invisible character. "
+                    "Retype it as plain text."
                 )
             current = value.replace("\ufe0f", "")
             continue
