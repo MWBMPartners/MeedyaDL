@@ -88,6 +88,21 @@ CASES: list[tuple[str, str, list[str]]] = [
         ["Fixed a thing."],
     ),
     (
+        "Codex: 'Name:value' with no space ends a note, as it does for the release tool",
+        "Release-Note: Downloads work.\nCo-Authored-By:Someone \U0001F468\u200d\U0001F469\u200d\U0001F467 <a@b>",
+        ["Downloads work."],
+    ),
+    (
+        "Codex: the 'Name #value' trailer form ends a note too",
+        "Release-Note: Downloads work.\nReviewed-by #Someone \U0001F468\u200d\U0001F469\u200d\U0001F467 <a@b>",
+        ["Downloads work."],
+    ),
+    (
+        "a keycap emoji (digit, U+FE0F, U+20E3) is still allowed",
+        "Release-Note: Step 1\ufe0f\u20e3 is clearer.",
+        ["Step 1\ufe0f\u20e3 is clearer."],
+    ),
+    (
         "an emoji's own variation selector is still allowed",
         "Release-Note: The \u26a0\ufe0f warning now explains itself.",
         ["The \u26a0\ufe0f warning now explains itself."],
@@ -122,6 +137,8 @@ REFUSED: list[tuple[str, str]] = [
     ("stand-in 9: a paragraph separator inside a note", "Release-Note: Moved your private\u2029key into safer storage."),
     ("stand-in 10: a combining grapheme joiner hiding a word", "Release-Note: Moved your key\u034fchain."),
     ("stand-in 10: a text variation selector hiding a word", "Release-Note: Moved your key\ufe0echain."),
+    # --- Found by Codex, 25 Sept 2026 ---
+    ("Codex: the emoji selector U+FE0F between two letters", "Release-Note: Now stores your key\ufe0fchain safely."),
 ]
 
 
