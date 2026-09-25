@@ -267,6 +267,17 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     PR-security advisory comment reviewed: capabilities change only narrows (opener `**`
     grant removed); the two new `unsafe` blocks (Mac alias check) are sound but lack a
     "SAFETY:" label — small follow-up.
+  - **DEPLOYED (25 Sept, ~10:52 BST): `v1.13.0-alpha.72` published** as a pre-release. Release
+    run 36118762326 green (all 6 platform builds + notes + publish); CI on alpha green;
+    22 assets; `latest.json` has all 12 platform keys, each signed. Release body checked:
+    wrapped notes render whole. Plain-English part had 5 lint errors from commit trailers
+    the PR gate never reads (2 "sign-in token" notes ×2, one bundle identifier from an older
+    commit) — fixed IN PLACE on the published release (exactly those 5 lines; original saved
+    as `/private/tmp/claude-501/a72-body.orig.md`). **Durable fix still owed** (next alpha's
+    cumulative "since v1.10.8" section will repeat them): e.g. `commit_preprocessors` in
+    cliff.toml, in the follow-up PR on `work/after-alpha-72` with Codex's fixes. Issues:
+    #273 and #387 closed; #216 left open for a real-install check; status comments on #1215,
+    #1216, #1217. **Still to come: Codex at 14:48** (two small rounds on f74734f0..73af9a4e).
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
