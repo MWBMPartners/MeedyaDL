@@ -120,29 +120,16 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
 # Invisible characters that are NOT Unicode category Cf, so the Cf check
 # misses them, but that can still hide a banned word. U+FE0F is left out on
 # purpose: it is the variation selector an emoji like a warning sign uses.
-# It is checked separately below, because between two letters it hides a
-# word just as well ("key<U+FE0F>chain" reads as "keychain" -- Codex).
+# It is REMOVED from the text handed to the linter instead (see
+# extract_notes), so the linter sees exactly what a reader sees:
+# "key<U+FE0F>chain" and "SHA-<U+FE0F>256" are linted as "keychain" and
+# "SHA-256". A first attempt refused it only when next to a letter; that
+# missed digits and punctuation (SHA-256, (#123)) and wrongly refused the
+# information emoji, whose base character Unicode counts as a letter
+# (Codex, then a stand-in review, 25 Sept 2026).
 _INVISIBLE = re.compile(
     "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0e\uffa0]"
 )
-
-
-def _is_letter(c: str) -> bool:
-    return unicodedata.category(c).startswith("L")
-
-
-def _misplaced_emoji_selector(line: str) -> bool:
-    """U+FE0F next to a letter. After an emoji (or a keycap digit) it is
-    how the emoji is meant to be drawn; beside a letter it only hides the
-    word it sits in."""
-    for i, c in enumerate(line):
-        if c != "\ufe0f":
-            continue
-        before = line[i - 1] if i > 0 else ""
-        after = line[i + 1] if i + 1 < len(line) else ""
-        if (before and _is_letter(before)) or (after and _is_letter(after)):
-            return True
-    return False
 
 
 def _refused_character(line: str) -> bool:
@@ -150,7 +137,6 @@ def _refused_character(line: str) -> bool:
     return bool(
         _CONTROL.search(line)
         or _INVISIBLE.search(line)
-        or _misplaced_emoji_selector(line)
         or any(unicodedata.category(c) == "Cf" for c in line)
     )
 # Any other trailer line ends the note being joined: the release tool starts
@@ -208,7 +194,7 @@ def extract_notes(text: str) -> list[str]:
                     "the next lines, but must start on that one), or write "
                     "'Release-Note: none'."
                 )
-            current = value
+            current = value.replace("\ufe0f", "")
             continue
         if current is None:
             continue
@@ -216,7 +202,7 @@ def extract_notes(text: str) -> list[str]:
             notes.append(current)
             current = None
             continue
-        current = f"{current} {raw.strip()}"
+        current = f"{current} {raw.strip().replace(chr(0xFE0F), '')}"
     if current is not None:
         notes.append(current)
     return notes

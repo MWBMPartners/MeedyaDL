@@ -97,15 +97,32 @@ CASES: list[tuple[str, str, list[str]]] = [
         "Release-Note: Downloads work.\nReviewed-by #Someone \U0001F468\u200d\U0001F469\u200d\U0001F467 <a@b>",
         ["Downloads work."],
     ),
+    # U+FE0F is removed before linting, so the linter sees what a reader
+    # sees (Codex, then a stand-in, 25 Sept 2026).
     (
-        "a keycap emoji (digit, U+FE0F, U+20E3) is still allowed",
-        "Release-Note: Step 1\ufe0f\u20e3 is clearer.",
-        ["Step 1\ufe0f\u20e3 is clearer."],
+        "U+FE0F between letters is removed, so the hidden word is linted",
+        "Release-Note: Now stores your key\ufe0fchain safely.",
+        ["Now stores your keychain safely."],
     ),
     (
-        "an emoji's own variation selector is still allowed",
+        "U+FE0F between digits and punctuation is removed too",
+        "Release-Note: Passwords now use SHA-\ufe0f256.",
+        ["Passwords now use SHA-256."],
+    ),
+    (
+        "the information emoji is not refused",
+        "Release-Note: \u2139\ufe0f Downloads now resume.",
+        ["\u2139 Downloads now resume."],
+    ),
+    (
+        "a keycap emoji is not refused",
+        "Release-Note: Step 1\ufe0f\u20e3 is clearer.",
+        ["Step 1\u20e3 is clearer."],
+    ),
+    (
+        "a warning emoji is not refused",
         "Release-Note: The \u26a0\ufe0f warning now explains itself.",
-        ["The \u26a0\ufe0f warning now explains itself."],
+        ["The \u26a0 warning now explains itself."],
     ),
     (
         "emoji and soft hyphens OUTSIDE a note are not checked",
@@ -137,8 +154,6 @@ REFUSED: list[tuple[str, str]] = [
     ("stand-in 9: a paragraph separator inside a note", "Release-Note: Moved your private\u2029key into safer storage."),
     ("stand-in 10: a combining grapheme joiner hiding a word", "Release-Note: Moved your key\u034fchain."),
     ("stand-in 10: a text variation selector hiding a word", "Release-Note: Moved your key\ufe0echain."),
-    # --- Found by Codex, 25 Sept 2026 ---
-    ("Codex: the emoji selector U+FE0F between two letters", "Release-Note: Now stores your key\ufe0fchain safely."),
 ]
 
 
