@@ -287,6 +287,26 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     at 19:49** → Codex re-review of the fix commits (`codex-r16-prompt.txt`), then round B
     (`codex-r15b-prompt.txt`) in the next window, then ONE follow-up PR from
     `work/after-alpha-72` → alpha, watched through to a published alpha release.
+  - **MAINTAINER DECISIONS (25 Sept, ~15:30):** (1) the follow-up PR goes ahead on
+    STAND-IN review (Codex reviews afterwards; its fixes go in another small PR); (2)
+    CONTRIBUTING: outside PRs target `alpha` — final; (3) handoff stays at
+    `.github/HANDOFF.md` — final; (4) `.claude/settings.local.json` STAYS tracked; (5)
+    **REWRITE HISTORY to remove the real name — DRY RUN FIRST, push nothing until the
+    maintainer approves the dry run in a second question.** Scope: name everywhere —
+    file text (memory notes and an audit report back to April, on ALL FOUR release
+    branches incl. main), the 40 commits of 18-19 July authored "<real name>
+    <…@…MacBook-Air.local>" → Salem874 + GitHub no-reply address, and folder paths /
+    USB volume name in `.claude/settings.local.json`; NOT the French verb "lance" in
+    help/fr. Facts: repo PUBLIC, 1 fork (not reachable), 5 branches, 143 of 319 tags
+    affected, 288 releases (stay, assets intact), 0 open PRs at the time. Plan: after the
+    follow-up PR's alpha release → dry run on a separate mirror → maintainer approval →
+    switch GitHub Actions OFF for the repo (so no force-push/tag-push builds or
+    deploys) → temporarily lift the branch ruleset's non-fast-forward rule → force-push
+    branches + moved tags → restore ruleset, Actions ON → check no workflow ran,
+    releases and updater fine. GitHub Support can purge cached views; not done by us.
+  - Stand-in on `c1e5c83a`: 1 should-fix + 1 minor + test gap — fixed `a039cdff`; a
+    stand-in is reviewing `a039cdff`. The follow-up PR opens once a stand-in round is
+    clean.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
