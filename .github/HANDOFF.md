@@ -242,6 +242,13 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     row have died ~60-70k tokens into a fresh window, so the allowance per window is small
     and this range is too big to finish. A third stand-in is reviewing `13f42272`. Asked the
     maintainer whether to open the PR on stand-in review or wait; NO PR opened.
+  - **MAINTAINER DECISION (25 Sept, ~10:00): go ahead with the PR on stand-in review.** Third
+    stand-in on `13f42272` found 4 (fixed `ad85e24c`); a fourth stand-in is reviewing
+    `ad85e24c` — the PR opens once a stand-in round is clean. **Codex still owes** its review
+    of `f74734f0..HEAD`: booked at **14:48** as two small focused rounds
+    (`codex-r15a-prompt.txt` tooling, `codex-r15b-prompt.txt` wording) because three full
+    rounds in a row ran out at ~60-70k tokens; its fixes go in one small follow-up PR if the
+    main PR has merged by then.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
