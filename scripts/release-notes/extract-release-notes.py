@@ -120,9 +120,29 @@ _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
 # Invisible characters that are NOT Unicode category Cf, so the Cf check
 # misses them, but that can still hide a banned word. U+FE0F is left out on
 # purpose: it is the variation selector an emoji like a warning sign uses.
+# It is checked separately below, because between two letters it hides a
+# word just as well ("key<U+FE0F>chain" reads as "keychain" -- Codex).
 _INVISIBLE = re.compile(
     "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0e\uffa0]"
 )
+
+
+def _is_letter(c: str) -> bool:
+    return unicodedata.category(c).startswith("L")
+
+
+def _misplaced_emoji_selector(line: str) -> bool:
+    """U+FE0F next to a letter. After an emoji (or a keycap digit) it is
+    how the emoji is meant to be drawn; beside a letter it only hides the
+    word it sits in."""
+    for i, c in enumerate(line):
+        if c != "\ufe0f":
+            continue
+        before = line[i - 1] if i > 0 else ""
+        after = line[i + 1] if i + 1 < len(line) else ""
+        if (before and _is_letter(before)) or (after and _is_letter(after)):
+            return True
+    return False
 
 
 def _refused_character(line: str) -> bool:
@@ -130,12 +150,19 @@ def _refused_character(line: str) -> bool:
     return bool(
         _CONTROL.search(line)
         or _INVISIBLE.search(line)
+        or _misplaced_emoji_selector(line)
         or any(unicodedata.category(c) == "Cf" for c in line)
     )
-# Any other "Name: value" trailer line ends the note being joined. The
-# release tool starts a new footer at such a line, so its text is not part
-# of the note.
-_OTHER_TRAILER = re.compile(r"^[A-Za-z][A-Za-z-]*: ")
+# Any other trailer line ends the note being joined: the release tool starts
+# a new footer there, so its text is not part of the note. Its rule (checked
+# against git-cliff 2.13.1, 25 Sept 2026): a run of characters with no white
+# space, brackets, ":" or "!", then ":" or " #" -- so "Co-Authored-By:Name"
+# (no space) and "Reviewed-by #Name" end a note too. This used to require
+# "Name: " with a space, so those lines were joined into the note, and an
+# emoji in a co-author's name got the whole PR refused (Codex, 25 Sept).
+# "#" is also kept out of the name here: in a doubtful case the line stays
+# in the note, which checks MORE text, never less.
+_OTHER_TRAILER = re.compile(r"^[^\s():!#]+(?::| #)")
 
 
 class RefusedNoteError(ValueError):
