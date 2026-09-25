@@ -307,6 +307,14 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
   - Stand-in on `c1e5c83a`: 1 should-fix + 1 minor + test gap — fixed `a039cdff`; a
     stand-in is reviewing `a039cdff`. The follow-up PR opens once a stand-in round is
     clean.
+  - **DONE (25 Sept, ~17:30 BST): follow-up PR #1228 merged (rebase) → `v1.13.0-alpha.73`
+    published.** 14 PR checks green; release run 36158885867 green (6 platforms); CI on
+    alpha green; 22 assets; latest.json 12 keys all signed; plain-English part of the body
+    lints clean; the cliff.toml rewrites work (no "sign-in token", no identifier). New
+    working branch: `work/after-alpha-73`. **Next:** Codex at 19:49 (post-merge review of
+    9d7671ba/5093f3e3/c1e5c83a/a039cdff, now on alpha as rebased commits; then wording
+    round B next window; fixes → one small PR). **Then the history-rewrite DRY RUN** (see
+    the maintainer decisions above) — no push without a second approval.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
