@@ -249,6 +249,11 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     (`codex-r15a-prompt.txt` tooling, `codex-r15b-prompt.txt` wording) because three full
     rounds in a row ran out at ~60-70k tokens; its fixes go in one small follow-up PR if the
     main PR has merged by then.
+  - **Stand-in rounds 4-6:** `ad85e24c` → 2 findings (fixed `f1d1e1f8`); `f1d1e1f8` → 1
+    regression (fixed `73af9a4e`); `73af9a4e` → **NO REAL FINDINGS**. Per the maintainer's
+    approval, **opening the PR to alpha now** (branch 131 ahead / 0 behind, clean merge, no
+    other PR open to alpha). Codex still owes `f74734f0..HEAD` at 14:48 (two small rounds;
+    fixes → one follow-up PR).
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
