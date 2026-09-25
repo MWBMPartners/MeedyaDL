@@ -237,6 +237,11 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     prompt at 09:46** re-runs the Codex round (prompt `codex-r13-prompt.txt` in the session
     scratchpad), then PR → watch → rebase-merge → watch the alpha release. PR body
     (`pr-body.md`) refreshed and re-checked (extract + lint pass). No PR opened yet.
+  - **09:50, 25 Sept:** second stand-in's 4 findings fixed in `13f42272`. The 09:46 Codex
+    round ran out AGAIN minutes in (no verdict) — **back 14:43**. Pattern: three rounds in a
+    row have died ~60-70k tokens into a fresh window, so the allowance per window is small
+    and this range is too big to finish. A third stand-in is reviewing `13f42272`. Asked the
+    maintainer whether to open the PR on stand-in review or wait; NO PR opened.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
