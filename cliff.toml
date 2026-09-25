@@ -165,6 +165,24 @@ commit_parsers = [
 # @see https://git-cliff.org/docs/configuration/git#protect_breaking_commits
 protect_breaking_commits = false
 
+# commit_preprocessors -- Rewrites applied to every commit message before it
+# is parsed, so they reach the release notes, the cumulative "since the last
+# stable release" view and the technical changelog alike.
+#
+# These two exist because commit messages are never checked by the
+# release-note lint (only pull request descriptions are), and two notes that
+# reached the v1.13.0-alpha.72 release notes named things the notes must not:
+# "sign-in token" and the app's internal identifier. The published alpha.72
+# page was corrected by hand; without these, every later alpha's cumulative
+# section would repeat them until the next stable release. Commit messages
+# cannot be reworded without rewriting pushed history, so the wording is
+# fixed here instead. Keep each pattern as narrow as the phrase it replaces.
+# @see https://git-cliff.org/docs/configuration/git#commit_preprocessors
+commit_preprocessors = [
+  { pattern = "sign-in token", replace = "sign-in detail" },
+  { pattern = 'The app has a new internal identifier \(com\.meedyasuite\.meedyadl\);', replace = "The app's internal name has changed;" },
+]
+
 # filter_commits -- When true, applies the commit_preprocessors filters.
 # Currently false; all conventional commits pass through to commit_parsers.
 # @see https://git-cliff.org/docs/configuration/git#filter_commits
