@@ -315,6 +315,20 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     9d7671ba/5093f3e3/c1e5c83a/a039cdff, now on alpha as rebased commits; then wording
     round B next window; fixes → one small PR). **Then the history-rewrite DRY RUN** (see
     the maintainer decisions above) — no push without a second approval.
+  - **HISTORY-REWRITE DRY RUN DONE (25 Sept, ~18:15) — nothing pushed; awaiting the
+    maintainer's second approval.** Tool: git-filter-repo in a throwaway venv
+    (`/private/tmp/claude-501/gfr`). Mirror of GitHub at `/private/tmp/claude-501/rewrite-dry/
+    src.git`; rewritten copy `work.git`; rules `replacements.txt` (name/paths/USB/email text,
+    `regex:\bLance\b(?! le\b)`, `/Users/someone/` example path) + `mailmap.txt` (both personal
+    identities → `Salem874 <Salem874@users.noreply.github.com>`) + drop `__pycache__`/`.pyc`
+    from history. Verified: every blob of every version scanned — only the French verb and
+    this note's mention of it remain; no name in any message, author or committer. EVERY
+    commit and ALL 317 tags change (the personal email goes back to Nov 2024). Branch-tip
+    file changes: main/beta/rc — 5-6 memory/audit/settings/script lines; alpha — settings.json
+    (2 permission paths → /Users/salem874, harmless) + settings.local.json paths. Cannot be
+    reached: the 1 fork and GitHub's 535 pull-request refs (old commits stay viewable on
+    closed PR pages until GitHub Support purges them). Current git identity is already
+    Salem874 (personal email last used 10 July), so nothing new leaks.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
