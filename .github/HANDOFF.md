@@ -278,6 +278,15 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     cliff.toml, in the follow-up PR on `work/after-alpha-72` with Codex's fixes. Issues:
     #273 and #387 closed; #216 left open for a real-install check; status comments on #1215,
     #1216, #1217. **Still to come: Codex at 14:48** (two small rounds on f74734f0..73af9a4e).
+  - **14:48 Codex round A (tooling) DONE: 2 findings, fixed in `9d7671ba`** (U+FE0F beside a
+    letter now refused; end-of-note rule now matches git-cliff's footer rule — checked on
+    2.13.1, 26 samples, 0 gaps; 4,140 history messages, 0 refused). Durable wording fix in
+    `5093f3e3` (cliff.toml commit_preprocessors; only those 3 notes change across history).
+    **Round B (wording) did not start — Codex out again until 19:44** (one small round per
+    window). Stand-in reviewing `9d7671ba` + `5093f3e3` now. **Watchdog: scheduled prompt
+    at 19:49** → Codex re-review of the fix commits (`codex-r16-prompt.txt`), then round B
+    (`codex-r15b-prompt.txt`) in the next window, then ONE follow-up PR from
+    `work/after-alpha-72` → alpha, watched through to a published alpha release.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
