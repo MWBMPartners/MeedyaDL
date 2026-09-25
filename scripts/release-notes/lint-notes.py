@@ -288,7 +288,11 @@ def lint_trailer_stream(stream: str) -> list[Finding]:
     report therefore mean "the Nth trailer line on stdin", not a position
     inside a file."""
     findings: list[Finding] = []
-    for i, line in enumerate(stream.splitlines(), start=1):
+    # Split on "\n" only. str.splitlines() also splits on U+2028/U+2029
+    # (and a few others), which cut ONE note into two lint lines — so a
+    # banned phrase spanning that character was never matched, although the
+    # release notes publish it as one piece (stand-in review, 25 Sept 2026).
+    for i, line in enumerate(stream.split("\n"), start=1):
         if not line.strip():
             continue
         line_findings = lint_text(line, "trailer", strip_footer=False)

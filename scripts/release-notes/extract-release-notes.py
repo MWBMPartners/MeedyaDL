@@ -50,6 +50,25 @@ A second stand-in review (25 Sept, Codex out again) found two more:
    ("key\u00adchain"): not shown to a reader, but they stop a banned word
    from matching.
 
+A third stand-in (25 Sept) found more of the same kind:
+
+9.  Line and paragraph separators (U+2028/U+2029) inside a note: the lint
+    split the note in two at them, so a phrase across one was never
+    matched. Both are now refused here, and the lint splits on "\n" only.
+10. Other invisible characters that are not category Cf -- the combining
+    grapheme joiner, variation selectors, Hangul and Mongolian fillers --
+    can also hide a banned word. The known ones are refused (see
+    _INVISIBLE). An emoji's own variation selector (U+FE0F, as in a
+    warning sign) is still allowed.
+11. The check also ran on the line that ENDS a note (for example a
+    "Co-Authored-By:" line with an emoji in a name), refusing it although
+    it is not part of the note. It now runs only on lines that are.
+
+What no extractor can fix: letters from other alphabets that look the same
+(a Cyrillic "е" in "kеychain"), full-width letters, and unusual space
+characters in a banned phrase. Those are limits of a list of banned words;
+normalising text inside lint-notes.py is the place for that, if wanted.
+
 The rules below close each of them. Where the release tool's own reading
 is odd or hard to predict (cases 2 and 4), this does not try to copy it:
 an empty `Release-Note:` line is REFUSED, with a message saying how to
@@ -95,8 +114,24 @@ _NOTE_START = re.compile(r"^Release-Note(?:[ \t]*:|[ \t]*#)[ \t]*(.*)$")
 # does not. A line of these is NOT blank to the release tool.
 _PYTHON_ONLY_SPACE = "\x1c\x1d\x1e\x1f"
 # Any control character except tab (including a lone carriage return and
-# the C1 range 0x80-0x9F). A note containing one is refused.
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# the C1 range 0x80-0x9F), and the line and paragraph separators. A note
+# containing one is refused.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029]")
+# Invisible characters that are NOT Unicode category Cf, so the Cf check
+# misses them, but that can still hide a banned word. U+FE0F is left out on
+# purpose: it is the variation selector an emoji like a warning sign uses.
+_INVISIBLE = re.compile(
+    "[\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\ufe00-\ufe0e\uffa0]"
+)
+
+
+def _refused_character(line: str) -> bool:
+    """A control, invisible or formatting character a note may not hold."""
+    return bool(
+        _CONTROL.search(line)
+        or _INVISIBLE.search(line)
+        or any(unicodedata.category(c) == "Cf" for c in line)
+    )
 # Any other "Name: value" trailer line ends the note being joined. The
 # release tool starts a new footer at such a line, so its text is not part
 # of the note.
@@ -122,15 +157,19 @@ def extract_notes(text: str) -> list[str]:
     notes: list[str] = []
     current: str | None = None
     for raw in text.replace("\r\n", "\n").split("\n"):
-        if current is not None or _NOTE_START.match(raw):
-            if _CONTROL.search(raw) or any(
-                unicodedata.category(c) == "Cf" for c in raw
-            ):
-                raise RefusedNoteError(
-                    "A 'Release-Note:' note contains an invisible control or "
-                    "formatting character. Retype the note as plain text."
-                )
         start = _NOTE_START.match(raw)
+        # Is this line part of a note? A note's own first line, or a line
+        # that continues one — NOT the blank or trailer line that ends one.
+        in_note = start is not None or (
+            current is not None
+            and not _is_blank(raw)
+            and not _OTHER_TRAILER.match(raw)
+        )
+        if in_note and _refused_character(raw):
+            raise RefusedNoteError(
+                "A 'Release-Note:' note contains an invisible control or "
+                "formatting character. Retype the note as plain text."
+            )
         if start:
             if current is not None:
                 notes.append(current)
