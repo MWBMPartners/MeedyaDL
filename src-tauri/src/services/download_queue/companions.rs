@@ -1450,6 +1450,26 @@ pub(crate) async fn download_music_video_by_url(
         ..Default::default()
     };
 
+    // Which way of unlocking copy-protected tracks to use.
+    //
+    // This one is built from scratch rather than copied from the
+    // download's own options, and it passes `no_config_file`, so nothing
+    // reaches it by accident — every setting it honours has to be named
+    // here. A whole-branch review found the new unlocking choice missing:
+    // somebody who had chosen PlayReady got it for their music and
+    // quietly not for their music videos, which is the kind of gap
+    // nobody reports because nothing looks wrong.
+    //
+    // Decided through the same function as everywhere else, so a device
+    // file that has since been deleted is handled identically here.
+    let mut opts = opts;
+    if let super::options::DrmPlan::PlayReady { prd_path } =
+        super::options::plan_drm_backend_for_now(settings)
+    {
+        opts.drm_backend = Some(crate::models::settings::DrmBackend::PlayReady);
+        opts.prd_path = Some(prd_path);
+    }
+
     let urls = vec![video_url.to_string()];
     let mut cmd = match super::gamdl_service::build_gamdl_command_public(app, &urls, &opts) {
         Ok(c) => c,
@@ -1466,6 +1486,14 @@ pub(crate) async fn download_music_video_by_url(
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
+
+    // Stop the program if this task is dropped — when the item is
+    // cancelled, a deadline fires, or the app quits. Without it the
+    // task goes away and the program it started carries on, writing
+    // files nobody is waiting for. The supervised companion runs
+    // have always done this; these ones were missed. Found by a full
+    // review of the codebase.
+    cmd.kill_on_drop(true);
 
     // Snapshot the set of video files under the output directory BEFORE
     // GAMDL runs so we can identify exactly which files were freshly
@@ -1787,6 +1815,14 @@ pub(crate) async fn run_lyrics_fallback(
 
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
+
+        // Stop the program if this task is dropped — when the item is
+        // cancelled, a deadline fires, or the app quits. Without it the
+        // task goes away and the program it started carries on, writing
+        // files nobody is waiting for. The supervised companion runs
+        // have always done this; these ones were missed. Found by a full
+        // review of the codebase.
+        cmd.kill_on_drop(true);
 
         match cmd.spawn() {
             Ok(child) => match child.wait_with_output().await {
@@ -2503,6 +2539,31 @@ pub(crate) fn spawn_companion_downloads(
                     log::info!("Companion downloads stopping early (app shutting down)");
                     return;
                 }
+                // Has the person cancelled this item?
+                //
+                // Until a full review of the codebase found this, nothing
+                // after the first download ever asked. Cancel marked the
+                // item cancelled on screen and stopped the download that
+                // was running — and then the extra copies in other
+                // formats carried on, sometimes for many minutes, still
+                // writing files and still holding the queue's one slot,
+                // so the next item sat waiting behind work somebody had
+                // already asked to stop.
+                //
+                // Checked between tiers, which is where the other two
+                // stop conditions are checked, and for the same reason:
+                // it is the point where nothing is half-done.
+                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                    log::info!(
+                        "Companion downloads stopping early — {comp_dl_id} was cancelled"
+                    );
+                    emit_download_log(
+                        &comp_app,
+                        &comp_dl_id,
+                        "Cancelled — stopping the extra format downloads.",
+                    );
+                    return;
+                }
                 // Cooperative-cancel check (#663). If the completion
                 // task fired the deadline timeout while we were in
                 // sync code, leave before launching another GAMDL.
@@ -2548,6 +2609,25 @@ pub(crate) fn spawn_companion_downloads(
                             tier_idx
                         ),
                     );
+                    // Asked again before EVERY attempt, not only between
+                    // tiers. A tier can hold several formats and try each
+                    // in turn, so checking only at the tier boundary
+                    // meant a cancellation during the first attempt still
+                    // let the next one start — fresh download work, begun
+                    // after the person said stop. A reviewer caught the
+                    // gap in the first version of this check.
+                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                        log::info!(
+                            "Companion downloads stopping — {comp_dl_id} was cancelled"
+                        );
+                        emit_download_log(
+                            &comp_app,
+                            &comp_dl_id,
+                            "Cancelled — stopping the extra format downloads.",
+                        );
+                        return;
+                    }
+
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -3248,6 +3328,14 @@ pub(crate) fn spawn_companion_downloads(
 
                 cmd.stdout(std::process::Stdio::piped());
                 cmd.stderr(std::process::Stdio::piped());
+
+                // Stop the program if this task is dropped — when the item is
+                // cancelled, a deadline fires, or the app quits. Without it the
+                // task goes away and the program it started carries on, writing
+                // files nobody is waiting for. The supervised companion runs
+                // have always done this; these ones were missed. Found by a full
+                // review of the codebase.
+                cmd.kill_on_drop(true);
 
                 emit_download_log(
                     &lyrics_app,

@@ -214,8 +214,26 @@ export function useKeyboardShortcuts(): void {
          * The Queue-page modal is the canonical rich confirmation with
          * "Don't ask again"; the shortcut and status-bar button share
          * this lighter-weight path.
+         *
+         * This used to match only `case '.':`, which meant it could never
+         * actually fire. The browser reports whatever character the held
+         * keys produce, and on a US or UK keyboard, holding Shift on the
+         * period key produces `>`, not `.` — so requiring both "the key
+         * read as a full stop" AND "Shift is held" asked for two things
+         * that can't both be true at once on those layouts. The `'?'` case
+         * about forty lines below gets this right: it matches on `?`
+         * (the shifted character), not on `/` (the unshifted one), because
+         * Shift is part of the chord. This case now follows the same rule
+         * by matching on both characters that physical key can send while
+         * shifted — `>` on US/UK/most layouts, and `.` on French AZERTY,
+         * where the unshifted key already sends `;` and Shift is what
+         * turns it into a full stop. That's also why this shortcut used
+         * to appear to work on an AZERTY keyboard and nowhere else: AZERTY
+         * was the one layout where the old, self-contradictory check
+         * happened to hold.
          */
-        case '.': {
+        case '.':
+        case '>': {
           if (!e.shiftKey) break;
           e.preventDefault();
           const settings = useSettingsStore.getState().settings;

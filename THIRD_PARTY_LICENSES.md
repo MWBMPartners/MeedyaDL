@@ -423,7 +423,7 @@ shipped inside the offline-installer artefact:
 >
 > If MeedyaDL ever ships a **modified** build of an LGPL/GPL component,
 > the modified source tree will be published in a sibling repository
-> under <https://github.com/MWBMPartners/MeedyaDL-Tools> alongside the
+> under <https://github.com/MeedyaSuite/MeedyaDL-Tools> alongside the
 > binary; the link above will redirect there for the affected version.
 > As of the current release, no LGPL/GPL component is modified.
 

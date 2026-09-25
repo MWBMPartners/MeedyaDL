@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-22 (04:50) — see ★★★★ below
-**Working branch:** `work/issue-sweep-2026-09` → `alpha` (its PR opened 22 Sept after the clean Codex review). If you are reading this on `alpha`, it merged and there is no working branch. PR #1206 → `main` and release PR #1203 follow.
+**Last updated:** 2026-09-24 (evening, Codex catch-up done) — see ★★★★ LATEST below
+**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
 
-**Channel versions:** `main` **1.10.7** (release PR #1203 for 1.10.8 open) · `alpha` **1.13.0-alpha.70** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 11:55.
+**Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,916 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-21/22: issues sweep done, Codex review clean (4 rounds); PRs and stable 1.10.8 under way
+## ★★★★ LATEST — 2026-09-24 (midday): batch 5 Codex round 1 acted on; batch 4 on round 8
+
+> **PICK UP HERE.** The section below this one is still the best starting point if you
+> know nothing; this one records what changed since.
+
+### Commits today (all pushed to `work/after-1.10.8`)
+
+| Commit | What | Independently reviewed? |
+|---|---|---|
+| `bdce1c32` | Batch 5 finding 1: unreadable installed version → "update available" for ever | Yes — batch-5 Codex round 1 |
+| `161ce75d` | Batch 5 finding 2: offline page said "up to date" | Yes — batch-5 round 1 |
+| `d5cc5ff8` | Batch 5 findings 3–7 + N_m3u8DL-RE claim | Yes — batch-5 round 1 |
+| `80d8f607` | Batch-5 Codex round 1, findings 2–6 (one ownership gate, three-way ownership, latest side checked, fresh FFmpeg date at install, GPAC pin version) | **No — batch-5 round 2** |
+| `192d18bc` | Batch-5 Codex round 1, finding 1 (blocking): an update no longer falls back to the mirror unless the mirror is what was checked | **No — batch-5 round 2** |
+| `68046c37` | MP4Box: re-check the copy after a failed install route (from Codex's cut-off round, verified by hand) | Stand-in only — **Codex owed** |
+| `401cb390` | Stand-in findings on the above: installer is TOLD it is an update (`for_update`), MP4Box updates go only to the checked source (never brew/apt), MP4Box mirror route now stage-and-swap | Not reviewed — **Codex owed** |
+| `12f1f32c` | Stand-in findings on `f7ff3c30`: only matrix./env. placeholders; only exports in `shell: bash` steps | Not reviewed — **Codex owed** |
+| `a6dea6c3` | #1221: dependency-canary spaces its searches and waits out GitHub's burst limit (10 s gap, retries at 60/120 s, never reports an unchecked branch as healthy) | Stand-in only — **Codex owed**; not tested live (runs only from `main`) |
+| `45e30af3` | Canary: an incomplete-and-empty search stops the run; nothing checked stops without touching the issue | Stand-in finding; **Codex owed** |
+| `f0dc9500` | Batch 3 (screens) stand-in findings: one-off shutdown came back after Save (save_settings now keeps disk value + `after-queue-once-used` event); Reset/Save claimed success on failure; language stored in browser and "Auto" did nothing; Abort-all silent on failure; paste-limit miscount and cleared box; two dialogs fighting over keys; BBC path check; message cap dropped lasting errors | Stand-in only — **Codex owed** (Codex has never seen batch 3) |
+| `672acd01` | Batch 2 stand-in (on `40047ef6`): the one-off after-queue menu no longer marks Settings unsaved (`syncAfterQueueOnce`); Reset keeps the one-off; tests for the failure path | Stand-in only — **Codex owed** |
+| `2bf3fdd2` → `f7ff3c30` | Batch 4: release-notes overwrite, org rulesets, and seven rounds on one audit check | Rounds 1–7 done; **`f7ff3c30` needs round 8** |
+
+### Codex rounds on batch 4 so far
+
+| Round | Reviewed | Found |
+|---|---|---|
+| 1 | `5071541f..c3dee4e7` | stand-in's A–E confirmed (E worse), 1 new |
+| 2 | `2bf3fdd2` | 4 holes in the two audit-check fixes; release/rulesets fixes clean |
+| 3 | `65a16c10` | 2 ways past the shell-comment reader |
+| 4 | `9289b000` | 1 BLOCKING regression (a `#` inside the match) |
+| 5 | `1fd89c00`'s parent `5bc2bc36` | 1 blocking (two shell-error lines), 1 should-fix |
+| 6 | `1fd89c00` | shell commands in the value (`$((1/0))`); temp file left on a failed write |
+| 7 | `85028853` | a GitHub placeholder holding quoted shell code |
+| 8 | `f7ff3c30` | **not yet run** |
+
+**Lesson worth keeping:** three attempts to *reason about* shell comments were each beaten.
+What converged was refusing when unsure — only one plain, complete export form is
+counted; everything else is "cannot confirm". Known, accepted silent pass: a plain export
+line switched off by other lines (a heredoc) — documented in the check.
+
+### Everything NOT yet reviewed by Codex
+
+* **Batch 5 round 2:** `git show 80d8f607` and `git show 192d18bc` (the round-1 fixes only).
+* **Batch 4 round 8:** `git show f7ff3c30`.
+* Batch 2 (finish) and batch 3 — ranges in the section below.
+
+Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midday on
+24 Sept. If a round is refused, read the message — a real credit refusal names a reset time.
+
+### New follow-up issue
+
+* **#1221** — `dependency-canary` has never succeeded: GitHub's burst limit on its third
+  search, with a valid token. On project 6. **Fixed in `a6dea6c3`**; left open until it has
+  run successfully for real (it only runs from `main`).
+
+### Noted, not acted on
+
+* ~~A tool with no `.source` marker is skipped silently~~ — FIXED in `80d8f607` (Codex
+  found a live case). It now says "could not check".
+* The two check self-tests (`test_check_*.py`) are not run by CI. Wiring them into
+  `pr-security.yml` is an open suggestion (recorded in `tools/audit-checks/README.md`).
+* Both `UpdatesPage` files and `src/types/index.ts` already failed Prettier before this
+  work; `update_checker.rs` (17) and `dependency_manager.rs` (9) already had rustfmt
+  complaints. Left alone so review diffs stay clean — a formatting-only commit someday.
+
+### Three questions put to the maintainer (nothing waits on them)
+
+1. When to open the alpha pull request, and who merges it. Recommended: after batch 4 is
+   clean and batch 5 has had its Codex round(s), open it and merge.
+2. How much documentation sweep before this alpha. Recommended: targeted now, full before
+   the last pull request.
+3. Handoff location (carried over). Recommended: stay at `.github/HANDOFF.md`.
+
+### Codex ran out at ~09:25 — resets 13:34 (24 Sept)
+
+* **Batch-5 round 2 produced NO verdict** — Codex hit its usage limit part-way through.
+  Before stopping it said what it was checking; one of those leads was real and is fixed
+  in `68046c37` (MP4Box's install routes delete the old copy before they can fail, so the
+  refusal message could have been false and left the person with no MP4Box). That fix
+  is **not** a Codex finding and is **not reviewed**.
+* **Hand-over, recorded as the rules require:** a fresh Opus agent with no part in
+  building any of this reviewed `80d8f607`, `192d18bc`, `68046c37` and `f7ff3c30` as a
+  **stand-in**. Result: A minor-only; **B two blocking** (the "is this an update?" rule was
+  GUESSED from the copy on disk and was wrong both ways — BtbN FFmpeg reads as "nightly"
+  so the rule never applied to it, and an MP4Box with no origin record had every
+  Reinstall refused); C a false comment (Homebrew/apt run first for an MP4Box update);
+  D clean, two minor. All verified against the code and acted on in `401cb390` and
+  `12f1f32c`. **Everything above is still owed a Codex round.**
+* **Codex catch-up is scheduled for 13:41** (session-only cron job — gone if the session
+  restarts). If it did not run, do it by hand: batch-5 round 2 = `80d8f607`, `192d18bc`,
+  `68046c37`, `401cb390`; batch-4 round 8 = `f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`; batch 3 = `git diff 52e959b4..7e9f4695 -- src/` + `f0dc9500`; batch 2 finish = `40047ef6` + `672acd01`.
+* **Second stand-in (batch 3, the screens + canary):** 6 should-fix, 4 minor, all checked
+  and acted on in `f0dc9500` and `45e30af3`, with tests shown to fail on the old code.
+  Two recorded and NOT acted on: the status bar's hidden count for screen readers repeats
+  the visible one; relocation / crash-question answers that fail to save are logged only.
+* **Third stand-in (batch 2 finish, `40047ef6`):** back-out correct, nothing blocking;
+  1 should-fix + 2 minor, acted on in `672acd01`. It also found a dangerous-direction
+  status-bar problem that predates this work — opened as **#1222** (status bar can show
+  no after-queue action while a shutdown is still armed). Not fixed here.
+* **Every batch has now had at least a stand-in review.** Codex has fully cleared none
+  of 2 (finish), 3, 4 (round 8) or 5 (round 2).
+* **Lesson from the stand-in:** "is this an update?" cannot be inferred from the state
+  of the copy; the Update button now says so. Guessing intent from disk state is the
+  same shape of mistake as guessing shell syntax — refuse to infer what you can be told.
+
+### In flight — LOST on a restart
+
+* **Codex catch-up started 13:41.**
+  - Batch-5 round 2 (`80d8f607`, `192d18bc`, `68046c37`, `401cb390`): **done** — 1 blocking
+    (an Update could adopt an OLDER system copy via Step 0) + 5 should-fix + 1 minor, all
+    real, all fixed in `360ea73e`. **Batch-5 round 3 owed on `360ea73e` only.**
+  - Batch-4 round 8 (`f7ff3c30`, `12f1f32c`, `a6dea6c3`, `45e30af3`): **done** — 2 should-fix
+    (non-breaking space counted as a separator; an incomplete search with an OLD result
+    declared a branch quiet), both fixed in `5df4f275`. **Round 9 owed on `5df4f275`.**
+  - Batch 3 (`52e959b4..7e9f4695 -- src/` + `f0dc9500`): **done** — 3 blocking (Save could
+    re-arm a used one-off in two ways; an unsupported system language stopped startup —
+    both caused by my own `f0dc9500`), 6 should-fix, 1 minor; all fixed in `fc0b3698`.
+    **Batch-3 round 2 owed on `fc0b3698`.**
+  - Batch 2 finish (`40047ef6` + `672acd01`): **done** — 1 blocking (failure message read the
+    FILE, which reads as defaults when damaged, not what the queue acts on) + 1 should-fix
+    (overlapping choices); fixed in `b9d3370b` (new command `get_after_queue_status`).
+  - **Every batch has now had a first Codex round.**
+  - Follow-up round over all four fix commits: **done** — `5df4f275` **CLEAN**; the rest 1
+    blocking (a lock gap in the failed-clear path) + 6 should-fix, all fixed in `6a8fcbbe`.
+  - Round on `6a8fcbbe`: **cut off by Codex's usage limit at ~14:25, no verdict** (it had
+    confirmed only that the new helper clears the cache before releasing the lock, with
+    no nested lock or await). Codex resets **18:41**; the round is **scheduled for 18:47**
+    (session-only cron — if the session restarted, run it by hand on `6a8fcbbe` + `57f137ac`).
+  - Stand-in (fresh Opus agent) reviewed `6a8fcbbe`: **1 blocking** — after a failed clear,
+    ANY successful settings write (not just Save) re-armed the used-up shutdown, because
+    every writer read the stale file. Fixed in ONE place in `57f137ac`: general writers take
+    the one-off from the running app (`config_service::one_off_in_memory`); only
+    `config_service::set_after_queue_once` sets it. Plus 3 should-fix (stale comments; a
+    false wizard message; a leftover MP4Box backup blocking updates forever) and 2 minor
+    (dialog layer cap and first frame; an i18n comment), all fixed in `57f137ac`.
+  - **Codex round owed: `6a8fcbbe` + `57f137ac`, scheduled 18:47.** When that is clean, the
+    whole catch-up is done. That round (or the next) should also glance at the new standing
+    rule below — a notes-only change, not yet reviewed by Codex.
+  - **Codex round on `6a8fcbbe` + `57f137ac` + `a651b3f2`: DONE (18:47, ~85k tokens).** Two
+    real findings, both fixed in `7972e77a`: (1) BLOCKING — the settings cache's first fill
+    read the file unlocked and overwrote the cache unconditionally, so a stale armed one-off
+    could be stored over a cleared one; now filled under SETTINGS_WRITE_LOCK and never over
+    an existing value (`fill_if_empty`, test proven to fail on the old code); (2) Reinstall
+    deleted the MP4Box update-backup whenever the installer said "success", which it says
+    even when the new copy cannot run; now removed only once the new copy reports a real
+    version, else put back. `a651b3f2` (notes) confirmed consistent. No deadlock found.
+  - **Codex round on `7972e77a`: CLEAN ("NO REAL FINDINGS", ~88k tokens).**
+  - **THE CODEX CATCH-UP IS DONE.** Every commit on `work/after-1.10.8` up to `7972e77a` has
+    now had a Codex review, with every real finding fixed and the last round clean. Nothing
+    is running and no Codex round is owed.
+  - The two handoff-only commits after it (`5f9256eb`, `35661974`) were also checked by
+    Codex: clean.
+  - **MAINTAINER DECISIONS (24 Sept, evening):** (1) open the PR to `alpha` once Codex is
+    clean, watch its checks, merge it when green, then watch and fix the merge, the alpha
+    auto-release and the packaging/deployment runs until fully deployed; (2) do the FULL
+    documentation sweep, including the in-app help, BEFORE that PR. (3) handoff location
+    still unanswered — keep `.github/HANDOFF.md`.
+  - **IN PROGRESS: full documentation sweep**, split across three background agents with
+    disjoint areas: in-app help (`help/*.md`); top-level and developer docs (README,
+    SECURITY, DEV_NOTES, Project_Plan, CONTRIBUTING, TERMS, licences, `.github/**/*.md`
+    except this file and audits, `tools/audit-checks/README.md`); assistant notes
+    (`.claude/CLAUDE.md`, `.claude/memory/`, `AGENTS.md` — then mirror to `.OpenAI/memory/`
+    and run the sync script by hand). Brief: `docsweep-brief.txt` in the session scratchpad.
+    Agents edit only, never commit; I read every change, run `check_help_topics.py`, commit,
+    then a Codex round on the sweep commit only. If the session ends mid-sweep, `git status`
+    shows what they changed; re-run the areas not finished.
+  - **Sweep DONE and pushed:** `c176e5c7` (two wrong on-screen texts: the Abort Queue
+    "re-enable in Preferences" pointer to a switch that does not exist, and "Import
+    (P3, coming next)") and `fbc69f4c` (the sweep: 11 help pages, README, SECURITY,
+    DEV_NOTES, Project_Plan, TERMS, ACKNOWLEDGEMENTS, CONTRIBUTING, PR template,
+    audit-checks README, CLAUDE.md, AGENTS.md, 6 memory files mirrored, 3 code comments).
+    All checks green (12 audit checks, vitest 837, cargo 2047, clippy, tsc, eslint).
+    **Real name found and removed** from project_gamdl_release_cadence.md (both copies) and
+    an audit retrospective; it stays in git history (since 674967fb, 22 May, on alpha) —
+    rewriting history is the maintainer's call, not done. Follow-ups opened: #1223 (no switch
+    to re-enable the abort confirmation), #1224 (check-acknowledgements misses
+    platform-only dependencies); both on the board.
+  - **UPDATE (later, 24 Sept):** the maintainer said "try Codex again" — it WAS available.
+    Rounds since: stand-in found 9 (fixed `8be6138a`); Codex on `35661974..8be6138a` found
+    5 (fixed `f74734f0`); Codex re-review of that found 2 (fixed `757bcfd0`). While
+    preparing the PR, found that 42 of this branch's release notes would render cut off
+    mid-sentence in the alpha release body (templates took only a trailer's FIRST line;
+    many trailers wrap). Fixed in the templates, not the commits (no history rewrite):
+    `b19cd04a` — both cliff templates take the first paragraph joined; the PR gate lints
+    each note whole. Verified: over all history only those 42 lines change. Two notes use
+    the word "token", which the lint rejects; they will render as written (commit
+    trailers are never linted). **NOW RUNNING: Codex on `757bcfd0` + `b19cd04a`**
+    (`codex-r12-*.txt/out` in the session scratchpad). Follow-ups opened: #1223, #1224,
+    #1225 (tool swap without start-up check; plus no way to reinstall a tool that starts
+    but fails). Then: the PR (rebase-merge), watch checks, merge, watch alpha release.
+  - **LATER STILL (23:55, 24 Sept):** Codex re-review of `f74734f0` found 2 (fixed `757bcfd0`).
+    Codex then started on `757bcfd0` + `b19cd04a` and **hit its limit again — back 25 Sept
+    04:36**, no verdict; but its tests showed 4 ways the PR gate could let part of a note reach
+    the release notes unlinted (all older than b19cd04a). Fixed in `014e1755`: new
+    `scripts/release-notes/extract-release-notes.py` (+ `test_extract_release_notes.py`, run by
+    the gate), refuses an empty `Release-Note:` line; verified against git-cliff with both
+    templates. Found `test_lint_notes.py` already failing on `v1.13.0-alpha.47.md` → #1226,
+    kept out of the gate. **A stand-in (fresh Opus) is reviewing `757bcfd0`, `b19cd04a`,
+    `014e1755` now.** **Watchdog: session-only scheduled prompt at 04:41 on 25 Sept** runs the
+    Codex round on those (+ any stand-in fix commits), then — once clean — opens the PR,
+    watches checks, rebase-merges, and watches the alpha release through to published. If the
+    session ended, run that by hand. PR body draft: session scratchpad `pr-body.md` (passes
+    extract + lint); title passes commitlint.
+  - **Stand-in on `757bcfd0`/`b19cd04a`/`014e1755` DONE:** 6 findings (1 blocking:
+    "Release-Note #text" form published but never linted; a \x1c-\x1f control-char line
+    ended a note for the extractor but not for git-cliff; help/tools.md self-contradiction;
+    Abort text; template per-line trim; commit claimed git-cliff 2.14 but releases pin
+    2.13.1). All fixed in **`7b641e0a`** (extractor tests now 17). **Codex scope at 04:41 =
+    `757bcfd0`, `b19cd04a`, `014e1755`, `7b641e0a`.** git-cliff 2.13.1 is built into
+    `/private/tmp/claude-501/gitcliff-2.13.1/bin/` and checked (00:30, 25 Sept): 0 gaps across those 13 samples — **but that claim was too
+    broad: a second stand-in (04:50) found two more gaps the samples did not include (a
+    lone carriage return; invisible formatting characters such as a soft hyphen), both
+    fixed in the commit after `7b641e0a`** —
+    13 sample messages, each in a throwaway one-commit repo (the `--with-commit HEAD..HEAD`
+    trick does NOT isolate a sample on 2.13.1 — it renders the whole branch), both
+    templates, both versions: everything rendered is linted or the message is refused.
+    Whole history: the ELI5 template renders identically on 2.13.1 and 2.14.2; the
+    cumulative one differs by 192 lines, but the OLD template differs by the same 192, so
+    that is a git-cliff version difference in grouping, not this change.
+  - **04:44, 25 Sept:** the 04:41 Codex round on `git diff f74734f0 HEAD` ran out after
+    ~70k tokens, NO verdict — **Codex back at 09:41**. A stand-in (fresh Opus) is reviewing
+    `7b641e0a` (the only commit no reviewer has seen). **Watchdog: session-only scheduled
+    prompt at 09:46** re-runs the Codex round (prompt `codex-r13-prompt.txt` in the session
+    scratchpad), then PR → watch → rebase-merge → watch the alpha release. PR body
+    (`pr-body.md`) refreshed and re-checked (extract + lint pass). No PR opened yet.
+  - **09:50, 25 Sept:** second stand-in's 4 findings fixed in `13f42272`. The 09:46 Codex
+    round ran out AGAIN minutes in (no verdict) — **back 14:43**. Pattern: three rounds in a
+    row have died ~60-70k tokens into a fresh window, so the allowance per window is small
+    and this range is too big to finish. A third stand-in is reviewing `13f42272`. Asked the
+    maintainer whether to open the PR on stand-in review or wait; NO PR opened.
+  - **MAINTAINER DECISION (25 Sept, ~10:00): go ahead with the PR on stand-in review.** Third
+    stand-in on `13f42272` found 4 (fixed `ad85e24c`); a fourth stand-in is reviewing
+    `ad85e24c` — the PR opens once a stand-in round is clean. **Codex still owes** its review
+    of `f74734f0..HEAD`: booked at **14:48** as two small focused rounds
+    (`codex-r15a-prompt.txt` tooling, `codex-r15b-prompt.txt` wording) because three full
+    rounds in a row ran out at ~60-70k tokens; its fixes go in one small follow-up PR if the
+    main PR has merged by then.
+  - **Stand-in rounds 4-6:** `ad85e24c` → 2 findings (fixed `f1d1e1f8`); `f1d1e1f8` → 1
+    regression (fixed `73af9a4e`); `73af9a4e` → **NO REAL FINDINGS**. Per the maintainer's
+    approval, **opening the PR to alpha now** (branch 131 ahead / 0 behind, clean merge, no
+    other PR open to alpha). Codex still owes `f74734f0..HEAD` at 14:48 (two small rounds;
+    fixes → one follow-up PR).
+  - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
+    `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
+    rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
+    range. Asked the maintainer whether to open/merge the PR on the stand-in review or
+    wait for Codex. **Owed to Codex on 29 Sept regardless:** `35661974..fbc69f4c` plus
+    any fix commits after it — these are NOT fully reviewed until then.
+  - **Then the PR:** branch is 110 ahead / 0 behind `origin/alpha`, merges cleanly, no other
+    PR open to `alpha`. All 66 feat/fix/perf commits carry their own `Release-Note:`, so
+    REBASE-merge (keeps each note; squash would lose them). Also queued, not
+    started: #1222 (status bar can hide an armed shutdown); issue comments for this batch
+    (#1216/#1217/#273).
+  - **Watchdog on the 18:47 round:** a Claude Code scheduled prompt (session-only — gone if
+    the session restarts). If it never fired, run the round by hand with the command in the
+    section below, as a background command with `timeout 2400`, and do not end the turn
+    until its output file has Codex's final answer in it.
+  - **New standing rule (maintainer, 2026-09-24): every started job gets a watchdog** — set
+    up, when the job starts, something that comes back when it finishes; give it a
+    deadline; read the real result before the next queued step; write here what is running.
+    Added to `.claude/CLAUDE.md`, `AGENTS.md` (Codex), and section 13 of
+    `project_standing_rules.md` in both memory trees.
+  - Answered, no longer open: the other two cookie paths in CookiesStep (browser import,
+    sign-in) have the BACKEND write the path itself — they were never at risk.
+  - Allowance this window: ~443k used by the follow-up round; the next may hit the limit.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (night): standing rules revised; batch 4 cleared to ship
+
+> **PICK UP HERE. This section assumes you know nothing about what came before.**
+> Read the section below this one too — it explains what is on this branch and why.
+>
+> **Two things happened since that section was written:**
+>
+> 1. **The standing rules were revised** by the maintainer (see below). The one real
+>    change: **deep analysis and planning now goes to Opus, not Fable.**
+> 2. **Batch 4 (the release machinery) was reviewed by a stand-in and came back safe to
+>    cut a release from**, with six findings, none of them blocking.
+>
+> **Next, in order:**
+> 1. **Fix batch 5's finding 1** — a helper programme whose version cannot be read is
+>    treated as version 0.0.0, so it shows a permanent false "update available" with an
+>    error message where the version should be. Small fix, real user-facing cost, and it
+>    would ship in the alpha. Details below.
+> 2. Act on the rest of the batch-4 and batch-5 findings below (none of the others block).
+> 3. **Cut an alpha.** Batch 4 is cleared for it.
+> 4. Codex catch-up when it returns (00:09). **Batches 4 and 5 were reviewed by STAND-INS,
+>    not Codex, and both are still owed a proper round** — the stand-ins said so themselves.
+> 5. Batches 2 (finish) and 3, cutting a small alpha as each clears.
+> 6. The documentation sweep, before the pull request.
+
+### The standing rules changed on 23 September 2026
+
+Full text in `.claude/memory/project_standing_rules.md` (mirrored in `.OpenAI/memory/`).
+The short version of what is NEW, since most of it was already in place:
+
+* **Planning moved from Fable to Opus.** One agent at a time, in sequence, never several
+  at once. The maintainer's reason: the newest Opus is cheaper than Fable and at least as
+  good at this, so there is nothing left to fall back from. **An older note naming Fable
+  as the planner is out of date, not a rule somebody forgot.** Changed at both
+  project level and device level (`~/.claude/CLAUDE.md`, which Codex reads through a
+  symbolic link — verified still linked).
+* **Read the tier, not the model name.** "The strongest reasoning available, one agent at
+  a time" is the instruction. Which model fills it has now changed twice.
+* **Committing now comes BEFORE the review**, and updating the notes comes after it. The
+  reason is practical: the cross-checker reads a RANGE OF COMMITS, so work has to be
+  committed before it can be reviewed at all — the old order was being worked around
+  every single time. Two things keep it safe: **the commit message must say plainly
+  whether it has been independently reviewed yet**, and nothing is merged on an unreviewed
+  commit because the loop still runs until a round comes back clean.
+
+Everything else the maintainer listed was already a standing rule and was left as it was:
+plain English always, keep the handoff current, use workflows and the dev-team plugin,
+cross-system review until clean, the documentation sweep, bundle work sensibly, work
+autonomously and raise questions up front, progress tables, one pull request never
+stacked, and hand over when a service runs out.
+
+### ONE QUESTION FOR THE MAINTAINER — nothing is blocked on it
+
+The instruction said "update our Handoff documentation **in `.claude/`** of this project".
+**The handoff is not in `.claude/`** — it is `.github/HANDOFF.md`, and the standing rules
+say explicitly that it is NOT under `.claude/` "because two copies there drifted apart and
+were deleted (2026-09-01)".
+
+So either the location was a slip of the pen and the real instruction is "keep it
+updated" (which is being done), or you genuinely want it moved back. **It has been left
+where it is**, because moving it would undo a deliberate decision made three weeks ago for
+a stated reason, and that is yours to call rather than mine. Say the word and it moves.
+
+### Batch 4 (release machinery) — reviewed, safe to ship, six findings
+
+Reviewed by a **stand-in** (a fresh Opus agent with no part in writing it), because Codex
+was out of credit. **It is still owed a proper Codex round** — the stand-in said so itself
+and it is recorded here so nobody assumes otherwise.
+
+Its verdict: **safe to cut a release build from.** It rebuilt the changed release step in
+a scratch directory with a stubbed `gh` and ran every path — empty body, total failure,
+recovery on the third try, `gh` missing entirely — and could not make it fail a build that
+would previously have succeeded. It also confirmed the step is the last job, so failing it
+cannot strand anything, and the prerelease auto-publish does not depend on it.
+
+**The findings, none blocking:**
+
+1. **The same destructive read is still live 2,000 lines up**, in `ensure-release`
+   (`release.yml:287`) — and there it feeds a WRITE. A failed read becomes an empty file,
+   the "does this need healing?" check treats empty as yes, and the release body gets
+   overwritten. Narrower than the bug that was fixed (prereleases with no curated notes
+   file) but the same mistake in the same file. **Worth fixing.**
+2. **`dependency-canary.yml` has never once succeeded** since it was added on 8 September —
+   both scheduled runs failed on a GitHub rate limit. Adding it to the watchdog is right,
+   and the watchdog will correctly open a critical issue the first time it runs. Expect
+   that, and note the workflow described as "the only signal that Dependabot has quietly
+   stopped" has never worked.
+3. **A commit message of mine says "No such file has ever existed"** about
+   `protected-release-branches.json`. It did exist — added in `4419efb8`, deleted in
+   `5d80f8d0` when the ruleset was split. The fix is right; only the reasoning is wrong,
+   and it is wrong in exactly the way the commit was about. Correct it in the code, since
+   the pushed message cannot be.
+4. **A comment claims a tag ruleset exists on this repository.** There is none — the live
+   list has exactly one, and it targets branches. The change is still right.
+5. **An organisation-level ruleset would now fail the job** rather than printing a warning,
+   because the filter narrows on target but not on where the rule comes from. None exist
+   today. One-word hardening suggested.
+6. **A docstring overstates how narrow its rule is.** Measured: the rule suppresses exactly
+   one mention across the whole tree, and that one is a genuine placeholder. Harmless, but
+   the wording should match.
+
+### Batch 5 (helper-programme update checks) — reviewed, ONE REAL PROBLEM to fix first
+
+Also reviewed by a **stand-in**, not Codex, and **still owed a proper Codex round**.
+
+The reviewer confirmed the important things by checking them live rather than reading:
+the release tag really is the word "latest" so the old check could never work; all three
+build-date formats match what the real sources return today; the 30-day rule is
+clock-independent (it subtracts two dates both given by the source, never the local
+clock); and the version-normalising cannot mangle what it does not recognise.
+
+**Finding 1 is a real bug and should be fixed before this ships.**
+
+When a helper programme runs but prints something unexpected, `get_tool_version` falls
+through to "return the first line as-is". That line is then compared as if it were a
+version, and anything unparseable is treated as **0.0.0** — older than everything. So the
+answer is always "yes, there is an update".
+
+This is not theoretical. The reviewer downloaded what MeedyaDL actually installs for
+MP4Box on Linux: the archive contains one file which needs a shared library that is not
+in the archive and that essentially no distribution ships yet. On such a machine the
+programme exits with a loader error, and **that error text becomes the "version"**. The
+Updates page then shows an MP4Box row reading "Newer version available" with a loader
+error where the version number should be. Pressing Update re-downloads the identical
+broken archive and the row comes straight back. It never resolves and never goes quiet.
+
+That is the exact opposite of what this commit set out to do. **The fix is small**: before
+comparing, require the installed string to actually parse as a version, and treat "it does
+not" as the `not_checkable_reason` this commit just created.
+
+**Finding 2 — "could not check" is marked in the narrow cases and missed in the common
+one.** A failed network call drops the whole tool from the list, so with no internet the
+page says "You're up to date!" having checked nothing. And the notice only renders when
+there are NO updates at all — so if anything else has an update, the "could not check"
+lines vanish. That second one is a one-line fix.
+
+**Finding 3 — on macOS the mirror-sourced FFmpeg is compared against the wrong entry** in
+the mirror's own file (there are two FFmpeg keys; it always reads the Linux/Windows one).
+Latent: both keys move together today. Worth noting there is no honest fix inside this
+code alone — the macOS key holds a version number, not a date, so the honest behaviour for
+macOS-plus-mirror is "not checkable".
+
+**Finding 4 — MP4Box from the mirror is compared against GPAC's own releases**, which is
+the thing the commit says must not happen. Benign today because the mirror is current, but
+it is the COMMON path, not the exception: every pinned installer route is commented out in
+the shipped configuration, so the mirror is the only managed source on Windows and Linux.
+
+**Findings 5-7, minor:** the macOS package route records no origin marker at all (latent,
+that route refuses today); the mirror's version file is fetched two or three times per
+check against an unauthenticated budget; and a documentation block in the TypeScript types
+was inserted in the wrong place so it now documents nothing.
+
+**And one claim in my own commit message is broader than the code:** "a copy MeedyaDL does
+not own is left to whatever does own it" is true of four of the five programmes. N_m3u8DL-RE
+keeps its old ungated path. Not dangerous — the upgrade is still delegated to whatever owns
+it — but the sentence covers five and the code covers four.
+
+### In flight, and LOST on a restart
+
+Nothing. Both stand-in reviews came back and are recorded above.
+
+Nothing is uncommitted.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (late): review in batches, ship alpha between them
+
+> **PICK UP HERE.** Still on `work/after-1.10.8`. **A decision was taken this
+> evening about how the rest of this lands — read the plan below before doing
+> anything else.**
+>
+> **Codex is out until 00:09 (24 Sept).** When it returns, the FIRST thing is
+> **batch 4 (the release machinery)** — not because it is the biggest, but
+> because it edits `release.yml`, the workflow that builds the release. Nothing
+> else should be cut until that has come back clean.
+
+### If you are starting with no memory of any of this, read this part
+
+This branch is `work/after-1.10.8`, cut from `alpha`. It holds **60 commits,
+131 files, about 15,700 added lines**. Nothing is uncommitted. There is **no
+pull request yet** and one is opened only when the maintainer says so.
+
+What is on it, in four pieces:
+
+1. **GAMDL 3.9.1 support** (`17774965` and its follow-ups). 3.9 itself is
+   refused as known-bad; Windows on ARM is held at 3.8.5. PlayReady unlocking
+   is offered only when the installed GAMDL is new enough.
+2. **The reopened-issues queue, batches 1, 2 and 4** — #949, #397, #984, and
+   #273 (the helper-programme update checks). Batches 3 and 5–9 are NOT started.
+3. **A full review of the whole existing codebase**, split into ten areas and
+   given to reviewers with no memory of building any of it. This is the bulk of
+   the branch. Findings are tracked in #1215 (umbrella), #1216, #1217, #1218,
+   #1219 and #1220.
+4. **The fixes that review produced**, including six rounds of cross-checking on
+   the security batch alone.
+
+**Why the review happened at all:** the tool used for cross-checking only ever
+looks at the difference between two versions, so in practice it had never once
+read the code that was already there. Code older than the reviewing habit had
+never been read by anything but whatever wrote it.
+
+**The headline findings**, so you know what you would be shipping:
+
+* **Eight finished features did nothing.** Every question asked away from the
+  Settings screen was written to the page's copy of the settings and never to
+  disk. One could never run at all: the crash-reporting consent question only
+  appears once setup is recorded as finished, and that flag was permanently
+  false on every install. Another let somebody set "shut down when the queue
+  finishes", said so in the status bar, and never did it.
+* **The page could ask the computer to open any file.** On Windows, opening a
+  programme runs it. The permission's own description claimed it was "scoped
+  just to that"; it was scoped to everything.
+* **macOS and Linux downloaded an unverifiable nightly build and ran it.** The
+  same danger had already been found and fixed for Windows, with the reasoning
+  written a few hundred lines above the two places still doing it.
+* **Three destructive actions did not ask**, each sitting beside one that did.
+* **Two safety-net workflows have never run once** (#1219) — they live only on
+  `alpha`, and a workflow not on the default branch does not exist as far as
+  GitHub is concerned. Not fixable from here.
+
+### Already checked — do not spend a window re-doing these
+
+* **Batch 1 (security) is CLEAN** after six rounds. Do not re-review it.
+* The worry that alpha builds could bury a beta release and leave somebody told
+  they were up to date: **checked against the live release list, not happening**
+  — the newest release candidate, stable and beta sat at positions 1, 3 and 6.
+* The YouTube and BBC iPlayer settings tabs being unreachable: **deliberate
+  groundwork**, not a fault. Each now says so.
+* The snapshot delete button having no accessible label: **it has one**, and has
+  since it was written.
+* A comment claiming a file-name race: **traced and confirmed unreachable.**
+
+### Known NOT verified, and no review will change that
+
+These need a real machine, and are the reason for shipping an alpha rather than
+waiting:
+
+* A full FFmpeg install from each of its three sources and back through the
+  update check. Each piece is tested alone; the round trip is not.
+* The GAMDL 3.9.1 live smoke test on each platform, including one album forced
+  to AAC Legacy. This is already the stated pre-stable gate.
+* The Windows-on-ARM install failure was never reproduced.
+* None of the workflow changes have been run against the live GitHub API,
+  because they cannot be run from a working branch.
+
+### The plan, agreed with the maintainer on 23 Sept
+
+The whole branch does not wait for the whole review. Instead:
+
+1. **Review batch 4 (CI and the release machinery) first.** It is the smallest
+   batch (10 files, ~700 lines) and the only one that can break the mechanism
+   everything else depends on. One of its changes makes a step in `release.yml`
+   fail loudly where it used to swallow a failed read — safer, and a new way
+   for the build to fail. Get that reviewed before relying on it.
+2. **Then cut an alpha.** Alpha is gated behind developer access, so it goes to
+   self-selected testers.
+3. **Then batches 3 and 5**, cutting a small alpha as each comes back clean.
+
+**Why ship before the review finishes.** Three things on this branch cannot be
+settled by any review, and are already written down as unverified: the FFmpeg
+install round trip needs a real download; the GAMDL 3.9.1 work needs a live
+smoke test on each platform (already the stated pre-stable gate); and the
+Windows-on-ARM install failure was never reproduced. Reading the code has
+nothing further to say about any of them. Meanwhile a lot of finished work is
+stranded — eight features that had never worked once, the "open any file" hole,
+the shortcut hole, three destructive actions that did not ask.
+
+**Between Codex windows**, a fresh Opus agent that did not build the work
+reviews it as a stand-in, and is **named as a stand-in in the commit**. That is
+the hand-over rule: the work continues, the review never changes hands
+silently, and Codex still sees everything afterwards — the value of the
+cross-check is that two different systems rarely make the same mistake in the
+same place.
+
+### What the review windows actually cost, measured today
+
+Worth knowing before planning the next sitting, because it is cheaper than it
+feels:
+
+* A window is roughly **three hours** from running out to working again
+  (15:36 → 18:30, then ~20:45 → 00:09).
+* **Eleven rounds fitted in one window**, about 550,000 tokens.
+* A round costs 32k–85k, averaging ~55k, and **gets cheaper as a batch
+  settles** — batch 1 ran 85k → 61k → 65k → 62k → 46k → 32k.
+* Findings fall the same way: batch 1 went **4 → 2 → 4 → 3 → 2 → 0**.
+
+Remaining: batch 2 needs 1–2 more rounds, batch 3 perhaps 3–5, batch 4 2–4,
+batch 5 3–5. So **one to two more windows, realistically two.**
+
+### Exactly how to run the next review (copy this, it needs no working out)
+
+The reviewer only ever looks at a range you give it, so the ranges matter. Each
+batch, with its commits:
+
+| Batch | Range to review | What is in it |
+|---|---|---|
+| 2 (finish) | `git diff 40047ef6~1..40047ef6` | the back-out; then anything newer |
+| 3 | `git diff 52e959b4..7e9f4695 -- src/` | the screens (41 files, ~3,400 lines) |
+| **4 (FIRST)** | `git diff 5071541f..c3dee4e7` | release machinery + the per-PR checks |
+| 5 | `git diff 7e9f4695..80bb65ee` | helper-programme update checks |
+
+The command shape, which matters — **without `</dev/null` it waits for input
+for ever**, and the effort is set per run rather than in the config file:
+
+```bash
+timeout 2400 codex exec -s read-only -c model_reasoning_effort=medium \
+  "$(cat /path/to/prompt.txt)" </dev/null > /tmp/cx-out.txt 2>&1
+```
+
+**Review only what it has not seen.** A follow-up round gets the range of the
+fix commit alone, never the whole batch again — re-reviewing settled work
+spends the allowance for nothing. Each round: read every finding, verify it
+against the code before acting (several have been wrong, and saying so is a
+useful result), fix the real ones, commit, then review only that fix.
+
+**Stop when a round comes back clean**, not when it feels finished. Batch 1
+went 4 → 2 → 4 → 3 → 2 → 0, and round 3 found faults in round 2's fixes.
+
+### In flight right now — will be LOST on a session restart
+
+Two stand-in reviewers (fresh Opus, no memory of building it) were reading
+batches 4 and 5 when this was written. **Their results had not come back.** If
+the session restarted, they are gone and nothing was lost but the time — simply
+start the batch-4 review again, either with Codex after 00:09 or with a fresh
+stand-in agent before it.
+
+Nothing is uncommitted. Everything through `40047ef6` is pushed.
+
+### Where the review has got to
+
+| Batch | What | Rounds | Verdict |
+|---|---|---|---|
+| 1 | Security fixes | 6 | **CLEAN** |
+| 2 | Settings persistence | 5 | **No verdict** — cut off mid-round |
+| 3 | The screens | 0 | not started |
+| 4 | CI and release machinery | 0 | **do this first** |
+| 5 | Helper-programme update checks | 0 | not started |
+
+### What eleven rounds found, and the pattern in it
+
+Real faults in work already committed as done. The ones that mattered:
+
+* **A shortcut named `track.mp3` pointing at a programme would still have run
+  it** — the same fault the fix was written to close, one layer down. Then
+  macOS aliases slipped the second fix too, because an alias is an ordinary
+  file rather than a shortcut.
+* **A commit message claimed the mirror download is checksum-verified. It is
+  not.** The pins are commented out and nothing fetches a published checksum.
+  Corrected in the code, since the commit itself cannot be.
+* **A failed save told people their computer would stay on shortly before it
+  shut down.** Four attempts to get that message right, every wrong version
+  erring the same way: reassuring.
+
+**Two things about this session's own work are worth carrying forward.**
+
+Rounds 3–5 of batch 1 were almost entirely **comments that were wrong**,
+including comments written specifically to correct earlier wrong comments. The
+mirror paragraph took five attempts; every version ended on a conclusion about
+what had been achieved, and the conclusion is where the overstatement kept
+getting in. **State mechanics and stop.**
+
+And in batch 2 round 4, a fix **introduced a new fault** — writing the standing
+after-queue setting back into the page would have silently discarded an unsaved
+Settings edit, which is #1175 exactly, committed from a failure handler on
+another screen. Backed out in `40047ef6`. It was found by reading the question
+the reviewer was asking when it ran out of credit, **not its answer** — which
+is not the same as a review, and is marked as such.
+
+---
+
+## ★★★★ Previous — 2026-09-23 (evening): all ten review areas read, most findings fixed
+
+> **PICK UP HERE.** Still on `work/after-1.10.8`. No PR yet.
+>
+> **Codex comes back at 18:30 today.** It was probed at 17:05 and is still out.
+> It has NOT seen anything from area 5 onwards — that is areas 5-6 (no verdict,
+> it died mid-round), area 7, and everything built since. **That is now a large
+> body of unreviewed work and it is the single most important thing outstanding.**
+> Nothing merges without it.
+>
+> **Next, in order:** (1) at 18:30, give Codex everything it has not seen, in
+> batches, until a round comes back clean; (2) finish whatever the three running
+> builders hand back; (3) the reopened-issues queue, batches 4-9, not started;
+> (4) documentation sweep; (5) PR to `alpha` only when the maintainer says so.
+
+### What the review found, and what is fixed
+
+All ten areas have been read. Findings are tracked in **#1215** (the umbrella),
+**#1216** (the page's state), **#1217** (the screens), **#1218** (build and
+release machinery) and **#1219** (the part that cannot be fixed from here).
+
+**The biggest finding came from two reviewers independently** — different
+folders, neither knowing about the other, same root cause, each finding call
+sites the other missed. Every question the app asks away from the Settings
+screen was written to the page's own copy of the settings and never to disk.
+**Eight finished features did nothing**, including one that could never have run
+at all: the crash-reporting consent question only appears once setup is recorded
+as finished, and that was permanently false on every install. Another let you
+set "shut the computer down when this queue finishes", said so in the status
+bar, and never did it. Five comments asserted the persistence that was missing.
+Fixed in `b0078997`.
+
+Also fixed, in `435abebd`, `c04bc6ff` and `01ef49f5`:
+
+* Three destructive actions that did not ask, each beside one that did — clear
+  history, delete a backup, reset all settings. In every case **the action that
+  can be undone was the one that asked**.
+* Reset also put back a fixed bug: the page kept its own copy of the starting
+  settings and it had drifted, in two of the exact values a settings upgrade
+  step exists to repair.
+* Turning Desktop Notifications off did not stop desktop notifications.
+* The "stop every download" shortcut could never fire on a UK or US keyboard.
+* A switch in Settings ("Include Pre-Release Versions") that could not change
+  anything in any configuration, and could only make things worse.
+* Changing the language needed two restarts; it now needs none.
+* The last wide settings write triggered by a narrow intention.
+* A dead page store and banner pointing at a superseded backend — and verifying
+  that turned up that the Rust side had become an orphan too, so the whole
+  module went.
+
+### Three things worth carrying forward
+
+**A new audit check was wrong twice before it was right.**
+`check_settings_defaults.py` first locked onto a function signature instead of
+the struct and silently reported nothing; then it guessed how two enum values
+are spelled and flagged two perfectly correct settings. It now reads the real
+naming rules, and was proven able to fail by putting the drift back. **Prove a
+new check can fail before trusting it** — a check that cannot fail is worse than
+no check, and one that cries wolf teaches people to skim.
+
+**Two review claims did not hold, and were recorded rather than acted on.** The
+unreachable YouTube and BBC iPlayer settings tabs are deliberate groundwork; the
+snapshot delete button already had an accessible label. A third was checked
+against live data and did not hold either: the worry that alpha builds bury a
+beta release is real in principle but is not happening — the newest beta sits
+sixth in the list.
+
+**`git add -A` swept a builder's in-progress work into `c04bc6ff`.** What landed
+is correct but that commit's message does not mention it; `01ef49f5` says so.
+**Commit explicit paths while other work is running in the same tree.**
+
+---
+
+## ★★★★ Previous — 2026-09-23 (early): the full review of the WHOLE codebase begins
+
+> **PICK UP HERE (23 Sept, ~16:00).** Still on `work/after-1.10.8`. No PR yet.
+>
+> **Codex is out of credit again — it comes back at 18:30 today.** It ran most of the
+> day and got through areas 1–4 of the full review plus several rounds on this branch's
+> own changes. It died part-way through the areas 5–6 round, so **that round has no
+> verdict**, and it has never seen the area-7 work at all (commit `ab725cf0`). Both are
+> owed a round. Retry Codex first thing after 18:30 — limits reset, and trying costs one
+> failed call.
+>
+> **Next, in order:** (1) read the three Opus reviewers now running on areas 8, 9 and 10;
+> (2) fix what they find; (3) after 18:30, give Codex everything it has not seen —
+> areas 5–6, area 7, and areas 8–10 — until a round comes back clean; (4) then the
+> reopened-issues queue, batches 3–9, which has not been started; (5) documentation
+> sweep; (6) PR to `alpha` only when the maintainer says so.
+
+### Why this happened
+
+The maintainer asked for it directly: *"This repo hasn't had a proper independent codex
+review, so would prefer a review on everything in the branch."* `codex review` only ever
+looks at the diff, so it had only ever seen changes — never the code that was already
+there. The whole codebase was split into ten areas and each given to a reviewer with no
+memory of building any of it.
+
+Seven areas are done. Three are running now.
+
+### What the review found (all fixed and pushed)
+
+Ordered by how bad it was, worst first.
+
+1. **`b1e314dc` — macOS and Linux downloaded an unverifiable build and then ran it.**
+   To install MP4Box, both platforms fetched GPAC's *nightly* build from a permalink — a
+   file whose contents change on every upstream build, so no checksum can exist for it —
+   unpacked it, and installed a program the app then runs on every single download. The
+   exact same danger had already been found, written up and fixed for Windows under
+   #987, and the comment explaining why sat a few hundred lines above the two places
+   still doing it. All three platforms now share one mechanism.
+2. **`ab725cf0` — the page could ask the computer to open any file at all.** The app
+   granted itself the "open a path" permission with a scope of `**` — every path there
+   is. On Windows, opening a program runs it. The description beside that permission
+   claimed it was "scoped just to that". Opening now goes through a backend command with
+   a list of what it will open.
+3. **`93b57d8e` — a wrapper sign-in token was written into the activity log on disk.**
+4. **`e9d5995e` — an imported settings file could choose a program for the app to load**
+   (the Spotify engine's library), and a *read* of the settings could throw away the
+   user's verbose-logging choice, because the read had startup side effects.
+5. **`73ea1518` — Cancel did not stop the extra downloads** that run after the main one.
+6. **`b0aaf367`** — a file name built from Apple Music album text had only a list of bad
+   characters removed; it now keeps only known-safe ones.
+7. **`bfcfd6d4` — coloured output hid Spotify errors** from the error matcher.
+8. **`020ebbf3`** — the PlayReady unlocking choice never reached music-video downloads.
+
+### The pattern worth remembering
+
+Five of these are the same shape: **a rule that guards one door and not the one beside
+it.** A check written correctly, with its reasoning written out, sitting next to a second
+function doing nearly the same job without it — wrapper sign-in checked the address, the
+wrapper *test* button did not; Windows refused the unsigned nightly, macOS and Linux did
+not. When you add a guard, the question to ask is not "is this right?" but "what else
+does this same thing, and does it have this too?"
+
+Twice the fix was itself found wrong by the next review round — thirteen of one round's
+twenty-eight findings were faults introduced while fixing the previous round, four of
+them changes that compiled, read correctly and did nothing. That is what the review loop
+is for, and it is why a round is not finished until one comes back clean.
+
+### Verification
+
+1,989 backend tests, 741 frontend tests, `clippy -D warnings` and `tsc` all clean on
+every commit. **`cargo fmt` reformats the whole crate, not the files you name** — it
+touched 102 unrelated files today and had to be unpicked by hand. Format with an editor
+or revert everything you did not mean to touch.
+
+---
+
+## ★★★★ Previous — 2026-09-22 (early hours): everything merged, stable 1.10.8 released, all green
+
+> **PICK UP HERE (22 Sept, 09:00).** Working on the **reopened-issues queue** on
+> `work/after-1.10.8` (one PR to `alpha` later, when told). Plan and the maintainer's decisions:
+> `.github/audits/reopened-issues-plan-2026-09-22.md` (read its top section first). Queue:
+> (1) #949 + #397's false comment — Haiku; (2) #984 — Sonnet; (3) #216 + #387 — Opus;
+> (4) #273 — Sonnet; (5) #329 — Sonnet; (6) #95 — Sonnet; (7) #759 part A + connect the tempo
+> step — Opus; (8) #397 — Opus; (9) #759 part B, Fill gaps — Opus. For each batch: build, run
+> the tests yourself, have Codex review only that batch's new work until clean, commit and push,
+> comment on the issue, and update this box. Decisions: #393 closed; #352 and #431 kept open
+> but not queued; #423 and #424 go with M8; #426 with #911 Phase 2; new issues #1209, #1210
+> and #1211. Planning was done by Opus, because Fable was out of credit at 08:14.
+> **CODEX IS OUT UNTIL 27 SEPT, 16:59** (a much longer limit than before — probably weekly).
+> Per the hand-over rule, each batch is reviewed meanwhile by an independent Opus agent that did
+> not build it, and committed marked "not yet reviewed by Codex". **Before the PR to `alpha`,
+> Codex must do a catch-up review of everything built in the meantime** (only work it has not
+> seen). Nothing is merged without it. Fable is also out of credit (planning fell back to Opus).
+> **Progress:** batch 1 DONE — `bc48aceb` (Opus review: 3 rounds, clean; Codex still owed).
+> Batch 2 (#984) DONE — see the fix(release) commit (Opus review 2 rounds, clean; Codex owed).
+> **NEW TOP PRIORITY (maintainer, 22 Sept): GAMDL 3.9 + 3.9.1** (released 21-22 Sept). Audit the
+> whole 3.8.5..3.9.1 source diff, not only the release notes, and make every change MeedyaDL
+> needs so nothing breaks. That includes our own enhancements: iTunes/Apple Music enrichment,
+> music-video naming, companions, wrapper, and fallback. Deep analysis: Fable was retried and is
+> still out of credit, so Opus did it. Ship this BEFORE starting YouTube support (maintainer's
+> order). The audit write-up goes in `.github/audits/gamdl-v3.9-v3.9.1-audit.md` — still to write.
+>
+> **GAMDL 3.9.x — DONE and pushed (22 Sept, evening). Commit `17774965` on
+> `work/after-1.10.8`. Issues #1212 (the work), #1213 + #1214 (follow-ups). #1189 closed.**
+> - **3.9 is refused, 3.9.1 is admitted.** 3.9 cannot download Apple's web AAC formats at all,
+>   and those are the LAST entry in the default fallback chain — so on 3.9 a download walks the
+>   whole chain and fails at the bottom, looking like "this track isn't available". New known-bad
+>   list, its own `KnownBad` state, a red badge in Settings > Tools, and an install that refuses.
+> - **Windows on ARM held at 3.8.5.** GAMDL 3.9.1 does publish a Windows ARM64 package, and its
+>   new dependency `pyplayready` is pure Python, so neither is the blocker. `pyplayready` requires
+>   `cryptography` 45.0.6 or later but strictly below 46.0.0, and the only two releases in that
+>   range — 45.0.6 and 45.0.7 — publish no Windows ARM64 build. **Windows ARM64 builds of
+>   `cryptography` DO exist**, in 46.0.0 through 46.0.3, which is exactly the range `pyplayready`'s
+>   limit shuts out; they stop again from 46.0.4. So the cap is not permanent by nature — it would
+>   lift if `pyplayready` relaxed that limit.
+>   **This note previously said `cryptography` published no Windows ARM64 build in any version,
+>   and called that verified.** It came from checking only the newest two releases and
+>   generalising — the confident kind of wrong. Codex caught it while reviewing the audit, which
+>   had checked every release properly. Re-check at each ceiling bump; it is cheap.
+>   Per-platform ceilings now govern the install itself, not only the labelling.
+> - **PlayReady setting shipped** (Settings > Advanced, off by default, shown only on GAMDL 3.9+
+>   — except when already switched on, where it shows with a note rather than vanishing). One
+>   function decides it, both options go together or neither, and a fallback says why on screen.
+>   Deliberately never written to GAMDL's config file: it reads that as defaults the command line
+>   overrides, so a stale line there would outlive the decision to fall back.
+> - **Two pre-existing faults fixed**, neither caused by 3.9.1: the album-name guard (was about to
+>   start silently skipping all of MeedyaDL's own metadata on singles and music videos), and two
+>   command-line options being sent ungated on the live download path that no GAMDL since 3.6
+>   accepts — GAMDL treats an unknown option as a hard error.
+> - Verified: 1960 backend tests, 737 frontend, clippy, TypeScript, all repo audit checks clean.
+>
+> **REVIEW STATUS (23 Sept, small hours) — Codex came back and has now reviewed the whole
+> branch. It found eleven faults across four rounds. Everything on this branch has been through
+> it except the very last three text fixes; see the last line of this block.**
+> - **Backend of the 3.9.1 work — 3 real defects, fixed, second round clean.** The worst was my
+>   own fix failing at the exact case it was written for: the tool-path gate asked "does this
+>   release do its own muxing?", which answers *no* when no version has been detected, and *no*
+>   was being read as "old release, send the arguments". So with no version detected it still
+>   sent arguments a modern release rejects — and a rejected argument stops the download before
+>   it starts. Also: a missing artist was counted as agreement in the album-name guard, and my
+>   own normalisation merged "X - Single" with "X - EP", two releases the sources had actually
+>   agreed were different.
+> - **Settings screen — clean.** All four visibility rules hold in the component itself, and the
+>   test for the awkward third case genuinely proves it rather than appearing to.
+> - **Documents — 6 faults, fixed, third round clean.** Including one of mine that matters:
+>   I wrote in five places, and called it verified, that `cryptography` publishes no Windows-ARM
+>   build in any version. It does — at 46.0.0 to 46.0.3, just outside the range the dependency
+>   allows. I had checked the two newest releases and generalised. Corrected everywhere except
+>   the pushed commit message of `17774965`, which still carries it.
+> - **The offline-installer checksum check (#984) — 1 real defect, fixed, second round clean.**
+>   The lookup compared the file name only as far as the first space, so a line naming
+>   "thing.tar.gz backup" would have been accepted as the checksum for "thing.tar.gz".
+> - **The false-claims sweep (#949, #397) — 3 more places found, fixed.** Codex hit its usage
+>   limit part-way through confirming those three (it resets at 2:13 AM), so **its confirming
+>   round never ran**. A fresh Claude agent reviewed them instead and came back clean, having
+>   followed each claim to the code. That is independent but it is not the usual reviewer. If
+>   anything on this branch is re-reviewed before the PR, make it commit `5e17271e`.
+>
+> **NEXT:** the reopened-issues queue resumes at batch 3 (#216 + #387, Opus). Then, once 3.9.x
+> has shipped, YouTube support via yt-dlp — and note the maintainer's scope: **every site yt-dlp
+> supports, not only YouTube URLs**.
+>
+> **Codex model for reviews (maintainer, 22 Sept):** keep `gpt-6-sol`, but run it at **medium**
+> reasoning effort, passed per run (`-c model_reasoning_effort=medium`) so the config file on this
+> Mac is left alone. Cost control — the model is right for reviewing, the top effort tier is not
+> needed for it.
+
+**What landed (22 Sept, all times UTC):**
+- **PR #1208 → `alpha`** (03:30, rebase-merged): the issues-sweep notes corrections, the
+  standing-rules fixes from the Codex review, and the hardened channel security audit.
+  **v1.13.0-alpha.71** is published: every job OK, 22 files, 12 updater entries.
+- **PR #1206 → `main`** (03:30, squash-merged): the 1.10.8 release notes and the audit workflow.
+- **Channel security audit:** GitHub now lists it as active. First dry run clean; first real
+  run clean ("All channels clean — nothing to do"); it then ran by itself on the release push,
+  also clean. **#1204 closed.**
+- **Release PR #1203 → stable 1.10.8** (03:49): published, marked latest, not a draft. Every
+  job OK, 20 files, 6 updater entries (the same as 1.10.7: `main` does not yet have the
+  Linux-updater fix). The curated notes were applied. All 11 runs on the merge were green.
+- **#1198 closed.** The Codex review of the standing rules was clean after 4 rounds; each
+  follow-up round reviewed only work Codex had not seen (maintainer's instruction).
+
+**Still true / next:**
+- **#1207** — the cut-off release-note line comes back in every alpha release's "since the last
+  stable" summary. alpha.69, .70 and .71 were corrected by hand. Since 1.10.8 is now the last
+  stable, whether it keeps recurring depends on how the cumulative summary treats the new stable
+  tag — check the next alpha's notes. The proposed permanent fix (the PR check rejects a wrapped
+  `Release-Note:` line) is not built yet.
+- **15 reopened issues** from the sweep are real, outstanding work: notably #216 (verbose logging
+  switched off on every 1.x launch), #329 (no loudness tags on MKV/WebM/OGV) and #273 (update
+  checks cover only 2 of 5 tools).
+- **Artist promo video default:** a code comment says off, while a new install gets on and an
+  older settings file reads it as off. That is a product decision for the maintainer.
+- **Codex's usage allowance** ran out four times in a day. Run reviews one at a time, pass the
+  prompt as an argument with `</dev/null`, and never re-review work already reviewed.
+- The maintainer chose to leave `.claude/settings.local.json` (tracked, containing home-folder
+  paths) as it is.
+- `git-cliff` 2.14.2 is installed with Homebrew on this Mac.
+
+## ★★★★ Previous — 2026-09-21/22: issues sweep done, Codex review clean (4 rounds); PRs and stable 1.10.8 under way
 
 > **PICK UP HERE (22 Sept, 04:50).** **The Codex review is DONE — round 4 came back clean.**
 > Rounds: 1 (everything done while Codex was out: 18 findings, 17 fixed, 1 disputed and later

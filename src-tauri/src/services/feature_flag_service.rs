@@ -5,7 +5,8 @@
 // =====================================
 //
 // Resolves which MeedyaDL features are currently available, using a
-// three-tier chain that mirrors `services::service_status` in shape:
+// three-tier chain (the same shape the old, now-deleted service-status
+// reader used):
 //
 //     in-memory snapshot  ->  sticky disk cache  ->  compiled defaults
 //

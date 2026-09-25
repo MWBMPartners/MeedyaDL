@@ -70,7 +70,7 @@ use tauri::AppHandle;
 // AppSettings is the Rust struct that mirrors all GUI settings.
 // It derives Serialize/Deserialize for JSON round-tripping and Default for first-run defaults.
 // Defined in models/settings.rs.
-use crate::models::settings::AppSettings;
+use crate::models::settings::{AfterQueueAction, AppSettings};
 // Platform utilities for resolving the app data directory and config file paths
 // across macOS, Windows, and Linux.
 use crate::utils::platform;
@@ -304,6 +304,20 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 10;
     }
 
+    // v10 -> v11: adds `drm_backend` and `prd_path` (GAMDL 3.9's second way
+    // of unlocking copy-protected tracks, PlayReady).
+    //
+    // Nothing to convert. Both fields are new, both take their defaults
+    // through `#[serde(default)]` for anyone upgrading, and those defaults
+    // — GAMDL's built-in Widevine unlocking, and no device file — are
+    // exactly what every download did before the fields existed. MeedyaDL
+    // does not even send the options to GAMDL while they hold those values,
+    // so an upgrading person's command line is unchanged, not merely
+    // equivalent. This only stamps the version.
+    if settings.settings_version == 10 {
+        settings.settings_version = 11;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -319,20 +333,20 @@ fn migrate_settings(settings: &mut AppSettings) {
 /// there. On a first run — or a file too damaged to parse — it hands back
 /// the standard settings.
 ///
-/// It deliberately has NO side effects. `load_settings` below is this plus
-/// the things that only make sense when the app is starting up: resetting
+/// It deliberately has NO side effects. `load_settings_at_startup` is this
+/// plus the things that only make sense when the app is starting up: resetting
 /// verbose logging, recording the version just seen, rewriting GAMDL's
 /// config file, and setting the live logging flag.
 ///
 /// **Why the separation is load-bearing.** `update_settings_field` changes
 /// one field and writes the file straight back. If it read through
-/// `load_settings`, it would quietly carry every one of those startup
+/// `load_settings_at_startup`, it would quietly carry every one of those startup
 /// actions with it — so somebody with verbose logging switched on would
 /// have had it switched off *and saved* simply by collapsing the sidebar,
 /// because the read did that on the way past. That is precisely the class
 /// of "this write touched something I never asked it to" the narrow write
 /// exists to prevent. Caught in review, before it shipped.
-fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
+pub(crate) fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
     // Resolve the settings file path: {app_data_dir}/settings.json
     // On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/settings.json
     // On Windows: %APPDATA%\com.meedyasuite.meedyadl\settings.json
@@ -428,6 +442,58 @@ fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
     Ok(settings)
 }
 
+/// The app version the person was running before this launch.
+///
+/// Written once, by the first run of [`load_settings_at_startup`], from
+/// the settings file as it was found — before that function writes the
+/// current version over it. Read by [`get_version_at_last_launch`].
+///
+/// Empty means a fresh install: there was no previous version. That is
+/// not the same as "we do not know", and callers rely on the difference
+/// to avoid showing an upgrade notice to somebody who has just installed
+/// the app for the first time.
+static VERSION_AT_LAST_LAUNCH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// What version was the person running before this launch?
+///
+/// * `Some("1.10.7")` — they upgraded, and that is where they came from.
+/// * `Some("")` — a fresh install. There was no previous version.
+/// * `None` — settings have not been loaded yet this run, so nobody
+///   knows. Callers should treat this as "not now" rather than guessing.
+///
+/// Reading the settings file for this instead would give the wrong
+/// answer, because the stored value is overwritten with the current
+/// version during startup. See the comment where this is set.
+pub fn get_version_at_last_launch() -> Option<String> {
+    VERSION_AT_LAST_LAUNCH.get().cloned()
+}
+
+/// Should startup switch verbose logging off for this version?
+///
+/// Yes on a finished release, no on an unfinished one. Verbose logs can
+/// hold cookies and tokens, so they must not survive a restart on a
+/// build that ordinary people run; testers on an unfinished build need
+/// them to survive, which is the whole point of having them on.
+///
+/// # Why this is its own function
+///
+/// So a test can call THE REAL DECISION. The test that used to stand for
+/// this called the shared rule and compared it against a copy of the
+/// same rule written out in the test — which passes whatever startup
+/// actually does, including going back to the old broken half-rule. A
+/// reviewer pointed out it was protecting nothing, and it is the second
+/// time a test on this exact rule has been written from the same belief
+/// as the code it was checking.
+///
+/// `load_settings_at_startup` cannot be called without a running app, so
+/// this is the largest piece of its reasoning that a test can reach.
+fn should_reset_verbose_logging(version: &str) -> bool {
+    // One shared rule, in `utils::version`, rather than written out here
+    // — see that file for what it costs when each place writes its own
+    // and one of them is later corrected.
+    !crate::utils::version::is_unfinished_build(version)
+}
+
 /// Loads the application settings for app startup.
 ///
 /// This is `read_settings_from_disk` — the plain read — plus the actions
@@ -455,13 +521,17 @@ fn read_settings_from_disk(app: &AppHandle) -> Result<AppSettings, String> {
 ///
 /// # Returns
 /// * `Ok(settings)` - The loaded or default settings, after startup actions
-pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> {
     // The plain read first — see `read_settings_from_disk`. Everything
     // below this line is a startup action, and is exactly what a
     // single-field write must NOT inherit.
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
     let mut settings = read_settings_from_disk(app)?;
 
+    // Set when the reset below actually changes something, so the write
+    // afterwards happens only when there is something to record — and
+    // without reading the file a second time to find out.
+    let mut verbose_was_just_switched_off = false;
 
     // Version-aware verbose logging reset.
     //
@@ -476,7 +546,7 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
     // The `last_seen_version` field tracks the previous app version so we
     // can detect version transitions.
     let current_version = env!("CARGO_PKG_VERSION");
-    let is_prerelease = current_version.starts_with("0.");
+    let is_prerelease = !should_reset_verbose_logging(current_version);
 
     if is_prerelease {
         // Pre-release: preserve verbose_activity_log setting as-is.
@@ -497,13 +567,59 @@ pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
                 "Full release (v{current_version}): resetting verbose_activity_log to false"
             );
             settings.verbose_activity_log = false;
+            verbose_was_just_switched_off = true;
+        }
+    }
+
+    // If verbose logging was just switched off, WRITE that down —
+    // through the locked single-field write, not by hand.
+    //
+    // It used to be changed in memory only, and saved as a side effect of
+    // recording a new version, which happens once per upgrade. So on an
+    // ordinary restart the file still said "on", the next read handed
+    // that back, and the next save turned it on again — off at every
+    // startup, on again at the first save, for ever.
+    //
+    // The first fix wrote the whole settings object here, unlocked. A
+    // reviewer pointed out that this function also runs from a task three
+    // seconds after launch, by which time other things are saving: an
+    // unlocked write of a whole object read moments earlier can put back
+    // an older copy of everything else. Changing the one field under the
+    // lock cannot. It costs a second read inside that call, once per
+    // launch, which is not worth optimising.
+    if verbose_was_just_switched_off {
+        if let Err(e) = update_settings_field(app, |s| s.verbose_activity_log = false) {
+            log::warn!("Failed to record that verbose logging was switched off: {e}");
         }
     }
 
     // Track version changes for first-load notices and transition logic.
-    // The frontend reads `last_seen_version` to detect when a new version is
-    // launched for the first time (e.g., to show a pre-release warning modal).
     let previous_version = settings.last_seen_version.clone();
+
+    // Remember, for the rest of this run, which version the person was on
+    // BEFORE this launch.
+    //
+    // # Why this has to be kept separately
+    //
+    // The screen that says "here is what changed" needs the old version.
+    // It used to read `last_seen_version` out of the settings — but by
+    // the time the screen asks, this function has already written the
+    // CURRENT version over it. So the screen's "previous version" was
+    // always the version it was already running, the two were always
+    // equal, and it never appeared. Not once, on any build, since it was
+    // written. Issue #387.
+    //
+    // Hence a copy kept in memory that nothing overwrites. `set` only
+    // succeeds the first time, which is what is wanted here: this
+    // function runs more than once during startup, and only the first
+    // run sees the real pre-upgrade value.
+    //
+    // An empty string means a fresh install — there was no previous
+    // version. That is deliberately kept as an empty string rather than
+    // turned into "none", so the caller can tell a fresh install apart
+    // from an upgrade and show nothing on a fresh install.
+    let _ = VERSION_AT_LAST_LAUNCH.set(previous_version.clone());
+
     if previous_version != current_version {
         log::info!(
             "Version changed: {} → {}",
@@ -572,6 +688,41 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
     }
 }
 
+/// Reads the stored settings. No side effects.
+///
+/// **This is what almost everything wants.** It is the plain read: open
+/// the file, check it, parse it, upgrade an older one, hand it back.
+///
+/// # Why this name belongs to the harmless one
+///
+/// It used to belong to the startup version below, which also switches
+/// verbose logging off, records the version just seen, rewrites the
+/// download engine's own configuration file and sets a global flag. Its
+/// documentation said, in as many words, that anything just wanting to
+/// read a value must not call it.
+///
+/// Forty-nine places called it anyway. Not one of them was startup.
+///
+/// That is not forty-nine people ignoring a warning — it is a name that
+/// promised something harmless attached to something that was not, with
+/// the warning kept somewhere you only look if you already suspect. The
+/// effects were real: switching verbose logging off during an ordinary
+/// download, and handing the Settings screen a value that then got saved
+/// over the person's own choice.
+///
+/// So the name now belongs to the harmless one, and the startup version
+/// is called `load_settings_at_startup`, which cannot be called by
+/// accident and says what it does at every call site. A reviewer found
+/// that changing six of the forty-nine had not finished the job; this
+/// finishes it for all of them at once.
+///
+/// # Errors
+///
+/// Returns `Err(String)` if the settings file exists but cannot be read.
+pub fn load_settings(app: &AppHandle) -> Result<AppSettings, String> {
+    read_settings_from_disk(app)
+}
+
 /// Serialises every write to `settings.json`.
 ///
 /// Changing one field is three steps — read the file, change the field,
@@ -589,10 +740,24 @@ pub fn load_settings_from_default_path() -> Result<AppSettings, String> {
 /// across an `.await`, so it cannot stall the async runtime.
 ///
 /// It is NOT reentrant, so nothing called while holding it may take it
-/// again. That is why `load_settings` writes `last_seen_version` through
+/// again. That is why `load_settings_at_startup` writes `last_seen_version` through
 /// `write_settings_to_path` rather than `save_settings`; see the comment
 /// at that call site.
 static SETTINGS_WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Runs `f` while holding `SETTINGS_WRITE_LOCK`.
+///
+/// For the settings cache's first fill only (`SettingsCache::get_or_load`),
+/// which must read the file and store it with no settings write able to
+/// land in between — see the comment there. Everything else that needs the
+/// lock is in this file and takes it directly. Never call this from inside
+/// a function that already holds the lock: it is not reentrant.
+pub(crate) fn with_settings_write_lock<T>(f: impl FnOnce() -> T) -> T {
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
 
 /// Writes the settings JSON to a specific path: atomic replace, 0600
 /// permissions on Unix, and the matching `.sha256` companion file.
@@ -716,7 +881,170 @@ pub fn save_settings(app: &AppHandle, settings: &AppSettings) -> Result<(), Stri
     let _guard = SETTINGS_WRITE_LOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A whole-object write never decides the one-off after-queue action;
+    // the running app's value wins (see one_off_in_memory).
+    let mut settings = settings.clone();
+    if let Some(running) = one_off_in_memory(app) {
+        settings.after_queue_once = running;
+    }
+    save_settings_while_locked(app, &settings)
+}
 
+/// The running app's value of the one-off after-queue action, if the
+/// settings cache has been filled. `None` means "no running copy yet" (not
+/// "no action").
+///
+/// # Why every write asks this
+///
+/// The one-off "shut down / hibernate after the queue" has TWO homes: the
+/// settings file and the running app's cache. When the queue uses it up and
+/// the file write fails (a full disk), only the cache is cleared. From then
+/// on the FILE is wrong — and every writer that read the file and wrote it
+/// back, then refreshed the cache from what it wrote, put the used-up action
+/// back: ticking "don't ask again", importing cookies, signing in… and the
+/// computer shut down again after the next queue, unasked (stand-in review,
+/// 24 Sept 2026, after Codex's review closed the same gap for the Settings
+/// screen's Save alone). Fixing each writer one by one is how that gap
+/// survived; so the rule lives here and every write goes through it: the
+/// running app's value wins, unless the write is itself changing the
+/// one-off.
+fn one_off_in_memory(app: &AppHandle) -> Option<Option<AfterQueueAction>> {
+    use tauri::Manager as _;
+    app.try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek())
+        .map(|running| running.after_queue_once)
+}
+
+/// Saves a whole settings object from the Settings screen, putting back —
+/// inside the SAME lock as the write — the fields that screen does not own.
+///
+/// `keep(incoming, on_disk, in_memory)` restores those fields. `on_disk` is
+/// the file as it is at this moment; `in_memory` is the running app's
+/// settings cache, which may know something the file does not (see
+/// `commands::settings::keep_fields_the_settings_screen_cannot_change`).
+///
+/// # Why the whole sequence is under one lock
+///
+/// The Save command used to read the file, THEN take the lock to write,
+/// and refresh the cache after letting go. So: Save read a one-off "shut
+/// down after the queue" as still armed; the queue finished and the
+/// backend cleared it; Save then wrote its earlier copy back — and the
+/// computer shut down again after the next queue, unasked (Codex, batch-3
+/// review). Reading, restoring, writing and refreshing the cache as one
+/// locked step closes that gap: the backend's clear (which takes this same
+/// lock, through `update_settings_field`) happens wholly before or wholly
+/// after.
+///
+/// Returns what was written.
+pub fn save_settings_from_screen<F>(
+    app: &AppHandle,
+    mut incoming: AppSettings,
+    keep: F,
+) -> Result<AppSettings, String>
+where
+    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>),
+{
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let on_disk = read_settings_from_disk(app).ok();
+    let in_memory = app
+        .try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek());
+    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref());
+
+    save_settings_while_locked(app, &incoming)?;
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        cache.refresh(incoming.clone());
+    }
+    Ok(incoming)
+}
+
+/// Sets the one-off after-queue action — the ONLY write that decides it.
+///
+/// Every other write keeps whatever the running app holds (see
+/// one_off_in_memory), so this is how a choice from the Download page's
+/// after-queue menu gets in. It writes the file and, only once that has
+/// worked, the running app's copy, both inside the settings lock. A
+/// separate function rather than a general rule that guesses intent: the
+/// first attempt guessed ("did the value change?"), and would have dropped
+/// a deliberate choice that happened to match a stale file.
+pub fn set_after_queue_once(
+    app: &AppHandle,
+    action: Option<AfterQueueAction>,
+) -> Result<AppSettings, String> {
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    let mut settings = read_settings_from_disk(app)?;
+    settings.after_queue_once = action;
+    write_settings_to_path(&settings_path, &settings)?;
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        cache.refresh(settings.clone());
+    }
+    Ok(settings)
+}
+
+/// Like [`update_settings_field`], but the running app's settings cache is
+/// ALWAYS changed too — even when writing the file fails — and both happen
+/// inside the same lock.
+///
+/// For a change that must take effect in the running app whatever the
+/// disk says: clearing a used-up one-off "shut down after the queue". The
+/// caller used to clear the cache itself after this returned an error —
+/// i.e. AFTER the lock was let go — so a Save arriving in that gap took the
+/// still-armed cache as its snapshot and wrote it back, re-arming the
+/// shutdown (Codex, follow-up review of fc0b3698). Doing it here, before
+/// the lock is released, leaves no gap.
+///
+/// Returns the file-write result; the cache is changed either way.
+pub fn update_settings_field_and_memory<F>(app: &AppHandle, apply: F) -> Result<AppSettings, String>
+where
+    F: Fn(&mut AppSettings),
+{
+    use tauri::Manager as _;
+    let _guard = SETTINGS_WRITE_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings_path = platform::get_app_data_dir(app).join("settings.json");
+    // No "running app wins" rule here: this function's callers are setting
+    // the value on purpose (the queue clearing a used-up one-off), and it
+    // changes the running app's copy itself below.
+    let changed = read_settings_from_disk(app).map(|mut settings| {
+        apply(&mut settings);
+        settings
+    });
+    let written = changed
+        .clone()
+        .and_then(|settings| write_settings_to_path(&settings_path, &settings).map(|()| settings));
+
+    if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
+        match &written {
+            Ok(settings) => cache.refresh(settings.clone()),
+            Err(_) => {
+                // If the cache was never filled, there is nothing to change
+                // in place — and the next first fill would read the file,
+                // which still has the old value. So fill it with the changed
+                // copy instead, when the file could at least be read.
+                if cache.mutate(|s| apply(s)).is_none() {
+                    if let Ok(settings) = &changed {
+                        cache.refresh(settings.clone());
+                    }
+                }
+            }
+        }
+    }
+    written
+}
+
+/// The write itself. The caller must already hold `SETTINGS_WRITE_LOCK`.
+fn save_settings_while_locked(app: &AppHandle, settings: &AppSettings) -> Result<(), String> {
     let settings_path = platform::get_app_data_dir(app).join("settings.json");
     write_settings_to_path(&settings_path, settings)?;
 
@@ -776,6 +1104,12 @@ where
     // impossible. See `read_settings_from_disk`.
     let mut settings = read_settings_from_disk(app)?;
     apply(&mut settings);
+    // A general one-field write never decides the one-off after-queue
+    // action: the running app's value wins over the file's (see
+    // one_off_in_memory). Only set_after_queue_once changes it.
+    if let Some(running) = one_off_in_memory(app) {
+        settings.after_queue_once = running;
+    }
     write_settings_to_path(&settings_path, &settings)?;
 
     // Deliberately NOT calling `save_settings` here. It takes this same
@@ -976,6 +1310,25 @@ fn ini_auth_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if let Some(ref path) = settings.cookies_path {
         lines.push(format!("cookies_path = {}", sanitize_ini_value(path)));
     }
+
+    // The copy-protection settings (`drm_backend` / `prd_path`, GAMDL 3.9's
+    // PlayReady) are deliberately NOT written here, even though GAMDL would
+    // accept both as keys.
+    //
+    // Writing them would create a second place the answer lives, and the two
+    // places would not always agree. MeedyaDL decides per download whether
+    // PlayReady can actually be used — it checks the installed GAMDL is new
+    // enough and that the device file is still on disk, and quietly uses the
+    // built-in unlocking when it is not (see `plan_drm_backend` in
+    // `download_queue/options.rs`). A line sitting in this file knows none of
+    // that. GAMDL reads its config file as the defaults and lets the command
+    // line override, so a stale `drm_backend = playready` here would survive
+    // MeedyaDL's decision to fall back, and GAMDL would then stop without
+    // downloading anything because no device file was given — which is the
+    // exact failure the fallback exists to prevent.
+    //
+    // The command line is the only place this is said, so there is only one
+    // answer and it is always the current one.
 }
 
 /// Appends audio quality INI key-value pairs.
@@ -1395,6 +1748,45 @@ pub fn get_default_output_path() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Startup must switch verbose logging off on a finished release and
+    /// leave it alone on an unfinished one.
+    ///
+    /// This calls the real decision `load_settings_at_startup` makes.
+    /// The test that used to sit here did not: it called the shared rule
+    /// and compared it with a copy of the same rule typed into the test,
+    /// so it passed whatever startup did — including going back to the
+    /// old half-rule that let this fault live for years. A reviewer
+    /// caught that, and it is the SECOND time a test on this rule has
+    /// been written from the same belief as the code it checked.
+    #[test]
+    fn startup_switches_verbose_logging_off_only_on_a_finished_release() {
+        // Finished releases: logs must not survive a restart, because
+        // they can hold cookies and tokens.
+        for finished in ["1.0.0", "1.10.8", "2.4.1", "10.0.0"] {
+            assert!(
+                should_reset_verbose_logging(finished),
+                "{finished} is finished, so verbose logging must be switched off"
+            );
+        }
+
+        // Unfinished builds: testers need the logs to survive, which is
+        // the whole reason for having them.
+        for unfinished in [
+            "1.13.0-alpha.71",
+            "1.9.4-beta.7",
+            "1.0.0-rc.38",
+            // Before 1.0 with no suffix — the half a first attempt at
+            // fixing this dropped.
+            "0.49.2",
+        ] {
+            assert!(
+                !should_reset_verbose_logging(unfinished),
+                "{unfinished} is unfinished, so verbose logging must be left alone"
+            );
+        }
+    }
+
     // ── INI injection through the two video fields (#229) ──────────────
     //
     // Every text value written into GAMDL's settings file goes through
@@ -2596,26 +2988,69 @@ mod tests {
         // from the file it is describing.
         let source = include_str!("config_service.rs");
 
-        let start = source
-            .find("pub fn update_settings_field")
-            .expect("update_settings_field should exist");
-        // Everything up to the next top-level `pub fn` is its body.
-        let rest = &source[start + 10..];
-        let end = rest.find("\npub fn ").map(|i| start + 10 + i).unwrap_or(source.len());
-        let body = &source[start..end];
+        // Both one-field writers: the plain one, and the one that also
+        // changes the running app's copy (added for the after-queue race).
+        // Each is found by its exact name -- the second's name begins with
+        // the first's, so a plain prefix search used to find the wrong one.
+        for (name, plain_read) in [
+            ("pub fn update_settings_field<", "read_settings_from_disk(app)?"),
+            (
+                "pub fn update_settings_field_and_memory<",
+                "read_settings_from_disk(app).map(",
+            ),
+            (
+                "pub fn set_after_queue_once(",
+                "read_settings_from_disk(app)?",
+            ),
+        ] {
+            let start = source
+                .find(name)
+                .unwrap_or_else(|| panic!("{name} should exist"));
+            // Everything up to the next top-level `pub fn` is its body.
+            let rest = &source[start + 10..];
+            let end = rest
+                .find("\npub fn ")
+                .map(|i| start + 10 + i)
+                .unwrap_or(source.len());
+            let body = &source[start..end];
 
-        assert!(
-            body.contains("read_settings_from_disk(app)?"),
-            "update_settings_field must read through read_settings_from_disk, \
-             which is the plain read with no startup side effects"
-        );
-        assert!(
-            !body.contains("load_settings(app)?"),
-            "update_settings_field must NOT read through load_settings: that \
-             call also switches verbose logging off, records the version and \
-             rewrites GAMDL's config file, so a one-field write would quietly \
-             change things nobody asked it to"
-        );
+            assert!(
+                body.contains(plain_read),
+                "{name} must read through read_settings_from_disk, which is the \
+                 plain read with no startup side effects"
+            );
+            assert!(
+                !body.contains("load_settings(app)"),
+                "{name} must NOT read through load_settings: that call also \
+                 switches verbose logging off, records the version and rewrites \
+                 GAMDL's config file, so a one-field write would quietly change \
+                 other things too"
+            );
+        }
+    }
+
+    /// Every GENERAL settings writer must keep the running app's one-off
+    /// after-queue action rather than the file's. When one did not, a
+    /// used-up "shut down after the queue" came back after an unrelated
+    /// write (stand-in review, 24 Sept 2026). Checked by reading the source,
+    /// for the same reason as the test above: these need a running app.
+    #[test]
+    fn every_general_writer_keeps_the_running_one_off() {
+        let source = include_str!("config_service.rs");
+        for name in ["pub fn save_settings(", "pub fn update_settings_field<"] {
+            let start = source
+                .find(name)
+                .unwrap_or_else(|| panic!("{name} should exist"));
+            let rest = &source[start + 10..];
+            let end = rest
+                .find("\npub fn ")
+                .map(|i| start + 10 + i)
+                .unwrap_or(source.len());
+            assert!(
+                source[start..end].contains("one_off_in_memory(app)"),
+                "{name} must keep the running app's one-off after-queue action"
+            );
+        }
     }
 
     #[test]

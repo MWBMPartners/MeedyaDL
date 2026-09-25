@@ -460,21 +460,69 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
             .map_err(|e| format!("Failed to create cookies directory: {e}"))?;
     }
 
-    std::fs::write(&cookies_path, &netscape_content)
-        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
-
-    // Restrict cookies.txt to owner-only read/write on Unix (#459-style
-    // hardening) — it carries live Apple Music session cookies, so other
-    // local accounts on a shared machine must not be able to read it.
+    // This file holds live Apple Music session cookies, so nobody else
+    // with an account on the same machine should be able to read it.
+    //
+    // On Unix it is CREATED locked rather than written and then locked.
+    // The previous order left a gap — short, but real — where the file
+    // existed with whatever permissions the system hands out by default
+    // and anybody could read it. An independent review of the whole
+    // codebase pointed it out. Closing the gap costs nothing, and the
+    // alternative depended on nobody being quick.
     #[cfg(unix)]
     {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
         use std::os::unix::fs::PermissionsExt;
-        if let Err(e) =
-            std::fs::set_permissions(&cookies_path, std::fs::Permissions::from_mode(0o600))
-        {
-            log::debug!("Failed to set cookies.txt permissions: {e}");
-        }
+
+        // Deliberately NOT truncating here.
+        //
+        // The previous version emptied the file as it opened it, and only
+        // then checked it could be made private — so if that check
+        // failed, the person was left with an empty cookies file and a
+        // sign-in that had been working a moment earlier. A reviewer
+        // caught it: refusing an unsafe write is right, destroying the
+        // working credentials on the way is not. The file is emptied
+        // below, once it is private and we know we are going to write.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(&cookies_path)
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+
+        // Lock the OPEN file before a single cookie goes into it.
+        //
+        // The `mode` above only applies when this call creates the file.
+        // An earlier import, or a file somebody else left there, keeps
+        // the permissions it already had — so the first version of this
+        // still wrote live session cookies into a possibly-readable file
+        // and tightened it afterwards, which is the very gap it was
+        // written to close. A reviewer caught that. Setting it on the
+        // open handle closes it for both cases.
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to secure the cookies file before writing: {e}"))?;
+
+        // And this now STOPS rather than logging quietly. If the file
+        // cannot be made private there is no safe way to continue: the
+        // alternative is writing somebody's live session cookies into a
+        // file anybody on the machine can read, and saying nothing.
+        // Private now, so it is safe to empty and rewrite.
+        let mut file = file;
+        file.set_len(0)
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+        file.write_all(netscape_content.as_bytes())
+            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
     }
+
+    // Windows has no equivalent of these permission bits, and the file
+    // sits in this application's own data folder, which the system
+    // already restricts to this account.
+    #[cfg(not(unix))]
+    std::fs::write(&cookies_path, &netscape_content)
+        .map_err(|e| format!("Failed to write cookies file: {e}"))?;
 
     let cookies_path_str = cookies_path
         .to_str()
@@ -695,6 +743,86 @@ pub fn check_full_disk_access() -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    /// The cookie file must never exist, even briefly, in a state where
+    /// another account on the same machine could read it.
+    ///
+    /// This does not call the real import (that needs a browser and a
+    /// live Apple Music session). It exercises the same way of making
+    /// the file that the import now uses, which is the part that was
+    /// wrong: the file used to be written first and locked afterwards,
+    /// leaving a short window open. An independent review of the whole
+    /// codebase found it.
+    #[cfg(unix)]
+    #[test]
+    fn a_new_cookie_file_is_never_readable_by_anybody_else() {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("cookies.txt");
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .expect("create");
+        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        drop(file);
+
+        let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the file must be readable and writable by its owner and nobody else, got {mode:o}"
+        );
+    }
+
+    /// The case the first attempt at this missed: a file that is ALREADY
+    /// there, left readable by an earlier import or by somebody else.
+    ///
+    /// Creating with restricted permissions does nothing when the file
+    /// exists, so cookies were still written into a readable file and
+    /// the permissions tightened afterwards — the same gap, one step
+    /// along. A reviewer caught it. The permissions are now set on the
+    /// open handle before anything is written.
+    #[cfg(unix)]
+    #[test]
+    fn an_existing_readable_cookie_file_is_secured_before_anything_is_written() {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("cookies.txt");
+
+        // A file somebody left lying around, readable by anyone.
+        std::fs::write(&path, b"old contents").expect("pre-create");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("chmod");
+
+        // The same sequence the import now uses.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .expect("open");
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .expect("secure before writing");
+        let mode_before_write =
+            std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(
+            mode_before_write, 0o600,
+            "it must already be private BEFORE any cookie is written, got {mode_before_write:o}"
+        );
+
+        let mut file = file;
+        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        let mode_after = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode_after, 0o600, "and still private afterwards");
+    }
+
     use super::*;
 
     // ----------------------------------------------------------

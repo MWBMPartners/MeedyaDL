@@ -27,7 +27,15 @@ import { useTranslation } from 'react-i18next';
 import deTranslations from '../../public/locales/de/translation.json';
 import enTranslations from '../../public/locales/en/translation.json';
 import frTranslations from '../../public/locales/fr/translation.json';
-import i18n, { AVAILABLE_LOCALES, LOCALES, baseLanguageOf, initI18n, isMachineAssisted } from './i18n';
+import i18n, {
+  AVAILABLE_LOCALES,
+  LOCALES,
+  baseLanguageOf,
+  changeUiLanguage,
+  initI18n,
+  systemLanguageOrEnglish,
+  isMachineAssisted,
+} from './i18n';
 
 /* ------------------------------------------------------------------ */
 /* 1. The addResourceBundle-doesn't-repaint-the-screen bug             */
@@ -52,28 +60,16 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // it falls through to reading `navigator.language`, exactly like a
     // real browser reporting the OS locale would.
     //
-    // The detector has two places to look, in this order: the language
-    // it remembered last time, then the browser. This test sets BOTH to
-    // German rather than picking one, because which of them is available
-    // is not the same everywhere.
+    // The detector now reads ONLY the system (browser) language -- it no
+    // longer keeps or reads a remembered copy in localStorage (see the
+    // `detection` block in initI18n()). So the browser language below is
+    // the whole of the setup.
     //
-    // That is not caution for its own sake. This test passed here and
-    // failed on all three build machines. The reason turned out to be
-    // the version of Node: on this machine `localStorage` is not usable
-    // at all, so the detector fell through to the browser setting below
-    // and found German. On the build machines it works, so the detector
-    // answered from what it had remembered and never looked at the
-    // browser -- and the test was quietly checking nothing.
-    //
-    // Setting both means the answer is German whichever one it consults,
-    // on whatever version of Node it happens to be running.
-    try {
-      window.localStorage.setItem('meedyadl-ui-language', 'de-DE');
-    } catch {
-      // No usable localStorage here. The browser setting below is then
-      // the only source, and it says German too.
-    }
-
+    // (This test used to set localStorage to German as well, because the
+    // detector read that first -- and on some versions of Node it was
+    // available and on others not, which once made this test quietly
+    // check nothing on the build machines. With localStorage out of the
+    // picture, that trap is gone too.)
     vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
 
     // There is no real network in a test run, so stand in for the browser
@@ -103,13 +99,6 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // listener will have moved it, and it is shared, real jsdom state
     // for the rest of this file's tests.
     document.documentElement.lang = 'en';
-    // Clear the remembered language too, so this test does not decide the
-    // language for anything that runs after it.
-    try {
-      window.localStorage.removeItem('meedyadl-ui-language');
-    } catch {
-      // No usable localStorage here; nothing was remembered to clear.
-    }
   });
 
   it('renders German text after startup for a German-OS user who never opened Settings', async () => {
@@ -195,11 +184,13 @@ describe('document.documentElement.lang tracks every later language change too',
   });
 
   it('updates when the language changes after startup, not only at startup', async () => {
-    // Settings > General calls `i18next.changeLanguage(...)` directly
-    // (see App.tsx) whenever the user picks a language from the
-    // dropdown -- long after `initI18n()` has already finished. If the
-    // <html> tag were only set once, at startup, switching languages in
-    // Settings would leave it wrong for the rest of the session.
+    // App.tsx's Effect 3b calls `changeUiLanguage(...)` (which itself
+    // calls `i18n.changeLanguage()`) whenever the `ui_language` setting
+    // changes -- including a language picked from the Settings > General
+    // dropdown while the app is already running, long after `initI18n()`
+    // has finished. If the <html> tag were only set once, at startup,
+    // switching languages in Settings would leave it wrong for the rest
+    // of the session.
     await act(async () => {
       await i18n.changeLanguage('fr');
     });
@@ -210,6 +201,149 @@ describe('document.documentElement.lang tracks every later language change too',
       await i18n.changeLanguage('de');
     });
     expect(document.documentElement.lang).toBe('de');
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 1b. changeUiLanguage -- switching language should take one call,    */
+/*     not two restarts                                                */
+/* ------------------------------------------------------------------ */
+
+describe('changeUiLanguage fetches the file itself, rather than assuming it is already loaded', () => {
+  beforeEach(() => {
+    // Deliberately NOT setting German in localStorage or navigator.language
+    // here. This reproduces picking German from the Settings dropdown on a
+    // machine whose OS/browser is English -- `initI18n()`'s own
+    // auto-detection never runs for, or fetches, German in that case.
+    // `changeUiLanguage` has to do its own fetching; it cannot be riding on
+    // work initI18n already did.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string) => {
+        if (typeof url === 'string' && url.includes('/locales/de/translation.json')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve(deTranslations),
+          } as Response);
+        }
+        return Promise.resolve({ ok: false } as Response);
+      })
+    );
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage('en');
+    document.documentElement.lang = 'en';
+  });
+
+  it('shows the new language after a single call', async () => {
+    // This is the bug, made concrete. Before this function existed,
+    // App.tsx called `i18next.changeLanguage('de')` straight from a
+    // freshly-loaded setting -- exactly like this test does one line
+    // down, but with the plain, unfixed call. Nothing had ever fetched
+    // de/translation.json, and there is no i18next HTTP backend
+    // registered to do that automatically (see i18n.ts's own comment on
+    // this function). The probe would keep showing "Queue" even though
+    // `i18n.language` claimed to be "de".
+    render(createElement(LanguageProbe));
+    expect(screen.getByTestId('probe')).toHaveTextContent('Queue');
+
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+
+    // The real assertion: one call, and the file was already fetched as
+    // part of it -- no prior `initI18n()` detection of German, no second
+    // restart needed.
+    expect(i18n.language).toBe('de');
+    expect(screen.getByTestId('probe')).toHaveTextContent('Warteschlange');
+  });
+
+  it('reports a language file that could not be loaded, instead of staying English in silence', async () => {
+    // "zz" has no file, and the stand-in fetch refuses anything but German.
+    // Before, the loader swallowed that and the switch "worked" -- with
+    // every string still English and nothing said.
+    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not be loaded/);
+  });
+
+  it('keeps no copy of the language in the browser -- the saved setting is the only record', () => {
+    // A language merely tried out in Settings used to be written into
+    // localStorage and read back FIRST at the next start, so it came back
+    // although Save was never pressed. This pins the configuration itself
+    // rather than poking localStorage, because whether localStorage is
+    // usable here depends on the Node version -- which once made a test in
+    // this file quietly check nothing.
+    const detection = i18n.options.detection as { order?: string[]; caches?: string[] };
+    expect(detection.order).toEqual(['navigator']);
+    expect(detection.caches).toEqual([]);
+  });
+
+  it('applies only the latest request when an earlier language file arrives late', async () => {
+    // German is slow to load; English is chosen before it arrives. The
+    // late German file used to switch the screen back to German (Codex,
+    // batch-3 review).
+    let releaseGerman: (() => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            releaseGerman = () =>
+              resolve({ ok: true, json: () => Promise.resolve(deTranslations) } as Response);
+          }),
+      ),
+    );
+    // Make sure German is not already loaded from an earlier test.
+    i18n.removeResourceBundle('de', 'translation');
+
+    const german = changeUiLanguage('de');
+    await changeUiLanguage('en');
+    releaseGerman?.();
+    await german;
+
+    expect(i18n.language).toBe('en');
+  });
+
+  it('does not report a failure for a language request that has been overtaken', async () => {
+    // "zz" fails to load, but English is chosen before it finishes. The
+    // failure is for a language nobody wants any more: say nothing
+    // (Codex, follow-up review).
+    let failZz: (() => void) | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            failZz = () => resolve({ ok: false } as Response);
+          }),
+      ),
+    );
+    const overtaken = changeUiLanguage('zz');
+    await changeUiLanguage('en');
+    failZz?.();
+    await expect(overtaken).resolves.toBeUndefined();
+    expect(i18n.language).toBe('en');
+  });
+
+  it('does not re-fetch a language that has already been loaded', async () => {
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>;
+    const callsAfterFirstLoad = fetchMock.mock.calls.length;
+
+    // Switching away and back -- e.g. someone previewing two languages
+    // in the Settings dropdown -- must not hit the network again for a
+    // language i18next already has the data for in memory.
+    await act(async () => {
+      await changeUiLanguage('en');
+    });
+    await act(async () => {
+      await changeUiLanguage('de');
+    });
+
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstLoad);
   });
 });
 
@@ -248,6 +382,32 @@ function placeholdersIn(value: unknown): Set<string> {
   const matches = value.match(/\{\{.*?\}\}/g);
   return new Set(matches ?? []);
 }
+
+describe('startup on a system whose language MeedyaDL does not have', () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await i18n.changeLanguage('en');
+    document.documentElement.lang = 'en';
+  });
+
+  it('starts in English instead of stopping the app', async () => {
+    // A Spanish system: there is no Spanish file. Startup awaits
+    // initI18n() and loads settings after it, so a failure here used to
+    // stop the whole app from starting (Codex, batch-3 review).
+    vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false } as Response)));
+
+    await expect(initI18n()).resolves.toBeUndefined();
+    expect(baseLanguageOf(i18n.language)).toBe('en');
+  });
+
+  it('"Auto" chooses English, not a language with no file', () => {
+    vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
+    expect(systemLanguageOrEnglish()).toBe('en');
+    vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
+    expect(systemLanguageOrEnglish()).toBe('de-DE');
+  });
+});
 
 describe('translation file quality', () => {
   const enKeys = flattenKeys(enTranslations);

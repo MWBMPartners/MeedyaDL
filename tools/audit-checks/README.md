@@ -23,12 +23,13 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | `check_codec_registry.py` | `codecs.toml` integrity: every meta-codec `resolves_to` target is a real codec section, every audio `services.gamdl` flag is a real `SongCodec` variant, and every video `services.gamdl` flag is a real `VideoCodec` variant (each enum's own `rename_all` mode is read from the source, since `SongCodec` is kebab-case but `VideoCodec` is lowercase-with-no-dashes). | A renamed/removed codec leaving the registry pointing at nothing → download fails. |
 | `check_user_agent.py` | Outbound User-Agent consistency: every `.header("User-Agent", ...)` / `.user_agent(...)` call site uses one of the four named identities in `utils/http_client.rs` — `APP_USER_AGENT`, `SAFARI_MACOS_USER_AGENT`, `browser_user_agent()` or `full_user_agent()` — never a hand-typed string literal. | A new call site hardcoding its own UA string, silently drifting out of sync with the app version (the MusicBrainz `"MeedyaDL/0.6"` defect this check exists to prevent recurring). |
 | `check_tauri_version_sync.py` | The Tauri npm package and the Tauri Rust crate agree on major.minor, read from whatever `package-lock.json` and `Cargo.lock` are actually at this commit. | A version bump touching only one of the two lock files → `tauri build` refuses the mismatch and every platform build fails at once (the v1.10.5 incident). |
-| `check_build_secrets.py` | Every build-time value the app reads — `option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the frontend — is either passed through by `release.yml` or listed in the script as deliberately not needed. | A finished feature shipping completely inert because its value was never wired into the release build. The app treats "absent" as "not configured" and says nothing, so nothing fails and nobody notices — three features were in exactly that state, none ever having worked once (#1161, #1162, #1163). |
+| `check_build_secrets.py` | Every build-time value the app reads — `option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the frontend — reaches EACH of the three build steps in `release.yml` that actually compile/bundle the app (Windows/Linux x64+ARM64, macOS, and ARMv7 each have their own `env:` block), either as a key in that step's own block or via a `$GITHUB_ENV` export earlier in the same job — or is listed in the script as deliberately not needed. | A finished feature shipping completely inert because its value was never wired into the release build — or wired into only SOME of the three build steps, which ships it working on some platforms and silently inert on others. The app treats "absent" as "not configured" and says nothing, so nothing fails and nobody notices — three features were in exactly that state, none ever having worked once (#1161, #1162, #1163). |
 | `check_help_topics.py` | Help docs: every `help/<id>.md` file has a line in `HELP_TOPIC_MANIFEST` (`helpTopics.ts`) and vice versa; every in-app deep link (`helpTopic="..."`, `navigateToHelp('...')`) and every help-page-to-help-page link points at a real page; no GitHub-only emoji shortcode (`:rocket:`) that would show as literal text in the app; every translated page has an English original. | The in-app Help and the help files used to be two hand-typed copies of the same words, kept in sync by hand — and #949 was the moment they disagreed somewhere a user could see it (the two copies named different "coming soon" versions). The hand-typed copy is gone, but a file and the app's list of pages are still two sources that have to agree. |
 | `check_i18n.py` | Translation catalogue: every `public/locales/<lang>/translation.json` has exactly the same keys as `en`'s, no translated value is an empty string, and every `{{placeholder}}` in the English value is present in every translation. Also reports (informationally, not as a fault) how many keys nothing in `src/` looks up yet, and what fraction of `src/components/**/*.tsx` calls `useTranslation()`. | A key added in English only, or a translator's edit that drops a `{{count}}` or leaves a value blank, renders correctly in English and wrong (a raw key, a blank line, or a literal `{{count}}`) in every other language — the class of bug nobody on an English-language dev machine would ever see. |
-| `check_comment_paths.py` | Every file path mentioned in a Rust/TypeScript/JavaScript/Python comment (starting with a real top-level directory of this repo — `src/`, `src-tauri/`, etc.) actually exists on disk. | A file gets renamed or moved and every comment that used to point at it keeps pointing at the old name forever — nothing about renaming a file touches the text of a comment sitting in some other file. An audit found eleven of these at once, none caught until someone happened to re-read the comment. |
+| `check_comment_paths.py` | Every file path mentioned in a Rust/TypeScript/JavaScript/Python/GitHub-Actions-workflow comment (starting with a real top-level directory of this repo — `src/`, `src-tauri/`, etc.) actually exists on disk. | A file gets renamed or moved and every comment that used to point at it keeps pointing at the old name forever — nothing about renaming a file touches the text of a comment sitting in some other file. An audit found eleven of these at once, none caught until someone happened to re-read the comment; a later review found the same fault in a workflow file's comment, which this script hadn't been reading at all. |
 | `check_concurrency_claims.py` | Every comment containing the word "parallel" or "concurrently" sits inside (or immediately above) a block of code that actually contains one of `join!`, `join_all`, `try_join`, `spawn`, `Promise.all`, `allSettled`. Deliberately a rough heuristic — see the script's own docstring — with a documented `EXCEPTIONS` list for claims that are true but whose mechanism lives elsewhere. | A comment claiming two things happen at the same time when the code actually awaits them one after another — in Rust, a future does nothing until it is polled, so building two futures and awaiting each in turn is sequential no matter what a comment says. An audit found five of these, including one where the futures actually were built together but then awaited one at a time immediately below. |
 | `check_settings_reach_backend.py` | Every field in `pub struct AppSettings` that the app lets someone change (`useSettingsField('x')` or an `x:` key inside an `updateSettings({...})` call) is either read somewhere in `src-tauri/src` (a `.x` token outside `models/settings.rs` itself), or listed in the script's `FRONTEND_ONLY` dictionary with a checked, honest reason (the theme, the UI language, and other things genuinely acted on by the frontend alone). | A setting with a working UI control, that saves correctly, round-trips through the store perfectly, and changes nothing — because nothing downstream ever reads the value. This is exactly the shape the video "resolution fallback" list turned out to be: it looked exactly as meaningful as every setting next to it. |
+| `check_settings_defaults.py` | The starting settings in the page (`DEFAULT_SETTINGS` in `settingsStore.ts`) still match the app's own (`AppSettings::default()` in Rust) — same values, and nothing missing that the page's type says is required. Enum values are compared by what serde actually calls them, read from the enum's own attributes, not guessed from the spelling. Anything it cannot compare honestly is named at the end of a clean run, so "OK" never silently means "half of them were skipped". | The same list written down twice drifted, and nobody was comparing them. Three values disagreed — and two of the three were exactly the values a settings upgrade step exists to REPAIR, so pressing "Reset" and then "Save" put somebody straight back onto file name patterns that let two playlists with the same name overwrite each other's file (#545, #552). The page's copy also had no settings version number, so a reset-then-save wrote version zero and re-ran every upgrade step at the next launch. |
 | `check_updater_manifest_keys.py` | No workflow file names an updater platform key (`linux-x86_64-deb`, `darwin-aarch64`, …) in code. The one and only list of them is `manifest_rows()` in `scripts/release/updater-manifest.sh`, which both the release workflow and the manual repair tool call. **Every** key found in a workflow is reported, not only unfamiliar ones — and an empty or unreadable `manifest_rows()` is itself a finding, so the check says when it has stopped being able to check anything. | The list of machines the app can offer an update to was typed out by hand in three places at once. Six Linux `.deb`/`.rpm` entries were added to one of them; the repair tool would have deleted those six working update paths from any release it was pointed at, and the checker beside it would have called the result "complete" — because that checker's idea of complete came from the same six hand-written names as the thing it was checking. A machine missing from that file is never offered an update, quietly, with nothing failing anywhere. |
 
 ## Running locally
@@ -45,6 +46,7 @@ python3 tools/audit-checks/check_i18n.py
 python3 tools/audit-checks/check_comment_paths.py
 python3 tools/audit-checks/check_concurrency_claims.py
 python3 tools/audit-checks/check_settings_reach_backend.py
+python3 tools/audit-checks/check_settings_defaults.py
 python3 tools/audit-checks/check_updater_manifest_keys.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
@@ -58,6 +60,7 @@ python3 tools/audit-checks/check_i18n.py --strict
 python3 tools/audit-checks/check_comment_paths.py --strict
 python3 tools/audit-checks/check_concurrency_claims.py --strict
 python3 tools/audit-checks/check_settings_reach_backend.py --strict
+python3 tools/audit-checks/check_settings_defaults.py --strict
 python3 tools/audit-checks/check_updater_manifest_keys.py --strict
 ```
 
@@ -89,18 +92,29 @@ python3 tools/audit-checks/check_updater_manifest_keys.py --strict
   or change a check.
 
   Better still, make that negative test a file anyone can run, so it keeps
-  proving itself rather than being done once and forgotten. Two exist:
-  `check_user_agent.py --self-test` (fixtures inside the script itself) and
+  proving itself rather than being done once and forgotten. Four exist:
+  `check_user_agent.py --self-test` (fixtures inside the script itself),
   `test_check_updater_manifest_keys.py` (a separate file that builds small,
   deliberately-broken fake repositories and runs the real check against them
-  as a subprocess). A check nobody has ever seen fail is not evidence of
+  as a subprocess), and `test_check_comment_paths.py` (pins which paths
+  count as a `vX.Y.Z` placeholder, so the one rule that lets that check
+  skip something cannot quietly widen again — its first version skipped
+  real names like `src/API.Client.ts`), and `test_check_build_secrets.py`
+  (pins when an export earlier in the job really reaches a build step — its
+  first version counted commented-out exports and ones in steps that never
+  run). A check nobody has ever seen fail is not evidence of
   anything — from the outside, "caught nothing because there was nothing" and
   "caught nothing because it stopped looking" print the same tick.
 
   ```bash
   python3 tools/audit-checks/check_user_agent.py --self-test
   python3 tools/audit-checks/test_check_updater_manifest_keys.py
+  python3 tools/audit-checks/test_check_comment_paths.py
+  python3 tools/audit-checks/test_check_build_secrets.py
   ```
+
+  None of these is run by CI yet — they are run by hand when a check
+  changes. Wiring them into `pr-security.yml` is an open suggestion.
 - **Default exit 0, `--strict` exit 1.** CI runs them advisory; local hooks
   can opt into blocking.
 

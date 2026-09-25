@@ -104,9 +104,6 @@ pub mod tag_registry;
 /// Content matching models for Smart Download cross-platform search.
 pub mod content_match;
 
-/// Service status configuration models.
-pub mod service_status;
-
 /// Remote feature-flag models (#1071).
 ///
 /// `FeatureFlagsSnapshot` and friends carry the server-resolved

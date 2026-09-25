@@ -255,6 +255,62 @@ impl Default for CompanionMode {
     }
 }
 
+/// Which of the two ways of unlocking copy-protected tracks GAMDL should
+/// use.
+///
+/// Apple Music tracks are copy-protected, and the download engine has to
+/// unlock them before anything can be saved. Until GAMDL 3.9 there was one
+/// way of doing that, built into GAMDL, called Widevine — it needs no setup
+/// from the user, and it is what every MeedyaDL download has used until now.
+/// GAMDL 3.9 added a second, called PlayReady, which needs a device file
+/// (a `.prd` file) that the user has to obtain themselves. MeedyaDL does not
+/// provide one and cannot get one for anybody.
+///
+/// **The default is and stays `Widevine`**, so a user who never touches this
+/// setting gets exactly the behaviour they had before — MeedyaDL does not
+/// even pass the option to GAMDL in that case, leaving the command line
+/// byte-identical to what it was.
+///
+/// The one thing PlayReady offers that the built-in Widevine device cannot
+/// do is 4K music video, and only with a particular grade of device file
+/// (GAMDL's README calls it SL3000). MeedyaDL does not do anything special
+/// with that today; it simply stops being impossible.
+/// **Each value is spelled out, not derived.** `rename_all` would turn
+/// `PlayReady` into `play_ready`, while the Settings screen sends
+/// `playready` and GAMDL itself expects `playready`. Choosing PlayReady
+/// would then have made the whole settings save fail — not just this
+/// setting, the entire screen — because a value the app cannot read
+/// rejects the whole file before anything is written.
+///
+/// A whole-branch review caught it. Nothing in the tests crossed that
+/// boundary: the code on each side was consistent with itself, and the
+/// two sides had simply never been compared. The stored spelling is the
+/// same word GAMDL uses, so there is now one spelling everywhere rather
+/// than three.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub enum DrmBackend {
+    /// GAMDL's built-in unlocking. Needs nothing from the user. The default.
+    #[default]
+    #[serde(rename = "widevine")]
+    Widevine,
+    /// Needs a `.prd` device file the user supplies. GAMDL 3.9 and newer only.
+    #[serde(rename = "playready")]
+    PlayReady,
+}
+
+impl DrmBackend {
+    /// The value GAMDL itself expects on the command line and in its
+    /// configuration file. These strings come from GAMDL's own `DrmBackend`
+    /// enum, so they must not be "tidied up".
+    #[must_use]
+    pub fn as_gamdl_value(self) -> &'static str {
+        match self {
+            Self::Widevine => "widevine",
+            Self::PlayReady => "playready",
+        }
+    }
+}
+
 /// Filename for saved cover art images (without extension).
 ///
 /// GAMDL writes `Cover.<ext>` by default. MeedyaDL renames the file after
@@ -635,7 +691,7 @@ pub struct SpotifySettings {
 
 /// Per-service settings for YouTube/YouTube Music downloads (stub).
 ///
-/// Will be populated in milestone M9 (v2.1.0) when yt-dlp
+/// Will be populated in milestone M10 (v2.2.0) when yt-dlp
 /// integration is implemented.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -1691,6 +1747,33 @@ pub struct AppSettings {
     #[serde(default = "default_wrapper_url")]
     pub wrapper_url: String,
 
+    /// Which way of unlocking copy-protected tracks to use. See
+    /// [`DrmBackend`]. Default: Widevine, GAMDL's built-in one, which is
+    /// what every download used before this setting existed.
+    ///
+    /// Only has any effect on GAMDL 3.9 and newer — older releases do not
+    /// know about the option, so MeedyaDL does not send it to them and the
+    /// Settings screen does not offer it. The one case where the screen
+    /// still shows it on an older GAMDL is when it has already been set to
+    /// PlayReady, because a setting that is switched on but invisible is
+    /// worse than one that is visible and explained.
+    #[serde(default)]
+    pub drm_backend: DrmBackend,
+
+    /// Path to the user's own `.prd` device file, needed only when
+    /// `drm_backend` is PlayReady. Empty means "not chosen yet".
+    ///
+    /// This is a path on this machine, so it is never accepted from an
+    /// imported settings file (see `preserve_local_only_settings`).
+    ///
+    /// If PlayReady is chosen and this is empty, or names a file that is no
+    /// longer there, MeedyaDL falls back to the built-in Widevine unlocking
+    /// for that download and says so in the activity log. It deliberately
+    /// does not refuse the download: a setting nobody understands should not
+    /// stop somebody downloading their music.
+    #[serde(default)]
+    pub prd_path: String,
+
     /// Maximum filename length in characters. `None` = no truncation
     /// (OS limits still apply: 255 bytes on most filesystems). Useful
     /// for tracks with very long titles that would exceed filesystem
@@ -2092,7 +2175,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 10;
+pub const CURRENT_SETTINGS_VERSION: u32 = 11;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -2376,6 +2459,11 @@ impl Default for AppSettings {
             // the three v1 sockets above when the detected GAMDL release
             // is ≥ 3.6.
             wrapper_url: default_wrapper_url(),
+            // Unchanged behaviour for everyone: GAMDL's built-in
+            // unlocking, and no device file. MeedyaDL sends neither
+            // option to GAMDL while this is the case.
+            drm_backend: DrmBackend::Widevine,
+            prd_path: String::new(),
             // No filename truncation by default (OS limits still apply).
             truncate: None,
             // No tags excluded by default -- embed all available metadata.
@@ -2504,6 +2592,51 @@ impl AppSettings {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_unlocking_setting_is_stored_with_the_spelling_everything_else_uses() {
+        // The fault this catches broke more than its own setting: a
+        // value the app cannot read rejects the WHOLE settings file, so
+        // choosing PlayReady made the entire Settings screen fail to
+        // save. Derived renaming produced `play_ready`, while the screen
+        // sends `playready` and GAMDL expects `playready`.
+        //
+        // Nothing caught it because nothing crossed the boundary — each
+        // side was consistent with itself. So this test is written from
+        // the OUTSIDE: the exact strings that travel between them.
+        use crate::models::settings::DrmBackend;
+
+        for (value, expected) in [
+            ("widevine", DrmBackend::Widevine),
+            ("playready", DrmBackend::PlayReady),
+        ] {
+            let json = format!("\"{value}\"");
+            let parsed: DrmBackend = serde_json::from_str(&json)
+                .unwrap_or_else(|e| panic!("the app sends {value}, which must be readable: {e}"));
+            assert_eq!(parsed, expected);
+            assert_eq!(
+                serde_json::to_string(&expected).expect("must serialise"),
+                json,
+                "what is written back must be the same word that was sent"
+            );
+            // And the same word again on GAMDL's command line.
+            assert_eq!(expected.as_gamdl_value(), value);
+        }
+
+        // The whole settings file must survive it, since that was the
+        // real damage: one unreadable value rejects everything.
+        let settings = AppSettings {
+            drm_backend: DrmBackend::PlayReady,
+            prd_path: "/somewhere/device.prd".to_string(),
+            ..Default::default()
+        };
+        let written = serde_json::to_string(&settings).expect("settings must serialise");
+        let read_back: AppSettings =
+            serde_json::from_str(&written).expect("settings must read back");
+        assert_eq!(read_back.drm_backend, DrmBackend::PlayReady);
+        assert_eq!(read_back.prd_path, "/somewhere/device.prd");
+    }
+
     use super::*;
 
     // ----------------------------------------------------------

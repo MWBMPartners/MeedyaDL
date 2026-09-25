@@ -56,6 +56,14 @@ pub mod dependencies;
 /// `get_default_output_path`. Delegates to `services::config_service`.
 pub mod settings;
 
+/// Remembering one answer given outside the Settings screen.
+///
+/// Eight such answers were written to the page's own copy of the
+/// settings and never to disk, so eight finished features did nothing.
+/// See the file for the list and why it takes one named answer rather
+/// than a settings object.
+pub mod stored_preference;
+
 /// GAMDL download execution commands (start, cancel, retry, queue status).
 ///
 /// Provides `start_download`, `cancel_download`, `retry_download`,
@@ -120,9 +128,6 @@ pub mod clipboard;
 /// its JSON attributes against the known tag definitions in `tags.toml`.
 /// Delegates to `services::api_audit_service`.
 pub mod api_audit;
-
-/// Service status command — checks remote service availability.
-pub mod service_status;
 
 /// Remote feature-flag commands (#1071) — read the resolved availability
 /// snapshot (`get_feature_flags`, no network) and trigger a refresh

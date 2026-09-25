@@ -33,10 +33,16 @@ your wrapper setup:
   setup with extra manual steps (see below), so stay on 3.5 until you're
   ready for that.
 - **If you don't use a wrapper** (cookie-only): upgrade straight to the
-  **recommended latest** (3.8.5). On GAMDL 3.8+, every non-web codec
+  **recommended latest** (3.9.1). On GAMDL 3.8+, every non-web codec
   *except ALAC* downloads without any wrapper at all (see the next
   section) — so cookie-only users get the best experience on the newest
-  release.
+  release. Two kinds of computer are held back, because a piece the newer
+  releases need is not published for them: Windows on ARM stays on 3.8.5,
+  and 32-bit Raspberry Pi (ARMv7) stays on 3.8.1. MeedyaDL knows this and
+  will not offer you an update that cannot install. **Never use GAMDL
+  3.9** (3.9.0) — MeedyaDL refuses to install it and marks it as a known
+  issue, because it cannot download the AAC Legacy formats at all. 3.9.1
+  fixes that.
 
 > **Heads-up on the future:** GAMDL v3.5 (and wrapper-v1) won't be
 > supported forever. A later MeedyaDL release may raise the floor past
@@ -411,6 +417,8 @@ In **Settings > Advanced**, click the **Test Connection** button next to the Wra
 - **Connection refused** — "Connection refused — is the wrapper running at {url}?" — the host is reachable but nothing is listening on that port
 - **Other errors** — the specific error message is shown
 
+The test only works on an address on your own computer or your own local network, because that is where a wrapper runs. Any other address is refused without being contacted.
+
 ### Automatic pre-flight check
 
 Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at `http://127.0.0.1:30020` timed out — check that it is running").
@@ -565,6 +573,6 @@ GAMDL and wrapper-v2 are separate projects and must be kept on compatible versio
 
 - **GAMDL 3.0 – 3.5.x** → wrapper-v1 (three local sockets).
 - **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt).
-- **GAMDL 3.8.2 – 3.8.5** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported. (3.8.2 introduced the 0.0.2 protocol; 3.8.3–3.8.5 keep it unchanged — 3.8.4 also fixed a wrapper-decrypt bug that could corrupt the end of some songs.)
+- **GAMDL 3.8.2 – 3.8.5, and 3.9.1** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported. (3.8.2 introduced the 0.0.2 protocol; 3.8.3–3.8.5 and 3.9.1 keep it unchanged — 3.8.4 also fixed a wrapper-decrypt bug that could corrupt the end of some songs. GAMDL 3.9.0 is refused by MeedyaDL for an unrelated reason; see the top of this page.)
 
-GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2+ exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2+ with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper decryption IP** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.
+GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2+ exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2+ with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper Decryption Address** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.

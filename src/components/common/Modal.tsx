@@ -28,7 +28,7 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -92,7 +92,36 @@ interface ModalProps {
  * @param children - Modal body content
  * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
  */
+/**
+ * Every open dialog, in the order it opened; the last one is on top.
+ *
+ * Each open dialog listens for keys across the whole page. With two open
+ * at once, both acted on every key: the lower one pulled focus back into
+ * itself on each Tab and the upper one pulled it straight back, so Tab
+ * only ever landed on the first or last button; and Escape closed BOTH —
+ * which, for the crash-reporting question, recorded "no" for good without
+ * the person having seen it (stand-in review, 24 Sept 2026). Now only the
+ * top-most dialog handles Tab and Escape.
+ */
+const openDialogs: object[] = [];
+
+/**
+ * The layer each open dialog is drawn on. A new dialog goes one above the
+ * highest layer still open. Using "how many are open" instead gave two
+ * dialogs the same layer after one below them closed (open A, open B,
+ * close A, open C: B and C both 2), and the page order then decided which
+ * was drawn on top while the keyboard went to C (Codex, follow-up review).
+ * The numbers start again from 1 once every dialog has closed.
+ */
+const dialogLayers = new Map<object, number>();
+
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
+  // This dialog's own place in `openDialogs`. A plain object, so identity
+  // is all that is compared.
+  const dialogToken = useRef<object>({});
+  // This dialog's layer on screen: 1 for the first open dialog, 2 for one
+  // opened on top of it, and so on. See the `style` on the overlay below.
+  const [layer, setLayer] = useState(1);
   /** i18n translation function -- reuses the generic "common.close" word,
    * since that's exactly what the close button says everywhere else. */
   const { t } = useTranslation();
@@ -160,6 +189,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
    * See: https://github.com/MWBMPartners/MeedyaDL/issues/218
    */
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Only the top-most open dialog answers keys — see `openDialogs`.
+    if (openDialogs[openDialogs.length - 1] !== dialogToken.current) return;
     if (e.key === 'Escape') {
       onCloseRef.current();
       return;
@@ -178,6 +209,37 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];
+
+      /*
+       * A hole in the trap that the two checks below cannot close by
+       * themselves: they only ever compare `document.activeElement`
+       * against the FIRST or LAST focusable element, so they do nothing
+       * at all when focus is somewhere else entirely -- most commonly
+       * on `document.body`.
+       *
+       * That happens more often than it sounds. If the element that
+       * currently has focus is removed from the page, or has its
+       * `disabled` attribute set, while the dialog is still open (both
+       * are ordinary things a re-render can do -- a row disappearing
+       * from a list mid-dialog, a "Continue" button being disabled
+       * while a download starts), the browser does not wait for a Tab
+       * press to react: it moves focus to `document.body` immediately,
+       * on its own. From that point, pressing Tab matched neither the
+       * "first" nor the "last" check above, so the trap did nothing and
+       * the browser's own tab order took over -- walking focus straight
+       * out of the dialog and into whatever is behind it on the page.
+       *
+       * Catching "focus is not inside the panel at all" first, before
+       * the first/last checks, closes that hole regardless of how focus
+       * got out or what it currently sits on -- there is no longer a
+       * focus position this trap fails to catch.
+       */
+      if (!panelRef.current.contains(document.activeElement)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+        return;
+      }
+
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault();
         last.focus();
@@ -200,8 +262,20 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
    * parent re-render -- is the entire point of this fix (see the long
    * comment above `onCloseRef`).
    */
-  useEffect(() => {
+  // useLayoutEffect, not useEffect: the layer must be known BEFORE the
+  // dialog is first drawn, or its first frame is drawn at the starting
+  // layer and a second dialog can flash underneath the first (stand-in
+  // review).
+  useLayoutEffect(() => {
     if (open) {
+      const token = dialogToken.current;
+      openDialogs.push(token);
+      // Capped at 50, so a dialog never covers a toast (z-index 100) even if
+      // the layers keep climbing -- which they can while one dialog stays
+      // open and others below it keep opening and closing (stand-in review).
+      const nextLayer = Math.min(Math.max(0, ...dialogLayers.values()) + 1, 50);
+      dialogLayers.set(token, nextLayer);
+      setLayer(nextLayer);
       // Save the previously focused element to restore later
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
@@ -215,6 +289,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
         }
       });
       return () => {
+        const at = openDialogs.lastIndexOf(token);
+        if (at !== -1) openDialogs.splice(at, 1);
+        dialogLayers.delete(token);
         document.removeEventListener('keydown', handleKeyDown);
         // Restore focus to the element that opened the modal -- this now
         // only runs when `open` actually flips back to false (or the
@@ -232,7 +309,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
     /*
      * Backdrop overlay.
      * - fixed inset-0: covers the entire viewport.
-     * - z-50: stacks above normal content (but below toasts at z-[100]).
+     * - z-50, overridden by the inline zIndex: stacks above normal content
+     *   (but below toasts at z-[100]), one layer per open dialog in the
+     *   order they opened — see the `style` below.
      * - flex items-center justify-center: centres the panel vertically
      *   and horizontally.
      * - bg-surface-overlay: semi-transparent dark background (defined
@@ -241,6 +320,14 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
      */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-surface-overlay"
+      // Drawn in OPENING order, the same order the keyboard uses. Every
+      // dialog used to share `z-50`, so which one appeared on top was
+      // decided by where it sat in the page — while Tab and Escape went to
+      // the most recently opened. Opening keyboard-shortcut help over the
+      // pre-release notice put the help UNDER the notice yet gave it the
+      // keys (Codex, batch-3 review). 49 + layer stays below toasts
+      // (z-index 100): the layer is capped at 50.
+      style={{ zIndex: 49 + layer }}
       onClick={onClose}
     >
       {/*

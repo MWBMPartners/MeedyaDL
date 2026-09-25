@@ -112,6 +112,31 @@ pub struct ComponentUpdate {
     /// Whether an update is available (latest > current via semver comparison).
     /// True if not installed and a version is available on the remote source.
     pub update_available: bool,
+    /// Set when MeedyaDL could NOT work out whether there is an update,
+    /// carrying the reason in plain English.
+    ///
+    /// # Why this is a field and not just wording in `description`
+    ///
+    /// "We could not check" and "we checked and there is nothing new"
+    /// both arrive as `update_available: false`, and they are not the
+    /// same thing at all — one means you are up to date, the other means
+    /// nobody knows. Telling them apart by reading the English of a
+    /// message would work until somebody reworded it.
+    ///
+    /// This matters here because the Updates page keeps only entries
+    /// where an update IS available, so without a field of its own a
+    /// component nobody could check simply vanished from the screen —
+    /// looking exactly like one that had been checked and found current.
+    /// That is the failure this project has a standing rule about: a
+    /// check that could not run must never be read as a check that found
+    /// nothing.
+    ///
+    /// Today this is set for the helper programmes whose version cannot
+    /// be established — an FFmpeg installed before MeedyaDL started
+    /// recording where its build came from, or a mirror that does not
+    /// publish a version for a tool.
+    #[serde(default)]
+    pub not_checkable_reason: Option<String>,
     /// Whether this update is compatible with the current app version.
     /// For GAMDL: any parseable semver passes (we only reject obviously
     /// malformed strings like `v3-rc`). The "untested vs tested" status
@@ -430,6 +455,156 @@ async fn fetch_gamdl_release_wheel_filenames(version: &str) -> Result<Vec<String
         .collect();
 
     Ok(filenames)
+}
+
+/// Does this string actually look like a version number?
+///
+/// # Why this has to be asked before comparing anything
+///
+/// Reading a helper programme's version is not allowed to fail. If the
+/// programme runs but prints something unexpected, the reader hands back
+/// the first line it printed, whatever that line says. And
+/// [`parse_base_semver`] below turns anything it cannot read into
+/// **0.0.0** — which is older than every real version. So an error
+/// message compares as "very old indeed", and the app confidently
+/// reports that an update is available, for ever.
+///
+/// That is not a thought experiment. An independent reviewer downloaded
+/// what this app actually installs for MP4Box on Linux and found the
+/// archive needs a shared library it does not contain and that almost no
+/// system has yet. On such a machine the programme exits with a loader
+/// error, that error text becomes the "version", and the Updates page
+/// shows "Newer version available" with the loader error printed where
+/// the version number belongs. Pressing Update re-fetches the identical
+/// broken archive and the row comes straight back. It never resolves and
+/// it never goes quiet.
+///
+/// So: anything that is not a version is treated as "could not check"
+/// rather than "out of date" — the honest answer, and one this app
+/// already has a way to say. What counts as a version is decided by
+/// [`normalised_version`]: numbers separated by dots, then any suffix.
+/// Real tools print `1.6.0`, `26.07.0`, `v26.05`, `2.4` and `1.6.0-641`,
+/// and all of those pass.
+///
+/// (This used to check only the FIRST number and be "deliberately lenient
+/// about everything after it", which let `2.unknown` through to be
+/// compared as 2.0.0. The comparison now uses the same reading as this
+/// check.)
+pub(crate) fn looks_like_a_version(v: &str) -> bool {
+    normalised_version(v).is_some()
+}
+
+/// The ONE reading of a version string used both to decide whether it is
+/// a version and to compare it. `None` when it is not a version.
+///
+/// Trims spaces and a leading "v", then requires the part before any
+/// suffix (`-`, `+`, a space, `_`, `(`) to be numbers separated by dots:
+/// "2.6.1", "1.6.0-641", "v0.3.0", "24.12", "0.5.1-beta".
+///
+/// # Why one function, and why every part
+///
+/// The readability check used to look only at the FIRST part and to strip
+/// the "v" for itself, while the comparison was then handed the ORIGINAL
+/// string. So "v2.6.0" passed the check and was then compared as 0.0.0,
+/// and "2.unknown" passed and was compared as 2.0.0 — each a confident
+/// wrong answer (Codex, batch-5 review round 2). Now the string that is
+/// checked is exactly the string that is compared.
+pub(crate) fn normalised_version(v: &str) -> Option<String> {
+    let trimmed = v.trim().trim_start_matches(['v', 'V']);
+    // Drop build labels and trailing notes ("+build", " (…)", "_x"): they
+    // never make one version newer than another, and the comparison below
+    // would misread them — "2.6.1+build" was compared as 2.6.0 and so
+    // offered an "update" to 2.6.1 (Codex, follow-up review of 360ea73e).
+    // A "-" suffix is KEPT: it marks a pre-release, which the comparison
+    // does understand.
+    let kept = trimmed
+        .split(['+', ' ', '_', '('])
+        .next()
+        .unwrap_or_default();
+    let base = kept.split('-').next().unwrap_or_default();
+    let every_part_is_a_number = !base.is_empty()
+        && base
+            .split('.')
+            .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
+    every_part_is_a_number.then(|| kept.to_string())
+}
+
+/// Is this what a helper programme prints when it RAN and reported
+/// itself? A version number — or FFmpeg's "nightly", which is how the
+/// version reader reports a BtbN build whose banner has no number.
+///
+/// The version reader returns whatever a programme printed, even an
+/// error, as a "success". So a programme that cannot start still hands
+/// back text. This is the test for whether that text is a real reading.
+pub(crate) fn is_a_real_version_reading(v: &str) -> bool {
+    v == "nightly" || looks_like_a_version(v)
+}
+
+/// What comparing an installed version against the latest one came to.
+///
+/// There are three answers, not two, and the third is the one this app
+/// kept getting wrong: **nobody could tell**. Before this existed the
+/// code asked a yes/no question, so "could not tell" had to come back
+/// as one of the other two — and it came back as "yes, out of date",
+/// because an unreadable version reads as 0.0.0.
+#[derive(Debug, PartialEq, Eq)]
+enum VersionVerdict {
+    /// The installed string is not a version at all, so no comparison
+    /// is possible.
+    Unreadable,
+    /// The installed version is fine, but the LATEST one — a release tag
+    /// or the mirror's entry — is missing or not a version. Nothing can be
+    /// compared, so "nothing newer" would be a guess (Codex, batch-5
+    /// review, finding 4: only the installed side used to be checked).
+    LatestUnreadable,
+    /// Compared properly: there is something newer.
+    UpdateAvailable,
+    /// Compared properly and nothing is newer — or nothing is installed
+    /// at all (the Tools page handles that case). An unreadable latest
+    /// version is NOT this: it has its own answer, `LatestUnreadable`.
+    NothingNewer,
+}
+
+/// The one place this app decides whether a helper programme is out of
+/// date.
+///
+/// # Why it is a function rather than two comparisons
+///
+/// There are two routes to this decision — a tool tracked through its
+/// own GitHub releases, and a tool tracked only through the MeedyaSuite
+/// mirror — and they used to make the comparison separately. Adding the
+/// unreadable-version check to one and not the other would have been
+/// exactly the fault this project keeps finding: a rule that guards one
+/// door and not the one beside it. Both routes now call this, so the
+/// check cannot be present in one and missing from the other.
+///
+/// It also means the decision can be tested without a network call,
+/// which the two original comparison sites could not be.
+fn compare_installed_against_latest(
+    installed: Option<&str>,
+    latest: Option<&str>,
+) -> VersionVerdict {
+    let Some(installed) = installed else {
+        // Nothing installed. Not an error, and not an update either —
+        // the Tools page handles "not installed" separately.
+        return VersionVerdict::NothingNewer;
+    };
+
+    // Compare exactly what was checked — see normalised_version.
+    let Some(installed) = normalised_version(installed) else {
+        return VersionVerdict::Unreadable;
+    };
+
+    match latest.and_then(normalised_version) {
+        Some(latest) => {
+            if is_newer(&installed, &latest) {
+                VersionVerdict::UpdateAvailable
+            } else {
+                VersionVerdict::NothingNewer
+            }
+        }
+        None => VersionVerdict::LatestUnreadable,
+    }
 }
 
 /// Parses the `(major, minor, patch)` base version out of a version string,
@@ -781,7 +956,10 @@ pub async fn check_all_updates(
     // This is the most important check since GAMDL receives frequent updates.
     match check_gamdl_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("GAMDL check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("GAMDL check failed: {e}"));
+            components.push(check_did_not_complete("GAMDL", None));
+        }
     }
 
     // Check for app self-updates via GitHub Releases API.
@@ -791,14 +969,20 @@ pub async fn check_all_updates(
     // subscribed stability tier (e.g., a beta user won't see nightly builds).
     match check_app_update(app, check_pre_releases, user_channel).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("App update check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("App update check failed: {e}"));
+            components.push(check_did_not_complete("MeedyaDL", None));
+        }
     }
 
     // Check Python runtime update by comparing the installed version
     // against the target version defined in python_manager.rs constants.
     match check_python_update(app).await {
         Ok(update) => components.push(update),
-        Err(e) => errors.push(format!("Python check failed: {e}")),
+        Err(e) => {
+            errors.push(format!("Python check failed: {e}"));
+            components.push(check_did_not_complete("Python Runtime", None));
+        }
     }
 
     // Check all enabled pip-based engines from engines.toml for updates.
@@ -821,25 +1005,100 @@ pub async fn check_all_updates(
 
         match result {
             Ok(update) => components.push(update),
-            Err(e) => errors.push(format!("{name} check failed: {e}")),
+            Err(e) => {
+                errors.push(format!("{name} check failed: {e}"));
+                // votify's own check names itself "votify"; the rest use
+                // the engine's display name. Match whichever the normal
+                // entry would have used, so a dismissal carries over.
+                let shown_as = if package == "votify" {
+                    "votify"
+                } else {
+                    name.as_str()
+                };
+                components.push(check_did_not_complete(shown_as, None));
+            }
         }
     }
 
     // Check external tools for updates (#273).
-    // Compares installed tool versions (from tool-versions.toml minimums)
-    // against the latest GitHub release for tools that have known repos.
-    let tool_checks = [
-        ("ffmpeg", "BtbN/FFmpeg-Builds", "FFmpeg"),
-        ("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE"),
-    ];
-    for (tool_id, repo, display_name) in &tool_checks {
+    //
+    // Originally only FFmpeg and N_m3u8DL-RE were checked here — and
+    // FFmpeg's check could never actually find an update, because it
+    // compared against BtbN's release tag, which is permanently the
+    // literal word "latest" with no version number in it at all. That
+    // left exactly one of the five required tools genuinely checked.
+    // Below: N_m3u8DL-RE keeps its existing GitHub-release comparison;
+    // FFmpeg gets a dedicated build-date comparison (see
+    // `check_ffmpeg_update()`); MP4Box, mp4decrypt, and MediaInfo — the
+    // three that had no check at all — get one each, each compared
+    // against whichever source actually means something for that tool
+    // (see `check_mp4box_update()` and `check_mirror_only_tool_update()`).
+    if crate::services::dependency_manager::get_tool_binary_path(app, "ffmpeg").exists() {
+        match check_ffmpeg_update(app).await {
+            Ok(update) => components.push(update),
+            Err(e) => {
+                log::debug!("FFmpeg update check failed: {e}");
+                components.push(check_did_not_complete("FFmpeg", Some("ffmpeg")));
+            }
+        }
+    }
+
+    let github_tool_checks = [("nm3u8dlre", "nilaoda/N_m3u8DL-RE", "N_m3u8DL-RE")];
+    for (tool_id, repo, display_name) in &github_tool_checks {
         let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
         if binary.exists() {
             match check_github_tool_update(app, tool_id, repo, display_name).await {
                 Ok(update) => components.push(update),
                 Err(e) => {
                     log::debug!("Tool update check failed for {tool_id}: {e}");
+                    components.push(check_did_not_complete(display_name, Some(tool_id)));
                 }
+            }
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mp4box").exists() {
+        match check_mp4box_update(app).await {
+            Ok(update) => components.push(update),
+            Err(e) => {
+                log::debug!("MP4Box update check failed: {e}");
+                components.push(check_did_not_complete("MP4Box", Some("mp4box")));
+            }
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mp4decrypt").exists() {
+        match check_mirror_only_tool_update(
+            app,
+            "mp4decrypt",
+            "mp4decrypt",
+            "mp4decrypt",
+            crate::services::dependency_manager::normalize_bento4_version,
+        )
+        .await
+        {
+            Ok(update) => components.push(update),
+            Err(e) => {
+                log::debug!("mp4decrypt update check failed: {e}");
+                components.push(check_did_not_complete("mp4decrypt", Some("mp4decrypt")));
+            }
+        }
+    }
+
+    if crate::services::dependency_manager::get_tool_binary_path(app, "mediainfo").exists() {
+        match check_mirror_only_tool_update(
+            app,
+            "mediainfo",
+            "mediainfo",
+            "MediaInfo",
+            crate::services::dependency_manager::normalize_mediainfo_version,
+        )
+        .await
+        {
+            Ok(update) => components.push(update),
+            Err(e) => {
+                log::debug!("MediaInfo update check failed: {e}");
+                components.push(check_did_not_complete("MediaInfo", Some("mediainfo")));
             }
         }
     }
@@ -853,7 +1112,12 @@ pub async fn check_all_updates(
     // Check for rollback opportunity (#267): when the current version is a
     // pre-release, fetch the latest stable release for rollback.
     let current_version = app.package_info().version.to_string();
-    let is_pre = current_version.contains('-'); // e.g., "0.33.0-rc.1"
+    // One shared rule — see `utils::version`. This site once asked only
+    // half of it, so somebody on an unsuffixed pre-1.0 build was never
+    // offered the way back to a finished release, which is the whole
+    // point of this check. Each place used to write the rule out for
+    // itself, which is exactly how the halves drifted apart.
+    let is_pre = crate::utils::version::is_unfinished_build(&current_version);
     let (rollback_version, rollback_tag) = if is_pre {
         match fetch_latest_stable_release().await {
             Ok(Some((ver, tag))) => (Some(ver), Some(tag)),
@@ -910,6 +1174,165 @@ async fn fetch_latest_stable_release() -> Result<Option<(String, String)>, Strin
     }
 }
 
+// ============================================================
+// Known-bad-aware classification of the latest GAMDL release
+// ============================================================
+//
+// Split into pure, synchronous helpers (independent-review fix) so the
+// "is the newest release on PyPI something we have specifically found
+// broken?" logic is unit-testable without a live PyPI/pip round trip —
+// `check_gamdl_update` itself can't be unit tested directly, since it
+// does real network + subprocess I/O.
+
+/// Classifies `latest` (the newest GAMDL version PyPI reports, if any)
+/// against `platform_id`'s effective tested ceiling AND the known-bad
+/// list, returning `(is_untested, known_bad)`.
+///
+/// **Why a known-bad release is folded into `is_untested`** rather than
+/// carried as its own separate boolean on `ComponentUpdate`: `is_untested`
+/// already has a real behavioural consequence here, not just a badge.
+/// The frontend's Upgrade button reads `update.is_untested ?
+/// update.latest_version : null` (`UpdatesPage.tsx` / `UpdateBanner.tsx`)
+/// — `true` makes it pass the explicit target, which routes through
+/// `gamdl_service::install_gamdl(app, Some(target))` →
+/// `gamdl_service::refuse_unsupported_target`, the one place that
+/// actually refuses a known-bad install with a reason the user can act
+/// on. Leaving `is_untested` false for a known-bad release would send
+/// an ordinary Upgrade click down the bounded `pip_version_spec()` path
+/// instead, which has no known-bad awareness of its own.
+///
+/// Before this existed, nothing in the update-check path ever consulted
+/// `gamdl_capabilities::KNOWN_BAD_VERSIONS` at all: if PyPI's reported
+/// "latest" version happened to BE a known-bad release (e.g. GAMDL 3.9,
+/// broken for Apple's web AAC formats), it was offered exactly like any
+/// ordinary, fully-tested upgrade — no warning, no badge, and an
+/// ordinary Upgrade click would not have been refused either.
+///
+/// `platform_id` is threaded through explicitly (rather than reading
+/// [`gamdl_capabilities::current_platform_id`] internally) so a test
+/// can exercise a platform other than whichever one happens to run the
+/// test suite.
+fn classify_gamdl_latest(
+    latest: Option<&str>,
+    platform_id: &str,
+) -> (bool, Option<&'static gamdl_capabilities::KnownBadVersion>) {
+    let known_bad = latest.and_then(gamdl_capabilities::known_bad_version);
+    let is_untested = known_bad.is_some()
+        || latest.is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
+    (is_untested, known_bad)
+}
+
+/// Builds the `ComponentUpdate.description` sentence for a GAMDL
+/// update, given the already-computed flags.
+///
+/// Priority order (first match wins): **no compatible wheel** (a
+/// guaranteed pip failure — the hardest blocker) > **known-bad** (we
+/// already know exactly what's wrong and what to install instead, so
+/// say that rather than the generic wording below) > **untested**
+/// (generic "we haven't validated this yet" warning) > plain "update
+/// available". The two harder-blocker cases combining in practice
+/// (a known-bad release that also has no wheel) is unlikely but not
+/// impossible; the ordering still makes sense if it happens, since
+/// "not installable at all" is the more urgent fact.
+/// Is this release shut out by a limit belonging to THIS platform,
+/// rather than merely above the general tested ceiling?
+///
+/// Returns the platform's own limit when it is, so the message can name
+/// it. `None` covers both "fine here" and "above the general ceiling",
+/// which is a different situation entirely: that one is installable on
+/// request and is what the untested badge is for.
+fn platform_specific_cap_blocks(latest: Option<&str>, platform_id: &str) -> Option<String> {
+    let latest = latest?;
+    // Held back, and by what — the same question the install path asks,
+    // through the same function, so the two can never give a person
+    // different answers.
+    let cap = gamdl_capabilities::platform_held_back_at(platform_id)?;
+    if crate::services::gamdl_service::is_version_at_least(cap, latest) {
+        return None;
+    }
+    Some(cap.to_string())
+}
+
+fn gamdl_update_description(
+    update_available: bool,
+    no_compatible_wheel: bool,
+    known_bad: Option<&gamdl_capabilities::KnownBadVersion>,
+    is_untested: bool,
+    platform_id: &str,
+    installed: Option<&str>,
+    latest: Option<&str>,
+) -> Option<String> {
+    if !update_available {
+        return None;
+    }
+    Some(if no_compatible_wheel {
+        "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
+            .to_string()
+    } else if let Some(bad) = known_bad {
+        // `known_bad_advice` is what stops this sentence naming a fix a
+        // held-back platform's own install path would then refuse — see
+        // its doc comment in `gamdl_capabilities`.
+        //
+        // The version passed as "installed" must be what the person
+        // ACTUALLY HAS. An earlier version passed the broken release
+        // being offered instead, reasoning that it is the one the table
+        // describes — which is true and beside the point. That function
+        // decides between "move back to" and "install" by comparing
+        // against what is installed, so feeding it the offered version
+        // made it describe a move relative to a release the person may
+        // never have had: somebody on 3.8.4 was told to "move back" to
+        // 3.8.5, which is forward, and somebody already on 3.8.5 was
+        // told to move back to the version they were running. An
+        // independent review caught it. When nothing is installed, the
+        // offered release is the only version there is to talk about,
+        // and the advice then reads as a plain "do not install this".
+        // With nothing installed there is no "back" to move to, so the
+        // lowest supported release stands in for "what you have". That
+        // sends the helper down its "install this version" path instead
+        // of its "move back to" one. An independent review found the
+        // earlier fallback — the offered release — telling somebody with
+        // no GAMDL at all to move back to a version they had never had.
+        let window = gamdl_capabilities::support_window();
+        let advice = gamdl_capabilities::known_bad_advice(
+            bad.reason,
+            bad.fixed_in,
+            installed.unwrap_or(&window.minimum),
+            platform_id,
+        );
+        format!("New GAMDL version available on PyPI, but this release is known to be broken: {advice}")
+    } else if platform_specific_cap_blocks(latest, platform_id).is_some() {
+        // Above what THIS platform can install is a different thing from
+        // untested, and an independent review caught the two being told
+        // apart nowhere. "Untested" invites a decision — you may install
+        // it and accept the risk. This one cannot be installed here at
+        // all: the install path refuses it. Saying "untested" would
+        // offer a choice that does not exist.
+        //
+        // The test is deliberately NOT "above this platform's ceiling",
+        // which was the first attempt and was wrong. On a platform with
+        // no cap of its own, that ceiling IS the general one, so every
+        // ordinary untested release — the whole point of the amber badge
+        // — would have been declared impossible to install. The same
+        // review caught that too. What makes a release genuinely
+        // unreachable is a cap belonging to THIS platform, below the
+        // general ceiling, that the release sits above.
+        let cap = platform_specific_cap_blocks(latest, platform_id)
+            .unwrap_or_else(|| gamdl_capabilities::effective_maximum_tested(platform_id));
+        format!(
+            "New GAMDL version available on PyPI, but it cannot be installed on {} — this \
+             platform is held at {cap}. Nothing needs doing; the app stays on the version \
+             that works here.",
+            gamdl_capabilities::platform_display_name(platform_id),
+        )
+    } else if is_untested {
+        // Surface the warning in the description text so it shows up
+        // even in places that don't render the dedicated badge.
+        "New GAMDL version available on PyPI (untested with this MeedyaDL build)".to_string()
+    } else {
+        "New GAMDL version available on PyPI".to_string()
+    })
+}
+
 /// Checks for GAMDL updates by comparing the installed version with `PyPI`.
 ///
 /// # Returns
@@ -940,9 +1363,11 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // newly released GAMDL versions until we'd audited them; surfacing
     // them with a warning badge is the better default.
     let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
-    let is_untested = latest
-        .as_ref()
-        .is_some_and(|v| gamdl_capabilities::is_above_tested_ceiling(v));
+    // See `classify_gamdl_latest`'s doc comment for the known-bad /
+    // untested rationale (independent review fix — the update offer
+    // used to never consult the known-bad list at all).
+    let platform_id = gamdl_capabilities::current_platform_id();
+    let (is_untested, known_bad) = classify_gamdl_latest(latest.as_deref(), platform_id);
 
     // Wheel-compatibility check (#gamdl-3.8.2-hardening): flags a
     // release that has no installable wheel for the bundled CPython
@@ -951,6 +1376,19 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // latest version to check; any network/parse failure is logged at
     // debug and defaults to "not flagged" so a transient PyPI hiccup
     // never blocks or false-alarms the user.
+    //
+    // Deliberately left checking GAMDL's OWN published files only, and
+    // not walking down into what GAMDL depends on. That means it does
+    // NOT catch the Windows-on-ARM case that holds that platform at
+    // 3.8.5 — GAMDL's own Windows ARM64 package for 3.9.1 exists and
+    // is perfectly fine; the one that is missing belongs to something
+    // GAMDL depends on, two levels down. Following a whole dependency
+    // tree across PyPI would be a large, network-heavy change for a
+    // problem the per-platform ceiling already handles properly and
+    // without a single request. If this ever reports "no compatible
+    // wheel" for a platform whose real problem is a dependency, the
+    // fix is an entry in `[gamdl.platform_ceilings]`, not more
+    // crawling here.
     let no_compatible_wheel = match &latest {
         Some(v) => match fetch_gamdl_release_wheel_filenames(v).await {
             Ok(filenames) => {
@@ -965,29 +1403,24 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
         None => false,
     };
 
-    let description = if update_available {
-        Some(if no_compatible_wheel {
-            // Takes priority over the "untested" wording below — a
-            // missing wheel is a harder blocker (guaranteed pip
-            // failure) than an unaudited-but-installable release.
-            "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
-                .to_string()
-        } else if is_untested {
-            // Surface the warning in the description text so it shows up
-            // even in places that don't render the dedicated badge.
-            "New GAMDL version available on PyPI (untested with this MeedyaDL build)".to_string()
-        } else {
-            "New GAMDL version available on PyPI".to_string()
-        })
-    } else {
-        None
-    };
+    let description = gamdl_update_description(
+        update_available,
+        no_compatible_wheel,
+        known_bad,
+        is_untested,
+        platform_id,
+        current.as_deref(),
+        latest.as_deref(),
+    );
 
     Ok(ComponentUpdate {
         name: "GAMDL".to_string(),
         current_version: current,
         latest_version: latest.clone(),
         update_available,
+        // Both of these are checked against what the package index
+        // publishes, so there is no "could not tell" case here.
+        not_checkable_reason: None,
         is_compatible,
         is_untested,
         no_compatible_wheel,
@@ -1014,9 +1447,24 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
 ///
 /// # Arguments
 /// * `app` - Tauri app handle for reading the current app version
-/// * `check_pre_releases` - Whether to include pre-release versions.
-///   When true: queries `releases?per_page=5` and takes the newest (which may be a pre-release).
-///   When false: queries `releases/latest` (GitHub automatically excludes pre-releases).
+/// * `check_pre_releases` - Whether unfinished builds are in scope.
+///   When true: asks for the list of releases and takes the newest one at
+///   least as finished as the person's chosen channel. When false: asks
+///   for `releases/latest`, which GitHub already excludes unfinished
+///   builds from.
+///
+///   **This is worked out from the chosen channel, not from a setting of
+///   its own.** There used to be a switch in Settings called "Include
+///   Pre-Release Versions". It could not change the answer in any
+///   configuration: on the finished-releases channel the filter below
+///   admits only finished releases whichever way it was set, and on every
+///   other channel this was already true because of the channel itself.
+///   It could only ever make things worse — switched on, it narrowed the
+///   search to a fixed number of recent releases, so a finished release
+///   sitting below that many unfinished ones would have been missed.
+///
+///   (The old text here said this asks for five releases. It asks for
+///   rather more than that, and has for a long time.)
 async fn check_app_update(
     app: &AppHandle,
     check_pre_releases: bool,
@@ -1030,11 +1478,29 @@ async fn check_app_update(
     // - Stable only: `releases/latest` returns a single release object (excludes pre-releases)
     // - Include pre-releases: `releases?per_page=20` returns an array sorted newest-first.
     //   We fetch up to 20 so that, after channel filtering, we still find the most
-    //   recent release on the user's tier (nightly releases ship daily and can bury
-    //   other channels in the first few results).
+    //   recent release on the person's own channel.
+    //
+    //   A hundred, not twenty, and the reason is worth writing down
+    //   because it is NOT a bug being fixed. A review worried that this
+    //   project cuts an alpha build on every push, so the newest twenty
+    //   releases could all be alphas — and somebody on the beta channel
+    //   would match none of them and be told they were up to date while
+    //   sitting behind a beta nobody offered them.
+    //
+    //   That was checked against the live list on 23 September 2026
+    //   rather than assumed, and it is NOT happening: the newest release
+    //   candidate, the newest finished release and the newest beta sat at
+    //   positions 1, 3 and 6. Twenty was comfortably enough.
+    //
+    //   It is a hundred anyway because the worry is sound even though the
+    //   instance was not: it costs exactly the same single request (a
+    //   hundred is the most GitHub will return at once), and it widens
+    //   the margin from fourteen spare places to ninety-four. If this is
+    //   ever not enough, the symptom is somebody being told they are up
+    //   to date when they are not — so it is worth being generous.
     let (url, is_list) = if check_pre_releases {
         (
-            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=20",
+            "https://api.github.com/repos/MWBMPartners/MeedyaDL/releases?per_page=100",
             true,
         )
     } else {
@@ -1070,6 +1536,7 @@ async fn check_app_update(
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
+                not_checkable_reason: None,
                 is_compatible: true,
                 is_untested: false,
                 no_compatible_wheel: false, // Only computed for GAMDL
@@ -1116,6 +1583,7 @@ async fn check_app_update(
                 current_version: Some(current_version),
                 latest_version: None,
                 update_available: false,
+                not_checkable_reason: None,
                 is_compatible: true,
                 is_untested: false,
                 no_compatible_wheel: false, // Only computed for GAMDL
@@ -1250,6 +1718,7 @@ fn parse_release_from_response(
         update_available,
         // App updates are always "compatible" — the new version replaces the old one entirely.
         // Unlike GAMDL (which has a CLI interface contract), the app is self-contained.
+        not_checkable_reason: None,
         is_compatible: true,
         // Untested-vs-tested only applies to GAMDL (whose CLI surface
         // we audit per-version). MeedyaDL releases are self-contained.
@@ -1365,34 +1834,36 @@ async fn aggregate_intermediate_release_notes(
     Some(combined)
 }
 
-/// Checks for Python runtime updates by comparing with python-build-standalone.
+/// Checks a helper programme for an update against its own project's
+/// latest GitHub release (#273). Used for N_m3u8DL-RE. (It was also used
+/// for a GPAC-installed MP4Box until that copy began to be compared against
+/// its pinned installer's version instead — see check_mp4box_update.)
 ///
-/// Compares the installed Python version with the version constant in
-/// `python_manager.rs`. In the future, this could also check GitHub
-/// for newer python-build-standalone releases.
-/// Check for external tool updates via GitHub Releases API (#273).
+/// Reads the INSTALLED version by running the programme, and compares that
+/// against the release tag. (This comment used to say it compared against
+/// the minimum version in `tool-versions.toml` because the installed
+/// version was not tracked, and it opened with four lines describing the
+/// Python check — a fragment left behind by an earlier edit. Neither was
+/// true of this function.)
 ///
-/// Queries the latest release from the tool's GitHub repo and compares
-/// the tag against the minimum version from tool-versions.toml. Since
-/// we don't track the exact installed version (only minimum requirements),
-/// this reports "update may be available" when the latest release is newer
-/// than the minimum.
+/// A copy MeedyaDL does not own — one a package manager installed, or one
+/// found already on the system — is left alone, and nothing is compared.
+/// That check is made HERE rather than by each caller, so any tool routed
+/// through this function gets it. N_m3u8DL-RE used to reach this function
+/// with no such check, although a pushed commit message (80bb65ee) said
+/// all five helper programmes had one (batch-5 review).
 async fn check_github_tool_update(
     app: &AppHandle,
     tool_id: &str,
     github_repo: &str,
     display_name: &str,
 ) -> Result<ComponentUpdate, String> {
-    // Reuse the centralized dependency-manager logic so each tool uses its
-    // configured version flag and parser instead of assuming `--version`.
-    let binary = crate::services::dependency_manager::get_tool_binary_path(app, tool_id);
-    let current_version = if binary.exists() {
-        crate::services::dependency_manager::get_tool_version(&binary, tool_id)
-            .await
-            .ok()
-    } else {
-        None
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, tool_id, display_name).await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
     };
+
     let url = format!("https://api.github.com/repos/{github_repo}/releases/latest");
 
     let client = reqwest::Client::builder()
@@ -1445,41 +1916,64 @@ async fn check_github_tool_update(
     // 1. Both versions are known
     // 2. The GitHub tag contains a parseable semver (skip non-version tags like "latest")
     // 3. The latest semver is genuinely newer than the installed version
-    let update_available = match (&current_version, &latest_semver) {
-        (Some(cur), Some(latest)) => is_newer(cur, latest),
-        _ => false,
-    };
-
     // If this tool was adopted from a system package manager (Homebrew, apt,
     // pipx, …), surface how to update it through that manager: the frontend
     // relabels the Upgrade button "Update via <label>" (routing unchanged —
     // `install_tool` Step 0 delegates to the manager), and shows the manual
     // command as transparency / elevation fallback.
-    let (managed_by, manual_update_command) = {
-        let tool_dir = crate::services::dependency_manager::get_tool_dir(app, tool_id);
-        let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
-        match crate::services::package_manager::PackageRef::parse_marker(&marker) {
-            Some(r) => (
-                Some(r.pm.display_label().to_string()),
-                Some(r.manual_update_command()),
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+
+    // Before comparing anything, check the installed string really IS a
+    // version — see `looks_like_a_version`. Without this, a programme
+    // that prints an error instead of a version reads as 0.0.0, which is
+    // older than everything, so the app reports an update for ever and
+    // the error text appears where the version number belongs.
+    let verdict =
+        compare_installed_against_latest(current_version.as_deref(), latest_semver.as_deref());
+
+    if verdict == VersionVerdict::Unreadable {
+        let reason =
+            unreadable_version_reason(display_name, current_version.as_deref().unwrap_or_default());
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            reason,
+        ));
+    }
+
+    if verdict == VersionVerdict::LatestUnreadable {
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            format!(
+                "Cannot check for a {display_name} update — the latest release does not carry a \
+                 version number MeedyaDL can read, so it cannot tell whether it is newer."
             ),
-            None => (None, None),
-        }
-    };
+        ));
+    }
+
+    let update_available = verdict == VersionVerdict::UpdateAvailable;
 
     Ok(ComponentUpdate {
         name: display_name.to_string(),
         current_version,
         latest_version: latest_semver.or(latest_version),
         update_available,
-        is_compatible: true,
-        is_untested: false,
-        no_compatible_wheel: false, // Only computed for GAMDL
+        not_checkable_reason: None,
         description: if update_available {
             Some(format!("Newer version of {display_name} available"))
         } else {
             None
         },
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false, // Only computed for GAMDL
         release_url: Some(format!("https://github.com/{github_repo}/releases/latest")),
         release_body: None,
         is_prerelease: false,
@@ -1489,6 +1983,685 @@ async fn check_github_tool_update(
         managed_by,
         manual_update_command,
     })
+}
+
+/// Reads a tool's `.source` marker and, if it names a package manager,
+/// returns that manager's display label plus the exact command a user
+/// could run to update it themselves.
+///
+/// `None` for a MeedyaDL-managed download or an unattributed system
+/// find — both have no separate manager to route an update through.
+/// Shared by every binary-tool check in this file so the "which manager
+/// owns this, if any" question is answered the same way everywhere.
+fn tool_pm_attribution(app: &AppHandle, tool_id: &str) -> (Option<String>, Option<String>) {
+    let tool_dir = crate::services::dependency_manager::get_tool_dir(app, tool_id);
+    let marker = std::fs::read_to_string(tool_dir.join(".source")).unwrap_or_default();
+    match crate::services::package_manager::PackageRef::parse_marker(&marker) {
+        Some(r) => (
+            Some(r.pm.display_label().to_string()),
+            Some(r.manual_update_command()),
+        ),
+        None => (None, None),
+    }
+}
+
+/// The checks every helper programme passes before anything is compared.
+/// Returns `Ok(installed_version)` to go on and compare, or `Err(row)` when
+/// the answer is already settled without asking any server.
+///
+/// # Why this is one function
+///
+/// Each of the four helper-programme checks used to do this itself, and
+/// each did it the same slightly-wrong way: an unknown owner was treated as
+/// "someone else's" and a copy that could not be run was treated as "not
+/// installed" — both skipped with nothing on screen (Codex, batch-5 review,
+/// findings 3 and 5). Four copies of one rule is how a fix reaches three of
+/// them. Now there is one.
+///
+/// The answers, in order:
+/// * owned by something else (a package manager, or found on the system):
+///   left to it — no comparison, no Update button;
+/// * owner never recorded: left alone too, but reported as "could not
+///   check", so it is not mistaken for "up to date";
+/// * ours, but running it to ask its version failed: "could not check",
+///   with the reason;
+/// * ours, and its version read: go on and compare.
+async fn gate_before_comparing(
+    app: &AppHandle,
+    tool_id: &str,
+    display_name: &str,
+) -> Result<Option<String>, Box<ComponentUpdate>> {
+    use crate::services::dependency_manager::{
+        read_installed_version, tool_ownership, ToolOwnership,
+    };
+
+    let read = read_installed_version(app, tool_id).await;
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+
+    match tool_ownership(app, tool_id) {
+        ToolOwnership::SomethingElse => Err(Box::new(pm_owned_update_skip(
+            display_name,
+            tool_id,
+            read.ok().flatten(),
+            managed_by,
+            manual_update_command,
+        ))),
+        // Nobody recorded who installed this copy. What to tell the person
+        // depends on whether it works, because the Tools page treats the
+        // three cases differently: a copy that cannot be run at all shows
+        // as missing (with an Install button), while one that runs — even
+        // one that only prints an error — shows as installed, with no
+        // reinstall button. One message for all three was false for two of
+        // them (stand-in review, 25 Sept 2026).
+        ToolOwnership::Unknown => {
+            let reason = match &read {
+                Ok(Some(printed)) if !is_a_real_version_reading(printed) => {
+                    unreadable_version_reason(display_name, printed)
+                }
+                Err(err) => could_not_run_reason(display_name, err),
+                Ok(_) => format!(
+                    "MeedyaDL cannot tell who installed this copy of {display_name}, so it has \
+                     left it alone and not checked it for updates. It works as it is. (There is \
+                     no button yet to reinstall a tool that is already installed, which would \
+                     let MeedyaDL look after it; that is being added.)"
+                ),
+            };
+            let shown_version = match read {
+                Ok(Some(v)) if is_a_real_version_reading(&v) => Some(v),
+                _ => None,
+            };
+            Err(Box::new(not_checkable_update(
+                display_name,
+                tool_id,
+                shown_version,
+                managed_by,
+                manual_update_command,
+                reason,
+            )))
+        }
+        ToolOwnership::MeedyaDl => match read {
+            // The programme "ran", but what it printed is not a version —
+            // typically a loader error from a programme that cannot start.
+            // The version reader passes such text back as a success, so it
+            // is caught here. Otherwise FFmpeg's date-based check, which
+            // never compares version numbers, carried on and reported
+            // "nothing newer" for a copy that cannot even start (Codex,
+            // batch-5 review round 2).
+            Ok(Some(printed)) if !is_a_real_version_reading(&printed) => {
+                Err(Box::new(not_checkable_update(
+                    display_name,
+                    tool_id,
+                    None,
+                    managed_by,
+                    manual_update_command,
+                    unreadable_version_reason(display_name, &printed),
+                )))
+            }
+            Ok(version) => Ok(version),
+            Err(reason) => Err(Box::new(not_checkable_update(
+                display_name,
+                tool_id,
+                None,
+                managed_by,
+                manual_update_command,
+                could_not_run_reason(display_name, &reason),
+            ))),
+        },
+    }
+}
+
+/// Builds the "nothing to check" `ComponentUpdate` used whenever a
+/// binary tool's `.source` marker shows a package manager owns this
+/// copy (or MeedyaDL merely found it on the system with no known owner)
+/// — see `dependency_manager::tool_ownership()`. Shared by every
+/// binary-tool check added for issue #273 so all of them treat this
+/// case identically rather than four near-identical inline structs
+/// quietly drifting apart later.
+fn pm_owned_update_skip(
+    display_name: &str,
+    tool_id: &str,
+    current_version: Option<String>,
+    managed_by: Option<String>,
+    manual_update_command: Option<String>,
+) -> ComponentUpdate {
+    ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: None,
+        update_available: false,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: None,
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    }
+}
+
+/// The message for a tool MeedyaDL could not run at all. Such a tool shows
+/// as missing on the Tools page, so its Install button really is there —
+/// which is why this one, unlike `unreadable_version_reason`, can point to
+/// it. Shared by the owned and the unknown-owner paths.
+fn could_not_run_reason(display_name: &str, reason: &str) -> String {
+    format!(
+        "MeedyaDL could not run {display_name} to ask which version it is ({}). \
+         That usually means it is damaged or is the wrong kind of file for this \
+         computer. Reinstalling it from Settings > Tools is the usual fix.",
+        crate::utils::text::truncate_str(reason.trim(), 160)
+    )
+}
+
+/// Builds the "could not read a version" sentence, ready to hand to
+/// [`not_checkable_update`].
+///
+/// One function so both comparison sites say the same thing. They used
+/// to have no wording at all, because neither of them asked the
+/// question.
+fn unreadable_version_reason(display_name: &str, raw: &str) -> String {
+    format!(
+        "MeedyaDL could not read a version number from {display_name}. The programme is \
+         there, but instead of a version it reported: \"{}\". That usually means it is \
+         installed but cannot start — often a missing supporting file. There is no button yet \
+         to reinstall a tool in this state; that is being added.",
+        crate::utils::text::truncate_str(raw.trim(), 160)
+    )
+}
+
+/// Builds a `ComponentUpdate` that honestly says "this could not be
+/// checked" instead of quietly reading as "checked, nothing found".
+///
+/// Used whenever a check has a real reason it cannot determine an
+/// answer — the remote source didn't publish what was needed, or a
+/// value recorded at install time is missing or unreadable — as
+/// opposed to "checked, and there is no update". `update_available` is
+/// always `false` here, but `description` carries the actual reason
+/// rather than leaving it blank, which is what would make the two
+/// cases indistinguishable to whoever reads this later.
+fn not_checkable_update(
+    display_name: &str,
+    tool_id: &str,
+    current_version: Option<String>,
+    managed_by: Option<String>,
+    manual_update_command: Option<String>,
+    reason: String,
+) -> ComponentUpdate {
+    ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: None,
+        update_available: false,
+        // The whole point of this helper: say WHY nobody could tell,
+        // in a field of its own rather than only in the wording of the
+        // message below. Without it the Updates page — which keeps only
+        // entries where an update IS available — drops this one on the
+        // floor, and a programme nobody could check looks exactly like
+        // one that was checked and found current.
+        not_checkable_reason: Some(reason.clone()),
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: Some(reason),
+        release_url: None,
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    }
+}
+
+/// What the person reads when a check did not finish at all.
+///
+/// Deliberately does not guess the cause from the error. The usual one is
+/// no internet connection, but a site that did not answer, or answered
+/// with something unreadable, looks the same from here, and a confident
+/// wrong guess is worse than an honest general one. The real error still
+/// goes to the log for anyone diagnosing it.
+const CHECK_DID_NOT_COMPLETE: &str = "The check for a newer version did not finish — usually \
+    because there is no internet connection right now, or the site MeedyaDL asks was not \
+    answering. It will be tried again at the next check.";
+
+/// A component whose update check failed outright.
+///
+/// # Why this exists
+///
+/// A failed check used to make the component vanish. For the five helper
+/// programmes the failure went only to the debug log; for GAMDL, the app
+/// itself and Python it went into an `errors` list that nothing on screen
+/// ever shows. So with no internet every check failed, nothing was
+/// listed, and the Updates page said "You're up to date!" having checked
+/// nothing at all. An independent review (batch 5, finding 2) found it.
+///
+/// Now a failed check stays on the list, marked as "could not check",
+/// which is the one honest answer.
+///
+/// `tool_id` is `None` for GAMDL, the app and Python: their normal
+/// entries carry no tool id either, and a made-up one could send an
+/// Update button somewhere it should not go.
+fn check_did_not_complete(name: &str, tool_id: Option<&str>) -> ComponentUpdate {
+    let mut update = not_checkable_update(
+        name,
+        tool_id.unwrap_or_default(),
+        None,
+        None,
+        None,
+        CHECK_DID_NOT_COMPLETE.to_string(),
+    );
+    update.tool_id = tool_id.map(str::to_string);
+    update
+}
+
+/// Checks a tool that is distributed EXCLUSIVELY through the
+/// MeedyaSuite/MeedyaDL-Tools mirror (mp4decrypt, MediaInfo) for an
+/// update, by comparing the installed version against what the
+/// mirror's own `versions.json` currently records — never against the
+/// upstream project's own releases (Bento4's site has no versioned
+/// releases to check at all; MediaArea's GitHub releases exist but the
+/// mirror is frequently a release or two behind them, so comparing
+/// against upstream would routinely say "update available" when
+/// installing it would fetch the exact bytes already on disk — the
+/// "one thing to avoid above all" from issue #273).
+///
+/// `normalize` reshapes the mirror's raw version string into the same
+/// form MeedyaDL's own installed-version reader produces, so the two
+/// sides of the comparison mean the same thing — see
+/// `dependency_manager::normalize_bento4_version()` and
+/// `normalize_mediainfo_version()`.
+///
+/// Only runs the comparison at all when MeedyaDL manages this copy
+/// itself (see `dependency_manager::tool_ownership()`) — a copy a
+/// package manager installed is left for that manager to keep current.
+async fn check_mirror_only_tool_update(
+    app: &AppHandle,
+    tool_id: &str,
+    mirror_key: &str,
+    display_name: &str,
+    normalize: impl Fn(&str) -> String,
+) -> Result<ComponentUpdate, String> {
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, tool_id, display_name).await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
+    };
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, tool_id);
+
+    let versions = crate::services::dependency_manager::fetch_mirror_versions().await?;
+    let raw_latest = versions
+        .get(mirror_key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+
+    let Some(raw_latest) = raw_latest else {
+        // The mirror doesn't currently record a version for this key —
+        // say so rather than silently reading as "up to date".
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            "The mirror does not currently record a version for this tool — cannot check for an update.".to_string(),
+        ));
+    };
+
+    // Same guard as the GitHub-release check above, for the same reason:
+    // an installed string that is not a version reads as 0.0.0 and would
+    // show a permanent false "update available". This check has to exist
+    // at BOTH comparison sites — guarding one door and not the one beside
+    // it is the exact shape of fault this project keeps finding.
+    let latest_normalized = normalize(raw_latest);
+    let verdict = compare_installed_against_latest(
+        current_version.as_deref(),
+        Some(latest_normalized.as_str()),
+    );
+
+    if verdict == VersionVerdict::Unreadable {
+        let reason =
+            unreadable_version_reason(display_name, current_version.as_deref().unwrap_or_default());
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            reason,
+        ));
+    }
+
+    if verdict == VersionVerdict::LatestUnreadable {
+        return Ok(not_checkable_update(
+            display_name,
+            tool_id,
+            current_version,
+            managed_by,
+            manual_update_command,
+            format!(
+                "Cannot check for a {display_name} update — the latest release does not carry a \
+                 version number MeedyaDL can read, so it cannot tell whether it is newer."
+            ),
+        ));
+    }
+
+    let update_available = verdict == VersionVerdict::UpdateAvailable;
+
+    Ok(ComponentUpdate {
+        name: display_name.to_string(),
+        current_version,
+        latest_version: Some(latest_normalized),
+        update_available,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: if update_available {
+            Some(format!(
+                "Newer version of {display_name} available from the mirror"
+            ))
+        } else {
+            None
+        },
+        release_url: Some("https://github.com/MeedyaSuite/MeedyaDL-Tools".to_string()),
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some(tool_id.to_string()),
+        managed_by,
+        manual_update_command,
+    })
+}
+
+/// Checks MP4Box for an update.
+///
+/// MP4Box has three real origins, and each needs a different answer:
+///
+/// * **A package manager** (Homebrew, apt) — whether MeedyaDL asked it to
+///   install MP4Box or the user already had it. Left entirely to that
+///   manager (the `#273` note: "this task is only for programmes MeedyaDL
+///   installed itself").
+/// * **GPAC's own installer** (the Windows `.exe`, the Linux `.deb`, the
+///   macOS `.pkg`) — compared against the version the PINNED installer
+///   provides, or "could not check" when the pin does not record one.
+///   (Not GPAC's latest release: the installer never downloads that.)
+/// * **The MeedyaSuite mirror**, used when GPAC's installer route fails —
+///   compared against what the MIRROR holds, never GPAC. Installing an
+///   "update" fetches from the mirror again, so offering GPAC's newer
+///   release would re-fetch the same bytes: the one mistake #273 says to
+///   avoid above all.
+///
+/// The last two both write the `.source` marker "managed", so they are
+/// told apart by the separate origin record
+/// (`dependency_manager::Mp4boxOrigin`). Before that record existed, every
+/// managed copy was compared against GPAC — and since every pinned GPAC
+/// installer is commented out in the shipped configuration, that was
+/// wrong for nearly every managed copy on Windows and Linux (batch-5
+/// review, finding 4).
+///
+/// A managed copy with no origin record was installed before the record
+/// existed. It is reported as "could not check", with the fix, rather than
+/// guessed at — the same approach FFmpeg takes.
+async fn check_mp4box_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+    // Ownership and the installed version first — see gate_before_comparing.
+    // The two checks routed to below run the same gate again, which costs
+    // one extra `MP4Box -version`; that is cheaper than a second copy of
+    // the rule.
+    let current_version = match gate_before_comparing(app, "mp4box", "MP4Box").await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
+    };
+
+    use crate::services::dependency_manager::{read_mp4box_origin, Mp4boxOrigin};
+    match read_mp4box_origin(app) {
+        Some(Mp4boxOrigin::GpacOfficial) => {
+            // Compared against the version the PINNED installer contains,
+            // never GPAC's latest release: re-running the installer can
+            // only produce the pinned version, so "latest" would be offered
+            // for ever and never arrive (Codex, batch-5 review, finding 2).
+            let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
+            let Some(pinned) =
+                crate::services::dependency_manager::gpac_pinned_version_for_this_platform()
+            else {
+                return Ok(not_checkable_update(
+                    "MP4Box",
+                    "mp4box",
+                    current_version,
+                    managed_by,
+                    manual_update_command,
+                    "Cannot check for an MP4Box update — this copy came from GPAC's own \
+                     installer, and this build of MeedyaDL does not record which version that \
+                     installer provides."
+                        .to_string(),
+                ));
+            };
+            let verdict =
+                compare_installed_against_latest(current_version.as_deref(), Some(&pinned));
+            let update_available = verdict == VersionVerdict::UpdateAvailable;
+            if matches!(
+                verdict,
+                VersionVerdict::Unreadable | VersionVerdict::LatestUnreadable
+            ) {
+                return Ok(not_checkable_update(
+                    "MP4Box",
+                    "mp4box",
+                    current_version,
+                    managed_by,
+                    manual_update_command,
+                    "Cannot check for an MP4Box update — either the installed version or the \
+                     version the installer provides could not be read."
+                        .to_string(),
+                ));
+            }
+            Ok(ComponentUpdate {
+                name: "MP4Box".to_string(),
+                current_version,
+                latest_version: Some(pinned),
+                update_available,
+                not_checkable_reason: None,
+                is_compatible: true,
+                is_untested: false,
+                no_compatible_wheel: false,
+                description: update_available
+                    .then(|| "A newer MP4Box is available from GPAC's installer".to_string()),
+                release_url: Some("https://github.com/gpac/gpac/releases".to_string()),
+                release_body: None,
+                is_prerelease: false,
+                tag_name: None,
+                pip_package: None,
+                tool_id: Some("mp4box".to_string()),
+                managed_by,
+                manual_update_command,
+            })
+        }
+        Some(Mp4boxOrigin::Mirror) => {
+            // The mirror records MP4Box's version as it comes; drop a
+            // leading "v" so it compares like the installed copy's
+            // reading. (As of 24 Sept 2026 the mirror records NO version
+            // for MP4Box — an empty entry — which that check already
+            // reports as "could not check".)
+            check_mirror_only_tool_update(app, "mp4box", "mp4box", "MP4Box", |v| {
+                v.trim().trim_start_matches(['v', 'V']).to_string()
+            })
+            .await
+        }
+        None => {
+            let (managed_by, manual_update_command) = tool_pm_attribution(app, "mp4box");
+            Ok(not_checkable_update(
+                "MP4Box",
+                "mp4box",
+                current_version,
+                managed_by,
+                manual_update_command,
+                "Cannot check for an MP4Box update — this copy was installed before MeedyaDL \
+                 began recording where it came from. Reinstalling MP4Box (Settings > Tools) lets \
+                 future checks work."
+                    .to_string(),
+            ))
+        }
+    }
+}
+
+/// Checks FFmpeg for an update.
+///
+/// FFmpeg has no ordinary version number MeedyaDL can compare — see
+/// `dependency_manager::fetch_ffmpeg_source_build_date()`'s doc comment
+/// for why (BtbN's release tag is permanently the literal word
+/// "latest"; evermeet.cx's own version number tracks which upstream
+/// FFmpeg *release* is packaged, not when MeedyaDL's specific copy was
+/// built). So this compares the date the currently-installed copy's
+/// source reported at install time (recorded in
+/// `.ffmpeg-build-info.json` by `dependency_manager::install_tool()`)
+/// against that SAME source's date right now, and offers an update
+/// only once the gap passes roughly a month. Comparing across sources
+/// would be meaningless — BtbN and evermeet.cx build FFmpeg completely
+/// independently of each other, on their own schedules.
+///
+/// Every case where the age genuinely cannot be determined — no record
+/// was ever written (an install from before this feature existed), the
+/// build date couldn't be read at install time, or the record is
+/// unreadable — returns an honest "not checkable" `ComponentUpdate`
+/// (see `not_checkable_update()`) rather than silently reading as "no
+/// update found". Only a live network failure while asking the source
+/// for its CURRENT date bubbles up as `Err`, the same non-fatal shape
+/// every other check in this file uses.
+async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
+    // Chosen by the maintainer rather than derived — see issue #273:
+    // "offer an update only when the SAME source has a build more than
+    // about 30 days newer."
+    const STALE_AFTER_DAYS: i64 = 30;
+
+    // Ownership and the installed version first — see gate_before_comparing.
+    let current_version = match gate_before_comparing(app, "ffmpeg", "FFmpeg").await {
+        Ok(version) => version,
+        Err(settled) => return Ok(*settled),
+    };
+    let (managed_by, manual_update_command) = tool_pm_attribution(app, "ffmpeg");
+
+    let info_path = crate::services::dependency_manager::ffmpeg_build_info_path(app);
+    let Some(info) = std::fs::read_to_string(&info_path).ok().and_then(|s| {
+        serde_json::from_str::<crate::services::dependency_manager::FfmpegBuildInfo>(&s).ok()
+    }) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — this copy was installed before MeedyaDL began \
+             recording where it came from. Reinstalling FFmpeg (Settings > Tools) lets future \
+             checks work."
+                .to_string(),
+        ));
+    };
+
+    // Asked BEFORE looking at the recorded date. A Mac copy installed
+    // before this rule existed does have a date recorded — but it is the
+    // Linux/Windows build's date, so comparing it would still be wrong.
+    // See `mirror_records_ffmpeg_build_date_for` (batch-5 review, finding 3).
+    if info.source == "mirror"
+        && !crate::services::dependency_manager::mirror_records_ffmpeg_build_date_for(
+            std::env::consts::OS,
+        )
+    {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — this copy came from MeedyaDL's backup download \
+             source, which records a version number for the Mac build rather than a build date, \
+             so its age cannot be compared. Reinstalling FFmpeg (Settings > Tools) normally \
+             fetches it from its main source instead, which can be checked."
+                .to_string(),
+        ));
+    }
+
+    let Some(recorded_date) = info.build_date.as_deref() else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the build date could not be read when this \
+             copy was installed."
+                .to_string(),
+        ));
+    };
+
+    let Ok(recorded_date) = chrono::DateTime::parse_from_rfc3339(recorded_date) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the recorded install date is unreadable."
+                .to_string(),
+        ));
+    };
+    let recorded_date = recorded_date.with_timezone(&chrono::Utc);
+
+    // The only network call in this function — a real failure here (and
+    // only here) is allowed to bubble up as Err, same as every other
+    // check in this file: it means "couldn't reach the source right
+    // now", not "this copy can never be checked".
+    let current_build_date =
+        crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source, false)
+            .await?;
+
+    let age_days = (current_build_date - recorded_date).num_days();
+    let update_available = age_days > STALE_AFTER_DAYS;
+
+    Ok(ComponentUpdate {
+        name: "FFmpeg".to_string(),
+        current_version,
+        // FFmpeg has no meaningful version number to show as "latest" for
+        // two of its three sources — the build date is the only thing
+        // that means the same thing every time, so it's shown instead.
+        latest_version: Some(current_build_date.date_naive().to_string()),
+        update_available,
+        not_checkable_reason: None,
+        is_compatible: true,
+        is_untested: false,
+        no_compatible_wheel: false,
+        description: if update_available {
+            Some(format!(
+                "A newer FFmpeg build is available from the same source (about {age_days} days newer)"
+            ))
+        } else {
+            None
+        },
+        release_url: Some(ffmpeg_source_release_url(&info.source)),
+        release_body: None,
+        is_prerelease: false,
+        tag_name: None,
+        pip_package: None,
+        tool_id: Some("ffmpeg".to_string()),
+        managed_by,
+        manual_update_command,
+    })
+}
+
+/// Where a user can go look at FFmpeg's current build for `source`
+/// themselves, for the release-URL link shown alongside the update
+/// status.
+fn ffmpeg_source_release_url(source: &str) -> String {
+    match source {
+        "btbn" => "https://github.com/BtbN/FFmpeg-Builds/releases/latest".to_string(),
+        "evermeet" => "https://evermeet.cx/ffmpeg/".to_string(),
+        "mirror" => "https://github.com/MeedyaSuite/MeedyaDL-Tools".to_string(),
+        _ => "https://ffmpeg.org/".to_string(),
+    }
 }
 
 /// Checks whether the app's own Python runtime should be reinstalled at
@@ -1550,6 +2723,7 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         update_available,
         // Python updates are always compatible since we control the version
         // and test it with GAMDL before shipping.
+        not_checkable_reason: None,
         is_compatible: true,
         is_untested: false,
         no_compatible_wheel: false, // Only computed for GAMDL
@@ -1664,6 +2838,9 @@ async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         current_version: current,
         latest_version: latest.clone(),
         update_available,
+        // Both of these are checked against what the package index
+        // publishes, so there is no "could not tell" case here.
+        not_checkable_reason: None,
         is_compatible,
         is_untested,
         no_compatible_wheel: false, // Wheel-availability gating is GAMDL-specific (#gamdl-3.8.2-hardening)
@@ -1725,6 +2902,7 @@ async fn check_pip_engine_update(
         current_version: installed,
         latest_version: latest,
         update_available,
+        not_checkable_reason: None,
         is_compatible: true, // Pip engines don't have compatibility gates (unlike GAMDL)
         is_untested: false,  // Untested-vs-tested only applies to GAMDL
         no_compatible_wheel: false, // Only computed for GAMDL
@@ -2182,6 +3360,642 @@ mod tests {
         assert!(
             known_keys.contains(&key),
             "Platform key '{key}' should be a known Tauri updater key"
+        );
+    }
+
+    // ----------------------------------------------------------------
+    // Known-bad-aware GAMDL update classification (independent review
+    // fix — the update offer used to never consult the known-bad list)
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn classify_gamdl_latest_flags_a_known_bad_release_as_untested() {
+        // The whole point of the fix: PyPI reporting a known-bad
+        // version as "latest" must not sail through as an ordinary,
+        // ungated update.
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9"), "macos");
+        assert!(is_untested, "a known-bad release must be flagged untested");
+        assert!(known_bad.is_some(), "must report which known-bad entry matched");
+        assert_eq!(known_bad.unwrap().fixed_in, "3.9.1");
+
+        // Written the other way, it is the same release.
+        let (is_untested_alt, known_bad_alt) = classify_gamdl_latest(Some("3.9.0"), "macos");
+        assert!(is_untested_alt);
+        assert!(known_bad_alt.is_some());
+    }
+
+    #[test]
+    fn classify_gamdl_latest_does_not_flag_the_fix_itself() {
+        // The release that FIXES the known-bad entry must not itself be
+        // reported as known-bad or untested (assuming it's within this
+        // platform's ceiling).
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9.1"), "macos");
+        assert!(known_bad.is_none());
+        assert!(!is_untested, "the fix release itself must not read as untested");
+    }
+
+    #[test]
+    fn classify_gamdl_latest_still_flags_ordinary_above_ceiling_releases() {
+        // A release that is simply newer than anything validated (and
+        // NOT on the known-bad list) must still be caught by the
+        // pre-existing ceiling check — the known-bad addition must not
+        // have replaced that logic, only extended it.
+        let (is_untested, known_bad) = classify_gamdl_latest(Some("99.0.0"), "macos");
+        assert!(is_untested);
+        assert!(known_bad.is_none());
+    }
+
+    #[test]
+    fn classify_gamdl_latest_handles_no_latest_version() {
+        let (is_untested, known_bad) = classify_gamdl_latest(None, "macos");
+        assert!(!is_untested);
+        assert!(known_bad.is_none());
+    }
+
+    #[test]
+    fn advice_about_a_broken_release_is_measured_against_what_is_installed() {
+        // An independent review found this being measured against the
+        // release being OFFERED instead. The helper decides between
+        // "move back to" and "install" by comparing with what is
+        // installed, so feeding it the wrong version made it describe a
+        // move relative to a release the person may never have had —
+        // somebody on 3.8.4 was told to "move back" to 3.8.5, which is
+        // forward.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+
+        // Held-back platform, and the person is BELOW its ceiling: going
+        // to the ceiling is a step forward, so it must not read as going
+        // back.
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "windows-aarch64",
+            Some("3.8.4"),
+            Some("3.9"),
+        )
+        .expect("an update is available");
+        assert!(
+            !desc.contains("move back"),
+            "3.8.4 is below the ceiling, so this is not a downgrade: {desc}"
+        );
+
+        // Same platform, but the person is ABOVE its ceiling: now it
+        // really is going back, and must say so.
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "windows-aarch64",
+            Some("3.9"),
+            Some("3.9"),
+        )
+        .expect("an update is available");
+        assert!(
+            desc.contains("move back"),
+            "3.9 is above the ceiling, so this IS a downgrade and must say so: {desc}"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_untested_release_is_still_offered_as_a_choice() {
+        // The first attempt at the "cannot be installed" message got
+        // this wrong, and a second review round caught it. On a platform
+        // with no limit of its own, "above this platform's ceiling" and
+        // "above the general ceiling" are the same sentence — so every
+        // ordinary untested release, which the amber badge exists to
+        // offer, would have been declared impossible to install.
+        //
+        // A newer release on macOS must still read as a choice.
+        let window = crate::services::gamdl_capabilities::support_window();
+        let newer = format!("{}.99", window.maximum_tested.split('.').next().unwrap_or("3"));
+
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            true,
+            "macos",
+            Some(&window.maximum_tested),
+            Some(&newer),
+        )
+        .expect("an update is available");
+        assert!(
+            !desc.contains("cannot be installed"),
+            "macOS has no limit of its own, so this is installable on request: {desc}"
+        );
+        assert!(
+            desc.contains("untested"),
+            "it should read as untested, which is a choice: {desc}"
+        );
+    }
+
+    #[test]
+    fn with_nothing_installed_there_is_no_going_back() {
+        // A second review round found the fallback telling somebody with
+        // no GAMDL at all to "move back" to a version they had never
+        // had. With nothing installed the advice has to read as what to
+        // install, not as a retreat.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+
+        for platform_id in ["macos", "windows-aarch64"] {
+            let desc =
+                gamdl_update_description(true, false, Some(bad), true, platform_id, None, Some("3.9"))
+                    .expect("an update is available");
+            assert!(
+                !desc.contains("move back"),
+                "{platform_id}: nothing is installed, so there is nowhere to move back to: {desc}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_release_this_platform_cannot_install_is_not_called_merely_untested() {
+        // "Untested" invites a decision — you may install it and accept
+        // the risk. A release above this platform's own limit cannot be
+        // installed at all; the install path refuses it. An independent
+        // review found the two being told apart nowhere, so the screen
+        // offered a choice that did not exist.
+        let window = crate::services::gamdl_capabilities::support_window();
+        let Some(ceiling) = window.platform_ceilings.get("windows-aarch64") else {
+            return; // No longer held back — nothing to prove.
+        };
+        let above = window.maximum_tested.clone();
+        if !crate::services::gamdl_capabilities::is_above_ceiling_for_platform(
+            &above,
+            "windows-aarch64",
+        ) {
+            return; // The general ceiling has come down to meet it.
+        }
+
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            true,
+            "windows-aarch64",
+            Some(ceiling),
+            Some(&above),
+        )
+        .expect("an update is available");
+        assert!(
+            desc.contains("cannot be installed"),
+            "a refused release must say so plainly, got: {desc}"
+        );
+        assert!(
+            !desc.contains("(untested with this MeedyaDL build)"),
+            "it must not read as an optional untested upgrade, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_prioritises_no_wheel_over_known_bad() {
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, true, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
+            .expect("update_available=true must produce Some description");
+        assert!(
+            desc.contains("no compatible wheel"),
+            "the harder blocker must win, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_names_the_fault_and_the_fix_for_a_known_bad_release() {
+        // macOS tracks the global ceiling, which is itself the fix for
+        // the 3.9 entry — so naming it plainly, with "or newer", is
+        // correct here.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, false, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
+            .expect("update_available=true must produce Some description");
+        assert!(desc.contains(bad.reason), "must include the actual reason, got: {desc}");
+        assert!(
+            desc.contains(bad.fixed_in),
+            "must name the fixed-in release, got: {desc}"
+        );
+        assert!(
+            desc.contains("or newer"),
+            "a platform that can install the fix may say 'or newer', got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_never_offers_an_uninstallable_fix_as_an_update() {
+        // Windows on ARM is held below the 3.9 entry's own `fixed_in`
+        // (3.9.1) — the PyPI "latest" release IS the known-bad one, and
+        // the description must not dress up a downgrade as an update,
+        // must not say "or newer" (which would re-permit the broken
+        // release), and must not name the un-installable 3.9.1 as
+        // something to move TO — but it MUST still say why 3.9.1 isn't
+        // reachable here, which means naming it as part of that
+        // explanation.
+        let window = crate::services::gamdl_capabilities::support_window();
+        if !window.platform_ceilings.contains_key("windows-aarch64") {
+            return; // Entry removed — nothing left to prove.
+        }
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+        let desc = gamdl_update_description(true, false, Some(bad), true, "windows-aarch64", Some("3.9"), Some("3.9"))
+            .expect("update_available=true must produce Some description");
+        assert!(
+            !desc.contains("or newer"),
+            "windows-aarch64 cannot install past its own ceiling, got: {desc}"
+        );
+        assert!(
+            !desc.contains("Update to GAMDL 3.9.1") && !desc.contains("Install GAMDL 3.9.1"),
+            "3.9.1 must never be framed as something to install here, got: {desc}"
+        );
+        assert!(
+            desc.contains("3.9.1"),
+            "must still name 3.9.1 to explain why it's unavailable, got: {desc}"
+        );
+        assert!(
+            desc.contains("move back"),
+            "the advised version is a downgrade from what's installed and must say so, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn gamdl_update_description_uses_the_same_sentence_as_known_bad_advice() {
+        // The point of the shared helper: this description and the
+        // Settings badge (`dependencies::gamdl_classification_fields`)
+        // and the explicit-install refusal
+        // (`gamdl_service::refuse_unsupported_target`) must all embed
+        // the exact same words for the same platform, not three
+        // independently-worded approximations of the same fact.
+        let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
+            .expect("3.9 must be on the known-bad list");
+
+        for platform_id in ["macos", "windows-aarch64"] {
+            let desc = gamdl_update_description(true, false, Some(bad), true, platform_id, Some("3.9"), Some("3.9"))
+                .expect("update_available=true must produce Some description");
+            let expected = gamdl_capabilities::known_bad_advice(
+                bad.reason,
+                bad.fixed_in,
+                bad.version,
+                platform_id,
+            );
+            assert!(
+                desc.contains(&expected),
+                "{platform_id}: description must embed known_bad_advice's exact sentence.\n\
+                 expected to find: {expected}\n\
+                 got: {desc}"
+            );
+        }
+    }
+
+    #[test]
+    fn gamdl_update_description_falls_back_through_the_ordinary_states() {
+        // Untested (no known-bad match) — generic warning.
+        let desc = gamdl_update_description(true, false, None, true, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        assert!(desc.contains("untested"));
+
+        // Fully ordinary update.
+        let desc = gamdl_update_description(true, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        assert_eq!(desc, "New GAMDL version available on PyPI");
+
+        // No update available at all — no description regardless of
+        // the other flags.
+        assert_eq!(
+            gamdl_update_description(false, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")),
+            None
+        );
+    }
+
+    // ============================================================
+    // Tool update-check tests (issue #273)
+    // ============================================================
+
+    /// The real example named in issue #273: GPAC jumped from a
+    /// locally-detected `"2.4"` (MeedyaDL's own `MP4BOX_RE` parse of
+    /// `"MP4Box - GPAC version 2.4-DEV..."`) to a GitHub release tagged
+    /// `"26.07.0"` — more than a factor of ten in the major number.
+    /// Exercises the real, shared `is_newer()` this module uses for
+    /// every version comparison (not a re-implementation of it), so a
+    /// naive-string-comparison regression (`"2.4" > "26.07.0"` reads
+    /// true lexicographically, which would be the wrong answer) can't
+    /// creep back in unnoticed.
+    #[test]
+    fn is_newer_handles_mp4boxs_real_major_version_jump() {
+        assert!(is_newer("2.4", "26.07.0"));
+        // And the reverse must not also read as newer — the shape a
+        // broken comparator that always returns true would take.
+        assert!(!is_newer("26.07.0", "2.4"));
+    }
+
+    /// `dependency_manager::normalize_bento4_version()` feeding straight
+    /// into this module's real `is_newer()`, for the two cases that
+    /// actually matter to a user: a genuine version bump reads as an
+    /// update, and a difference that's ONLY in the build number — which
+    /// MeedyaDL's own installed-version reader can never see, since it
+    /// only ever extracts three dotted numbers — correctly reads as
+    /// "nothing to offer" rather than proposing to reinstall what's
+    /// already there.
+    #[test]
+    fn mirror_mp4decrypt_version_compares_correctly_once_normalized() {
+        let installed = "1.6.0";
+
+        // Mirror's raw "1-6-0-641" differs from "1.6.0" only in a build
+        // number the local reader can't see at all — must not claim an
+        // update is available.
+        let mirror_same_release =
+            crate::services::dependency_manager::normalize_bento4_version("1-6-0-641");
+        assert!(!is_newer(installed, &mirror_same_release));
+
+        // A genuine bump: mirror's patch number increased.
+        let mirror_newer =
+            crate::services::dependency_manager::normalize_bento4_version("1-6-1-650");
+        assert!(is_newer(installed, &mirror_newer));
+    }
+
+    /// The exact fault this guard exists to stop.
+    ///
+    /// This test does NOT call the guard. It shows what the comparison
+    /// does on its own, so the reason for the guard stays written down
+    /// even if somebody later decides the guard looks unnecessary.
+    #[test]
+    fn an_error_message_compares_as_older_than_every_real_version() {
+        // What a helper programme actually prints when it is installed
+        // but cannot start. An independent reviewer found the archive
+        // this app downloads for MP4Box on Linux needs a shared library
+        // it does not contain.
+        let what_it_printed = "MP4Box: error while loading shared libraries: \
+                               libgpac.so.16: cannot open shared object file";
+
+        // Left to itself, the comparison says this is out of date —
+        // because anything unreadable is read as 0.0.0.
+        assert!(
+            is_newer(what_it_printed, "2.6.1"),
+            "this is the fault: an error message reads as version 0.0.0, \
+             so every real version looks newer than it"
+        );
+    }
+
+    #[test]
+    fn an_error_message_is_not_a_version() {
+        for not_a_version in [
+            // The real one, from the MP4Box report.
+            "MP4Box: error while loading shared libraries: libgpac.so.16: \
+             cannot open shared object file: No such file or directory",
+            // The other shapes a programme that will not start produces.
+            "dyld: Library not loaded: /opt/homebrew/lib/libgpac.12.dylib",
+            "command not found",
+            "Permission denied",
+            "Usage: mp4decrypt [options] <input> <output>",
+            "error: unrecognised option '--version'",
+            "",
+            "   ",
+            // A version number is not a version if nothing precedes it.
+            "unknown",
+        ] {
+            assert!(
+                !looks_like_a_version(not_a_version),
+                "{not_a_version:?} is not a version number"
+            );
+        }
+    }
+
+    #[test]
+    fn the_real_shapes_tools_print_are_all_accepted() {
+        // Taken from what the five helper programmes this app installs
+        // actually print, not invented. Refusing any of these would
+        // trade a confident wrong answer for a confident "cannot tell",
+        // which is no improvement.
+        for a_version in [
+            "2.6.1",      // MP4Box
+            "1.6.0-641",  // mp4decrypt, as the mirror records it
+            "26.07.0",    // FFmpeg, zero-padded month
+            "v0.3.0",     // N_m3u8DL-RE, tag form
+            "24.12",      // MediaInfo, two components only
+            "7.1.1",      // FFmpeg, ordinary
+            "0.5.1-beta", // a pre-release suffix
+            "  3.8.5  ",  // whitespace either side
+        ] {
+            assert!(
+                looks_like_a_version(a_version),
+                "{a_version:?} is a version this app has to be able to read"
+            );
+        }
+    }
+
+    #[test]
+    fn the_reason_quotes_what_the_programme_actually_said() {
+        // The person reading this needs the programme's own words: that
+        // is what they will search for, and what tells them whether it
+        // is a missing library, a permission problem or something else.
+        let reason = unreadable_version_reason(
+            "MP4Box",
+            "MP4Box: error while loading shared libraries: libgpac.so.16",
+        );
+        assert!(reason.contains("MP4Box"), "names the programme");
+        assert!(
+            reason.contains("libgpac.so.16"),
+            "quotes what it actually said, so the person can act on it"
+        );
+        assert!(
+            !reason.contains("0.0.0"),
+            "never shows the made-up version the comparison would have used"
+        );
+    }
+
+    #[test]
+    fn a_very_long_error_is_cut_at_a_whole_character() {
+        // Some programmes print a whole paragraph. Cutting by bytes
+        // through the middle of an accented character stops the
+        // program — that is issue #229, and this wording is built from
+        // text MeedyaDL did not write, so it has to use the safe cut.
+        let long_and_accented = "é".repeat(500);
+        let reason = unreadable_version_reason("MediaInfo", &long_and_accented);
+        assert!(reason.len() < 500, "the quoted part is shortened");
+        // Reaching here at all is most of the test: a cut mid-character
+        // would have stopped the program before this line.
+        assert!(reason.contains("MediaInfo"));
+    }
+
+    /// Proves the guard is actually WIRED IN, not merely present.
+    ///
+    /// The earlier tests in this file check `looks_like_a_version` on
+    /// its own — they would pass just as happily if nothing ever called
+    /// it. This one goes through the function both comparison sites
+    /// use, so deleting the guard from that function fails this test.
+    /// (Checked by deleting it: this test and
+    /// `an_unreadable_version_is_caught_even_when_there_is_nothing_to_compare_against`
+    /// then fail — two in all — while the predicate tests above carry on
+    /// passing, which is exactly why this test had to exist.)
+    #[test]
+    fn a_programme_that_cannot_report_its_version_is_not_called_out_of_date() {
+        let verdict = compare_installed_against_latest(
+            Some("MP4Box: error while loading shared libraries: libgpac.so.16"),
+            Some("2.6.1"),
+        );
+        assert_eq!(
+            verdict,
+            VersionVerdict::Unreadable,
+            "an error message must never be compared as if it were a version"
+        );
+        assert_ne!(
+            verdict,
+            VersionVerdict::UpdateAvailable,
+            "this is the false 'update available' that never went away, \
+             however many times the person pressed Update"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_out_of_date_tool_is_still_reported() {
+        // The guard must not have made the check useless.
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("2.6.1")),
+            VersionVerdict::UpdateAvailable
+        );
+    }
+
+    #[test]
+    fn a_current_tool_stays_quiet() {
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+        // Newer than the latest published — someone building from
+        // source. Not an update, and not an error either.
+        assert_eq!(
+            compare_installed_against_latest(Some("2.7.0"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+    }
+
+    #[test]
+    fn nothing_installed_is_not_the_same_as_unreadable() {
+        // "Not installed" is handled elsewhere, by the Tools page. It
+        // must not come back here as a thing that could not be checked,
+        // or every missing optional tool would raise a notice.
+        assert_eq!(
+            compare_installed_against_latest(None, Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+    }
+
+    #[test]
+    fn an_unreadable_version_is_caught_even_when_there_is_nothing_to_compare_against() {
+        // The order matters. If the "is there a latest version?" check
+        // came first, a tool whose upstream tag is unparseable (FFmpeg's
+        // builds use tags like "latest") would quietly skip the
+        // readability check — and the next time that tag did parse, the
+        // false update would reappear. Ask about the installed string
+        // first, always.
+        assert_eq!(
+            compare_installed_against_latest(Some("command not found"), None),
+            VersionVerdict::Unreadable
+        );
+    }
+
+    #[test]
+    fn a_check_that_did_not_finish_is_listed_not_dropped() {
+        // The fault: a failed check made the component vanish, so with no
+        // internet the page said "You're up to date!" having checked
+        // nothing. The entry must carry a reason, so the page lists it
+        // under "could not check", and must never claim an update.
+        let entry = check_did_not_complete("MP4Box", Some("mp4box"));
+        assert_eq!(entry.name, "MP4Box");
+        assert!(!entry.update_available, "a failed check is never an update");
+        assert_eq!(
+            entry.not_checkable_reason.as_deref(),
+            Some(CHECK_DID_NOT_COMPLETE),
+            "the reason is what puts it on the 'could not check' list"
+        );
+        assert_eq!(entry.tool_id.as_deref(), Some("mp4box"));
+    }
+
+    #[test]
+    fn gamdl_the_app_and_python_get_no_made_up_tool_id() {
+        // Their normal entries have no tool id. Inventing one could route
+        // an Update button to the tool installer for something that is
+        // not a tool.
+        for name in ["GAMDL", "MeedyaDL", "Python Runtime"] {
+            let entry = check_did_not_complete(name, None);
+            assert_eq!(entry.tool_id, None, "{name} must not get a tool id");
+            assert!(entry.not_checkable_reason.is_some());
+        }
+    }
+
+    #[test]
+    fn an_unreadable_latest_version_is_not_called_nothing_newer() {
+        // Only the installed side used to be checked. A release tag with
+        // no number, or a mirror entry like "unknown", read as 0.0.0 and so
+        // as "nothing newer" -- a guess dressed up as an answer (Codex,
+        // batch-5 review, finding 4).
+        for latest in [None, Some("unknown"), Some("latest"), Some("")] {
+            assert_eq!(
+                compare_installed_against_latest(Some("2.4.0"), latest),
+                VersionVerdict::LatestUnreadable,
+                "latest = {latest:?} cannot be compared against"
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_installed_version_is_still_reported_first() {
+        // When BOTH sides are unreadable, the installed side is the one
+        // the person can act on (reinstall), so it is the one reported.
+        assert_eq!(
+            compare_installed_against_latest(Some("command not found"), Some("unknown")),
+            VersionVerdict::Unreadable
+        );
+    }
+
+    #[test]
+    fn the_version_that_is_checked_is_the_version_that_is_compared() {
+        // A leading "v" used to pass the check and then be compared as
+        // 0.0.0; a word after the first number used to pass and be
+        // compared as zero (Codex, batch-5 review round 2).
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("v2.6.0")),
+            VersionVerdict::UpdateAvailable,
+            "a pinned `v2.6.0` is newer than 2.4.0"
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("v2.6.0"), Some("2.6.0")),
+            VersionVerdict::NothingNewer
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.4.0"), Some("2.unknown")),
+            VersionVerdict::LatestUnreadable,
+            "`2.unknown` is not a version and must not be read as 2.0.0"
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.unknown"), Some("2.6.0")),
+            VersionVerdict::Unreadable
+        );
+    }
+
+    #[test]
+    fn a_real_version_reading_includes_nightly_but_not_an_error() {
+        // FFmpeg's BtbN builds read as "nightly"; that means it ran.
+        assert!(is_a_real_version_reading("nightly"));
+        assert!(is_a_real_version_reading("7.1.1"));
+        // What a programme that cannot start prints is not a reading.
+        assert!(!is_a_real_version_reading(
+            "ffmpeg: error while loading shared libraries: libavdevice.so.61"
+        ));
+        assert!(!is_a_real_version_reading(""));
+    }
+
+    #[test]
+    fn a_build_label_does_not_make_a_version_look_older() {
+        // "2.6.1+build" used to be compared as 2.6.0 (Codex, follow-up
+        // review of 360ea73e).
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1+build.7"), Some("2.6.1")),
+            VersionVerdict::NothingNewer
+        );
+        assert_eq!(
+            compare_installed_against_latest(Some("2.6.1 (release)"), Some("2.6.2")),
+            VersionVerdict::UpdateAvailable
         );
     }
 }

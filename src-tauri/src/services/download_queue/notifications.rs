@@ -228,37 +228,51 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         // field, writes it back properly, and refreshes the in-process
         // cache itself — so the separate cache refresh that used to sit
         // here is no longer needed (#690's requirement is still met).
-        if let Err(e) = crate::services::config_service::update_settings_field(app, |s| {
-            s.after_queue_once = None;
-        }) {
+        // update_settings_field_and_memory clears the running app's copy
+        // too, even if the file write fails, and does both inside the
+        // settings lock — see its doc for the race this closes.
+        if let Err(e) =
+            crate::services::config_service::update_settings_field_and_memory(app, |s| {
+                s.after_queue_once = None;
+            })
+        {
             log::warn!("Failed to clear the one-shot after-queue action: {e}");
 
-            // The write failed — a full disk, a read-only folder — so the
-            // in-process cache was never refreshed and still holds the
-            // one-shot. Clear it there as well, or the action fires again
-            // the next time the queue empties, and again after that. These
-            // actions include shutting the computer down, so repeating one
-            // is not a small annoyance.
+            // The write failed — a full disk, a read-only folder. The
+            // running app's copy has still been cleared (inside the lock, by
+            // update_settings_field_and_memory), so the action cannot fire
+            // again this session: every other settings write keeps the
+            // running app's value for this field rather than the file's
+            // stale one (config_service::one_off_in_memory), so none of them
+            // can put it back.
             //
-            // The old code got this right by accident: it ignored the
-            // result of its raw write and refreshed the cache regardless.
-            // Routing through the narrow write made the refresh conditional
-            // on success, which quietly reintroduced the repeat. Caught in
-            // review.
+            // What remains: the FILE still has it until the next successful
+            // settings write (any write corrects it, taking the running
+            // app's value). If MeedyaDL is restarted before one happens, the
+            // file's stale value is loaded again. That is the safer of the
+            // two wrong answers: doing it twice in one session is worse than
+            // doing it once more after a restart the person chose to make.
             //
-            // `mutate` changes just this one field in place and leaves the
-            // rest of the cached settings alone — it does not write the
-            // whole cached object back over anything.
-            //
-            // The action stays cleared in memory but not on disk, so a
-            // restart before the next successful save would bring it back.
-            // That is the safer of the two wrong answers: doing it twice in
-            // one session is worse than doing it once more after a restart
-            // the person chose to perform.
-            use tauri::Manager as _;
-            if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
-                cache.mutate(|s| s.after_queue_once = None);
-            }
+            // (Earlier versions said a restart was the ONLY way it could
+            // come back; a stand-in review, 24 Sept 2026, found any
+            // successful one-field write also brought it back, until every
+            // writer was made to keep the running app's value.)
+            // The running app's copy has already been cleared, inside the
+            // lock, by update_settings_field_and_memory. (This used to be
+            // done here, after the lock was released — which left a gap a
+            // Save could slip into and re-arm the action.)
+        }
+
+        // Tell the page the one-off has been used. The page keeps its own
+        // copy of the settings, and nothing else would tell it: the status
+        // bar went on showing a finished action as still armed, and that
+        // stale copy is what a later whole-settings Save used to write back
+        // (see save_settings, which now ignores it — this keeps the screen
+        // honest too). Best effort: a page that misses it is corrected the
+        // next time the settings are read.
+        use tauri::Emitter as _;
+        if let Err(e) = app.emit("after-queue-once-used", ()) {
+            log::debug!("Could not tell the page the one-off after-queue action was used: {e}");
         }
     }
 

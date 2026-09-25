@@ -189,6 +189,52 @@ export function StatusBar() {
     void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
   }, [abortAll, abortQueueConfirm, addToast, t]);
 
+  /**
+   * Plain-English summary of the counters below, read aloud by a screen
+   * reader through the dedicated live region rendered just below (a11y
+   * review fix).
+   *
+   * This bar used to carry `role="status"` and `aria-live="polite"` on
+   * its OUTER container -- the same element holding the counters, the
+   * "Abort Queue" button, the after-queue indicator, AND the version
+   * string. Because the counters change every time a download moves
+   * between states, a screen reader would re-read the ENTIRE bar each
+   * time -- including "Abort" and "MeedyaDL v1.13.0", neither of which
+   * had anything to do with what actually changed. Worse, a button
+   * sitting inside a live region can be announced to someone who never
+   * moved their focus anywhere near it, which is confusing on its own.
+   *
+   * The project already solved this exact problem on the Queue page
+   * (`DownloadQueue.tsx`'s single shared live region, and the comment on
+   * `StatusPill.tsx` recording why each row's own `role="status"` was
+   * removed for the same reason). The fix here follows the same shape:
+   * the visible bar is now an ordinary, non-live container, and this
+   * string -- built from the exact same phrases already shown on
+   * screen, just without the button or the version -- is the only thing
+   * inside the live region below. Because the string is derived by
+   * filtering the same counts the visible spans already use, it only
+   * actually changes value when a count changes, so a screen reader
+   * naturally never repeats itself just because the component
+   * re-rendered.
+   */
+  const statusSummaryParts: string[] = [];
+  if (downloadingCount > 0) {
+    statusSummaryParts.push(t('statusBar.downloading', { count: downloadingCount }));
+  }
+  if (processingCount > 0) {
+    statusSummaryParts.push(t('statusBar.processing', { count: processingCount }));
+  }
+  if (queuedCount > 0) {
+    statusSummaryParts.push(t('statusBar.queued', { count: queuedCount }));
+  }
+  if (completedCount > 0) {
+    statusSummaryParts.push(t('statusBar.completed', { count: completedCount }));
+  }
+  if (queueItems.length === 0) {
+    statusSummaryParts.push(t('statusBar.noDownloads'));
+  }
+  const statusSummary = statusSummaryParts.join(', ');
+
   return (
     /**
      * Status bar container.
@@ -202,20 +248,42 @@ export function StatusBar() {
      * `text-content-tertiary` -- muted text colour from the design tokens.
      *
      * @see https://tailwindcss.com/docs/font-size  -- arbitrary font size
+     *
+     * `role="group"` + `aria-label` (rather than `role="status"`)
+     * because this container is no longer a live region -- see the
+     * long comment on `statusSummary` above for why. `role="group"`
+     * keeps the bar as one named, browsable landmark for assistive
+     * tech without making every change inside it an announcement.
      */
     <div
-      role="status"
-      aria-live="polite"
+      role="group"
       aria-label={t('statusBar.ariaLabel')}
       className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary"
     >
+      {/*
+       * Screen-reader-only live region carrying ONLY the plain-English
+       * counter summary computed above -- not the Abort button, not the
+       * after-queue indicator, not the version string. This is the
+       * piece that actually needs to be spoken when it changes; nothing
+       * else in this bar does.
+       */}
+      <div role="status" aria-live="polite" className="sr-only">
+        {statusSummary}
+      </div>
+
       {/*
        * Left section: download activity summary.
        * Conditionally renders one or more count spans depending on
        * which states have items. If the queue is empty, a "No downloads"
        * placeholder is shown instead.
+       *
+       * `data-testid` exists only so tests can tell this VISIBLE copy of
+       * the counters apart from the hidden live-region copy above --
+       * both legitimately contain the same words ("2 downloading" reads
+       * the same whichever one a screen reader or a test happens to
+       * find), so a plain text search would otherwise match either one.
        */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3" data-testid="status-bar-visible-counters">
         {/*
          * Active downloads indicator.
          * The small dot (`w-1.5 h-1.5 rounded-full`) uses `bg-status-info`

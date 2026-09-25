@@ -37,7 +37,7 @@ import { create } from 'zustand';
 
 // AppSettings -- the full settings shape mirroring the Rust `AppSettings` struct.
 // Every field is non-optional at rest; partial updates use `Partial<AppSettings>`.
-import type { AppSettings } from '@/types';
+import type { AfterQueueAction, AppSettings } from '@/types';
 
 // Type-safe wrappers around `invoke()` -- each maps to a `#[tauri::command]` in Rust.
 // `getSettings` -> Rust `get_settings`, `saveSettings` -> Rust `save_settings`.
@@ -56,6 +56,29 @@ import * as commands from '@/lib/tauri-commands';
  *   - `default_song_codec: 'alac'` -- Lossless Apple audio by default
  *   - `fallback_enabled: true` -- If preferred codec unavailable, try the chain
  *   - `download_mode: 'ytdlp'` -- Use yt-dlp for stream fetching
+ */
+/**
+ * A placeholder shown for the moment before the real settings arrive.
+ *
+ * **This is not where the defaults live.** The app's real defaults are in
+ * the Rust code, and the Settings screen's "Reset" button asks the
+ * backend for them (`getDefaultSettings`). This copy exists only because
+ * the screen has to render something in the instant between the page
+ * opening and the settings being read from disk.
+ *
+ * It used to be the defaults, and it had drifted. Three values disagreed
+ * with the real ones, and two of the three were exactly the values a
+ * settings upgrade step exists to REPAIR — without the identifier on the
+ * end, two playlists with the same name overwrite each other's file and
+ * two compilations with the same album name pile into one folder (#545,
+ * #552). So pressing "Reset" and then "Save" put somebody straight back
+ * onto the patterns known to lose files. There was no settings version
+ * number here either, so a reset-then-save wrote version zero and re-ran
+ * every upgrade step at the next launch.
+ *
+ * `tools/audit-checks/check_settings_defaults.py` compares this list
+ * against the Rust one on every pull request, so it cannot drift again
+ * without somebody being told.
  */
 const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
@@ -152,7 +175,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   replaygain_album_gain: true, // Write album-level ReplayGain tags
   // File/folder naming templates -- use GAMDL's template variable syntax
   album_folder_template: '{album_artist}/{album}',
-  compilation_folder_template: 'Compilations/{album}',
+  compilation_folder_template: 'Compilations/{album} ({album_id})',
   no_album_folder_template: '{artist}/Unknown Album',
   // GAMDL v3.0+ only (#618). Stored unconditionally; the Rust side gates
   // CLI emission behind the detected GAMDL version so v2.9.x falls back to
@@ -161,7 +184,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   single_disc_file_template: '{track:02d} {title}', // Zero-padded track number
   multi_disc_file_template: '{disc}-{track:02d} {title}', // Disc-track for multi-disc albums
   no_album_file_template: '{title}',
-  playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title} ({playlist_id})',
   // Padding strategies for {track} and {disc} placeholders (#587).
   // Auto-derive widths from track_total / disc_total — sorts box sets correctly.
   track_number_padding: 'auto' as const,
@@ -174,7 +197,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   nm3u8dlre_path: null, // N_m3u8DL-RE for HLS/DASH stream downloading
   mediainfo_path: null, // MediaInfo CLI for accurate codec detection
   download_mode: 'ytdlp', // Stream download backend: yt-dlp (default) or N_m3u8DL-RE
-  remux_mode: 'ffmpeg', // Remuxing backend: FFmpeg (default) or MP4Box
+  remux_mode: 'mp4box', // Which program stitches the finished file together
   use_wrapper: false, // Whether to use a remote account wrapper service
   auto_retry_without_wrapper: false, // Auto-retry without wrapper when wrapper download fails
   storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
@@ -182,6 +205,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   wrapper_m3u8_ip: '127.0.0.1:20020', // wrapper-v1 m3u8 address (GAMDL 3.1–3.5.x)
   wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
   wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
+  drm_backend: 'widevine', // Which method GAMDL uses to unlock Apple Music tracks; built-in, needs no setup (#1189, GAMDL >= 3.9 adds 'playready')
+  prd_path: '', // PlayReady device file (.prd) path; only used when drm_backend is 'playready'
   truncate: null, // Max filename length in characters; null = no truncation
   exclude_tags: [], // Metadata tags to exclude from output files
   sentry_enabled: false, // Opt-in anonymous crash reporting via Sentry (default: off)
@@ -281,6 +306,18 @@ interface SettingsState {
   syncSidebarCollapsed: (collapsed: boolean) => void;
 
   /**
+   * Set the in-memory one-off after-queue action without marking the
+   * Settings screen as having unsaved changes. See the implementation.
+   */
+  syncAfterQueueOnce: (action: AfterQueueAction | null) => void;
+
+  /**
+   * Set in-memory fields that have just been saved by their own one-field
+   * command, without marking the Settings screen as unsaved.
+   */
+  syncSaved: (fields: Partial<AppSettings>) => void;
+
+  /**
    * Merge partial changes into the current settings (in-memory only).
    * Uses the spread operator to produce a new `settings` object, ensuring
    * Zustand detects the change via reference inequality.
@@ -290,10 +327,21 @@ interface SettingsState {
   updateSettings: (partial: Partial<AppSettings>) => void;
 
   /**
-   * Reset all settings to `DEFAULT_SETTINGS`. Marks `isDirty = true` so the
-   * user must explicitly save (or discard) the reset.
+   * Put every setting back to what a brand-new install would have.
+   *
+   * Asks the backend for them rather than using this file's placeholder
+   * copy, because two copies of the same list always drift — and this
+   * one had, in a way that put back a bug a settings upgrade step exists
+   * to repair. See `DEFAULT_SETTINGS` above.
+   *
+   * Marks the settings as unsaved, so nothing is written until the
+   * person presses Save.
+   *
+   * Rejects if the backend cannot be reached, leaving the settings
+   * exactly as they were. That is the right way round: doing nothing and
+   * saying so is recoverable, and half-resetting is not.
    */
-  resetToDefaults: () => void;
+  resetToDefaults: () => Promise<void>;
 }
 
 /**
@@ -396,6 +444,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set((state) => ({ settings: { ...state.settings, sidebar_collapsed: collapsed } })),
 
   /**
+   * Match the in-memory one-off after-queue action to what is on disk (or,
+   * when the disk cannot be read, to the best guess available).
+   *
+   * Deliberately does NOT set `isDirty`, for the same reason as
+   * `syncSidebarCollapsed`: this value is written to disk by its own
+   * narrow command, and the Settings screen neither edits nor saves it.
+   * Going through `updateSettings` armed the "Save Changes" button just for
+   * choosing an after-queue action on the Download page — telling the
+   * person they had unsaved work when they had none (stand-in review, 24
+   * Sept 2026).
+   */
+  syncAfterQueueOnce: (action) =>
+    set((state) => ({ settings: { ...state.settings, after_queue_once: action } })),
+
+  /**
+   * Match the in-memory copy to fields that have JUST been written to disk
+   * by their own one-field command — without setting `isDirty`.
+   *
+   * Every one-field write (the crash-reporting answer, "don't ask again"
+   * before an abort, the "move MeedyaDL" answer, the setup wizard's choices)
+   * used to update the page's copy with `updateSettings`, which also sets
+   * `isDirty`. So after a successful save the Settings screen still said
+   * there were unsaved changes, and the "Re-run Setup Wizard" confirmation
+   * warned about edits that did not exist (Codex, batch-3 review). Any
+   * edit the person really has pending is left exactly as it is, and so is
+   * the flag.
+   */
+  syncSaved: (fields) =>
+    set((state) => ({ settings: { ...state.settings, ...fields } })),
+
+  /**
    * Merge a partial settings update into the current settings object.
    * Produces a new object reference via spread so Zustand detects the change.
    *
@@ -416,5 +495,25 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * Creates a fresh copy via spread to ensure referential inequality.
    * Marks `isDirty = true` because the reset has not been saved to disk yet.
    */
-  resetToDefaults: () => set({ settings: { ...DEFAULT_SETTINGS }, isDirty: true }),
+  resetToDefaults: async () => {
+    // The real defaults come from the backend, which is the one place
+    // they are written down. This used to spread this file's own copy,
+    // which had drifted from it — see `DEFAULT_SETTINGS` above for what
+    // that cost.
+    //
+    // Deliberately no fallback to the local copy when this fails. A
+    // fallback would quietly hand back a list we already know can be
+    // wrong, at the exact moment somebody is trying to get back to a
+    // known-good state. Failing out loud is better.
+    const defaults = await commands.getDefaultSettings();
+    // The one-off "after the queue, do this once" is not a setting the
+    // Settings screen edits or saves (save_settings keeps the value on
+    // disk), so Reset leaves this page's copy of it as it was. Replacing
+    // it with the default (nothing) made the status bar show no one-off
+    // while one was still armed on disk (stand-in review, 24 Sept 2026).
+    set((state) => ({
+      settings: { ...defaults, after_queue_once: state.settings.after_queue_once },
+      isDirty: true,
+    }));
+  },
 }));

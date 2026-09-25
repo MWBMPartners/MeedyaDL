@@ -84,12 +84,26 @@
 #     issue).
 #
 # Operational notes:
-#   - `workflow_dispatch` only shows a "Run workflow" button in the
-#     GitHub UI for a workflow file that lives on the DEFAULT branch --
-#     until this file is merged there, dispatch via the CLI with an
-#     explicit `--ref` (see CLAUDE.md "Conserving GitHub Actions
-#     Minutes"), e.g.:
-#       gh workflow run "Release Body Audit" --ref alpha -f tag=all -f dry_run=true
+#   - THIS WORKFLOW HAS NEVER RUN, NOT ONCE. It lives only on `alpha`,
+#     and GitHub only knows about a workflow file that is on the DEFAULT
+#     branch. Asking GitHub about this file by name returns "not found"
+#     (checked on 23 September 2026). So the thing it was built to do --
+#     noticing when a published release body has leaked internal detail
+#     or gone back to reading like commit messages, and putting the
+#     committed version back -- has never happened.
+#
+#   - The advice that used to sit here was worse than the gap it
+#     described. It said that until this file reaches the default branch
+#     you can still run it by hand:
+#       gh workflow run "Release Body Audit" --ref alpha ...
+#     That command CANNOT work. Running by hand needs the file on the
+#     default branch too, and the command above resolves the workflow
+#     through the very lookup that returns "not found". So the reassuring
+#     fallback was not a fallback at all, and anybody who believed it
+#     would think this was being run occasionally when it never has been.
+#
+#   - The fix is to get this file onto the default branch. Nothing else
+#     will do, and nothing here can do it.
 #   - Being merged to the default branch is necessary but NOT sufficient
 #     for this workflow to actually work: every trigger here (schedule,
 #     workflow_run, and workflow_dispatch's default branch picker) checks

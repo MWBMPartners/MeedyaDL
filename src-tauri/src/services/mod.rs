@@ -590,17 +590,12 @@ pub mod engine_registry;
 /// through a common interface for the enrichment pipeline.
 pub mod metadata_provider;
 
-/// Service status — fetches remote service enable/disable configuration.
-///
-/// Checks whether services (Apple Music, Spotify, etc.) are currently
-/// available. Used to disable UI elements for temporarily unavailable services.
-pub mod service_status;
-
 /// Remote feature-availability client (#1071).
 ///
 /// Resolves per-feature availability verdicts from MWBM-IntAppsAPI via a
 /// three-tier chain — in-memory snapshot -> sticky disk cache -> compiled
-/// all-enabled defaults — mirroring `service_status`'s shape. Neither
+/// all-enabled defaults — the shape the old, now-deleted service-status
+/// reader used. Neither
 /// `current()` nor `refresh()` can fail: an unreachable server keeps the
 /// last known verdicts and emits a single activity-log line, never a toast
 /// or a frontend error. A client-side sanity floor refuses any instruction

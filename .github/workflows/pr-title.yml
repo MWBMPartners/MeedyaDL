@@ -12,8 +12,13 @@
 name: PR Title
 
 on:
+  # Same branch list as ci.yml: main plus the three long-lived channel
+  # branches (alpha, beta, release-candidate). Most work lands on one of
+  # the channel branches first, not main, so a bad PR title used to slip
+  # through there with nothing to catch it. A real PR into `alpha` was
+  # checked and confirmed no title check ran on it before this was added.
   pull_request:
-    branches: [main]
+    branches: [main, alpha, beta, release-candidate]
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:

@@ -76,6 +76,102 @@ import { useUiStore } from '@/stores/uiStore';
 import { useDownloadStore } from '@/stores/downloadStore';
 
 /**
+ * Ceiling on how many links a single dropped `.meedyadl` file can hand to
+ * the URL text box in one go.
+ *
+ * Nothing else limited this before -- a manifest with thousands of
+ * entries would have dropped thousands of lines straight into the text
+ * box in one go. That would not have started thousands of downloads (the
+ * download form still checks each line before anything is queued -- see
+ * the long comment on `handleDrop` below), but it would have made the
+ * page briefly unusable while React rendered that much text, and the
+ * user would have had no idea why. Picking a number and truncating with
+ * a clear toast is better than no limit at all.
+ */
+const MAX_DROPPED_MANIFEST_URLS = 500;
+
+/**
+ * Checks that a single entry from a dropped manifest's `sources` array
+ * actually has a usable link on it.
+ *
+ * This exists because of a real bug: the old code did
+ * `(manifest.sources ?? []).map((s) => s.url)` with no check at all. If
+ * an entry in `sources` had no `url` property, `s.url` evaluated to
+ * JavaScript's `undefined`, and joining that into the text box with
+ * `.join('\n')` printed the literal seven-letter word "undefined" as if
+ * it were a real download link. Requiring `url` to be a non-empty string
+ * here stops that from ever reaching the screen.
+ */
+function isValidManifestSource(value: unknown): value is { url: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { url?: unknown }).url === 'string' &&
+    (value as { url: string }).url.trim().length > 0
+  );
+}
+
+/**
+ * Reads the download links out of a parsed `.meedyadl` manifest, or
+ * returns `null` if the file does not have the shape a manifest is
+ * supposed to have.
+ *
+ * Why this exists at all: the Rust side has a typed `ManifestFile`
+ * struct (`src-tauri/src/models/manifest.rs`) that a manifest is read
+ * into via `serde_json`, which refuses the whole file the moment
+ * anything doesn't match -- a missing `sources` array, a `version` that
+ * isn't a number, a source object with no `url` string all fail
+ * together as one error. This function is a much LIGHTER plain-JavaScript
+ * check for a manifest dropped straight onto the window: it confirms only
+ * enough structure to read the links out -- a `sources` array whose every
+ * entry has a non-empty `url` string. It is NOT equivalent to the Rust
+ * check: it does not enforce the other required fields, nor that
+ * `version` fits in the Rust side's unsigned 32-bit number, so a file such
+ * as `{"version": 4294967296, "sources": [{"url": "https://..."}]}` passes
+ * here and would fail there. (An earlier wording called this "the same
+ * check"; Codex, batch-3 review.) It is used
+ * because there is nowhere in this app's Rust code we can hand a
+ * dropped file's contents to instead (see the comment on `handleDrop`
+ * for why the existing Import button's backend command can't be reused
+ * here). Like the Rust side, if any one entry in `sources` doesn't fit
+ * the shape, the whole file is rejected rather than silently dropping
+ * just the bad entry -- a manifest that's wrong in one place is a
+ * manifest we can't trust the rest of either.
+ *
+ * @returns The list of URLs found, or `null` if the file's shape is wrong.
+ */
+function extractManifestUrls(parsed: unknown): string[] | null {
+  if (typeof parsed !== 'object' || parsed === null) {
+    return null;
+  }
+  const manifest = parsed as { version?: unknown; sources?: unknown };
+
+  /* The Rust struct requires `version: u32` -- present and a whole,
+   * non-negative number. A manifest with no version field at all, or a
+   * version that's text or a fraction, is not a file this app wrote. */
+  if (!Number.isInteger(manifest.version) || (manifest.version as number) < 0) {
+    return null;
+  }
+
+  /* The Rust struct requires `sources: Vec<ManifestSource>` -- present
+   * and an array (an empty array is fine here; that's handled by the
+   * caller as "manifest contains no download sources", a different
+   * message from "this isn't a manifest at all"). */
+  if (!Array.isArray(manifest.sources)) {
+    return null;
+  }
+
+  const urls: string[] = [];
+  for (const source of manifest.sources) {
+    if (!isValidManifestSource(source)) {
+      return null;
+    }
+    urls.push(source.url.trim());
+  }
+  return urls;
+}
+
+/**
  * Props for the {@link MainLayout} component.
  *
  * Uses React's `ReactNode` for maximum flexibility -- the parent can pass
@@ -231,30 +327,81 @@ export function MainLayout({ children }: MainLayoutProps) {
       dragCounterRef.current = 0;
       setIsDragOver(false);
 
-      /* Check for .meedyadl file drops first. */
+      /*
+       * Check for .meedyadl file drops first.
+       *
+       * The Import button on the download form (`handleImportManifest` in
+       * `DownloadForm.tsx`) does the same job through the Rust backend's
+       * `import_manifest` command, which reads the file into a typed
+       * `ManifestFile` struct -- so a manifest that doesn't fit that
+       * shape is refused outright, before anything reaches the screen.
+       *
+       * A dropped file could NOT be sent through that same command: the
+       * command has no parameter for a file's contents or its path at
+       * all -- it always opens its OWN native "choose a file" dialog and
+       * reads whatever the user picks there (`blocking_pick_file()`).
+       * There is no way to hand it a file the browser has already given
+       * us from a drop; using it here would mean throwing away the file
+       * the user just dropped and asking them to pick it again from a
+       * dialog, which defeats the point of drag-and-drop. So instead,
+       * `extractManifestUrls()` above performs by hand the same
+       * structural check the Rust struct gets for free, and this is the
+       * one place in the app that check needed writing twice for two
+       * genuinely different reasons, not because anyone forgot the
+       * first one.
+       *
+       * One real risk stays smaller than it looks: the URLs read here
+       * only ever land in the URL text box, never straight into the
+       * download queue. `DownloadForm`'s own submit handler still checks
+       * every line as an Apple Music URL before anything is queued, so a
+       * manifest that passes this shape check but contains nonsense
+       * links cannot start an unwanted download by itself -- this check
+       * exists to stop a malformed or malicious file from putting
+       * garbage text (or an unbounded wall of it) in front of the user,
+       * not to guarantee every link it produces is valid.
+       */
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         const file = files[0];
         if (file.name.endsWith('.meedyadl')) {
           const reader = new FileReader();
           reader.onload = async () => {
+            let parsed: unknown;
             try {
-              const manifest = JSON.parse(reader.result as string);
-              const urls: string[] = (manifest.sources ?? []).map(
-                (s: { url: string }) => s.url
-              );
-              if (urls.length > 0) {
-                setPage('download');
-                setUrlInput(urls.join('\n'));
-                addToast(
-                  `Imported ${urls.length} URL${urls.length !== 1 ? 's' : ''} from manifest`,
-                  'success'
-                );
-              } else {
-                addToast('Manifest contains no download sources', 'error');
-              }
+              parsed = JSON.parse(reader.result as string);
             } catch {
               addToast('Invalid .meedyadl manifest file', 'error');
+              return;
+            }
+
+            const urls = extractManifestUrls(parsed);
+            if (urls === null) {
+              addToast('Invalid .meedyadl manifest file', 'error');
+              return;
+            }
+            if (urls.length === 0) {
+              addToast('Manifest contains no download sources', 'error');
+              return;
+            }
+
+            const wasTruncated = urls.length > MAX_DROPPED_MANIFEST_URLS;
+            const urlsToImport = wasTruncated
+              ? urls.slice(0, MAX_DROPPED_MANIFEST_URLS)
+              : urls;
+
+            setPage('download');
+            setUrlInput(urlsToImport.join('\n'));
+
+            if (wasTruncated) {
+              addToast(
+                `Manifest had ${urls.length} URLs — only imported the first ${MAX_DROPPED_MANIFEST_URLS}`,
+                'warning'
+              );
+            } else {
+              addToast(
+                `Imported ${urlsToImport.length} URL${urlsToImport.length !== 1 ? 's' : ''} from manifest`,
+                'success'
+              );
             }
           };
           reader.readAsText(file);

@@ -207,6 +207,23 @@ export type DownloadMode = 'ytdlp' | 'nm3u8dlre';
 export type RemuxMode = 'ffmpeg' | 'mp4box';
 
 /**
+ * Which method the download engine (GAMDL) uses to unlock Apple Music's
+ * copy-protected tracks before they can be saved to disk.
+ *
+ * Mirrors: Rust enum `DrmBackend` in `src-tauri/src/models/settings.rs`
+ *
+ * - `widevine`: [DEFAULT] The method built into GAMDL. Needs no setup --
+ *   this is what every MeedyaDL install has used until GAMDL 3.9 added
+ *   a second option.
+ * - `playready`: Needs a PlayReady device file (a `.prd` file) that the
+ *   user supplies themselves -- MeedyaDL does not provide one and
+ *   cannot obtain one. Only understood by GAMDL 3.9 and newer; see
+ *   `GamdlCapabilities.play_ready_drm` in `@/lib/tauri-commands` for
+ *   how the UI decides whether to offer this choice at all.
+ */
+export type DrmBackend = 'widevine' | 'playready';
+
+/**
  * Companion download mode: controls whether MeedyaDL automatically downloads
  * additional format versions alongside the primary download.
  *
@@ -819,6 +836,24 @@ export interface AppSettings {
    * compose.yaml's `${HTTP_PORT:-80}:80` mapping).
    */
   wrapper_url: string;
+  /**
+   * Which method GAMDL uses to unlock Apple Music's copy-protected
+   * tracks. Default `'widevine'` -- the method built into GAMDL that
+   * needs no setup. `'playready'` needs a device file the user
+   * supplies (see `prd_path`) and is only understood by GAMDL 3.9+
+   * (#1189 -- GAMDL added PlayReady as a second unlocking method
+   * alongside its original Widevine one).
+   */
+  drm_backend: DrmBackend;
+  /**
+   * Path to a PlayReady device file (a `.prd` file), or empty string
+   * if none is set. Only used when `drm_backend` is `'playready'`.
+   * MeedyaDL never generates or ships one of these -- it has to come
+   * from the user. A PlayReady SL3000 device is one of only two ways
+   * to unlock 4K music videos (the other being a Widevine L1 `.wvd`
+   * device); the built-in Widevine method alone cannot reach 4K.
+   */
+  prd_path: string;
   /** Maximum filename length, or null for no truncation */
   truncate: number | null;
   /** List of metadata tags to exclude from output files */
@@ -989,7 +1024,7 @@ export type DispatchGateOutcome =
   | { kind: 'missing_wvd' }
   | { kind: 'daily_cap_reached'; count: number; cap: number };
 
-/** YouTube/YouTube Music service settings (stub for M9) */
+/** YouTube/YouTube Music service settings (stub for M10) */
 export interface YouTubeServiceSettings {
   cookies_path: string | null;
 }
@@ -1280,6 +1315,22 @@ export interface DependencyStatus {
   path: string | null;
   /** Where the tool was installed from: "system" (from PATH) or "managed" (downloaded) */
   source: string | null;
+  /**
+   * GAMDL-only: how the installed version compares to this MeedyaDL
+   * build's tested support window, computed backend-side by
+   * `gamdl_capabilities::classify_for_platform` — the authoritative
+   * answer, not a client-side approximation. One of "supported" |
+   * "untested" | "unsupported" | "known-bad". `null` for every other
+   * component, and for GAMDL itself before a version has been detected.
+   */
+  classification: string | null;
+  /**
+   * GAMDL-only, populated exactly when `classification` is
+   * `"known-bad"`: a ready-to-show plain-English sentence naming the
+   * specific fault and the release to move to instead. `null` for
+   * every other classification and every other component.
+   */
+  known_bad_message: string | null;
 }
 
 /**
@@ -1301,7 +1352,7 @@ export interface ExternalGamdlInfo {
   source: string;
   /** Whether that version is inside MeedyaDL's tested support window. */
   in_support_window: boolean;
-  /** Classification: "supported" | "untested" | "unsupported". */
+  /** Classification: "supported" | "untested" | "unsupported" | "known-bad". */
   classification: string;
 }
 
@@ -2065,6 +2116,21 @@ export interface ComponentUpdate {
   update_available: boolean;
   /** Whether the latest version is compatible with this app version */
   is_compatible: boolean;
+  /**
+   * Set when MeedyaDL could NOT work out whether there is an update,
+   * carrying the reason in plain words.
+   *
+   * "We could not check" and "we checked and there is nothing new" both
+   * arrive as `update_available: false`, and they are not the same thing
+   * — one means you are up to date, the other means nobody knows.
+   *
+   * This has a field of its own rather than being left to the wording of
+   * `description`, because the Updates page keeps only entries where an
+   * update IS available. Without it, a programme nobody could check
+   * simply vanished from the page, looking exactly like one that had
+   * been checked and found current.
+   */
+  not_checkable_reason?: string | null;
   /**
    * Whether the latest version is **above** the `maximum_tested_version`
    * declared in this MeedyaDL build's `tool-versions.toml`.

@@ -58,7 +58,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 // AppHandle for resolving app data directory paths (settings.json location).
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 // AppSettings is the Rust struct representing the full application settings.
 // It implements both Serialize (for returning to frontend) and Deserialize
@@ -122,7 +122,133 @@ pub struct CookieValidation {
 /// * `Err(String)` - File read or JSON parse error.
 #[tauri::command]
 pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
-    config_service::load_settings(&app)
+    config_service::read_settings_from_disk(&app)
+}
+
+/// What will happen when the queue finishes: the one-off action (if any)
+/// and the standing one — as the QUEUE will read them.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AfterQueueStatus {
+    /// The one-off action, if one is armed.
+    pub after_queue_once: Option<crate::models::settings::AfterQueueAction>,
+    /// The standing action, used when no one-off is armed.
+    pub after_queue_action: crate::models::settings::AfterQueueAction,
+}
+
+/// Reports what the queue will actually do when it finishes.
+///
+/// # Why not just read the settings file
+///
+/// The Download page used `get_settings` for this when saving a one-off
+/// action failed. But the queue acts on the running app's settings cache,
+/// not the file; and a missing or damaged file reads as the DEFAULTS. So
+/// with a shutdown armed in the cache and the file damaged, the page said
+/// "Nothing will happen when the queue finishes" — the dangerous direction
+/// (Codex, batch-2 review). This reads the cache when it has been filled.
+/// When it has not, the queue would load the file itself on first use, so
+/// reading the file then is exactly what the queue will see.
+#[tauri::command]
+pub async fn get_after_queue_status(app: AppHandle) -> Result<AfterQueueStatus, String> {
+    use tauri::Manager as _;
+    let settings = match app
+        .try_state::<crate::services::settings_cache::SettingsCache>()
+        .and_then(|cache| cache.peek())
+    {
+        Some(cached) => cached,
+        None => config_service::read_settings_from_disk(&app)?,
+    };
+    Ok(AfterQueueStatus {
+        after_queue_once: settings.after_queue_once,
+        after_queue_action: settings.after_queue_action,
+    })
+}
+
+/// Hands back the settings a brand-new install would have.
+///
+/// **Frontend caller:** `getDefaultSettings()` in
+/// `src/lib/tauri-commands.ts`, used by the Settings screen's "Reset"
+/// button.
+///
+/// # Why this exists rather than the page keeping its own copy
+///
+/// The page did keep its own copy, and it had drifted. Three values
+/// disagreed with the real ones, and two of those three were exactly
+/// the values a settings upgrade step exists to REPAIR — the folder and
+/// file name patterns that, without the identifier on the end, let two
+/// playlists with the same name overwrite each other's file and two
+/// compilations with the same album name pile into one folder (#545,
+/// #552). So pressing "Reset" and then "Save" put somebody straight
+/// back onto the two patterns known to lose files.
+///
+/// The page's copy also had no settings version number in it at all, so
+/// a reset-then-save wrote version zero and every upgrade step ran again
+/// at the next launch. That happened to repair the two patterns — but
+/// only after a restart, so anything downloaded in between used the
+/// colliding names.
+///
+/// Two copies of the same list will always drift; the only question is
+/// how long before anyone notices. This one went unnoticed long enough
+/// for the drift to re-introduce a fixed bug. So there is one copy now,
+/// here, and the page asks for it.
+/// `tools/audit-checks/check_settings_defaults.py` reports it if the
+/// page's placeholder copy drifts from this one again.
+///
+/// # Errors
+///
+/// Cannot fail — it builds the defaults in memory and touches no file.
+/// It returns a `Result` only because that is the shape every command
+/// here has, and a command that cannot fail today may need to later.
+#[tauri::command]
+pub async fn get_default_settings() -> Result<AppSettings, String> {
+    Ok(AppSettings::default())
+}
+
+/// Puts back the fields a whole-settings save must never take from the
+/// page. Split out of `save_settings` so the rule can be tested without a
+/// running app. `previous` is what is on disk now, or `None` if that
+/// could not be read.
+///
+/// `in_memory` is the running app's settings cache. For the one-off
+/// after-queue action it is the authority, because it is the one place
+/// that always learns the action has been used: the backend clears it in
+/// the cache even when writing the file fails. Trusting the file there
+/// meant that after a failed clear (a full disk, say), the next Save copied
+/// the stale "hibernate" from the file back into the cache — re-arming it
+/// (Codex, batch-3 review). The file is used only when there is no cache
+/// (tests, or before it has been filled).
+fn keep_fields_the_settings_screen_cannot_change(
+    settings: &mut AppSettings,
+    previous: Option<&AppSettings>,
+    in_memory: Option<&AppSettings>,
+) {
+    // Security: `dev_access_enabled` must only be toggled by the dedicated
+    // `activate_dev_access` / `deactivate_dev_access` commands, which
+    // validate a passphrase (or clear the keychain sentinel) before
+    // persisting via `config_service::save_settings` directly — a path this
+    // clamp does NOT intercept. A general settings write (this IPC) must
+    // never be able to flip the flag on, regardless of what the incoming
+    // payload contains.
+    settings.dev_access_enabled = previous.is_some_and(|p| p.dev_access_enabled);
+
+    // `after_queue_once` — "do this once, when the queue finishes": shut
+    // down, hibernate, and so on — is never edited on the Settings screen.
+    // It is armed and disarmed only by its own one-field write, and the
+    // backend clears it after using it. So what is on disk is always the
+    // truth, and this whole-settings save keeps it.
+    //
+    // It used to write the value from the page's memory, which was never
+    // told when the backend had used the action up. So: arm "Hibernate",
+    // let the queue finish (the machine hibernates, the backend clears it on
+    // disk), then change any setting and press Save — and the stale
+    // "hibernate" in memory was written back, so the machine hibernated
+    // again after the next queue, unasked (stand-in review, 24 Sept 2026 —
+    // the #1175 fault in a new place). If the file cannot be read, the
+    // action is left disarmed: doing it once too few times is the safe
+    // direction for "shut the computer down".
+    settings.after_queue_once = match in_memory {
+        Some(cache) => cache.after_queue_once,
+        None => previous.and_then(|p| p.after_queue_once),
+    };
 }
 
 /// Saves application settings to disk.
@@ -151,62 +277,30 @@ pub async fn get_settings(app: AppHandle) -> Result<AppSettings, String> {
 /// * `Err(String)` - File write or serialization error.
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), String> {
-    static MUSICKIT_ID_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
-
     let mut settings = settings;
 
-    let normalize_musickit_id =
-        |label: &str, value: Option<String>| -> Result<Option<String>, String> {
-            let Some(raw) = value else {
-                return Ok(None);
-            };
-            let normalized = raw.trim().to_ascii_uppercase();
-            if normalized.is_empty() {
-                return Ok(None);
-            }
-            if !MUSICKIT_ID_RE.is_match(&normalized) {
-                return Err(format!(
-                    "{label} must be exactly 10 uppercase letters/numbers (A-Z, 0-9)."
-                ));
-            }
-            Ok(Some(normalized))
-        };
-
     settings.musickit_team_id =
-        normalize_musickit_id("MusicKit Team ID", settings.musickit_team_id.take())?;
+        normalise_musickit_id("MusicKit Team ID", settings.musickit_team_id.take())?;
     settings.musickit_key_id =
-        normalize_musickit_id("MusicKit Key ID", settings.musickit_key_id.take())?;
+        normalise_musickit_id("MusicKit Key ID", settings.musickit_key_id.take())?;
 
     // Load previous settings for diff logging (best-effort — if this fails,
     // we still save the new settings, just without the verbose diff).
-    let previous = config_service::load_settings(&app).ok();
+    let previous = config_service::read_settings_from_disk(&app).ok();
 
-    // Security: `dev_access_enabled` must only be toggled by the dedicated
-    // `activate_dev_access` / `deactivate_dev_access` commands, which
-    // validate a passphrase (or clear the keychain sentinel) before
-    // persisting via `config_service::save_settings` directly — a path this
-    // clamp does NOT intercept. A general settings write (this IPC) must
-    // never be able to flip the flag on, regardless of what the incoming
-    // payload contains.
-    settings.dev_access_enabled = previous
-        .as_ref()
-        .is_some_and(|p| p.dev_access_enabled);
-
-    // save_settings() in config_service performs two writes:
-    //   1. settings.json — full AppSettings struct as JSON
-    //   2. config.ini — relevant fields translated to GAMDL's INI format
-    config_service::save_settings(&app, &settings)?;
-
-    // #690: refresh the in-process settings cache so the next
-    // `load_settings_for_queue` reader sees the post-save snapshot
-    // without re-touching the disk. If the cache isn't registered
-    // (test contexts), this is a no-op.
-    if let Some(cache) =
-        app.try_state::<crate::services::settings_cache::SettingsCache>()
-    {
-        cache.refresh(settings.clone());
-    }
+    // Restore the fields this screen does not own, write, and refresh the
+    // in-process cache (#690) — all inside ONE lock. Reading the file for
+    // this before taking the lock let a one-off after-queue action the
+    // backend had just cleared be written straight back (Codex, batch-3
+    // review). `previous` above is for the change log only.
+    //
+    // config_service performs two writes: settings.json, and GAMDL's
+    // config.ini derived from it.
+    let settings = config_service::save_settings_from_screen(
+        &app,
+        settings,
+        keep_fields_the_settings_screen_cannot_change,
+    )?;
 
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
@@ -405,7 +499,7 @@ pub struct CookieCheckResult {
 /// cookie parsing and expiry detection.
 #[tauri::command]
 pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let settings = crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Wrapper users don't need cookies — the wrapper handles authentication
     if settings.use_wrapper {
@@ -509,7 +603,7 @@ pub async fn check_internet_before_download(
 pub async fn check_output_path_before_download(
     app: tauri::AppHandle,
 ) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::load_settings(&app)?;
+    let settings = crate::services::config_service::read_settings_from_disk(&app)?;
     let resolved_path = if settings.output_path.is_empty() {
         crate::services::config_service::get_default_output_path()?
     } else {
@@ -602,7 +696,60 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
         return Err("URL must use http:// or https:// scheme".to_string());
     }
 
-    let client = crate::utils::http_client::build_simple(5)?;
+    // The address has to be on this machine or this network.
+    //
+    // This command takes an address from the page and has the BACKEND
+    // fetch it. That matters more than it looks: the page is held to a
+    // list of addresses it may contact, and a request made out here is
+    // not. So a page running something it should not could use this to
+    // find out what answers on the local network — a printer, a router,
+    // a database on the same machine — one address at a time, learning
+    // from the status and the timing.
+    //
+    // A full review of the codebase found it, and found the sign-in
+    // command beside it already refusing exactly this, for the same
+    // wrapper, with the reasoning written out. Another rule that guarded
+    // one door. The same check now guards both.
+    //
+    // Nothing is lost: this button exists to test a wrapper, and a
+    // wrapper is something you run on your own machine or your own
+    // network.
+    if !crate::commands::wrapper::wrapper_host_is_local_or_private(&url).await {
+        return Err(format!(
+            "MeedyaDL will only test an address on this computer or this network ({url} is \
+             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper."
+        ));
+    }
+
+    // Built here rather than through the shared helper, for one reason:
+    // **this client must not follow redirects.**
+    //
+    // The check above only looks at the address that was typed. By
+    // default the HTTP client follows a redirect wherever it points — so
+    // something listening on a local address could answer "go and fetch
+    // this instead" and name any address on the internet, and the
+    // backend would go. The check would have passed and the request it
+    // was guarding would still have gone somewhere else. An independent
+    // reviewer found that; it is the same shape as the fault this guard
+    // was added for, one step further along.
+    //
+    // Nothing is lost by refusing: a wrapper answers on the address you
+    // gave it. A redirect is not something a working wrapper does, so
+    // seeing one is itself a useful answer.
+    //
+    // **Honest limit, not fixed here.** The name is looked up once to
+    // check it, and looked up again by the client when it connects. A
+    // name that answers differently between those two moments could pass
+    // the check and then connect elsewhere. Closing that properly means
+    // connecting to the exact address that was checked, which this
+    // client cannot be told to do without more machinery than a
+    // connection test is worth. It is written down rather than left for
+    // somebody to assume is covered.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let start = std::time::Instant::now();
     match client.get(&url).send().await {
@@ -691,7 +838,7 @@ pub async fn export_settings(app: AppHandle) -> Result<String, String> {
     use tauri_plugin_dialog::DialogExt;
 
     // Load current settings
-    let mut settings = config_service::load_settings(&app)?;
+    let mut settings = config_service::read_settings_from_disk(&app)?;
 
     // Clear sensitive fields before export
     clear_sensitive_fields(&mut settings);
@@ -798,7 +945,7 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     }
 
     // Load current settings to preserve sensitive fields
-    let current = config_service::load_settings(&app).unwrap_or_default();
+    let current = config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Sanitize imported settings to prevent injection via crafted files.
     // Truncate excessively long strings that could cause memory issues
@@ -819,6 +966,41 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     emit_app_log(&app, &format!("Settings imported from {filename}"));
 
     Ok(())
+}
+
+
+/// Cleans and checks one Apple Music identifier.
+///
+/// Trimmed, upper-cased, and then required to be exactly ten letters or
+/// digits. Nothing at all is not an error — plenty of people never enter
+/// these.
+///
+/// **This used to live inside the Settings save as a closure**, which
+/// meant it protected exactly one route. A reviewer found the profile
+/// restore going through a different save that does none of this, while
+/// a comment right beside it claimed the checking happened. Same fault
+/// this project keeps meeting: a rule that only guards the door somebody
+/// happened to write it on.
+pub(crate) fn normalise_musickit_id(
+    label: &str,
+    value: Option<String>,
+) -> Result<Option<String>, String> {
+    static MUSICKIT_ID_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
+
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let normalised = raw.trim().to_ascii_uppercase();
+    if normalised.is_empty() {
+        return Ok(None);
+    }
+    if !MUSICKIT_ID_RE.is_match(&normalised) {
+        return Err(format!(
+            "{label} must be exactly 10 uppercase letters/numbers (A-Z, 0-9)."
+        ));
+    }
+    Ok(Some(normalised))
 }
 
 /// Sanitize imported settings to prevent injection and resource exhaustion.
@@ -894,6 +1076,72 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.mp4box_path = current.mp4box_path.clone();
     imported.nm3u8dlre_path = current.nm3u8dlre_path.clone();
     imported.mediainfo_path = current.mediainfo_path.clone();
+    // The PlayReady device file is a path on THIS machine too, and the
+    // download engine is handed it directly. It is not a program, so it
+    // cannot be "run" the way the five paths above can — but it is a file
+    // an imported settings file could point at anything on disk, and it
+    // means nothing on another machine anyway. Keep the local value.
+    imported.prd_path = current.prd_path.clone();
+
+    // What happens when the queue finishes is this person's choice, and
+    // one of the choices is to shut the computer down or restart it.
+    //
+    // A reviewer pointed out that an imported file could set it. Somebody
+    // sent a settings file, who imported it and later left a queue
+    // running, would have had their machine shut down mid-way through
+    // whatever else they were doing. Nothing about that is obvious from
+    // the file, and nothing asks again before it happens.
+    imported.after_queue_action = current.after_queue_action;
+    imported.after_queue_once = current.after_queue_once;
+
+    // NOT here: where downloads are saved.
+    //
+    // A reviewer pointed out that the profile-bundle route used to keep
+    // the local folder and lost that when it moved onto this function.
+    // The first fix was to add it here — and a test caught it
+    // immediately: an ordinary settings import is MEANT to carry that
+    // folder between your own machines, and refusing it "would make
+    // importing pointless", as the test says in as many words.
+    //
+    // So the two routes genuinely differ, and the bundle route keeps its
+    // own line for this one value rather than bending the shared rule.
+    // The difference is deliberate: a settings file is something you
+    // export to set up your own second machine, while a bundle is a
+    // restore of a whole profile onto an install that already has its
+    // own folders.
+
+    // The SAME protection, one level deeper, for the per-service
+    // settings.
+    //
+    // A full review of the codebase found this missing, and it was the
+    // more dangerous half. Everything above is a path on this machine
+    // that an imported file must not choose — and the per-service
+    // settings hold three more of exactly that kind, including a
+    // program file that the Spotify engine LOADS (`spotify_dll_path`,
+    // passed straight to it on the command line). The careful list
+    // above stopped at the top level and never looked inside, so the
+    // one value with the worst consequences was the one left open.
+    //
+    // Every path here is clamped to what this machine already had. As
+    // with the others, nothing is lost: a path means nothing on anybody
+    // else's computer, so it was never worth carrying across.
+    imported.service_settings.apple_music.cookies_path =
+        current.service_settings.apple_music.cookies_path.clone();
+    imported.service_settings.spotify.cookies_path =
+        current.service_settings.spotify.cookies_path.clone();
+    imported.service_settings.spotify.spotify_dll_path =
+        current.service_settings.spotify.spotify_dll_path.clone();
+    imported.service_settings.spotify.wvd_path =
+        current.service_settings.spotify.wvd_path.clone();
+    imported.service_settings.youtube.cookies_path =
+        current.service_settings.youtube.cookies_path.clone();
+
+    // The sign-in details for a music service are this person's own, and
+    // an imported file has no business setting them either.
+    imported.service_settings.apple_music.musickit_team_id =
+        current.service_settings.apple_music.musickit_team_id.clone();
+    imported.service_settings.apple_music.musickit_key_id =
+        current.service_settings.apple_music.musickit_key_id.clone();
     // Security: where the persistent activity log is written is also a
     // path on THIS machine, which is exactly what this whole function
     // exists to protect. Left un-preserved, an imported file could point
@@ -1119,6 +1367,9 @@ mod tests {
             spotify_consent_acknowledged: true,
             sentry_enabled: true,
             analytics_enabled: true,
+            // A file on the sender's machine, pointed at by the copy-
+            // protection setting. Not a program, but still theirs, not ours.
+            prd_path: "/Users/them/somewhere/device.prd".to_string(),
             // An ordinary preference, which SHOULD travel.
             output_path: "/Users/them/Music".to_string(),
             ..Default::default()
@@ -1138,6 +1389,70 @@ mod tests {
         assert_eq!(imported.mp4decrypt_path, current.mp4decrypt_path);
         assert_eq!(imported.mp4box_path, current.mp4box_path);
         assert_eq!(imported.nm3u8dlre_path, current.nm3u8dlre_path);
+    }
+
+    #[test]
+    fn an_imported_file_cannot_choose_a_program_for_a_service_to_load() {
+        // The worst version of the same fault, found by a full review of
+        // the codebase. The careful protection for paths stopped at the
+        // top level and never looked inside the per-service settings —
+        // where one of the values is a program file the Spotify engine
+        // LOADS, handed to it on the command line. Somebody could be
+        // sent a settings file that pointed it anywhere.
+        let mut imported = settings_where_everything_is_set();
+        imported.service_settings.spotify.spotify_dll_path =
+            Some("/Users/them/evil.dll".to_string());
+        imported.service_settings.spotify.wvd_path = Some("/Users/them/theirs.wvd".to_string());
+        imported.service_settings.spotify.cookies_path =
+            Some("/Users/them/cookies.txt".to_string());
+        imported.service_settings.apple_music.cookies_path =
+            Some("/Users/them/apple.txt".to_string());
+        imported.service_settings.youtube.cookies_path =
+            Some("/Users/them/yt.txt".to_string());
+        imported.service_settings.apple_music.musickit_team_id = Some("THEIRTEAM1".to_string());
+
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert_eq!(
+            imported.service_settings.spotify.spotify_dll_path,
+            current.service_settings.spotify.spotify_dll_path,
+            "an imported file must never choose which program is loaded"
+        );
+        assert_eq!(
+            imported.service_settings.spotify.wvd_path,
+            current.service_settings.spotify.wvd_path
+        );
+        assert_eq!(
+            imported.service_settings.spotify.cookies_path,
+            current.service_settings.spotify.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.apple_music.cookies_path,
+            current.service_settings.apple_music.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.youtube.cookies_path,
+            current.service_settings.youtube.cookies_path
+        );
+        assert_eq!(
+            imported.service_settings.apple_music.musickit_team_id,
+            current.service_settings.apple_music.musickit_team_id,
+            "somebody else's sign-in details must not arrive in a settings file"
+        );
+    }
+
+    #[test]
+    fn an_imported_file_cannot_point_at_files_on_your_machine() {
+        // The .prd device file is not a program, so it cannot be "run"
+        // the way the five paths above can. It is still a path that only
+        // means anything on the machine it came from, and it is handed
+        // straight to the download engine, so it stays local too.
+        let mut imported = settings_where_everything_is_set();
+        let current = crate::models::settings::AppSettings::default();
+        preserve_local_only_settings(&mut imported, &current);
+
+        assert_eq!(imported.prd_path, current.prd_path);
     }
 
     #[test]
@@ -1249,5 +1564,83 @@ mod tests {
         preserve_local_only_settings(&mut imported, &current);
         assert_eq!(imported.activity_log_path_override, "/Users/them/logs");
     }
-}
 
+    /// A whole-settings save must keep the one-off after-queue action that
+    /// is on disk, not the page's stale copy (stand-in review, 24 Sept
+    /// 2026): after the backend used and cleared "hibernate", a later Save
+    /// wrote it back and the machine hibernated again, unasked.
+    #[test]
+    fn saving_keeps_the_one_off_after_queue_action_from_disk() {
+        use crate::models::settings::AfterQueueAction;
+
+        // The page still thinks "hibernate" is armed; the disk says it was
+        // used and cleared.
+        let mut from_page = AppSettings {
+            after_queue_once: Some(AfterQueueAction::HibernateComputer),
+            ..AppSettings::default()
+        };
+        let on_disk = AppSettings::default();
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk), None);
+        assert_eq!(
+            from_page.after_queue_once, None,
+            "the used-up action must not come back"
+        );
+
+        // And the other way round: armed on disk, page never heard.
+        let mut from_page = AppSettings::default();
+        let on_disk = AppSettings {
+            after_queue_once: Some(AfterQueueAction::ShutdownComputer),
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, Some(&on_disk), None);
+        assert_eq!(
+            from_page.after_queue_once,
+            Some(AfterQueueAction::ShutdownComputer)
+        );
+
+        // Disk unreadable: left disarmed — once too few is the safe side
+        // for "shut the computer down".
+        let mut from_page = AppSettings {
+            after_queue_once: Some(AfterQueueAction::ShutdownComputer),
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(&mut from_page, None, None);
+        assert_eq!(from_page.after_queue_once, None);
+    }
+
+    /// The older rule in the same function, pinned alongside it.
+    #[test]
+    fn saving_never_switches_developer_access_on() {
+        let mut from_page = AppSettings {
+            dev_access_enabled: true,
+            ..AppSettings::default()
+        };
+        keep_fields_the_settings_screen_cannot_change(
+            &mut from_page,
+            Some(&AppSettings::default()),
+            None,
+        );
+        assert!(!from_page.dev_access_enabled);
+    }
+
+    /// After a failed clear, the file still says "hibernate" but the
+    /// running app's cache knows it was used. Save must follow the cache,
+    /// or it re-arms the action (Codex, batch-3 review).
+    #[test]
+    fn saving_follows_the_running_app_when_a_clear_failed_to_reach_the_file() {
+        use crate::models::settings::AfterQueueAction;
+
+        let mut from_page = AppSettings::default();
+        let on_disk = AppSettings {
+            after_queue_once: Some(AfterQueueAction::HibernateComputer),
+            ..AppSettings::default()
+        };
+        let in_memory = AppSettings::default(); // used and cleared
+        keep_fields_the_settings_screen_cannot_change(
+            &mut from_page,
+            Some(&on_disk),
+            Some(&in_memory),
+        );
+        assert_eq!(from_page.after_queue_once, None);
+    }
+}
