@@ -2046,19 +2046,39 @@ async fn gate_before_comparing(
             managed_by,
             manual_update_command,
         ))),
-        ToolOwnership::Unknown => Err(Box::new(not_checkable_update(
-            display_name,
-            tool_id,
-            read.ok().flatten(),
-            managed_by,
-            manual_update_command,
-            format!(
-                "MeedyaDL cannot tell who installed this copy of {display_name}, so it has left \
-                 it alone and not checked it for updates. It works as it is. (There is no \
-                 button yet to reinstall a tool that is already installed, which would let \
-                 MeedyaDL look after it; that is being added.)"
-            ),
-        ))),
+        // Nobody recorded who installed this copy. What to tell the person
+        // depends on whether it works, because the Tools page treats the
+        // three cases differently: a copy that cannot be run at all shows
+        // as missing (with an Install button), while one that runs — even
+        // one that only prints an error — shows as installed, with no
+        // reinstall button. One message for all three was false for two of
+        // them (stand-in review, 25 Sept 2026).
+        ToolOwnership::Unknown => {
+            let reason = match &read {
+                Ok(Some(printed)) if !is_a_real_version_reading(printed) => {
+                    unreadable_version_reason(display_name, printed)
+                }
+                Err(err) => could_not_run_reason(display_name, err),
+                Ok(_) => format!(
+                    "MeedyaDL cannot tell who installed this copy of {display_name}, so it has \
+                     left it alone and not checked it for updates. It works as it is. (There is \
+                     no button yet to reinstall a tool that is already installed, which would \
+                     let MeedyaDL look after it; that is being added.)"
+                ),
+            };
+            let shown_version = match read {
+                Ok(Some(v)) if is_a_real_version_reading(&v) => Some(v),
+                _ => None,
+            };
+            Err(Box::new(not_checkable_update(
+                display_name,
+                tool_id,
+                shown_version,
+                managed_by,
+                manual_update_command,
+                reason,
+            )))
+        }
         ToolOwnership::MeedyaDl => match read {
             // The programme "ran", but what it printed is not a version —
             // typically a loader error from a programme that cannot start.
@@ -2084,12 +2104,7 @@ async fn gate_before_comparing(
                 None,
                 managed_by,
                 manual_update_command,
-                format!(
-                    "MeedyaDL could not run {display_name} to ask which version it is ({}). \
-                     That usually means it is damaged or is the wrong kind of file for this \
-                     computer. Reinstalling it from Settings > Tools is the usual fix.",
-                    crate::utils::text::truncate_str(reason.trim(), 160)
-                ),
+                could_not_run_reason(display_name, &reason),
             ))),
         },
     }
@@ -2133,6 +2148,19 @@ fn pm_owned_update_skip(
 /// Builds the "could not read a version" sentence, ready to hand to
 /// [`not_checkable_update`].
 ///
+/// The message for a tool MeedyaDL could not run at all. Such a tool shows
+/// as missing on the Tools page, so its Install button really is there —
+/// which is why this one, unlike `unreadable_version_reason`, can point to
+/// it. Shared by the owned and the unknown-owner paths.
+fn could_not_run_reason(display_name: &str, reason: &str) -> String {
+    format!(
+        "MeedyaDL could not run {display_name} to ask which version it is ({}). \
+         That usually means it is damaged or is the wrong kind of file for this \
+         computer. Reinstalling it from Settings > Tools is the usual fix.",
+        crate::utils::text::truncate_str(reason.trim(), 160)
+    )
+}
+
 /// One function so both comparison sites say the same thing. They used
 /// to have no wording at all, because neither of them asked the
 /// question.

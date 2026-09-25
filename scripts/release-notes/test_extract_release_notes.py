@@ -82,6 +82,21 @@ CASES: list[tuple[str, str, list[str]]] = [
         "Release-Note: Downloads work.\n   \nA whole description.",
         ["Downloads work."],
     ),
+    (
+        "stand-in 11: the trailer line that ENDS a note is not checked",
+        "Release-Note: Fixed a thing.\nCo-Authored-By: Zo\u00eb \U0001F468\u200d\U0001F469\u200d\U0001F467 <a@b>",
+        ["Fixed a thing."],
+    ),
+    (
+        "an emoji's own variation selector is still allowed",
+        "Release-Note: The \u26a0\ufe0f warning now explains itself.",
+        ["The \u26a0\ufe0f warning now explains itself."],
+    ),
+    (
+        "emoji and soft hyphens OUTSIDE a note are not checked",
+        "A family \U0001F468\u200d\U0001F469 and a soft\u00adhyphen.\n\nRelease-Note: Downloads work.",
+        ["Downloads work."],
+    ),
 ]
 
 # Messages that must be REFUSED: an empty Release-Note: line (Codex cases 2
@@ -102,6 +117,11 @@ REFUSED: list[tuple[str, str]] = [
     ("stand-in 8: a soft hyphen hiding a word", "Release-Note: Now stores it in the key\u00adchain safely."),
     ("a zero-width space hiding a word", "Release-Note: Now stores it in the key\u200bchain safely."),
     ("a C1 control character", "Release-Note: Fixed\x85 sign-in."),
+    # --- Found by the third stand-in review, 25 Sept 2026 ---
+    ("stand-in 9: a line separator inside a note", "Release-Note: Moved your private\u2028key into safer storage."),
+    ("stand-in 9: a paragraph separator inside a note", "Release-Note: Moved your private\u2029key into safer storage."),
+    ("stand-in 10: a combining grapheme joiner hiding a word", "Release-Note: Moved your key\u034fchain."),
+    ("stand-in 10: a text variation selector hiding a word", "Release-Note: Moved your key\ufe0echain."),
 ]
 
 
