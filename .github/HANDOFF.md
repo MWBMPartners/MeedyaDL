@@ -228,6 +228,12 @@ Codex allowance: this window used roughly 480,000 tokens across 8 rounds by midd
     Whole history: the ELI5 template renders identically on 2.13.1 and 2.14.2; the
     cumulative one differs by 192 lines, but the OLD template differs by the same 192, so
     that is a git-cliff version difference in grouping, not this change.
+  - **04:44, 25 Sept:** the 04:41 Codex round on `git diff f74734f0 HEAD` ran out after
+    ~70k tokens, NO verdict — **Codex back at 09:41**. A stand-in (fresh Opus) is reviewing
+    `7b641e0a` (the only commit no reviewer has seen). **Watchdog: session-only scheduled
+    prompt at 09:46** re-runs the Codex round (prompt `codex-r13-prompt.txt` in the session
+    scratchpad), then PR → watch → rebase-merge → watch the alpha release. PR body
+    (`pr-body.md`) refreshed and re-checked (extract + lint pass). No PR opened yet.
   - **(superseded) CODEX OUT UNTIL 29 SEPT 2026, 21:13** (weekly limit; the round on
     `35661974..fbc69f4c` stopped after ~12k tokens with no verdict). Per the hand-over
     rule a **stand-in** (fresh Opus agent, did not write the sweep) is reviewing that
