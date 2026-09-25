@@ -65,6 +65,13 @@ CATCHES: list[tuple[str, str, str]] = [
         "mechanism-token-phrase",
     ),
     (
+        # A published release body edited on GitHub's web page has Windows
+        # line endings; the end-of-line rule must still see the line end.
+        "a bare issue citation is caught with Windows line endings",
+        "Fixed the download button (#123)\r\nAnother line\r\n",
+        "commit-speak-bare-issue-citation",
+    ),
+    (
         "word-level timing is caught",
         "It preserves word-level timing in a plain-text-editable document.",
         "mechanism-syllable-lyrics",
