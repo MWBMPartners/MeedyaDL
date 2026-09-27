@@ -188,7 +188,20 @@ jobs:
 
 
           def published_release(value: str) -> tuple[int, ...]:
-              m = re.match(r"\d+(\.\d+)*", value.strip())
+              # A Python version can start with an "epoch", "N!" (PEP 440),
+              # which outranks everything after it: "1!4.0" is newer than
+              # any version without one. Reading only the numbers before the
+              # "!" made it look like version 1 (Codex, review of 73089064).
+              # Tested versions never have an epoch, so any epoch above 0
+              # makes the published version newer: returned as a number so
+              # large that it always counts as beyond the tested one.
+              v = value.strip()
+              epoch_match = re.match(r"(\d+)!", v)
+              if epoch_match:
+                  if int(epoch_match.group(1)) > 0:
+                      return (10**9,)
+                  v = v[epoch_match.end():]
+              m = re.match(r"\d+(\.\d+)*", v)
               if not m:
                   print(f"::error::Could not read the version PyPI reported: {value!r}")
                   sys.exit(1)

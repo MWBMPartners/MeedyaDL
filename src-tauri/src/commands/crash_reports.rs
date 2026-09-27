@@ -199,8 +199,40 @@ pub fn build_diagnostic_bundle(
 /// treats that the same way it would treat a real failure here — by
 /// refusing to open the link with unredacted text, not by falling
 /// back to sending the raw message.
+/// Cleans ONE web address before it goes into a public report: the
+/// query string and any sign-in details are removed, then user names in
+/// file paths, as for the message.
+///
+/// A separate command from [`redact_for_public_report`] on purpose. That
+/// one finds web addresses inside free text, and has to decide where an
+/// address ends -- it stops at a quote mark, because error text usually
+/// wraps addresses in quotes. Given a whole address that contains an
+/// apostrophe (`...?token=abc'SECRET`), it cleaned only up to the
+/// apostrophe and left the rest (Codex, review of 9257863f). Here the
+/// whole value is known to be one address, so it is cleaned as one.
+#[tauri::command]
+pub fn redact_url_for_public_report(url: String) -> String {
+    let cleaned = crash_report_service::redact_single_url(url.trim());
+    crate::services::diagnostic_bundle::redact_path_usernames(&cleaned)
+}
+
 #[tauri::command]
 pub fn redact_for_public_report(text: String) -> String {
     let without_usernames = crate::services::diagnostic_bundle::redact_path_usernames(&text);
     crash_report_service::redact_urls_in_text(&without_usernames)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A whole address with an apostrophe in its query is cleaned whole
+    /// (Codex, review of 9257863f).
+    #[test]
+    fn a_whole_address_is_cleaned_as_one_address() {
+        let out = redact_url_for_public_report(
+            "https://music.apple.com/us/album/a/1?token=abc'SECRET".to_string(),
+        );
+        assert_eq!(out, "https://music.apple.com/us/album/a/1");
+    }
 }

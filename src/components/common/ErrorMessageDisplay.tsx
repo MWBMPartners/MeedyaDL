@@ -49,7 +49,7 @@ import { ContextMenu } from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useUiStore } from '@/stores/uiStore';
-import { redactForPublicReport } from '@/lib/tauri-commands';
+import { redactForPublicReport, redactUrlForPublicReport } from '@/lib/tauri-commands';
 
 export interface ErrorMessageDisplayProps {
   /** The error message to render. */
@@ -205,7 +205,11 @@ export function ErrorMessageDisplay({
     let cleanedSourceUrl: string | undefined;
     try {
       cleaned = await redactForPublicReport(message);
-      cleanedSourceUrl = sourceUrl ? await redactForPublicReport(sourceUrl) : undefined;
+      // The whole-address cleaner, not the free-text one: the free-text
+      // cleaner stops an address at a quote mark, so a link with an
+      // apostrophe in its query kept part of it (Codex, review of
+      // 9257863f).
+      cleanedSourceUrl = sourceUrl ? await redactUrlForPublicReport(sourceUrl) : undefined;
     } catch {
       addToast('Could not prepare the report safely', 'error');
       return;

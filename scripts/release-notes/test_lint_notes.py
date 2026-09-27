@@ -217,6 +217,12 @@ def _run_live_mode_checks() -> list[str]:
     if not [f for f in live(nested) if f.tier == "error"]:
         failures.append("live: a developer section with no close before the next section hid text")
 
+    # 7. Visible text after a one-line section's close, on the SAME line,
+    #    is still checked (Codex, review of 73089064).
+    same_line = f"{marker}x</details> {commit_line}\n"
+    if not [f for f in live(same_line) if f.tier == "error"]:
+        failures.append("live: text after a one-line section's close on the same line was hidden")
+
     return failures
 
 

@@ -427,20 +427,28 @@ jobs:
             # Skip (not an error): tag has no release object, or is a
             # draft -- neither has a "live body" for anyone to see yet.
             #
-            # ONLY "release not found" means there is no release. Every
+            # ONLY a plain "404 Not Found" from GitHub's own "release by
+            # tag" request means there is no published release (a draft
+            # also answers 404 there, and drafts are skipped anyway). Every
             # other failure (a rate limit, a server error, a network drop)
-            # means the page exists but could not be read, and used to be
-            # reported as "no published release" too -- so a sweep that
-            # read nothing could finish green, having audited nothing
-            # (Codex, review of #1230). Now such a page is tried once more,
-            # then listed as not checked, and the run fails at the end.
+            # means the page could not be read, and used to be reported as
+            # "no published release" too -- so a sweep that read nothing
+            # could finish green, having audited nothing (Codex, review of
+            # #1230). Such a page is tried once more, then listed as not
+            # checked, and the run fails at the end.
+            #
+            # Why not `gh release view`: it can print "release not found"
+            # after a server error on one of the two lookups it makes
+            # internally, so its message does not reliably mean absence
+            # (Codex, review of 73089064, citing cli/cli's fetch.go). The
+            # direct request has one answer, and its status is exact.
             local REL_JSON ERR_FILE attempt
             ERR_FILE="$(mktemp)"
             for attempt in 1 2; do
-              if REL_JSON=$(gh release view "$TAG" --repo "$REPO" --json isDraft,body 2>"$ERR_FILE"); then
+              if REL_JSON=$(gh api "repos/$REPO/releases/tags/$TAG" --jq '{isDraft: .draft, body: (.body // "")}' 2>"$ERR_FILE"); then
                 break
               fi
-              if grep -qi "release not found" "$ERR_FILE"; then
+              if grep -q "(HTTP 404)" "$ERR_FILE"; then
                 echo "${TAG}: skip -- no published release" | tee -a "$GITHUB_STEP_SUMMARY"
                 rm -f "$ERR_FILE"
                 return 0

@@ -1304,6 +1304,7 @@ pub fn run() {
             commands::crash_reports::get_github_issue_url,
             commands::crash_reports::build_diagnostic_bundle,
             commands::crash_reports::redact_for_public_report,
+            commands::crash_reports::redact_url_for_public_report,
             // Download history commands (list, search, clear)
             commands::history::list_history,
             commands::history::clear_history,

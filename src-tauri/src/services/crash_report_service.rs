@@ -85,7 +85,13 @@ pub(crate) fn redact_single_url(url: &str) -> String {
     // - The LAST '@' in the authority is the one that ends the sign-in
     //   details. Taking the first left the rest of a password that
     //   itself contains a raw '@' showing.
-    let authority_start = truncated.find("://").map_or(0, |i| i + 3);
+    // A scheme-relative address ("//alice:secret@host") has no scheme but
+    // its address part still starts after the "//"; reading it from the
+    // very start saw an empty address and missed the sign-in details
+    // (Codex, review of 9257863f).
+    let authority_start = truncated
+        .find("://")
+        .map_or_else(|| usize::from(truncated.starts_with("//")) * 2, |i| i + 3);
     let after_scheme = &truncated[authority_start..];
     let authority_end = after_scheme.find('/').unwrap_or(after_scheme.len());
     let authority = &after_scheme[..authority_end];
@@ -568,6 +574,12 @@ mod tests {
 
         let at_in_password = redact_single_url("http://alice:p@ss@host:1/x");
         assert_eq!(at_in_password, "http://[redacted]@host:1/x");
+
+        // A scheme-relative address is cleaned too.
+        assert_eq!(
+            redact_single_url("//alice:secret@127.0.0.1:30020"),
+            "//[redacted]@127.0.0.1:30020"
+        );
 
         // A plain address, and an '@' in the path, are left alone.
         assert_eq!(redact_single_url("127.0.0.1:30020"), "127.0.0.1:30020");
