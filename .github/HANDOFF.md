@@ -152,6 +152,18 @@ folder" only opens a real folder; false kill_on_drop comments). Issue comments p
 `.github/release-notes/v1.10.4.md`-`v1.10.6.md` (I must check every line against its commits
 before they go into #1230 — they will be applied to PUBLISHED pages).
 
+**20:25 update:** #1231 built and committed `7edd178c` (one GAMDL_BUG_MARKER in process.rs used by
+both known-GAMDL-bug messages; `redact_for_public_report` command cleans the text before the
+issue link; a failed clean opens nothing). Notes for stable 1.10.4-1.10.6 committed `3c28f805`
+(work) / `1b3d8ef5` (#1230) — each checked against its commits (all "Release-Note: none");
+1.10.5 says it has no downloads (builds failed; 1.10.6 42 min later). The three pages' current
+text is saved in `…/MeedyaDL-release-pages-backup-2026-09-27/v1.10.{4,5,6}.md`. Working tree clean.
+**Codex plan (21:31):** round A = app code (safety/privacy/data loss): 9cf3fdfa+ef9a5941, 3e17eb36,
+a93d4038, 2fb86676+69dc951d, 7edd178c — prompt at /private/tmp/claude-501/codex/c1-prompt.txt.
+Round B = CI + PR #1230: 46605372, c2731d7b, c47168b3, c2e10c32, c9785d7a, 3c28f805 + the #1230
+diff — prompt c2-prompt.txt. If the allowance runs out mid-round again, the rest goes to a
+stand-in (fresh Opus agent), said so plainly, and stays "not fully reviewed".
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
