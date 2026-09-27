@@ -179,7 +179,8 @@ protect_breaking_commits = false
 # fixed here instead. Keep each pattern as narrow as the phrase it replaces.
 # @see https://git-cliff.org/docs/configuration/git#commit_preprocessors
 commit_preprocessors = [
-  { pattern = "sign-in token", replace = "sign-in detail" },
+  # Word boundaries, so "sign-in tokenization" is left alone (Codex).
+  { pattern = '\bsign-in token\b', replace = "sign-in detail" },
   { pattern = 'The app has a new internal identifier \(com\.meedyasuite\.meedyadl\);', replace = "The app's internal name has changed;" },
 ]
 
