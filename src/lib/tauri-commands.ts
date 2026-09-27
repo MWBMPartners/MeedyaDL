@@ -2477,6 +2477,27 @@ export function getGitHubIssueUrl(id: string): Promise<string> {
   return invoke<string>('get_github_issue_url', { id });
 }
 
+/**
+ * Cleans free text before it goes into a pre-filled issue on a THIRD
+ * PARTY's public GitHub repository — today that means `glomatico/gamdl`
+ * (issue #1231, the "Report this bug to GAMDL" action in
+ * `ErrorMessageDisplay.tsx`).
+ *
+ * Rust handler: `redact_for_public_report()` in
+ * `src-tauri/src/commands/crash_reports.rs`. It removes exactly two
+ * shapes of thing a download error's text can carry: the person's own
+ * account name inside a file path (`/Users/<name>/...`), and a sign-in
+ * token embedded in a web address's query string. It does NOT rewrite
+ * anything else — there is deliberately no second cleaner written in
+ * TypeScript; the one cleaning logic lives in Rust and is reused here.
+ *
+ * @param text - The raw error text to clean
+ * @returns Promise resolving to the cleaned text
+ */
+export function redactForPublicReport(text: string): Promise<string> {
+  return invoke<string>('redact_for_public_report', { text });
+}
+
 // ============================================================
 // Download History Commands
 // ============================================================

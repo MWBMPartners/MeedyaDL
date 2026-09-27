@@ -552,10 +552,20 @@ pub(crate) fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 /// caller surfaces those as a prominent warning instead, since most of the
 /// album downloaded correctly. `checked == 0` (nothing was probed — e.g.
 /// ffprobe unavailable, no M4A files found) is never a failure.
+///
+/// This message starts with [`process::GAMDL_BUG_MARKER`] because it
+/// names a defect in GAMDL itself, already tracked upstream as
+/// gamdl#328 — not something MeedyaDL got wrong, and not a content
+/// problem the user caused. That prefix is what lets the History/Queue
+/// error display offer "Report this bug to GAMDL" for exactly this
+/// message (issue #1231); see the marker's own doc comment for the
+/// full reasoning and the frontend file it must stay byte-identical
+/// with.
 pub(crate) fn integrity_failure_message(checked: usize, suspect_files: &[String]) -> Option<String> {
     if checked > 0 && suspect_files.len() == checked {
         Some(format!(
-            "Output integrity check failed: all {checked} probed file(s) appear corrupted or truncated ({}) — this matches a known upstream GAMDL bug (gamdl#328). Try re-downloading.",
+            "{}all {checked} probed file(s) appear corrupted or truncated ({}) — a known upstream truncated-write defect (gamdl#328). Try re-downloading.",
+            process::GAMDL_BUG_MARKER,
             suspect_files.join(", "),
         ))
     } else {

@@ -2170,12 +2170,18 @@
     }
 
     /// Every probed file is suspect — a hard failure.
+    ///
+    /// Also pins that this message starts with the shared
+    /// `GAMDL_BUG_MARKER` (#1231) — it names a known GAMDL defect
+    /// (gamdl#328), so the History/Queue error display's "Report this
+    /// bug to GAMDL" option must be able to recognise it.
     #[test]
     fn integrity_failure_message_some_when_all_suspect() {
         let suspects = vec!["01 Track.m4a".to_string(), "02 Track.m4a".to_string(), "03 Track.m4a".to_string()];
         let msg = integrity_failure_message(3, &suspects);
         assert!(msg.is_some());
         let msg = msg.unwrap();
+        assert!(msg.starts_with(process::GAMDL_BUG_MARKER));
         assert!(msg.contains("gamdl#328"));
         assert!(msg.contains("01 Track.m4a"));
     }

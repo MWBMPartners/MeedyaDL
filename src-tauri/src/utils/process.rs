@@ -1407,6 +1407,32 @@ pub fn is_wrapper_version_mismatch_error(error_message: &str) -> bool {
         || (lower.contains("/decrypt") && lower.contains("404"))
 }
 
+/// The one exact prefix every backend message about a known,
+/// already-identified defect *in GAMDL itself* must start with.
+///
+/// This exists because the option to report a failure straight to
+/// GAMDL's own GitHub page only makes sense for a handful of failures
+/// MeedyaDL can already name as GAMDL's fault (not a content problem,
+/// not something MeedyaDL got wrong) — the music-video cover-art bug
+/// just below, and the truncated-write bug in
+/// `download_queue::helpers::integrity_failure_message`. Before this
+/// constant existed the two sides of that connection had drifted:
+/// the frontend looked for a prefix ("GAMDL bug") that no backend
+/// message actually started with (issue #1231), so the option could
+/// never appear at all.
+///
+/// **The frontend's `isGamdlBug()` in
+/// `src/components/common/ErrorMessageDisplay.tsx` must match this
+/// exact string.** Rust and TypeScript cannot share a constant across
+/// the IPC boundary, so it is duplicated by value on both sides — each
+/// copy carries a comment pointing at the other file. Both real
+/// backend messages that use this marker have a test pinning their
+/// exact wording against it: `gamdl_mv_cover_template_bug_message_starts_with_the_marker`
+/// below, and `integrity_failure_message_some_when_all_suspect` in
+/// `download_queue::tests`. A future edit here is caught by those,
+/// rather than silently un-linking the feature a second time.
+pub const GAMDL_BUG_MARKER: &str = "GAMDL bug — ";
+
 /// Detect GAMDL's music-video cover-art URL templating bug.
 ///
 /// GAMDL fetches per-track cover art for music videos from
@@ -1442,6 +1468,31 @@ pub fn is_gamdl_mv_cover_template_bug(error_message: &str) -> bool {
     let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d")
         || lower.contains("{w}x{h}");
     has_400 && has_mv_url && has_unsubstituted_template
+}
+
+/// Builds the exact user-facing message for
+/// [`is_gamdl_mv_cover_template_bug`]'s defect.
+///
+/// Kept as its own function — rather than an inline `format!` at the
+/// one call site in `download_queue::processing` — so the wording
+/// lives in exactly one place and a test can pin it directly instead
+/// of duplicating the sentence. The message starts with
+/// [`GAMDL_BUG_MARKER`] because this is a defect in GAMDL itself
+/// (Apple's own server is sent a literal, un-filled-in template
+/// instead of real numbers) — that prefix is what lets the
+/// History/Queue error display offer "Report this bug to GAMDL" for
+/// this specific failure (issue #1231).
+#[must_use]
+pub fn gamdl_mv_cover_template_bug_message(soft_errors: u32) -> String {
+    format!(
+        "{GAMDL_BUG_MARKER}music video cover art: {soft_errors} track(s) \
+         skipped. Audio for those tracks did not download. This is an \
+         upstream bug (Apple returns 400 Bad Request because GAMDL sends \
+         literal `{{w}}x{{h}}` placeholders instead of real dimensions). \
+         The album cover is still attached separately during MeedyaDL's \
+         enrichment pass. Please report at \
+         https://github.com/glomatico/gamdl/issues."
+    )
 }
 
 // ============================================================
@@ -1970,6 +2021,27 @@ mod tests {
         // Storefront mismatch is a different bug — must not double-classify.
         let msg = r#"gamdl.api.exceptions.GamdlApiResponseError: Error fetching from AMP API (Status code: 404): {"errors":[{"id":"X","title":"Resource Not Found"}]}"#;
         assert!(!is_gamdl_mv_cover_template_bug(msg));
+    }
+
+    /// Pins the real, shipped wording of the music-video cover-art bug
+    /// message against `GAMDL_BUG_MARKER` (#1231). This is the test the
+    /// task asked for: a drift between this message and the frontend's
+    /// `isGamdlBug()` (`src/components/common/ErrorMessageDisplay.tsx`)
+    /// must fail here first, not go unnoticed the way it did before
+    /// #1231 — nothing in the backend ever started with the string the
+    /// frontend was checking for, so the "Report this bug to GAMDL"
+    /// option could never appear.
+    #[test]
+    fn gamdl_mv_cover_template_bug_message_starts_with_the_marker() {
+        let msg = gamdl_mv_cover_template_bug_message(3);
+        assert!(
+            msg.starts_with(GAMDL_BUG_MARKER),
+            "expected the message to start with {GAMDL_BUG_MARKER:?}, got: {msg:?}"
+        );
+        // The rest of the sentence still needs to survive — the marker
+        // must not have eaten the useful detail.
+        assert!(msg.contains("3 track(s)"));
+        assert!(msg.contains("glomatico/gamdl/issues"));
     }
 
     #[test]
