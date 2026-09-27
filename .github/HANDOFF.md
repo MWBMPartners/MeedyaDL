@@ -50,10 +50,14 @@ history back.
 **Codex still owes (after the rewrite, new IDs):**
 1. **Re-review of the four release-note fix commits** — old `9d7671ba` / `5093f3e3` /
    `c1e5c83a` / `a039cdff`, now `4e3a1943` / `6c704133` / `74e23811` / `cea75308` on alpha.
-   **RUNNING** (27 Sept ~16:30, prompt `/private/tmp/claude-501/codex/r16-prompt.txt`,
-   output `r16.out` beside it; background command + `~/.claude/bin/watchdog.sh quiet` on the
-   output, 45-min cap). `/private/tmp` can be cleared by a restart — if these files are gone,
-   rewrite the prompt from this note.
+   **DONE (~16:45): 3 findings, all real, fixed in `58e77417`** (trailing/double space left
+   after removing U+FE0F hid "(#123)" and single-space banned phrases → new `_finish()` step;
+   "none"+selector judged on the whole note; `\bsign-in token\b`). 41 extractor tests pass;
+   whole-history render identical (git-cliff 2.14.2 — the 2.13.1 build was lost with
+   /private/tmp). **NOW RUNNING: Codex re-review of `58e77417`** (prompt
+   `/private/tmp/claude-501/codex/r17-prompt.txt`, output `r17.out`; background command +
+   watchdog). `/private/tmp` can be cleared by a restart — if the files are gone, rewrite the
+   prompt from this note.
 2. **Round B — wording** (help/tools.md "Keeping the tools up to date" onwards; the
    Updates-page messages in `update_checker.rs` — `gate_before_comparing`'s unknown-owner
    arm, `could_not_run_reason`, `unreadable_version_reason`; the Abort Queue text in
