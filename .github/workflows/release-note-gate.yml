@@ -143,12 +143,13 @@ jobs:
             exit 0
           fi
 
-          # The script that picks the notes out is tested first, so a broken
-          # one cannot quietly let a note through unchecked. (lint-notes.py
-          # has its own test, test_lint_notes.py, but it currently fails on
-          # an older committed notes file, so it is not run here yet — see
-          # #1226.)
+          # Both scripts this step relies on are tested first, so a broken
+          # one cannot quietly let a note through unchecked. test_lint_notes.py
+          # also re-lints every committed notes file; it was kept out of here
+          # until #1226 fixed the one file it failed on (v1.13.0-alpha.47.md
+          # named the app's internal identifier).
           python3 scripts/release-notes/test_extract_release_notes.py
+          python3 scripts/release-notes/test_lint_notes.py
 
           # Each note is linted WHOLE, exactly as the release templates will
           # show it: a wrapped note joined back into one line. Linting only
