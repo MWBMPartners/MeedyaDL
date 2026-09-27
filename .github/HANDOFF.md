@@ -1,7 +1,7 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-27 (evening, new batch) — see ★★★★ LATEST below
-**Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; nothing on it yet). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
+**Last updated:** 2026-09-27 (about 19:30) — see ★★★★ LATEST below
+**Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; #1222-#1226 committed on it, not yet in a PR). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.74** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 17:30 on 27 Sept.
 
@@ -42,45 +42,52 @@ work as well.
 combined verification of #1215-#1218 + #1221-#1226. One commit per issue; Codex rounds
 bundled where small (its allowance fits roughly one small round per window).
 
-**Progress:**
-- **#1226 DONE `491776c4`** (not yet Codex-reviewed): alpha.47 notes file reworded; the gate
-  now runs `test_lint_notes.py` (passes). Maintainer approved (27 Sept) correcting the same
-  sentence on published pages: **34 release pages** (alpha.37-alpha.71) had it in their
-  plain-English part — each saved first to `…/GitHub/MeedyaSuite/MeedyaDL-release-pages-
-  backup-2026-09-27/` (`<tag>.md` original, `<tag>.new.md` as published), only that
-  sentence replaced, each read back; a re-scan of every release finds no identifier or
-  "sign-in token" in any plain-English part. Note for the combined check: the gate's tests
-  only run for feat/fix/perf PR titles (the step exits early otherwise).
-- **#1224 `83cbe566`** (regex reader of per-target Cargo.toml tables + test run by the
-  Licences workflow). **Codex (b1): 2 real findings** — valid TOML forms still missed
-  (comment after header, sub-tables, quoted names…) and a false positive (a dotted key under
-  `[package.metadata]`). **REBUILDING** (sonnet agent) on `cargo metadata --no-deps` — Cargo's
-  own reading — instead of regexes; the regex approach is rejected.
-- **#1223 DONE `0ae7a6ae`** — "Confirm before aborting the queue" switch; Codex (b1): clean.
-- **#1226 `491776c4`** — Codex (b1): clean.
-- **#1222 BUILDING** (sonnet agent: `savedSettings` in settingsStore, StatusBar, locales).
-  **#1225 BUILDING** (opus agent: keep a working copy until the new one runs; Reinstall
-  button on every row; help/tools.md). Agents never commit; I review, run checks, commit.
-- **Main PR (#1221/#1219) — facts gathered:** workflows on a push to main with no path filter
-  are changelog, ci, codeql, forward-port-security, release-note-gate, release-please. Only
-  release-please leads towards a release, and in release-please-config.json `ci` is a HIDDEN
-  type, so a squash-merged `ci:`-titled PR cannot open a release PR, tag or build; main has
-  nothing unreleased since v1.10.8 (only two `[skip ci]` doc commits). workflow_run
-  followers: dependabot-auto-merge, preserve-release-pr-body, workflow-health — none
-  packages. **Plan: squash-merge with a `ci:` title.**
-- **#1222 PLAN:** add `savedSettings` to settingsStore (set on load, on successful save from
-  the pre-save snapshot, and in syncSidebarCollapsed / syncAfterQueueOnce / syncSaved; NOT by
-  updateSettings or resetToDefaults); StatusBar reads the saved after_queue_once /
-  after_queue_action and adds an "unsaved change" note when settings.after_queue_action !=
-  savedSettings.after_queue_action (new locale key in en/de/fr). Build after #1223 (both may
-  touch locale files).
-- **#1225 PLAN:** generalise MP4Box's keep-the-old-copy: before replacing an installed copy
-  that RUNS, keep it aside; after the install, read the new version
-  (`is_a_real_version_reading`); if the new one doesn't run, put the old one back and say so;
-  if the old one didn't run either, keep the new one and say it may still be broken. The
-  loss happens in `promote_staged_install`, which deletes `{tool}.old` at once. Plus a
-  Reinstall button on EVERY tool row in ToolsTab (calls install without `for_update`), with
-  help/tools.md updated. Opus-tier build (genuinely complex).
+**Progress (about 19:30, 27 Sept):**
+
+| Issue | Commit(s) | Codex |
+|---|---|---|
+| #1226 reword alpha.47 + gate runs test_lint_notes | `491776c4` (+34 published pages corrected, backups in `…/MeedyaDL-release-pages-backup-2026-09-27/`) | b1 clean |
+| #1223 abort-confirmation switch | `0ae7a6ae` | b1 clean |
+| #1224 licence checks see platform-only deps | `83cbe566` (regex, rejected by b1) → **`46605372`** rebuilt on `cargo metadata --no-deps --offline` (`scripts/lib/cargo-direct-deps.mjs`) | b2 partial: "helper appears sound"; only remark: the test does not prove the two scripts USE the helper (judged low value; the manual libc-row proof covers it) |
+| #1222 status bar shows the saved action | `2fb86676` + **`69dc951d`** (b2 findings fixed: Download page syncs the one-off only after the write succeeds; `loadSettings` takes the two after-queue fields from `getAfterQueueStatus`; limits of `savedSettings` documented) | b2 partial → owes a full round on both commits |
+| #1225 keep a working tool; Reinstall on every row | **`9cf3fdfa`** (opus agent build + my review additions: one install per tool at a time (`claim_tool_install`), and the Reinstall window says when a package manager may be asked) | owes a full round |
+
+**Codex:** round b2 (#1222 + #1224) hit the usage limit mid-review — "try again at 9:28 PM"
+(local, 27 Sept). Its four confirmed-by-experiment findings were all checked and acted on (see
+`69dc951d`). **Next Codex round:** `2fb86676..9cf3fdfa` minus `46605372` (the #1224 part was
+covered), i.e. #1222 both commits + #1225. Then the main PR.
+
+**Main PR (#1221/#1219) — what it must contain (checked 27 Sept):**
+- `dependency-canary.yml` (fixed; main's copy has failed both runs), `workflow-health.yml`
+  (adds the canary + channel-security-audit entries), `release-body-audit.yml` and
+  `upstream-engine-watch.yml` (both missing on main), the line-break fixes in
+  `scripts/release-notes/lint-notes.py` (+ the three one-line copyright changes), and the
+  corrected `.github/release-notes/v1.13.0-alpha.47.md` — the audit self-heals FROM main's
+  notes files, so main's old alpha.47 wording must not stay there. Do NOT touch main's own
+  v1.10.7.md / v1.10.8.md (main-only stable notes).
+- **Retire `upstream-gamdl-watch.yml` on main** (alpha retired it in #920): the new watcher
+  also covers GAMDL, and both would open GAMDL issues. The old one opened #1189 ("GAMDL 3.8.5
+  beyond 3.7.4") because it compared against MAIN's ceiling (3.7.4); it was closed as already
+  done on alpha, and its next run would open another for 3.9.1.
+- **`upstream-engine-watch.yml` needs a change first** (make it on the working branch so the
+  file stays identical everywhere): main's `tool-versions.toml` has NO `[votify]` section, so
+  the votify leg would fail every day; and GAMDL would be compared against main's stale 3.7.4.
+  Plan: read the ceiling from BOTH main (checked out) and `origin/alpha` (fetched), use the
+  higher; a branch that cannot be read fails the run loudly; a section missing on one branch
+  uses the other. The `upstream-votify` label does not exist yet, but the workflow creates it.
+- Merge: squash with a `ci:` title (release-please hides `ci`, so no release PR/tag/build).
+  After merge: dispatch the canary, the engine watcher and release-body-audit (dry run
+  first) by hand and read each result; workflow-health will count the canary's two old
+  failures until a scheduled run succeeds (next: Monday 06:36 UTC).
+
+**Trap found:** agent output files under `…/tasks/*.output` are SYMBOLIC LINKS. The
+watchdog's `stat -f %m` (no `-L`) times the link, which never changes, so `quiet` fires
+falsely after its idle time. Point watchdogs at the real `…/subagents/agent-<id>.jsonl`.
+
+**Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
+PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
+on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
+`history.rs` (`macos_alias_flag`).
 
 ---
 
