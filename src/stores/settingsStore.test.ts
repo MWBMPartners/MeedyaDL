@@ -160,131 +160,146 @@ const MOCK_SETTINGS: AppSettings = {
 };
 
 /**
+ * The store's starting point for every test below -- a full `AppSettings`
+ * object, used for BOTH `settings` and `savedSettings` in `beforeEach`.
+ * Pulled out to a name (rather than left as two separate inline copies)
+ * so `settings` and `savedSettings` start each test IDENTICAL, which is
+ * what "nothing unsaved yet" actually means.
+ */
+const BASE_SETTINGS: AppSettings = {
+  output_path: '',
+  temp_path: '',
+  language: 'en-US',
+  storefront: '',
+  ui_language: '',
+  overwrite: false,
+  auto_check_updates: true,
+  check_pre_releases: false,
+  update_channel: 'stable',
+  update_check_interval_hours: 6,
+  gamdl_idle_timeout_minutes: 5,
+  auto_start_queue: true,
+  abort_queue_confirm: true,
+  desktop_notifications: true,
+  notification_style: 'native_and_in_app',
+  smart_redownload_detection: true,
+  clipboard_monitoring: true,
+  default_song_codec: 'alac',
+  default_video_resolution: '2160p',
+  default_video_remux_format: 'm4v',
+  fallback_enabled: true,
+  music_fallback_chain: ['alac', 'atmos', 'ac3', 'aac-binaural', 'aac', 'aac-legacy'],
+  video_codec_fallback_chain: ['h265', 'h264'],
+  companion_mode: 'atmos_to_lossless',
+  custom_companion_codecs: [],
+  music_video_companion: false,
+  musicbrainz_lookup: false,
+  musicbrainz_search_fallback: true,
+  artist_auto_select: null,
+  artist_auto_select_multi: [],
+  duplicate_detection: {
+    scope: 'intra_and_queued',
+    preference_order: [
+      'main-albums',
+      'singles-eps',
+      'compilation-albums',
+      'live-albums',
+      'top-songs',
+    ],
+    key_strategy: 'song_id_isrc_fallback',
+  },
+  embed_lyrics_and_sidecar: true,
+  keep_lyrics_sidecar: true,
+  enhanced_lrc: true,
+  lyrics_fallback_enabled: true,
+  generate_webvtt: false,
+  generate_rich_srt: true,
+  embed_subtitles: false,
+  generate_ass: false,
+  generate_lyricsfile: false,
+  synced_lyrics_format: 'ttml',
+  no_synced_lyrics: false,
+  synced_lyrics_only: false,
+  companion_lyrics_formats: ['srt'],
+  save_cover: true,
+  cover_format: 'raw',
+  cover_size: 10000,
+  cover_art_name: 'front_cover',
+  music_video_embed_cover_sidecar: true,
+  animated_artwork_enabled: false,
+  hide_animated_artwork: true,
+  artist_promo_video_enabled: false,
+  animated_artwork_resolution: 'fhd',
+  best_cover_art_enabled: false,
+  musickit_team_id: null,
+  musickit_key_id: null,
+  acoustid_enabled: false,
+  acoustid_api_key: '',
+  odesli_lookup_enabled: false,
+  odesli_api_key: '',
+  replaygain_enabled: false,
+  replaygain_reference_level: -18.0,
+  replaygain_prevent_clipping: true,
+  replaygain_album_gain: true,
+  album_folder_template: '{album_artist}/{album}',
+  compilation_folder_template: 'Compilations/{album}',
+  no_album_folder_template: '{artist}/Unknown Album',
+  playlist_folder_template: 'Playlists/{playlist_artist}',
+  single_disc_file_template: '{track:02d} {title}',
+  multi_disc_file_template: '{disc}-{track:02d} {title}',
+  no_album_file_template: '{title}',
+  playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
+  cookies_path: null,
+  ffmpeg_path: null,
+  mp4decrypt_path: null,
+  mp4box_path: null,
+  nm3u8dlre_path: null,
+  mediainfo_path: null,
+  download_mode: 'ytdlp',
+  remux_mode: 'ffmpeg',
+  use_wrapper: false,
+  auto_retry_without_wrapper: false,
+  storefront_fallback_on_failure: true,
+  track_number_padding: 'auto',
+  disc_number_padding: 'auto',
+  wrapper_account_url: 'http://127.0.0.1:30020',
+  wrapper_m3u8_ip: '127.0.0.1:20020',
+  wrapper_decrypt_ip: '127.0.0.1:10020',
+  wrapper_url: 'http://127.0.0.1',
+  drm_backend: 'widevine',
+  prd_path: '',
+  truncate: null,
+  content_advisory_in_filenames: true,
+  exclude_tags: [],
+  sentry_enabled: false,
+  verbose_activity_log: false,
+  verbose_gamdl_exceptions: false,
+  gamdl_log_level: 'INFO',
+  activity_log_path_override: '',
+  dev_access_enabled: false,
+  spotify_consent_acknowledged: false,
+  relocation_declined: false,
+  last_seen_version: '',
+  setup_completed: false,
+  sidebar_collapsed: false,
+  theme_override: null,
+  high_contrast: false,
+  colour_blind_mode: '',
+};
+
+/**
  * Reset the store and mocks before each test to prevent state leakage.
+ *
+ * `settings` and `savedSettings` both start as `BASE_SETTINGS` -- the
+ * same object reference is fine here (nothing mutates it in place; every
+ * store action produces a fresh object via spread), and starting them
+ * equal is the point: at the top of a test, nothing is unsaved yet.
  */
 beforeEach(() => {
   vi.clearAllMocks();
   useSettingsStore.setState({
-    settings: {
-      output_path: '',
-      temp_path: '',
-      language: 'en-US',
-      storefront: '',
-      ui_language: '',
-      overwrite: false,
-      auto_check_updates: true,
-      check_pre_releases: false,
-      update_channel: 'stable',
-      update_check_interval_hours: 6,
-      gamdl_idle_timeout_minutes: 5,
-      auto_start_queue: true,
-      abort_queue_confirm: true,
-      desktop_notifications: true,
-      notification_style: 'native_and_in_app',
-      smart_redownload_detection: true,
-      clipboard_monitoring: true,
-      default_song_codec: 'alac',
-      default_video_resolution: '2160p',
-      default_video_remux_format: 'm4v',
-      fallback_enabled: true,
-      music_fallback_chain: ['alac', 'atmos', 'ac3', 'aac-binaural', 'aac', 'aac-legacy'],
-      video_codec_fallback_chain: ['h265', 'h264'],
-      companion_mode: 'atmos_to_lossless',
-      custom_companion_codecs: [],
-      music_video_companion: false,
-      musicbrainz_lookup: false,
-      musicbrainz_search_fallback: true,
-      artist_auto_select: null,
-      artist_auto_select_multi: [],
-      duplicate_detection: {
-        scope: 'intra_and_queued',
-        preference_order: [
-          'main-albums',
-          'singles-eps',
-          'compilation-albums',
-          'live-albums',
-          'top-songs',
-        ],
-        key_strategy: 'song_id_isrc_fallback',
-      },
-      embed_lyrics_and_sidecar: true,
-      keep_lyrics_sidecar: true,
-      enhanced_lrc: true,
-      lyrics_fallback_enabled: true,
-      generate_webvtt: false,
-      generate_rich_srt: true,
-      embed_subtitles: false,
-      generate_ass: false,
-      generate_lyricsfile: false,
-      synced_lyrics_format: 'ttml',
-      no_synced_lyrics: false,
-      synced_lyrics_only: false,
-      companion_lyrics_formats: ['srt'],
-      save_cover: true,
-      cover_format: 'raw',
-      cover_size: 10000,
-      cover_art_name: 'front_cover',
-      music_video_embed_cover_sidecar: true,
-      animated_artwork_enabled: false,
-      hide_animated_artwork: true,
-      artist_promo_video_enabled: false,
-      animated_artwork_resolution: 'fhd',
-      best_cover_art_enabled: false,
-      musickit_team_id: null,
-      musickit_key_id: null,
-      acoustid_enabled: false,
-      acoustid_api_key: '',
-      odesli_lookup_enabled: false,
-      odesli_api_key: '',
-      replaygain_enabled: false,
-      replaygain_reference_level: -18.0,
-      replaygain_prevent_clipping: true,
-      replaygain_album_gain: true,
-      album_folder_template: '{album_artist}/{album}',
-      compilation_folder_template: 'Compilations/{album}',
-      no_album_folder_template: '{artist}/Unknown Album',
-      playlist_folder_template: 'Playlists/{playlist_artist}',
-      single_disc_file_template: '{track:02d} {title}',
-      multi_disc_file_template: '{disc}-{track:02d} {title}',
-      no_album_file_template: '{title}',
-      playlist_file_template: 'Playlists/{playlist_artist}/{playlist_title}',
-      cookies_path: null,
-      ffmpeg_path: null,
-      mp4decrypt_path: null,
-      mp4box_path: null,
-      nm3u8dlre_path: null,
-      mediainfo_path: null,
-      download_mode: 'ytdlp',
-      remux_mode: 'ffmpeg',
-      use_wrapper: false,
-      auto_retry_without_wrapper: false,
-      storefront_fallback_on_failure: true,
-  track_number_padding: 'auto',
-  disc_number_padding: 'auto',
-      wrapper_account_url: 'http://127.0.0.1:30020',
-      wrapper_m3u8_ip: '127.0.0.1:20020',
-      wrapper_decrypt_ip: '127.0.0.1:10020',
-      wrapper_url: 'http://127.0.0.1',
-      drm_backend: 'widevine',
-      prd_path: '',
-      truncate: null,
-      content_advisory_in_filenames: true,
-      exclude_tags: [],
-      sentry_enabled: false,
-      verbose_activity_log: false,
-      verbose_gamdl_exceptions: false,
-      gamdl_log_level: 'INFO',
-      activity_log_path_override: '',
-      dev_access_enabled: false,
-      spotify_consent_acknowledged: false,
-      relocation_declined: false,
-      last_seen_version: '',
-      setup_completed: false,
-      sidebar_collapsed: false,
-      theme_override: null,
-      high_contrast: false,
-      colour_blind_mode: '',
-    },
+    settings: BASE_SETTINGS,
+    savedSettings: BASE_SETTINGS,
     isLoading: false,
     isDirty: false,
     error: null,
@@ -555,6 +570,160 @@ describe('settingsStore', () => {
       });
       await useSettingsStore.getState().resetToDefaults();
       expect(useSettingsStore.getState().settings.after_queue_once).toBe('hibernate_computer');
+    });
+  });
+
+  // =========================================================================
+  // savedSettings (#1222) -- what the status bar and anything else that
+  // needs to say what WILL happen should read, kept in step with disk
+  // rather than with whatever the Settings screen currently shows.
+  // =========================================================================
+  describe('savedSettings tracks what is actually on disk (#1222)', () => {
+    it('loadSettings sets savedSettings to the freshly loaded settings', async () => {
+      vi.mocked(commands.getSettings).mockResolvedValueOnce(MOCK_SETTINGS);
+
+      await useSettingsStore.getState().loadSettings();
+
+      const state = useSettingsStore.getState();
+      expect(state.savedSettings).toEqual(MOCK_SETTINGS);
+      /* And it should match `settings`, since a fresh load has nothing unsaved. */
+      expect(state.savedSettings).toEqual(state.settings);
+    });
+
+    it('saveSettings sets savedSettings to the settings that were actually sent, not to a later edit', async () => {
+      /*
+       * The point being tested: the snapshot is taken BEFORE the
+       * backend call resolves. If somebody edits `settings` again while
+       * the save promise is still pending, that edit belongs to the
+       * NEXT save -- `savedSettings` must reflect what was actually
+       * written this time, not whatever `settings` holds once the
+       * `await` finally returns.
+       */
+      let resolveSave!: () => void;
+      const pendingSave = new Promise<void>((r) => {
+        resolveSave = r;
+      });
+      vi.mocked(commands.saveSettings).mockReturnValueOnce(pendingSave);
+
+      useSettingsStore.getState().updateSettings({ output_path: '/snapshot/path' });
+      const savePromise = useSettingsStore.getState().saveSettings();
+
+      /* Edit again while the save is still in flight. */
+      useSettingsStore.getState().updateSettings({ output_path: '/edited/during/save' });
+
+      resolveSave();
+      await savePromise;
+
+      const { savedSettings, settings } = useSettingsStore.getState();
+      expect(savedSettings.output_path).toBe('/snapshot/path');
+      /* The Settings screen itself keeps the later edit -- only `savedSettings` is pinned to the snapshot. */
+      expect(settings.output_path).toBe('/edited/during/save');
+    });
+
+    it('saveSettings keeps savedSettings.after_queue_once as it already was, not the snapshot\'s copy', async () => {
+      /*
+       * The backend restores `after_queue_once` from disk on every
+       * whole-settings save, regardless of what the payload says (see
+       * `keep_fields_the_settings_screen_cannot_change` in
+       * `commands/settings.rs`) -- the Settings screen never edits or
+       * saves this field. So even if `settings.after_queue_once` holds
+       * some other value at save time, `savedSettings` must keep its
+       * OWN previous value for that one field rather than taking the
+       * snapshot's, because the snapshot's copy is not what ended up on
+       * disk.
+       */
+      vi.mocked(commands.saveSettings).mockResolvedValueOnce(undefined);
+
+      /* savedSettings already knows the one-off is armed, via its own narrow write. */
+      useSettingsStore.getState().syncAfterQueueOnce('hibernate_computer');
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
+        'hibernate_computer'
+      );
+
+      /*
+       * Simulate the Settings screen's in-memory copy going stale for
+       * this field (it should never actually get here through the UI,
+       * but the store itself must not trust it either).
+       */
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, after_queue_once: null },
+      }));
+
+      await useSettingsStore.getState().saveSettings();
+
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
+        'hibernate_computer'
+      );
+    });
+
+    it('saveSettings keeps savedSettings.dev_access_enabled as it already was, not the snapshot\'s copy', async () => {
+      /*
+       * Same rule as the one-off above: the backend always keeps
+       * `dev_access_enabled` from disk on a whole-settings save, so the
+       * snapshot's copy of it is never what ends up on disk.
+       */
+      vi.mocked(commands.saveSettings).mockResolvedValueOnce(undefined);
+
+      useSettingsStore.setState((state) => ({
+        savedSettings: { ...state.savedSettings, dev_access_enabled: false },
+        settings: { ...state.settings, dev_access_enabled: true },
+      }));
+
+      await useSettingsStore.getState().saveSettings();
+
+      expect(useSettingsStore.getState().savedSettings.dev_access_enabled).toBe(false);
+    });
+
+    it('syncSidebarCollapsed updates savedSettings as well as settings', () => {
+      useSettingsStore.getState().syncSidebarCollapsed(true);
+
+      const { settings, savedSettings } = useSettingsStore.getState();
+      expect(settings.sidebar_collapsed).toBe(true);
+      expect(savedSettings.sidebar_collapsed).toBe(true);
+    });
+
+    it('syncAfterQueueOnce updates savedSettings as well as settings', () => {
+      useSettingsStore.getState().syncAfterQueueOnce('shutdown_computer');
+
+      const { settings, savedSettings } = useSettingsStore.getState();
+      expect(settings.after_queue_once).toBe('shutdown_computer');
+      expect(savedSettings.after_queue_once).toBe('shutdown_computer');
+    });
+
+    it('syncSaved updates savedSettings as well as settings', () => {
+      useSettingsStore.getState().syncSaved({ dev_access_enabled: true });
+
+      const { settings, savedSettings } = useSettingsStore.getState();
+      expect(settings.dev_access_enabled).toBe(true);
+      expect(savedSettings.dev_access_enabled).toBe(true);
+    });
+
+    it('updateSettings never touches savedSettings -- an in-memory edit is not yet on disk', () => {
+      const before = useSettingsStore.getState().savedSettings;
+
+      useSettingsStore.getState().updateSettings({ output_path: '/unsaved/edit' });
+
+      const after = useSettingsStore.getState();
+      expect(after.savedSettings).toBe(before);
+      expect(after.savedSettings.output_path).not.toBe('/unsaved/edit');
+      /* `settings`, the screen's own copy, does change. */
+      expect(after.settings.output_path).toBe('/unsaved/edit');
+    });
+
+    it('resetToDefaults never touches savedSettings -- pressing Reset does not write to disk', async () => {
+      vi.mocked(commands.getDefaultSettings).mockResolvedValueOnce({
+        ...MOCK_SETTINGS,
+        default_song_codec: 'aac-legacy',
+      });
+      const before = useSettingsStore.getState().savedSettings;
+
+      await useSettingsStore.getState().resetToDefaults();
+
+      const after = useSettingsStore.getState();
+      expect(after.savedSettings).toBe(before);
+      expect(after.savedSettings.default_song_codec).not.toBe('aac-legacy');
+      /* `settings`, the screen's own copy, does change. */
+      expect(after.settings.default_song_codec).toBe('aac-legacy');
     });
   });
 });

@@ -72,25 +72,59 @@ const AFTER_QUEUE_LABEL_KEYS: Record<string, string> = {
 /**
  * Compact indicator shown in the status bar when an after-queue action is set.
  * Shows "(once)" suffix for one-shot actions vs the persistent action.
+ *
+ * **Always reads `savedSettings`, never `settings` (#1222).** `settings`
+ * is whatever the Settings screen currently shows, which can hold an
+ * edit nobody has pressed "Save" on yet. This bar exists to tell someone
+ * what is actually going to happen when the queue finishes -- and what
+ * is actually going to happen is decided by the file on disk, which is
+ * what the download queue itself reads, not by whatever is sitting
+ * half-edited on a screen the person may not even have open. Before this
+ * fix, changing the dropdown and walking away made the bar show nothing
+ * was going to happen while the file still said "shut down" -- wrong in
+ * exactly the dangerous direction, a screen that goes quiet right before
+ * the computer turns itself off.
+ *
+ * When the Settings screen DOES hold an unsaved edit to the standing
+ * action, a short "(unsaved change)" note is appended, so the person can
+ * tell the two apart without it ever changing WHAT is shown.
  */
 function AfterQueueIndicator() {
   const { t } = useTranslation();
-  const afterOnce = useSettingsStore((s) => s.settings.after_queue_once);
-  const afterAlways = useSettingsStore((s) => s.settings.after_queue_action);
+
+  // What is actually on disk -- what the queue will act on. This is
+  // deliberately `savedSettings`, not `settings`; see the comment above.
+  const savedOnce = useSettingsStore((s) => s.savedSettings.after_queue_once);
+  const savedAlways = useSettingsStore((s) => s.savedSettings.after_queue_action);
+
+  // The Settings screen's own in-memory copy of the standing action.
+  // Read ONLY to decide whether to show the "(unsaved change)" note --
+  // never to decide what the bar actually says is going to happen.
+  const editedAlways = useSettingsStore((s) => s.settings.after_queue_action);
 
   // One-shot overrides persistent; show nothing for do_nothing
-  const action = afterOnce ?? afterAlways ?? 'do_nothing';
+  const action = savedOnce ?? savedAlways ?? 'do_nothing';
   if (action === 'do_nothing') return null;
 
   const labelKey = AFTER_QUEUE_LABEL_KEYS[action];
   const label = labelKey ? t(labelKey) : action;
-  const text = afterOnce
+  const text = savedOnce
     ? t('statusBar.afterQueueOnce', { label })
     : t('statusBar.afterQueue', { label });
 
+  // True when the Settings screen has an edit to the standing action
+  // that has not been saved. Checked even while a one-off is what is
+  // actually being shown above: the moment that one-off runs and clears
+  // itself, this is the value that takes over, and the person should
+  // know it does not match what they last typed.
+  const hasUnsavedStandingEdit = editedAlways !== savedAlways;
+  const fullText = hasUnsavedStandingEdit
+    ? `${text} ${t('statusBar.unsavedChangeNote')}`
+    : text;
+
   return (
-    <span className="text-status-warning-text" title={text}>
-      {text}
+    <span className="text-status-warning-text" title={fullText}>
+      {fullText}
     </span>
   );
 }

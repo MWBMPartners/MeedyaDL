@@ -221,6 +221,7 @@
     "abortConfirm": "Annuler tous les téléchargements actifs et en attente ? Cette action est irréversible.",
     "afterQueue": "Après la file d'attente : {{label}}",
     "afterQueueOnce": "Après la file d'attente : {{label}} (une fois)",
+    "unsavedChangeNote": "(modification non enregistrée)",
     "actions": {
       "openOutputFolder": "Ouvrir le dossier",
       "playSound": "Jouer un son",

@@ -221,6 +221,7 @@
     "abortConfirm": "Abort every active and queued download? This cannot be undone.",
     "afterQueue": "After queue: {{label}}",
     "afterQueueOnce": "After queue: {{label}} (once)",
+    "unsavedChangeNote": "(unsaved change)",
     "actions": {
       "openOutputFolder": "Open folder",
       "playSound": "Play sound",
