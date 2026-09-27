@@ -296,8 +296,13 @@ def _strip_technical_changelog(lines: list[str]) -> list[str]:
     while i < len(lines):
         stripped = lines[i].strip()
         if stripped.startswith(_TECHNICAL_CHANGELOG_MARKER):
-            if "</details>" in stripped[len(_TECHNICAL_CHANGELOG_MARKER):]:
-                out.append("")
+            after_marker = stripped[len(_TECHNICAL_CHANGELOG_MARKER):]
+            if "</details>" in after_marker:
+                # Only the section itself is blanked. Text after its close
+                # tag on the same line is visible on the page, so it is
+                # kept and checked (Codex, review of 73089064: the whole
+                # line used to be blanked).
+                out.append(after_marker.split("</details>", 1)[1])
                 i += 1
                 continue
             end = None

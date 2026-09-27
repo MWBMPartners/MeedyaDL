@@ -45,8 +45,11 @@ vi.mock('@tauri-apps/plugin-shell', () => ({
 // override this with `mockResolvedValueOnce` / `mockRejectedValueOnce`
 // to check the wiring itself.
 const redactForPublicReportMock = vi.fn((text: string) => Promise.resolve(text));
+// The whole-address cleaner used for the download link (#1231).
+const redactUrlForPublicReportMock = vi.fn((url: string) => Promise.resolve(url));
 vi.mock('@/lib/tauri-commands', () => ({
   redactForPublicReport: (text: string) => redactForPublicReportMock(text),
+  redactUrlForPublicReport: (url: string) => redactUrlForPublicReportMock(url),
 }));
 
 /**
@@ -85,6 +88,8 @@ beforeEach(() => {
   openMock.mockClear();
   redactForPublicReportMock.mockClear();
   redactForPublicReportMock.mockImplementation((text: string) => Promise.resolve(text));
+  redactUrlForPublicReportMock.mockClear();
+  redactUrlForPublicReportMock.mockImplementation((url: string) => Promise.resolve(url));
   useUiStore.setState({ toasts: [] });
   // jsdom's clipboard is undefined by default — provide a writeText spy.
   Object.defineProperty(navigator, 'clipboard', {
@@ -255,10 +260,10 @@ describe('ErrorMessageDisplay', () => {
   });
 
   it('cleans the download link too, not only the message (Codex, review of 7edd178c)', async () => {
-    const rawLink = 'https://music.apple.com/us/album/test/123?token=SECRET123';
+    const rawLink = "https://music.apple.com/us/album/test/123?token=abc'SECRET123";
     const cleanedLink = 'https://music.apple.com/us/album/test/123';
-    redactForPublicReportMock.mockImplementation((text: string) =>
-      Promise.resolve(text === rawLink ? cleanedLink : text),
+    redactUrlForPublicReportMock.mockImplementation((url: string) =>
+      Promise.resolve(url === rawLink ? cleanedLink : url),
     );
 
     render(<ErrorMessageDisplay message={REAL_GAMDL_BUG_MESSAGE} sourceUrl={rawLink} />);
@@ -268,7 +273,9 @@ describe('ErrorMessageDisplay', () => {
     });
 
     await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
-    expect(redactForPublicReportMock).toHaveBeenCalledWith(rawLink);
+    // The whole-address cleaner, never the free-text one, gets the link.
+    expect(redactUrlForPublicReportMock).toHaveBeenCalledWith(rawLink);
+    expect(redactForPublicReportMock).not.toHaveBeenCalledWith(rawLink);
     const body = new URL(openMock.mock.calls[0][0]).searchParams.get('body') ?? '';
     expect(body).toContain(cleanedLink);
     expect(body).not.toContain('SECRET123');

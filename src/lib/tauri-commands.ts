@@ -2498,6 +2498,19 @@ export function redactForPublicReport(text: string): Promise<string> {
   return invoke<string>('redact_for_public_report', { text });
 }
 
+/**
+ * Cleans ONE web address before it goes into a public report: its query
+ * string, sign-in details and any user name in a file path are removed.
+ * Use this, not `redactForPublicReport`, for a value that is known to be a
+ * single address: the free-text cleaner stops an address at a quote mark,
+ * so an apostrophe inside a query left part of it behind (#1231).
+ *
+ * Rust handler: `redact_url_for_public_report()` in `src-tauri/src/commands/crash_reports.rs`
+ */
+export function redactUrlForPublicReport(url: string): Promise<string> {
+  return invoke<string>('redact_url_for_public_report', { url });
+}
+
 // ============================================================
 // Download History Commands
 // ============================================================
