@@ -348,10 +348,62 @@ pub async fn set_sidebar_collapsed(app: AppHandle, collapsed: bool) -> Result<()
     Ok(())
 }
 
+/// Settings whose values are never written into the activity log. A
+/// change to one of them is recorded as "updated" or "cleared", without
+/// the value.
+///
+/// Matched by name at ANY depth, not only at the top level, because the
+/// per-service settings (`service_settings`) hold their own copies of
+/// several of these — the Apple Music, Spotify and YouTube cookies files
+/// and the Apple Music MusicKit identifiers.
+///
+/// **Why this list matters.** When verbose logging is on, every Save
+/// writes one line per changed setting to the activity log, and that log
+/// is kept on disk. A setting missing from here has its old and new
+/// values written out in full.
+///
+/// `wrapper_url` was missing until 27 Sept 2026 (#1215, finding 3). It is
+/// the wrapper-v2 address, and it can carry a sign-in token in its query
+/// string or as a name and password in front of the host — the same kind
+/// of value as the three wrapper-v1 addresses that were already listed.
+///
+/// `wvd_path` (Spotify) and `prd_path` are listed for the same reason
+/// `cookies_path` always has been: each names a file that is itself a
+/// credential — a device file with a private key inside. The path is not
+/// the secret, but it says where the secret is kept, and nothing is lost
+/// by leaving it out of a log line.
+///
+/// **What this cannot do.** It matches names, so a NEW setting that holds
+/// an address or a key is written out in full until somebody adds it
+/// here. Nothing checks for that automatically.
+const REDACTED_FIELDS: &[&str] = &[
+    "cookies_path",
+    "wrapper_account_url",
+    "wrapper_m3u8_ip",
+    "wrapper_decrypt_ip",
+    "wrapper_url",
+    "musickit_team_id",
+    "musickit_key_id",
+    "acoustid_api_key",
+    "odesli_api_key",
+    "wvd_path",
+    "prd_path",
+];
+
 /// Compare two `AppSettings` structs and return a list of human-readable change descriptions.
 ///
-/// Serializes both to `serde_json::Value` maps and compares each top-level key.
-/// Sensitive fields (cookies_path, wrapper_account_url, musickit_*) are redacted.
+/// Serializes both to `serde_json::Value` maps and compares them key by
+/// key. Settings in [`REDACTED_FIELDS`] are recorded as changed without
+/// their values.
+///
+/// Nested groups of settings (the per-service settings, duplicate
+/// detection) are compared one setting at a time, and named with dots,
+/// for example `service_settings.spotify.cookies_path`. This used to print
+/// a whole group whenever anything inside it changed — so changing one
+/// harmless Spotify option wrote that service's cookies path, and the
+/// Apple Music MusicKit identifiers beside it, into the log, even though
+/// the same settings at the top level were hidden. Found while fixing
+/// finding 3 of #1215.
 fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
     let Ok(old_val) = serde_json::to_value(old) else {
         return vec![];
@@ -364,24 +416,31 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
         return vec![];
     };
 
-    // Fields whose values should be redacted in logs (contain sensitive data)
-    const REDACTED_FIELDS: &[&str] = &[
-        "cookies_path",
-        "wrapper_account_url",
-        "wrapper_m3u8_ip",
-        "wrapper_decrypt_ip",
-        "musickit_team_id",
-        "musickit_key_id",
-        "acoustid_api_key",
-        "odesli_api_key",
-    ];
-
     let mut changes = Vec::new();
+    diff_setting_maps("", Some(old_map), new_map, &mut changes);
+    changes
+}
+
+/// Adds one line to `changes` for every setting that differs between
+/// `old_map` and `new_map`, going inside nested groups. `prefix` is the
+/// dotted name of the group being compared (empty at the top level).
+/// `old_map` is `None` when the whole group is new.
+fn diff_setting_maps(
+    prefix: &str,
+    old_map: Option<&serde_json::Map<String, serde_json::Value>>,
+    new_map: &serde_json::Map<String, serde_json::Value>,
+    changes: &mut Vec<String>,
+) {
     for (key, new_v) in new_map {
-        let old_v = old_map.get(key);
+        let old_v = old_map.and_then(|m| m.get(key));
         if old_v == Some(new_v) {
             continue;
         }
+        let name = if prefix.is_empty() {
+            key.clone()
+        } else {
+            format!("{prefix}.{key}")
+        };
         if REDACTED_FIELDS.contains(&key.as_str()) {
             // Show that it changed but not the actual value
             let status = if new_v.is_null() || (new_v.is_string() && new_v.as_str() == Some("")) {
@@ -389,7 +448,13 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
             } else {
                 "updated"
             };
-            changes.push(format!("{key} → [{status}]"));
+            changes.push(format!("{name} → [{status}]"));
+        } else if let Some(new_group) = new_v.as_object() {
+            // A group of settings: compare inside it, so the names above
+            // are hidden wherever they sit. An old value that is not a
+            // group (it cannot be, for settings read through the same
+            // type) is treated as a new group.
+            diff_setting_maps(&name, old_v.and_then(|v| v.as_object()), new_group, changes);
         } else {
             // Format the value compactly
             let fmt = |v: &serde_json::Value| -> String {
@@ -410,10 +475,9 @@ fn diff_settings(old: &AppSettings, new: &AppSettings) -> Vec<String> {
             };
             let old_str = old_v.map_or("(none)".to_string(), fmt);
             let new_str = fmt(new_v);
-            changes.push(format!("{key}: {old_str} → {new_str}"));
+            changes.push(format!("{name}: {old_str} → {new_str}"));
         }
     }
-    changes
 }
 
 /// Checks whether a built-in AcoustID API key was embedded at compile time.
@@ -808,13 +872,42 @@ struct SettingsExportFile {
 /// This prevents accidental credential leakage when sharing settings
 /// files. The cleared fields are device-specific (cookie paths) or
 /// contain authentication secrets (wrapper URL, MusicKit credentials).
+///
+/// **Until 27 Sept 2026 this missed two things** (#1215, finding 3):
+/// - `wrapper_url`, the wrapper-v2 address, which can carry a sign-in
+///   token in its query string or a name and password before the host.
+///   Only the older wrapper-v1 `wrapper_account_url` was cleared, although
+///   the comments here and on `export_settings` said "wrapper URL".
+/// - everything inside the per-service settings: the Apple Music, Spotify
+///   and YouTube cookies files, the Apple Music MusicKit identifiers, and
+///   Spotify's device file (`wvd_path`) and program file
+///   (`spotify_dll_path`). The same settings at the top level were cleared.
+///   `prd_path` (the PlayReady device file) is cleared for the same reason.
+///
+/// **Three lists do this job in different places**, and a setting added to
+/// one has more than once been missed in the others: this one (a settings
+/// export), `REDACTED_FIELDS` above (the settings-change activity log),
+/// and `redact_credential_fields` in `services/diagnostic_bundle.rs` (the
+/// diagnostic and profile bundles, which matches by name at any depth). A
+/// new credential-bearing setting belongs in all three.
 fn clear_sensitive_fields(settings: &mut AppSettings) {
     settings.cookies_path = None;
     settings.wrapper_account_url = String::new();
+    settings.wrapper_url = String::new();
     settings.musickit_team_id = None;
     settings.musickit_key_id = None;
     settings.acoustid_api_key = String::new();
     settings.odesli_api_key = String::new();
+    settings.prd_path = String::new();
+
+    let services = &mut settings.service_settings;
+    services.apple_music.cookies_path = None;
+    services.apple_music.musickit_team_id = None;
+    services.apple_music.musickit_key_id = None;
+    services.spotify.cookies_path = None;
+    services.spotify.wvd_path = None;
+    services.spotify.spotify_dll_path = None;
+    services.youtube.cookies_path = None;
 }
 
 /// Exports application settings to a JSON file via a native save dialog.
@@ -1642,5 +1735,131 @@ mod tests {
             Some(&in_memory),
         );
         assert_eq!(from_page.after_queue_once, None);
+    }
+
+    // ── What a Save writes into the activity log (#1215, finding 3) ─────
+    //
+    // With verbose logging on, every Save writes one line per changed
+    // setting to the activity log, which is kept on disk. A setting that
+    // holds a token must be recorded as changed, never with its value.
+
+    fn assert_nothing_secret_in(changes: &[String], secrets: &[&str]) {
+        for line in changes {
+            for secret in secrets {
+                assert!(
+                    !line.contains(secret),
+                    "`{secret}` was written into the activity log: {line}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_wrapper_v2_address_is_logged_without_its_token() {
+        // `wrapper_url` was missing from the list, so this line used to
+        // read "wrapper_url: http://127.0.0.1 → http://someone:hunter2@…".
+        let old = AppSettings::default();
+        let new = AppSettings {
+            wrapper_url: "http://someone:hunter2@127.0.0.1/?token=SECRET123".to_string(),
+            ..AppSettings::default()
+        };
+        let changes = diff_settings(&old, &new);
+        assert!(
+            changes.contains(&"wrapper_url → [updated]".to_string()),
+            "the change itself should still be recorded: {changes:?}"
+        );
+        assert_nothing_secret_in(&changes, &["SECRET123", "hunter2", "someone"]);
+    }
+
+    #[test]
+    fn secrets_inside_the_per_service_settings_are_hidden_too() {
+        // The list used to be checked against top-level names only, and a
+        // change anywhere inside the per-service settings printed that
+        // whole group — cookies paths and MusicKit identifiers included.
+        let old = AppSettings::default();
+        let mut new = AppSettings::default();
+        new.service_settings.spotify.anti_ban.daily_download_cap += 1;
+        new.service_settings.spotify.cookies_path = Some("/Users/me/secret-cookies.txt".into());
+        new.service_settings.spotify.wvd_path = Some("/Users/me/secret-device.wvd".into());
+        new.service_settings.apple_music.musickit_team_id = Some("TEAMSECRET".into());
+
+        let changes = diff_settings(&old, &new);
+        assert_nothing_secret_in(&changes, &["secret-cookies", "secret-device", "TEAMSECRET"]);
+        for hidden in [
+            "service_settings.spotify.cookies_path → [updated]",
+            "service_settings.spotify.wvd_path → [updated]",
+            "service_settings.apple-music.musickit_team_id → [updated]",
+        ] {
+            assert!(
+                changes.contains(&hidden.to_string()),
+                "expected `{hidden}` in {changes:?}"
+            );
+        }
+        // An ordinary setting in the same group is still shown in full,
+        // by its own name, which is what makes the log useful.
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.starts_with("service_settings.spotify.anti_ban.daily_download_cap: ")),
+            "the harmless change should still be readable: {changes:?}"
+        );
+    }
+
+    #[test]
+    fn an_ordinary_setting_is_still_logged_with_its_values() {
+        let old = AppSettings::default();
+        let new = AppSettings {
+            output_path: "/Users/me/Music".to_string(),
+            ..AppSettings::default()
+        };
+        let changes = diff_settings(&old, &new);
+        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert!(changes[0].starts_with("output_path: "), "{changes:?}");
+        assert!(changes[0].ends_with("→ /Users/me/Music"), "{changes:?}");
+    }
+
+    /// A settings export leaves out every credential-bearing setting,
+    /// including the wrapper-v2 address and the per-service ones, which it
+    /// used to write out in full (#1215, finding 3). Each is set to
+    /// something, exported, and must come back empty.
+    #[test]
+    fn a_settings_export_clears_every_credential_bearing_setting() {
+        let mut s = crate::models::settings::AppSettings::default();
+        let secret = "http://me:pw@127.0.0.1:1/?token=abc".to_string();
+        s.cookies_path = Some("/Users/me/cookies.txt".into());
+        s.wrapper_account_url = secret.clone();
+        s.wrapper_url = secret;
+        s.musickit_team_id = Some("TEAM123456".into());
+        s.musickit_key_id = Some("KEY1234567".into());
+        s.acoustid_api_key = "acoustid".into();
+        s.odesli_api_key = "odesli".into();
+        s.prd_path = "/Users/me/device.prd".into();
+        s.service_settings.apple_music.cookies_path = Some("/Users/me/am.txt".into());
+        s.service_settings.apple_music.musickit_team_id = Some("TEAM123456".into());
+        s.service_settings.apple_music.musickit_key_id = Some("KEY1234567".into());
+        s.service_settings.spotify.cookies_path = Some("/Users/me/sp.txt".into());
+        s.service_settings.spotify.wvd_path = Some("/Users/me/device.wvd".into());
+        s.service_settings.spotify.spotify_dll_path = Some("/Users/me/x.dll".into());
+        s.service_settings.youtube.cookies_path = Some("/Users/me/yt.txt".into());
+
+        clear_sensitive_fields(&mut s);
+
+        assert!(s.cookies_path.is_none());
+        assert!(s.wrapper_account_url.is_empty());
+        assert!(
+            s.wrapper_url.is_empty(),
+            "the wrapper-v2 address was exported"
+        );
+        assert!(s.musickit_team_id.is_none() && s.musickit_key_id.is_none());
+        assert!(s.acoustid_api_key.is_empty() && s.odesli_api_key.is_empty());
+        assert!(s.prd_path.is_empty());
+        let svc = &s.service_settings;
+        assert!(svc.apple_music.cookies_path.is_none());
+        assert!(svc.apple_music.musickit_team_id.is_none());
+        assert!(svc.apple_music.musickit_key_id.is_none());
+        assert!(svc.spotify.cookies_path.is_none());
+        assert!(svc.spotify.wvd_path.is_none());
+        assert!(svc.spotify.spotify_dll_path.is_none());
+        assert!(svc.youtube.cookies_path.is_none());
     }
 }

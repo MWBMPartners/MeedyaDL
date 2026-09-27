@@ -433,6 +433,39 @@ pub fn validate_cookies(cookies_path: &str) -> Option<PreflightWarning> {
 // Wrapper Health Check
 // ============================================================
 
+/// Turns an error from the web library into words that are safe to show
+/// on screen and to write into the logs.
+///
+/// **Why this exists.** A wrapper address can carry a sign-in token,
+/// either in its query string (`?token=…`) or as a name and password in
+/// front of the host (`http://name:password@host`). The web library adds
+/// the full address to the end of its own error text ("… for url
+/// (http://…)"), so printing its error as it stands writes the token into
+/// the activity log file on disk, the daily log file and a toast. That is
+/// the leak finding 3 of #1215 was about, and the wrapper-v2 messages
+/// below still did it after the wrapper-v1 one had been fixed.
+///
+/// Two steps, each covering the other:
+///
+/// 1. `without_url()` removes the address the library attached. With the
+///    version of the library in use today, that is the only address in
+///    its error text.
+/// 2. What is left then goes through the same cleaner the crash reports
+///    use (`redact_urls_in_text`), which drops the query string and any
+///    name and password from anything that still looks like a web
+///    address. That is for a later version of the library that prints
+///    more — nobody upgrading it would think to come back here.
+///
+/// **What this cannot do.** It only cleans the library's error. Every
+/// message that also names the wrapper's address must clean that itself,
+/// with `redact_url_query`, as the checks below do. And that one finds a
+/// name and password only after a `http://`-style start: an address
+/// typed without one, such as `name:password@127.0.0.1`, cannot be
+/// connected to, but would still be printed with the password in it.
+fn http_error_for_message(err: reqwest::Error) -> String {
+    crate::services::crash_report_service::redact_urls_in_text(&err.without_url().to_string())
+}
+
 /// Pings the wrapper service URL with an HTTP GET and 5-second timeout.
 ///
 /// Any HTTP response (even 404 or 500) counts as "reachable" — the wrapper
@@ -458,17 +491,17 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
             // its query string — that is exactly what `redact_url_query`
             // exists for elsewhere in the app. This message goes into the
             // daily log file, the on-disk activity log, AND a toast, so
-            // the raw address must never appear in it. We also strip the
-            // address out of the error itself with `without_url()`,
-            // because reqwest's own error text appends "for url (...)"
-            // whenever it knows the address it was trying to reach.
+            // the raw address must never appear in it. We also clean the
+            // error itself (`http_error_for_message`), because reqwest's
+            // own error text appends "for url (...)" whenever it knows
+            // the address it was trying to reach.
             let safe_url = crate::services::download_queue::redact_url_query(wrapper_url);
             let message = if e.is_timeout() {
                 format!("Wrapper service at {safe_url} timed out — check that it is running")
             } else if e.is_connect() {
                 format!("Cannot connect to wrapper at {safe_url} — is the service running?")
             } else {
-                format!("Wrapper health check failed: {}", e.without_url())
+                format!("Wrapper health check failed: {}", http_error_for_message(e))
             };
             Some(PreflightWarning {
                 check: PreflightCheck::Wrapper,
@@ -661,7 +694,14 @@ pub struct WrapperV2RuntimeBlock {
 /// - `None` when the daemon responds 200.
 /// - `Some(PreflightWarning)` on non-200 status, connection error,
 ///   or 3-second timeout.
+///
+/// Every message names the address with its query string and any name
+/// and password removed, and cleans the web library's error the same way
+/// (see `http_error_for_message`). These messages are written to the
+/// activity log file on disk as well as shown, and the wrapper-v2 address
+/// can carry a sign-in token (#1215, finding 3).
 pub async fn check_wrapper_v2_health(wrapper_url: &str) -> Option<PreflightWarning> {
+    let safe_url = crate::services::download_queue::redact_url_query(wrapper_url);
     let url = format!("{}/health", wrapper_url.trim_end_matches('/'));
     let client = match reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
@@ -680,21 +720,22 @@ pub async fn check_wrapper_v2_health(wrapper_url: &str) -> Option<PreflightWarni
         Ok(resp) => Some(PreflightWarning {
             check: PreflightCheck::WrapperV2Health,
             message: format!(
-                "Wrapper-v2 daemon at {wrapper_url} returned HTTP {} from GET /health — check the container logs",
+                "Wrapper-v2 daemon at {safe_url} returned HTTP {} from GET /health — check the container logs",
                 resp.status()
             ),
         }),
         Err(err) if err.is_timeout() => Some(PreflightWarning {
             check: PreflightCheck::WrapperV2Health,
             message: format!(
-                "Wrapper-v2 daemon at {wrapper_url} timed out after 3s — is the container running?"
+                "Wrapper-v2 daemon at {safe_url} timed out after 3s — is the container running?"
             ),
         }),
         Err(err) => Some(PreflightWarning {
             check: PreflightCheck::WrapperV2Health,
             message: format!(
-                "Wrapper-v2 daemon at {wrapper_url} unreachable — {err}. \
-                 GAMDL ≥ 3.6 needs wrapper-v2 for non-aac-web codecs."
+                "Wrapper-v2 daemon at {safe_url} unreachable — {}. \
+                 GAMDL ≥ 3.6 needs wrapper-v2 for non-aac-web codecs.",
+                http_error_for_message(err)
             ),
         }),
     }
@@ -703,8 +744,16 @@ pub async fn check_wrapper_v2_health(wrapper_url: &str) -> Option<PreflightWarni
 /// Fetches the wrapper-v2 `/me` payload to determine auth state and
 /// runtime readiness (#853). Returns `Ok(WrapperV2Me)` on success;
 /// the caller decides whether to fail the preflight or auto-login.
+///
+/// The error text never contains the address's query string or any name
+/// and password in it, nor the web library's own copy of the address.
+/// It reaches the activity log file on disk through
+/// [`check_wrapper_v2_auth`], and the Settings screen through the
+/// sign-in status command, and the address can carry a sign-in token
+/// (#1215, finding 3).
 pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, String> {
     let url = format!("{}/me", wrapper_url.trim_end_matches('/'));
+    let safe_url = crate::services::download_queue::redact_url_query(&url);
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -713,13 +762,13 @@ pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, Strin
         .get(&url)
         .send()
         .await
-        .map_err(|e| format!("GET {url} failed: {e}"))?;
+        .map_err(|e| format!("GET {safe_url} failed: {}", http_error_for_message(e)))?;
     if !resp.status().is_success() {
-        return Err(format!("GET {url} returned HTTP {}", resp.status()));
+        return Err(format!("GET {safe_url} returned HTTP {}", resp.status()));
     }
     resp.json::<WrapperV2Me>()
         .await
-        .map_err(|e| format!("Failed to parse /me JSON: {e}"))
+        .map_err(|e| format!("Failed to parse /me JSON: {}", http_error_for_message(e)))
 }
 
 /// Wrapper-v2 auth-state preflight (#853).
@@ -729,7 +778,13 @@ pub async fn fetch_wrapper_v2_me(wrapper_url: &str) -> Result<WrapperV2Me, Strin
 /// user must complete a `POST /login` flow before the next download
 /// will succeed (otherwise GAMDL ≥ 3.6 would interactively prompt
 /// on stdin, deadlocking the subprocess).
+///
+/// Like [`check_wrapper_v2_health`], every message names the address
+/// cleaned of its query string and any name and password, because these
+/// messages are written to the activity log file on disk (#1215,
+/// finding 3). The error from [`fetch_wrapper_v2_me`] is already clean.
 pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning> {
+    let safe_url = crate::services::download_queue::redact_url_query(wrapper_url);
     match fetch_wrapper_v2_me(wrapper_url).await {
         Ok(me) => {
             // Capture the daemon version for diagnostics either way —
@@ -757,7 +812,7 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
                         return Some(PreflightWarning {
                             check: PreflightCheck::WrapperV2Auth,
                             message: format!(
-                                "Wrapper-v2 daemon at {wrapper_url} reports version {version}, but the detected GAMDL release requires wrapper-v2 0.0.2 (native TCP decrypt, added alongside GAMDL 3.8.2). GAMDL exact-matches this version at CLI startup and will abort — upgrade the wrapper-v2 daemon to 0.0.2."
+                                "Wrapper-v2 daemon at {safe_url} reports version {version}, but the detected GAMDL release requires wrapper-v2 0.0.2 (native TCP decrypt, added alongside GAMDL 3.8.2). GAMDL exact-matches this version at CLI startup and will abort — upgrade the wrapper-v2 daemon to 0.0.2."
                             ),
                         });
                     }
@@ -779,7 +834,7 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
                     Some(PreflightWarning {
                         check: PreflightCheck::WrapperV2Auth,
                         message: format!(
-                            "Wrapper-v2 daemon at {wrapper_url} is signed in but FairPlay playback is \
+                            "Wrapper-v2 daemon at {safe_url} is signed in but FairPlay playback is \
                              not ready (playback_ready=false) — ALAC/Atmos/AC3 downloads will fail with \
                              a decrypt error. Restart the wrapper-v2 daemon and check its logs for \
                              Apple-library initialisation. AAC (aac-web) is unaffected."
@@ -790,7 +845,7 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
                 Some(PreflightWarning {
                     check: PreflightCheck::WrapperV2Auth,
                     message: format!(
-                        "Wrapper-v2 daemon at {wrapper_url} is reachable but not signed in (state: {}). \
+                        "Wrapper-v2 daemon at {safe_url} is reachable but not signed in (state: {}). \
                          Use Settings > Wrapper > Sign In before queueing downloads — GAMDL 3.6 would \
                          otherwise prompt for credentials on stdin and hang the subprocess.",
                         me.auth.state
@@ -800,9 +855,7 @@ pub async fn check_wrapper_v2_auth(wrapper_url: &str) -> Option<PreflightWarning
         }
         Err(err) => Some(PreflightWarning {
             check: PreflightCheck::WrapperV2Auth,
-            message: format!(
-                "Could not query wrapper-v2 auth state at {wrapper_url}: {err}"
-            ),
+            message: format!("Could not query wrapper-v2 auth state at {safe_url}: {err}"),
         }),
     }
 }
@@ -873,9 +926,16 @@ async fn post_wrapper_login_endpoint(
             };
         }
         Err(err) => {
+            // Cleaned, because the web library's error text carries the
+            // full address, and the address can carry a sign-in token
+            // (#1215, finding 3). This goes to the Settings screen rather
+            // than the activity log, but the rule is the same everywhere.
             return WrapperV2LoginResult {
                 status: "error".into(),
-                message: Some(format!("Could not reach the wrapper: {err}")),
+                message: Some(format!(
+                    "Could not reach the wrapper: {}",
+                    http_error_for_message(err)
+                )),
             };
         }
     };
@@ -974,11 +1034,16 @@ pub async fn wrapper_v2_logout(wrapper_url: &str) -> Result<(), String> {
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
-    let resp = client
-        .delete(&url)
-        .send()
-        .await
-        .map_err(|e| format!("DELETE {url} failed: {e}"))?;
+    // Both the address and the library's error are cleaned before they
+    // go into the message — the same rule, and reason, as the checks
+    // above (#1215, finding 3).
+    let resp = client.delete(&url).send().await.map_err(|e| {
+        format!(
+            "DELETE {} failed: {}",
+            crate::services::download_queue::redact_url_query(&url),
+            http_error_for_message(e)
+        )
+    })?;
     if resp.status().is_success() {
         Ok(())
     } else {
@@ -1308,5 +1373,191 @@ mod tests {
                 "{service:?} should fall back to the Apple Music probe"
             );
         }
+    }
+
+    // ----------------------------------------------------------
+    // No sign-in token in a wrapper-v2 message (#1215, finding 3)
+    // ----------------------------------------------------------
+    //
+    // The wrapper-v2 address can carry a sign-in token, in its query
+    // string or as a name and password in front of the host. These
+    // messages are written to the activity log file on disk, so the token
+    // must never appear in one. The wrapper-v1 message had been fixed;
+    // every wrapper-v2 one still printed the address as typed, and some
+    // added the web library's error text, which repeats the full address.
+    //
+    // These talk to a tiny web server on this machine rather than to a
+    // stand-in, so they exercise the real messages built from the real
+    // library's errors.
+
+    /// Every secret part of the address used below.
+    const SECRETS: [&str; 3] = ["SECRET123", "hunter2", "someone"];
+
+    /// A wrapper address that carries a token both ways, pointing at a
+    /// port on this machine.
+    fn address_with_a_token(port: u16) -> String {
+        format!("http://someone:hunter2@127.0.0.1:{port}/?token=SECRET123")
+    }
+
+    fn assert_no_secret(message: &str) {
+        for secret in SECRETS {
+            assert!(
+                !message.contains(secret),
+                "`{secret}` leaked into a message that is written to disk: {message}"
+            );
+        }
+        // Still useful: somebody reading it can tell which machine it meant.
+        assert!(
+            message.contains("127.0.0.1"),
+            "the cleaned message should still say where it looked: {message}"
+        );
+    }
+
+    /// A port on this machine with nothing listening on it.
+    async fn a_closed_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        listener.local_addr().unwrap().port()
+        // The listener is dropped here, closing the port again.
+    }
+
+    /// Starts a web server on this machine that gives every request the
+    /// same `status` line and JSON `body`, and returns its port.
+    async fn a_server_answering(status: &str, body: &str) -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let response = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let response = response.clone();
+                tokio::spawn(async move {
+                    let mut request = [0u8; 4096];
+                    let _ = socket.read(&mut request).await;
+                    let _ = socket.write_all(response.as_bytes()).await;
+                    let _ = socket.shutdown().await;
+                });
+            }
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn the_web_librarys_error_is_cleaned_of_the_address() {
+        let url = address_with_a_token(a_closed_port().await);
+        let err = reqwest::Client::new()
+            .get(&url)
+            .send()
+            .await
+            .expect_err("nothing is listening, so this must fail");
+
+        // The demonstration: left alone, the library's own words carry
+        // the token. If this ever stops being true, the cleaning below is
+        // still harmless, but this test would no longer be showing a leak.
+        let raw = err.to_string();
+        assert!(
+            raw.contains("SECRET123"),
+            "expected the raw error to repeat the address: {raw}"
+        );
+
+        let cleaned = http_error_for_message(err);
+        for secret in SECRETS {
+            assert!(
+                !cleaned.contains(secret),
+                "`{secret}` survived cleaning: {cleaned}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_not_running_says_so_without_the_token() {
+        let url = address_with_a_token(a_closed_port().await);
+        let warning = check_wrapper_v2_health(&url)
+            .await
+            .expect("nothing is listening, so the check must warn");
+        assert!(
+            warning.message.contains("unreachable"),
+            "{}",
+            warning.message
+        );
+        assert_no_secret(&warning.message);
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_answering_with_an_error_says_so_without_the_token() {
+        let port = a_server_answering("500 Internal Server Error", "").await;
+        let warning = check_wrapper_v2_health(&address_with_a_token(port))
+            .await
+            .expect("a 500 answer must warn");
+        assert!(warning.message.contains("500"), "{}", warning.message);
+        assert_no_secret(&warning.message);
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_sign_in_state_that_cannot_be_read_says_so_without_the_token() {
+        let url = address_with_a_token(a_closed_port().await);
+        let warning = check_wrapper_v2_auth(&url)
+            .await
+            .expect("nothing is listening, so the check must warn");
+        assert!(
+            warning.message.contains("Could not query"),
+            "{}",
+            warning.message
+        );
+        assert_no_secret(&warning.message);
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_signed_out_says_so_without_the_token() {
+        // No `version` in the answer, on purpose: the version warning
+        // depends on which GAMDL this machine has, and leaving it out
+        // keeps that branch from firing whatever another test set.
+        let port = a_server_answering("200 OK", r#"{"auth":{"state":"logged_out"}}"#).await;
+        let warning = check_wrapper_v2_auth(&address_with_a_token(port))
+            .await
+            .expect("a signed-out wrapper must warn");
+        assert!(
+            warning.message.contains("not signed in"),
+            "{}",
+            warning.message
+        );
+        assert_no_secret(&warning.message);
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_not_ready_to_play_says_so_without_the_token() {
+        let port = a_server_answering(
+            "200 OK",
+            r#"{"auth":{"state":"authenticated"},"runtime":{"playback_ready":false}}"#,
+        )
+        .await;
+        let warning = check_wrapper_v2_auth(&address_with_a_token(port))
+            .await
+            .expect("a wrapper that cannot play yet must warn");
+        assert!(warning.message.contains("not ready"), "{}", warning.message);
+        assert_no_secret(&warning.message);
+    }
+
+    #[tokio::test]
+    async fn wrapper_v2_sign_in_and_sign_out_errors_carry_no_token() {
+        // These go to the Settings screen rather than the log, but the
+        // rule is the same everywhere a wrapper address is described.
+        let url = address_with_a_token(a_closed_port().await);
+
+        let signed_in = wrapper_v2_login(&url, "apple-id", "not-a-real-password").await;
+        let message = signed_in
+            .message
+            .expect("an unreachable wrapper must explain itself");
+        for secret in SECRETS {
+            assert!(!message.contains(secret), "`{secret}` leaked: {message}");
+        }
+
+        let signed_out = wrapper_v2_logout(&url)
+            .await
+            .expect_err("nothing is listening, so sign-out must fail");
+        assert_no_secret(&signed_out);
     }
 }
