@@ -124,6 +124,22 @@ CASES: list[tuple[str, str, list[str]]] = [
         "Release-Note: Fixed the\nkey\ufe0fchain problem.",
         ["Fixed the keychain problem."],
     ),
+    # --- Found by Codex, 27 Sept 2026 ---
+    (
+        "a selector after an issue number leaves no trailing space",
+        "Release-Note: Fixed downloads (#123) \ufe0f",
+        ["Fixed downloads (#123)"],
+    ),
+    (
+        "a selector between two words leaves one space, as a reader sees it",
+        "Release-Note: Moved your private \ufe0f key.",
+        ["Moved your private key."],
+    ),
+    (
+        "'none' plus a selector that carries on to the next line is a real note",
+        "Release-Note: none\ufe0f\nof your downloads are lost.",
+        ["none of your downloads are lost."],
+    ),
     (
         "a warning emoji is not refused",
         "Release-Note: The \u26a0\ufe0f warning now explains itself.",

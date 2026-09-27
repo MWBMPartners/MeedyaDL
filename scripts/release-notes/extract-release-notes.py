@@ -163,6 +163,32 @@ def _is_blank(line: str) -> bool:
     return all(c.isspace() and c not in _PYTHON_ONLY_SPACE for c in line)
 
 
+def _finish(note: str) -> str:
+    """The note as a reader sees it, which is what gets linted.
+
+    U+FE0F is removed, then every run of spaces or tabs becomes one space
+    and the ends are trimmed. Both steps matter (Codex, 27 Sept 2026):
+    removing a selector at the end of "Fixed downloads (#123) <U+FE0F>" left a
+    trailing space, so the rule that looks for "(#123)" at the end of a line
+    no longer matched; and removing one between two words leaves two spaces,
+    which a banned phrase written with one space would not match, although
+    a reader sees one space.
+
+    Raises RefusedNoteError when the finished note is exactly "none" but the
+    raw text held a selector: the templates skip only an exact "none", so
+    they would publish a bullet reading "none". This is judged on the WHOLE
+    note, because judging the first line alone wrongly refused a note that
+    starts "none<U+FE0F>" and carries on onto the next line.
+    """
+    finished = re.sub(r"[ \t]+", " ", note.replace("\ufe0f", "")).strip()
+    if "\ufe0f" in note and finished == "none":
+        raise RefusedNoteError(
+            "A 'Release-Note: none' line contains an invisible character. "
+            "Retype it as plain text."
+        )
+    return finished
+
+
 def extract_notes(text: str) -> list[str]:
     """Every Release-Note in `text`, each joined into one line.
 
@@ -188,7 +214,7 @@ def extract_notes(text: str) -> list[str]:
             )
         if start:
             if current is not None:
-                notes.append(current)
+                notes.append(_finish(current))
             value = start.group(1).strip()
             # Judged after removing U+FE0F: a note of nothing but that
             # character is empty to a reader, yet used to pass as not
@@ -200,24 +226,19 @@ def extract_notes(text: str) -> list[str]:
                     "the next lines, but must start on that one), or write "
                     "'Release-Note: none'."
                 )
-            if "\ufe0f" in value and value.replace("\ufe0f", "").strip() == "none":
-                # The templates skip a note that is exactly "none"; with the
-                # selector in it they would publish a "none" bullet instead.
-                raise RefusedNoteError(
-                    "A 'Release-Note: none' line contains an invisible character. "
-                    "Retype it as plain text."
-                )
-            current = value.replace("\ufe0f", "")
+            # Kept raw until the note is finished (see _finish), so the
+            # "none" check sees the whole note, not just its first line.
+            current = value
             continue
         if current is None:
             continue
         if _is_blank(raw) or _OTHER_TRAILER.match(raw):
-            notes.append(current)
+            notes.append(_finish(current))
             current = None
             continue
-        current = f"{current} {raw.strip().replace(chr(0xFE0F), '')}"
+        current = f"{current} {raw.strip()}"
     if current is not None:
-        notes.append(current)
+        notes.append(_finish(current))
     return notes
 
 
