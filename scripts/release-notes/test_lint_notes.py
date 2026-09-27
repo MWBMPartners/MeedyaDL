@@ -169,6 +169,44 @@ def _run_corpus_regression() -> list[str]:
     return failures
 
 
+def _run_live_mode_checks() -> list[str]:
+    """The published-page audit (--live) checks the plain-English part and
+    blanks out the collapsed developer changelog (27 Sept 2026, before
+    release-body-audit.yml first runs from main). Four properties, each a
+    way it could go wrong."""
+    failures: list[str] = []
+    commit_line = "- **ci**: widen the gate (#1234)"
+    marker = lint_notes._TECHNICAL_CHANGELOG_MARKER
+
+    def live(text: str) -> list:
+        return lint_notes.lint_text(text, "live", strip_footer=True, strip_technical=True)
+
+    # 1. Commit-style text inside the developer section is not reported.
+    page = f"### What's fixed\n- Downloads resume properly.\n\n{marker}\n\n{commit_line}\n\n</details>\n"
+    errors = [f for f in live(page) if f.tier == "error"]
+    if errors:
+        failures.append(f"live: developer section still reported: {[f.rule for f in errors]}")
+
+    # 2. The same text in the plain-English part IS reported.
+    plain = f"### What's fixed\n{commit_line}\n"
+    if not [f for f in live(plain) if f.tier == "error"]:
+        failures.append("live: commit-style text in the plain-English part was not reported")
+
+    # 3. An unclosed section is not skipped: a changed template must make
+    #    the audit louder, never quieter.
+    unclosed = f"### What's fixed\n{marker}\n{commit_line}\n"
+    if not [f for f in live(unclosed) if f.tier == "error"]:
+        failures.append("live: an unclosed developer section hid what followed it")
+
+    # 4. Line numbers still match the page after the section is blanked.
+    after = f"{marker}\nx\n</details>\n{commit_line}\n"
+    lines_reported = {f.line_no for f in live(after) if f.tier == "error"}
+    if lines_reported != {4}:
+        failures.append(f"live: expected a finding on line 4 of the page, got lines {sorted(lines_reported)}")
+
+    return failures
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -189,6 +227,7 @@ def main() -> int:
             )
 
     failures.extend(_run_corpus_regression())
+    failures.extend(_run_live_mode_checks())
 
     total_cases = len(CATCHES) + len(STAYS_CLEAN_OF)
     if failures:
