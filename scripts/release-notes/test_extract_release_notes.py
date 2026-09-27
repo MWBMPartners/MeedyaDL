@@ -181,8 +181,36 @@ REFUSED: list[tuple[str, str]] = [
 ]
 
 
+notes_for_lint = _mod.notes_for_lint
+
+# notes_for_lint must hand the linter the note with its spacing KEPT as well
+# as the squeezed one: squeezing 21 spaces brought "address" within a rule's
+# 20-character exception window after "decryption" (Codex re-review,
+# 27 Sept 2026).
+LINT_FORMS: list[tuple[str, str, list[str]]] = [
+    (
+        "both forms are linted when squeezing changes the spacing",
+        "Release-Note: Improved decryption." + " " * 21 + "Address display is clearer.",
+        [
+            "Improved decryption. Address display is clearer.",
+            "Improved decryption." + " " * 21 + "Address display is clearer.",
+        ],
+    ),
+    (
+        "one form when squeezing changes nothing",
+        "Release-Note: Downloads work.",
+        ["Downloads work."],
+    ),
+]
+
+
 def main() -> int:
     failures = 0
+    for label, message, expected in LINT_FORMS:
+        got = notes_for_lint(message)
+        if got != expected:
+            print(f"FAIL {label}: expected {expected!r}, got {got!r}")
+            failures += 1
     for label, message, expected in CASES:
         try:
             got = extract_notes(message)
@@ -200,7 +228,7 @@ def main() -> int:
             continue
         print(f"FAIL {label}: should have been refused, got {got!r}")
         failures += 1
-    total = len(CASES) + len(REFUSED)
+    total = len(CASES) + len(REFUSED) + len(LINT_FORMS)
     if failures:
         print(f"{failures} of {total} cases failed.")
         return 1
