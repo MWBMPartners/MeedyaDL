@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-27 (afternoon) — see ★★★★ LATEST below
-**Working branch:** `work/after-alpha-73` (from `alpha` after v1.13.0-alpha.73). Both earlier PRs are merged: #1227 (the whole `work/after-1.10.8` body of work, merge commit) and #1228 (release-note check follow-up, rebase). **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
+**Last updated:** 2026-09-27 (evening) — see ★★★★ LATEST below
+**Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; nothing on it yet). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
-**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.73** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 16:30 on 27 Sept.
+**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.74** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 17:30 on 27 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -73,6 +73,15 @@ history back.
    arm, `could_not_run_reason`, `unreadable_version_reason`; the Abort Queue text in
    `DownloadQueue.tsx`). Never run yet. Codex manages about ONE small round per window.
 Fixes from either go on `work/after-alpha-73` → one small PR to alpha.
+
+**DONE (27 Sept, ~17:30): #1229 merged (rebase, 14 commits) → `v1.13.0-alpha.74` published.**
+14 PR checks green (2 skipped as not applicable); advisory security check: no findings.
+Release run 36331427794 green on all 6 platforms; CI on alpha green; 22 assets; latest.json
+12 keys all signed; the plain-English part of the body lints clean; the cliff.toml rewrites
+work (no "sign-in token", no identifier). **Every Codex review owed from this effort is done
+and clean.** Nothing is running. Still open, for the maintainer: the GitHub Support request
+to purge old commits from closed PR pages (draft in the 27 Sept report); deleting the
+old-history backup bundle after about a week (by ~2 Oct). Open follow-ups: #1222-#1226.
 
 ---
 
