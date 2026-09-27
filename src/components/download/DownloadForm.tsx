@@ -931,11 +931,6 @@ export function DownloadForm() {
     // 2026, found ways it could differ.)
     const previous = settings.after_queue_once ?? null;
 
-    // `syncAfterQueueOnce`, not `updateSettings`: the latter armed the
-    // Settings screen's "Save Changes" button although nothing on that
-    // screen had changed.
-    syncAfterQueueOnce(stored);
-
     // Sent to the BACKEND, because the part of the app that ACTS on this
     // never sees this page: it reads the running app's settings, which
     // this one-field write updates (on disk, and in the running app).
@@ -950,6 +945,17 @@ export function DownloadForm() {
     setContextMenu(null);
     try {
       await setStoredPreference({ kind: 'after_queue_once', action: stored });
+      // The page's copy follows only AFTER the write succeeds. It used to
+      // be set first, while the write was still running. Since #1222 the
+      // status bar reads this copy as "what will happen", so clearing a
+      // shutdown showed "nothing will happen" for as long as the write
+      // took, even if it then failed with the shutdown still armed -- the
+      // dangerous direction, however briefly (Codex, #1222 review).
+      //
+      // `syncAfterQueueOnce`, not `updateSettings`: the latter armed the
+      // Settings screen's "Save Changes" button although nothing on that
+      // screen had changed.
+      syncAfterQueueOnce(stored);
       useUiStore.getState().addToast(`After queue (once): ${label}`, 'info');
     } catch {
       // Nothing was written, so the running app still holds whatever it
@@ -1013,15 +1019,17 @@ export function DownloadForm() {
           stillArmed = 'Nothing will happen when the queue finishes.';
         }
       } catch {
-        // The disk could not be read either. Put the one-off back to
-        // what this page believed before the click, rather than leaving
-        // the cleared value showing.
+        // The disk could not be read either. Keep the one-off as this page
+        // believed it was before the click.
         //
-        // Without this the status bar showed no after-queue action at
-        // all while one was still armed — the quietest possible way to
-        // be wrong, and a reviewer caught it. This is not certainly
-        // right, but it is the best knowledge there is, and the message
-        // says plainly that it could not be checked.
+        // Since the page's copy now changes only after a successful write
+        // (see above), it already holds `previous` here, so this line
+        // changes nothing today. It stays as a guard: when the copy used
+        // to change first, leaving it meant the status bar showed no
+        // after-queue action at all while one was still armed -- the
+        // quietest possible way to be wrong, and a reviewer caught it.
+        // This is not certainly right, but it is the best knowledge there
+        // is, and the message says plainly that it could not be checked.
         useSettingsStore.getState().syncAfterQueueOnce(previous);
         stillArmed =
           'MeedyaDL could not check what is set, so please check your after-queue setting before leaving your computer.';

@@ -405,5 +405,42 @@ describe('DownloadForm', () => {
         finishFirst?.();
       });
     });
+    it('changes nothing on the page until the write has succeeded (#1222)', async () => {
+      // The status bar reads this copy as "what will happen". It used to be
+      // changed before the write, so clearing a shutdown showed "nothing
+      // will happen" for as long as the write took (Codex, #1222 review).
+      act(() => {
+        useSettingsStore.setState((s) => ({
+          settings: { ...s.settings, after_queue_once: 'shutdown_computer' },
+          savedSettings: { ...s.savedSettings, after_queue_once: 'shutdown_computer' },
+        }));
+      });
+      let finishWrite: (() => void) | undefined;
+      vi.mocked(commands.setStoredPreference).mockClear();
+      vi.mocked(commands.setStoredPreference).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishWrite = resolve;
+          }),
+      );
+
+      render(<DownloadForm />);
+      fireEvent.click(screen.getByLabelText('After-queue actions'));
+      await act(async () => {
+        fireEvent.click(screen.getByText('After Queue: Do nothing'));
+      });
+
+      // Write still running: the shutdown is still what will happen.
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe('shutdown_computer');
+      expect(useSettingsStore.getState().settings.after_queue_once).toBe('shutdown_computer');
+
+      await act(async () => {
+        finishWrite?.();
+      });
+
+      // Written: now it is cleared, in both copies.
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBeNull();
+      expect(useSettingsStore.getState().settings.after_queue_once).toBeNull();
+    });
   });
 });

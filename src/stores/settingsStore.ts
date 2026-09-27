@@ -256,7 +256,10 @@ interface SettingsState {
    *
    * Kept in step with the file, never with the screen:
    *   - `loadSettings()` success sets this to the settings just read
-   *     from disk -- by definition, that IS the saved copy.
+   *     from disk, EXCEPT the two after-queue fields, which come from
+   *     what the running app will act on (`getAfterQueueStatus`) when
+   *     that can be asked -- see `loadSettings` for the two cases where
+   *     the file and the running app disagree.
    *   - `saveSettings()` success sets this to a snapshot of `settings`
    *     taken BEFORE the save started (see the comment inside
    *     `saveSettings` for why a snapshot rather than whatever
@@ -279,6 +282,21 @@ interface SettingsState {
    * itself off. Anything that needs to say what WILL happen reads
    * `savedSettings`; the Settings screen itself keeps reading and
    * writing `settings`, since that is the copy it is meant to edit.
+   *
+   * What this can NOT promise, for fields other than the two after-queue
+   * ones (Codex, #1222 review). Nothing reads those from here today;
+   * anything that starts to must deal with both points first:
+   *   - Some callers of `syncSaved` / `syncSidebarCollapsed` update the
+   *     page's copies BEFORE their own write has finished, and not all of
+   *     them undo it if the write fails (setup finished, the
+   *     crash-reporting answer, "Not now" on moving the app, the sidebar).
+   *     Their field can be here although it never reached disk.
+   *   - The backend tidies some values as it saves them (it trims and
+   *     upper-cases the MusicKit IDs, for example), and a save records the
+   *     value as it was sent, not as it was written.
+   * The after-queue fields are exact: nothing tidies them, and the one
+   * caller that used to update them early (the Download page's one-off)
+   * now waits for its write to succeed.
    */
   savedSettings: AppSettings;
 
@@ -418,11 +436,48 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       // Invoke the Rust `get_settings` command over the Tauri IPC bridge.
-      const settings = await commands.getSettings();
+      const fromFile = await commands.getSettings();
+
+      // The two after-queue fields are taken from what the QUEUE will act
+      // on, not from the file. The queue reads the running app's copy of
+      // the settings, and `get_settings` reads the file; the two can
+      // differ, and the status bar (which reads `savedSettings`) must
+      // show what will really happen (Codex, #1222 review):
+      //   - a used-up one-off whose clearing could not be written to the
+      //     file: the file still names it, the queue will not do it;
+      //   - a damaged file, which reads back as the DEFAULTS: the file
+      //     says "do nothing" while the running app still holds, say,
+      //     "shut down" -- the dangerous direction.
+      // `getAfterQueueStatus` is the backend's own answer to "what will
+      // happen", the same one the Download page asks when a write fails.
+      // If it cannot be asked, the file's values are used, as before;
+      // that is the best knowledge available.
+      let willHappen: Awaited<ReturnType<typeof commands.getAfterQueueStatus>> | undefined;
+      try {
+        willHappen = await commands.getAfterQueueStatus();
+      } catch (e) {
+        console.warn('Could not ask what the queue will do when it finishes:', e);
+      }
+      const queueSays =
+        willHappen && typeof willHappen.after_queue_action === 'string'
+          ? {
+              after_queue_once: willHappen.after_queue_once ?? null,
+              after_queue_action: willHappen.after_queue_action,
+            }
+          : {};
+
+      // The Settings screen's copy keeps the FILE's standing action,
+      // because that is the value the screen edits and saves. It takes
+      // the queue's one-off, which the screen neither edits nor saves.
+      const settings: AppSettings =
+        'after_queue_once' in queueSays
+          ? { ...fromFile, after_queue_once: queueSays.after_queue_once }
+          : fromFile;
+      // `savedSettings` is what the app will act on.
+      const savedSettings: AppSettings = { ...fromFile, ...queueSays };
+
       // Replace the entire settings object and mark as clean (not dirty).
-      // `savedSettings` gets the same object -- what was just read from
-      // disk is, by definition, the confirmed on-disk copy.
-      set({ settings, savedSettings: settings, isLoading: false, isDirty: false });
+      set({ settings, savedSettings, isLoading: false, isDirty: false });
     } catch (e) {
       // Normalize the error to a string regardless of its runtime type.
       const message = e instanceof Error ? e.message : String(e);
