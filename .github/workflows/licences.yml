@@ -111,11 +111,20 @@ jobs:
         with:
           workspaces: src-tauri
 
-      # Step 6: the two checks' own reader of Cargo.toml is tested first.
-      # It used to see only the plain [dependencies] table, so a crate
-      # needed on one platform only (libc, for macOS) was never checked
-      # (#1224). The test proves every per-target table form is read; a
-      # test nothing runs would not stop that coming back.
+      # Step 6: the direct-dependency reader both checks share
+      # (scripts/lib/cargo-direct-deps.mjs) is tested first. It used to
+      # be a hand-rolled regular-expression reader of Cargo.toml's raw
+      # text, which only ever saw the plain [dependencies] table, so a
+      # crate needed on one platform only (libc, for macOS) was never
+      # checked (#1224) -- and a later review of the regex fix for that
+      # found it could still misread other valid TOML shapes and could
+      # be fooled by a dotted key sitting in an unrelated table. It now
+      # asks `cargo metadata --no-deps` for the answer instead of
+      # re-implementing a TOML parser, which is why this step needs Rust
+      # already on PATH -- it MUST run after "Setup Rust" (Step 4)
+      # above, never before it. The test's integration case shells out
+      # to the real `cargo` against the real src-tauri/Cargo.toml; a
+      # test nothing runs would not stop any of this regressing.
       - name: Test the Cargo.toml reader both checks use
         run: node scripts/test-check-acknowledgements.mjs
 
