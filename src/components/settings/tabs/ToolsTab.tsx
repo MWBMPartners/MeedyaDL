@@ -22,6 +22,9 @@
  *     - Tool name + Required/Optional badge + System badge
  *     - Version string (if installed)
  *     - Install button (if missing)
+ *     - Reinstall button (if installed) -- asks first, then runs the same
+ *       install as Install. See the comment above `reinstallTarget` below
+ *       for why it exists.
  *     - Custom path override (FilePickerButton)
  *
  *   "Check All" refreshes statuses; "Install All Missing" installs
@@ -55,6 +58,7 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronRight,
+  RotateCcw,
 } from 'lucide-react';
 
 import {
@@ -76,6 +80,9 @@ import { useUiStore } from '@/stores/uiStore';
 // keyed field (`temp_path`).
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useSettingsField } from '@/hooks/useSettingsField';
+import { useConfirmation } from '@/lib/useConfirmation';
+import { withErrorToast } from '@/lib/withErrorToast';
+import { sourceLabel } from '@/lib/pm-source';
 
 import { Button, LoadingSpinner, FilePickerButton, SettingsSection, Modal } from '@/components/common';
 
@@ -153,6 +160,92 @@ export function ToolsTab() {
   useEffect(() => {
     checkAll();
   }, [checkAll]);
+
+  // --- Reinstall (#1225) ---
+  //
+  // Every installed tool row has a Reinstall button. Before this, a tool
+  // that was present and started, but reported an error instead of its
+  // version, counted as installed -- so its row had no button at all, and
+  // the Updates page could only say "could not check" with nothing the
+  // person could press to fix it.
+  //
+  // It runs exactly what Install runs (the store's `installTool`, which
+  // does NOT pass `for_update`): the backend treats that as an install or
+  // repair, so it may use a suitable copy already on the computer, or
+  // fall back to the MeedyaSuite mirror. And because the backend now keeps
+  // a working copy until the new one is shown to start, pressing it can
+  // never leave someone worse off than before.
+  //
+  // It asks first because it can take a while and replaces something that
+  // may be working -- not because it is dangerous.
+  const [reinstallTarget, setReinstallTarget] = useState<string | null>(null);
+
+  /** Runs the reinstall once confirmed, and says how it went. */
+  const runReinstall = async (name: string) => {
+    let succeeded = false;
+    await withErrorToast(
+      async () => {
+        await installTool(name);
+        succeeded = true;
+      },
+      {
+        successMsg: `${name} has been reinstalled.`,
+        errorMsg: (err) => `Could not reinstall ${name}. ${err instanceof Error ? err.message : String(err)}`,
+      },
+    );
+    // `installTool` already refreshes the tool list after a success. After
+    // a failure it does not, but the backend may have put the previous
+    // copy back (or found it will not start), so ask again rather than
+    // leave the rows showing whatever they showed before.
+    if (!succeeded) {
+      await checkAll();
+    }
+  };
+
+  // A copy that came from a package manager (Homebrew, APT and so on) is
+  // not downloaded again: the install may ask that package manager to
+  // update it instead (install_tool_for, Step 0), and for APT, DNF, Snap
+  // and MacPorts that can bring up a password prompt. The window says so
+  // up front rather than describing a download that will not happen.
+  // `sourceLabel` answers "System" for anything that is not a known
+  // package manager, including MeedyaDL's own "managed" copies.
+  const reinstallSource = tools.find((t) => t.name === reinstallTarget)?.source ?? null;
+  const reinstallManager =
+    reinstallSource && sourceLabel(reinstallSource) !== 'System'
+      ? sourceLabel(reinstallSource)
+      : null;
+
+  const confirmReinstall = useConfirmation({
+    title: reinstallTarget ? `Reinstall ${reinstallTarget}?` : 'Reinstall this tool?',
+    description: reinstallManager ? (
+      <p>
+        This copy of {reinstallTarget ?? 'this tool'} came from {reinstallManager}. MeedyaDL may
+        ask {reinstallManager} to update it, which can ask for your password. If your copy will
+        not start afterwards, MeedyaDL tells you.
+      </p>
+    ) : (
+      <p>
+        MeedyaDL will download {reinstallTarget ?? 'this tool'} again, or use a suitable copy
+        already on your computer. If the new copy will not start, your current copy is kept.
+      </p>
+    ),
+    confirmLabel: 'Reinstall',
+    // Started, not awaited: the confirmation closes straight away and the
+    // row's own button shows the progress, as Install does. Awaiting here
+    // would hold the dialog open for the whole download.
+    onConfirm: () => {
+      if (reinstallTarget) {
+        void runReinstall(reinstallTarget);
+      }
+    },
+    onCancel: () => setReinstallTarget(null),
+  });
+
+  /** Opens the confirmation for one tool's Reinstall button. */
+  const requestReinstall = (name: string) => {
+    setReinstallTarget(name);
+    confirmReinstall.open();
+  };
 
   /** Install all missing required tools sequentially. */
   const handleInstallAll = async () => {
@@ -414,6 +507,21 @@ export function ToolsTab() {
                         Install
                       </Button>
                     )}
+                    {/* Reinstall: every installed tool, required or not --
+                        see the comment on `reinstallTarget` above. */}
+                    {tool.installed && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon={<RotateCcw size={14} />}
+                        loading={isInstalling && installingName === tool.name}
+                        disabled={isInstalling}
+                        onClick={() => requestReinstall(tool.name)}
+                        aria-label={`Reinstall ${tool.name}`}
+                      >
+                        Reinstall
+                      </Button>
+                    )}
                     {!tool.installed && !tool.required && pathKey && (
                       <Button
                         variant="secondary"
@@ -467,6 +575,9 @@ export function ToolsTab() {
           </div>
         )}
       </SettingsSection>
+
+      {/* Reinstall confirmation (one dialog, shared by every tool row). */}
+      {confirmReinstall.modal}
 
       {/* ============================================================ */}
       {/* Section: Backups (#466)                                       */}
