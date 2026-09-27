@@ -189,7 +189,7 @@ def _finish(note: str) -> str:
     return finished
 
 
-def extract_notes(text: str) -> list[str]:
+def _raw_notes(text: str) -> list[str]:
     """Every Release-Note in `text`, each joined into one line.
 
     Raises RefusedNoteError for a `Release-Note:` line with nothing after it,
@@ -214,7 +214,7 @@ def extract_notes(text: str) -> list[str]:
             )
         if start:
             if current is not None:
-                notes.append(_finish(current))
+                notes.append(current)
             value = start.group(1).strip()
             # Judged after removing U+FE0F: a note of nothing but that
             # character is empty to a reader, yet used to pass as not
@@ -233,18 +233,46 @@ def extract_notes(text: str) -> list[str]:
         if current is None:
             continue
         if _is_blank(raw) or _OTHER_TRAILER.match(raw):
-            notes.append(_finish(current))
+            notes.append(current)
             current = None
             continue
         current = f"{current} {raw.strip()}"
     if current is not None:
-        notes.append(_finish(current))
+        notes.append(current)
     return notes
+
+
+def extract_notes(text: str) -> list[str]:
+    """Every Release-Note in `text`, each joined into one line and finished
+    as a reader sees it (see _finish). Raises RefusedNoteError as above."""
+    return [_finish(raw) for raw in _raw_notes(text)]
+
+
+def notes_for_lint(text: str) -> list[str]:
+    """What the gate lints: for each note, the form a reader sees (_finish)
+    AND, when it differs, the same note with only U+FE0F removed and its
+    spacing kept, exactly as the templates publish it.
+
+    Both, because either alone can miss something. Without _finish, a
+    trailing space or a double space hid a banned phrase (Codex, 27 Sept).
+    With only _finish, squeezing spaces could move two words closer than
+    they are on the page and bring a rule's exception into range:
+    "decryption." then 21 spaces then "Address" passed, because one rule
+    allows "decryption" when "address" follows within 20 characters, while
+    the published text, spaces and all, should be refused (Codex re-review,
+    27 Sept). Linting both refuses a note if either form fails.
+    """
+    forms: list[str] = []
+    for raw in _raw_notes(text):
+        for form in (_finish(raw), raw.replace("\ufe0f", "").strip()):
+            if form not in forms:
+                forms.append(form)
+    return forms
 
 
 def main() -> int:
     try:
-        notes = extract_notes(sys.stdin.read())
+        notes = notes_for_lint(sys.stdin.read())
     except RefusedNoteError as err:
         # The ::error:: prefix makes GitHub show it on the pull request.
         print(f"::error::{err}", file=sys.stderr)
