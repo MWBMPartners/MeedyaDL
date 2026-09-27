@@ -74,6 +74,16 @@ import * as commands from '@/lib/tauri-commands';
 export const APP_COMPONENT_NAME = 'MeedyaDL';
 
 /**
+ * The names the backend gives GAMDL's and Python's update entries
+ * (`update_checker.rs`: `name: "GAMDL"` and `name: "Python Runtime"`).
+ * Named here for the same reason as {@link APP_COMPONENT_NAME}: a bare
+ * piece of text compared against a backend name is what broke two
+ * features before, silently, when the two drifted apart (#1216).
+ */
+export const GAMDL_COMPONENT_NAME = 'GAMDL';
+export const PYTHON_COMPONENT_NAME = 'Python Runtime';
+
+/**
  * Finds the app's own `ComponentUpdate` entry in a components array,
  * gated to a genuinely actionable state: the entry must be named
  * {@link APP_COMPONENT_NAME}, report `update_available`, and be
@@ -398,7 +408,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         const patched = {
           ...previous,
           components: previous.components.map((c) =>
-            c.name === 'GAMDL'
+            c.name === GAMDL_COMPONENT_NAME
               ? { ...c, current_version: version, update_available: false, is_untested: false }
               : c
           ),

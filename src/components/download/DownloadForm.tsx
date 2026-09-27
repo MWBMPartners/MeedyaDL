@@ -1006,9 +1006,11 @@ export function DownloadForm() {
         //
         // So the message below tells the truth from the disk, and the
         // person's unsaved edit stays theirs. What the status bar shows
-        // for the standing setting while an edit is pending is a
-        // separate, pre-existing question about the whole Settings
-        // screen, and not one to answer by overwriting.
+        // for the standing setting while an edit is pending was a
+        // separate question about the whole Settings screen, and not one
+        // to answer by overwriting. It has since been answered (#1222):
+        // the status bar shows the SAVED value, with a note when an
+        // unsaved edit differs.
         useSettingsStore.getState().syncAfterQueueOnce(oneOff);
 
         if (oneOff) {

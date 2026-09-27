@@ -5,9 +5,10 @@
  * @file createAsyncResourceStore — Zustand factory for IPC-backed
  * load/save/edit resources (#716 finding #5).
  *
- * Six of the existing Zustand stores in this codebase
- * (`settingsStore`, `dependencyStore`, `updateStore`, `serviceStatusStore`,
- * `setupStore`, `downloadStore`) implement variants of the same shape:
+ * When this was written, six Zustand stores in this codebase
+ * (`settingsStore`, `dependencyStore`, `updateStore`, `setupStore`,
+ * `downloadStore`, and `serviceStatusStore`, which has since been deleted
+ * as dead code under #1216) implemented variants of the same shape:
  *
  *   1. Hold a typed `data: T` value, hydrated from a Tauri IPC.
  *   2. Track `isLoading: boolean` while the load IPC is in flight.
@@ -18,7 +19,7 @@
  *
  * Each store currently re-implements that shape inline — the
  * settingsStore version is ~140 lines of state + actions, the
- * serviceStatusStore version is ~60. The boilerplate is mostly
+ * serviceStatusStore version was ~60. The boilerplate is mostly
  * verbatim; the shape ratchets up further when M8/M9/M10 land
  * per-service settings stores (BBC iPlayer / Spotify / YouTube)
  * that all need the same load+save lifecycle.
@@ -27,7 +28,7 @@
  *   - `defaults: T` — initial in-memory value (used pre-load + by `reset`)
  *   - `load: () => Promise<T>` — IPC wrapper to fetch from backend
  *   - `save?: (data: T) => Promise<void>` — IPC wrapper to persist; omit
- *     for read-only resources (e.g., `serviceStatusStore`)
+ *     for read-only resources (e.g., `featureFlagStore`)
  *   - `debounceMs?: number` — debounce window; defaults to 300ms when
  *     `save` is provided, 0 otherwise
  *
@@ -128,7 +129,7 @@ export type AsyncResourceStore<T> = AsyncResourceState<T> &
 /**
  * Configuration for an async resource store. `save` is optional; when
  * omitted, the resource is treated as read-only (load-only stores
- * like `serviceStatusStore` fit here).
+ * like `featureFlagStore` fit here).
  */
 export interface AsyncResourceConfig<T> {
   /** Initial in-memory value. Used pre-load and by `reset()`. */
