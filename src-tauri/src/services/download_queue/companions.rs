@@ -1487,12 +1487,30 @@ pub(crate) async fn download_music_video_by_url(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
 
-    // Stop the program if this task is dropped — when the item is
-    // cancelled, a deadline fires, or the app quits. Without it the
-    // task goes away and the program it started carries on, writing
-    // files nobody is waiting for. The supervised companion runs
-    // have always done this; these ones were missed. Found by a full
-    // review of the codebase.
+    // Stop the program if the task waiting for it is dropped. Without
+    // this, the task goes away and the program it started carries on,
+    // writing files nobody is waiting for. The supervised companion runs
+    // have always done this; this one was missed. Found by a full review
+    // of the codebase.
+    //
+    // When that actually happens here: this download runs inside the
+    // enrichment step (Step 6 / 6b), which has a deadline. When the
+    // deadline passes, the step is aborted, this task is dropped with
+    // it, and this setting stops the program. That is the only case.
+    //
+    // What it does NOT do — an earlier version of this comment said it
+    // did, and it was wrong (checked 27 Sept 2026, #1215 finding 5):
+    //
+    // - Cancel does not stop it. Cancelling marks the item cancelled,
+    //   but nothing ends or aborts the enrichment step, and the loops
+    //   that call this look only at whether the app is shutting down,
+    //   and only between videos. A video already downloading carries on
+    //   to the end after Cancel. Making Cancel stop it is a change of
+    //   behaviour, raised as its own issue.
+    // - Quitting the app does not trigger it either. The app ends its
+    //   whole process at once without dropping running tasks, so this
+    //   setting never fires then. What becomes of a program still
+    //   running at that moment has not been checked.
     cmd.kill_on_drop(true);
 
     // Snapshot the set of video files under the output directory BEFORE
@@ -1816,12 +1834,32 @@ pub(crate) async fn run_lyrics_fallback(
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
-        // Stop the program if this task is dropped — when the item is
-        // cancelled, a deadline fires, or the app quits. Without it the
-        // task goes away and the program it started carries on, writing
-        // files nobody is waiting for. The supervised companion runs
-        // have always done this; these ones were missed. Found by a full
-        // review of the codebase.
+        // Stop the program if the task waiting for it is dropped.
+        // Without this, the task goes away and the program it started
+        // carries on, writing files nobody is waiting for. The supervised
+        // companion runs have always done this; this one was missed.
+        // Found by a full review of the codebase.
+        //
+        // When that actually happens here: this lyrics fallback runs
+        // inside the enrichment step (Step 2b), which has a deadline.
+        // When the deadline passes, the step is aborted, this task is
+        // dropped with it, and this setting stops the program. That is
+        // the only case.
+        //
+        // What it does NOT do — an earlier version of this comment said
+        // it did, and it was wrong (checked 27 Sept 2026, #1215 finding
+        // 5):
+        //
+        // - Cancel does not stop it. Cancelling marks the item cancelled,
+        //   but nothing ends or aborts the enrichment step, and this loop
+        //   does not look at the item's state at all — the app-shutdown
+        //   check is made once, by the caller, before the fallback
+        //   starts. Making Cancel stop it is a change of behaviour,
+        //   raised as its own issue.
+        // - Quitting the app does not trigger it either. The app ends its
+        //   whole process at once without dropping running tasks, so this
+        //   setting never fires then. What becomes of a program still
+        //   running at that moment has not been checked.
         cmd.kill_on_drop(true);
 
         match cmd.spawn() {
@@ -3329,12 +3367,33 @@ pub(crate) fn spawn_companion_downloads(
                 cmd.stdout(std::process::Stdio::piped());
                 cmd.stderr(std::process::Stdio::piped());
 
-                // Stop the program if this task is dropped — when the item is
-                // cancelled, a deadline fires, or the app quits. Without it the
-                // task goes away and the program it started carries on, writing
-                // files nobody is waiting for. The supervised companion runs
-                // have always done this; these ones were missed. Found by a full
-                // review of the codebase.
+                // Stop the program if the task waiting for it is dropped.
+                // The supervised companion runs have always done this;
+                // this one was missed. Found by a full review of the
+                // codebase.
+                //
+                // Today this never actually fires here, and an earlier
+                // version of this comment claimed it did — "when the item
+                // is cancelled, a deadline fires, or the app quits". None
+                // of those is true (checked 27 Sept 2026, #1215 finding 5):
+                //
+                // - This task is started and let go of (the `tokio::spawn`
+                //   above keeps no handle), so nothing can ever abort it.
+                //   Not Cancel, which does not reach it; not the companion
+                //   deadline, which aborts the separate supervised run,
+                //   not this task.
+                // - Between formats it looks only at whether the app is
+                //   shutting down. A format already downloading always
+                //   runs to the end.
+                // - Quitting the app ends its whole process at once
+                //   without dropping running tasks, so this setting does
+                //   not fire then either. What becomes of a program still
+                //   running at that moment has not been checked.
+                //
+                // It stays because it costs nothing and is the right
+                // setting the day this task is given a handle something
+                // can abort. Making Cancel stop these downloads is a
+                // change of behaviour, raised as its own issue.
                 cmd.kill_on_drop(true);
 
                 emit_download_log(

@@ -280,11 +280,32 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         AfterQueueAction::DoNothing => {}
         AfterQueueAction::OpenOutputFolder => {
             let path = if settings.output_path.is_empty() {
-                crate::services::config_service::get_default_output_path()
-                    .unwrap_or_else(|_| ".".to_string())
+                match crate::services::config_service::get_default_output_path() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        // This used to fall back to ".", the folder the app
+                        // happened to be started from — not the output
+                        // folder, and not anything the person chose.
+                        log::warn!("After-queue: no output folder to open ({e})");
+                        emit_app_log(
+                            app,
+                            "After-queue action: did not open the output folder, because \
+                             MeedyaDL could not work out where it is",
+                        );
+                        return;
+                    }
+                }
             } else {
                 settings.output_path.clone()
             };
+            if let Err(why) = output_folder_is_safe_to_open(&path) {
+                log::warn!("After-queue: did not open {path}: {why}");
+                emit_app_log(
+                    app,
+                    &format!("After-queue action: did not open the output folder ({path}) — {why}"),
+                );
+                return;
+            }
             // Open the folder in the system file manager using platform-native commands
             #[cfg(target_os = "macos")]
             { let _ = std::process::Command::new("open").arg(&path).spawn(); }
@@ -382,3 +403,147 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
     }
 }
 
+/// Decides whether `path` may be handed to the system file manager as
+/// "the output folder". Returns why not, in plain words, when it may not.
+///
+/// **Why this check exists.** The after-queue action opens this path with
+/// the system's own "open" command — `open` on macOS, `explorer` on
+/// Windows, `xdg-open` on Linux. Those open whatever they are given the
+/// way a double-click would, and double-clicking a program runs it:
+/// `explorer C:\somewhere\program.exe` starts the program. The path is an
+/// ordinary setting: the page saves it, and an imported settings file
+/// deliberately carries it across (see `preserve_local_only_settings`).
+/// So without this check, anything able to change that one setting could
+/// have a program run when the queue finished. It is the same kind of
+/// door as finding 2 of #1215 (the page could get any file opened), found
+/// beside it.
+///
+/// So this acts only on a folder that exists. Asking "is it a folder?"
+/// follows a symbolic link to wherever it leads, which is also what the
+/// file manager will act on: a link to a folder is accepted — people do
+/// keep their music behind one — and a link to a file is refused, like
+/// the file itself. A Windows `.lnk` shortcut and a macOS Finder alias are
+/// ordinary files, so they are refused as files.
+///
+/// On macOS there is one more case. An application is a FOLDER (a
+/// "bundle" whose name ends in `.app`), and `open` starts it rather than
+/// showing what is inside. So a folder whose real name — after following
+/// any link — ends in `.app` is refused too. If the real name cannot be
+/// worked out, it is refused rather than given the benefit of the doubt.
+///
+/// **What this cannot do.** It checks, and the file manager is started a
+/// moment later; something able to swap the folder for something else in
+/// between could still get that opened. That needs control of the disk,
+/// not just of a setting. On macOS it knows only about `.app`. Other
+/// kinds of bundle (a document saved as a folder, for instance) are
+/// opened in the program they belong to, which is opening a document
+/// rather than running a program — but that has not been checked for
+/// every kind of bundle macOS knows about.
+pub(crate) fn output_folder_is_safe_to_open(path: &str) -> Result<(), String> {
+    // `metadata` follows a symbolic link to where it leads — the same
+    // thing the file manager will be looking at. (The file-opening
+    // command in `commands/history.rs` refuses links outright instead;
+    // a folder of music behind a link is ordinary, a music FILE behind
+    // one is not, which is why the two differ.)
+    let meta = std::fs::metadata(path)
+        .map_err(|_| "it is not there any more, or MeedyaDL cannot look at it".to_string())?;
+    if !meta.is_dir() {
+        return Err("it is not a folder, and MeedyaDL only opens folders here".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let real = std::fs::canonicalize(path)
+            .map_err(|_| "MeedyaDL could not check what it really is".to_string())?;
+        let is_application = real
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("app"));
+        if is_application {
+            return Err(
+                "it is an application, which macOS would start instead of showing".to_string(),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::output_folder_is_safe_to_open;
+
+    // ── "Open output folder" must never run a program (#1215) ───────────
+    //
+    // Each test works in its own fresh folder, on a real disk, so what is
+    // checked is what the file manager would really have been handed.
+
+    fn text(path: &std::path::Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn a_real_folder_is_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(output_folder_is_safe_to_open(&text(dir.path())), Ok(()));
+    }
+
+    #[test]
+    fn a_program_is_refused() {
+        // What `explorer` on Windows would have started.
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("program.exe");
+        std::fs::write(&program, b"MZ").unwrap();
+        let refused = output_folder_is_safe_to_open(&text(&program)).unwrap_err();
+        assert!(refused.contains("not a folder"), "{refused}");
+    }
+
+    #[test]
+    fn a_missing_or_empty_path_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(output_folder_is_safe_to_open(&text(&dir.path().join("gone"))).is_err());
+        assert!(output_folder_is_safe_to_open("").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_is_refused_and_a_link_to_a_folder_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let program = dir.path().join("payload.sh");
+        std::fs::write(&program, b"#!/bin/sh\necho pwned\n").unwrap();
+        let link_to_program = dir.path().join("Music");
+        std::os::unix::fs::symlink(&program, &link_to_program).unwrap();
+        assert!(
+            output_folder_is_safe_to_open(&text(&link_to_program)).is_err(),
+            "a folder-looking name that leads to a program must be refused"
+        );
+
+        let folder = dir.path().join("Real Music");
+        std::fs::create_dir(&folder).unwrap();
+        let link_to_folder = dir.path().join("Music Link");
+        std::os::unix::fs::symlink(&folder, &link_to_folder).unwrap();
+        assert_eq!(
+            output_folder_is_safe_to_open(&text(&link_to_folder)),
+            Ok(())
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_macos_application_is_refused_even_though_it_is_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["Something.app", "Shouting.APP"] {
+            let bundle = dir.path().join(name);
+            std::fs::create_dir(&bundle).unwrap();
+            assert!(bundle.is_dir(), "an application really is a folder");
+            let refused = output_folder_is_safe_to_open(&text(&bundle)).unwrap_err();
+            assert!(refused.contains("application"), "{name}: {refused}");
+        }
+
+        // Behind a link with an innocent name, it is still an application.
+        let link = dir.path().join("Music");
+        std::os::unix::fs::symlink(dir.path().join("Something.app"), &link).unwrap();
+        assert!(output_folder_is_safe_to_open(&text(&link)).is_err());
+    }
+}
