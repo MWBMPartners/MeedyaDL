@@ -221,6 +221,7 @@
     "abortConfirm": "Jeden aktiven und wartenden Download abbrechen? Diese Aktion kann nicht rückgängig gemacht werden.",
     "afterQueue": "Nach der Warteschlange: {{label}}",
     "afterQueueOnce": "Nach der Warteschlange: {{label}} (einmalig)",
+    "unsavedChangeNote": "(nicht gespeicherte Änderung)",
     "actions": {
       "openOutputFolder": "Ordner öffnen",
       "playSound": "Ton abspielen",

@@ -249,6 +249,40 @@ interface SettingsState {
   settings: AppSettings;
 
   /**
+   * The most recently confirmed ON-DISK settings -- what the app will
+   * really act on, as opposed to `settings` above, which is whatever the
+   * Settings screen currently shows (which may hold edits nobody has
+   * pressed "Save" on yet).
+   *
+   * Kept in step with the file, never with the screen:
+   *   - `loadSettings()` success sets this to the settings just read
+   *     from disk -- by definition, that IS the saved copy.
+   *   - `saveSettings()` success sets this to a snapshot of `settings`
+   *     taken BEFORE the save started (see the comment inside
+   *     `saveSettings` for why a snapshot rather than whatever
+   *     `settings` holds after the `await` -- the person can keep
+   *     typing while the save is in flight).
+   *   - `syncSidebarCollapsed`, `syncAfterQueueOnce`, and `syncSaved`
+   *     apply their fields to BOTH `settings` and this copy, because
+   *     each of those is a one-field write that has already reached
+   *     disk by its own narrow command -- it is exactly as "saved" as
+   *     anything `loadSettings()` would read back.
+   *   - `updateSettings()` and `resetToDefaults()` never touch this: both
+   *     produce an unsaved edit, which by definition is not yet on disk.
+   *
+   * Exists for #1222. The status bar's "after queue" indicator used to
+   * read `settings` directly, so changing the after-queue dropdown on
+   * the Settings screen and walking away without pressing Save made the
+   * bar show nothing was going to happen -- while the file the download
+   * queue actually reads still said "shut down". That is the dangerous
+   * direction: a screen that goes quiet right before the computer turns
+   * itself off. Anything that needs to say what WILL happen reads
+   * `savedSettings`; the Settings screen itself keeps reading and
+   * writing `settings`, since that is the copy it is meant to edit.
+   */
+  savedSettings: AppSettings;
+
+  /**
    * `true` while `loadSettings()` is awaiting the Rust backend response.
    * Components can show a loading spinner while this is set.
    */
@@ -361,6 +395,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   // Initial state -- populated with defaults until loadSettings() completes
   // -------------------------------------------------------------------------
   settings: DEFAULT_SETTINGS,
+  savedSettings: DEFAULT_SETTINGS, // Nothing has been loaded from disk yet, so this is the same placeholder
   isLoading: false, // No load in progress at creation time
   isDirty: false, // No unsaved changes at creation time
   error: null, // No error at creation time
@@ -385,7 +420,9 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // Invoke the Rust `get_settings` command over the Tauri IPC bridge.
       const settings = await commands.getSettings();
       // Replace the entire settings object and mark as clean (not dirty).
-      set({ settings, isLoading: false, isDirty: false });
+      // `savedSettings` gets the same object -- what was just read from
+      // disk is, by definition, the confirmed on-disk copy.
+      set({ settings, savedSettings: settings, isLoading: false, isDirty: false });
     } catch (e) {
       // Normalize the error to a string regardless of its runtime type.
       const message = e instanceof Error ? e.message : String(e);
@@ -409,11 +446,34 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   saveSettings: async () => {
     // Clear any stale error before attempting the save.
     set({ error: null });
+    // Snapshot `settings` BEFORE the `await` below, not after. The
+    // Settings screen keeps working while the save is in flight -- if
+    // somebody changes a field in that window, that edit belongs to
+    // the NEXT save, not this one. Reading `get().settings` again after
+    // the `await` would record whatever they had typed by the time the
+    // IPC call happened to resolve, not what was actually sent to disk.
+    const snapshot = get().settings;
     try {
-      // `get().settings` reads the current settings at invocation time.
-      await commands.saveSettings(get().settings);
+      await commands.saveSettings(snapshot);
       // Mark as clean: no unsaved changes after a successful save.
-      set({ isDirty: false });
+      // `savedSettings` becomes the snapshot that was actually written
+      // -- with two exceptions. The backend keeps `after_queue_once` and
+      // `dev_access_enabled` exactly as they already were on disk no
+      // matter what this payload says (see
+      // `keep_fields_the_settings_screen_cannot_change` in
+      // `commands/settings.rs` -- the Settings screen neither edits nor
+      // saves either of them, so a whole-settings save can never change
+      // them). Taking the snapshot's copy of those fields here would
+      // record values that were never actually written, so this keeps
+      // whatever `savedSettings` already held for them instead.
+      set((state) => ({
+        isDirty: false,
+        savedSettings: {
+          ...snapshot,
+          after_queue_once: state.savedSettings.after_queue_once,
+          dev_access_enabled: state.savedSettings.dev_access_enabled,
+        },
+      }));
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       // Store the error for reactive UI display.
@@ -439,9 +499,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * value back over the sidebar's. No data would be lost, but the
    * sidebar would appear to forget itself, which is worth two lines to
    * avoid.
+   *
+   * Updates `savedSettings` too, not just `settings` -- this value has
+   * already reached disk by its own narrow command, so it is exactly
+   * as "saved" as anything a fresh `loadSettings()` would read back.
    */
   syncSidebarCollapsed: (collapsed) =>
-    set((state) => ({ settings: { ...state.settings, sidebar_collapsed: collapsed } })),
+    set((state) => ({
+      settings: { ...state.settings, sidebar_collapsed: collapsed },
+      savedSettings: { ...state.savedSettings, sidebar_collapsed: collapsed },
+    })),
 
   /**
    * Match the in-memory one-off after-queue action to what is on disk (or,
@@ -454,9 +521,18 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * choosing an after-queue action on the Download page — telling the
    * person they had unsaved work when they had none (stand-in review, 24
    * Sept 2026).
+   *
+   * Updates `savedSettings` too, not just `settings` -- the one-off is
+   * written straight to disk by its own command, so this copy is
+   * exactly as "saved" as anything a fresh `loadSettings()` would read
+   * back. The status bar reads `savedSettings` for exactly this reason
+   * (#1222): a one-off armed here must show there straight away.
    */
   syncAfterQueueOnce: (action) =>
-    set((state) => ({ settings: { ...state.settings, after_queue_once: action } })),
+    set((state) => ({
+      settings: { ...state.settings, after_queue_once: action },
+      savedSettings: { ...state.savedSettings, after_queue_once: action },
+    })),
 
   /**
    * Match the in-memory copy to fields that have JUST been written to disk
@@ -470,9 +546,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * warned about edits that did not exist (Codex, batch-3 review). Any
    * edit the person really has pending is left exactly as it is, and so is
    * the flag.
+   *
+   * Updates `savedSettings` too, not just `settings` -- every field this
+   * is called with has already been written to disk by its own
+   * one-field command, so it is exactly as "saved" as anything a fresh
+   * `loadSettings()` would read back.
    */
   syncSaved: (fields) =>
-    set((state) => ({ settings: { ...state.settings, ...fields } })),
+    set((state) => ({
+      settings: { ...state.settings, ...fields },
+      savedSettings: { ...state.savedSettings, ...fields },
+    })),
 
   /**
    * Merge a partial settings update into the current settings object.
@@ -483,6 +567,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    *
    * This is an in-memory-only operation -- call `saveSettings()` afterward
    * to persist the change to disk.
+   *
+   * Deliberately leaves `savedSettings` untouched. That field means "what
+   * is on disk right now", and an edit here has not reached disk -- it is
+   * exactly the kind of change `savedSettings` exists to stay unaware of,
+   * until `saveSettings()` actually runs.
    */
   updateSettings: (partial) =>
     set((state) => ({
@@ -494,6 +583,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * Reset all settings fields back to `DEFAULT_SETTINGS`.
    * Creates a fresh copy via spread to ensure referential inequality.
    * Marks `isDirty = true` because the reset has not been saved to disk yet.
+   *
+   * Leaves `savedSettings` untouched for the same reason as
+   * `updateSettings`: pressing "Reset" only changes what the Settings
+   * screen shows, not what is on disk -- that only happens if the person
+   * goes on to press "Save".
    */
   resetToDefaults: async () => {
     // The real defaults come from the backend, which is the one place
