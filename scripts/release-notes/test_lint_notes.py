@@ -204,6 +204,19 @@ def _run_live_mode_checks() -> list[str]:
     if lines_reported != {4}:
         failures.append(f"live: expected a finding on line 4 of the page, got lines {sorted(lines_reported)}")
 
+    # 5. A section opened and closed on one line blanks that line only;
+    #    a visible line after it is still checked, even when a later
+    #    collapsed section follows (Codex, review of #1230).
+    one_line = f"{marker}x</details>\n{commit_line}\n<details><summary>Other</summary>\ny\n</details>\n"
+    if not [f for f in live(one_line) if f.tier == "error"]:
+        failures.append("live: a one-line developer section hid the text after it")
+
+    # 6. Another collapsed section starting before the close: nothing more
+    #    is blanked, so the visible line between is still checked.
+    nested = f"{marker}\nx\n{commit_line}\n<details><summary>Other</summary>\ny\n</details>\n"
+    if not [f for f in live(nested) if f.tier == "error"]:
+        failures.append("live: a developer section with no close before the next section hid text")
+
     return failures
 
 

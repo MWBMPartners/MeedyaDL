@@ -162,14 +162,42 @@ jobs:
           import urllib.request
 
 
-          def parse_semver(value: str) -> tuple[int, int, int]:
-              parts = value.split(".")
-              def _part(i: int) -> int:
-                  try:
-                      return int(parts[i])
-                  except (IndexError, ValueError):
-                      return 0
-              return _part(0), _part(1), _part(2)
+          # Version numbers are compared strictly (Codex, review of #1230).
+          # The old reader turned any part it could not read into 0 and
+          # ignored everything after the third part, so a typo in a
+          # tested-version entry ("99.bad.0") could win as the "highest"
+          # and hide a real new release, and "3.9.1.post1" counted as
+          # equal to "3.9.1".
+          #
+          # tested_release(): a tested version must be plain dotted
+          # numbers ("3.9.1", "3.0"). Anything else stops the run.
+          # published_release(): PyPI's version may carry a suffix
+          # ("3.9.1.post1", "4.0rc1"); its leading numbers are compared,
+          # and it counts as BEYOND the tested version when those numbers
+          # are equal but the text is not -- a release nobody here has
+          # checked. Any version whose leading part is not numbers stops
+          # the run: a check that cannot read must never say "fine".
+          import re
+
+
+          def tested_release(value: str) -> tuple[int, ...]:
+              if not re.fullmatch(r"\d+(\.\d+)*", value.strip()):
+                  print(f"::error::A tested version in tool-versions.toml is not plain numbers: {value!r}")
+                  sys.exit(1)
+              return tuple(int(n) for n in value.strip().split("."))
+
+
+          def published_release(value: str) -> tuple[int, ...]:
+              m = re.match(r"\d+(\.\d+)*", value.strip())
+              if not m:
+                  print(f"::error::Could not read the version PyPI reported: {value!r}")
+                  sys.exit(1)
+              return tuple(int(n) for n in m.group(0).split("."))
+
+
+          def padded(a: tuple[int, ...], b: tuple[int, ...]) -> tuple[tuple[int, ...], tuple[int, ...]]:
+              n = max(len(a), len(b))
+              return a + (0,) * (n - len(a)), b + (0,) * (n - len(b))
 
 
           def emit(name: str, value: str) -> None:
@@ -236,7 +264,7 @@ jobs:
           # Highest ceiling wins; on a tie, the checked-out branch (listed
           # first) is kept, because max() keeps the first of equal items.
           ceiling_branch, ceiling, minimum, recommended = max(
-              found, key=lambda row: parse_semver(row[1])
+              found, key=lambda row: tested_release(row[1]) + (0,) * 8
           )
 
           # 2. Query PyPI for the latest release.
@@ -249,7 +277,10 @@ jobs:
               print(f"::error::Failed to query PyPI for {pypi_package}: {exc}")
               sys.exit(1)
 
-          breach = parse_semver(latest) > parse_semver(ceiling)
+          latest_n, ceiling_n = padded(published_release(latest), tested_release(ceiling))
+          breach = latest_n > ceiling_n or (
+              latest_n == ceiling_n and latest.strip() != ceiling.strip()
+          )
 
           for branch, branch_ceiling, _, _ in found:
               print(f"[{engine_display}] Ceiling on {branch}: {branch_ceiling}")
