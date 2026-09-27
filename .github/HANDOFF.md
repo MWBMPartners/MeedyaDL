@@ -42,7 +42,32 @@ work as well.
 combined verification of #1215-#1218 + #1221-#1226. One commit per issue; Codex rounds
 bundled where small (its allowance fits roughly one small round per window).
 
-**Progress:** (nothing done yet)
+**Progress:**
+- **#1226 DONE `491776c4`** (not yet Codex-reviewed): alpha.47 notes file reworded; the gate
+  now runs `test_lint_notes.py` (passes). Maintainer approved (27 Sept) correcting the same
+  sentence on published pages: **34 release pages** (alpha.37-alpha.71) had it in their
+  plain-English part — each saved first to `…/GitHub/MeedyaSuite/MeedyaDL-release-pages-
+  backup-2026-09-27/` (`<tag>.md` original, `<tag>.new.md` as published), only that
+  sentence replaced, each read back; a re-scan of every release finds no identifier or
+  "sign-in token" in any plain-English part. Note for the combined check: the gate's tests
+  only run for feat/fix/perf PR titles (the step exits early otherwise).
+- **#1224 BUILDING** (sonnet agent; scripts/check-acknowledgements.mjs,
+  check-upstream-licences.mjs, a test, maybe package.json). **#1223 BUILDING** (sonnet
+  agent; GeneralTab.tsx switch bound to `abort_queue_confirm`, DownloadQueue.tsx text, help).
+  Agents never commit; I review their diff, run checks, commit one per issue.
+- **#1222 PLAN:** add `savedSettings` to settingsStore (set on load, on successful save from
+  the pre-save snapshot, and in syncSidebarCollapsed / syncAfterQueueOnce / syncSaved; NOT by
+  updateSettings or resetToDefaults); StatusBar reads the saved after_queue_once /
+  after_queue_action and adds an "unsaved change" note when settings.after_queue_action !=
+  savedSettings.after_queue_action (new locale key in en/de/fr). Build after #1223 (both may
+  touch locale files).
+- **#1225 PLAN:** generalise MP4Box's keep-the-old-copy: before replacing an installed copy
+  that RUNS, keep it aside; after the install, read the new version
+  (`is_a_real_version_reading`); if the new one doesn't run, put the old one back and say so;
+  if the old one didn't run either, keep the new one and say it may still be broken. The
+  loss happens in `promote_staged_install`, which deletes `{tool}.old` at once. Plus a
+  Reinstall button on EVERY tool row in ToolsTab (calls install without `for_update`), with
+  help/tools.md updated. Opus-tier build (genuinely complex).
 
 ---
 
