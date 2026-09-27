@@ -61,8 +61,14 @@ history back.
    bullet, so a "**(scope)**" prefix passed) fixed `158f32ae` (+ end-to-end GATE_REFUSES
    tests run by the gate) → **`158f32ae`: NO REAL FINDINGS (~16:41). Release-note check
    chain CLEAN.** 48 extractor tests; no commit message refused.
-2. **Round B — wording — RUNNING (~16:42)**, prompt `/private/tmp/claude-501/codex/r15b-prompt.txt`,
-   output `r15b.out`, background command + watchdog. (help/tools.md "Keeping the tools up to date" onwards; the
+2. **Round B — wording — DONE:** 3 real findings in help/tools.md (two "won't start" cases
+   merged; FFmpeg only offered when >30 days newer; Install first adopts a system copy), none
+   in the Updates-page messages or the Abort Queue text → fixed `ccc5735f` → re-review CLEAN.
+   Docs for the check (`5bdde2df`, CLAUDE.md + STYLE_GUIDE) → 2 findings (joined emoji are
+   refused; tabs allowed) → fixed `c9a2dc5e` → CLEAN (16:48). **All Codex reviews owed are
+   done.** Next: one small PR from `work/after-alpha-73` to alpha (body drafted at
+   `/private/tmp/claude-501/pr3-body.md`, passes the gate's extract + lint), watch checks,
+   rebase-merge, watch the alpha release. (Original scope of round B: help/tools.md "Keeping the tools up to date" onwards; the
    Updates-page messages in `update_checker.rs` — `gate_before_comparing`'s unknown-owner
    arm, `could_not_run_reason`, `unreadable_version_reason`; the Abort Queue text in
    `DownloadQueue.tsx`). Never run yet. Codex manages about ONE small round per window.
