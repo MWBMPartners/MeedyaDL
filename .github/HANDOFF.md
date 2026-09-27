@@ -84,6 +84,28 @@ covered), i.e. #1222 both commits + #1225. Then the main PR.
 watchdog's `stat -f %m` (no `-L`) times the link, which never changes, so `quiet` fires
 falsely after its idle time. Point watchdogs at the real `…/subagents/agent-<id>.jsonl`.
 
+**Main PR is open: #1230** (`ci/watchers-to-main`, worktree in the session scratchpad
+`…/scratchpad/main-pr`): `4a5f5390` (the four watch workflows, lint-notes fix, alpha.47 notes,
+retire upstream-gamdl-watch) + `0d6f4dbf` (remove nightly/weekly/monthly workflows from main —
+held off only by "disabled_manually"; `protected-cron-channels.json` deliberately NOT touched,
+because any ruleset-file change starts main's old applier, which deletes unknown rulesets).
+Waiting for a clean Codex round before merging. Also done since: `c2731d7b` (engine watcher
+reads the highest ceiling of main and alpha), `c9785d7a` (SAFETY notes on the two unsafe
+blocks), `a4f85373` (history-rewrite note in both notes folders).
+
+**Combined verification (started ~19:00, 27 Sept):** four read-only Opus checkers, one per
+issue (#1215 +#1225, #1216 +#1222, #1217 +#1223, #1218 +#1221/#1224/#1226). Judging and closing
+is mine, one issue at a time. **#1217 result:** 8 of 9 listed findings fixed or rightly left;
+NOT done: "Report this bug to GAMDL" (privacy choice never made; the item can never appear —
+it needs a message starting "GAMDL bug", and none does; `ErrorMessageDisplay.tsx:83`,
+`processing.rs:6324`). New, to raise as issues: queue "Remove selected" deletes without asking
+and over-counts (`DownloadQueue.tsx:913-935`); the three abort routes read the unsaved settings
+copy (`DownloadQueue.tsx:374`, `StatusBar.tsx:208`, `useKeyboardShortcuts.ts:238` — #1222's
+fault again); Library Scan measurement untracked; #1220 misses the .txt import, Scan Folder
+and open-from-Finder routes (and Import/Finder failures are silent). Old commit IDs in #1217
+comments map: 435abebd→7fa5d56d, c04bc6ff→8494fbf6, 7e9f4695→235baa27, b0078997→e76986e1,
+f0dc9500→c0637c57, fc0b3698→b3cc89ae; #1227's merge on alpha is now 357b67fe.
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
