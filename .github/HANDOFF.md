@@ -164,6 +164,20 @@ Round B = CI + PR #1230: 46605372, c2731d7b, c47168b3, c2e10c32, c9785d7a, 3c28f
 diff — prompt c2-prompt.txt. If the allowance runs out mid-round again, the rest goes to a
 stand-in (fresh Opus agent), said so plainly, and stays "not fully reviewed".
 
+**Codex round A (21:31, app changes) — NOT CLEAN, 4 findings, all fixed in `9257863f`:** (1)
+find_system_tool's version probe had no time limit while the install claim is held; (2) the
+shared URL cleaner kept sign-in details on an address with no "://" (now also uses the LAST @);
+(3) loadSettings skipped asking the queue when the settings FILE could not be read (bar showed
+nothing while a shutdown was armed); (4) the download link in the GAMDL report was not cleaned.
+Link routing (a93d4038) was fine. **Round B (CI + PR #1230) running now** (watchdog `bvuf0usyi`).
+Next: a round on `9257863f` only, then the PR to alpha. **Also answered the maintainer's question
+about the expiring `MY_PROJECT_SYNC_TOKEN`:** not used by any repo/Dependabot/Codespaces secret,
+any workflow (none touches Projects), or anything on this Mac (gh uses its own gho_ login with the
+project scope); org-level secrets could not be listed (needs admin:org) — BACKPORT_PAT,
+BACKPORT_TOKEN and RULESET_AUDIT_TOKEN are used but stored at org level. Advice given: check the
+token's page for Last used / repository access before regenerating (regenerating revokes the old
+value at once); also check the expiry of the token behind MeedyaDL's RELEASE_PAT (set 11 Feb).
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
