@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2026 MeedyaSuite
+# Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 """
 scripts/release-notes/lint-notes.py
@@ -55,7 +55,10 @@ USAGE
               it as one document, with the workflow-appended "Choose your
               download" footer stripped first (same `_strip_footer` used
               for committed files) so the footer's own boilerplate never
-              trips the denylist. Used by
+              trips the denylist. The collapsed "Full technical changelog
+              (for developers)" section is blanked too: it is the commit
+              list, technical on purpose, and the same text as the public
+              CHANGELOG.md. Used by
               `.github/workflows/release-body-audit.yml` to check bodies
               after they are already public, since nothing else inspects
               a body post-publication.
@@ -102,6 +105,18 @@ ALLOWLIST = {
     "MusicKit", "LRCGET", "LRCLIB", "YouTube", "SoundCloud", "AppImage",
     "ChromeOS", "VoiceOver", "NVDA", "MacBook", "iTunes", "iPlayer",
     "MusicBrainz", "AcoustID", "ReplayGain", "Raspberry Pi", "Dolby", "PyPI",
+    # Added 27 Sept 2026, before release-body-audit.yml first runs from
+    # main: measured over the 40 newest published pages, these four were
+    # the ONLY capitalisation warnings in any plain-English part (25 pages),
+    # and each is a name a reader knows, not a leak. MediaInfo is one of the
+    # five helper tools; MacPorts is a package manager the app recognises;
+    # PlayReady is the second way of unlocking protected tracks (a setting);
+    # AppleMusic is the literal value the {platform} file-name template
+    # produces, which the notes quote so people can type it. Left out, the
+    # audit's first run would have opened a tracking issue for 25 pages
+    # with nothing wrong, and a check that cries wolf on its first day
+    # teaches everyone to ignore it.
+    "MediaInfo", "MacPorts", "PlayReady", "AppleMusic",
 }
 
 # A backticked span that is exactly a bare `{identifier}` template
@@ -245,6 +260,68 @@ def _strip_footer(lines: list[str]) -> list[str]:
     return lines
 
 
+# The collapsed developer section release.yml adds to prerelease pages
+# (see its "Full technical changelog (for developers)" echo lines).
+_TECHNICAL_CHANGELOG_MARKER = "<details><summary>Full technical changelog (for developers)</summary>"
+
+
+def _strip_technical_changelog(lines: list[str]) -> list[str]:
+    """Blank out the collapsed "Full technical changelog (for developers)"
+    section of a published page, from its opening line through the next
+    line that is exactly `</details>`. Blanked rather than removed, so the
+    line numbers in any finding still match the published page.
+
+    Used by --live only. That section is the list of commit subjects,
+    written for developers on purpose and the same text as the public
+    CHANGELOG.md, so commit-style wording there is expected, not a
+    regression. The audit's job is the plain-English part a reader of the
+    updater sees. Measured on 27 Sept 2026 over the 40 newest pages:
+    every error-tier finding on a prerelease page came from this section.
+    (The same scope was used when 34 published pages were corrected for
+    #1226: the plain-English part only.)
+
+    If the opening line is found but no closing `</details>` follows, the
+    lines are left as they are, so a changed template makes the audit
+    louder, never quieter.
+
+    Two more shapes are handled the same careful way (Codex, review of
+    #1230): a section opened AND closed on its opening line is that one
+    line only; and if another collapsed section starts before this one
+    closes, the layout is not the one this was written for, so nothing
+    more is blanked. Before, both let the search run on to a LATER
+    `</details>` and blank the plain-English text in between.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith(_TECHNICAL_CHANGELOG_MARKER):
+            after_marker = stripped[len(_TECHNICAL_CHANGELOG_MARKER):]
+            if "</details>" in after_marker:
+                # Only the section itself is blanked. Text after its close
+                # tag on the same line is visible on the page, so it is
+                # kept and checked (Codex, review of 73089064: the whole
+                # line used to be blanked).
+                out.append(after_marker.split("</details>", 1)[1])
+                i += 1
+                continue
+            end = None
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip() == "</details>":
+                    end = j
+                    break
+                if "<details" in lines[j]:
+                    break
+            if end is None:
+                return out + lines[i:]
+            out.extend([""] * (end - i + 1))
+            i = end + 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return out
+
+
 def _is_allowlisted_camelcase(matched: str) -> bool:
     return matched in ALLOWLIST
 
@@ -256,13 +333,32 @@ def _is_allowlisted_backtick(matched: str) -> bool:
     return bool(_TEMPLATE_PLACEHOLDER_RE.match(inner))
 
 
-def lint_text(text: str, path: str, strip_footer: bool = False) -> list[Finding]:
+def lint_text(
+    text: str,
+    path: str,
+    strip_footer: bool = False,
+    strip_technical: bool = False,
+) -> list[Finding]:
     """Run every rule against `text`, returning findings in
     error-then-warning, file-order sequence. `path` is only used for
     reporting — pass a synthetic label like "trailer" for stdin input."""
-    lines = text.splitlines()
+    # "\n" only, for the same reason as lint_trailer_stream: splitlines()
+    # also breaks at U+2028/U+2029, which split a banned phrase across one
+    # into two lines so it never matched. (The first fix changed only
+    # lint_trailer_stream, which hands each line straight back here to be
+    # split again, so it did nothing — stand-in review, 25 Sept 2026.)
+    #
+    # Carriage returns are turned into line breaks FIRST, as splitlines()
+    # did. Not every caller has done that already: --live reads a published
+    # release body from stdin, and a body edited on GitHub's web page has
+    # "\r\n" endings. Left in, the "\r" sits at the end of every line and
+    # the one rule anchored to the end of a line (a bare "(#123)" issue
+    # citation) never matches (fifth stand-in review, 25 Sept 2026).
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if strip_footer:
         lines = _strip_footer(lines)
+    if strip_technical:
+        lines = _strip_technical_changelog(lines)
 
     findings: list[Finding] = []
     for tier, ruleset in _TIERED_RULESETS:
@@ -288,7 +384,11 @@ def lint_trailer_stream(stream: str) -> list[Finding]:
     report therefore mean "the Nth trailer line on stdin", not a position
     inside a file."""
     findings: list[Finding] = []
-    for i, line in enumerate(stream.splitlines(), start=1):
+    # Split on "\n" only. str.splitlines() also splits on U+2028/U+2029
+    # (and a few others), which cut ONE note into two lint lines — so a
+    # banned phrase spanning that character was never matched, although the
+    # release notes publish it as one piece (stand-in review, 25 Sept 2026).
+    for i, line in enumerate(stream.split("\n"), start=1):
         if not line.strip():
             continue
         line_findings = lint_text(line, "trailer", strip_footer=False)
@@ -321,7 +421,11 @@ def main(argv: list[str]) -> int:
         # the same way a committed file is — the workflow-appended
         # "Choose your download" section is not authored content.
         stdin_text = sys.stdin.read()
-        all_findings.extend(lint_text(stdin_text, "live", strip_footer=True))
+        # The developer changelog section is blanked too (see
+        # _strip_technical_changelog): the audit checks what readers see.
+        all_findings.extend(
+            lint_text(stdin_text, "live", strip_footer=True, strip_technical=True)
+        )
     else:
         if not file_args:
             print("lint-notes.py: no FILE arguments given (and --trailer/--live not set)", file=sys.stderr)
