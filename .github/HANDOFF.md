@@ -54,11 +54,15 @@ history back.
    after removing U+FE0F hid "(#123)" and single-space banned phrases → new `_finish()` step;
    "none"+selector judged on the whole note; `\bsign-in token\b`). 41 extractor tests pass;
    whole-history render identical (git-cliff 2.14.2 — the 2.13.1 build was lost with
-   /private/tmp). **NOW RUNNING: Codex re-review of `58e77417`** (prompt
-   `/private/tmp/claude-501/codex/r17-prompt.txt`, output `r17.out`; background command +
-   watchdog). `/private/tmp` can be cleared by a restart — if the files are gone, rewrite the
-   prompt from this note.
-2. **Round B — wording** (help/tools.md "Keeping the tools up to date" onwards; the
+   /private/tmp). Then Codex re-reviews, one per round: `58e77417` → 1 finding (squeezing
+   spaces brought a lint exception's 20-char window into range) fixed `b6ce3687` (lint both
+   forms) → 1 finding (21 removed U+FE0F did the same) fixed `65fd247c` (also lint the note
+   exactly as published) → 1 finding, older than today (notes never linted as the "- "
+   bullet, so a "**(scope)**" prefix passed) fixed `158f32ae` (+ end-to-end GATE_REFUSES
+   tests run by the gate) → **`158f32ae`: NO REAL FINDINGS (~16:41). Release-note check
+   chain CLEAN.** 48 extractor tests; no commit message refused.
+2. **Round B — wording — RUNNING (~16:42)**, prompt `/private/tmp/claude-501/codex/r15b-prompt.txt`,
+   output `r15b.out`, background command + watchdog. (help/tools.md "Keeping the tools up to date" onwards; the
    Updates-page messages in `update_checker.rs` — `gate_before_comparing`'s unknown-owner
    arm, `could_not_run_reason`, `unreadable_version_reason`; the Abort Queue text in
    `DownloadQueue.tsx`). Never run yet. Codex manages about ONE small round per window.
