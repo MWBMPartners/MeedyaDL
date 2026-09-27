@@ -249,9 +249,20 @@ def extract_notes(text: str) -> list[str]:
 
 
 def notes_for_lint(text: str) -> list[str]:
-    """What the gate lints: for each note, the form a reader sees (_finish)
-    AND, when it differs, the same note with only U+FE0F removed and its
-    spacing kept, exactly as the templates publish it.
+    """What the gate lints — up to three forms of every note, and the note
+    fails if ANY of them fails:
+
+    1. the note exactly as the templates publish it (every line trimmed,
+       joined with one space, nothing removed);
+    2. the same with U+FE0F removed, spacing kept;
+    3. the form a reader sees (_finish: U+FE0F removed, spaces squeezed).
+
+    Form 1 is what makes the gate never less strict than what is
+    published: the other two can only ADD findings. It was added after
+    Codex's second re-review (27 Sept): 21 U+FE0F characters between
+    "decryption." and "Address" vanished from forms 2 and 3, bringing
+    "Address" within the 20-character exception, while the published text,
+    which keeps them, should be refused.
 
     Both, because either alone can miss something. Without _finish, a
     trailing space or a double space hid a banned phrase (Codex, 27 Sept).
@@ -264,7 +275,7 @@ def notes_for_lint(text: str) -> list[str]:
     """
     forms: list[str] = []
     for raw in _raw_notes(text):
-        for form in (_finish(raw), raw.replace("\ufe0f", "").strip()):
+        for form in (raw.strip(), raw.replace("\ufe0f", "").strip(), _finish(raw)):
             if form not in forms:
                 forms.append(form)
     return forms
