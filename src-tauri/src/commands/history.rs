@@ -140,6 +140,12 @@ fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
     // `XATTR_NOFOLLOW` matters: ask about THIS file, not about whatever
     // it might point at. Asking about the far end is the mistake that
     // made the original hole.
+    //
+    // SAFETY: `c_path` and `FINDER_INFO` are both text ending in a zero
+    // byte, as the call requires, and both outlive the call. `buf` is a
+    // writable buffer and the size passed is its real size, so the call
+    // can never write past its end (it writes at most that many bytes, and
+    // says how many). Nothing keeps any of these pointers after it returns.
     let read = unsafe {
         libc::getxattr(
             c_path.as_ptr(),
@@ -463,6 +469,10 @@ mod tests {
         finder_info[8..10].copy_from_slice(&0x8000u16.to_be_bytes());
 
         let c_path = std::ffi::CString::new(disguise.as_os_str().as_bytes()).unwrap();
+        // SAFETY: both names are text ending in a zero byte that outlive the
+        // call; `finder_info` is read, never written, and the size passed is
+        // its real size, so nothing past its end is read. Nothing keeps any
+        // of these pointers after the call returns.
         let set = unsafe {
             libc::setxattr(
                 c_path.as_ptr(),
