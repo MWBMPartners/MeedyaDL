@@ -193,14 +193,24 @@ export function ErrorMessageDisplay({
     // cleaning step itself fails for any reason, the raw message must
     // never be sent instead — the whole point is that unclean text
     // never reaches this link (#1231).
+    //
+    // The download's own link is cleaned too, not only the message. It
+    // was first left as it was, on the grounds that an Apple Music link
+    // carries no sign-in details; but a link is whatever was pasted, and
+    // one carrying a token in its query would have gone to GitHub whole
+    // (Codex, review of 7edd178c). Cleaning drops the query string, so a
+    // track number after "?i=" is lost too; the album link that remains
+    // is still enough to reproduce the fault.
     let cleaned: string;
+    let cleanedSourceUrl: string | undefined;
     try {
       cleaned = await redactForPublicReport(message);
+      cleanedSourceUrl = sourceUrl ? await redactForPublicReport(sourceUrl) : undefined;
     } catch {
       addToast('Could not prepare the report safely', 'error');
       return;
     }
-    const url = buildGamdlIssueUrl(cleaned, sourceUrl);
+    const url = buildGamdlIssueUrl(cleaned, cleanedSourceUrl);
     try {
       await openExternal(url);
     } catch {

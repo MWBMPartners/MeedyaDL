@@ -995,12 +995,26 @@ pub async fn find_system_tool(tool_id: &str) -> Option<(PathBuf, String)> {
 
     let path = path?;
 
-    // Get the version using the tool's version flag
-    let version_output = tokio::process::Command::new(&path)
-        .arg(&config.version_flag)
-        .output()
-        .await
-        .ok()?;
+    // Get the version using the tool's version flag.
+    //
+    // Within VERSION_PROBE_LIMIT, and the programme is stopped if it runs
+    // past it (kill_on_drop). This search runs while an install, or the
+    // status check's adoption step, holds the one-install-at-a-time claim
+    // (claim_tool_install). With no limit, a system copy that hung when
+    // asked for its version held that claim until the app was restarted,
+    // so every later install of that tool was refused as "already being
+    // installed" (Codex, review of ef9a5941). A copy that does not answer
+    // in time is treated as not found: nothing is adopted.
+    let version_output = tokio::time::timeout(
+        VERSION_PROBE_LIMIT,
+        tokio::process::Command::new(&path)
+            .arg(&config.version_flag)
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
 
     // Combine stdout and stderr (some tools output version to stderr)
     let stdout = String::from_utf8_lossy(&version_output.stdout);

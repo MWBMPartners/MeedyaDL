@@ -71,18 +71,28 @@ pub(crate) fn redact_single_url(url: &str) -> String {
         None => url,
     };
 
-    // Strip userinfo: look for "://", then check whether an '@' appears
-    // before the first '/' that follows it (i.e. within the authority
-    // component, not later in the path).
-    if let Some(scheme_end) = truncated.find("://") {
-        let after_scheme = &truncated[scheme_end + 3..];
-        let authority_end = after_scheme.find('/').unwrap_or(after_scheme.len());
-        let authority = &after_scheme[..authority_end];
-        if let Some(at_idx) = authority.find('@') {
-            let host_and_rest = &after_scheme[at_idx + 1..];
-            let scheme_prefix = &truncated[..scheme_end + 3];
-            return format!("{scheme_prefix}[redacted]@{host_and_rest}");
-        }
+    // Strip userinfo: find where the address part starts (after "://", or
+    // at the very start when there is no scheme), then check whether an
+    // '@' appears before the first '/' that follows (i.e. within the
+    // authority component, not later in the path).
+    //
+    // Two corrections (Codex, review of 3e17eb36, 27 Sept 2026):
+    // - An address typed WITHOUT a scheme, such as the wrapper setting
+    //   `alice:secret@127.0.0.1:30020`, used to pass through whole: this
+    //   only looked for sign-in details after "://". Such an address
+    //   cannot connect, but the failure message that names it went into
+    //   the log files, password included.
+    // - The LAST '@' in the authority is the one that ends the sign-in
+    //   details. Taking the first left the rest of a password that
+    //   itself contains a raw '@' showing.
+    let authority_start = truncated.find("://").map_or(0, |i| i + 3);
+    let after_scheme = &truncated[authority_start..];
+    let authority_end = after_scheme.find('/').unwrap_or(after_scheme.len());
+    let authority = &after_scheme[..authority_end];
+    if let Some(at_idx) = authority.rfind('@') {
+        let host_and_rest = &after_scheme[at_idx + 1..];
+        let scheme_prefix = &truncated[..authority_start];
+        return format!("{scheme_prefix}[redacted]@{host_and_rest}");
     }
 
     truncated.to_string()
@@ -546,6 +556,25 @@ mod tests {
             "expected userinfo placeholder, got: {out}"
         );
         assert!(!out.contains("user:pass"), "credentials leaked: {out}");
+    }
+
+    /// An address with no scheme, as a wrapper setting can be typed,
+    /// still loses its sign-in details, and a password that itself
+    /// contains a raw '@' is removed whole (Codex, review of 3e17eb36).
+    #[test]
+    fn redacts_userinfo_without_a_scheme_and_with_an_at_in_the_password() {
+        let no_scheme = redact_single_url("alice:secret@127.0.0.1:30020");
+        assert_eq!(no_scheme, "[redacted]@127.0.0.1:30020");
+
+        let at_in_password = redact_single_url("http://alice:p@ss@host:1/x");
+        assert_eq!(at_in_password, "http://[redacted]@host:1/x");
+
+        // A plain address, and an '@' in the path, are left alone.
+        assert_eq!(redact_single_url("127.0.0.1:30020"), "127.0.0.1:30020");
+        assert_eq!(
+            redact_single_url("http://host/@someone"),
+            "http://host/@someone"
+        );
     }
 
     /// Multiple URLs in the same line (e.g. a retry log showing both the

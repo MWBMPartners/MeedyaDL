@@ -408,6 +408,32 @@ interface SettingsState {
  *
  * @see {@link https://zustand.docs.pmnd.rs/guides/updating-state}
  */
+/**
+ * Asks the backend what the queue will actually do when it finishes (the
+ * running app's one-off and standing after-queue actions), for the status
+ * bar. Never throws: `null` means "could not ask", and the caller then
+ * keeps what it already had. See `loadSettings` for why this is asked
+ * separately from reading the settings file (#1222).
+ */
+async function askWhatTheQueueWillDo(): Promise<Pick<
+  AppSettings,
+  'after_queue_once' | 'after_queue_action'
+> | null> {
+  try {
+    const willHappen = await commands.getAfterQueueStatus();
+    if (willHappen && typeof willHappen.after_queue_action === 'string') {
+      return {
+        after_queue_once: willHappen.after_queue_once ?? null,
+        after_queue_action: willHappen.after_queue_action,
+      };
+    }
+    return null;
+  } catch (e) {
+    console.warn('Could not ask what the queue will do when it finishes:', e);
+    return null;
+  }
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   // -------------------------------------------------------------------------
   // Initial state -- populated with defaults until loadSettings() completes
@@ -434,6 +460,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   loadSettings: async () => {
     // Signal loading state and clear any previous error before the IPC call.
     set({ isLoading: true, error: null });
+
+    // What the QUEUE will do when it finishes, asked whether or not the
+    // settings FILE can be read. It used to be asked only after a
+    // successful file read, so an unreadable file left the status bar on
+    // its placeholder ("nothing will happen") while a shutdown was still
+    // armed in the running app -- the dangerous direction (Codex, review
+    // of 69dc951d). Started first so the two questions run side by side.
+    const queueSaysPromise = askWhatTheQueueWillDo();
+
     try {
       // Invoke the Rust `get_settings` command over the Tauri IPC bridge.
       const fromFile = await commands.getSettings();
@@ -448,40 +483,37 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       //   - a damaged file, which reads back as the DEFAULTS: the file
       //     says "do nothing" while the running app still holds, say,
       //     "shut down" -- the dangerous direction.
-      // `getAfterQueueStatus` is the backend's own answer to "what will
-      // happen", the same one the Download page asks when a write fails.
-      // If it cannot be asked, the file's values are used, as before;
-      // that is the best knowledge available.
-      let willHappen: Awaited<ReturnType<typeof commands.getAfterQueueStatus>> | undefined;
-      try {
-        willHappen = await commands.getAfterQueueStatus();
-      } catch (e) {
-        console.warn('Could not ask what the queue will do when it finishes:', e);
-      }
-      const queueSays =
-        willHappen && typeof willHappen.after_queue_action === 'string'
-          ? {
-              after_queue_once: willHappen.after_queue_once ?? null,
-              after_queue_action: willHappen.after_queue_action,
-            }
-          : {};
+      // If the queue cannot be asked, the file's values are used, as
+      // before; that is the best knowledge available.
+      const queueSays = await queueSaysPromise;
 
       // The Settings screen's copy keeps the FILE's standing action,
       // because that is the value the screen edits and saves. It takes
       // the queue's one-off, which the screen neither edits nor saves.
-      const settings: AppSettings =
-        'after_queue_once' in queueSays
-          ? { ...fromFile, after_queue_once: queueSays.after_queue_once }
-          : fromFile;
+      const settings: AppSettings = queueSays
+        ? { ...fromFile, after_queue_once: queueSays.after_queue_once }
+        : fromFile;
       // `savedSettings` is what the app will act on.
-      const savedSettings: AppSettings = { ...fromFile, ...queueSays };
+      const savedSettings: AppSettings = { ...fromFile, ...(queueSays ?? {}) };
 
       // Replace the entire settings object and mark as clean (not dirty).
       set({ settings, savedSettings, isLoading: false, isDirty: false });
     } catch (e) {
       // Normalize the error to a string regardless of its runtime type.
       const message = e instanceof Error ? e.message : String(e);
-      set({ error: message, isLoading: false });
+      // The file could not be read, but the queue's answer still says
+      // what will happen, so the status bar can still tell the truth.
+      const queueSays = await queueSaysPromise;
+      set((state) => ({
+        error: message,
+        isLoading: false,
+        ...(queueSays
+          ? {
+              savedSettings: { ...state.savedSettings, ...queueSays },
+              settings: { ...state.settings, after_queue_once: queueSays.after_queue_once },
+            }
+          : {}),
+      }));
     }
   },
 

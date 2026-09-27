@@ -428,6 +428,25 @@ describe('settingsStore', () => {
       expect(state.savedSettings.output_path).toBe('/tmp/test-output');
     });
 
+    it('still shows an armed action when the settings file cannot be read at all', async () => {
+      // Codex, review of 69dc951d: the queue used to be asked only after a
+      // successful file read, so an unreadable file left the bar on its
+      // placeholder while a shutdown was armed in the running app.
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('Permission denied'));
+      vi.mocked(commands.getAfterQueueStatus).mockResolvedValueOnce({
+        after_queue_action: 'shutdown_computer',
+        after_queue_once: 'hibernate_computer',
+      });
+
+      await useSettingsStore.getState().loadSettings();
+
+      const state = useSettingsStore.getState();
+      expect(state.error).toBe('Permission denied');
+      expect(state.savedSettings.after_queue_action).toBe('shutdown_computer');
+      expect(state.savedSettings.after_queue_once).toBe('hibernate_computer');
+      expect(state.settings.after_queue_once).toBe('hibernate_computer');
+    });
+
     it('falls back to the file for the after-queue fields when the queue cannot be asked', async () => {
       vi.mocked(commands.getSettings).mockResolvedValueOnce({
         ...MOCK_SETTINGS,
