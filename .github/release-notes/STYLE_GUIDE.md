@@ -162,6 +162,8 @@ Rules for the trailer itself:
 - No markdown headings inside the trailer.
 - Written exactly the way it should appear in the release notes — it is used **verbatim**, per this guide's rules above.
 - No link inside the trailer. The text must stand on its own; issue links are added separately when the release notes are assembled.
+- Start the note on the `Release-Note:` line itself. An empty `Release-Note:` line (with the note on the next line) is refused by the pull request check.
+- Plain typed text only. A note containing an invisible control or formatting character (a soft hyphen, a zero-width space, a line separator, and so on — usually picked up by copying from a word processor) is refused; retype it. Ordinary emoji are fine.
 
 ## Before → After examples
 
