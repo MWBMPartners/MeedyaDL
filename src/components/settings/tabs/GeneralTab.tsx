@@ -28,6 +28,13 @@
  *     GAMDL and tool updates on startup. Maps to
  *     `settings.auto_check_updates`.
  *
+ *   - **Confirm before aborting the queue** -- Whether Abort Queue shows
+ *     its "are you sure" window first. Maps to
+ *     `settings.abort_queue_confirm`. This is the direct way to turn the
+ *     question back on for someone who ticked "Don't ask again" in that
+ *     window (Reset + Save Changes also does, but resets everything
+ *     else too) -- see #1223.
+ *
  * ## Store Connection
  *
  * This component reads from and writes to the Zustand `settingsStore`.
@@ -301,6 +308,7 @@ export function GeneralTab() {
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
   const autoStartQueue = useSettingsField('auto_start_queue');
+  const abortQueueConfirm = useSettingsField('abort_queue_confirm');
   const afterQueueAction = useSettingsField('after_queue_action');
   const desktopNotifications = useSettingsField('desktop_notifications');
   const notificationStyle = useSettingsField('notification_style');
@@ -811,6 +819,24 @@ export function GeneralTab() {
           description="Start processing immediately when items are added to the queue. When disabled, items are queued and you can start processing manually from the Queue page."
           checked={autoStartQueue.value}
           onChange={autoStartQueue.set}
+        />
+
+        {/*
+         * Abort Queue confirmation (#1223). Before this switch existed,
+         * the only way back on for someone who had ticked "Don't ask
+         * again" in the Abort Queue window was Reset + Save Changes --
+         * which also puts every OTHER setting on this screen back to its
+         * default. This toggle IS the setting that checkbox writes
+         * (`abort_queue_confirm`), so ticking the box off there and
+         * flipping this switch back on here are the same value seen from
+         * two places -- there is no separate save path here, it saves the
+         * same way every other control on this screen does.
+         */}
+        <Toggle
+          label="Confirm before aborting the queue"
+          description="Asks before Abort Queue stops every download. Turned off when you tick Don't ask again in that window."
+          checked={abortQueueConfirm.value}
+          onChange={abortQueueConfirm.set}
         />
 
         {/* After-queue action */}

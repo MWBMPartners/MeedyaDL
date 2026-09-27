@@ -263,6 +263,42 @@ describe('GeneralTab', () => {
     expect(settings.auto_start_queue).toBe(false);
   });
 
+  /**
+   * #1223: the Abort Queue window's "Don't ask again" checkbox writes
+   * `abort_queue_confirm = false` straight to disk, and until this
+   * switch existed there was no way back on short of Reset + Save
+   * Changes (which also reverts every other setting on the screen).
+   * This checks the switch renders bound to that same field, with the
+   * default (`true` -- ask before an abort) reflected as checked.
+   */
+  it('renders "Confirm before aborting the queue" toggle as checked when abort_queue_confirm is true', () => {
+    render(<GeneralTab />);
+
+    const toggle = screen.getByRole('switch', {
+      name: /confirm before aborting the queue/i,
+    });
+    expect(toggle).toBeInTheDocument();
+    expect(toggle).toHaveAttribute('aria-checked', 'true');
+  });
+
+  /**
+   * Clicking the switch off is exactly what turns it back on for someone
+   * who previously ticked "Don't ask again" -- verifies it flips the
+   * same `abort_queue_confirm` field the Abort Queue modal's checkbox
+   * writes.
+   */
+  it('updates settings store when "Confirm before aborting the queue" toggle is clicked', () => {
+    render(<GeneralTab />);
+
+    const toggle = screen.getByRole('switch', {
+      name: /confirm before aborting the queue/i,
+    });
+    fireEvent.click(toggle);
+
+    const { settings } = useSettingsStore.getState();
+    expect(settings.abort_queue_confirm).toBe(false);
+  });
+
   // ===========================================================================
   // Conditional visibility -- Update check interval
   // ===========================================================================

@@ -1450,11 +1450,9 @@ export function DownloadQueue() {
             className="h-4 w-4 cursor-pointer"
           />
           <span>
-            Don&apos;t ask again — single-click abort from now on. There is
-            no switch to turn this question back on yet. The only way is
-            Reset in Settings and then Save Changes, which brings this
-            question back but also puts most of your other settings back to
-            their defaults.
+            Don&apos;t ask again — single-click abort from now on. You can
+            turn this question back on in Settings &gt; General &gt;
+            Preferences.
           </span>
         </label>
         <div className="flex justify-end gap-2">
