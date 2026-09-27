@@ -326,7 +326,15 @@ pub(crate) async fn read_installed_version(
     app: &AppHandle,
     tool_id: &str,
 ) -> Result<Option<String>, String> {
-    let binary = get_tool_binary_path(app, tool_id);
+    read_version_in(&get_tool_dir(app, tool_id), tool_id).await
+}
+
+/// [`read_installed_version`] for a tool folder given by path rather than
+/// found through the app. Split out so the "keep the working copy" logic
+/// (see [`working_copy_backup_dir`]) can be tested against a temporary
+/// folder, with no running app.
+async fn read_version_in(tool_dir: &Path, tool_id: &str) -> Result<Option<String>, String> {
+    let binary = tool_binary_path_in(tool_dir, tool_id);
     if !binary.exists() {
         return Ok(None);
     }
@@ -1025,6 +1033,12 @@ pub async fn adopt_system_tool_if_available(
     app: &AppHandle,
     tool_id: &str,
 ) -> Option<(PathBuf, String)> {
+    // Not while this tool is being installed. Mid-install its folder can be
+    // briefly empty (the working copy set aside, the new one not yet in
+    // place), which looks exactly like "not installed" to the status check
+    // that calls this, and writing a pointer into it then would collide
+    // with the install. The install reports its own result when it ends.
+    let _installing = claim_tool_install(tool_id)?;
     let (system_path, system_version) = find_system_tool(tool_id).await?;
 
     // Defence-in-depth: never adopt a world-writable binary.
@@ -1333,12 +1347,7 @@ fn mirror_is_checked_source(app: &AppHandle, tool_id: &str) -> bool {
 /// The message when an update is refused rather than taken from the
 /// mirror. Plain words: what happened, that nothing was changed, and why.
 fn update_refused_message(tool_id: &str, main_source_error: &str) -> String {
-    // The name a person knows ("N_m3u8DL-RE"), not the internal id
-    // ("nm3u8dlre"); falls back to whatever it was given.
-    let name = TOOLS
-        .iter()
-        .find(|t| t.id == tool_id)
-        .map_or(tool_id, |t| t.name);
+    let name = tool_display_name(tool_id);
     format!(
         "{name} was not updated: the source MeedyaDL checks for {name} updates could not be \
          used ({}). Your current copy has been left as it was. MeedyaDL does not take an \
@@ -1348,6 +1357,16 @@ fn update_refused_message(tool_id: &str, main_source_error: &str) -> String {
         crate::utils::text::truncate_str(main_source_error.trim(), 200)
     )
 }
+
+/// The name a person knows ("N_m3u8DL-RE"), not the internal id
+/// ("nm3u8dlre"), for messages; falls back to whatever it was given.
+fn tool_display_name(tool_id: &str) -> &str {
+    TOOLS
+        .iter()
+        .find(|t| t.id == tool_id)
+        .map_or(tool_id, |t| t.name)
+}
+
 /// Downloads a tool's archive and extracts it to the tool directory,
 /// with automatic fallback to the mirror repository if the primary
 /// upstream source fails.
@@ -1369,13 +1388,21 @@ fn update_refused_message(tool_id: &str, main_source_error: &str) -> String {
 /// stage-and-swap, a total failure leaves `tool_dir` byte-for-byte
 /// unchanged.
 ///
+/// Stage-and-swap only protects against a download that FAILS. A download
+/// that succeeds but gives a copy that will not start on this computer is
+/// dealt with by `keep_old_at` — see [`working_copy_backup_dir`] (#1225).
+///
 /// # Arguments
 /// * `tool_id` - The tool identifier (e.g., "ffmpeg")
 /// * `tool_dir` - The target installation directory
+/// * `keep_old_at` - Where to set the copy being replaced aside, instead of
+///   deleting it, when that copy runs. Passed straight to
+///   [`promote_staged_install`].
 async fn download_tool_with_fallback(
     tool_id: &str,
     tool_dir: &std::path::Path,
     allow_mirror: bool,
+    keep_old_at: Option<&Path>,
 ) -> Result<ToolInstallSource, String> {
     // Sibling staging directory — never the real tool_dir. Named
     // `{tool_dir}.staging` so it lives alongside (not inside) the real
@@ -1399,7 +1426,7 @@ async fn download_tool_with_fallback(
             log::info!("Downloading {tool_id} from primary source: {url}");
             match archive::download_and_extract(&url, &staging, format).await {
                 Ok(()) => {
-                    return promote_staged_install(&staging, tool_dir)
+                    return promote_staged_install(&staging, tool_dir, keep_old_at)
                         .map(|()| ToolInstallSource::Primary);
                 }
                 Err(e) => {
@@ -1439,9 +1466,8 @@ async fn download_tool_with_fallback(
             )
             .await
             {
-                Ok(()) => {
-                    promote_staged_install(&staging, tool_dir).map(|()| ToolInstallSource::Mirror)
-                }
+                Ok(()) => promote_staged_install(&staging, tool_dir, keep_old_at)
+                    .map(|()| ToolInstallSource::Mirror),
                 Err(e) => {
                     let _ = std::fs::remove_dir_all(&staging);
                     Err(format!(
@@ -1462,51 +1488,488 @@ async fn download_tool_with_fallback(
 /// Atomically-ish swaps a freshly-staged install into place (#996).
 ///
 /// Two-step so it works on Windows, where renaming onto an existing
-/// directory fails: move the old `tool_dir` aside to `{tool_dir}.old`,
-/// move `staging` into `tool_dir`'s place, then delete the old dir. If the
-/// final rename fails (e.g. cross-device on some exotic setup), the old
-/// dir is best-effort restored so the user isn't left with neither.
+/// directory fails: move the old `tool_dir` aside, move `staging` into
+/// `tool_dir`'s place, then (usually) delete the old dir. If the final
+/// rename fails (e.g. cross-device on some exotic setup), the old dir is
+/// best-effort restored so the user isn't left with neither.
+///
+/// # Where the old copy goes
+///
+/// * `keep_old_at` is `None`: to the throwaway `{tool_dir}.old`, deleted as
+///   soon as the swap is done. Used when the copy being replaced does not
+///   run (or there is none), and by MP4Box's mirror route, which checks the
+///   new copy runs BEFORE it swaps.
+/// * `keep_old_at` is `Some(backup)`: to `backup`, and LEFT there. The
+///   caller keeps it until the new copy has been shown to run, and puts it
+///   back if it does not — see [`working_copy_backup_dir`] (#1225). This
+///   used to be the only place the working copy was thrown away, before
+///   anyone had asked the new copy whether it starts.
 ///
 /// # Arguments
 /// * `staging` - The sibling staging directory containing the fresh install
 /// * `tool_dir` - The real installation directory to replace
+/// * `keep_old_at` - Where to keep the copy being replaced, if it is kept
 ///
 /// # Errors
 ///
 /// Returns `Err(String)` if the old install can't be moved aside or the
 /// staged install can't be promoted. In both cases the function tries to
 /// leave the filesystem in a recoverable state (old install restored when
-/// possible) rather than a half-swapped one.
+/// possible) rather than a half-swapped one. When the old copy is being
+/// kept, it is never deleted here: if it cannot be moved it stays exactly
+/// where it is and nothing is swapped.
 fn promote_staged_install(
     staging: &std::path::Path,
     tool_dir: &std::path::Path,
+    keep_old_at: Option<&Path>,
 ) -> Result<(), String> {
-    let backup = tool_dir.with_file_name(format!(
-        "{}.old",
-        tool_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("tool")
-    ));
-    if backup.exists() {
-        std::fs::remove_dir_all(&backup).ok();
-    }
+    let aside = keep_old_at.map_or_else(
+        || {
+            tool_dir.with_file_name(format!(
+                "{}.old",
+                tool_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("tool")
+            ))
+        },
+        Path::to_path_buf,
+    );
+    // Only what THIS call moved aside is ever moved back below — never a
+    // folder that merely happens to be sitting at `aside`.
+    let mut moved_aside = false;
     if tool_dir.exists() {
-        std::fs::rename(tool_dir, &backup)
-            .or_else(|_| std::fs::remove_dir_all(tool_dir))
-            .map_err(|e| format!("Failed to move aside existing install {}: {e}", tool_dir.display()))?;
+        if keep_old_at.is_some() {
+            if let Err(e) = set_working_copy_aside(tool_dir, &aside) {
+                std::fs::remove_dir_all(staging).ok();
+                let tool_id = tool_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("tool");
+                return Err(could_not_set_aside_message(tool_id, &e));
+            }
+            moved_aside = true;
+        } else {
+            if aside.exists() {
+                std::fs::remove_dir_all(&aside).ok();
+            }
+            match std::fs::rename(tool_dir, &aside) {
+                Ok(()) => moved_aside = true,
+                Err(_) => std::fs::remove_dir_all(tool_dir).map_err(|e| {
+                    format!(
+                        "Failed to move aside existing install {}: {e}",
+                        tool_dir.display()
+                    )
+                })?,
+            }
+        }
     }
     if let Some(parent) = tool_dir.parent() {
         std::fs::create_dir_all(parent).ok();
     }
     std::fs::rename(staging, tool_dir).map_err(|e| {
-        if backup.exists() {
-            let _ = std::fs::rename(&backup, tool_dir);
+        if moved_aside {
+            let _ = std::fs::rename(&aside, tool_dir);
         }
-        format!("Failed to promote staged install {}: {e}", tool_dir.display())
+        format!(
+            "Failed to promote staged install {}: {e}",
+            tool_dir.display()
+        )
     })?;
-    let _ = std::fs::remove_dir_all(&backup);
+    if keep_old_at.is_none() {
+        let _ = std::fs::remove_dir_all(&aside);
+    }
     Ok(())
+}
+
+// ============================================================
+// Keeping a working copy while a new one goes in (#1225)
+// ============================================================
+//
+// Installing a tool over a copy that already worked used to throw the
+// working copy away the moment the new files were unpacked — before
+// anyone had asked the new copy whether it even starts. The version check
+// came afterwards, and a failure there was accepted and reported as
+// "installed". So a new copy that downloaded and unpacked perfectly but
+// would not run on this computer (a missing library, the wrong kind of
+// processor) replaced one that did. MP4Box's update route had already
+// learned not to do this; every other tool, and every Install or
+// Reinstall, had not.
+//
+// Now, when the copy in place runs, it is set aside to
+// `{tool}.update-backup` instead of being deleted, and only thrown away
+// once the new copy is fully in place — binary found and made runnable,
+// FFmpeg's companions and records written, the `.source` record written —
+// AND reports a real version. Otherwise the new copy is removed and the
+// set-aside one put back. `install_tool_for` does this for every tool;
+// the only routes it leaves alone are MP4Box's two update routes, which
+// already did the same thing their own way (see install_mp4box_with_fallback).
+//
+// # Set aside at the swap, not before the download
+//
+// MP4Box's update route moves the folder aside BEFORE it starts, and the
+// issue suggested doing the same here. That was rejected for the ordinary
+// tools, for two reasons. The download can take minutes, and moving the
+// folder first would leave the tool missing for all of that time — a
+// download running in the queue meanwhile would fail for want of FFmpeg.
+// And the installer READS the current folder before it replaces it: the
+// `.source` record (should the package manager be asked to update this
+// copy?) and FFmpeg's build record (may an update fall back to the
+// mirror?). With the folder already gone, both questions would quietly
+// get the wrong answer. So the copy is set aside at exactly the moment
+// the old code deleted it — inside the swap (promote_staged_install), or
+// just before a system copy is adopted — and nowhere earlier.
+//
+// MP4Box's Install/Reinstall route is the exception: its platform
+// installers delete the folder themselves, deep inside, so there it is
+// set aside before they run (as its update route already does).
+//
+// # When the copy in place does not run
+//
+// Nothing is kept: there is nothing worth going back to. That is the
+// first-install case too, and it behaves exactly as before — including
+// accepting a new copy that does not report a version, because refusing
+// it would leave the person with nothing at all instead of something that
+// may yet work. That case is logged as a warning.
+//
+// # What this cannot do
+//
+// It cannot undo a change made OUTSIDE MeedyaDL's own folders. A Reinstall
+// of a tool that belongs to a package manager may ask that manager to
+// update it (install_tool_for, Step 0), and putting MeedyaDL's pointer to
+// that copy back does not put the manager's old version back. The message
+// then says the restored copy does not start either, rather than claiming
+// all is well.
+
+/// Where a tool's working copy waits while a new copy is put in place:
+/// `{tool}.update-backup`, beside the tool's own folder.
+///
+/// The same name MP4Box's update route has always used, so a copy left
+/// behind by either route is found and dealt with by both.
+fn working_copy_backup_dir(tool_dir: &Path) -> PathBuf {
+    tool_dir.with_file_name(format!(
+        "{}.update-backup",
+        tool_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("tool")
+    ))
+}
+
+/// Moves a tool's folder to `backup`. Having nothing to move is not an
+/// error.
+///
+/// Never deletes anything: if the folder cannot be moved (on Windows, for
+/// example, while the programme inside it is running) it stays exactly
+/// where it is and the caller stops. It also refuses to move onto a folder
+/// already at `backup` — that one may be the only working copy, and on
+/// Windows the move would fail anyway.
+fn set_working_copy_aside(tool_dir: &Path, backup: &Path) -> std::io::Result<()> {
+    if !tool_dir.exists() {
+        return Ok(());
+    }
+    if backup.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!("{} is already there", backup.display()),
+        ));
+    }
+    std::fs::rename(tool_dir, backup)
+}
+
+/// Puts a set-aside copy back in place, first removing whatever is there
+/// now. If that removal fails, the set-aside copy is left untouched, so it
+/// is never lost.
+fn put_working_copy_back(tool_dir: &Path, backup: &Path) -> std::io::Result<()> {
+    if tool_dir.exists() {
+        std::fs::remove_dir_all(tool_dir)?;
+    }
+    std::fs::rename(backup, tool_dir)
+}
+
+/// Settles a copy an earlier install set aside and never finished with —
+/// the app was closed part-way, say, or clean-up failed — before a new
+/// install starts. The rule is the one update_mp4box_keeping_the_old_copy
+/// uses: whichever copy runs wins.
+///
+/// * The copy in place runs → the set-aside one is stale: remove it.
+/// * The copy in place does not run (or is not there at all) → the
+///   set-aside one is the better bet: put it back.
+fn resolve_leftover_working_copy(
+    tool_dir: &Path,
+    backup: &Path,
+    copy_in_place_runs: bool,
+) -> std::io::Result<()> {
+    if copy_in_place_runs {
+        std::fs::remove_dir_all(backup)
+    } else {
+        put_working_copy_back(tool_dir, backup)
+    }
+}
+
+/// Tools with an install, reinstall or update running right now.
+///
+/// Two at once for the SAME tool could lose its only working copy. Both
+/// use the same `{tool}.staging` and `{tool}.update-backup` folders, so a
+/// second install starting while the first had the working copy set aside
+/// would see that set-aside copy as "left over from an earlier install",
+/// and delete it if the first install's new copy happened to be in place
+/// and running at that moment. The first install would then find nothing
+/// to put back. Settings > Tools and the Updates page each start installs
+/// their own way, so the screens alone cannot rule it out: it is ruled out
+/// here, where every install passes (#1225 review).
+static TOOLS_BEING_INSTALLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Proof that this call is the only install of its tool running. Dropping
+/// it, however the call ends, lets the next one start.
+struct ToolInstallClaim(String);
+
+impl Drop for ToolInstallClaim {
+    fn drop(&mut self) {
+        let mut busy = TOOLS_BEING_INSTALLED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        busy.retain(|t| t != &self.0);
+    }
+}
+
+/// Claims `tool_id` for one install, or `None` if another is running.
+/// Never waits: a second install is refused with a message, not queued
+/// behind the first, so nobody is left looking at a spinner that is
+/// really waiting for something else.
+fn claim_tool_install(tool_id: &str) -> Option<ToolInstallClaim> {
+    let mut busy = TOOLS_BEING_INSTALLED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if busy.iter().any(|t| t == tool_id) {
+        return None;
+    }
+    busy.push(tool_id.to_string());
+    Some(ToolInstallClaim(tool_id.to_string()))
+}
+
+/// The message when a working copy could not be moved out of the way.
+/// Nothing was changed in that case, and it says so.
+fn could_not_set_aside_message(tool_id: &str, e: &std::io::Error) -> String {
+    let name = tool_display_name(tool_id);
+    format!(
+        "{name} was not replaced: MeedyaDL could not move the copy you have now out of the way \
+         first ({e}), so the new copy was not put in place and nothing was changed."
+    )
+}
+
+/// What a newly installed copy's version reading came to: `Ok` with the
+/// version when it ran and reported one, `Err` with a plain-English reason
+/// when it did not.
+///
+/// "Ran" means the same here as everywhere else in this file —
+/// [`crate::services::update_checker::is_a_real_version_reading`]. The
+/// version reader hands back whatever a programme printed, even an error,
+/// as a success, so "it printed something" is not enough.
+fn new_copy_reading_verdict(
+    tool_name: &str,
+    reading: Result<Option<String>, String>,
+) -> Result<String, String> {
+    match reading {
+        Ok(Some(v)) if crate::services::update_checker::is_a_real_version_reading(&v) => Ok(v),
+        Ok(Some(printed)) => Err(format!(
+            "it printed \"{}\" instead of its version",
+            crate::utils::text::truncate_str(printed.trim(), 160)
+        )),
+        Ok(None) => Err(format!("no {tool_name} programme was left in place")),
+        Err(e) => Err(format!("it could not be started: {e}")),
+    }
+}
+
+/// What to do once an install has finished, one way or the other.
+#[derive(Debug, PartialEq, Eq)]
+enum AfterInstall {
+    /// The new copy runs: keep it, and throw away any set-aside copy.
+    KeepNew,
+    /// The new copy does not report a version, but there is no working
+    /// copy to go back to (a first install, or the old copy did not run
+    /// either). Kept anyway — the behaviour before #1225 — and logged.
+    KeepNewUnverified,
+    /// A working copy was set aside, and the install then failed or gave a
+    /// copy that does not run: put the working copy back.
+    PutOldBack,
+    /// The install failed before anything was replaced. Nothing to undo.
+    NothingToUndo,
+}
+
+/// The whole keep-or-restore decision, with no files or programmes
+/// involved, so every combination can be tested.
+///
+/// `new_copy_runs` only matters when the install succeeded.
+fn after_install(
+    old_copy_set_aside: bool,
+    install_succeeded: bool,
+    new_copy_runs: bool,
+) -> AfterInstall {
+    match (old_copy_set_aside, install_succeeded, new_copy_runs) {
+        (_, true, true) => AfterInstall::KeepNew,
+        (true, _, _) => AfterInstall::PutOldBack,
+        (false, true, false) => AfterInstall::KeepNewUnverified,
+        (false, false, _) => AfterInstall::NothingToUndo,
+    }
+}
+
+/// How long a copy is given to report its version, in the keep-or-restore
+/// steps, before it is treated as not running.
+///
+/// Asking for a version normally takes a fraction of a second. With no
+/// limit, a programme that hangs when asked would hang the whole install
+/// for ever, behind a spinner, with no message — and since #1225 the copy
+/// in place is asked too, before anything starts. Thirty seconds is far
+/// past any real answer, even on a busy computer. (The Tools page's status
+/// check allows only two, but it can afford to guess "probably fine" when
+/// time runs out; this cannot, because the answer decides which copy to
+/// throw away.) The shared version reader itself is left without a limit:
+/// the update check and others rely on it as it is.
+const VERSION_PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// [`read_version_in`] with [`VERSION_PROBE_LIMIT`]. Running out of time
+/// counts as "could not be started", never as a version.
+async fn read_version_in_time(tool_dir: &Path, tool_id: &str) -> Result<Option<String>, String> {
+    tokio::time::timeout(VERSION_PROBE_LIMIT, read_version_in(tool_dir, tool_id))
+        .await
+        .unwrap_or_else(|_| {
+            Err(format!(
+                "it did not answer within {} seconds",
+                VERSION_PROBE_LIMIT.as_secs()
+            ))
+        })
+}
+
+/// Does the copy in `tool_dir` run and report a real version?
+async fn copy_in_folder_runs(tool_dir: &Path, tool_id: &str) -> bool {
+    matches!(
+        read_version_in_time(tool_dir, tool_id).await,
+        Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
+    )
+}
+
+/// Before installing over a tool: settles any copy an earlier install left
+/// set aside (see [`resolve_leftover_working_copy`]), then says whether the
+/// copy in place now runs — only a copy that runs is worth keeping.
+///
+/// An error here means nothing has been changed and the install must not
+/// go ahead, because going ahead could lose the only working copy.
+async fn prepare_to_keep_working_copy(tool_dir: &Path, tool_id: &str) -> Result<bool, String> {
+    let backup = working_copy_backup_dir(tool_dir);
+    let runs = copy_in_folder_runs(tool_dir, tool_id).await;
+    if !backup.exists() {
+        return Ok(runs);
+    }
+    let name = tool_display_name(tool_id);
+    resolve_leftover_working_copy(tool_dir, &backup, runs).map_err(|e| {
+        if runs {
+            format!(
+                "{name} was not changed: a copy set aside by an earlier install, at {}, could \
+                 not be removed ({e}). Your current copy has been left as it was.",
+                backup.display()
+            )
+        } else {
+            format!(
+                "{name} was not changed: a copy set aside by an earlier install, at {}, could \
+                 not be put back ({e}). MeedyaDL stopped here so that copy is not lost.",
+                backup.display()
+            )
+        }
+    })?;
+    // A set-aside copy that was just put back is now the copy in place, so
+    // ask whether IT runs.
+    Ok(runs || copy_in_folder_runs(tool_dir, tool_id).await)
+}
+
+/// After installing: keeps the new copy, or puts the set-aside working copy
+/// back. See the section comment above [`working_copy_backup_dir`].
+///
+/// "The install succeeded" is not enough to keep the new copy when a
+/// working one was set aside: every route reports success even when the
+/// new copy cannot start (the version check at the end of each accepts
+/// anything, and reports "installed"). Removing the set-aside copy on that
+/// alone is exactly how MP4Box's only working copy was once deleted
+/// (Codex, review of 57f137ac), and how #1225 happened for every other
+/// tool. So the new copy is asked for its version here, once it is fully
+/// in place.
+async fn finish_keeping_working_copy(
+    tool_dir: &Path,
+    tool_id: &str,
+    install: Result<String, String>,
+) -> Result<String, String> {
+    let name = tool_display_name(tool_id);
+    let backup = working_copy_backup_dir(tool_dir);
+    let old_copy_set_aside = backup.exists();
+
+    // Only a finished install is asked for its version: after a failed
+    // one, nothing reliable is in place to ask.
+    let new_copy_problem = match &install {
+        Ok(_) => {
+            new_copy_reading_verdict(name, read_version_in_time(tool_dir, tool_id).await).err()
+        }
+        Err(_) => None,
+    };
+
+    match after_install(
+        old_copy_set_aside,
+        install.is_ok(),
+        new_copy_problem.is_none(),
+    ) {
+        AfterInstall::KeepNew => {
+            if old_copy_set_aside {
+                if let Err(e) = std::fs::remove_dir_all(&backup) {
+                    // Harmless: the next install finds it, sees the copy in
+                    // place runs, and removes it then.
+                    log::warn!(
+                        "{name}: the new copy runs, but the old copy set aside at {} could not \
+                         be removed ({e})",
+                        backup.display()
+                    );
+                }
+            }
+            install
+        }
+        AfterInstall::KeepNewUnverified => {
+            log::warn!(
+                "{name}: the new copy did not report a version ({}); kept anyway, because there \
+                 was no working copy to go back to",
+                new_copy_problem.unwrap_or_default()
+            );
+            install
+        }
+        AfterInstall::NothingToUndo => install,
+        AfterInstall::PutOldBack => {
+            let what_happened = match install {
+                Err(e) => e,
+                Ok(_) => format!(
+                    "The new copy of {name} would not start on this computer ({}), so it has \
+                     been removed.",
+                    new_copy_problem.unwrap_or_default()
+                ),
+            };
+            Err(match put_working_copy_back(tool_dir, &backup) {
+                Err(e) => format!(
+                    "{what_happened} MeedyaDL could not put the copy you had before back in \
+                     place ({e}). That copy is still on this computer, at {}, and MeedyaDL puts \
+                     it back first the next time you install, reinstall or update {name}.",
+                    backup.display()
+                ),
+                // Checked rather than assumed: see "What this cannot do" in
+                // the section comment above working_copy_backup_dir.
+                Ok(()) if copy_in_folder_runs(tool_dir, tool_id).await => format!(
+                    "{what_happened} The copy of {name} you had before has been kept, and works \
+                     as it did."
+                ),
+                Ok(()) => format!(
+                    "{what_happened} The copy of {name} you had before has been put back, but \
+                     it will not start now either, so something else on this computer has \
+                     changed since it last ran (for example a package manager updated it, or \
+                     removed something it needs)."
+                ),
+            })
+        }
+    }
 }
 
 // ============================================================
@@ -1852,11 +2315,17 @@ fn read_external_tool_path(tool_dir: &Path) -> Option<PathBuf> {
 /// * `tool_id` - The tool identifier
 #[must_use]
 pub fn get_tool_binary_path(app: &AppHandle, tool_id: &str) -> PathBuf {
-    let tool_dir = get_tool_dir(app, tool_id);
+    tool_binary_path_in(&get_tool_dir(app, tool_id), tool_id)
+}
+
+/// [`get_tool_binary_path`] for a tool folder given by path. Split out so
+/// code that works on a folder (the "keep the working copy" logic, and its
+/// tests) finds the binary by exactly the same rule as everything else.
+fn tool_binary_path_in(tool_dir: &Path, tool_id: &str) -> PathBuf {
     // System tools are referenced directly rather than copied. This small
     // pointer file keeps the existing managed-tool API intact without creating
     // a duplicate binary or relying on platform-specific link privileges.
-    if let Some(path) = read_external_tool_path(&tool_dir) {
+    if let Some(path) = read_external_tool_path(tool_dir) {
         return path;
     }
     // On Windows, executables require the .exe extension
@@ -1925,14 +2394,30 @@ fn resolve_tool_id(name_or_id: &str) -> Result<&'static str, String> {
 /// archive extraction fails, or the installed binary fails verification.
 ///
 /// # Returns
-/// * `Ok(version)` - The installed version string (or "installed" if version detection fails)
-/// * `Err(message)` - A descriptive error if installation failed
+/// * `Ok(version)` - The installed version string. When there was no
+///   working copy before, this can be "installed" or whatever the new copy
+///   printed, if it did not report a version (the behaviour before #1225).
+/// * `Err(message)` - A descriptive error if installation failed. When a
+///   working copy was replaced and the new one did not start, the working
+///   copy has been put back and the message says so.
 pub async fn install_tool(app: &AppHandle, name_or_id: &str) -> Result<String, String> {
     install_tool_for(app, name_or_id, InstallPurpose::InstallOrRepair).await
 }
 
 /// [`install_tool`], told why it is running. Only the Update button passes
 /// [`InstallPurpose::Update`]; see [`may_fall_back_to_mirror`].
+///
+/// # A working copy is never lost (#1225)
+///
+/// When the copy in place runs, it is kept until the new copy is fully in
+/// place and reports a real version, and put back if it does not — for
+/// Update, Install and Reinstall alike. The whole of that lives here, in
+/// one place: [`prepare_to_keep_working_copy`] before, and
+/// [`finish_keeping_working_copy`] after, with every result of
+/// [`install_new_copy`] — success or any error — passing through the
+/// second. Nothing in between can return early past it, which is what
+/// makes "every failure puts the old copy back" hold without each error
+/// path having to remember to do it.
 pub async fn install_tool_for(
     app: &AppHandle,
     name_or_id: &str,
@@ -1940,8 +2425,50 @@ pub async fn install_tool_for(
 ) -> Result<String, String> {
     // Resolve display name to canonical tool ID (e.g., "FFmpeg" -> "ffmpeg")
     let tool_id = resolve_tool_id(name_or_id)?;
+
+    // One install of a tool at a time. Held until this function returns,
+    // including on an error or when the call is abandoned part-way.
+    let Some(_installing) = claim_tool_install(tool_id) else {
+        return Err(format!(
+            "{} is already being installed or updated. Wait for that to finish, then try \
+             again.",
+            tool_display_name(tool_id)
+        ));
+    };
     log::info!("Starting installation of tool: {tool_id}");
 
+    // An update of an MP4Box whose origin is recorded goes to MP4Box's own
+    // update routes, which already keep the working copy until the new one
+    // is shown to run (see install_mp4box_with_fallback). They are left
+    // alone rather than wrapped again: wrapping would set the same copy
+    // aside twice, and a failure to put it back would be reported by the
+    // route and then contradicted by the wrapper.
+    if tool_id == "mp4box" && purpose == InstallPurpose::Update && read_mp4box_origin(app).is_some()
+    {
+        return install_mp4box_with_fallback(app, purpose, None).await;
+    }
+
+    let tool_dir = get_tool_dir(app, tool_id);
+    let old_copy_runs = prepare_to_keep_working_copy(&tool_dir, tool_id).await?;
+    let backup = working_copy_backup_dir(&tool_dir);
+    let keep_old_at = old_copy_runs.then_some(backup.as_path());
+    let install = install_new_copy(app, tool_id, purpose, keep_old_at).await;
+    finish_keeping_working_copy(&tool_dir, tool_id, install).await
+}
+
+/// The install itself: adopt a system copy, or download a new one and put
+/// it in place. Called only through [`install_tool_for`], which deals with
+/// keeping the working copy.
+///
+/// `keep_old_at` is `Some` when the copy in place runs: every point that
+/// used to DELETE the old copy moves it there instead, and leaves the
+/// decision to keep or restore it to the caller.
+async fn install_new_copy(
+    app: &AppHandle,
+    tool_id: &str,
+    purpose: InstallPurpose,
+    keep_old_at: Option<&Path>,
+) -> Result<String, String> {
     // Step 0: Check if a compatible version already exists on the system. A
     // package manager is never required: when no suitable binary is present we
     // continue into the original managed download/install pipeline below.
@@ -2014,8 +2541,17 @@ pub async fn install_tool_for(
 
             // Store a reference, not a copy: every runtime call resolves the
             // original system binary through get_tool_binary_path().
+            //
+            // A working copy is set aside here, not deleted (#1225): the
+            // caller keeps it until the adopted copy has been shown to run.
             if tool_dir.exists() {
-                std::fs::remove_dir_all(&tool_dir).ok();
+                match keep_old_at {
+                    Some(backup) => set_working_copy_aside(&tool_dir, backup)
+                        .map_err(|e| could_not_set_aside_message(tool_id, &e))?,
+                    None => {
+                        std::fs::remove_dir_all(&tool_dir).ok();
+                    }
+                }
             }
             std::fs::create_dir_all(&tool_dir)
                 .map_err(|e| format!("Failed to create tool directory: {e}"))?;
@@ -2055,7 +2591,7 @@ pub async fn install_tool_for(
     //   Linux:   .deb package (extracted using ar + tar without installation)
     // If the platform-specific installer fails, falls back to the mirror.
     if tool_id == "mp4box" {
-        return install_mp4box_with_fallback(app, purpose).await;
+        return install_mp4box_with_fallback(app, purpose, keep_old_at).await;
     }
 
     // Step 1-3: Download with automatic mirror fallback.
@@ -2067,7 +2603,8 @@ pub async fn install_tool_for(
     // Decided before downloading — see may_fall_back_to_mirror for why an
     // update must not quietly use the mirror.
     let allow_mirror = may_fall_back_to_mirror(purpose, mirror_is_checked_source(app, tool_id));
-    let install_source = download_tool_with_fallback(tool_id, &tool_dir, allow_mirror).await?;
+    let install_source =
+        download_tool_with_fallback(tool_id, &tool_dir, allow_mirror, keep_old_at).await?;
 
     // Step 4: Find the binary in the extracted contents.
     // Archives often contain nested directory structures. For example:
@@ -2156,7 +2693,9 @@ pub async fn install_tool_for(
     let source_marker = tool_dir.join(".source");
     std::fs::write(&source_marker, "managed").ok();
 
-    // Step 6: Try to get the version (best-effort)
+    // Step 6: Try to get the version (best-effort). Accepting anything here
+    // is safe only because install_tool_for then checks the reading
+    // properly before throwing a working copy away (#1225).
     let version = get_tool_version(&expected_binary, tool_id)
         .await
         .unwrap_or_else(|_| "installed".to_string());
@@ -3295,9 +3834,18 @@ async fn install_mp4box_linux_inner(
 /// is an explicit Reinstall.
 ///
 /// Install, Reinstall and repairs keep the full route, as before.
+///
+/// # Keeping the working copy (#1225)
+///
+/// The two update routes above keep the working copy their own way, and
+/// install_tool_for sends them here directly, unwrapped. Every other route
+/// — the full route — is called through install_tool_for's keep-or-restore
+/// wrapper, which passes `keep_old_at` when the copy in place runs; see
+/// [`install_mp4box_full_route`]. The update routes never receive it.
 async fn install_mp4box_with_fallback(
     app: &AppHandle,
     purpose: InstallPurpose,
+    keep_old_at: Option<&Path>,
 ) -> Result<String, String> {
     // Read BEFORE anything runs: the routes below delete the tool folder,
     // and the origin record with it.
@@ -3314,50 +3862,42 @@ async fn install_mp4box_with_fallback(
             // No record of where it came from, so the update check could not
             // have compared it against anything, and no Update is offered.
             // If one arrives anyway, treat it as the ordinary install.
-            None => install_mp4box_full_route(app).await,
+            None => install_mp4box_full_route(app, keep_old_at).await,
         };
     }
 
-    install_mp4box_full_route(app).await
+    install_mp4box_full_route(app, keep_old_at).await
 }
 
 /// The ordinary route for Install, Reinstall and repairs: the platform's
 /// own way first, then the MeedyaSuite mirror.
-async fn install_mp4box_full_route(app: &AppHandle) -> Result<String, String> {
-    let result = install_mp4box_full_route_inner(app).await;
-    let backup = get_tool_dir(app, "mp4box").with_file_name("mp4box.update-backup");
-    if result.is_err() || !backup.exists() {
-        return result;
+///
+/// # Setting the working copy aside first (#1225)
+///
+/// The platform installers below delete the MP4Box folder themselves,
+/// deep inside, before they copy the new binary in. So the working copy
+/// cannot be set aside "at the swap" the way the other tools' is; when
+/// `keep_old_at` is given (the copy in place runs), the whole folder is
+/// moved there before any of them runs. install_tool_for then keeps the
+/// new copy only once it reports a real version, and otherwise puts this
+/// one back — for a failed install as much as a copy that will not start.
+///
+/// This replaced a check that only looked after a copy an EARLIER update
+/// had left set aside, and only once the install had succeeded: a
+/// Reinstall over a working MP4Box still deleted it before the new one had
+/// been shown to run, and a failed install left an earlier backup set
+/// aside with nothing in its place. A leftover copy is now settled before
+/// the install starts instead (prepare_to_keep_working_copy), by the same
+/// rule: whichever copy runs wins.
+async fn install_mp4box_full_route(
+    app: &AppHandle,
+    keep_old_at: Option<&Path>,
+) -> Result<String, String> {
+    if let Some(backup) = keep_old_at {
+        set_working_copy_aside(&get_tool_dir(app, "mp4box"), backup)
+            .map_err(|e| could_not_set_aside_message("mp4box", &e))?;
     }
-    // A copy an earlier update left set aside. It may be the only working
-    // MP4Box on this computer, so it is only thrown away once the fresh
-    // install is shown to RUN. "Succeeded" is not enough: the platform
-    // routes report success even when the new copy cannot start (a missing
-    // library, say), and removing the backup on that alone deleted the only
-    // working copy (Codex, review of 57f137ac).
-    let new_copy_runs = matches!(
-        read_installed_version(app, "mp4box").await,
-        Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
-    );
-    if new_copy_runs {
-        std::fs::remove_dir_all(&backup).ok();
-        return result;
-    }
-    // The fresh copy does not run: put the set-aside copy back, and say so.
-    let tool_dir = get_tool_dir(app, "mp4box");
-    std::fs::remove_dir_all(&tool_dir).ok();
-    match std::fs::rename(&backup, &tool_dir) {
-        Ok(()) => Err(
-            "MP4Box was reinstalled, but the new copy does not run on this computer, so the \
-             copy that was there before has been put back."
-                .to_string(),
-        ),
-        Err(e) => Err(format!(
-            "MP4Box was reinstalled, but the new copy does not run on this computer, and the \
-             previous copy (at {}) could not be put back ({e}).",
-            backup.display()
-        )),
-    }
+    install_mp4box_full_route_inner(app).await
 }
 
 async fn install_mp4box_full_route_inner(app: &AppHandle) -> Result<String, String> {
@@ -3568,7 +4108,9 @@ async fn install_mp4box_from_mirror(
         std::fs::remove_dir_all(&staging).ok();
         return Err(e);
     }
-    promote_staged_install(&staging, &tool_dir)?;
+    // Not kept here: this route has already checked the staged copy runs,
+    // above, before swapping it in.
+    promote_staged_install(&staging, &tool_dir, None)?;
 
     let version = get_tool_version(&get_tool_binary_path(app, "mp4box"), "mp4box")
         .await
@@ -3927,7 +4469,7 @@ mod tests {
         std::fs::create_dir_all(&staging).unwrap();
         std::fs::write(staging.join("new.txt"), b"new binary").unwrap();
 
-        promote_staged_install(&staging, &tool_dir).unwrap();
+        promote_staged_install(&staging, &tool_dir, None).unwrap();
 
         // New content is in place, old content is gone.
         assert!(tool_dir.join("new.txt").exists());
@@ -3954,7 +4496,7 @@ mod tests {
 
         assert!(!tool_dir.exists());
 
-        promote_staged_install(&staging, &tool_dir).unwrap();
+        promote_staged_install(&staging, &tool_dir, None).unwrap();
 
         assert!(tool_dir.join("mp4decrypt").exists());
         assert_eq!(
@@ -3978,12 +4520,422 @@ mod tests {
 
         assert!(staging.exists());
 
-        promote_staged_install(&staging, &tool_dir).unwrap();
+        promote_staged_install(&staging, &tool_dir, None).unwrap();
 
         assert!(!staging.exists());
         assert_eq!(
             std::fs::read(tool_dir.join("existing.txt")).unwrap(),
             b"v2"
+        );
+    }
+
+    // ---- Keeping a working copy while a new one goes in (#1225) ----
+
+    /// Only one install of a tool at a time; a second is refused, not
+    /// queued; a different tool is not held up; and the claim is let go
+    /// when it is dropped, however the install ended. A made-up tool name
+    /// is used so no other test's claim can collide with this one.
+    #[test]
+    fn only_one_install_of_a_tool_at_a_time() {
+        let first = claim_tool_install("test-only-tool-a").expect("first claim");
+        assert!(
+            claim_tool_install("test-only-tool-a").is_none(),
+            "a second install of the same tool must be refused"
+        );
+        let other = claim_tool_install("test-only-tool-b");
+        assert!(other.is_some(), "a different tool must not be held up");
+        drop(first);
+        assert!(
+            claim_tool_install("test-only-tool-a").is_some(),
+            "the claim must be let go once the first install ends"
+        );
+    }
+
+    /// Every combination of the keep-or-restore decision. The row that IS
+    /// issue #1225: a working copy was set aside, the install reported
+    /// success, and the new copy does not run — that must put the old copy
+    /// back, not keep the new one.
+    #[test]
+    fn after_install_keeps_only_a_new_copy_that_runs() {
+        use AfterInstall::{KeepNew, KeepNewUnverified, NothingToUndo, PutOldBack};
+        // A working copy was set aside.
+        assert_eq!(after_install(true, true, true), KeepNew);
+        assert_eq!(after_install(true, true, false), PutOldBack);
+        assert_eq!(after_install(true, false, false), PutOldBack);
+        assert_eq!(after_install(true, false, true), PutOldBack);
+        // Nothing was set aside: a first install, or the old copy did not
+        // run either. Behaves as before #1225.
+        assert_eq!(after_install(false, true, true), KeepNew);
+        assert_eq!(after_install(false, true, false), KeepNewUnverified);
+        assert_eq!(after_install(false, false, false), NothingToUndo);
+        assert_eq!(after_install(false, false, true), NothingToUndo);
+    }
+
+    /// "It printed something" is not "it runs": a loader error comes back
+    /// from the version reader as a success, and must not count.
+    #[test]
+    fn a_new_copy_runs_only_if_it_reports_a_real_version() {
+        assert_eq!(
+            new_copy_reading_verdict("FFmpeg", Ok(Some("6.1.2".to_string()))),
+            Ok("6.1.2".to_string())
+        );
+        // How the reader reports a BtbN FFmpeg build with no number.
+        assert_eq!(
+            new_copy_reading_verdict("FFmpeg", Ok(Some("nightly".to_string()))),
+            Ok("nightly".to_string())
+        );
+        let printed = new_copy_reading_verdict(
+            "FFmpeg",
+            Ok(Some("dyld: Library not loaded: libx264.dylib".to_string())),
+        )
+        .unwrap_err();
+        assert!(printed.contains("dyld: Library not loaded"), "{printed}");
+        let missing = new_copy_reading_verdict("FFmpeg", Ok(None)).unwrap_err();
+        assert!(missing.contains("FFmpeg"), "{missing}");
+        let failed =
+            new_copy_reading_verdict("FFmpeg", Err("Bad CPU type in executable".to_string()))
+                .unwrap_err();
+        assert!(failed.contains("Bad CPU type"), "{failed}");
+    }
+
+    fn write_file(path: &Path, contents: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+
+    fn read_file(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn setting_a_working_copy_aside_moves_it_and_never_deletes_it() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let backup = working_copy_backup_dir(&tool_dir);
+        assert_eq!(backup, base.path().join("ffmpeg.update-backup"));
+        write_file(&tool_dir.join("ffmpeg"), "old binary");
+        write_file(&tool_dir.join("bin/ffprobe"), "old ffprobe");
+
+        set_working_copy_aside(&tool_dir, &backup).unwrap();
+        assert!(!tool_dir.exists());
+        assert_eq!(read_file(&backup.join("ffmpeg")), "old binary");
+        assert_eq!(read_file(&backup.join("bin/ffprobe")), "old ffprobe");
+
+        // Nothing left to move is not an error, and touches nothing.
+        set_working_copy_aside(&tool_dir, &backup).unwrap();
+        assert_eq!(read_file(&backup.join("ffmpeg")), "old binary");
+    }
+
+    /// A folder already at the backup place may be the only working copy,
+    /// so moving onto it is refused and both are left exactly as they were.
+    #[test]
+    fn a_working_copy_is_never_moved_onto_an_existing_backup() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("mediainfo");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(&tool_dir.join("mediainfo"), "current");
+        write_file(&backup.join("mediainfo"), "earlier");
+
+        assert!(set_working_copy_aside(&tool_dir, &backup).is_err());
+        assert_eq!(read_file(&tool_dir.join("mediainfo")), "current");
+        assert_eq!(read_file(&backup.join("mediainfo")), "earlier");
+    }
+
+    /// Putting the working copy back leaves the folder exactly as it was —
+    /// its records too — and none of the new copy behind.
+    #[test]
+    fn putting_a_working_copy_back_restores_it_exactly() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(&backup.join("ffmpeg"), "old binary");
+        write_file(&backup.join(".source"), "managed");
+        write_file(
+            &backup.join(".ffmpeg-build-info.json"),
+            "{\"source\":\"btbn\"}",
+        );
+        write_file(&tool_dir.join("ffmpeg"), "new binary");
+        write_file(&tool_dir.join("new-only.txt"), "new");
+
+        put_working_copy_back(&tool_dir, &backup).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(read_file(&tool_dir.join("ffmpeg")), "old binary");
+        assert_eq!(read_file(&tool_dir.join(".source")), "managed");
+        assert_eq!(
+            read_file(&tool_dir.join(".ffmpeg-build-info.json")),
+            "{\"source\":\"btbn\"}"
+        );
+        assert!(!tool_dir.join("new-only.txt").exists());
+    }
+
+    /// A tool adopted from the system is a folder holding only a pointer to
+    /// the real programme. Setting it aside and putting it back must bring
+    /// the same pointer back, so the tool resolves to the same programme.
+    #[test]
+    fn a_system_tool_pointer_survives_being_set_aside_and_put_back() {
+        let base = TempDir::new().unwrap();
+        let system_binary = base.path().join("system/ffmpeg");
+        write_file(&system_binary, "system ffmpeg");
+        let other_binary = base.path().join("other/ffmpeg");
+        write_file(&other_binary, "another ffmpeg");
+        let tool_dir = base.path().join("tools/ffmpeg");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(
+            &tool_dir.join(".external-path"),
+            &system_binary.to_string_lossy(),
+        );
+        write_file(&tool_dir.join(".source"), "homebrew:ffmpeg");
+
+        set_working_copy_aside(&tool_dir, &backup).unwrap();
+        // What an adoption of a different copy would leave in place.
+        write_file(
+            &tool_dir.join(".external-path"),
+            &other_binary.to_string_lossy(),
+        );
+        assert_eq!(tool_binary_path_in(&tool_dir, "ffmpeg"), other_binary);
+
+        put_working_copy_back(&tool_dir, &backup).unwrap();
+        assert_eq!(tool_binary_path_in(&tool_dir, "ffmpeg"), system_binary);
+        assert_eq!(read_file(&tool_dir.join(".source")), "homebrew:ffmpeg");
+    }
+
+    /// A copy an earlier install left set aside: whichever copy runs wins.
+    #[test]
+    fn a_leftover_backup_is_settled_in_favour_of_the_copy_that_runs() {
+        // The copy in place runs: the leftover is stale and is removed.
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("nm3u8dlre");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(&tool_dir.join("N_m3u8DL-RE"), "current");
+        write_file(&backup.join("N_m3u8DL-RE"), "leftover");
+        resolve_leftover_working_copy(&tool_dir, &backup, true).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(read_file(&tool_dir.join("N_m3u8DL-RE")), "current");
+
+        // The copy in place does not run: the leftover goes back.
+        write_file(&backup.join("N_m3u8DL-RE"), "leftover");
+        resolve_leftover_working_copy(&tool_dir, &backup, false).unwrap();
+        assert!(!backup.exists());
+        assert_eq!(read_file(&tool_dir.join("N_m3u8DL-RE")), "leftover");
+
+        // No copy in place at all (the app closed mid-swap): it goes back.
+        std::fs::remove_dir_all(&tool_dir).unwrap();
+        write_file(&backup.join("N_m3u8DL-RE"), "leftover");
+        resolve_leftover_working_copy(&tool_dir, &backup, false).unwrap();
+        assert_eq!(read_file(&tool_dir.join("N_m3u8DL-RE")), "leftover");
+    }
+
+    /// When asked to keep the old copy, the swap sets it aside and leaves
+    /// it there for the caller, rather than deleting it as `.old`.
+    #[test]
+    fn promoting_while_keeping_the_old_copy_leaves_it_set_aside() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(&tool_dir.join("ffmpeg"), "old binary");
+        write_file(&staging.join("ffmpeg"), "new binary");
+
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        assert_eq!(read_file(&tool_dir.join("ffmpeg")), "new binary");
+        assert_eq!(read_file(&backup.join("ffmpeg")), "old binary");
+        assert!(!staging.exists());
+        assert!(!base.path().join("ffmpeg.old").exists());
+    }
+
+    /// If the old copy cannot be set aside, nothing is swapped and nothing
+    /// is lost: the copy in place and the folder in the way both stay.
+    #[test]
+    fn promoting_refuses_rather_than_overwrite_a_backup() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("mp4decrypt");
+        let staging = base.path().join("mp4decrypt.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(&tool_dir.join("mp4decrypt"), "current");
+        write_file(&backup.join("mp4decrypt"), "earlier");
+        write_file(&staging.join("mp4decrypt"), "new");
+
+        let message = promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap_err();
+        assert!(message.contains("nothing was changed"), "{message}");
+        assert!(
+            message.starts_with("mp4decrypt was not replaced"),
+            "{message}"
+        );
+        assert_eq!(read_file(&tool_dir.join("mp4decrypt")), "current");
+        assert_eq!(read_file(&backup.join("mp4decrypt")), "earlier");
+        assert!(!staging.exists());
+    }
+
+    /// Writes a tiny shell script that prints `output`, standing in for a
+    /// tool's programme, so the keep-or-restore steps can be run for real.
+    ///
+    /// macOS only. On Linux, running a script moments after writing it can
+    /// fail with "Text file busy" when another test happens to start a
+    /// programme at the same instant (a known Rust test-suite flake), and a
+    /// flaky test here would be worse than none. The decisions themselves
+    /// are tested on every platform above; these tests add the evidence
+    /// that the pieces work together.
+    #[cfg(target_os = "macos")]
+    fn write_fake_tool(dir: &Path, binary_name: &str, output: &str) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(binary_name);
+        write_file(&path, &format!("#!/bin/sh\necho '{output}'\n"));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Issue #1225 end to end: a working FFmpeg, a new copy that unpacks
+    /// fine but prints a loader error instead of its version, and an
+    /// install that (as every route does) reports success anyway. The new
+    /// copy must go, and the working one come back, records and all.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_new_copy_that_will_not_start_is_replaced_by_the_working_one() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+        write_file(&tool_dir.join(".source"), "managed");
+        write_fake_tool(
+            &staging,
+            "ffmpeg",
+            "dyld: Library not loaded: libx264.dylib",
+        );
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        let result =
+            finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("installed".to_string())).await;
+
+        let message = result.unwrap_err();
+        assert!(
+            message.contains("would not start on this computer"),
+            "{message}"
+        );
+        assert!(message.contains("dyld: Library not loaded"), "{message}");
+        assert!(message.contains("has been kept"), "{message}");
+        assert!(!backup.exists());
+        assert_eq!(
+            read_version_in(&tool_dir, "ffmpeg").await,
+            Ok(Some("6.1.2".to_string()))
+        );
+        assert_eq!(read_file(&tool_dir.join(".source")), "managed");
+    }
+
+    /// The ordinary case: the new copy runs, so it stays and the set-aside
+    /// copy is thrown away. The install's own answer is passed through.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_new_copy_that_runs_replaces_the_working_one() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+        write_fake_tool(&staging, "ffmpeg", "ffmpeg version 7.1 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        let result = finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("7.1".to_string())).await;
+
+        assert_eq!(result, Ok("7.1".to_string()));
+        assert!(!backup.exists());
+        assert_eq!(
+            read_version_in(&tool_dir, "ffmpeg").await,
+            Ok(Some("7.1".to_string()))
+        );
+    }
+
+    /// An install that fails AFTER the swap (here: no programme found in
+    /// the unpacked files) must put the working copy back too, not leave
+    /// the half-installed folder in its place.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_failed_install_after_the_swap_puts_the_working_copy_back() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("mediainfo");
+        let staging = base.path().join("mediainfo.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "mediainfo", "MediaInfoLib - v26.01");
+        write_file(
+            &staging.join("readme.txt"),
+            "an archive with no programme in it",
+        );
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "mediainfo")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        let result = finish_keeping_working_copy(
+            &tool_dir,
+            "mediainfo",
+            Err(
+                "Installation succeeded but mediainfo binary not found in extracted archive."
+                    .to_string(),
+            ),
+        )
+        .await;
+
+        let message = result.unwrap_err();
+        assert!(message.contains("binary not found"), "{message}");
+        assert!(message.contains("has been kept"), "{message}");
+        assert!(!backup.exists());
+        assert!(!tool_dir.join("readme.txt").exists());
+        assert_eq!(
+            read_version_in(&tool_dir, "mediainfo").await,
+            Ok(Some("26.01".to_string()))
+        );
+    }
+
+    /// A first install has no working copy to protect, so it behaves as it
+    /// always did: a new copy that does not report a version is kept (and
+    /// logged), rather than leaving nothing at all.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_first_install_that_does_not_report_a_version_is_kept_as_before() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        write_fake_tool(&staging, "ffmpeg", "something unexpected");
+
+        assert!(!prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, None).unwrap();
+        let result = finish_keeping_working_copy(
+            &tool_dir,
+            "ffmpeg",
+            Ok("something unexpected".to_string()),
+        )
+        .await;
+
+        assert_eq!(result, Ok("something unexpected".to_string()));
+        assert!(tool_dir.join("ffmpeg").exists());
+    }
+
+    /// A copy left set aside by an install that never finished, with a
+    /// broken copy in its place: the next install puts it back first, and
+    /// then protects it like any other working copy.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_leftover_working_copy_is_put_back_before_the_next_install() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "ffmpeg", "dyld: Library not loaded");
+        write_fake_tool(&backup, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        assert!(!backup.exists());
+        assert_eq!(
+            read_version_in(&tool_dir, "ffmpeg").await,
+            Ok(Some("6.1.2".to_string()))
         );
     }
 
