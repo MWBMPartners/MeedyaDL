@@ -20,6 +20,7 @@ The mechanism **has never run end-to-end in any shipped build**:
 
 - `check_service_status` is registered in `lib.rs` but nothing in the frontend calls it.
 - `serviceStatusStore.ts` and `ServiceStatusBanner.tsx` exist; the banner is never rendered anywhere.
+  *(Update, 27 Sept 2026: both files, the `check_service_status` command and the rest of that interim transport were deleted as dead code under #1216, commit `8494fbf6`. The list here describes the state when this note was written.)*
 - The enforcement helpers in `service_dispatch.rs` have zero call sites outside their own module.
 - The hard-coded URL points at `main`, where `service-status.json` **does not exist** — it exists only on `alpha`. So the fetch 404s.
 

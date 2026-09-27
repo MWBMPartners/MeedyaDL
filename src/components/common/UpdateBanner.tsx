@@ -54,7 +54,12 @@ import { useMemo, useState } from 'react';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 /** Zustand store for update state (available updates, dismiss, upgrade actions) */
-import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
+import {
+  useUpdateStore,
+  APP_COMPONENT_NAME,
+  GAMDL_COMPONENT_NAME,
+  PYTHON_COMPONENT_NAME,
+} from '@/stores/updateStore';
 
 /** Zustand store for general UI state (toast notifications) */
 import { useUiStore } from '@/stores/uiStore';
@@ -85,7 +90,7 @@ import { Button } from './Button';
  * space in the layout when there is nothing to show.
  */
 // Core components shown with full detail; engine updates shown generically.
-const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
+const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPONENT_NAME];
 
 // The banner is a compact, always-visible notification, not a full
 // listing surface (see the "no individual names shown" design note
@@ -374,7 +379,7 @@ export function UpdateBanner() {
                    * Button variant at sm size with a RefreshCw icon.
                    * The `loading` prop shows a spinner while upgrading.
                    */}
-                  {update.name === 'GAMDL' && (
+                  {update.name === GAMDL_COMPONENT_NAME && (
                     <Button
                       variant="primary"
                       size="sm"

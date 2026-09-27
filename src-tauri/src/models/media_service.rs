@@ -245,25 +245,89 @@ impl MediaServiceId {
     /// let id = MediaServiceId::from_url("https://music.apple.com/us/album/test/123");
     /// assert_eq!(id, Some(MediaServiceId::AppleMusic));
     /// ```
+    ///
+    /// ## Matched on the address's host, never on text anywhere in it
+    ///
+    /// This used to ask whether the domain appeared ANYWHERE in the link.
+    /// So a Spotify link that merely mentioned `music.apple.com` in its
+    /// query (`https://open.spotify.com/album/x?ref=music.apple.com`) was
+    /// taken for Apple Music: Apple Music is checked first, so the queue
+    /// recorded it as an Apple Music item and handed it to GAMDL, which
+    /// cannot download Spotify (#1216; the page's own detector had already
+    /// been fixed to use the host, in `url-parser.ts`, and assumed this one
+    /// "re-checks properly", which it did not).
+    ///
+    /// Now the link is read as a web address. The host must BE the domain
+    /// or end with "." + the domain (so `www.youtube.com` and
+    /// `m.youtube.com` count; `evil-youtube.com` does not). A domain entry
+    /// with a path (`bbc.co.uk/iplayer`) also needs the path to start with
+    /// that folder, as a whole folder name (`/iplayer` or `/iplayer/...`,
+    /// not `/iplayerfoo`).
+    ///
+    /// A link with no scheme (`music.apple.com/us/album/...`) is read as if
+    /// it began `https://`, which keeps the old behaviour for such input.
+    /// Anything that still is not a web address with a host (a bare
+    /// `spotify:album:...` URI, say) is `None`, as it always was.
     #[must_use]
     pub fn from_url(url: &str) -> Option<Self> {
-        // Lowercase the URL once so domain matching is case-insensitive.
-        let url_lower = url.to_lowercase();
-        // Iterate over all known services. The order does not matter
-        // because each service has unique, non-overlapping domains.
-        // Order matters: YouTubeMusic must come before YouTube since
-        // music.youtube.com contains "youtube.com".
-        for service in [Self::AppleMusic, Self::YouTubeMusic, Self::YouTube, Self::Spotify, Self::BBCiPlayer] {
-            // Check each domain pattern for this service.
+        let parsed = url::Url::parse(url)
+            .ok()
+            .filter(|u| u.host_str().is_some())
+            .or_else(|| {
+                if url.contains("://") {
+                    None
+                } else {
+                    url::Url::parse(&format!("https://{url}")).ok()
+                }
+            })?;
+        // `host_str` is already lower-case for http(s) addresses; lowering
+        // again costs nothing and covers any other scheme.
+        let host = parsed.host_str()?.to_ascii_lowercase();
+        let path = parsed.path().to_ascii_lowercase();
+
+        // Order matters: YouTubeMusic must come before YouTube, because
+        // music.youtube.com's host also ends with ".youtube.com".
+        for service in [
+            Self::AppleMusic,
+            Self::YouTubeMusic,
+            Self::YouTube,
+            Self::Spotify,
+            Self::BBCiPlayer,
+        ] {
             for domain in service.url_domains() {
-                if url_lower.contains(domain) {
+                if host_and_path_match(&host, &path, domain) {
                     return Some(service);
                 }
             }
         }
-        // No known service domain found in the URL.
+        // No known service's host (and folder) matched.
         None
     }
+}
+
+/// Does a web address's host (and path) match one entry of
+/// [`MediaServiceId::url_domains`]?
+///
+/// An entry is a domain, optionally followed by one folder:
+/// `open.spotify.com`, or `bbc.co.uk/iplayer`. The host must be the domain
+/// itself or a sub-domain of it (it ends with "." + the domain). If the
+/// entry names a folder, the path must be exactly that folder or start
+/// with it followed by `/`, so `/iplayer` and `/iplayer/episode/…` match
+/// and `/iplayerfoo` does not. Both inputs are expected in lower case.
+fn host_and_path_match(host: &str, path: &str, entry: &str) -> bool {
+    let (domain, folder) = entry.split_once('/').unwrap_or((entry, ""));
+    let host_matches = host == domain
+        || host
+            .strip_suffix(domain)
+            .is_some_and(|rest| rest.ends_with('.'));
+    if !host_matches {
+        return false;
+    }
+    if folder.is_empty() {
+        return true;
+    }
+    let wanted = format!("/{folder}");
+    path == wanted || path.starts_with(&format!("{wanted}/"))
 }
 
 // ============================================================
@@ -544,6 +608,64 @@ mod tests {
         );
         // Unknown
         assert_eq!(MediaServiceId::from_url("https://example.com/music"), None);
+    }
+
+    /// The service comes from the address's host, never from text that
+    /// merely appears somewhere in the link (#1216). Each case here was
+    /// answered wrongly when the whole link was searched.
+    #[test]
+    fn from_url_reads_the_host_not_the_whole_link() {
+        // The case that sent a Spotify link to GAMDL.
+        assert_eq!(
+            MediaServiceId::from_url("https://open.spotify.com/album/abc?ref=music.apple.com"),
+            Some(MediaServiceId::Spotify)
+        );
+        // A domain in the path, not the host, is not that service.
+        assert_eq!(
+            MediaServiceId::from_url("https://example.com/music.apple.com/us/album/1"),
+            None
+        );
+        // A look-alike host is not a sub-domain.
+        assert_eq!(
+            MediaServiceId::from_url("https://evil-youtube.com/watch?v=abc"),
+            None
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://music.apple.com.evil.example/x"),
+            None
+        );
+        // Real sub-domains still count.
+        assert_eq!(
+            MediaServiceId::from_url("https://m.youtube.com/watch?v=abc"),
+            Some(MediaServiceId::YouTube)
+        );
+        // Upper-case hosts are still recognised.
+        assert_eq!(
+            MediaServiceId::from_url("https://MUSIC.APPLE.COM/us/album/test/1"),
+            Some(MediaServiceId::AppleMusic)
+        );
+        // A BBC address outside iPlayer or Sounds is not iPlayer, and the
+        // folder must be a whole folder name.
+        assert_eq!(
+            MediaServiceId::from_url("https://www.bbc.co.uk/news/uk-1"),
+            None
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://www.bbc.co.uk/iplayerfoo/x"),
+            None
+        );
+        assert_eq!(
+            MediaServiceId::from_url("https://www.bbc.co.uk/iplayer"),
+            Some(MediaServiceId::BBCiPlayer)
+        );
+        // No scheme: read as https, as before.
+        assert_eq!(
+            MediaServiceId::from_url("music.apple.com/us/album/test/1"),
+            Some(MediaServiceId::AppleMusic)
+        );
+        // A bare Spotify URI has no host: still None, as it always was
+        // (commands/gamdl.rs relies on this; see reject_bare_spotify_uris).
+        assert_eq!(MediaServiceId::from_url("spotify:album:abc"), None);
     }
 
     /// Verifies that `display_name()` returns the expected user-facing

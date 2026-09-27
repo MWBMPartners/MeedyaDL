@@ -26,7 +26,12 @@ import {
 } from 'lucide-react';
 import { relaunch } from '@tauri-apps/plugin-process';
 
-import { useUpdateStore, APP_COMPONENT_NAME } from '@/stores/updateStore';
+import {
+  useUpdateStore,
+  APP_COMPONENT_NAME,
+  GAMDL_COMPONENT_NAME,
+  PYTHON_COMPONENT_NAME,
+} from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
@@ -48,7 +53,7 @@ function stripDownloadSection(body: string): string {
 
 // Core components shown individually with full detail in the Updates page.
 // Engine updates (everything else) are aggregated into a single generic card.
-const CORE_COMPONENTS = [APP_COMPONENT_NAME, 'GAMDL', 'Python Runtime'];
+const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPONENT_NAME];
 
 /**
  * A quiet note listing anything MeedyaDL could not work out an answer
@@ -468,7 +473,7 @@ export function UpdatesPage() {
                      * Python interpreter, and no toolchain to build the
                      * sdist from source).
                      */}
-                    {update.name === 'GAMDL' && (
+                    {update.name === GAMDL_COMPONENT_NAME && (
                       <Button
                         variant="primary"
                         size="sm"
