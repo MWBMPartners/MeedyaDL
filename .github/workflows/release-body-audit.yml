@@ -407,8 +407,12 @@ jobs:
           mkdir -p /tmp/release-body-audit
           UNRESOLVED_TSV=/tmp/release-body-audit/unresolved.tsv
           PROCESSED_TXT=/tmp/release-body-audit/processed-tags.txt
+          # Pages this run could not check, or could not repair. Any line
+          # here fails the step at the end, after every tag has been tried.
+          NOT_CHECKED_TXT=/tmp/release-body-audit/not-checked.txt
           : > "$UNRESOLVED_TSV"
           : > "$PROCESSED_TXT"
+          : > "$NOT_CHECKED_TXT"
 
           {
             echo "### Release Body Audit -- results"
@@ -422,9 +426,33 @@ jobs:
 
             # Skip (not an error): tag has no release object, or is a
             # draft -- neither has a "live body" for anyone to see yet.
-            local REL_JSON
-            if ! REL_JSON=$(gh release view "$TAG" --repo "$REPO" --json isDraft,body 2>/dev/null); then
-              echo "${TAG}: skip -- no published release" | tee -a "$GITHUB_STEP_SUMMARY"
+            #
+            # ONLY "release not found" means there is no release. Every
+            # other failure (a rate limit, a server error, a network drop)
+            # means the page exists but could not be read, and used to be
+            # reported as "no published release" too -- so a sweep that
+            # read nothing could finish green, having audited nothing
+            # (Codex, review of #1230). Now such a page is tried once more,
+            # then listed as not checked, and the run fails at the end.
+            local REL_JSON ERR_FILE attempt
+            ERR_FILE="$(mktemp)"
+            for attempt in 1 2; do
+              if REL_JSON=$(gh release view "$TAG" --repo "$REPO" --json isDraft,body 2>"$ERR_FILE"); then
+                break
+              fi
+              if grep -qi "release not found" "$ERR_FILE"; then
+                echo "${TAG}: skip -- no published release" | tee -a "$GITHUB_STEP_SUMMARY"
+                rm -f "$ERR_FILE"
+                return 0
+              fi
+              REL_JSON=""
+              [ "$attempt" -eq 1 ] && sleep 5
+            done
+            rm -f "$ERR_FILE"
+            if [ -z "$REL_JSON" ]; then
+              echo "${TAG}: NOT CHECKED -- the page could not be read (not the same as having no release)" | tee -a "$GITHUB_STEP_SUMMARY"
+              printf '%s\t%s\n' "$TAG" "not checked: the page could not be read this run" >> "$UNRESOLVED_TSV"
+              echo "$TAG" >> "$NOT_CHECKED_TXT"
               return 0
             fi
             local IS_DRAFT
@@ -470,10 +498,14 @@ jobs:
                 # body against the live one before editing) and never
                 # touches draft/prerelease flags -- same guarantees
                 # apply-release-notes.yml relies on.
-                bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO" | tee -a "$GITHUB_STEP_SUMMARY"
-                # Not added to UNRESOLVED_TSV: the curated file IS the
-                # fix. If the apply somehow doesn't converge on a clean
-                # body, the next sweep's lint pass re-detects it.
+                # Not added to UNRESOLVED_TSV when it works: the curated
+                # file IS the fix. When it fails, that is said and counted
+                # (it used to be ignored until the next run noticed).
+                if ! bash scripts/release-notes/apply-notes.sh "$TAG" "$REPO" | tee -a "$GITHUB_STEP_SUMMARY"; then
+                  echo "${TAG}: the curated notes could NOT be applied" | tee -a "$GITHUB_STEP_SUMMARY"
+                  printf '%s\t%s\n' "$TAG" "curated notes could not be applied: ${RULES}" >> "$UNRESOLVED_TSV"
+                  echo "$TAG" >> "$NOT_CHECKED_TXT"
+                fi
               fi
             else
               echo "${TAG}: NO curated file -- cannot self-heal (findings: ${RULES})" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -487,6 +519,17 @@ jobs:
             [ -z "$t" ] && continue
             audit_one "$t"
           done < /tmp/release-body-audit/tags.txt
+
+          # Every tag has been tried. If any page could not be checked or
+          # repaired, fail loudly: a run that could not do its job must
+          # never look like a clean one. The tracking-issue step below
+          # still runs (always()), and lists those pages.
+          if [ -s "$NOT_CHECKED_TXT" ]; then
+            echo "" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "**$(wc -l < "$NOT_CHECKED_TXT" | tr -d ' ') page(s) could not be checked or repaired this run:** $(paste -sd' ' "$NOT_CHECKED_TXT")" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::Some release pages could not be checked or repaired -- see the summary"
+            exit 1
+          fi
 
       # Action 3: report what could not be fixed automatically. Skipped
       # entirely under dry_run -- creating/editing an issue is itself a
