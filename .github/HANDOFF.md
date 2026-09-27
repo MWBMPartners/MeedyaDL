@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-27 (evening) — see ★★★★ LATEST below
+**Last updated:** 2026-09-27 (evening, new batch) — see ★★★★ LATEST below
 **Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; nothing on it yet). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.74** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 17:30 on 27 Sept.
@@ -11,7 +11,42 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-27: history rewrite done and verified; Codex owes two small rounds
+## ★★★★ LATEST — 2026-09-27 (evening): batch — #1221 to #1226, then a combined check of #1215 to #1218
+
+> **PICK UP HERE.** Working branch `work/after-alpha-74` (from alpha after alpha.74).
+
+**What the maintainer asked (27 Sept):** fix #1221-#1226 FIRST, then do the verification of
+the four review issues #1215-#1218 — each listed finding checked against the code, each
+issue closed only if everything in it is really done — expanded to cover the #1221-#1226
+work as well.
+
+**Decisions taken (final):**
+1. #1225 — fix the update so the NEW copy is checked before it replaces the old one (as
+   MP4Box does), AND add a **Reinstall button on every tool row** in Settings > Tools. Do
+   NOT change how "installed" is decided (a working tool with odd version output must never
+   be marked missing).
+2. #1222 — status bar shows the **saved** after-queue action (what the app will do), plus an
+   "unsaved change" note when the Settings screen holds an unsaved edit to it.
+3. #1221 + #1219 — bring the fixed `dependency-canary.yml` and the alpha-only safety
+   workflows (`release-body-audit.yml`, `upstream-engine-watch.yml`; check whether
+   `workflow-health.yml` differs too) to **main** in ONE small `ci:` PR, **set up so that
+   merging it triggers NO packaging or deployment** — check every workflow that runs on a
+   push to main before opening it. Check the files' dependencies exist on main.
+4. This batch → one PR to alpha once Codex is clean, rebase-merge when green, watch the
+   alpha release through, as with #1228/#1229.
+5. #1226 — reword the bundle identifier out of `.github/release-notes/v1.13.0-alpha.47.md`
+   (consistent with the alpha.72 decision), re-apply it to the published release, then add
+   `test_lint_notes.py` to the Release Note Gate.
+
+**Order planned:** #1226 → #1224 → #1223 → #1222 → #1225 → the main PR (#1221/#1219) →
+combined verification of #1215-#1218 + #1221-#1226. One commit per issue; Codex rounds
+bundled where small (its allowance fits roughly one small round per window).
+
+**Progress:** (nothing done yet)
+
+---
+
+## Previous — 2026-09-27: history rewrite done and verified; Codex owes two small rounds
 
 > **PICK UP HERE.**
 
