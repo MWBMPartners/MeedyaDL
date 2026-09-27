@@ -779,10 +779,16 @@ fn extract_version_from_output(output: &str, tool_id: &str) -> Option<String> {
     let first_line = output.lines().next()?.trim();
 
     match tool_id {
-        "ffmpeg" => {
+        // ffprobe, FFmpeg's companion, prints the same banner with its own
+        // name ("ffprobe version 6.1.2 ..."). It is read by the same rule,
+        // so a nightly ffprobe counts as a real reading exactly as a
+        // nightly ffmpeg does: the generic rule below would have read
+        // "ffprobe version N-112479-..." as no version at all, and the
+        // keep-or-restore step would then have refused every nightly build.
+        "ffmpeg" | "ffprobe" => {
             // FFmpeg: "ffmpeg version 6.1.2-..." or "ffmpeg version N-112479-..."
             // Skip nightly builds starting with "N-" (no numeric version)
-            let after_version = first_line.strip_prefix("ffmpeg version ")?;
+            let after_version = first_line.strip_prefix(&format!("{tool_id} version "))?;
             if after_version.starts_with('N') {
                 // Nightly build — can't reliably compare, accept as compatible
                 return Some("nightly".to_string());
@@ -1600,10 +1606,12 @@ fn promote_staged_install(
 // `{tool}.update-backup` instead of being deleted, and only thrown away
 // once the new copy is fully in place — binary found and made runnable,
 // FFmpeg's companions and records written, the `.source` record written —
-// AND reports a real version. Otherwise the new copy is removed and the
-// set-aside one put back. `install_tool_for` does this for every tool;
-// the only routes it leaves alone are MP4Box's two update routes, which
-// already did the same thing their own way (see install_mp4box_with_fallback).
+// AND reports a real version (for FFmpeg, its ffprobe too, when the
+// set-aside copy's ffprobe works: see "FFmpeg's ffprobe" below).
+// Otherwise the new copy is removed and the set-aside one put back.
+// `install_tool_for` does this for every tool; the only routes it leaves
+// alone are MP4Box's two update routes, which already did the same thing
+// their own way (see install_mp4box_with_fallback).
 //
 // # Set aside at the swap, not before the download
 //
@@ -1826,19 +1834,62 @@ fn after_install(
 /// time runs out; this cannot, because the answer decides which copy to
 /// throw away.) The shared version reader itself is left without a limit:
 /// the update check and others rely on it as it is.
+///
+/// Every version reading an install, reinstall or update makes goes
+/// through [`get_tool_version_in_time`], not only the keep-or-restore
+/// steps. MP4Box's two update routes, and the version reads inside the
+/// routes they call, used to ask with no limit at all: a copy that hung
+/// when asked then hung the update for ever, and — since only one install
+/// of a tool may run at a time (see [`claim_tool_install`]) — also kept
+/// every later MP4Box install refused until the app was restarted
+/// (independent check of #1225).
 const VERSION_PROBE_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// [`read_version_in`] with [`VERSION_PROBE_LIMIT`]. Running out of time
-/// counts as "could not be started", never as a version.
-async fn read_version_in_time(tool_dir: &Path, tool_id: &str) -> Result<Option<String>, String> {
-    tokio::time::timeout(VERSION_PROBE_LIMIT, read_version_in(tool_dir, tool_id))
+/// [`get_tool_version`] given at most `limit` to answer. Running out of
+/// time comes back as an error — "could not be started" to every caller —
+/// never as a version, so a programme that hangs is treated exactly like
+/// one that will not start. The programme itself is stopped when time runs
+/// out (see `kill_on_drop` in [`get_tool_version`]).
+///
+/// The limit is a parameter only so the tests can use a short one; the
+/// app always passes [`VERSION_PROBE_LIMIT`], through
+/// [`get_tool_version_in_time`].
+async fn get_tool_version_within(
+    binary: &Path,
+    tool_id: &str,
+    limit: std::time::Duration,
+) -> Result<String, String> {
+    tokio::time::timeout(limit, get_tool_version(&binary.to_path_buf(), tool_id))
         .await
         .unwrap_or_else(|_| {
             Err(format!(
                 "it did not answer within {} seconds",
-                VERSION_PROBE_LIMIT.as_secs()
+                limit.as_secs_f32()
             ))
         })
+}
+
+/// [`get_tool_version`] with [`VERSION_PROBE_LIMIT`].
+async fn get_tool_version_in_time(binary: &Path, tool_id: &str) -> Result<String, String> {
+    get_tool_version_within(binary, tool_id, VERSION_PROBE_LIMIT).await
+}
+
+/// [`read_version_in`] with [`VERSION_PROBE_LIMIT`]: `Ok(None)` when there
+/// is no programme there at all.
+async fn read_version_in_time(tool_dir: &Path, tool_id: &str) -> Result<Option<String>, String> {
+    read_binary_version_in_time(&tool_binary_path_in(tool_dir, tool_id), tool_id).await
+}
+
+/// [`read_version_in_time`] for a programme given by its own path — FFmpeg's
+/// ffprobe, which is not a tool with a folder of its own.
+async fn read_binary_version_in_time(
+    binary: &Path,
+    tool_id: &str,
+) -> Result<Option<String>, String> {
+    if !binary.exists() {
+        return Ok(None);
+    }
+    get_tool_version_in_time(binary, tool_id).await.map(Some)
 }
 
 /// Does the copy in `tool_dir` run and report a real version?
@@ -1847,6 +1898,79 @@ async fn copy_in_folder_runs(tool_dir: &Path, tool_id: &str) -> bool {
         read_version_in_time(tool_dir, tool_id).await,
         Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
     )
+}
+
+// ------------------------------------------------------------
+// FFmpeg's ffprobe
+// ------------------------------------------------------------
+//
+// FFmpeg comes with a second programme, ffprobe, which MeedyaDL uses to
+// look inside the files it downloads (to tell which codec a track really
+// is, for example). Asking only ffmpeg for its version said nothing about
+// ffprobe, and a failure to install ffprobe is only logged
+// (install_companion_ffprobe). So a Reinstall or Update could replace a
+// folder holding a working ffmpeg AND a working ffprobe with one holding
+// ffmpeg alone, report success, and throw the old folder away (independent
+// check of #1225).
+//
+// So when the copy set aside has a working ffprobe, the new copy must have
+// one too, or it is not kept. When the set-aside copy has none — or there
+// is no set-aside copy, as on a first install — nothing changes: refusing
+// then would leave the person with less than the new copy gives them.
+
+/// Where the ffprobe that goes with the copy of FFmpeg in `tool_dir` is:
+/// beside wherever that copy's ffmpeg is. That is inside the folder for a
+/// copy MeedyaDL downloaded, and beside the system programme for a copy it
+/// adopted (for example `/opt/homebrew/bin/ffprobe` for Homebrew's
+/// `/opt/homebrew/bin/ffmpeg`, found through the folder's `.external-path`).
+///
+/// The same rule the rest of the app uses to find ffprobe
+/// (`metadata_tag_service::get_ffprobe_path`), so what is checked here is
+/// exactly what will be run later. Only that one place counts: an ffprobe
+/// deeper inside an unpacked archive is never run, so it does not count.
+fn ffprobe_beside_ffmpeg_in(tool_dir: &Path) -> PathBuf {
+    let ffprobe_name = if cfg!(target_os = "windows") {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    let ffmpeg = tool_binary_path_in(tool_dir, "ffmpeg");
+    ffmpeg
+        .parent()
+        .map_or_else(|| tool_dir.join(ffprobe_name), |dir| dir.join(ffprobe_name))
+}
+
+/// Asks the ffprobe that goes with the FFmpeg in `tool_dir` for its
+/// version, within [`VERSION_PROBE_LIMIT`]. `Ok(None)` when there is none.
+async fn read_ffprobe_version_in_time(tool_dir: &Path) -> Result<Option<String>, String> {
+    read_binary_version_in_time(&ffprobe_beside_ffmpeg_in(tool_dir), "ffprobe").await
+}
+
+/// Would replacing the copy of FFmpeg set aside at `set_aside` with the one
+/// in `tool_dir` lose a working ffprobe? `Some(why)` — why the ffprobe in
+/// `tool_dir` does not count as working — when the set-aside copy's
+/// ffprobe runs and reports a real version and the one in `tool_dir` does
+/// not. `None` otherwise, including when the set-aside copy has no working
+/// ffprobe to lose.
+///
+/// "Runs" means exactly what it means for every tool here: a real version
+/// reading within [`VERSION_PROBE_LIMIT`] ([`new_copy_reading_verdict`]).
+///
+/// # What it cannot tell
+///
+/// When both copies point at the same system programme (a copy adopted
+/// from Homebrew, reinstalled by adopting it again), both ffprobes are the
+/// same file, so they always agree and this never objects. If a package
+/// manager's update broke that ffprobe, putting MeedyaDL's old pointer back
+/// would not mend it either — see "What this cannot do" above
+/// [`working_copy_backup_dir`].
+async fn ffprobe_lost_by_replacing(set_aside: &Path, tool_dir: &Path) -> Option<String> {
+    let set_aside_has_one =
+        new_copy_reading_verdict("ffprobe", read_ffprobe_version_in_time(set_aside).await).is_ok();
+    if !set_aside_has_one {
+        return None;
+    }
+    new_copy_reading_verdict("ffprobe", read_ffprobe_version_in_time(tool_dir).await).err()
 }
 
 /// Before installing over a tool: settles any copy an earlier install left
@@ -1861,9 +1985,20 @@ async fn prepare_to_keep_working_copy(tool_dir: &Path, tool_id: &str) -> Result<
     if !backup.exists() {
         return Ok(runs);
     }
+    // FFmpeg: a copy in place whose ffmpeg runs but whose ffprobe does not
+    // does NOT beat a set-aside copy with both working. That is exactly
+    // what the app closing part-way through an install leaves behind: the
+    // new ffmpeg already swapped in, its ffprobe not yet fetched. Keeping
+    // the copy in place there would throw away the only working ffprobe.
+    // The set-aside copy's ffmpeg must still run, or putting it back would
+    // swap a working ffmpeg for one that is not.
+    let copy_in_place_wins = runs
+        && !(tool_id == "ffmpeg"
+            && ffprobe_lost_by_replacing(&backup, tool_dir).await.is_some()
+            && copy_in_folder_runs(&backup, tool_id).await);
     let name = tool_display_name(tool_id);
-    resolve_leftover_working_copy(tool_dir, &backup, runs).map_err(|e| {
-        if runs {
+    resolve_leftover_working_copy(tool_dir, &backup, copy_in_place_wins).map_err(|e| {
+        if copy_in_place_wins {
             format!(
                 "{name} was not changed: a copy set aside by an earlier install, at {}, could \
                  not be removed ({e}). Your current copy has been left as it was.",
@@ -1879,7 +2014,45 @@ async fn prepare_to_keep_working_copy(tool_dir: &Path, tool_id: &str) -> Result<
     })?;
     // A set-aside copy that was just put back is now the copy in place, so
     // ask whether IT runs.
-    Ok(runs || copy_in_folder_runs(tool_dir, tool_id).await)
+    Ok(copy_in_place_wins || copy_in_folder_runs(tool_dir, tool_id).await)
+}
+
+/// What stops a finished install's new copy from replacing the copy set
+/// aside for it, or `None` when nothing does. Worded as the first part of
+/// the message the person sees (the caller adds ", so it has been
+/// removed.").
+///
+/// Two things, in order:
+///
+/// 1. The tool itself must report a real version within
+///    [`VERSION_PROBE_LIMIT`] — true of every tool, on every install.
+/// 2. FFmpeg only, and only when a copy was set aside: if that copy's
+///    ffprobe works, the new copy's must too ([`ffprobe_lost_by_replacing`]).
+///    A first install, or an old copy without a working ffprobe, is judged
+///    on step 1 alone, exactly as before.
+async fn new_copy_problem(
+    tool_dir: &Path,
+    set_aside: &Path,
+    tool_id: &str,
+    old_copy_set_aside: bool,
+) -> Option<String> {
+    let name = tool_display_name(tool_id);
+    if let Err(why) = new_copy_reading_verdict(name, read_version_in_time(tool_dir, tool_id).await)
+    {
+        return Some(format!(
+            "The new copy of {name} would not start on this computer ({why})"
+        ));
+    }
+    if tool_id == "ffmpeg" && old_copy_set_aside {
+        if let Some(why) = ffprobe_lost_by_replacing(set_aside, tool_dir).await {
+            return Some(format!(
+                "The new copy of {name} came without a working ffprobe ({why}), the part of \
+                 {name} that MeedyaDL uses to look inside the files it downloads, and the copy \
+                 you had before has one"
+            ));
+        }
+    }
+    None
 }
 
 /// After installing: keeps the new copy, or puts the set-aside working copy
@@ -1892,7 +2065,7 @@ async fn prepare_to_keep_working_copy(tool_dir: &Path, tool_id: &str) -> Result<
 /// alone is exactly how MP4Box's only working copy was once deleted
 /// (Codex, review of 57f137ac), and how #1225 happened for every other
 /// tool. So the new copy is asked for its version here, once it is fully
-/// in place.
+/// in place — and, for FFmpeg, its ffprobe too (see [`new_copy_problem`]).
 async fn finish_keeping_working_copy(
     tool_dir: &Path,
     tool_id: &str,
@@ -1905,9 +2078,7 @@ async fn finish_keeping_working_copy(
     // Only a finished install is asked for its version: after a failed
     // one, nothing reliable is in place to ask.
     let new_copy_problem = match &install {
-        Ok(_) => {
-            new_copy_reading_verdict(name, read_version_in_time(tool_dir, tool_id).await).err()
-        }
+        Ok(_) => new_copy_problem(tool_dir, &backup, tool_id, old_copy_set_aside).await,
         Err(_) => None,
     };
 
@@ -1932,8 +2103,7 @@ async fn finish_keeping_working_copy(
         }
         AfterInstall::KeepNewUnverified => {
             log::warn!(
-                "{name}: the new copy did not report a version ({}); kept anyway, because there \
-                 was no working copy to go back to",
+                "{}; kept anyway, because there was no working copy to go back to",
                 new_copy_problem.unwrap_or_default()
             );
             install
@@ -1943,8 +2113,7 @@ async fn finish_keeping_working_copy(
             let what_happened = match install {
                 Err(e) => e,
                 Ok(_) => format!(
-                    "The new copy of {name} would not start on this computer ({}), so it has \
-                     been removed.",
+                    "{}, so it has been removed.",
                     new_copy_problem.unwrap_or_default()
                 ),
             };
@@ -2695,8 +2864,11 @@ async fn install_new_copy(
 
     // Step 6: Try to get the version (best-effort). Accepting anything here
     // is safe only because install_tool_for then checks the reading
-    // properly before throwing a working copy away (#1225).
-    let version = get_tool_version(&expected_binary, tool_id)
+    // properly before throwing a working copy away (#1225). Within
+    // VERSION_PROBE_LIMIT, like every reading an install makes: with no
+    // limit, a new copy that hung when asked hung the install before that
+    // check was ever reached.
+    let version = get_tool_version_in_time(&expected_binary, tool_id)
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
@@ -2892,14 +3064,23 @@ async fn install_mp4box_from_pkg_inner(
     // applied to the one door somebody was looking at.
     //
     // Refusing returns an error, and `install_mp4box_with_fallback` then
-    // fetches MP4Box from the MeedyaSuite mirror, which publishes a
-    // checksum and is verified against it. Nobody is left without
-    // MP4Box; they get the copy that can be checked.
+    // fetches MP4Box from the MeedyaSuite mirror: a fixed copy this
+    // project controls, rather than a build that changes under us. Nobody
+    // is left without MP4Box.
+    //
+    // What the mirror route does NOT do today is check its download
+    // against a checksum. It would, but only for a file listed in
+    // `[mirror.asset_hashes]` in tool-versions.toml, and that section is
+    // commented out — so load_mirror_asset_hash finds nothing and the
+    // download goes ahead unchecked (#987). This comment, and the message
+    // below, used to say the mirror "publishes a checksum and is verified
+    // against it". Neither was true (independent check of #1225).
     let Some(pin) = load_gpac_macos_installer_pin() else {
         return Err(
             "MeedyaDL will not install MP4Box from GPAC's nightly build: there is no published \
              checksum for it, so there is no way to confirm that what was downloaded is what \
-             GPAC built. Using the MeedyaSuite mirror instead, which publishes one."
+             GPAC built. Using the MeedyaSuite mirror instead, a fixed copy kept by the MeedyaDL \
+             project."
                 .to_string(),
         );
     };
@@ -3040,7 +3221,12 @@ async fn install_mp4box_from_pkg_inner(
     std::fs::write(tool_dir.join(".source"), "managed").ok();
     write_mp4box_origin(&tool_dir, Mp4boxOrigin::GpacOfficial);
 
-    let version = get_tool_version(&mp4box_dest, "mp4box")
+    // Within VERSION_PROBE_LIMIT: this route is also reached by an MP4Box
+    // update (update_mp4box_keeping_the_old_copy), outside
+    // install_tool_for's own limit. "installed" here is only a placeholder
+    // for "no version read"; whichever route called this asks again, with
+    // the same limit, before keeping the copy.
+    let version = get_tool_version_in_time(&mp4box_dest, "mp4box")
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
@@ -3280,7 +3466,9 @@ async fn copy_and_verify_mp4box(
         write_mp4box_origin(&tool_dir, Mp4boxOrigin::GpacOfficial);
     }
 
-    let version = get_tool_version(&expected_binary, "mp4box")
+    // Within VERSION_PROBE_LIMIT, for the same reason as the .pkg route:
+    // an MP4Box update reaches this too, outside install_tool_for's limit.
+    let version = get_tool_version_in_time(&expected_binary, "mp4box")
         .await
         .unwrap_or_else(|_| "installed".to_string());
 
@@ -3351,8 +3539,13 @@ async fn install_mp4box_windows_inner(
     // actually built before running it with elevated file-write access.
     // MeedyaDL no longer executes an unverifiable installer: absent a pin,
     // bail out immediately so the caller (`install_mp4box_with_fallback`)
-    // falls through to the MeedyaSuite/MeedyaDL-Tools mirror instead,
-    // which hosts a vetted, checksummed binary archive.
+    // falls through to the MeedyaSuite/MeedyaDL-Tools mirror instead — a
+    // fixed copy this project controls. Not a checked one, though: the
+    // mirror download is checked against a checksum only for a file listed
+    // in `[mirror.asset_hashes]` in tool-versions.toml, that section is
+    // commented out, and so today it goes ahead unchecked (#987). This
+    // comment used to call it "a vetted, checksummed binary archive",
+    // which was not true (independent check of #1225).
     let Some(pin) = load_gpac_windows_installer_pin() else {
         return Err(
             "GPAC NSIS installer skipped: no pinned installer configured \
@@ -3713,14 +3906,23 @@ async fn install_mp4box_linux_inner(
     // applied to the one door somebody was looking at.
     //
     // Refusing returns an error, and `install_mp4box_with_fallback` then
-    // fetches MP4Box from the MeedyaSuite mirror, which publishes a
-    // checksum and is verified against it. Nobody is left without
-    // MP4Box; they get the copy that can be checked.
+    // fetches MP4Box from the MeedyaSuite mirror: a fixed copy this
+    // project controls, rather than a build that changes under us. Nobody
+    // is left without MP4Box.
+    //
+    // What the mirror route does NOT do today is check its download
+    // against a checksum. It would, but only for a file listed in
+    // `[mirror.asset_hashes]` in tool-versions.toml, and that section is
+    // commented out — so load_mirror_asset_hash finds nothing and the
+    // download goes ahead unchecked (#987). This comment, and the message
+    // below, used to say the mirror "publishes a checksum and is verified
+    // against it". Neither was true (independent check of #1225).
     let Some(pin) = load_gpac_linux_installer_pin() else {
         return Err(
             "MeedyaDL will not install MP4Box from GPAC's nightly build: there is no published \
              checksum for it, so there is no way to confirm that what was downloaded is what \
-             GPAC built. Using the MeedyaSuite mirror instead, which publishes one."
+             GPAC built. Using the MeedyaSuite mirror instead, a fixed copy kept by the MeedyaDL \
+             project."
                 .to_string(),
         );
     };
@@ -3940,11 +4142,15 @@ async fn update_mp4box_keeping_the_old_copy(app: &AppHandle) -> Result<String, S
     //   * the current copy does not run → the backup is the good one: put
     //     it back.
     // Either way the update then carries on from a working copy.
+    //
+    // Every version reading in this route has VERSION_PROBE_LIMIT to
+    // answer, and a copy that does not answer in time counts as not
+    // running. install_tool_for sends this route here unwrapped, so its
+    // own limit does not cover it, and with none a copy that hung when
+    // asked hung the update for ever — holding MP4Box's one-install-at-a-
+    // time claim (claim_tool_install) until the app was restarted.
     if backup.exists() {
-        let current_runs = matches!(
-            read_installed_version(app, "mp4box").await,
-            Ok(Some(ref v)) if crate::services::update_checker::is_a_real_version_reading(v)
-        );
+        let current_runs = copy_in_folder_runs(&tool_dir, "mp4box").await;
         if current_runs {
             std::fs::remove_dir_all(&backup).map_err(|e| {
                 format!(
@@ -3969,7 +4175,9 @@ async fn update_mp4box_keeping_the_old_copy(app: &AppHandle) -> Result<String, S
     })?;
 
     let outcome = match install_mp4box_from_pinned_gpac(app).await {
-        Ok(_) => match read_installed_version(app, "mp4box").await {
+        // A copy that does not answer in time lands in the `Err` arm:
+        // "could not be run", never a version.
+        Ok(_) => match read_version_in_time(&tool_dir, "mp4box").await {
             Ok(Some(v)) if crate::services::update_checker::is_a_real_version_reading(&v) => Ok(v),
             Ok(Some(printed)) => Err(format!(
                 "the new copy does not run on this computer (it printed: {})",
@@ -4080,9 +4288,16 @@ async fn install_mp4box_from_mirror(
         // success message for a broken install (Codex, batch-5 review
         // round 2). A staged copy that does not report a real version is
         // refused, and the current copy is left where it is.
-        let reading = get_tool_version(&staged_binary, "mp4box").await;
-        match reading {
-            Ok(v) if crate::services::update_checker::is_a_real_version_reading(&v) => {}
+        //
+        // Within VERSION_PROBE_LIMIT: a copy that does not answer in time
+        // is "could not be run", never a version. An update of a mirror
+        // copy comes straight here, outside install_tool_for's own limit,
+        // and with none a copy that hung when asked hung the update for
+        // ever, holding MP4Box's one-install-at-a-time claim until the app
+        // was restarted.
+        let reading = get_tool_version_in_time(&staged_binary, "mp4box").await;
+        let version = match reading {
+            Ok(v) if crate::services::update_checker::is_a_real_version_reading(&v) => v,
             Ok(printed) => {
                 return Err(format!(
                     "The MP4Box downloaded from the mirror does not run on this computer (it \
@@ -4096,25 +4311,28 @@ async fn install_mp4box_from_mirror(
                      been installed."
                 ));
             }
-        }
+        };
 
         std::fs::write(staging.join(".source"), "managed").ok();
         write_mp4box_origin(&staging, Mp4boxOrigin::Mirror);
-        Ok::<(), String>(())
+        Ok::<String, String>(version)
     }
     .await;
 
-    if let Err(e) = result {
-        std::fs::remove_dir_all(&staging).ok();
-        return Err(e);
-    }
+    let version = match result {
+        Ok(version) => version,
+        Err(e) => {
+            std::fs::remove_dir_all(&staging).ok();
+            return Err(e);
+        }
+    };
     // Not kept here: this route has already checked the staged copy runs,
     // above, before swapping it in.
     promote_staged_install(&staging, &tool_dir, None)?;
 
-    let version = get_tool_version(&get_tool_binary_path(app, "mp4box"), "mp4box")
-        .await
-        .unwrap_or_else(|_| "installed".to_string());
+    // The version the staged copy reported moments ago, above. It used to
+    // be asked again here, after the swap, with no time limit — a second
+    // chance to hang, for an answer already in hand.
     log::info!("MP4Box {version} installed from mirror");
     Ok(version)
 }
@@ -4284,21 +4502,39 @@ pub async fn get_tool_version(binary_path: &PathBuf, tool_id: &str) -> Result<St
     // - mp4decrypt has no version flag — running it with no args prints usage to stderr
     // - Most other tools use double-dash "--version" (GNU convention)
     let version_flag = match tool_id {
-        "ffmpeg" | "mp4box" => "-version",
+        // ffprobe is FFmpeg's companion (see ffprobe_beside_ffmpeg_in) and
+        // takes the same flag.
+        "ffmpeg" | "ffprobe" | "mp4box" => "-version",
         "mp4decrypt" => "", // No version flag — run with no args, parse stderr
         _ => "--version",
     };
 
     // Run the binary with the version flag and capture output.
+    //
+    // `kill_on_drop`: when a caller stops waiting by giving up on this
+    // reading — as the install steps do once VERSION_PROBE_LIMIT has passed
+    // (get_tool_version_within) — the programme is stopped too. Without it
+    // a programme that hung when asked kept running after everyone had
+    // stopped waiting for it, for as long as the app was open; on Windows a
+    // running programme cannot be deleted or moved, so putting a working
+    // copy back over a new copy that hung would then fail. A caller that
+    // waits until the programme finishes sees no difference.
+    //
+    // What it does not cover: the Tools page's two-second status check
+    // (commands/dependencies.rs) runs this reading as a separate task and
+    // stops waiting for the TASK, which carries on; a programme that hangs
+    // there still runs until it finishes, as before.
     let output = if version_flag.is_empty() {
         // mp4decrypt: run with no arguments, version info is in the error output
         tokio::process::Command::new(binary_path)
+            .kill_on_drop(true)
             .output()
             .await
             .map_err(|e| format!("Failed to run {tool_id}: {e}"))?
     } else {
         tokio::process::Command::new(binary_path)
             .arg(version_flag)
+            .kill_on_drop(true)
             .output()
             .await
             .map_err(|e| format!("Failed to run {tool_id} {version_flag}: {e}"))?
@@ -4936,6 +5172,272 @@ mod tests {
         assert_eq!(
             read_version_in(&tool_dir, "ffmpeg").await,
             Ok(Some("6.1.2".to_string()))
+        );
+    }
+
+    /// The name of FFmpeg's companion on this computer.
+    fn ffprobe_name() -> &'static str {
+        if cfg!(target_os = "windows") {
+            "ffprobe.exe"
+        } else {
+            "ffprobe"
+        }
+    }
+
+    /// ffprobe is looked for beside whichever ffmpeg the folder uses: in
+    /// the folder for a downloaded copy, beside the system programme for an
+    /// adopted one — the same rule the rest of the app runs it by.
+    #[test]
+    fn ffprobe_is_looked_for_beside_the_ffmpeg_the_folder_uses() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("tools/ffmpeg");
+        std::fs::create_dir_all(&tool_dir).unwrap();
+        assert_eq!(
+            ffprobe_beside_ffmpeg_in(&tool_dir),
+            tool_dir.join(ffprobe_name())
+        );
+
+        let system_ffmpeg = base.path().join("system/bin/ffmpeg");
+        write_file(&system_ffmpeg, "system ffmpeg");
+        write_file(
+            &tool_dir.join(".external-path"),
+            &system_ffmpeg.to_string_lossy(),
+        );
+        assert_eq!(
+            ffprobe_beside_ffmpeg_in(&tool_dir),
+            base.path().join("system/bin").join(ffprobe_name())
+        );
+    }
+
+    /// ffprobe prints FFmpeg's banner with its own name, and is read by the
+    /// same rule — a nightly build included, which the generic rule would
+    /// have read as no version at all.
+    #[test]
+    fn ffprobe_versions_are_read_like_ffmpeg_ones() {
+        assert_eq!(
+            extract_version_from_output("ffprobe version 6.1.2 Copyright (c) 2007-2024", "ffprobe"),
+            Some("6.1.2".to_string())
+        );
+        assert_eq!(
+            extract_version_from_output("ffprobe version N-112479-gdeadbeef Copyright", "ffprobe"),
+            Some("nightly".to_string())
+        );
+        // Unchanged for ffmpeg itself.
+        assert_eq!(
+            extract_version_from_output("ffmpeg version 7.1 Copyright", "ffmpeg"),
+            Some("7.1".to_string())
+        );
+        // An ffprobe error is not a version.
+        assert_eq!(
+            extract_version_from_output("dyld: Library not loaded", "ffprobe"),
+            None
+        );
+    }
+
+    /// A new FFmpeg that runs but brings no working ffprobe must not
+    /// replace a copy whose ffprobe works — whether the new ffprobe is
+    /// missing or will not start. The old folder, ffprobe and all, comes
+    /// back (independent check of #1225).
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_new_ffmpeg_without_a_working_ffprobe_does_not_replace_one_with_it() {
+        // (what the new copy brings besides ffmpeg, what the message names)
+        let cases: [(Option<&str>, &str); 2] = [
+            (None, "no ffprobe programme was left in place"),
+            (
+                Some("dyld: Library not loaded: libavformat.dylib"),
+                "dyld: Library not loaded",
+            ),
+        ];
+        for (new_ffprobe, expected_reason) in cases {
+            let base = TempDir::new().unwrap();
+            let tool_dir = base.path().join("ffmpeg");
+            let staging = base.path().join("ffmpeg.staging");
+            let backup = working_copy_backup_dir(&tool_dir);
+            write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+            write_fake_tool(&tool_dir, "ffprobe", "ffprobe version 6.1.2 Copyright");
+            write_fake_tool(&staging, "ffmpeg", "ffmpeg version 7.1 Copyright");
+            if let Some(output) = new_ffprobe {
+                write_fake_tool(&staging, "ffprobe", output);
+            }
+
+            assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+                .await
+                .unwrap());
+            promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+            let result =
+                finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("7.1".to_string())).await;
+
+            let message = result.unwrap_err();
+            assert!(
+                message.contains("came without a working ffprobe"),
+                "{message}"
+            );
+            assert!(message.contains(expected_reason), "{message}");
+            assert!(message.contains("has been kept"), "{message}");
+            assert!(!backup.exists());
+            assert_eq!(
+                read_version_in(&tool_dir, "ffmpeg").await,
+                Ok(Some("6.1.2".to_string()))
+            );
+            assert_eq!(
+                read_ffprobe_version_in_time(&tool_dir).await,
+                Ok(Some("6.1.2".to_string()))
+            );
+        }
+    }
+
+    /// The ffprobe rule is no stricter than before when there is no working
+    /// ffprobe to lose: an old copy without one, or a first install.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_new_ffmpeg_without_ffprobe_is_kept_when_there_was_none_to_lose() {
+        // The old copy has a working ffmpeg but no ffprobe.
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+        write_fake_tool(&staging, "ffmpeg", "ffmpeg version 7.1 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        let result = finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("7.1".to_string())).await;
+        assert_eq!(result, Ok("7.1".to_string()));
+        assert!(!backup.exists());
+
+        // A first install: nothing set aside at all.
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let staging = base.path().join("ffmpeg.staging");
+        write_fake_tool(&staging, "ffmpeg", "ffmpeg version 7.1 Copyright");
+
+        assert!(!prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, None).unwrap();
+        let result = finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("7.1".to_string())).await;
+        assert_eq!(result, Ok("7.1".to_string()));
+    }
+
+    /// An FFmpeg adopted from the system (Homebrew, say) has its ffprobe
+    /// beside the system programme, not in MeedyaDL's folder. That is the
+    /// ffprobe checked: a downloaded replacement without one is refused,
+    /// and the pointer to the system copy comes back.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn an_adopted_ffmpeg_is_judged_by_the_ffprobe_beside_it() {
+        let base = TempDir::new().unwrap();
+        let system_bin = base.path().join("homebrew/bin");
+        write_fake_tool(&system_bin, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+        write_fake_tool(&system_bin, "ffprobe", "ffprobe version 6.1.2 Copyright");
+        let tool_dir = base.path().join("tools/ffmpeg");
+        let staging = base.path().join("tools/ffmpeg.staging");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_file(
+            &tool_dir.join(".external-path"),
+            &system_bin.join("ffmpeg").to_string_lossy(),
+        );
+        write_file(&tool_dir.join(".source"), "homebrew:ffmpeg");
+        write_fake_tool(&staging, "ffmpeg", "ffmpeg version 7.1 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        promote_staged_install(&staging, &tool_dir, Some(&backup)).unwrap();
+        let message = finish_keeping_working_copy(&tool_dir, "ffmpeg", Ok("7.1".to_string()))
+            .await
+            .unwrap_err();
+
+        assert!(
+            message.contains("came without a working ffprobe"),
+            "{message}"
+        );
+        assert_eq!(
+            tool_binary_path_in(&tool_dir, "ffmpeg"),
+            system_bin.join("ffmpeg")
+        );
+        assert_eq!(read_file(&tool_dir.join(".source")), "homebrew:ffmpeg");
+    }
+
+    /// The app closing part-way through an install can leave a new ffmpeg
+    /// in place before its ffprobe arrived, with the old folder still set
+    /// aside. The next install must put the old folder back — it has the
+    /// only working ffprobe — rather than delete it because ffmpeg runs.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_leftover_copy_with_a_working_ffprobe_beats_one_without() {
+        let base = TempDir::new().unwrap();
+        let tool_dir = base.path().join("ffmpeg");
+        let backup = working_copy_backup_dir(&tool_dir);
+        write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 7.1 Copyright");
+        write_fake_tool(&backup, "ffmpeg", "ffmpeg version 6.1.2 Copyright");
+        write_fake_tool(&backup, "ffprobe", "ffprobe version 6.1.2 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        assert!(!backup.exists());
+        assert_eq!(
+            read_ffprobe_version_in_time(&tool_dir).await,
+            Ok(Some("6.1.2".to_string()))
+        );
+
+        // But not when the set-aside ffmpeg itself no longer runs: then the
+        // copy in place, whose ffmpeg does, is kept and the leftover goes.
+        write_fake_tool(&tool_dir, "ffmpeg", "ffmpeg version 7.1 Copyright");
+        std::fs::remove_file(tool_dir.join("ffprobe")).unwrap();
+        write_fake_tool(&backup, "ffmpeg", "dyld: Library not loaded");
+        write_fake_tool(&backup, "ffprobe", "ffprobe version 6.1.2 Copyright");
+
+        assert!(prepare_to_keep_working_copy(&tool_dir, "ffmpeg")
+            .await
+            .unwrap());
+        assert!(!backup.exists());
+        assert_eq!(
+            read_version_in(&tool_dir, "ffmpeg").await,
+            Ok(Some("7.1".to_string()))
+        );
+    }
+
+    /// A programme that does not answer in time counts as not running —
+    /// never as a version — and is stopped rather than left running. This
+    /// is the reading every install route now makes, MP4Box's two update
+    /// routes included (they are only testable here through the reading
+    /// itself: they need a running app to find the tool's folder).
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_programme_that_does_not_answer_in_time_counts_as_not_running() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = TempDir::new().unwrap();
+        let binary = base.path().join("mp4box/MP4Box");
+        let finished = base.path().join("finished");
+        // Answers after one second — far past the limit given below — and
+        // leaves a mark if it is allowed to get that far.
+        write_file(
+            &binary,
+            &format!(
+                "#!/bin/sh\nsleep 1\ntouch '{}'\necho 'MP4Box - GPAC version 2.4'\n",
+                finished.display()
+            ),
+        );
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let reading =
+            get_tool_version_within(&binary, "mp4box", std::time::Duration::from_millis(300)).await;
+        let why = reading.unwrap_err();
+        assert!(why.contains("did not answer within 0.3 seconds"), "{why}");
+        // The keep-or-restore steps read that as "could not be started".
+        let verdict = new_copy_reading_verdict("MP4Box", Err(why)).unwrap_err();
+        assert!(verdict.starts_with("it could not be started"), "{verdict}");
+
+        // Stopped, not left to finish in the background.
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        assert!(
+            !finished.exists(),
+            "the programme kept running after the time limit"
         );
     }
 

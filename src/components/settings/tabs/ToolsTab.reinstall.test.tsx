@@ -116,7 +116,13 @@ describe('ToolsTab -- Reinstall button', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(within(dialog).getByText('Reinstall FFmpeg?')).toBeInTheDocument();
-    expect(within(dialog).getByText(/your current copy is kept/i)).toBeInTheDocument();
+    // Pins the condition, not just the promise: the current copy is kept
+    // only when IT works and the new one does not.
+    expect(
+      within(dialog).getByText(
+        /If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept\./,
+      ),
+    ).toBeInTheDocument();
     expect(installDependency).not.toHaveBeenCalled();
   });
 
