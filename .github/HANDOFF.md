@@ -178,6 +178,15 @@ BACKPORT_TOKEN and RULESET_AUDIT_TOKEN are used but stored at org level. Advice 
 token's page for Last used / repository access before regenerating (regenerating revokes the old
 value at once); also check the expiry of the token behind MeedyaDL's RELEASE_PAT (set 11 Feb).
 
+**Codex, 27 Sept evening — FOUR rounds, last CLEAN:** A (app changes) 4 findings → `9257863f`;
+B (workflows + #1230) 4 findings → `73089064` / `fe20f7de`; C (those fixes) 5 edge cases →
+`f5469ea7` / `c2ddad7d`; **D (`f5469ea7`) CLEAN.** Every commit on the branch is now reviewed.
+Round B also confirmed the #1230 merge starts no packaging or deployment. Project notes updated
+(from_url host matching, GAMDL bug marker, audit/watcher behaviour). **Next:** merge #1230 (squash,
+`ci:` title) once its last checks pass; then open the PR to alpha for this batch (30 commits; every
+feat/fix commit has its own Release-Note, so rebase-merge is safe), watch the alpha release; then
+the #1241 second PR to main; dispatch the canary / engine watcher / audit (dry run first) on main.
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
