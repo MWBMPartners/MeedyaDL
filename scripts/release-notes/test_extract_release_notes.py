@@ -192,8 +192,16 @@ LINT_FORMS: list[tuple[str, str, list[str]]] = [
         "both forms are linted when squeezing changes the spacing",
         "Release-Note: Improved decryption." + " " * 21 + "Address display is clearer.",
         [
-            "Improved decryption. Address display is clearer.",
             "Improved decryption." + " " * 21 + "Address display is clearer.",
+            "Improved decryption. Address display is clearer.",
+        ],
+    ),
+    (
+        "the published form is linted too, invisible characters and all",
+        "Release-Note: Improved decryption." + "\ufe0f" * 21 + "Address display is clearer.",
+        [
+            "Improved decryption." + "\ufe0f" * 21 + "Address display is clearer.",
+            "Improved decryption.Address display is clearer.",
         ],
     ),
     (
