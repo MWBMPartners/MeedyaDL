@@ -30,6 +30,10 @@ vi.mock('@/lib/tauri-commands', () => ({
   // using this file's own copy of them, because that copy had drifted
   // from the real ones — see `DEFAULT_SETTINGS` in the store.
   getDefaultSettings: vi.fn(),
+  // What the queue will actually do when it finishes. loadSettings asks
+  // this for the two after-queue fields (#1222). Left unset, it returns
+  // undefined, which loadSettings treats as "could not ask".
+  getAfterQueueStatus: vi.fn(),
 }));
 
 /**
@@ -392,6 +396,55 @@ describe('settingsStore', () => {
       vi.mocked(commands.getSettings).mockResolvedValueOnce(MOCK_SETTINGS);
       await useSettingsStore.getState().loadSettings();
       expect(useSettingsStore.getState().error).toBeNull();
+    });
+
+    it('takes the after-queue fields from what the queue will do, not from the file (#1222)', async () => {
+      /*
+       * The file says "do nothing" -- a damaged file reads back as the
+       * defaults -- and still names a one-off the queue has already used.
+       * The running app says "shut down", with no one-off. The status bar
+       * must show the shutdown, and must not show the used-up one-off.
+       */
+      vi.mocked(commands.getSettings).mockResolvedValueOnce({
+        ...MOCK_SETTINGS,
+        after_queue_action: 'do_nothing',
+        after_queue_once: 'hibernate_computer',
+      });
+      vi.mocked(commands.getAfterQueueStatus).mockResolvedValueOnce({
+        after_queue_action: 'shutdown_computer',
+        after_queue_once: null,
+      });
+
+      await useSettingsStore.getState().loadSettings();
+
+      const state = useSettingsStore.getState();
+      expect(state.savedSettings.after_queue_action).toBe('shutdown_computer');
+      expect(state.savedSettings.after_queue_once).toBeNull();
+      // The screen keeps the file's standing action (the value it edits
+      // and saves), but takes the queue's one-off (which it never edits).
+      expect(state.settings.after_queue_action).toBe('do_nothing');
+      expect(state.settings.after_queue_once).toBeNull();
+      // Everything else still comes from the file.
+      expect(state.savedSettings.output_path).toBe('/tmp/test-output');
+    });
+
+    it('falls back to the file for the after-queue fields when the queue cannot be asked', async () => {
+      vi.mocked(commands.getSettings).mockResolvedValueOnce({
+        ...MOCK_SETTINGS,
+        after_queue_action: 'play_sound',
+        after_queue_once: 'restart_computer',
+      });
+      vi.mocked(commands.getAfterQueueStatus).mockRejectedValueOnce(new Error('no backend'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await useSettingsStore.getState().loadSettings();
+
+      const state = useSettingsStore.getState();
+      expect(state.error).toBeNull();
+      expect(state.savedSettings.after_queue_action).toBe('play_sound');
+      expect(state.savedSettings.after_queue_once).toBe('restart_computer');
+      expect(state.settings.after_queue_once).toBe('restart_computer');
+      warn.mockRestore();
     });
   });
 
