@@ -224,9 +224,16 @@ export function ToolsTab() {
         not start afterwards, MeedyaDL tells you.
       </p>
     ) : (
+      // "Kept" is promised only when it is true. The backend keeps the
+      // current copy only when that copy starts and reports a version it
+      // recognises (within 30 seconds) -- one that prints something else is
+      // treated as not working and is not kept (install_tool_for in
+      // dependency_manager.rs). This used to say "If the new copy will not
+      // start, your current copy is kept", which was not true in that case.
       <p>
         MeedyaDL will download {reinstallTarget ?? 'this tool'} again, or use a suitable copy
-        already on your computer. If the new copy will not start, your current copy is kept.
+        already on your computer. If your current copy starts and reports a version MeedyaDL
+        recognises, and the new copy does not, your current copy is kept.
       </p>
     ),
     confirmLabel: 'Reinstall',
