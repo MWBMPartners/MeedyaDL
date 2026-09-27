@@ -65,10 +65,20 @@
 //     GPL-2.0 with a linking exception — this script had no way to
 //     catch that, and still doesn't. Don't treat a clean run of this
 //     script as proof those rows are correct.
+//
+// #1224: this script shares the companion script's `parseCargoDirectDeps`
+// function almost verbatim, so it shared the same blind spot — a
+// dependency declared only for one platform, inside a
+// `[target.'cfg(target_os = "macos")'.dependencies]` table rather than
+// the plain `[dependencies]` table, was never read at all, so its
+// upstream licence string was never compared against
+// ACKNOWLEDGEMENTS.md's claim for it either. Fixed the same way as the
+// companion script — see the comment on parseCargoDirectDepsFromText
+// below. Reproduced in `scripts/test-check-acknowledgements.mjs`.
 
 import { execFileSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,23 +154,83 @@ function parseAckLicences(path) {
 
 const ackLicences = parseAckLicences(ACK_PATH);
 
-/** Direct Rust dependency keys from Cargo.toml's `[dependencies]` section. */
-function parseCargoDirectDeps(path) {
-  const lines = readFileSync(path, 'utf8').split('\n');
-  const deps = [];
+// Matches the header of a per-target dependency table, e.g.:
+//   [target.'cfg(target_os = "macos")'.dependencies]
+//   [target."cfg(target_os = \"macos\")".dependencies]
+//   [target.x86_64-pc-windows-msvc.dependencies]
+// Cargo requires the `cfg(...)` predicate to be quoted (it contains
+// parentheses, spaces, and an embedded double-quoted string), and TOML
+// allows either single or double quotes for that; a real target triple
+// like `x86_64-pc-windows-msvc` needs no quoting at all, because every
+// character in it is already a legal bare TOML key. The literal
+// `.dependencies]` at the end (a dot, not a hyphen, right before the
+// word) is what stops this from also matching a per-target
+// `.build-dependencies]` / `.dev-dependencies]` table — this script
+// deliberately doesn't read those (see parseCargoDirectDepsFromText).
+const TARGET_DEPS_HEADER =
+  /^\[target\.(?:'[^']*'|"(?:[^"\\]|\\.)*"|[A-Za-z0-9_.+-]+)\.dependencies\]$/;
+
+// Matches the same per-target table written as one dotted-key
+// assignment instead of a `[...]` header — valid TOML, e.g.:
+//   target.'cfg(target_os = "macos")'.dependencies.libc = "0.2"
+// Nothing in this repo's Cargo.toml uses this form today, but Cargo
+// genuinely accepts it, so a future edit could reintroduce the exact
+// blind spot #1224 fixed if this script only ever looked for the
+// `[...]` header shape.
+const TARGET_DEPS_DOTTED_KEY =
+  /^target\.(?:'[^']*'|"(?:[^"\\]|\\.)*"|[A-Za-z0-9_.+-]+)\.dependencies\.([A-Za-z0-9_-]+)\s*=/;
+
+/**
+ * Parse direct dependency names out of Cargo.toml TEXT (not a path).
+ * Kept separate from `parseCargoDirectDeps` below so a test can hand it
+ * a small in-memory sample instead of needing a real file on disk —
+ * see `scripts/test-check-acknowledgements.mjs`.
+ *
+ * Reads the plain `[dependencies]` table AND every per-target
+ * `[target.<spec>.dependencies]` table, in either header form, plus the
+ * dotted-key form (see TARGET_DEPS_HEADER / TARGET_DEPS_DOTTED_KEY
+ * above). Deliberately does NOT read `[dev-dependencies]` or
+ * `[build-dependencies]` — plain or per-target — because neither ships
+ * inside the compiled binary, so neither needs its upstream licence
+ * string checked against ACKNOWLEDGEMENTS.md; that was already this
+ * script's scope before #1224, and the per-target fix does not widen
+ * it. A dependency named in more than one table is only counted once.
+ */
+export function parseCargoDirectDepsFromText(text) {
+  const lines = text.split('\n');
+  const deps = new Set();
   let inSection = false;
   for (const raw of lines) {
     const line = raw.trim();
     if (line.startsWith('#')) continue;
+
+    // A dotted-key dependency line is a self-contained assignment — it
+    // doesn't live inside any `[section]` at all — so check for it
+    // before, and independently of, the section-tracking logic below.
+    const dotted = line.match(TARGET_DEPS_DOTTED_KEY);
+    if (dotted) {
+      deps.add(dotted[1]);
+      continue;
+    }
+
     if (line.startsWith('[')) {
-      inSection = line === '[dependencies]';
+      // Stay inside the plain `[dependencies]` table OR any per-target
+      // `[target.<spec>.dependencies]` table. We skip dev-dependencies
+      // and build-dependencies (plain or per-target) because those
+      // don't ship in the binary.
+      inSection = line === '[dependencies]' || TARGET_DEPS_HEADER.test(line);
       continue;
     }
     if (!inSection || !line) continue;
     const m = line.match(/^([A-Za-z0-9_-]+)\s*=/);
-    if (m) deps.push(m[1]);
+    if (m) deps.add(m[1]);
   }
-  return deps;
+  return [...deps];
+}
+
+/** Direct Rust dependency keys from a Cargo.toml FILE PATH. */
+function parseCargoDirectDeps(path) {
+  return parseCargoDirectDepsFromText(readFileSync(path, 'utf8'));
 }
 
 /** Runtime npm deps from package.json (excludes devDependencies). */
@@ -338,108 +408,134 @@ function hasNodeModules() {
   return existsSync(join(ROOT, 'node_modules'));
 }
 
-const rustDeps = parseCargoDirectDeps(CARGO_TOML).filter((n) => !SKIP_RUST.has(n));
-const npmDeps = parseNpmRuntimeDeps(PACKAGE_JSON).filter(
-  (n) => !SKIP_NPM.has(n) && !isTauriNpmPackage(n),
-);
-
-const rustLicences = readRustUpstreamLicences();
-const npmLicences = hasNodeModules() ? readNpmUpstreamLicences(npmDeps) : new Map();
-
-if (!hasNodeModules()) {
-  console.error(
-    '::warning::node_modules/ not found — npm licence string check skipped. Run `npm ci` first.',
+// The real comparison only runs when this file is executed directly
+// (`node scripts/check-upstream-licences.mjs`), never when it's merely
+// `import`ed — e.g. by the test file, which only wants
+// `parseCargoDirectDepsFromText`. Without this guard, importing the
+// module for that one function would ALSO shell out to `cargo metadata`
+// against this machine's real dependency tree and call `process.exit()`
+// at the end — either of which would break a test importer, and the
+// `cargo metadata` call could itself fail the whole test run on a
+// machine where `cargo` isn't on PATH for an unrelated reason.
+function main() {
+  const rustDeps = parseCargoDirectDeps(CARGO_TOML).filter((n) => !SKIP_RUST.has(n));
+  const npmDeps = parseNpmRuntimeDeps(PACKAGE_JSON).filter(
+    (n) => !SKIP_NPM.has(n) && !isTauriNpmPackage(n),
   );
-}
 
-const mismatches = [];
-const advisories = [];
-const missingAck = [];
+  const rustLicences = readRustUpstreamLicences();
+  const npmLicences = hasNodeModules() ? readNpmUpstreamLicences(npmDeps) : new Map();
 
-// A cell that's blank, or just a typographic placeholder like an
-// em-dash, is treated the same as "not filled in" — see isEmptyAckValue
-// below.
-function isEmptyAckValue(v) {
-  if (!v) return true;
-  const t = v.trim();
-  return t === '' || t === '—' || t === '-' || /^n\/a$/i.test(t);
-}
-
-function compareOne(kind, name, upstream) {
-  const hasAckRow = ackLicences.has(name);
-  const ack = ackLicences.get(name);
-
-  // A row that names the dependency but leaves the licence blank (or a
-  // placeholder dash) is a documentation fault on its own — this must
-  // be reported even when upstream data is unavailable, never silently
-  // skipped because "we couldn't verify it either". This is exactly
-  // how rookie's ACKNOWLEDGEMENTS.md entry ("—") went unnoticed: the
-  // old code's `if (!upstream) return` skipped the row before this
-  // check ever ran.
-  if (hasAckRow && isEmptyAckValue(ack)) {
-    missingAck.push({ kind, name, upstream: upstream || '(unknown — see licence-file fallback)' });
-    return;
+  if (!hasNodeModules()) {
+    console.error(
+      '::warning::node_modules/ not found — npm licence string check skipped. Run `npm ci` first.',
+    );
   }
 
-  if (!upstream) return; // No upstream signal, and ACK has a real value — nothing to compare.
+  const mismatches = [];
+  const advisories = [];
+  const missingAck = [];
 
-  if (!hasAckRow) {
-    missingAck.push({ kind, name, upstream });
-    return;
+  // A cell that's blank, or just a typographic placeholder like an
+  // em-dash, is treated the same as "not filled in" — see isEmptyAckValue
+  // below.
+  function isEmptyAckValue(v) {
+    if (!v) return true;
+    const t = v.trim();
+    return t === '' || t === '—' || t === '-' || /^n\/a$/i.test(t);
   }
-  const verdict = licencesAgree(upstream, ack);
-  if (verdict === null) {
-    mismatches.push({ kind, name, upstream, ack });
-  } else if (verdict === 'normalised') {
-    // Punctuation difference only — advisory, doesn't break CI.
-    advisories.push({ kind, name, upstream, ack });
-  }
-}
 
-for (const name of rustDeps) compareOne('rust', name, rustLicences.get(name));
-for (const name of npmDeps) compareOne('npm', name, npmLicences.get(name));
+  function compareOne(kind, name, upstream) {
+    const hasAckRow = ackLicences.has(name);
+    const ack = ackLicences.get(name);
 
-const verbose = process.argv.includes('--verbose');
+    // A row that names the dependency but leaves the licence blank (or a
+    // placeholder dash) is a documentation fault on its own — this must
+    // be reported even when upstream data is unavailable, never silently
+    // skipped because "we couldn't verify it either". This is exactly
+    // how rookie's ACKNOWLEDGEMENTS.md entry ("—") went unnoticed: the
+    // old code's `if (!upstream) return` skipped the row before this
+    // check ever ran.
+    if (hasAckRow && isEmptyAckValue(ack)) {
+      missingAck.push({ kind, name, upstream: upstream || '(unknown — see licence-file fallback)' });
+      return;
+    }
 
-if (!mismatches.length && !missingAck.length) {
-  if (advisories.length && verbose) {
-    console.error(`ℹ ${advisories.length} licence(s) match after normalisation (advisory):`);
-    for (const a of advisories) {
-      console.error(`  - ${a.kind} ${a.name}: ack='${a.ack}', upstream='${a.upstream}'`);
+    if (!upstream) return; // No upstream signal, and ACK has a real value — nothing to compare.
+
+    if (!hasAckRow) {
+      missingAck.push({ kind, name, upstream });
+      return;
+    }
+    const verdict = licencesAgree(upstream, ack);
+    if (verdict === null) {
+      mismatches.push({ kind, name, upstream, ack });
+    } else if (verdict === 'normalised') {
+      // Punctuation difference only — advisory, doesn't break CI.
+      advisories.push({ kind, name, upstream, ack });
     }
   }
-  console.log(
-    `✓ All direct dep licences match ACKNOWLEDGEMENTS.md (rust=${rustDeps.length}, npm=${npmDeps.length}, advisories=${advisories.length}).${
-      advisories.length && !verbose ? ' Re-run with --verbose to enumerate.' : ''
-    }`,
-  );
-  process.exit(0);
+
+  for (const name of rustDeps) compareOne('rust', name, rustLicences.get(name));
+  for (const name of npmDeps) compareOne('npm', name, npmLicences.get(name));
+
+  const verbose = process.argv.includes('--verbose');
+
+  if (!mismatches.length && !missingAck.length) {
+    if (advisories.length && verbose) {
+      console.error(`ℹ ${advisories.length} licence(s) match after normalisation (advisory):`);
+      for (const a of advisories) {
+        console.error(`  - ${a.kind} ${a.name}: ack='${a.ack}', upstream='${a.upstream}'`);
+      }
+    }
+    console.log(
+      `✓ All direct dep licences match ACKNOWLEDGEMENTS.md (rust=${rustDeps.length}, npm=${npmDeps.length}, advisories=${advisories.length}).${
+        advisories.length && !verbose ? ' Re-run with --verbose to enumerate.' : ''
+      }`,
+    );
+    process.exit(0);
+  }
+
+  console.error('✗ Upstream licence drift detected (#806).\n');
+
+  if (mismatches.length) {
+    console.error(`  ${mismatches.length} licence MISMATCH(es) — block CI:`);
+    for (const m of mismatches) {
+      console.error(`    - ${m.kind} ${m.name}:`);
+      console.error(`        ACKNOWLEDGEMENTS.md says: ${m.ack || '(empty)'}`);
+      console.error(`        upstream declares:       ${m.upstream || '(empty)'}`);
+    }
+  }
+  if (missingAck.length) {
+    console.error(`  ${missingAck.length} dep(s) with upstream licence but no ACKNOWLEDGEMENTS entry:`);
+    for (const m of missingAck) {
+      console.error(`    - ${m.kind} ${m.name}: upstream='${m.upstream}'`);
+    }
+  }
+  if (advisories.length) {
+    console.error(`  ${advisories.length} advisory normalisation match(es) (not blocking):`);
+    for (const a of advisories) {
+      console.error(`    - ${a.kind} ${a.name}: ack='${a.ack}', upstream='${a.upstream}'`);
+    }
+  }
+
+  console.error('\nFix by either:');
+  console.error('  - Updating the ACKNOWLEDGEMENTS.md licence column to match upstream, or');
+  console.error('  - Verifying upstream actually re-licensed (rare) and updating ACKNOWLEDGEMENTS.md + downstream notices.');
+  process.exit(1);
 }
 
-console.error('✗ Upstream licence drift detected (#806).\n');
-
-if (mismatches.length) {
-  console.error(`  ${mismatches.length} licence MISMATCH(es) — block CI:`);
-  for (const m of mismatches) {
-    console.error(`    - ${m.kind} ${m.name}:`);
-    console.error(`        ACKNOWLEDGEMENTS.md says: ${m.ack || '(empty)'}`);
-    console.error(`        upstream declares:       ${m.upstream || '(empty)'}`);
-  }
+// Node sets `process.argv[1]` to the absolute path of the script that
+// was actually run. Comparing it against this module's own resolved
+// path is the ESM equivalent of Python's `if __name__ == "__main__":` —
+// it's what lets the test file `import` this module for its parsing
+// function alone without ever triggering `main()` above. Running this
+// file directly (the normal CLI use, and what `npm run
+// check:upstream-licences` does) is unaffected: `resolve(process.argv[1])`
+// then equals this file's own path, so `isMainModule` is true exactly
+// as before.
+const isMainModule =
+  Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  main();
 }
-if (missingAck.length) {
-  console.error(`  ${missingAck.length} dep(s) with upstream licence but no ACKNOWLEDGEMENTS entry:`);
-  for (const m of missingAck) {
-    console.error(`    - ${m.kind} ${m.name}: upstream='${m.upstream}'`);
-  }
-}
-if (advisories.length) {
-  console.error(`  ${advisories.length} advisory normalisation match(es) (not blocking):`);
-  for (const a of advisories) {
-    console.error(`    - ${a.kind} ${a.name}: ack='${a.ack}', upstream='${a.upstream}'`);
-  }
-}
-
-console.error('\nFix by either:');
-console.error('  - Updating the ACKNOWLEDGEMENTS.md licence column to match upstream, or');
-console.error('  - Verifying upstream actually re-licensed (rare) and updating ACKNOWLEDGEMENTS.md + downstream notices.');
-process.exit(1);
