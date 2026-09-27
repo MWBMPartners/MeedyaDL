@@ -21,8 +21,21 @@
 # ============================================================
 # [graph] -- Dependency graph filtering
 # ============================================================
-# Exclude targets we don't build for to reduce false positives from
-# platform-specific transitive dependencies.
+# This section does the OPPOSITE of narrowing the check down. There is no
+# `targets = [...]` list here at all, so cargo-deny checks the dependency
+# graph for every platform Cargo knows about, not just the six we ship builds
+# for -- a vulnerable crate that only shows up on a platform we don't
+# currently build for would still be caught, rather than silently passing
+# because nobody told cargo-deny to look there.
+#
+# `all-features = true` does the same thing for optional Cargo features:
+# every optional feature across every dependency is turned on for the check,
+# not just the ones our own Cargo.toml happens to enable today. A dependency
+# that is only unsafe or unmaintained behind a feature flag is still caught.
+#
+# Checking more than we strictly build is the safe direction for a security
+# audit -- it can only ever find something extra, never miss something real
+# because the check was narrowed to match today's build matrix.
 #
 # @see https://embarkstudios.github.io/cargo-deny/checks/cfg.html
 [graph]
