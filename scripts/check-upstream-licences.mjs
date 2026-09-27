@@ -66,20 +66,29 @@
 //     catch that, and still doesn't. Don't treat a clean run of this
 //     script as proof those rows are correct.
 //
-// #1224: this script shares the companion script's `parseCargoDirectDeps`
-// function almost verbatim, so it shared the same blind spot — a
-// dependency declared only for one platform, inside a
+// #1224 / follow-up: this script used to share the companion script's
+// hand-rolled `parseCargoDirectDeps` regular-expression parser almost
+// verbatim, so it shared the same blind spot — a dependency declared
+// only for one platform, inside a
 // `[target.'cfg(target_os = "macos")'.dependencies]` table rather than
 // the plain `[dependencies]` table, was never read at all, so its
 // upstream licence string was never compared against
-// ACKNOWLEDGEMENTS.md's claim for it either. Fixed the same way as the
-// companion script — see the comment on parseCargoDirectDepsFromText
-// below. Reproduced in `scripts/test-check-acknowledgements.mjs`.
+// ACKNOWLEDGEMENTS.md's claim for it either. A Codex review of the
+// regex-based fix for that then reproduced two further faults inherent
+// to reading TOML with regular expressions (a comment/sub-table/quoted-
+// name/spacing shape the regex still missed, and a dotted-key line
+// counted as a dependency regardless of which `[section]` it actually
+// sat under) — see `scripts/lib/cargo-direct-deps.mjs` for the full
+// story. Both scripts now ask Cargo itself for the direct-dependency
+// name list (`cargo metadata --no-deps`) via that shared module, rather
+// than maintaining a second, necessarily incomplete TOML reader.
+// Reproduced in `scripts/test-check-acknowledgements.mjs`.
 
 import { execFileSync } from 'child_process';
 import { readFileSync, existsSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { readDirectRustDeps } from './lib/cargo-direct-deps.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
@@ -153,85 +162,6 @@ function parseAckLicences(path) {
 }
 
 const ackLicences = parseAckLicences(ACK_PATH);
-
-// Matches the header of a per-target dependency table, e.g.:
-//   [target.'cfg(target_os = "macos")'.dependencies]
-//   [target."cfg(target_os = \"macos\")".dependencies]
-//   [target.x86_64-pc-windows-msvc.dependencies]
-// Cargo requires the `cfg(...)` predicate to be quoted (it contains
-// parentheses, spaces, and an embedded double-quoted string), and TOML
-// allows either single or double quotes for that; a real target triple
-// like `x86_64-pc-windows-msvc` needs no quoting at all, because every
-// character in it is already a legal bare TOML key. The literal
-// `.dependencies]` at the end (a dot, not a hyphen, right before the
-// word) is what stops this from also matching a per-target
-// `.build-dependencies]` / `.dev-dependencies]` table — this script
-// deliberately doesn't read those (see parseCargoDirectDepsFromText).
-const TARGET_DEPS_HEADER =
-  /^\[target\.(?:'[^']*'|"(?:[^"\\]|\\.)*"|[A-Za-z0-9_.+-]+)\.dependencies\]$/;
-
-// Matches the same per-target table written as one dotted-key
-// assignment instead of a `[...]` header — valid TOML, e.g.:
-//   target.'cfg(target_os = "macos")'.dependencies.libc = "0.2"
-// Nothing in this repo's Cargo.toml uses this form today, but Cargo
-// genuinely accepts it, so a future edit could reintroduce the exact
-// blind spot #1224 fixed if this script only ever looked for the
-// `[...]` header shape.
-const TARGET_DEPS_DOTTED_KEY =
-  /^target\.(?:'[^']*'|"(?:[^"\\]|\\.)*"|[A-Za-z0-9_.+-]+)\.dependencies\.([A-Za-z0-9_-]+)\s*=/;
-
-/**
- * Parse direct dependency names out of Cargo.toml TEXT (not a path).
- * Kept separate from `parseCargoDirectDeps` below so a test can hand it
- * a small in-memory sample instead of needing a real file on disk —
- * see `scripts/test-check-acknowledgements.mjs`.
- *
- * Reads the plain `[dependencies]` table AND every per-target
- * `[target.<spec>.dependencies]` table, in either header form, plus the
- * dotted-key form (see TARGET_DEPS_HEADER / TARGET_DEPS_DOTTED_KEY
- * above). Deliberately does NOT read `[dev-dependencies]` or
- * `[build-dependencies]` — plain or per-target — because neither ships
- * inside the compiled binary, so neither needs its upstream licence
- * string checked against ACKNOWLEDGEMENTS.md; that was already this
- * script's scope before #1224, and the per-target fix does not widen
- * it. A dependency named in more than one table is only counted once.
- */
-export function parseCargoDirectDepsFromText(text) {
-  const lines = text.split('\n');
-  const deps = new Set();
-  let inSection = false;
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (line.startsWith('#')) continue;
-
-    // A dotted-key dependency line is a self-contained assignment — it
-    // doesn't live inside any `[section]` at all — so check for it
-    // before, and independently of, the section-tracking logic below.
-    const dotted = line.match(TARGET_DEPS_DOTTED_KEY);
-    if (dotted) {
-      deps.add(dotted[1]);
-      continue;
-    }
-
-    if (line.startsWith('[')) {
-      // Stay inside the plain `[dependencies]` table OR any per-target
-      // `[target.<spec>.dependencies]` table. We skip dev-dependencies
-      // and build-dependencies (plain or per-target) because those
-      // don't ship in the binary.
-      inSection = line === '[dependencies]' || TARGET_DEPS_HEADER.test(line);
-      continue;
-    }
-    if (!inSection || !line) continue;
-    const m = line.match(/^([A-Za-z0-9_-]+)\s*=/);
-    if (m) deps.add(m[1]);
-  }
-  return [...deps];
-}
-
-/** Direct Rust dependency keys from a Cargo.toml FILE PATH. */
-function parseCargoDirectDeps(path) {
-  return parseCargoDirectDepsFromText(readFileSync(path, 'utf8'));
-}
 
 /** Runtime npm deps from package.json (excludes devDependencies). */
 function parseNpmRuntimeDeps(path) {
@@ -410,15 +340,17 @@ function hasNodeModules() {
 
 // The real comparison only runs when this file is executed directly
 // (`node scripts/check-upstream-licences.mjs`), never when it's merely
-// `import`ed — e.g. by the test file, which only wants
-// `parseCargoDirectDepsFromText`. Without this guard, importing the
-// module for that one function would ALSO shell out to `cargo metadata`
-// against this machine's real dependency tree and call `process.exit()`
-// at the end — either of which would break a test importer, and the
-// `cargo metadata` call could itself fail the whole test run on a
-// machine where `cargo` isn't on PATH for an unrelated reason.
+// `import`ed. This module no longer exports a Cargo.toml parsing
+// function itself (that moved to `scripts/lib/cargo-direct-deps.mjs`,
+// which the test file imports directly), but the guard still matters:
+// without it, simply `import`ing this file for any reason would ALSO
+// shell out to `cargo metadata` against this machine's real dependency
+// tree and call `process.exit()` at the end — either of which would
+// break an importer that only wanted to reuse a helper, and the `cargo
+// metadata` call could itself fail the whole import on a machine where
+// `cargo` isn't on PATH for an unrelated reason.
 function main() {
-  const rustDeps = parseCargoDirectDeps(CARGO_TOML).filter((n) => !SKIP_RUST.has(n));
+  const rustDeps = readDirectRustDeps(CARGO_TOML).filter((n) => !SKIP_RUST.has(n));
   const npmDeps = parseNpmRuntimeDeps(PACKAGE_JSON).filter(
     (n) => !SKIP_NPM.has(n) && !isTauriNpmPackage(n),
   );
