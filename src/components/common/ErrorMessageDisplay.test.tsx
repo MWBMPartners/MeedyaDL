@@ -254,6 +254,26 @@ describe('ErrorMessageDisplay', () => {
     expect(body).not.toContain('SECRET');
   });
 
+  it('cleans the download link too, not only the message (Codex, review of 7edd178c)', async () => {
+    const rawLink = 'https://music.apple.com/us/album/test/123?token=SECRET123';
+    const cleanedLink = 'https://music.apple.com/us/album/test/123';
+    redactForPublicReportMock.mockImplementation((text: string) =>
+      Promise.resolve(text === rawLink ? cleanedLink : text),
+    );
+
+    render(<ErrorMessageDisplay message={REAL_GAMDL_BUG_MESSAGE} sourceUrl={rawLink} />);
+    fireEvent.contextMenu(screen.getByText(REAL_GAMDL_BUG_MESSAGE));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Report this bug to GAMDL'));
+    });
+
+    await waitFor(() => expect(openMock).toHaveBeenCalledTimes(1));
+    expect(redactForPublicReportMock).toHaveBeenCalledWith(rawLink);
+    const body = new URL(openMock.mock.calls[0][0]).searchParams.get('body') ?? '';
+    expect(body).toContain(cleanedLink);
+    expect(body).not.toContain('SECRET123');
+  });
+
   it('does not open anything when the cleaning step fails, and shows an error toast instead', async () => {
     redactForPublicReportMock.mockRejectedValueOnce(new Error('IPC bridge unavailable'));
 
