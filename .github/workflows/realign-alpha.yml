@@ -95,14 +95,31 @@ jobs:
           git push --force origin main:alpha
 
       - name: Summary
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          set -euo pipefail
+          # On a dry run the "Force-push main to alpha" step above is
+          # skipped entirely (its own `if:` guard), so nothing was pushed
+          # and alpha did not move. This used to print "alpha now points at
+          # the same commit as main" regardless -- true on a real run, but
+          # false on a dry run, which is the one time somebody is reading
+          # this summary specifically to find out what WOULD happen before
+          # doing it for real. Reporting a push that never happened as
+          # having happened is the kind of thing that leads someone to skip
+          # the real run, believing it already occurred.
+          if [ "$DRY_RUN" = "true" ]; then
+            RESULT="Dry run only — nothing was pushed. \`alpha\` was NOT changed."
+          else
+            RESULT="\`alpha\` now points at the same commit as \`main\`."
+          fi
           {
             echo "### Realign alpha → main"
             echo ""
             echo "- **Dry run:** \`${{ inputs.dry_run }}\`"
             echo "- **Source:** \`origin/main\`"
             echo "- **Target:** \`refs/heads/alpha\`"
-            echo "- **Result:** \`alpha\` now points at the same commit as \`main\`"
+            echo "- **Result:** $RESULT"
             echo ""
             echo "**Reminder:** remove the temporary admin bypass from the"
             echo "\`protected-stable-branches\` ruleset before any further work."

@@ -692,7 +692,23 @@ jobs:
           # Linux ARMv7 — for Raspberry Pi (32-bit Raspberry Pi OS)
           # Cross-compiled from x64 ubuntu-latest using gcc-arm-linux-gnueabihf.
           # --bundles deb rpm: Skip AppImage (same reason as ARM64 above).
-          # Produces: MeedyaDL_x.x.x_armhf.deb, MeedyaDL-x.x.x-1.armv7hl.rpm
+          #
+          # Produces, on disk, right after this build step (before the later
+          # rename): MeedyaDL_x.x.x_armhf.deb, MeedyaDL-x.x.x-1.armhfp.rpm --
+          # "armhf" and "armhfp" are Tauri's own bundler naming for 32-bit ARM,
+          # not a name this project chose. The "Upload ARMv7 artifacts" step
+          # further down in this file renames both to "armv7" before
+          # publishing, so the file a user actually downloads is
+          # MeedyaDL-x.x.x-1.armv7.rpm — never "armv7hl". A previous version
+          # of this comment named "armv7hl.rpm" here, which the code has never
+          # produced or matched; confirmed against the real assets on the
+          # published v1.13.0-alpha.74 release (27 Sept 2026), which carries
+          # MeedyaDL-1.13.0-alpha.74-1.armv7.rpm. The later step's own
+          # `*.armhfp.rpm` glob is matching this raw output correctly — if
+          # this comment and that glob ever disagree again, trust the glob and
+          # fix the comment, not the other way round: "fixing" the glob to
+          # look for "armv7hl" instead would silently stop this file being
+          # uploaded at all.
           - name: Linux (ARMv7)
             os: ubuntu-latest
             args: '--target armv7-unknown-linux-gnueabihf --bundles deb rpm'
