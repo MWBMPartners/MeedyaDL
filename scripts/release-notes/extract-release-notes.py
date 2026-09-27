@@ -257,8 +257,13 @@ def notes_for_lint(text: str) -> list[str]:
     2. the same with U+FE0F removed, spacing kept;
     3. the form a reader sees (_finish: U+FE0F removed, spaces squeezed).
 
-    Form 1 is what makes the gate never less strict than what is
-    published: the other two can only ADD findings. It was added after
+    Each form is also linted as the bullet the templates publish ("- "
+    in front): one rule looks for a technical "**(scope)**" prefix at the
+    start of a bullet, and without the "- " it never matched (Codex,
+    third re-review, 27 Sept; this gap was older than today's changes).
+
+    Form 1, as a bullet, is what makes the gate never less strict than
+    what is published: everything else can only ADD findings. It was added after
     Codex's second re-review (27 Sept): 21 U+FE0F characters between
     "decryption." and "Address" vanished from forms 2 and 3, bringing
     "Address" within the 20-character exception, while the published text,
@@ -275,7 +280,8 @@ def notes_for_lint(text: str) -> list[str]:
     """
     forms: list[str] = []
     for raw in _raw_notes(text):
-        for form in (raw.strip(), raw.replace("\ufe0f", "").strip(), _finish(raw)):
+        base = (raw.strip(), raw.replace("\ufe0f", "").strip(), _finish(raw))
+        for form in base + tuple(f"- {b}" for b in base):
             if form not in forms:
                 forms.append(form)
     return forms

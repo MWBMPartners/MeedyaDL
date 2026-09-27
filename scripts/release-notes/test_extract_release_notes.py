@@ -194,6 +194,8 @@ LINT_FORMS: list[tuple[str, str, list[str]]] = [
         [
             "Improved decryption." + " " * 21 + "Address display is clearer.",
             "Improved decryption. Address display is clearer.",
+            "- Improved decryption." + " " * 21 + "Address display is clearer.",
+            "- Improved decryption. Address display is clearer.",
         ],
     ),
     (
@@ -202,18 +204,61 @@ LINT_FORMS: list[tuple[str, str, list[str]]] = [
         [
             "Improved decryption." + "\ufe0f" * 21 + "Address display is clearer.",
             "Improved decryption.Address display is clearer.",
+            "- Improved decryption." + "\ufe0f" * 21 + "Address display is clearer.",
+            "- Improved decryption.Address display is clearer.",
         ],
     ),
     (
-        "one form when squeezing changes nothing",
+        "one form, plus its bullet, when nothing needs removing",
         "Release-Note: Downloads work.",
-        ["Downloads work."],
+        ["Downloads work.", "- Downloads work."],
+    ),
+]
+
+
+# End to end: every gap found on 27 Sept 2026 must be REFUSED by the real
+# linter once the gate's forms are handed to it — exactly what the Release
+# Note Gate does (extract-release-notes.py | lint-notes.py --trailer). The
+# gate runs this file first, so reopening any of these gaps fails the gate.
+_lint_spec = importlib.util.spec_from_file_location(
+    "lint_notes", Path(__file__).resolve().parent / "lint-notes.py"
+)
+assert _lint_spec and _lint_spec.loader
+_lint = importlib.util.module_from_spec(_lint_spec)
+_lint_spec.loader.exec_module(_lint)
+
+# (label, message, the error-tier rule the linter must report)
+GATE_REFUSES: list[tuple[str, str, str]] = [
+    (
+        "U+FE0F hiding an issue number at the end of a line",
+        "Release-Note: Fixed downloads (#123) \ufe0f",
+        "commit-speak-bare-issue-citation",
+    ),
+    (
+        "squeezed spaces bringing an exception into range",
+        "Release-Note: Improved decryption." + " " * 21 + "Address display is clearer.",
+        "mechanism-decrypt",
+    ),
+    (
+        "removed U+FE0F bringing an exception into range",
+        "Release-Note: Improved decryption." + "\ufe0f" * 21 + "Address display is clearer.",
+        "mechanism-decrypt",
+    ),
+    (
+        "a technical scope prefix, seen only as the published bullet",
+        "Release-Note: **(audio)** Downloads now finish correctly.",
+        "commit-speak-scope-prefix-bullet",
     ),
 ]
 
 
 def main() -> int:
     failures = 0
+    for label, message, rule in GATE_REFUSES:
+        found = _lint.lint_trailer_stream("\n".join(notes_for_lint(message)))
+        if not any(f.rule == rule and f.tier == "error" for f in found):
+            print(f"FAIL gate should refuse ({label}): {rule} not reported")
+            failures += 1
     for label, message, expected in LINT_FORMS:
         got = notes_for_lint(message)
         if got != expected:
@@ -236,7 +281,7 @@ def main() -> int:
             continue
         print(f"FAIL {label}: should have been refused, got {got!r}")
         failures += 1
-    total = len(CASES) + len(REFUSED) + len(LINT_FORMS)
+    total = len(CASES) + len(REFUSED) + len(LINT_FORMS) + len(GATE_REFUSES)
     if failures:
         print(f"{failures} of {total} cases failed.")
         return 1
