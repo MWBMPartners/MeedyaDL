@@ -54,7 +54,7 @@ on:
       dry_run:
         description: 'Print diagnostics without creating/updating issues'
         required: false
-        default: 'false'
+        default: false
         type: boolean
 
 permissions:
@@ -94,6 +94,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      # The ceiling is read from BOTH the branch this run checked out (the
+      # default branch, for the schedule) AND `alpha`, and the higher one is
+      # used. Two reasons, both found on 27 Sept 2026:
+      #
+      #   - The question this watcher answers is "has the engine released
+      #     something nobody here has checked yet?", and that checking always
+      #     lands on `alpha` first. `main` only catches up at the next stable
+      #     release. Comparing against `main` alone reported work already
+      #     done: the retired upstream-gamdl-watch.yml, which did exactly
+      #     that, opened #1189 ("GAMDL 3.8.5 is beyond MeedyaDL's tested
+      #     ceiling (3.7.4)") after alpha had already moved past 3.8.5.
+      #   - An engine that so far exists only on `alpha` (votify, until the
+      #     next stable release) has no section in `main`'s tool list at all,
+      #     so reading `main` alone failed every single day.
+      #
+      # If `alpha` cannot be fetched, the run fails rather than quietly
+      # comparing against the default branch alone: a watcher that cannot
+      # finish its check must never report "within the ceiling".
+      - name: Fetch alpha's tool list
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin alpha
+          git show FETCH_HEAD:src-tauri/tool-versions.toml > "$RUNNER_TEMP/alpha-tool-versions.toml"
+
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
@@ -114,6 +138,7 @@ jobs:
           ENGINE_DISPLAY_NAME: ${{ matrix.engine.display_name }}
           PYPI_PACKAGE: ${{ matrix.engine.pypi_package }}
           TOML_SECTION: ${{ matrix.engine.toml_section }}
+          CHECKED_OUT_REF: ${{ github.ref_name }}
         run: |
           python <<'PY'
           """Compare PyPI's latest release for this engine against our
@@ -166,17 +191,53 @@ jobs:
           pypi_package = os.environ["PYPI_PACKAGE"]
           toml_section = os.environ["TOML_SECTION"]
 
-          # 1. Read the ceiling from tool-versions.toml.
-          toml_path = pathlib.Path("src-tauri/tool-versions.toml")
-          try:
-              with toml_path.open("rb") as fh:
-                  config = tomllib.load(fh)
-              ceiling = config[toml_section]["maximum_tested_version"]
-              minimum = config[toml_section]["minimum_version"]
-              recommended = config[toml_section]["recommended_version"]
-          except (FileNotFoundError, KeyError) as exc:
-              print(f"::error::Failed to read tool-versions.toml [{toml_section}]: {exc}")
+          # 1. Read the ceiling from tool-versions.toml on BOTH branches
+          #    (see "Fetch alpha's tool list" above for why) and use the
+          #    higher one.
+          #
+          #    A file that cannot be read or parsed stops the run. A branch
+          #    whose file simply has no section for this engine is skipped
+          #    (the engine is not part of the app there yet); if NEITHER has
+          #    one, the run stops, because the matrix names an engine nobody
+          #    declared. A section that is there but missing a field also
+          #    stops the run: that is a broken file, not an absent engine.
+          checked_out_ref = os.environ.get("CHECKED_OUT_REF") or "checked-out branch"
+          sources = [
+              (checked_out_ref, pathlib.Path("src-tauri/tool-versions.toml")),
+              ("alpha", pathlib.Path(os.environ["RUNNER_TEMP"]) / "alpha-tool-versions.toml"),
+          ]
+          found = []
+          for branch, toml_path in sources:
+              try:
+                  with toml_path.open("rb") as fh:
+                      config = tomllib.load(fh)
+              except (OSError, tomllib.TOMLDecodeError) as exc:
+                  print(f"::error::Could not read tool-versions.toml from {branch}: {exc}")
+                  sys.exit(1)
+              section = config.get(toml_section)
+              if section is None:
+                  print(f"[{engine_display}] {branch}: no [{toml_section}] section (not part of the app there yet)")
+                  continue
+              try:
+                  found.append((
+                      branch,
+                      section["maximum_tested_version"],
+                      section["minimum_version"],
+                      section["recommended_version"],
+                  ))
+              except KeyError as exc:
+                  print(f"::error::tool-versions.toml on {branch} has a [{toml_section}] section with no {exc} field")
+                  sys.exit(1)
+
+          if not found:
+              print(f"::error::No branch declares [{toml_section}] in tool-versions.toml")
               sys.exit(1)
+
+          # Highest ceiling wins; on a tie, the checked-out branch (listed
+          # first) is kept, because max() keeps the first of equal items.
+          ceiling_branch, ceiling, minimum, recommended = max(
+              found, key=lambda row: parse_semver(row[1])
+          )
 
           # 2. Query PyPI for the latest release.
           pypi_url = f"https://pypi.org/pypi/{pypi_package}/json"
@@ -190,13 +251,16 @@ jobs:
 
           breach = parse_semver(latest) > parse_semver(ceiling)
 
-          print(f"[{engine_display}] Ceiling (from tool-versions.toml): {ceiling}")
-          print(f"[{engine_display}] Minimum (from tool-versions.toml): {minimum}")
-          print(f"[{engine_display}] Recommended (from tool-versions.toml): {recommended}")
+          for branch, branch_ceiling, _, _ in found:
+              print(f"[{engine_display}] Ceiling on {branch}: {branch_ceiling}")
+          print(f"[{engine_display}] Ceiling used (highest, from {ceiling_branch}): {ceiling}")
+          print(f"[{engine_display}] Minimum (from {ceiling_branch}): {minimum}")
+          print(f"[{engine_display}] Recommended (from {ceiling_branch}): {recommended}")
           print(f"[{engine_display}] Latest (from PyPI): {latest}")
           print(f"[{engine_display}] Breach: {breach}")
 
           emit("ceiling", ceiling)
+          emit("ceiling_branch", ceiling_branch)
           emit("minimum", minimum)
           emit("recommended", recommended)
           emit("latest", latest)
@@ -205,7 +269,7 @@ jobs:
           summary(
               f"## {engine_display} support window\n"
               f"- Minimum supported: `{minimum}`\n"
-              f"- Maximum tested: `{ceiling}`\n"
+              f"- Maximum tested: `{ceiling}` (highest across branches, from `{ceiling_branch}`)\n"
               f"- Recommended: `{recommended}`\n"
               f"- Latest on PyPI: `{latest}`\n"
               f"- **Breach**: {'YES' if breach else 'no'}\n"
@@ -239,6 +303,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CEILING: ${{ steps.detect.outputs.ceiling }}
+          CEILING_BRANCH: ${{ steps.detect.outputs.ceiling_branch }}
           MINIMUM: ${{ steps.detect.outputs.minimum }}
           RECOMMENDED: ${{ steps.detect.outputs.recommended }}
           LATEST: ${{ steps.detect.outputs.latest }}
@@ -267,7 +332,8 @@ jobs:
 
           \`${PYPI_PACKAGE}\` is now at **${LATEST}** on PyPI, but MeedyaDL's
           \`maximum_tested_version\` in \`src-tauri/tool-versions.toml\` is
-          still **${CEILING}**.
+          still **${CEILING}** — the highest on any branch checked (\`main\` and
+          \`alpha\`), read from \`${CEILING_BRANCH}\`.
 
           ## Support window
 
@@ -285,7 +351,7 @@ jobs:
           - [ ] Review the [${ENGINE_DISPLAY_NAME} ${LATEST} release notes](https://github.com/${UPSTREAM_REPO}/releases/tag/${LATEST}) — are any CLI flags removed, renamed, or defaults changed?
           - [ ] Check [upstream commits since v${CEILING}](https://github.com/${UPSTREAM_REPO}/compare/${CEILING}...main) for structural refactors (logging, output format, downloader module).
           - [ ] Run \`cargo test --lib services::${ENGINE_ID}_capabilities::\` to confirm no capability gate regressions.
-          - [ ] If safe to admit: bump \`maximum_tested_version\` + \`recommended_version\` in \`src-tauri/tool-versions.toml\` to \`${LATEST}\`.
+          - [ ] If safe to admit: bump \`maximum_tested_version\` + \`recommended_version\` in \`src-tauri/tool-versions.toml\` to \`${LATEST}\` on \`alpha\` (it reaches \`main\` with the next stable release).
           - [ ] If breaking: add a \`${ENGINE_DISPLAY_NAME}Feature\` capability gate (mirroring the existing GAMDL pattern in \`gamdl_capabilities.rs\`) before bumping the ceiling.
           - [ ] Write an audit doc under \`.github/audits/${ENGINE_ID}-v${LATEST}-audit.md\` summarising findings.
 
