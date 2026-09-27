@@ -5,9 +5,9 @@
  * @file ErrorMessageDisplay — truncated error text with tooltip + actions.
  *
  * Long download errors (notably GAMDL bug reports — see the
- * `"GAMDL bug — …"` prefix emitted by `download_queue.rs`) used to
- * truncate at the right edge of the History row with no way to read
- * the full text without resizing the window. This component:
+ * `GAMDL_BUG_MARKER` prefix emitted by the backend, described below)
+ * used to truncate at the right edge of the History row with no way to
+ * read the full text without resizing the window. This component:
  *
  * - Truncates the visible text to the configured number of lines via
  *   Tailwind `line-clamp-N`.
@@ -22,13 +22,18 @@
  * - Adds a right-click context menu with:
  *   - **Copy error message** (always)
  *   - **Report this bug to GAMDL** (only when the message looks like
- *     a known upstream defect — recognised via the `"GAMDL bug "`
- *     prefix that `download_queue.rs` emits). Opens the upstream
- *     repo's `issues/new` URL with the title and body pre-filled
- *     from the failed URL + the error text. The pre-fill is
- *     written from a normal-GAMDL-user perspective: no MeedyaDL
- *     branding, no "via MeedyaDL" attribution — upstream
- *     maintainers want a clean repro on bare GAMDL.
+ *     a known upstream defect — recognised via the exact
+ *     `GAMDL_BUG_MARKER` prefix; see {@link isGamdlBug}). Opens the
+ *     upstream repo's `issues/new` URL with the title and body
+ *     pre-filled from the failed URL + the error text, CLEANED first
+ *     via the `redact_for_public_report` backend command (issue
+ *     #1231 — the error text can carry the person's own account name
+ *     inside a file path, or a sign-in token inside a web address,
+ *     and this is going into a public issue on someone else's
+ *     repository). The pre-fill is written from a normal-GAMDL-user
+ *     perspective: no MeedyaDL branding, no "via MeedyaDL"
+ *     attribution — upstream maintainers want a clean repro on bare
+ *     GAMDL.
  *
  * Used by HistoryPage and QueueItem.
  */
@@ -44,6 +49,7 @@ import { ContextMenu } from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
 import { Tooltip } from './Tooltip';
 import { useUiStore } from '@/stores/uiStore';
+import { redactForPublicReport } from '@/lib/tauri-commands';
 
 export interface ErrorMessageDisplayProps {
   /** The error message to render. */
@@ -72,29 +78,50 @@ export interface ErrorMessageDisplayProps {
 }
 
 /**
+ * The exact prefix a backend message must start with to be recognised
+ * as describing a known, already-identified defect *in GAMDL itself*
+ * (not a content problem, and not something MeedyaDL got wrong).
+ *
+ * **Must stay byte-for-byte identical to `GAMDL_BUG_MARKER` in
+ * `src-tauri/src/utils/process.rs`.** Rust and TypeScript can't share
+ * a constant across the IPC boundary, so this is a deliberate
+ * duplicate — before it existed as a shared, named idea on both
+ * sides, this check looked for a prefix ("GAMDL bug", no dash) that
+ * no backend message actually started with, so the "Report this bug
+ * to GAMDL" option could never appear at all (issue #1231).
+ */
+const GAMDL_BUG_MARKER = 'GAMDL bug — ';
+
+/**
  * Detects messages that look like a known upstream GAMDL defect.
- * The "GAMDL bug " prefix is emitted by MeedyaDL's
- * `download_queue.rs` when a specific upstream pattern matches —
- * see `process::is_mv_cover_template_bug_error` and adjacent
- * classifiers. Future GAMDL-bug detectors should keep using this
- * prefix so this UI surfaces them automatically.
+ * See {@link GAMDL_BUG_MARKER}. Future GAMDL-bug detectors in the
+ * backend should keep using that exact prefix so this UI surfaces
+ * them automatically.
  */
 function isGamdlBug(message: string): boolean {
-  return message.startsWith('GAMDL bug');
+  return message.startsWith(GAMDL_BUG_MARKER);
 }
 
 /**
  * Build a `https://github.com/glomatico/gamdl/issues/new?…`
  * URL with the title + body pre-filled.
  *
+ * `message` here must already be the CLEANED text — see
+ * `handleReportToGamdl` below, which runs it through the backend's
+ * `redact_for_public_report` command before ever calling this
+ * function. This function does no cleaning of its own; it only
+ * shapes text into a title + Markdown body.
+ *
  * No MeedyaDL branding by design — the upstream maintainer should
  * see a normal GAMDL-user bug report. The body is a
  * markdown-friendly template the user can edit before submitting.
  */
 function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
-  // Strip the "GAMDL bug — " prefix so the title reads like a
-  // user-authored summary, not MeedyaDL's classifier output.
-  const stripped = message.replace(/^GAMDL bug\s*[—\-:]\s*/, '');
+  // Strip the marker so the title reads like a user-authored summary,
+  // not MeedyaDL's classifier output.
+  const stripped = message.startsWith(GAMDL_BUG_MARKER)
+    ? message.slice(GAMDL_BUG_MARKER.length)
+    : message;
   // Take the first sentence (or first ~80 chars) for the title.
   const firstSentence = stripped.split(/(?<=[.!?])\s/)[0] ?? stripped;
   const title = firstSentence.length > 80
@@ -158,7 +185,22 @@ export function ErrorMessageDisplay({
   }, [addToast, message]);
 
   const handleReportToGamdl = useCallback(async () => {
-    const url = buildGamdlIssueUrl(message, sourceUrl);
+    // Clean the text BEFORE it is ever placed in a URL — the error
+    // message can carry the person's own account name inside a file
+    // path, or a sign-in token inside a web address, and this is
+    // going into a pre-filled issue on a public, third-party GitHub
+    // repository (glomatico/gamdl, not one MeedyaDL controls). If the
+    // cleaning step itself fails for any reason, the raw message must
+    // never be sent instead — the whole point is that unclean text
+    // never reaches this link (#1231).
+    let cleaned: string;
+    try {
+      cleaned = await redactForPublicReport(message);
+    } catch {
+      addToast('Could not prepare the report safely', 'error');
+      return;
+    }
+    const url = buildGamdlIssueUrl(cleaned, sourceUrl);
     try {
       await openExternal(url);
     } catch {

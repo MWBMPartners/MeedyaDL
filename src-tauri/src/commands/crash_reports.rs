@@ -15,6 +15,8 @@
 //   - `export_crash_report` -- Export as formatted Markdown
 //   - `log_frontend_error` -- Save a frontend error as a crash report
 //   - `get_github_issue_url` -- Build a pre-filled GitHub new-issue URL
+//   - `redact_for_public_report` -- Clean free text before it goes into
+//     a pre-filled issue on a THIRD PARTY's public tracker (#1231)
 
 use std::collections::HashMap;
 use tauri::AppHandle;
@@ -155,4 +157,50 @@ pub fn build_diagnostic_bundle(
     input: crate::services::diagnostic_bundle::DiagnosticBundleInput,
 ) -> Result<crate::services::diagnostic_bundle::DiagnosticBundle, String> {
     crate::services::diagnostic_bundle::build_diagnostic_bundle(&app, input)
+}
+
+/// Cleans a piece of free text before it is placed into a pre-filled
+/// issue on a THIRD PARTY's public GitHub repository — today that
+/// means `glomatico/gamdl` (issue #1231, "Report this bug to GAMDL" in
+/// the History/Queue error display).
+///
+/// A download error's text routinely carries a file path, and on most
+/// computers a file path carries the person's own account name (for
+/// example `/Users/<name>/Music/...`). It can also carry a web address
+/// whose query string embeds a sign-in token (the wrapper account
+/// address is the recurring example in this codebase). Both are the
+/// exact two shapes MeedyaDL already knows how to clean before a crash
+/// report reaches a public GitHub issue —
+/// [`crate::services::diagnostic_bundle::redact_path_usernames`] and
+/// [`crate::services::crash_report_service::redact_urls_in_text`] — so
+/// this reuses them rather than writing a second cleaner in
+/// TypeScript, which the maintainer's standing rule against duplicate
+/// logic across the IPC boundary rules out anyway.
+///
+/// Order matters a little: usernames are stripped first (the same
+/// order `build_github_issue_url`'s crash-report path already uses),
+/// then URLs — a path never contains a `?` query string for the URL
+/// pass to catch, and a URL never contains `/Users/<name>/` for the
+/// username pass to catch, so in practice the order is safe either
+/// way; kept identical to the existing precedent so a reader comparing
+/// the two call sites sees the same shape.
+///
+/// This is deliberately narrow: it does not touch settings values, and
+/// it does not attempt to find every kind of secret a message could in
+/// principle carry — only the two shapes named above. A message with
+/// neither comes back byte-for-byte unchanged.
+///
+/// Returns the cleaned text directly (not wrapped in `Result`) because
+/// neither redaction step has a failure mode of its own — both are
+/// pure string transforms over caller-supplied text. The frontend
+/// still wraps its call in a try/catch: an IPC call can fail for
+/// reasons that have nothing to do with this function's own logic
+/// (the WebView losing its bridge, for instance), and the caller
+/// treats that the same way it would treat a real failure here — by
+/// refusing to open the link with unredacted text, not by falling
+/// back to sending the raw message.
+#[tauri::command]
+pub fn redact_for_public_report(text: String) -> String {
+    let without_usernames = crate::services::diagnostic_bundle::redact_path_usernames(&text);
+    crash_report_service::redact_urls_in_text(&without_usernames)
 }

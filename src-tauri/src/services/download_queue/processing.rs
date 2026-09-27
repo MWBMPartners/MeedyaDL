@@ -6321,15 +6321,13 @@ pub(crate) async fn run_download_with_events(
         // is preserved — only the per-track music-video frame
         // thumbnail is lost.
         if process::is_gamdl_mv_cover_template_bug(&combined) {
-            return Err(format!(
-                "Music video cover-art bug in GAMDL — {soft_errors} track(s) \
-                 skipped. Audio for those tracks did not download. This is \
-                 an upstream bug (Apple returns 400 Bad Request because \
-                 GAMDL sends literal `{{w}}x{{h}}` placeholders instead of \
-                 real dimensions). The album cover is still attached \
-                 separately during MeedyaDL's enrichment pass. Please \
-                 report at https://github.com/glomatico/gamdl/issues."
-            ));
+            // The message text lives in one place —
+            // `process::gamdl_mv_cover_template_bug_message` — so a test
+            // can pin the exact wording (including the `GAMDL_BUG_MARKER`
+            // prefix that lets the History/Queue error display offer
+            // "Report this bug to GAMDL" for it, #1231) without
+            // duplicating the sentence here.
+            return Err(process::gamdl_mv_cover_template_bug_message(soft_errors));
         }
 
         // Storefront-mismatch detection (#666). The friendly soft-error
