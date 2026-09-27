@@ -55,7 +55,10 @@ USAGE
               it as one document, with the workflow-appended "Choose your
               download" footer stripped first (same `_strip_footer` used
               for committed files) so the footer's own boilerplate never
-              trips the denylist. Used by
+              trips the denylist. The collapsed "Full technical changelog
+              (for developers)" section is blanked too: it is the commit
+              list, technical on purpose, and the same text as the public
+              CHANGELOG.md. Used by
               `.github/workflows/release-body-audit.yml` to check bodies
               after they are already public, since nothing else inspects
               a body post-publication.
@@ -102,6 +105,18 @@ ALLOWLIST = {
     "MusicKit", "LRCGET", "LRCLIB", "YouTube", "SoundCloud", "AppImage",
     "ChromeOS", "VoiceOver", "NVDA", "MacBook", "iTunes", "iPlayer",
     "MusicBrainz", "AcoustID", "ReplayGain", "Raspberry Pi", "Dolby", "PyPI",
+    # Added 27 Sept 2026, before release-body-audit.yml first runs from
+    # main: measured over the 40 newest published pages, these four were
+    # the ONLY capitalisation warnings in any plain-English part (25 pages),
+    # and each is a name a reader knows, not a leak. MediaInfo is one of the
+    # five helper tools; MacPorts is a package manager the app recognises;
+    # PlayReady is the second way of unlocking protected tracks (a setting);
+    # AppleMusic is the literal value the {platform} file-name template
+    # produces, which the notes quote so people can type it. Left out, the
+    # audit's first run would have opened a tracking issue for 25 pages
+    # with nothing wrong, and a check that cries wolf on its first day
+    # teaches everyone to ignore it.
+    "MediaInfo", "MacPorts", "PlayReady", "AppleMusic",
 }
 
 # A backticked span that is exactly a bare `{identifier}` template
@@ -245,6 +260,48 @@ def _strip_footer(lines: list[str]) -> list[str]:
     return lines
 
 
+# The collapsed developer section release.yml adds to prerelease pages
+# (see its "Full technical changelog (for developers)" echo lines).
+_TECHNICAL_CHANGELOG_MARKER = "<details><summary>Full technical changelog (for developers)</summary>"
+
+
+def _strip_technical_changelog(lines: list[str]) -> list[str]:
+    """Blank out the collapsed "Full technical changelog (for developers)"
+    section of a published page, from its opening line through the next
+    line that is exactly `</details>`. Blanked rather than removed, so the
+    line numbers in any finding still match the published page.
+
+    Used by --live only. That section is the list of commit subjects,
+    written for developers on purpose and the same text as the public
+    CHANGELOG.md, so commit-style wording there is expected, not a
+    regression. The audit's job is the plain-English part a reader of the
+    updater sees. Measured on 27 Sept 2026 over the 40 newest pages:
+    every error-tier finding on a prerelease page came from this section.
+    (The same scope was used when 34 published pages were corrected for
+    #1226: the plain-English part only.)
+
+    If the opening line is found but no closing `</details>` follows, the
+    lines are left as they are, so a changed template makes the audit
+    louder, never quieter.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().startswith(_TECHNICAL_CHANGELOG_MARKER):
+            end = next(
+                (j for j in range(i + 1, len(lines)) if lines[j].strip() == "</details>"),
+                None,
+            )
+            if end is None:
+                return out + lines[i:]
+            out.extend([""] * (end - i + 1))
+            i = end + 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return out
+
+
 def _is_allowlisted_camelcase(matched: str) -> bool:
     return matched in ALLOWLIST
 
@@ -256,7 +313,12 @@ def _is_allowlisted_backtick(matched: str) -> bool:
     return bool(_TEMPLATE_PLACEHOLDER_RE.match(inner))
 
 
-def lint_text(text: str, path: str, strip_footer: bool = False) -> list[Finding]:
+def lint_text(
+    text: str,
+    path: str,
+    strip_footer: bool = False,
+    strip_technical: bool = False,
+) -> list[Finding]:
     """Run every rule against `text`, returning findings in
     error-then-warning, file-order sequence. `path` is only used for
     reporting — pass a synthetic label like "trailer" for stdin input."""
@@ -275,6 +337,8 @@ def lint_text(text: str, path: str, strip_footer: bool = False) -> list[Finding]
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     if strip_footer:
         lines = _strip_footer(lines)
+    if strip_technical:
+        lines = _strip_technical_changelog(lines)
 
     findings: list[Finding] = []
     for tier, ruleset in _TIERED_RULESETS:
@@ -337,7 +401,11 @@ def main(argv: list[str]) -> int:
         # the same way a committed file is — the workflow-appended
         # "Choose your download" section is not authored content.
         stdin_text = sys.stdin.read()
-        all_findings.extend(lint_text(stdin_text, "live", strip_footer=True))
+        # The developer changelog section is blanked too (see
+        # _strip_technical_changelog): the audit checks what readers see.
+        all_findings.extend(
+            lint_text(stdin_text, "live", strip_footer=True, strip_technical=True)
+        )
     else:
         if not file_args:
             print("lint-notes.py: no FILE arguments given (and --trailer/--live not set)", file=sys.stderr)

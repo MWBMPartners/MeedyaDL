@@ -244,6 +244,23 @@ jobs:
                   "event": "schedule",
               },
               {
+                  # Added 27 Sept 2026, in the same change that first brings it to
+                  # main (#1219). It had never run at all until then, which is
+                  # exactly the silence this list exists to catch; adding the file
+                  # without watching it would have left the next silence unnoticed
+                  # too. Daily schedule, so three days without a scheduled run is
+                  # already two missed.
+                  "path": ".github/workflows/release-body-audit.yml",
+                  "why": "The only check that reads release pages after they are "
+                         "published. The in-app updater shows that text to users, and "
+                         "nothing else notices if it regresses to commit-speak or starts "
+                         "naming internal detail.",
+                  "fail_threshold": 2,
+                  "max_age_days": 3,
+                  "require_on": ["main"],
+                  "event": "schedule",
+              },
+              {
                   "path": ".github/workflows/release-note-gate.yml",
                   "why": "Blocks a release PR that has no plain-English release notes. The "
                          "in-app updater shows that text to users.",
