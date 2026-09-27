@@ -135,6 +135,23 @@ f0dc9500→c0637c57, fc0b3698→b3cc89ae; #1227's merge on alpha is now 357b67fe
   commits, and PR #1230. The b2 round on 46605372 was cut off, so by the rule it has no verdict:
   include it.
 
+**Maintainer decisions, 27 Sept (about 19:30) — final:**
+1. #1241 (fixes on alpha that still run from main's old copies): **a second small `ci:` PR to
+   main after #1230 merges** — not the promotion, not grown into #1230.
+2. #1231 (GAMDL bug-report option): **clean the text and connect the option, in this batch.**
+3. Stable pages 1.10.4-1.10.6: **write plain-English notes files and add them to #1230, so the
+   audit applies them itself** on its first run after merging.
+
+**Committed since the checks (all pushed, none Codex-reviewed yet):** `c2e10c32` (#1218 six small
+items), `ef9a5941` (#1225 gaps: ffprobe checked, 30 s limit on every install version read,
+kill_on_drop, mirror-checksum text, honest Reinstall wording), `3e17eb36` (#1215: wrapper_url
+out of health messages / settings-change log (now nested) / settings EXPORT; "open output
+folder" only opens a real folder; false kill_on_drop comments). Issue comments posted on #1215,
+#1216 (all listed items done — close on merge), #1218, #1219, #1225.
+**Running now (watchdog `bosc8mwl2`):** a builder for #1231; a writer drafting
+`.github/release-notes/v1.10.4.md`-`v1.10.6.md` (I must check every line against its commits
+before they go into #1230 — they will be applied to PUBLISHED pages).
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
