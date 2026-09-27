@@ -51,10 +51,23 @@ bundled where small (its allowance fits roughly one small round per window).
   sentence replaced, each read back; a re-scan of every release finds no identifier or
   "sign-in token" in any plain-English part. Note for the combined check: the gate's tests
   only run for feat/fix/perf PR titles (the step exits early otherwise).
-- **#1224 BUILDING** (sonnet agent; scripts/check-acknowledgements.mjs,
-  check-upstream-licences.mjs, a test, maybe package.json). **#1223 BUILDING** (sonnet
-  agent; GeneralTab.tsx switch bound to `abort_queue_confirm`, DownloadQueue.tsx text, help).
-  Agents never commit; I review their diff, run checks, commit one per issue.
+- **#1224 `83cbe566`** (regex reader of per-target Cargo.toml tables + test run by the
+  Licences workflow). **Codex (b1): 2 real findings** — valid TOML forms still missed
+  (comment after header, sub-tables, quoted names…) and a false positive (a dotted key under
+  `[package.metadata]`). **REBUILDING** (sonnet agent) on `cargo metadata --no-deps` — Cargo's
+  own reading — instead of regexes; the regex approach is rejected.
+- **#1223 DONE `0ae7a6ae`** — "Confirm before aborting the queue" switch; Codex (b1): clean.
+- **#1226 `491776c4`** — Codex (b1): clean.
+- **#1222 BUILDING** (sonnet agent: `savedSettings` in settingsStore, StatusBar, locales).
+  **#1225 BUILDING** (opus agent: keep a working copy until the new one runs; Reinstall
+  button on every row; help/tools.md). Agents never commit; I review, run checks, commit.
+- **Main PR (#1221/#1219) — facts gathered:** workflows on a push to main with no path filter
+  are changelog, ci, codeql, forward-port-security, release-note-gate, release-please. Only
+  release-please leads towards a release, and in release-please-config.json `ci` is a HIDDEN
+  type, so a squash-merged `ci:`-titled PR cannot open a release PR, tag or build; main has
+  nothing unreleased since v1.10.8 (only two `[skip ci]` doc commits). workflow_run
+  followers: dependabot-auto-merge, preserve-release-pr-body, workflow-health — none
+  packages. **Plan: squash-merge with a `ci:` title.**
 - **#1222 PLAN:** add `savedSettings` to settingsStore (set on load, on successful save from
   the pre-save snapshot, and in syncSidebarCollapsed / syncAfterQueueOnce / syncSaved; NOT by
   updateSettings or resetToDefaults); StatusBar reads the saved after_queue_once /
