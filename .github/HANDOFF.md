@@ -106,6 +106,35 @@ and open-from-Finder routes (and Import/Finder failures are silent). Old commit 
 comments map: 435abebd→7fa5d56d, c04bc6ff→8494fbf6, 7e9f4695→235baa27, b0078997→e76986e1,
 f0dc9500→c0637c57, fc0b3698→b3cc89ae; #1227's merge on alpha is now 357b67fe.
 
+**Combined verification, all four checks back (about 19:45):** results and what was done —
+- **#1216**: all 10 listed items now done — the last two in `a93d4038` (backend `from_url` reads
+  the host, not text anywhere in the link; named component constants) plus stale text. Stays
+  open until this batch merges. Follow-ups raised: #1235 (actions that report success when the
+  backend refused / queued nothing), #1236 (clipboard banner ignores notification style),
+  #1237 (Save after a failed first load writes placeholder + version 0); #1233 widened.
+- **#1217**: 8 of 9 done; stays open until #1231 (GAMDL bug-report: privacy choice + option can
+  never appear) is decided. Follow-ups #1231-#1234; #1220 widened. Comment posted.
+- **#1218**: many fixes exist on alpha but still run from MAIN's old copies → #1241 (needs the
+  maintainer: promotion vs a second small PR to main). Audit false alarms fixed BEFORE #1230
+  merges: `c47168b3` (work) / `65f35e4d` (#1230) — --live blanks the developer changelog and
+  allows four product names; the first run will flag exactly the 3 real pages (stable
+  1.10.4-1.10.6, raw headings, no curated file); release-body-audit added to workflow-health.
+  #1242 (audit self-tests and release-page reader unrun/untested). #856 and #1162 commented
+  (1.10.8 stable still opens developer access with an empty passphrase — low harm).
+- **#1215**: listed findings #1, #2, #4, #6, #8 fixed; #3, #5, #7, #9 partly. Follow-ups #1238
+  (Cancel ignores music videos / running extra downloads), #1239 (Spotify errors reduced to an
+  exit code), #1240 (smaller hardening). Its body's review-status paragraph is out of date.
+- **Building now (three agents, watchdog `bjs2cm6ip` on their real files):** A = #1225 gaps
+  (ffprobe checked with ffmpeg; MP4Box update routes get the 30 s limit; false "mirror checksum
+  verified" text); B = #1215 #3 (wrapper_url still in wrapper-v2 health messages and missing from
+  REDACTED_FIELDS), door beside #2 ("open output folder" must be a folder), false kill_on_drop
+  comments; C = #1218 small items (ARMv7 comment, deny.toml comment, cleanup script on Linux,
+  realign dry-run message, stale line reference, pr-security "hard gates" wording).
+- **Codex:** wake-up at 21:31 (`bro3fvxw1`). Its round must cover everything since `46605372`:
+  2fb86676, 69dc951d, 9cf3fdfa, c2731d7b, c9785d7a, a93d4038, c47168b3, the three builders'
+  commits, and PR #1230. The b2 round on 46605372 was cut off, so by the rule it has no verdict:
+  include it.
+
 **Still to do after the main PR:** combined verification of #1215-#1218 + #1221-#1226; the
 PR to alpha for this batch (rebase-merge when green; watch the alpha release); a memory note
 on the history rewrite; a follow-up issue for "SAFETY:" labels on the two `unsafe` blocks in
