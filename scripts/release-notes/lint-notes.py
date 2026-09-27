@@ -283,15 +283,30 @@ def _strip_technical_changelog(lines: list[str]) -> list[str]:
     If the opening line is found but no closing `</details>` follows, the
     lines are left as they are, so a changed template makes the audit
     louder, never quieter.
+
+    Two more shapes are handled the same careful way (Codex, review of
+    #1230): a section opened AND closed on its opening line is that one
+    line only; and if another collapsed section starts before this one
+    closes, the layout is not the one this was written for, so nothing
+    more is blanked. Before, both let the search run on to a LATER
+    `</details>` and blank the plain-English text in between.
     """
     out: list[str] = []
     i = 0
     while i < len(lines):
-        if lines[i].strip().startswith(_TECHNICAL_CHANGELOG_MARKER):
-            end = next(
-                (j for j in range(i + 1, len(lines)) if lines[j].strip() == "</details>"),
-                None,
-            )
+        stripped = lines[i].strip()
+        if stripped.startswith(_TECHNICAL_CHANGELOG_MARKER):
+            if "</details>" in stripped[len(_TECHNICAL_CHANGELOG_MARKER):]:
+                out.append("")
+                i += 1
+                continue
+            end = None
+            for j in range(i + 1, len(lines)):
+                if lines[j].strip() == "</details>":
+                    end = j
+                    break
+                if "<details" in lines[j]:
+                    break
             if end is None:
                 return out + lines[i:]
             out.extend([""] * (end - i + 1))
