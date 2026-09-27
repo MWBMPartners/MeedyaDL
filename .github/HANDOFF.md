@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-24 (evening, Codex catch-up done) — see ★★★★ LATEST below
-**Working branch:** `work/after-1.10.8` (from `alpha` @ `0f552a71`, alpha.71). It now holds the reopened-issues batches 1 and 2, the whole GAMDL 3.9.1 batch (commit `17774965`), and all ten areas of the full review of the whole codebase with most of their findings fixed (up to `01ef49f5`). **No PR yet** — one goes to `alpha` when the maintainer says so, and not before Codex has reviewed what it has not seen.
+**Last updated:** 2026-09-27 (afternoon) — see ★★★★ LATEST below
+**Working branch:** `work/after-alpha-73` (from `alpha` after v1.13.0-alpha.73). Both earlier PRs are merged: #1227 (the whole `work/after-1.10.8` body of work, merge commit) and #1228 (release-note check follow-up, rebase). **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
-**Channel versions:** `main` **1.10.8** (released 22 Sept) · `alpha` **1.13.0-alpha.71** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 15:54 on 23 Sept.
+**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.73** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at 16:30 on 27 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,58 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-24 (midday): batch 5 Codex round 1 acted on; batch 4 on round 8
+## ★★★★ LATEST — 2026-09-27: history rewrite done and verified; Codex owes two small rounds
+
+> **PICK UP HERE.**
+
+**The history rewrite (maintainer-approved, dry run first).** The maintainer ran the push
+script by hand on 25 Sept (Claude Code's permission check had blocked Claude from doing it);
+it ended 18:50:48 UTC and restored Actions (`enabled, all`) and the branch ruleset (`active`).
+Checked on 27 Sept, against a fresh copy of GitHub:
+- **No name left:** 10,111 file versions, 3,338 commits, 317 tags scanned — the only matches
+  are the French verb in `help/fr/keyboard-shortcuts.md` and an older note below that
+  mentions it. No commit message, author, committer or tag text has the name or the personal
+  email. Old commit IDs quoted in commit messages were rewritten to the new IDs too.
+- **Nothing ran during the push:** the only workflow runs since 17:30 UTC on 25 Sept are the
+  two scheduled daily Workflow Health runs (26 and 27 Sept), both green.
+- **Releases and updater intact:** all 289 releases still have their tag; alpha.73 (22
+  assets) and 1.10.8 (20) whole; `latest.json` 12 keys all signed; update files download;
+  `releases/latest/download/latest.json` answers 200.
+- **Cannot be reached by us:** the one fork, and old commits still viewable on GitHub's 535
+  closed pull-request pages until GitHub Support purges them (a draft request is in the
+  maintainer report of 27 Sept; not yet sent — the maintainer's call).
+- **Side effect, expected:** `.claude/settings.json` and `.claude/settings.local.json` now
+  hold `/Users/salem874/...` paths, which do not exist on the maintainer's Mac, so those
+  saved Claude Code permissions no longer match (more permission prompts). Nothing else.
+
+**This Mac re-synced (27 Sept).** First, the whole old history was saved and verified as
+`…/GitHub/MeedyaSuite/MeedyaDL-old-history-backup-2026-09-25.bundle` (327 MB, 366 refs,
+OUTSIDE the repo; the temporary backup made at the rewrite was lost when `/private/tmp` was
+cleared). It still contains the real name — local only; delete it after about a week if
+nothing went wrong. Then: tags force-updated to the rewritten ones (317) and the three local
+`backup/*` tags dropped; `work/after-alpha-73`, `alpha`, `main`, `release-candidate` moved to
+GitHub's versions; 13 stale local branches deleted (every one checked first — its changes are
+on a release branch or superseded); 12 stale `refs/remotes/pr/*` copies removed; old objects
+cleared. The local copy now scans exactly like GitHub. It is the only MeedyaDL clone on this
+Mac. **Every other clone anywhere must be re-cloned**; pushing an old clone would put the old
+history back.
+
+**Codex still owes (after the rewrite, new IDs):**
+1. **Re-review of the four release-note fix commits** — old `9d7671ba` / `5093f3e3` /
+   `c1e5c83a` / `a039cdff`, now `4e3a1943` / `6c704133` / `74e23811` / `cea75308` on alpha.
+   **RUNNING** (27 Sept ~16:30, prompt `/private/tmp/claude-501/codex/r16-prompt.txt`,
+   output `r16.out` beside it; background command + `~/.claude/bin/watchdog.sh quiet` on the
+   output, 45-min cap). `/private/tmp` can be cleared by a restart — if these files are gone,
+   rewrite the prompt from this note.
+2. **Round B — wording** (help/tools.md "Keeping the tools up to date" onwards; the
+   Updates-page messages in `update_checker.rs` — `gate_before_comparing`'s unknown-owner
+   arm, `could_not_run_reason`, `unreadable_version_reason`; the Abort Queue text in
+   `DownloadQueue.tsx`). Never run yet. Codex manages about ONE small round per window.
+Fixes from either go on `work/after-alpha-73` → one small PR to alpha.
+
+---
+
+## Previous — 2026-09-24 (midday): batch 5 Codex round 1 acted on; batch 4 on round 8
 
 > **PICK UP HERE.** The section below this one is still the best starting point if you
 > know nothing; this one records what changed since.
