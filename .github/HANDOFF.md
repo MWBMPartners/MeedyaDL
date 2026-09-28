@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 04:30) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 05:30) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -181,6 +181,27 @@ on PRs to / pushes to main.
 - **Current pin for every repo: core `968d820`** (all builders told). PHP builder is fixing the
   nine findings (`brief-revision-3.md`); Rust and MeedyaConverter builders have revision 3.
 - My revision-2 note said "43" stability checks; correct is 35 (by revision 3, 36).
+
+**Progress (about 05:30, 28 Sept):**
+
+- **Current pin: core `f2e106a`** (268 cases; `"error": true` refusal cases added after the
+  stand-in review of `968d820` found refusals untestable — the PHP then wrote
+  `Film.en.1000000000.srt` and still passed). All builders told.
+- **Pushed (own branches, NOT yet reviewed — all go into the Codex catch-up after 07:33):**
+  MeedyaPlayer `ef4b886` (one commit: copies, first CI workflow, pointers, ADR 0012, comments on
+  #7 #12 #3); MeedyaSubtitler `58d8f1b` (5 commits: `docs/`, copies, first CI workflow, pointers,
+  comments on #6 #14 #8 #5); dev-team plugin `79a2c20` + `0c25209` (safety rework; new
+  `features.handoff-file` switch that writes no `.dev-team/HANDOFF.md` at all — this can close
+  MeedyaDL's own `.dev-team/config.yml` caveat 2 once released).
+- **Real name:** MeedyaPlayer's branch had 9 local commits; three extended handoff lines carried the
+  maintainer's first name. Fixed to `Salem874` and the branch folded into ONE commit BEFORE any push
+  (soft reset, nothing lost), so the name never reached GitHub from this work. PRE-EXISTING
+  occurrences in both repos (e.g. MeedyaPlayer `.claude/HANDOFF.md` lines 48 and 51, and other
+  notes) were already pushed long before this work; not touched — reported to the maintainer.
+- **TRAP:** every scratch clone's branch was cut with `checkout -B x origin/theirs`, so its upstream
+  pointed at the other session's working branch — a bare `git push` would have landed there.
+  Caught before any push; upstreams removed in converter/manager/netplayer/ilyricsdb/ihymns;
+  always push with `git push -u origin <ours>:<ours>`.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
