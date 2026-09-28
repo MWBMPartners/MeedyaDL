@@ -848,6 +848,28 @@ on PRs to / pushes to main.
   - **N3:** stale hook comments. **N4:** Prettier formatting. **N5:** an older NUL-to-GAMDL case.
   - **All are to be fixed. Round 5 builder running** (Sonnet, `brief-meedyadl-r5.md`, branch `r5` in the builder clone), with a watchdog on it.
   - **Decision on M3, binding on whoever opens the pull request:** do not rewrite pushed commits. **This branch is squash-merged**, and the pull request text carries curated Release-Note lines that describe changes against the last released build. The commit trailers on `f7a63362`, `22927718` and `c28a0fb5` are not accurate and must not be copied into the notes. From now on, builders write `Release-Note: none` for fixes to anything only this branch introduced.
+- **Core revision-9 stand-in review: 1 High, 4 Medium, 8 Low.**
+  - **H1 (High, already present in revision 8):** on a FRAGMENTED M4A, a tag write returns Ok, but ffmpeg can no longer decode the file. The fragments moved and their offsets did not. The check compared `ilst` only, so it did not see this.
+  - **M1:** when `meta{hdlr}` has no `ilst`, the save overwrites `hdlr`. The tags are then invisible to Apple and ffmpeg.
+  - **M2:** language frames that sit only in a LATER ID3 tag or chunk are not caught.
+  - **M3:** a crafted file with 32,000 atoms makes the comparison take 129 s. The work grows with the square of the atom count.
+  - **M4:** "exactly as asked" was measured against lofty's own conversion of the value. So `TrackNumber "70000"` destroys the track number and reports Ok.
+  - **Low:** the error messages, what a copy-then-rename loses, a temporary-file race, a refusal message that shows identical "before" and "after", the docs, and 9 planted faults that no test caught.
+  - **Accepted refusal, wider than I thought:** it also reaches any file whose disc number mutagen wrote (a 6-byte `disk` atom: GAMDL, Picard and beets downloads).
+  - **Decisions for revision 10 (`brief-revision-10.md`):**
+    - Refuse fragmented files.
+    - Check the WHOLE saved copy: the audio bytes are identical; every `stco`/`co64` offset moves by exactly the right amount; everything else in `moov` is byte-identical apart from the `ilst` contents, the path container sizes and the padding; the other top-level atoms are identical. This also catches M1.
+    - Refuse when two or more ID3 tags or chunks exist and any of them holds a language frame.
+    - Make the comparison linear.
+    - Judge "exactly as asked" against the caller's own text. Track and disc numbers must be whole numbers from 1 to 65535.
+    - Refuse keys that have no M4A atom (Arranger and the others), where before they were dropped without a word.
+    - The temporary copy is written through its own file handle, with an identity check, `sync_all` and honest docs.
+    - Tests for all 9 faults that got past the tests.
+    - The builder must NOT post to GitHub. Drafts go to `r10b/`.
+- **About 16:50 to 17:10: this Claude session hit its usage limit.** All eight running agents stopped mid-step. That was six builders, the MeedyaDL round-5 builder and the NetPLAYERapp reviewer.
+  - No hand-over was possible, because Codex was also out of allowance until 17:38.
+  - At 17:11 every clone was checked and each agent was resumed with its context kept. Each was told to check its working tree for a half-made edit or a planted fault first.
+  - The core revision-10 builder was started with a watchdog, and the plugin watchdog was restarted.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
