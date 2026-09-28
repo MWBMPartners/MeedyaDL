@@ -189,6 +189,33 @@ pub fn ttml_to_webvtt(ttml_content: &str) -> Result<String, String> {
 
     // Build WebVTT output
     let mut vtt = String::from("WEBVTT\n\n");
+
+    // The language the TTML states, recorded as a WebVTT comment block
+    // (#1250). WebVTT has no language field; the shared language policy
+    // (TRACK-070) says such a file carries its language in the file name
+    // and, where the format allows a note, the tag. MeedyaDL's lyric files
+    // are deliberately named exactly like the song (`Song.vtt`) — the name
+    // music players look for — so they are NOT renamed; this note is the
+    // part that can be done.
+    //
+    // A `NOTE` block, not an extra line under `WEBVTT`: the WebVTT
+    // standard defines `NOTE` blocks as comments every reader skips,
+    // whereas a bare header line is only tolerated. Checked against every
+    // reader that could be checked: FFmpeg 9.0.1 reads a file with this
+    // block and returns only the real cues, and MeedyaDL's own WebVTT
+    // reader (`rich_srt_service::webvtt_to_rich_srt`) skips it — see the
+    // test below. A standard tag holds only letters, digits and hyphens,
+    // so the note can never contain `-->` and be mistaken for a cue.
+    // Nothing is written when the language is missing, unreadable or
+    // `und` — never a guess (LANG-003).
+    if let Some(tag) = doc
+        .root_element()
+        .attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+        .and_then(crate::utils::language::known_file_language)
+    {
+        vtt.push_str(&format!("NOTE language: {tag}\n\n"));
+    }
+
     for (begin, end, text) in &cues {
         vtt.push_str(&format!(
             "{} --> {}\n{}\n\n",
@@ -553,6 +580,32 @@ mod tests {
         assert!(vtt.contains("00:00:12.450 --> 00:00:15.200"));
         assert!(vtt.contains("Hello world"));
         assert!(vtt.contains("Second line"));
+    }
+
+    #[test]
+    fn ttml_to_webvtt_notes_the_stated_language_and_readers_skip_it() {
+        // #1250: the TTML's language, in standard form, as a NOTE block.
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="eng">
+  <body><div><p begin="00:01.000" end="00:02.000">Hello</p></div></body>
+</tt>"#;
+        let vtt = ttml_to_webvtt(ttml).unwrap();
+        assert!(vtt.starts_with("WEBVTT\n\nNOTE language: en\n\n00:00:01.000 --> "));
+        // MeedyaDL's own WebVTT reader skips the note: one cue, no "NOTE".
+        let srt = crate::services::rich_srt_service::webvtt_to_rich_srt(&vtt).unwrap();
+        assert!(!srt.contains("NOTE"), "{srt}");
+        assert_eq!(srt.matches("-->").count(), 1, "{srt}");
+    }
+
+    #[test]
+    fn ttml_to_webvtt_writes_no_note_when_the_language_is_not_known() {
+        for lang in ["", r#" xml:lang="und""#, r#" xml:lang="English""#] {
+            let ttml = format!(
+                r#"<tt xmlns="http://www.w3.org/ns/ttml"{lang}><body><div><p begin="00:01.000" end="00:02.000">Hi</p></div></body></tt>"#
+            );
+            let vtt = ttml_to_webvtt(&ttml).unwrap();
+            assert!(!vtt.contains("NOTE"), "{lang:?}: {vtt}");
+        }
     }
 
     #[test]
