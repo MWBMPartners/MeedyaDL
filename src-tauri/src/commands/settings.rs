@@ -381,6 +381,31 @@ pub(crate) fn settle_metadata_language_on_save(
     }
 }
 
+/// The most bytes an imported `language` or `ui_language` value is even
+/// looked at before it is refused outright, with no attempt to read it as
+/// a tag at all.
+///
+/// A language tag this machine can actually store is at most
+/// [`crate::utils::language::MAX_TAG_LEN`] (35) characters, and no
+/// operating-system locale name comes anywhere close either — nothing
+/// genuine is ever within an order of magnitude of this limit, so it
+/// costs nothing to be generous here rather than exact.
+const MAX_IMPORTED_LANGUAGE_LEN: usize = 256;
+
+/// A safe stand-in for an imported language value in a log line: its
+/// byte length, never the value itself.
+///
+/// Both functions below used to `{:?}`-format the raw imported value
+/// straight into `log::warn!` on refusal, at WHATEVER length the
+/// imported file gave it — a settings file is something a person may
+/// have been sent, so there was no limit on how much of an arbitrary,
+/// possibly adversarial file's text could end up written into the log
+/// (independent review, round 4 of #1244). This always writes a small,
+/// fixed amount regardless of what was imported.
+fn describe_imported_value(raw: &str) -> String {
+    format!("a {}-byte value", raw.len())
+}
+
 /// Keeps an imported metadata language only if it is a real language tag
 /// (#1246). Called from `preserve_local_only_settings`, which both import
 /// routes (settings file and profile bundle) go through.
@@ -398,13 +423,28 @@ pub(crate) fn settle_metadata_language_on_save(
 /// tag in the middle of a part (`zh-Hant-TW-u-ca-gregory` became
 /// `zh-Hant-TW-u-ca-greg`), and which let a value that was never a tag
 /// through untouched.
+///
+/// A value over [`MAX_IMPORTED_LANGUAGE_LEN`] bytes is refused BEFORE it
+/// is handed to the tag parser at all, rather than being read as a tag
+/// (and, on refusal, logged in full) whatever its length — see
+/// `describe_imported_value` (independent review, round 4 of #1244).
 fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSettings) {
+    if imported.language.len() > MAX_IMPORTED_LANGUAGE_LEN {
+        log::warn!(
+            "Imported metadata language is {} — far too long to be a real language tag — \
+             refused before being read as one — keeping this machine's {:?}",
+            describe_imported_value(&imported.language),
+            current.language
+        );
+        imported.language = current.language.clone();
+        return;
+    }
     match crate::utils::language::standard_tag_for_storage(&imported.language) {
         Ok(standard) => imported.language = standard,
         Err(problem) => {
             log::warn!(
-                "Imported metadata language {:?} {} — keeping this machine's {:?}",
-                imported.language,
+                "Imported metadata language ({}) {} — keeping this machine's {:?}",
+                describe_imported_value(&imported.language),
                 problem.describe(),
                 current.language
             );
@@ -433,16 +473,32 @@ fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSe
 /// middle of a part, and a value that was never a tag passed straight
 /// through untouched — the exact fault this work already fixed for the
 /// metadata language, left standing here until this review round.
+///
+/// A value over [`MAX_IMPORTED_LANGUAGE_LEN`] bytes is refused BEFORE it
+/// is handed to the tag parser, the same as `settle_imported_metadata_language`
+/// just above and for the same reason (independent review, round 4 of
+/// #1244) — this check runs only once the empty-value case has already
+/// returned, since an empty value is never too long to matter.
 fn settle_imported_ui_language(imported: &mut AppSettings, current: &AppSettings) {
     if imported.ui_language.is_empty() {
+        return;
+    }
+    if imported.ui_language.len() > MAX_IMPORTED_LANGUAGE_LEN {
+        log::warn!(
+            "Imported interface language is {} — far too long to be a real language tag — \
+             refused before being read as one — keeping this machine's {:?}",
+            describe_imported_value(&imported.ui_language),
+            current.ui_language
+        );
+        imported.ui_language = current.ui_language.clone();
         return;
     }
     match crate::utils::language::standard_tag_for_storage(&imported.ui_language) {
         Ok(standard) => imported.ui_language = standard,
         Err(problem) => {
             log::warn!(
-                "Imported interface language {:?} {} — keeping this machine's {:?}",
-                imported.ui_language,
+                "Imported interface language ({}) {} — keeping this machine's {:?}",
+                describe_imported_value(&imported.ui_language),
                 problem.describe(),
                 current.ui_language
             );
@@ -1824,6 +1880,22 @@ mod tests {
         assert_eq!(imported.language, "zh-Hant-TW-u-ca-gregory");
     }
 
+    #[test]
+    fn an_excessively_long_imported_metadata_language_is_refused_before_parsing() {
+        // Far longer than any real language tag or locale name could ever
+        // be -- refused before the value is even handed to the tag
+        // parser, and this machine's value is kept, exactly like any
+        // other refused metadata language (independent review, round 4
+        // of #1244). Both import routes go through
+        // `preserve_local_only_settings`, which is exercised here the
+        // same way the other tests in this file exercise it.
+        let huge = "a".repeat(300);
+        let mut imported = with_language(&huge);
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+    }
+
     // ── The interface language setting (independent review, round 3 of
     // ── #1244) ───────────────────────────────────────────────────────────
     //
@@ -1879,6 +1951,19 @@ mod tests {
         sanitize_imported_settings(&mut imported);
         preserve_local_only_settings(&mut imported, &with_ui_language("en"));
         assert_eq!(imported.ui_language, "zh-Hant-TW-u-ca-gregory");
+    }
+
+    #[test]
+    fn an_excessively_long_imported_interface_language_is_refused_before_parsing() {
+        // Same guard, same reason, as
+        // `an_excessively_long_imported_metadata_language_is_refused_before_parsing`
+        // above -- exercised through both import routes' shared choke
+        // point (independent review, round 4 of #1244).
+        let huge = "a".repeat(300);
+        let mut imported = with_ui_language(&huge);
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "en");
     }
 
     #[test]
