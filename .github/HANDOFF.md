@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 11:54) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 11:59) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -565,12 +565,22 @@ on PRs to / pushes to main.
 - **Real-name scan of every clone's OWN commits** (commits on no other remote branch; script
   `…/scratchpad/lang/name-scan.sh`): only the two known cases — MeedyaManager's six author emails and
   this handoff's `df539d6c`. Scratch paths with the name that reviewers saw in NetPLAYERapp's handoff
-  and MeedyaConverter's older history predate this work. (Separately, MeedyaConverter has 22 OLDER
-  commits, e.g. `5a6cdc9` from 18 July, whose git author is the real name — not this work; told the
-  maintainer.)
+  and MeedyaConverter's older history predate this work. (Separately, MeedyaConverter's `main` and `alpha`
+  each carry about 250 OLDER commits — July 2025 to July 2026 — whose git author or committer is the real
+  name; the reviewer said 22, I counted. Not this work; told the maintainer.)
 - **MeedyaDL second stand-in review STARTED** over `37d070be..4a3915e9` (the unreviewed fix round
   `af9d9796..6a9657f1` plus the `aaaa585` update), in a fresh clone under `review-tmp/meedyadl-review-2/`,
   never this checkout. Watchdog on it.
+- **11:59 — iHymns round-3 fixes pushed (`43d9cca0`, 6 commits on `5141dab6`)**: the songbook card
+  only fills songs with NO language (others listed for a curator; one activity row per fill); a save
+  never loses or silently merges clashing translation links; the SQL language filter agrees with the
+  shared rule on old spellings; the no-English-fallback guard catches more shapes; a blur-guard test.
+  Checked by me: PHP suite 288 (memory_limit=-1), npm 113, ESLint, actionlint, copy checker, identity;
+  security read of the new SQL builder (values bound, column names fixed). Comment on #2137.
+  **One more fix decided (mine):** on a server that has not run the #2131 step, changing a link from
+  `pt` to `pt-BR` deleted the `pt` link and could not store the new one — the old link must be KEPT
+  and the warning must name the admin step. Its builder ran out of working memory, so a FRESH Sonnet
+  builder has it (`…/scratchpad/lang/brief-ihymns-linkkeep.md`). iHymns' third review waits for it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
