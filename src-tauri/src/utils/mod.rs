@@ -188,3 +188,13 @@ pub mod text;
 /// place that asked, and when one copy was corrected the others were
 /// not — see the file itself for what that cost.
 pub mod version;
+
+/// Language tags, in one place (#1244): what to store for the metadata
+/// language, which storefront a locale points at, what goes into a lyric
+/// file's language line, what a music video's subtitle files are called,
+/// and the order of the Metadata Language list. A thin layer over the
+/// shared `meedya-lang` crate, which implements the shared language policy
+/// (docs/standards/media-language-bcp47-policy.md). Every use of that
+/// crate's traits is in this one file, so a change to its API is a change
+/// here only.
+pub mod language;
