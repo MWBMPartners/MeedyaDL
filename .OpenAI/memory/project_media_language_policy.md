@@ -37,10 +37,11 @@ yt-dlp do.
 - The rules are implemented once, in core's crate `meedya-lang`, pinned by
   `rev` in `src-tauri/Cargo.toml`.
 - `src-tauri/tests/media_language_conformance.rs` proves the pinned crate
-  passes MeedyaDL's copy of the test cases: nine sections, 222 cases; the four
-  player-only sections are known but not run. It fails on an unknown section,
-  an empty needed section, a missing required field, or a refusal case that is
-  answered.
+  passes MeedyaDL's copy of the test cases: nine sections, 234 of the file's
+  290 cases (at core `aaaa585`); the four player-only sections (56 cases) are
+  known but not run. It fails on an unknown section, an empty needed section,
+  a missing required field, an `error` key where the schema allows none (or
+  `false` anywhere), or a refusal case that is answered.
 - MeedyaDL's own language code is all in `src-tauri/src/utils/language.rs` —
   every use of the crate's traits is there, so an API change in the crate is a
   change in that one file. The Metadata Language list's order comes from the
@@ -48,16 +49,21 @@ yt-dlp do.
   come from the WebView's `Intl.DisplayNames` (`src/lib/languageOptions.ts`,
   `src/hooks/useMetadataLanguageOptions.ts`).
 
-**The pins, and what must happen after core merges.** The lock points at core
-commit `904b0568…`, the crate at `995becb7…`; both are on core's
-`feature/bcp47-language-policy` branch until core merges it. Then: `--update`
-the copies to the merge commit, re-pin the crate to the same commit (`cargo
-update -p meedya-lang` only), run the conformance test and the whole backend
-suite. The copies and the crate must move together, or the test is checking the
-crate against the wrong answers. Tracked in #1255. A core revision that changes
-parts of the crate's API (its item traits merged under one parent) was
-announced on 28 Sept 2026 — expected to touch only `utils/language.rs` and the
-test's wrapper types.
+**The pins, and what must happen after core merges.** Since the copy-update
+sweep of 28 Sept 2026, the lock AND the crate both point at core commit
+`aaaa585aa145634c057c0bbdd9bd5fc11c3274a0` (the reviewed revision 6; before
+that, the copies were at `904b0568…` and the crate at `995becb7…`). It is still
+on core's `feature/bcp47-language-policy` branch: core has NOT merged yet. When
+it does: `--update` the copies to the merge commit, re-pin the crate to the same
+commit (`cargo update -p meedya-lang` only), run the conformance test and the
+whole backend suite. The copies and the crate must move together, or the test
+is checking the crate against the wrong answers. Still owed — tracked in #1255.
+
+The API change that sweep brought (roles on a shared `RoleItem` parent trait,
+`TagMatch::distance` as `usize`) touched only `utils/language.rs` and the test's
+wrapper types, as expected. The sidecar builder now reads its language with the
+three-letter reader; MeedyaDL already passed it a tag read that way, so names
+did not change.
 
 **What MeedyaDL does with it (#1245–#1251):**
 
