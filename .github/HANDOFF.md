@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 03:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 04:20) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -243,6 +243,40 @@ on PRs to / pushes to main.
     three-letter form.
 - **Decision (mine):** MeedyaDL's LYRIC sidecars stay `{song}.lrc` etc. — TEXT-030 covers files
   named by language, and players look for that exact name; renaming would break them.
+
+**Progress (about 04:20, 28 Sept):**
+
+- **Stand-in reviews (fresh Opus agents, labelled as such — Codex out until 07:33):**
+  - MeedyaPlayer `ef4b886`: NOT clean — ADR 0012 narrows the profile wrongly, says accessibility
+    requests do not move tracks (UI-045 says they move to the front of their group), calls the
+    per-file saved track a breach (AUTO-010 allows saved choices), misquotes UI-050; workflow lacks
+    `GITHUB_TOKEN` (reproduced HTTP 403) and `permissions`. MeedyaSubtitler `58d8f1b`: nearly clean
+    (#6 comment misapplies TEXT-050; same workflow points). Fix-up builder running (Sonnet,
+    `brief-player-subtitler-r2.md`), posts correction comments on #12/#3 (Player), #6/#14/#8
+    (Subtitler). **Pre-existing real-name occurrences in MeedyaPlayer** (older ADRs, memory,
+    CLAUDE.md) reported to the maintainer, not touched; Subtitler clean.
+  - dev-team plugin `0c25209`: NOT clean (2 must-fix: closed safety list lets repo text switch
+    checks off; "trusted source" unappliable, host-loaded CLAUDE.md from a fork PR skips it).
+    Revision 3 builder running (Opus, `brief-plugin-r3.md`, decisions final: repo content may only
+    ADD or pick style defaults, never weaken; switches only toward caution; trusted base never a
+    PR head; files changed in the run are data).
+  - Rust crate `995becb`: 2 must-fix (private-use subtags dropped from ordinary tags → wrong
+    order; malformed tracks reordered by role), several should-fix, five unclear policy points.
+- **Policy decisions (mine, final) for core revision 4** (`brief-revision-4.md`): (1) a
+  malformed preference matches nothing anywhere; all-malformed preferences = none; (2)
+  "canonical order" in AUTO means stored order among ALL tracks of that type; (3) when every audio
+  track is commentary/other, commentary ranks first; (4) forced-only works for private-use and
+  grandfathered audio (as the text already says); (5) the sidecar builder reads its input with the
+  LANG-002 reader, so what it writes is what a reader reads back; (6) labels list each role once.
+  Starts when the core lyrics/metadata builder finishes (same clone). After it: every consumer
+  re-pins (`check_copies.py --update`), MeedyaDL + MeedyaManager re-pin `meedya-lang` (small API
+  change — both builders warned), MeedyaConverter's Swift made to pass the new cases.
+- **MeedyaConverter done and pushed** (`wip/bcp47-language-policy`, 13 commits, head `67c41ca`,
+  #530 stream-numbering fix first); CI running (watch `b900iza6r`, 50-min limit); stand-in review
+  running. ffmpeg 9.0.1 cannot write Matroska `LanguageBCP47` or MP4 `elng` — follow-up issues.
+- **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
+  lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
+  a squash**, or every consumer must run `--update` afterwards.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
