@@ -290,6 +290,15 @@ on PRs to / pushes to main.
   a force-push). Builder told not to rewrite them. **From now on: push handoff commits by their own
   hash only when `origin..HEAD` lists nothing else.** (The "about" times in this section were
   written ahead of the real clock; corrected.)
+- **MeedyaConverter stand-in review (about 04:40): NOT clean — 3 must-fix silent damage** (all
+  reproduced with real ffmpeg): cover art becomes a video track and moves first on an MP4/M4A remux;
+  Ogg/Opus output replaces the song title with "English"; a valid language with no ISO 639-2 code
+  (`yue`) is overwritten with `und`. Plus 7 should-fix (unrecognised text erased; `eng` typed in
+  the editor → `und` titled "English"; region lost silently; reordering cannot be switched off;
+  three encode paths skip the source's streams; packaging) and 9 minor. Round-2 builder running
+  (Opus, `brief-converter-r2.md`). Guiding decision: a remux never loses anything the source had
+  that the person did not change — where ffmpeg cannot store the preferred form, keep the source's
+  value and report it. Branch is not merged anywhere, so nothing reached users.
 - **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
   lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
   a squash**, or every consumer must run `--update` afterwards.
