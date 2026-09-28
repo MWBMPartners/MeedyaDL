@@ -288,6 +288,14 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::read_settings_from_disk(&app).ok();
 
+    // The metadata language is stored in its standard form (#1246). See
+    // `settle_metadata_language_on_save` for why a value already on disk
+    // is let through unchanged.
+    settings.language = settle_metadata_language_on_save(
+        &settings.language,
+        previous.as_ref().map(|p| p.language.as_str()),
+    )?;
+
     // Restore the fields this screen does not own, write, and refresh the
     // in-process cache (#690) — all inside ONE lock. Reading the file for
     // this before taking the lock let a one-off after-queue action the
@@ -318,6 +326,96 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// Decides what the Settings screen's Save stores for the metadata
+/// language (#1246, policy LANG-001 and COMPAT-030 —
+/// docs/standards/media-language-bcp47-policy.md).
+///
+/// * A language tag is stored in its standard form: `EN-us` → `en-US`,
+///   the retired `iw` → `he`. The list on the Settings screen only offers
+///   tags, so this is almost always a no-op; it matters for a value that
+///   arrived some other way.
+/// * A value that is not a tag, or is over 35 characters, is refused with
+///   an error — UNLESS it is exactly the value already on disk. Such a
+///   value can only have come from an older version or a hand-edited
+///   file, and refusing it would make it impossible to save any OTHER
+///   setting until the person noticed and changed this one. The policy
+///   says existing data is kept, not rewritten (COMPAT-030), and nothing
+///   may be invented in its place (LANG-003), so it is kept exactly as it
+///   is and reported once per launch instead (see
+///   `report_metadata_language_on_startup`).
+///
+/// `on_disk` is `None` when the file could not be read; a value that is
+/// not a tag is then refused, because there is nothing to show it was
+/// already there.
+pub(crate) fn settle_metadata_language_on_save(
+    new_value: &str,
+    on_disk: Option<&str>,
+) -> Result<String, String> {
+    match crate::utils::language::standard_tag_for_storage(new_value) {
+        Ok(standard) => Ok(standard),
+        Err(_) if on_disk == Some(new_value) => Ok(new_value.to_string()),
+        Err(problem) => Err(format!(
+            "The metadata language {new_value:?} {} — choose one from the list.",
+            problem.describe()
+        )),
+    }
+}
+
+/// Keeps an imported metadata language only if it is a real language tag
+/// (#1246). Called from `preserve_local_only_settings`, which both import
+/// routes (settings file and profile bundle) go through.
+///
+/// The language is an ordinary preference that SHOULD travel between a
+/// person's machines, so a valid value is kept — in its standard form.
+/// But a settings file is something a person may have been sent, so a
+/// value that is not a language tag, or is over 35 characters, is
+/// refused and this machine's current value kept: the same pattern as the
+/// other checked fields here. (The value is handed to the download tool,
+/// and written into its configuration file; a refused value never gets
+/// that far.)
+///
+/// This replaced cutting the value to 20 bytes, which could stop a valid
+/// tag in the middle of a part (`zh-Hant-TW-u-ca-gregory` became
+/// `zh-Hant-TW-u-ca-greg`), and which let a value that was never a tag
+/// through untouched.
+fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSettings) {
+    match crate::utils::language::standard_tag_for_storage(&imported.language) {
+        Ok(standard) => imported.language = standard,
+        Err(problem) => {
+            log::warn!(
+                "Imported metadata language {:?} {} — keeping this machine's {:?}",
+                imported.language,
+                problem.describe(),
+                current.language
+            );
+            imported.language = current.language.clone();
+        }
+    }
+}
+
+/// Reports, once per launch, a metadata language setting that is not a
+/// language tag (#1246). It is NOT changed: the policy keeps existing data
+/// (COMPAT-030) and forbids inventing a replacement (LANG-003), and the
+/// value is still handed to the download tool exactly as before. The
+/// report is how the person finds out, so they can pick a language from
+/// the list in Settings > General.
+///
+/// Called from the one-off startup task in `lib.rs`, three seconds after
+/// launch, when the activity log is listening — `load_settings_at_startup`
+/// itself runs several times during startup, so reporting there would
+/// repeat.
+pub fn report_metadata_language_on_startup(app: &AppHandle, language: &str) {
+    if crate::utils::language::is_language_tag(language) {
+        return;
+    }
+    let message = format!(
+        "Metadata language setting {language:?} is not a language tag. It has been left as \
+         it is; choose a language in Settings > General to replace it."
+    );
+    log::warn!("{message}");
+    emit_app_log(app, &message);
 }
 
 /// Remembers whether the sidebar is collapsed.
@@ -1176,6 +1274,14 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     // means nothing on another machine anyway. Keep the local value.
     imported.prd_path = current.prd_path.clone();
 
+    // NOT a local-only setting, but checked here because this is the one
+    // function both import routes (settings file, profile bundle) call,
+    // and the check needs this machine's current value to fall back to:
+    // an imported metadata language that is not a language tag is refused
+    // (#1246). Two separate call sites is how the other checks here once
+    // drifted apart.
+    settle_imported_metadata_language(imported, current);
+
     // What happens when the queue finishes is this person's choice, and
     // one of the choices is to shut the computer down or restart it.
     //
@@ -1345,7 +1451,15 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     truncate(&mut settings.playlist_file_template, MAX_TEMPLATE);
 
     // Language/storefront (short strings)
-    truncate(&mut settings.language, 20);
+    //
+    // The metadata language is NOT cut here any more (#1246). A fixed
+    // 20-byte cut could stop a valid language tag in the middle of a part,
+    // and let a value that was never a tag through. It is checked properly
+    // — standard form, at most 35 characters, refused and this machine's
+    // value kept if it is not a tag — by `settle_imported_metadata_language`,
+    // which runs from `preserve_local_only_settings` on both import routes.
+    // A tag in standard form contains only letters, digits and hyphens, so
+    // the line-break removal this cut also did is not needed for it.
     truncate(&mut settings.storefront, 10);
     truncate(&mut settings.ui_language, 20);
 
@@ -1597,6 +1711,76 @@ mod tests {
             imported.output_path, "/Users/them/Music",
             "a preference must not be reset — that would make importing pointless"
         );
+    }
+
+    // ── The metadata language setting (#1246) ───────────────────────────
+    //
+    // Policy LANG-001: stored in its standard form. COMPAT-030: a value
+    // already on disk is kept. LANG-003: nothing is invented in its place.
+
+    fn with_language(language: &str) -> crate::models::settings::AppSettings {
+        crate::models::settings::AppSettings {
+            language: language.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_imported_metadata_language_travels_in_its_standard_form() {
+        let mut imported = with_language("ja-jp");
+        preserve_local_only_settings(&mut imported, &with_language("en-GB"));
+        assert_eq!(imported.language, "ja-JP");
+    }
+
+    #[test]
+    fn an_imported_metadata_language_that_is_not_a_tag_keeps_this_machines_value() {
+        for bad in ["Japanese", "ja_JP", "", "en-US\nlanguage = xx"] {
+            let mut imported = with_language(bad);
+            preserve_local_only_settings(&mut imported, &with_language("en-GB"));
+            assert_eq!(imported.language, "en-GB", "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_long_imported_language_is_refused_not_cut_in_the_middle() {
+        // The old import cut it to 20 bytes, giving `zh-Hant-TW-u-ca-greg` —
+        // a different, made-up tag. Now a tag over 35 characters is refused
+        // whole, and one that fits is kept whole.
+        let mut imported = with_language("en-GB-u-ca-gregory-nu-latn-x-abcdefgh");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+
+        let mut imported = with_language("zh-Hant-TW-u-ca-gregory");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "zh-Hant-TW-u-ca-gregory");
+    }
+
+    #[test]
+    fn saving_stores_the_standard_form_of_the_metadata_language() {
+        assert_eq!(
+            settle_metadata_language_on_save("EN-gb", Some("en-US")),
+            Ok("en-GB".to_string())
+        );
+        assert_eq!(
+            settle_metadata_language_on_save("zh-Hans-CN", None),
+            Ok("zh-Hans-CN".to_string())
+        );
+    }
+
+    #[test]
+    fn saving_keeps_a_value_that_is_not_a_tag_only_if_it_is_already_on_disk() {
+        // Already there (an older version, or a hand-edited file): kept
+        // exactly, so every other setting can still be saved.
+        assert_eq!(
+            settle_metadata_language_on_save("en_US", Some("en_US")),
+            Ok("en_US".to_string())
+        );
+        // New, or nothing to compare with: refused, with a reason.
+        let refused = settle_metadata_language_on_save("English", Some("en-US"));
+        assert!(refused.is_err_and(|e| e.contains("is not a language tag")));
+        assert!(settle_metadata_language_on_save("en_US", None).is_err());
     }
 
     #[test]

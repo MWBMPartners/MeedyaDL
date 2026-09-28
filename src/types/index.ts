@@ -492,7 +492,7 @@ export interface GamdlOptions {
    * See https://github.com/glomatico/wrapper-v2 for the daemon spec.
    */
   wrapper_url?: string;
-  /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
+  /** Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
   exclude_tags?: string;
@@ -576,7 +576,11 @@ export interface AppSettings {
   output_path: string;
   /** Temp directory for intermediate files (empty = OS default) */
   temp_path: string;
-  /** Language/locale code for metadata (e.g., "en-US") */
+  /**
+   * Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW").
+   * The backend stores it in its standard form when it is saved or imported
+   * (#1246); a value from an older version that is not a tag is kept as it is.
+   */
   language: string;
   /** Apple Music storefront code (e.g., "gb", "us"). Empty = auto-detect from language */
   storefront: string;

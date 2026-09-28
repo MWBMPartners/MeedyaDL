@@ -83,7 +83,7 @@ import * as commands from '@/lib/tauri-commands';
 const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
   temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
-  language: 'en-US', // Apple Music storefront language
+  language: 'en-US', // Metadata language, a BCP 47 language tag
   storefront: '', // Auto-detect from language region (e.g., en-GB → gb)
   overwrite: false, // Do not overwrite existing files by default
   ui_language: '', // Auto-detect UI language from OS locale

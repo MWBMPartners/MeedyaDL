@@ -18,7 +18,7 @@
  *
  *   - **Metadata Language** -- Preferred language for track and album
  *     metadata returned by the Apple Music API. Maps to
- *     `settings.language` (ISO locale code, e.g., `"en-US"`).
+ *     `settings.language` (a BCP 47 language tag, e.g. `"en-US"`).
  *
  *   - **Overwrite Existing Files** -- Whether to re-download and replace
  *     files that already exist in the output directory. Maps to

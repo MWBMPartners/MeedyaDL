@@ -964,6 +964,13 @@ pub struct AppSettings {
     /// `"ja-JP"`). Passed to GAMDL's `--language` flag to control the
     /// language of track/album names and artist metadata returned by the
     /// Apple Music API.
+    ///
+    /// Stored in its standard form (`EN-us` becomes `en-US`) when the
+    /// Settings screen saves it or a settings file is imported (#1246,
+    /// policy LANG-001). A value that is not a tag is refused on import,
+    /// but one already in an existing file is kept exactly as it is and
+    /// reported once per launch — never rewritten or replaced with a
+    /// guess (COMPAT-030, LANG-003).
     pub language: String,
 
     /// Apple Music storefront code (e.g., `"gb"`, `"us"`, `"jp"`).
