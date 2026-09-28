@@ -3359,7 +3359,7 @@ dependencies = [
 [[package]]
 name = "meedya-lang"
 version = "0.2.0"
-source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6#995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=aaaa585aa145634c057c0bbdd9bd5fc11c3274a0#aaaa585aa145634c057c0bbdd9bd5fc11c3274a0"
 dependencies = [
  "serde",
  "serde_json",

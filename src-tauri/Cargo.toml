@@ -127,6 +127,13 @@ meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = 
 # resolve git reference". Re-pin to the merge commit on core `main` once it
 # lands — tracked in #1255.
 #
+# Pin history: `995becb7` (first use, 28 Sept 2026); `aaaa585a` (the reviewed
+# revision 6 of the crate and policy, same day — its item traits share a
+# `RoleItem` parent, `LanguageTag` equality compares tag and kind only, the
+# sidecar builder reads its language with the three-letter reader, and a
+# malformed value matches nothing). The policy copies in docs/standards/ and
+# tests/fixtures/ are pinned to the same commit.
+#
 # **Bumping this commit:** replace the `rev`, run `cargo update -p
 # meedya-lang` (only that package), then the conformance test and the whole
 # backend suite. If core's policy files changed at the new commit, take
@@ -134,7 +141,7 @@ meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = 
 # `python3 scripts/media-lang/check_copies.py --update <commit>` — the crate
 # and the copies of the test cases must move together, or the conformance
 # test is checking the crate against the wrong answers.
-meedya-lang = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6" }
+meedya-lang = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "aaaa585aa145634c057c0bbdd9bd5fc11c3274a0" }
 
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.

@@ -26,10 +26,10 @@
 //      and each is unit-tested below.
 //   2. Everything that touches the crate's traits (`LanguageItem`,
 //      `TrackItem`, `PresentationItem`) is in this file and nowhere else.
-//      The crate's API is still settling (a revision is expected to merge
-//      its item traits under one parent trait); when it changes, this is
-//      the one file to update. Callers elsewhere pass plain strings and
-//      booleans and get plain strings back.
+//      When the crate's API changes, this is the one file to update — as
+//      it was when core `aaaa585` moved `roles()` onto a shared `RoleItem`
+//      parent trait. Callers elsewhere pass plain strings and booleans and
+//      get plain strings back.
 //
 // Deliberately NOT done anywhere here, because the policy forbids it:
 //   - splitting a tag on hyphens or underscores to pick out a part
@@ -44,7 +44,7 @@ use std::collections::HashMap;
 use meedya_lang::{
     build_sidecar_name, canonicalise, from_legacy_three_letter, from_posix_locale,
     parse_sidecar_name, sort_for_presentation, sort_tracks, LanguageItem, LanguageTag,
-    PresentationContext, PresentationItem, Role, TrackItem, TrackType,
+    PresentationContext, PresentationItem, Role, RoleItem, TrackItem, TrackType,
 };
 
 /// The longest language tag MeedyaDL stores or sends. RFC 5646 section
@@ -266,12 +266,17 @@ impl LanguageItem for SubtitleItem {
     }
 }
 
+// Roles are declared once, on the crate's shared `RoleItem` parent trait
+// (since core `aaaa585`); `TrackItem` builds on it.
+impl RoleItem for SubtitleItem {
+    fn roles(&self) -> &[Role] {
+        &self.roles
+    }
+}
+
 impl TrackItem for SubtitleItem {
     fn track_type(&self) -> TrackType {
         TrackType::Subtitle
-    }
-    fn roles(&self) -> &[Role] {
-        &self.roles
     }
 }
 
@@ -339,7 +344,10 @@ pub fn plan_subtitle_sidecar_names(
     for item in &items {
         let facts = &streams[item.position];
         // `from_legacy_three_letter` never returns a malformed tag, so this
-        // is the tag's own standard text (or `und`).
+        // is the tag's own standard text (or `und`). Since core `aaaa585`
+        // the builder itself also reads its language with that same reader
+        // (TEXT-030, revised), so passing it an already-read tag gives the
+        // same name as before — reading a read tag again changes nothing.
         let tag_text = item.tag.tag.clone();
         let plain = build_sidecar_name(stem, &tag_text, &item.roles, &facts.extension, None)
             .map_err(|e| e.to_string())?;
@@ -398,7 +406,10 @@ impl LanguageItem for MenuItem {
     }
 }
 
-// A plain language entry: no track kind, no roles (the trait's defaults).
+// A plain language entry: no roles and no track kind (the traits'
+// defaults). `RoleItem` is the parent `PresentationItem` builds on since core
+// `aaaa585`.
+impl RoleItem for MenuItem {}
 impl PresentationItem for MenuItem {}
 
 /// Orders the entries of a language list the way a person should see them

@@ -61,7 +61,7 @@ use meedya_lang::{
     build_sidecar_name, canonicalise, embedded_data_version, from_legacy_three_letter,
     from_posix_locale, iso639_2_write, match_tags, parse_sidecar_name, sort_canonical,
     sort_for_presentation, sort_tracks, LanguageItem, LanguageTag, MatchLevel, PresentationContext,
-    PresentationItem, PresentationKind, Role, TrackItem, TrackType,
+    PresentationItem, PresentationKind, Role, RoleItem, TrackItem, TrackType,
 };
 
 // ---------------------------------------------------------------------
@@ -292,7 +292,8 @@ struct PresentationCase {
 #[derive(Deserialize)]
 struct MatchExpected {
     level: String,
-    distance: u8,
+    /// `usize`, the type the crate returns since core `aaaa585`.
+    distance: usize,
 }
 
 #[derive(Deserialize)]
@@ -389,12 +390,17 @@ impl LanguageItem for TrackTestItem {
     }
 }
 
+// Since core `aaaa585`, `roles()` lives on the shared `RoleItem` parent
+// trait, which `TrackItem` and `PresentationItem` both build on.
+impl RoleItem for TrackTestItem {
+    fn roles(&self) -> &[Role] {
+        &self.roles
+    }
+}
+
 impl TrackItem for TrackTestItem {
     fn track_type(&self) -> TrackType {
         self.track_type
-    }
-    fn roles(&self) -> &[Role] {
-        &self.roles
     }
 }
 
@@ -415,12 +421,15 @@ impl LanguageItem for PresentationTestItem {
     }
 }
 
+impl RoleItem for PresentationTestItem {
+    fn roles(&self) -> &[Role] {
+        &self.roles
+    }
+}
+
 impl PresentationItem for PresentationTestItem {
     fn kind(&self) -> Option<PresentationKind> {
         self.kind
-    }
-    fn roles(&self) -> &[Role] {
-        &self.roles
     }
 }
 
@@ -685,6 +694,28 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                     ],
                     &id_hint,
                 );
+                // Three shape rules the schema states and core's own
+                // harness checks since core `aaaa585`: `error` may only
+                // ever be `true` (a case that is not a refusal leaves it
+                // out); a refusal case expects `null`; any other build case
+                // expects a file name.
+                assert!(
+                    raw_case
+                        .get("error")
+                        .is_none_or(|e| e == &Value::Bool(true)),
+                    "{id_hint}: \"error\" may only be true — leave it out instead of false"
+                );
+                if *error {
+                    assert!(
+                        expected.is_none(),
+                        "{id_hint}: a refusal case (error: true) must expect null"
+                    );
+                } else {
+                    assert!(
+                        expected.is_some(),
+                        "{id_hint}: a build case that is not a refusal must expect a file name"
+                    );
+                }
                 let got =
                     build_sidecar_name(stem, tag, &roles_from_strs(roles), extension, *number);
                 if *error {
