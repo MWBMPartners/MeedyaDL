@@ -118,6 +118,10 @@ vi.mock('@/lib/tauri-commands', () => ({
   deleteCrashReport: vi.fn().mockResolvedValue(undefined),
   deleteAllCrashReports: vi.fn().mockResolvedValue(undefined),
   getGithubIssueUrl: vi.fn().mockResolvedValue(''),
+  // #1249: GeneralTab asks the backend to order the Metadata Language
+  // list. Hand the list back unchanged; the ordering itself is tested in
+  // Rust and in useMetadataLanguageOptions.test.ts.
+  orderLanguagesForDisplay: vi.fn().mockImplementation(async (tags: string[]) => [...tags]),
   // #887: AdvancedTab calls `getGamdlCapabilities()` on mount to decide
   // whether to show the wrapper-m3u8 input and the FFmpeg-path field.
   // Return a stub with every capability `false` so the test renders the

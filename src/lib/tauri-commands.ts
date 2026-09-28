@@ -798,6 +798,39 @@ export function saveSettings(settings: AppSettings): Promise<void> {
 }
 
 /**
+ * Orders the entries of a language list the way a person should see them
+ * (#1249): their preferred languages first, then the rest alphabetically
+ * by name in the interface language (shared language policy UI-020 to
+ * UI-040, docs/standards/media-language-bcp47-policy.md).
+ *
+ * Rust handler: `order_languages_for_display()` in
+ * `src-tauri/src/commands/language.rs`, which runs the shared
+ * `meedya-lang` ordering -- so the rules exist once, in the code the
+ * policy's test cases check, not again in JavaScript.
+ *
+ * Called by: `useMetadataLanguageOptions` (Settings > General). If this
+ * rejects, the caller shows the list alphabetically instead.
+ *
+ * @param tags - The entries, as stored. Returned exactly as given, only reordered.
+ * @param preferences - The person's languages, highest priority first.
+ * @param alphabeticalPrimaryOrder - Primary language codes in alphabetical
+ *   order of their names in the interface language (worked out with
+ *   `Intl.Collator`, which only the platform can do correctly).
+ * @returns Promise resolving to `tags` in display order
+ */
+export function orderLanguagesForDisplay(
+  tags: readonly string[],
+  preferences: readonly string[],
+  alphabeticalPrimaryOrder: readonly string[],
+): Promise<string[]> {
+  return invoke<string[]>('order_languages_for_display', {
+    tags,
+    preferences,
+    alphabeticalPrimaryOrder,
+  });
+}
+
+/**
  * Remembers whether the sidebar is collapsed.
  *
  * Rust handler: `set_sidebar_collapsed()` in `src-tauri/src/commands/settings.rs`

@@ -18,7 +18,9 @@
  *
  *   - **Metadata Language** -- Preferred language for track and album
  *     metadata returned by the Apple Music API. Maps to
- *     `settings.language` (a BCP 47 language tag, e.g. `"en-US"`).
+ *     `settings.language` (a BCP 47 language tag, e.g. `"en-US"`). The
+ *     entries are named in the interface language and ordered by the
+ *     shared language policy -- see `useMetadataLanguageOptions` (#1249).
  *
  *   - **Overwrite Existing Files** -- Whether to re-download and replace
  *     files that already exist in the output directory. Maps to
@@ -64,6 +66,9 @@ import { useUpdateStore } from '@/stores/updateStore';
 
 // UI store for toast notifications (used by settings export/import).
 import { useUiStore } from '@/stores/uiStore';
+
+// Names and order for the Metadata Language list (#1249).
+import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
 
 // IPC command wrappers for settings export/import.
 import {
@@ -244,20 +249,15 @@ const COLOUR_VISION_OPTIONS = [
   { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' },
 ];
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'ja-JP', label: 'Japanese' },
-  { value: 'ko-KR', label: 'Korean' },
-  { value: 'zh-CN', label: 'Chinese (Simplified)' },
-  { value: 'zh-TW', label: 'Chinese (Traditional)' },
-  { value: 'de-DE', label: 'German' },
-  { value: 'fr-FR', label: 'French' },
-  { value: 'es-ES', label: 'Spanish' },
-  { value: 'pt-BR', label: 'Portuguese (Brazil)' },
-  { value: 'it-IT', label: 'Italian' },
-  { value: 'ru-RU', label: 'Russian' },
-];
+// The Metadata Language list used to be a hand-typed LANGUAGE_OPTIONS
+// array here: English-only names in no particular order, with `zh-CN` /
+// `zh-TW` labelled "Simplified" / "Traditional" (a country standing in for
+// a writing system). It was replaced under #1249 by
+// `useMetadataLanguageOptions` (src/hooks/), which names each entry in the
+// interface language from the platform's own data and orders the list by
+// the shared language policy. The offered tags now live in
+// `METADATA_LANGUAGE_TAGS` (src/lib/languageOptions.ts). Do not bring a
+// hand-typed list of names back: policy UI-010 forbids it.
 
 /**
  * GeneralTab -- Renders the General settings tab.
@@ -304,6 +304,9 @@ export function GeneralTab() {
   const colourBlindMode = useSettingsField('colour_blind_mode');
   const uiLanguage = useSettingsField('ui_language');
   const language = useSettingsField('language');
+  // Named in the language the interface is showing right now, and ordered
+  // with the person's own languages first (#1249).
+  const metadataLanguageOptions = useMetadataLanguageOptions(language.value, i18n.language);
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
@@ -724,7 +727,7 @@ export function GeneralTab() {
         <Select
           label="Metadata Language"
           description="Language preference for track and album metadata"
-          options={LANGUAGE_OPTIONS}
+          options={metadataLanguageOptions}
           value={language.value}
           onChange={(e) => language.set(e.target.value)}
         />

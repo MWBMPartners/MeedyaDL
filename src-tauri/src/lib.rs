@@ -1265,6 +1265,8 @@ pub fn run() {
             commands::gamdl::fetch_syllable_lyrics,
             // Word-level lyrics connectivity test (#934)
             commands::lyrics::test_lyrics_connection,
+            // Language-list ordering by the shared language policy (#1249)
+            commands::language::order_languages_for_display,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
