@@ -83,16 +83,27 @@ export function useMetadataLanguageOptions(
     if (isUnoffered) noteSeen(currentValue);
   }, [isUnoffered, currentValue, noteSeen]);
 
-  // The extra entries, as one string, so the list below is rebuilt -- and
-  // asked to be re-ordered -- only when its CONTENT changes, never merely
-  // because a different entry was chosen. (A new array identity on each
-  // choice made the list fall back to A-Z order for a moment while the
-  // new order was fetched: the menu moved when something was chosen.)
-  // The separator is a character no language tag or settings value uses.
-  const extrasKey = withSavedValues(remembered, isUnoffered ? [currentValue] : []).join('\u0000');
+  // The extra entries, as a JSON string, so the list below is rebuilt --
+  // and asked to be re-ordered -- only when its CONTENT changes, never
+  // merely because a different entry was chosen. (A new array identity on
+  // each choice made the list fall back to A-Z order for a moment while
+  // the new order was fetched: the menu moved when something was chosen.)
+  //
+  // This used to join the values with a U+0000 (NUL) separator, on the
+  // claim that "no language tag or settings value uses" that character.
+  // Nothing actually enforced that claim: an imported settings file only
+  // has its `\n` and `\r` stripped (see
+  // .claude/memory/project_standing_rules.md), so a NUL byte in a saved
+  // value -- from a hand-edited file, or one brought in from elsewhere --
+  // would have survived into `currentValue` here and been split apart
+  // again on the next render, silently turning one remembered value into
+  // two (or shifting every value that came after it). `JSON.stringify` /
+  // `JSON.parse` round-trip a string exactly, whatever characters it
+  // contains, so there is no separator left to collide with (independent
+  // review, round 3 of #1244).
+  const extrasKey = JSON.stringify(withSavedValues(remembered, isUnoffered ? [currentValue] : []));
   const tags = useMemo(
-    () =>
-      withSavedValues(METADATA_LANGUAGE_TAGS, extrasKey === '' ? [] : extrasKey.split('\u0000')),
+    () => withSavedValues(METADATA_LANGUAGE_TAGS, JSON.parse(extrasKey) as string[]),
     [extrasKey]
   );
 

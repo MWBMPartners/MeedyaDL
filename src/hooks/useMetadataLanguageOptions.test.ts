@@ -102,6 +102,27 @@ describe('useMetadataLanguageOptions', () => {
     expect(second.result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
   });
 
+  it('keeps a saved value with an embedded NUL character intact, not split in two', async () => {
+    // The remembered-values list used to be joined into one string with
+    // U+0000 (NUL) as the separator, on the assumption that no language
+    // tag or settings value would ever contain one -- an assumption
+    // nothing actually enforced (an imported settings file only has its
+    // \n and \r stripped). A value that genuinely contained a NUL
+    // character would have been split apart into two values the next
+    // time this list was rebuilt. JSON.stringify/JSON.parse round-trip
+    // a string exactly, whatever characters it holds (independent
+    // review, round 3 of #1244).
+    order.mockImplementation(async (tags) => [...tags]);
+    const withNul = 'zh-CN\u0000not-a-separate-value';
+    const { result } = renderHook(() => useMetadataLanguageOptions(withNul, 'en'));
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    const values = result.current.map((o) => o.value);
+    expect(values).toContain(withNul);
+    expect(values).not.toContain('zh-CN');
+    expect(values).not.toContain('not-a-separate-value');
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
   it('keeps the same order when a different entry is chosen', async () => {
     // Choosing must not move anything (policy UI-050): the list is keyed on
     // its content, so a new choice does not even ask for a new order.
