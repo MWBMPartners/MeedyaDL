@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-27 (about 19:30) — see ★★★★ LATEST below
-**Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; #1222-#1226 committed on it, not yet in a PR). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
+**Last updated:** 2026-09-28 (about 00:30) — see ★★★★ LATEST below
+**Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
-**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.74** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 17:30 on 27 Sept.
+**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,80 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-27 (evening): batch — #1221 to #1226, then a combined check of #1215 to #1218
+## ★★★★ LATEST — 2026-09-28: shared language policy (MWBM-MEDIA-LANG) across nine repositories
+
+> **PICK UP HERE.** MeedyaDL branch `feature/bcp47-language-policy` (from alpha after alpha.75).
+> This effort spans nine repositories plus the dev-team plugin; MeedyaDL is only one of them.
+
+**State of the previous batch (#1221-#1226):** finished and shipped in **v1.13.0-alpha.75**
+(all six builds, 12 updater keys, notes lint clean). #1230 (watch workflows to main) merged
+27 Sept 21:00 and its first runs all succeeded. **Still queued from it:** #1241 — a second
+small `ci:` PR to main (preserve-release-pr-body stub, release.yml fetch fixes,
+apply-branch-rulesets, build-secret wiring incl. DEV_ACCESS_HASH, false comments, main's
+CLAUDE.md note, retire protected-cron-channels.json); close #1219 after it. Open follow-ups:
+#1220, #1232-#1242; #1215 and #1218 stay open.
+
+**What the maintainer asked (27 Sept, late):** one shared, enforceable "Media Language & BCP 47
+Policy" (Policy ID `MWBM-MEDIA-LANG`, version `1.0.0`, normative) across MeedyaDL,
+MeedyaConverter, MeedyaManager, MeedyaPlayer, MeedyaSuite-core, MeedyaSubtitler, NetPLAYERapp,
+iHymns and iLyricsDB, plus the dev-team plugin. The repositories — not any assistant's memory —
+must be the source of truth: normative document, agent-file pointers, machine-readable test
+cases, automated tests, CI enforcement. Existing code that conflicts must be FIXED, not just
+documented. The full brief is saved at
+`…/scratchpad/policy-spec-from-user.md` (session scratchpad; also in the session transcript).
+
+**Inspection done (all nine + plugin):** findings per repository in
+`…/scratchpad/lang-policy-findings.md`. No shared standards repository exists in either
+organisation. MeedyaSuite-core is public and already the home of shared data (iHymns copies
+its identifier_types.toml), so it holds the master copy.
+
+**Decisions (maintainer, 28 Sept, final):**
+1. Each repository gets its OWN branch `feature/bcp47-language-policy`, cut from that repo's
+   working/integration branch, pushed, merged into the working branch later — other sessions
+   own the working branches of MeedyaManager, MeedyaConverter (18 unsaved files overlap),
+   NetPLAYERapp, iLyricsDB and the plugin. No PRs until the maintainer says so.
+2. MeedyaManager and MeedyaDL may use the new first-party crate `meedya-lang` from core.
+3. MeedyaConverter's stream-numbering bug (whole-file position vs position within one type)
+   is fixed in this work, with its own commit, test and issue.
+4. Databases: the maintainer says iHymns alpha already uses full tags — true everywhere except
+   ONE link (`fk_Trans_Lang`: a whole-song translation must name a bare code; the schema's own
+   comment flags it). Plan: a small hand-run migration drops that one constraint so it matches
+   the rest; told the maintainer, they can still say no. iLyricsDB: code fixes now, its
+   table-identity change goes into an issue coordinated with iHymns (#1064).
+
+**Decided by me (told the maintainer):** master policy, changelog, test cases and data in core
+(`docs/standards/`, `tests/fixtures/`); consumers keep identical copies pinned to a core commit,
+with a hash check in their existing CI. Rust: new crate `crates/meedya-lang` (aim: no
+dependencies at all — a hand-written RFC 5646 parser shared in behaviour with the PHP and Swift
+versions through the test cases; avoids icu_locale_core's newer minimum Rust). PHP: one
+version kept in core, copied to iHymns / iLyricsDB / NetPLAYERapp. Swift: inside MeedyaConverter
+only for now. Interface language names come from each platform's own data. Codex (small
+allowance) reviews core + MeedyaConverter; the rest get a fresh Opus reviewer, labelled as such.
+Plugin change built on top of its in-flight `claude/ledger-file-clashes` branch.
+
+**Order:** core (policy, test cases, data, crate, PHP version) → MeedyaDL → MeedyaConverter →
+iHymns → iLyricsDB → NetPLAYERapp → MeedyaManager → MeedyaPlayer + MeedyaSubtitler (documents,
+test cases, agent pointers; no code exists) → dev-team plugin.
+
+**Where the work lives:** core in the scratch clone `…/scratchpad/lang/core` on
+`feature/bcp47-language-policy` (from `origin/feature/work-in-progress`). Never use the
+maintainer's local checkouts of the other repos — other sessions are active in them.
+
+**Core trap to remember:** core's CI has a doc test-count guard (`scripts/check-doc-test-counts.sh`)
+— adding a crate with tests means updating the documented counts, or CI fails. Core CI runs only
+on PRs to / pushes to main.
+
+**MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
+(`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
+storefront guessed by splitting text (`login_window_service.rs`, `config_service.rs`);
+lyrics writers drop the language (WebVTT/ASS/rich SRT) and LRC copies it raw; music-video
+subtitle files named with three-letter codes, roles ignored, language unsanitised in the file
+name (`music_video_subtitle_service.rs`); metadata-language dropdown has 12 English-only labels
+with region standing in for script (`GeneralTab.tsx`). Details in the findings file.
+
+---
+
+## Previous — 2026-09-27 (evening): batch — #1221 to #1226, then a combined check of #1215 to #1218
 
 > **PICK UP HERE.** Working branch `work/after-alpha-74` (from alpha after alpha.74).
 
