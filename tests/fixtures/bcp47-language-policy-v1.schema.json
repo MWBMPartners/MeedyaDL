@@ -173,6 +173,10 @@
                 "description": "Terminology form (MP4/MOV media header, ID3)."
               }
             }
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
           }
         }
       },
@@ -207,6 +211,10 @@
               "null"
             ],
             "description": "The canonical tag, or null when the locale names no language ('C', 'POSIX') or cannot be converted."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
           }
         }
       },
@@ -578,6 +586,10 @@
           "expected": {
             "type": "string",
             "description": "The label, parts joined with ' — ' (space, U+2014 em dash, space)."
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
           }
         }
       },
@@ -635,6 +647,10 @@
                 "description": "For general and specific: how many subtags were removed or added. 0 otherwise."
               }
             }
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
           }
         }
       },

@@ -986,6 +986,30 @@
         "b": "chi",
         "t": "zho"
       }
+    },
+    {
+      "id": "write-20",
+      "rules": [
+        "TRACK-070"
+      ],
+      "description": "Two letters starting with q are not the local-use range qaa-qtz, which is three letters. qb has no ISO 639-2 code, so und is written, not qb.",
+      "input": "qb",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-21",
+      "rules": [
+        "TRACK-070"
+      ],
+      "description": "Canonical form lower-cases QM to qm, which is still two letters and so still not a local-use code: und is written, not qm.",
+      "input": "QM",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
     }
   ],
   "posix_locale": [
@@ -1069,6 +1093,16 @@
       ],
       "input": "iw_IL",
       "expected": "he-IL"
+    },
+    {
+      "id": "posix-11",
+      "rules": [
+        "LANG-004",
+        "LANG-001"
+      ],
+      "description": "A leading no-break space (U+00A0) is not one of LANG-001's four whitespace characters, so it is not trimmed. It stays part of the value, which is then malformed, so there is no tag.",
+      "input": " en_US.UTF-8",
+      "expected": null
     }
   ],
   "sidecar_name": [
@@ -1480,6 +1514,36 @@
       "expected": null,
       "error": true,
       "description": "A builder refuses more than nine digits, which a reader could not read back"
+    },
+    {
+      "id": "sidecar-27",
+      "rules": [
+        "TEXT-030",
+        "LANG-002"
+      ],
+      "mode": "build",
+      "description": "A builder reads the language it is given with LANG-002's reader, so the old three-letter code fre is written as fr, which is what a reader reads back.",
+      "stem": "Film",
+      "tag": "fre",
+      "roles": [],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.fr.srt"
+    },
+    {
+      "id": "sidecar-28",
+      "rules": [
+        "TEXT-030",
+        "LANG-002"
+      ],
+      "mode": "build",
+      "description": "zzz is not in the ISO 639-2 table, not a registered subtag, not in the local-use range and not the XXX marker, so LANG-002's reader does not recognise it: the builder writes und.",
+      "stem": "Film",
+      "tag": "zzz",
+      "roles": [],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.und.srt"
     }
   ],
   "canonical_order": [
@@ -2077,6 +2141,68 @@
         "zh-Hant",
         "zh-abc"
       ]
+    },
+    {
+      "id": "order-21",
+      "rules": [
+        "LANG-021"
+      ],
+      "description": "A tag that merely ends in a private-use part is an ordinary tag. Its private-use part is kept when the tag is read, and LANG-021 rule 5 puts it after the plain tag of the same language.",
+      "items": [
+        {
+          "tag": "en-x-foo"
+        },
+        {
+          "tag": "en"
+        }
+      ],
+      "expected": [
+        "en",
+        "en-x-foo"
+      ]
+    },
+    {
+      "id": "order-22",
+      "rules": [
+        "LANG-021"
+      ],
+      "description": "Two tags that differ only in their private-use part are ordered by the rest of the tag as plain ASCII (LANG-021 rule 5).",
+      "items": [
+        {
+          "tag": "en-x-b"
+        },
+        {
+          "tag": "en-x-a"
+        }
+      ],
+      "expected": [
+        "en-x-a",
+        "en-x-b"
+      ]
+    },
+    {
+      "id": "order-23",
+      "rules": [
+        "LANG-021",
+        "LANG-022"
+      ],
+      "description": "A tag with a private-use part comes after every plainer tag of its group, however specific those are: script only, then region only, then the one with the private-use part (LANG-021 rule 5).",
+      "items": [
+        {
+          "tag": "en-GB-x-foo"
+        },
+        {
+          "tag": "en-US"
+        },
+        {
+          "tag": "en-Latn"
+        }
+      ],
+      "expected": [
+        "en-Latn",
+        "en-US",
+        "en-GB-x-foo"
+      ]
     }
   ],
   "track_order": [
@@ -2419,6 +2545,34 @@
         "a1",
         "s1",
         "s2"
+      ]
+    },
+    {
+      "id": "tracks-07",
+      "rules": [
+        "LANG-026",
+        "TRACK-050"
+      ],
+      "description": "Two malformed audio tracks keep the order they were found in. The first is commentary and the second has no role, but roles do not reorder malformed values among themselves (LANG-026).",
+      "tracks": [
+        {
+          "id": "m1",
+          "type": "audio",
+          "tag": "English",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "m2",
+          "type": "audio",
+          "tag": "Francais",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "m1",
+        "m2"
       ]
     }
   ],
@@ -3454,6 +3608,58 @@
         "a",
         "b"
       ]
+    },
+    {
+      "id": "present-23",
+      "rules": [
+        "UI-040"
+      ],
+      "description": "Groups whose localised names are identical (two named Malay, two named Norwegian) are ordered by primary language code, whatever order they were found in.",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "ms": "Malay",
+        "zsm": "Malay",
+        "nb": "Norwegian",
+        "no": "Norwegian"
+      },
+      "collation_keys": {
+        "de": "german",
+        "ms": "malay",
+        "zsm": "malay",
+        "nb": "norwegian",
+        "no": "norwegian"
+      },
+      "items": [
+        {
+          "id": "zsm",
+          "tag": "zsm"
+        },
+        {
+          "id": "no",
+          "tag": "no"
+        },
+        {
+          "id": "ms",
+          "tag": "ms"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        },
+        {
+          "id": "nb",
+          "tag": "nb"
+        }
+      ],
+      "expected": [
+        "de",
+        "ms",
+        "zsm",
+        "nb",
+        "no"
+      ]
     }
   ],
   "subtitle_menu": [
@@ -3585,6 +3791,56 @@
       },
       "channels": "2.0",
       "expected": "French — Audio Description — Commentary — 2.0"
+    },
+    {
+      "id": "label-05",
+      "rules": [
+        "UI-070"
+      ],
+      "description": "A role listed twice appears once, and roles are still in TRACK-050's order.",
+      "type": "subtitle",
+      "language_name": "English",
+      "roles": [
+        "sdh",
+        "sdh",
+        "forced"
+      ],
+      "role_names": {
+        "sdh": "SDH",
+        "forced": "Forced"
+      },
+      "channels": null,
+      "expected": "English — SDH — Forced"
+    },
+    {
+      "id": "label-06",
+      "rules": [
+        "UI-070"
+      ],
+      "description": "An empty channel layout adds nothing to the label, not even a separator.",
+      "type": "audio",
+      "language_name": "English",
+      "roles": [],
+      "role_names": {},
+      "channels": "",
+      "expected": "English"
+    },
+    {
+      "id": "label-07",
+      "rules": [
+        "UI-070"
+      ],
+      "description": "A role whose localised name is empty adds nothing to the label, not even a separator; the parts after it still follow.",
+      "type": "audio",
+      "language_name": "English",
+      "roles": [
+        "commentary"
+      ],
+      "role_names": {
+        "commentary": ""
+      },
+      "channels": "2.0",
+      "expected": "English — 2.0"
     }
   ],
   "match": [
@@ -3972,6 +4228,33 @@
       ],
       "preference": "und-Latn",
       "candidate": "und-Latn-GB",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-33",
+      "rules": [
+        "MATCH-010"
+      ],
+      "description": "Two malformed values match nothing, even when they are the same text apart from case.",
+      "preference": "English",
+      "candidate": "ENGLISH",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-34",
+      "rules": [
+        "MATCH-010",
+        "LANG-001"
+      ],
+      "description": "An empty value is malformed, and a malformed value does not match even an identical one.",
+      "preference": "",
+      "candidate": "",
       "expected": {
         "level": "none",
         "distance": 0
@@ -4508,6 +4791,124 @@
       ],
       "expected": null,
       "error": true
+    },
+    {
+      "id": "audio-21",
+      "rules": [
+        "AUTO-010",
+        "AUTO-020",
+        "MATCH-010"
+      ],
+      "description": "A malformed preference matches nothing, not even a track with the same malformed text ignoring case, so selection falls through to the default track.",
+      "preferences": [
+        "English"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "fr",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "2",
+          "tag": "english",
+          "roles": []
+        }
+      ],
+      "expected": "1"
+    },
+    {
+      "id": "audio-22",
+      "rules": [
+        "AUTO-020",
+        "LANG-010",
+        "TRACK-050"
+      ],
+      "description": "Canonical order counts every audio track, including ones that cannot be chosen. The original Japanese commentary is never chosen, but it still brings the Japanese group forward, so of the two default tracks the Japanese one comes first.",
+      "preferences": [],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "2",
+          "tag": "ja",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "3",
+          "tag": "ja",
+          "roles": [
+            "commentary"
+          ],
+          "original": true
+        }
+      ],
+      "expected": "2"
+    },
+    {
+      "id": "audio-23",
+      "rules": [
+        "AUTO-020",
+        "AUTO-040",
+        "TRACK-050"
+      ],
+      "description": "When every audio track is commentary or other, commentary ranks before other even though audio description was asked for. Role rank comes before the default flag and the identifier, which both favour the other track.",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {
+        "audio_description": true
+      },
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "en",
+          "roles": [
+            "other"
+          ],
+          "default": true
+        },
+        {
+          "id": "2",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        }
+      ],
+      "expected": "2"
+    },
+    {
+      "id": "audio-24",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Identifiers made only of digits come before all others, compared as numbers of any length: a 40-digit identifier is still digits only, so it comes before 0abc.",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "0abc",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "1234567890123456789012345678901234567890",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "1234567890123456789012345678901234567890"
     }
   ],
   "auto_select_subtitle": [
@@ -5057,6 +5458,95 @@
       ],
       "expected": null,
       "error": true
+    },
+    {
+      "id": "subs-21",
+      "rules": [
+        "AUTO-010",
+        "AUTO-030"
+      ],
+      "description": "Preferences that are all malformed count as none, so automatic mode acts as forced only: the forced English track matching the English audio, not the default full track.",
+      "mode": "automatic",
+      "preferences": [
+        "English",
+        "en_US"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "2",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "2"
+    },
+    {
+      "id": "subs-22",
+      "rules": [
+        "AUTO-030",
+        "MATCH-040"
+      ],
+      "description": "A private-use audio tag has something to match in forced-only mode: a forced track with exactly that tag, not one with a different private-use tag.",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "x-foo",
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "x-bar",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "2",
+          "tag": "x-foo",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "2"
+    },
+    {
+      "id": "subs-23",
+      "rules": [
+        "AUTO-030",
+        "MATCH-040"
+      ],
+      "description": "A grandfathered audio tag with no replacement has something to match in forced-only mode: a forced track with exactly that tag.",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "i-default",
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "x-foo",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "2",
+          "tag": "i-default",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "2"
     }
   ]
 }

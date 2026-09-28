@@ -396,7 +396,10 @@ its text, is reported, and goes after everything else, in the order it was
 found — in stored order and in a menu alike: roles, original flags and
 preferences do not reorder malformed entries among themselves (UI-045 does
 not apply to them). Automatic selection breaks their ties by identifier
-instead (AUTO-010).
+instead (AUTO-010). The text it keeps is the value after LANG-001 step 1's
+trim: `" en_US "` keeps `en_US`, and a value of nothing but those four
+whitespace characters (`" "`, a tab and a line feed) is malformed and keeps
+the empty text.
 
 ### LANG-027 — Ties keep their order
 
@@ -612,7 +615,9 @@ layout, localised:
 `English (United Kingdom) — Audio Description — 5.1`
 
 - The parts are joined with ` — ` (space, em dash, space).
-- Roles appear in TRACK-050's order.
+- A part that is empty (no localised name, no channel layout) is left out,
+  with its separator.
+- Roles appear once each, in TRACK-050's order.
 - An embedded track title MUST NOT be used as the main label when language
   data exists. It MAY be shown in a details view.
 - Codec, bit rate and sample rate belong in a details view, not the main
@@ -621,7 +626,8 @@ layout, localised:
 ### MATCH-010 — Exact match is best
 
 A preference and a track match **exactly** when their canonical tags are
-identical. `en-US` is not an exact match for `en-GB`.
+identical. `en-US` is not an exact match for `en-GB`. A malformed value
+matches nothing — not even an identical malformed value.
 
 ### MATCH-020 — Then a more general form
 
@@ -683,11 +689,18 @@ broken by the identifier instead. It MAY use:
 preferences, exact regional and script preference, original, default,
 forced, roles, accessibility settings, playback context and saved choices.
 
+A malformed preference is ignored here as in menus (UI-020): it matches
+nothing, and a user whose preferences are all malformed counts as having
+none — so **automatic** subtitle mode (AUTO-030) acts as **forced only**
+for them.
+
 ### AUTO-020 — Choosing audio
 
 1. Tracks placed (TRACK-050) as **commentary** or **other** are never
-   chosen automatically unless every audio track is one. Alternate mixes and
-   audio description can be chosen, but rank after the main programme.
+   chosen automatically unless every audio track is one — and then
+   commentary ranks before other (TRACK-050), whether or not audio
+   description was asked for. Alternate mixes and audio description can be
+   chosen, but rank after the main programme.
    **Role rank** here uses each track's placing role (TRACK-050): main
    programme, then alternate, then audio description — or, when the user
    has asked for audio description, audio description, then main
@@ -697,6 +710,11 @@ forced, roles, accessibility settings, playback context and saved choices.
    related or better). If any do, choose the best of them by, in order:
    role rank, match strength, fewer removed or extra subtags, default flag,
    original flag, canonical order (TRACK-050), track identifier. Stop.
+   Here and below, **canonical order** means the position each track would
+   have in stored order (TRACK-050, TRACK-060) among *all* tracks of its
+   type — including tracks that cannot be chosen — so an original track
+   that is never chosen (commentary, say) still brings its language group
+   forward, as it does in stored order.
 3. If no preference matched: the original track(s), best by role, default
    flag, canonical order, identifier.
 4. Otherwise the default track(s), by the same tie-breaks.
@@ -714,7 +732,9 @@ The subtitle choice depends on the audio chosen and on a subtitle mode:
   subtags, default flag, canonical order, identifier). Nothing if there is
   none, or if the audio's primary language is `und` (not known), `mul`
   (several) or `zxx` (none), with or without further subtags — there is
-  nothing to match a forced track against.
+  nothing to match a forced track against. A private-use or grandfathered
+  audio tag (`x-…`, `i-default`) does have something to match: a forced
+  track with exactly that tag (MATCH-040).
 - **always** — for each preference in order, the best-matching subtitle
   that is not forced, commentary or other (SDH first if the user has asked
   for captions, otherwise full subtitles first; then match strength, fewer
@@ -730,7 +750,9 @@ A forced track is never chosen by **always**, and a full track is never
 chosen by **forced only** (TRACK-030). If no audio track was chosen (a
 silent video), the audio's language counts as not known: **forced only**
 gives nothing, and **automatic** acts as **always** when the user has
-preferences.
+preferences. **Canonical order** here has the meaning AUTO-020 gives it:
+stored order among all subtitle tracks, including those that cannot be
+chosen.
 
 ### AUTO-040 — Accessibility preferences
 
@@ -769,7 +791,11 @@ shape:
 - **The tag comes first, always.** It is the canonical tag (`Film.en-GB.srt`,
   `Song.zh-Hant.lrc`); when the language is not known, or the value is
   malformed, it is `und`. A malformed value never goes into a file name —
-  it could contain characters that are unsafe in a path.
+  it could contain characters that are unsafe in a path. A builder reads
+  the language it is given with LANG-002's reader, exactly as a reader will
+  read the name back — so it writes `Film.fr.srt` when given `fre`, and
+  `Film.und.srt` when given a value the reader does not recognise. What a
+  builder writes is therefore always what a reader reads back.
 - **Role words** follow, in TRACK-050 order, from this list only: `sdh`,
   `forced`, `commentary` (`Film.en.sdh.srt`, `Film.en.forced.srt`). A
   reader also accepts `cc` and `hi` as `sdh`, because other tools write
@@ -914,8 +940,11 @@ copied verbatim) runs in that repository's existing CI and fails when:
 - a copy has been edited (its checksum no longer matches the lock);
 - the lock leaves out one of the files every copy must have (this
   document, the test cases and their schema, the data and its schema, the
-  checker), or a file in the repository has the name of a master file but
-  is not in the lock — so deleting a lock line cannot switch a check off;
+  checker); or, for any copy of the PHP implementation, names some of its
+  three files but not all, or keeps them in a different layout from the
+  master (its test runner loads the implementation from the folder above
+  it); or a file in the repository has the name of a master file but is
+  not in the lock — so deleting a lock line cannot switch a check off;
 - a master path is not one of the master files, or a local path points
   outside the repository;
 - the recorded commit is not part of MeedyaSuite-core's own history on an
@@ -1018,6 +1047,24 @@ deleting a lock line); the ISO 639-2 data was rebuilt from the real ISO
 twenty points where two careful implementations could disagree were
 settled, each with a test case. No version was published before this
 revision, so it stays 1.0.0.
+
+Also settled before release (28 Sept 2026), after independent reviews of
+the Rust and Swift implementations, each with a test case and no change to
+any existing case's answer:
+
+- eight points the text had left open — a malformed preference matches
+  nothing, not even an identical malformed value, and a user whose
+  preferences are all malformed counts as having none (MATCH-010,
+  AUTO-010); "canonical order" in automatic selection means stored order
+  among *all* tracks of the type, including ones that cannot be chosen
+  (AUTO-020, AUTO-030); when every audio track is commentary or other,
+  commentary ranks before other (AUTO-020); a private-use or grandfathered
+  audio tag can match a forced track with exactly that tag (AUTO-030); a
+  sidecar builder reads the language it is given with LANG-002's reader
+  (TEXT-030); a label lists each role once (UI-070); a label leaves out an
+  empty part, with its separator (UI-070); and a malformed value
+  keeps its text after LANG-001 step 1's trim, so a value of only
+  whitespace keeps the empty text (LANG-026).
 
 ---
 
