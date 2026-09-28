@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:34) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -612,6 +612,17 @@ on PRs to / pushes to main.
   Checked by me: PHP suite 288, npm 113, ESLint, actionlint, copy checker, identity. Comment on #2137.
   **iHymns third stand-in review running** over `5141dab6..2df90796` (re-runs the database tests
   itself). Watchdog on it.
+- **12:37 — Codex core review running** (`codex-prompt-r8.txt`, core `21fa942..7f944a7`, worktree
+  `…/scratchpad/lang/core-r8`, output `codex-r8.out`, 90-minute limit; started and working — not refused).
+  Plugin `748e87c..42bd45e` next if the allowance lasts.
+- **12:40 — MeedyaManager round 3 pushed (`e18fb18`, 7 commits on `3a45ed7`)**: note in ordinary output;
+  Clear removes the language from every container; note describes what was stored; WAV reads one value;
+  `Matches` tries both forms; FFI message hides the temp path; real-file tests for every earlier fix;
+  #255 opened (title-only WAV save leaves the second container stale). Checked by me: fmt, clippy, 1,467
+  tests (1 ignored), doc, copy checker, identity; `cargo deny` only RUSTSEC-2026-0285 (rustls, known);
+  actionlint fails only on style notes in two untouched workflows, same at `3a45ed7`. Comment on #251.
+  **Third stand-in review running**, watchdog on it. Known gap for the next round: `help/rule-syntax.md`
+  never explains how rules treat languages — needs a section.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
