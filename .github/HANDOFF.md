@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 18:25) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 18:28) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -939,6 +939,35 @@ on PRs to / pushes to main.
   - **Back to stand-in reviews (fresh Opus agents) until 22:45.** That covers MeedyaManager round 5 (`aa7a30d..a150926`, plus the lead above) and NetPLAYERapp round 6 (`978f2a0..9232ec6`), both running with watchdogs. The MeedyaPlayer/MeedyaSubtitler round-11 review is queued for when an agent slot frees up; I'm keeping fewer than about nine agents running at once so the session limit is not hit again.
   - **Codex catch-up still owed** once it is back: MeedyaManager's whole range `7697b9c..`, iHymns, iLyricsDB, MeedyaConverter, the plugin, core after revision 10, NetPLAYERapp, and MeedyaPlayer/MeedyaSubtitler round 11.
 - **NetPLAYERapp round 6 pushed (`9232ec6`).** My checks: the language test ran 18,485 checks with none failing. `php -l`, PHPStan, cs-fixer, house rules, schema, markdownlint, actionlint and the copy checker (9 of 9) were all clean. Only comments changed in the application code, and all 10 `.gitattributes` lines are hardened. No containers or left-behind volumes remain. I commented on #210.
+- **iHymns round-5 stand-in review: 1 medium, 5 low, 2 info.** Every item from the round works on both servers, and every planted fault is caught.
+  - **Medium (older behaviour):** re-pointing a language to a different song carries that row's translator and "verified" flag onto the wrong song.
+  - **Low:**
+    - an object with the wrong key names silently deletes links;
+    - L3 keeps the "verified" flag across any language change;
+    - the English-fallback guard misses `languageCode ||`-style fallbacks;
+    - the translation picker orders by all saved languages, not the first 32;
+    - MariaDB error 1020 ends the whole transaction, and the log loses the real cause;
+    - nothing stops the new call from being wrapped in a `try` again.
+  - **Info:** the lock-timeout comment is wrong.
+  - **Decisions for round 6 (`brief-ihymns-r6.md`):**
+    - a link's details never move to a different song: the target song's own unmatched row is relabelled, and otherwise the link starts with no translator and not verified;
+    - on a same-song language change the translator is kept, and "verified" is kept only within the same primary language;
+    - all the low findings are fixed, and 1020 is added to the fatal list after an audit;
+    - `.gitattributes` hardening.
+  - **Round-6 builder running** (Opus), with a watchdog on it.
+- **iLyricsDB round-5 stand-in review: 2 should-fix (security), 4 minor, 4 nits.** The round's own LRC and ASS fixes hold: 25,137 LRC texts and 291,453 ASS texts were tried, with no hole found.
+  - **S1:** the SRT export still lets typed `{\1c…\p1}` act as ASS commands through ffmpeg's SRT reader. It painted 96% of a frame red.
+  - **S2:** APlayer reads a timestamp in the middle of a line, or in the title or artist, as a forged line.
+  - **Minor:** the docs overstate the SRT round trip; four import-side behaviours are untested; CI never installs ffmpeg; and there are two older round-trip gaps.
+  - **Decisions for round 6 (`brief-ilyricsdb-r6.md`):**
+    - SRT puts a word joiner after every backslash, and SrtParser removes it;
+    - LRC rounds timestamp-shaped `[` anywhere in the text, including `ti` and `ar`;
+    - honest docs;
+    - four tests;
+    - CI installs ffmpeg, and those checks FAIL under `CI` when ffmpeg is missing;
+    - one issue for the older gaps;
+    - nits and `.gitattributes`.
+  - **Round-6 builder running** (Opus), with a watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
