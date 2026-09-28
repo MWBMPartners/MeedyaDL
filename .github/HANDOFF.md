@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 04:20) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 05:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -274,6 +274,15 @@ on PRs to / pushes to main.
 - **MeedyaConverter done and pushed** (`wip/bcp47-language-policy`, 13 commits, head `67c41ca`,
   #530 stream-numbering fix first); CI running (watch `b900iza6r`, 50-min limit); stand-in review
   running. ffmpeg 9.0.1 cannot write Matroska `LanguageBCP47` or MP4 `elng` — follow-up issues.
+- **About 05:15:** core lyrics/metadata fixes pushed (`d2cf1b9`, 736/883 tests, checked by me);
+  **core revision 4 builder running** (Opus, `brief-revision-4.md`, also fixes the per-crate test
+  counts). MeedyaPlayer `2b29659` + MeedyaSubtitler `fc211a1` pushed (review fixes + issue
+  corrections; the fixes themselves unreviewed — review them with the re-pin). MeedyaConverter
+  `28efa6f` pushed (one CI test fixed), **CI green**, umbrella issue MeedyaConverter#531; stand-in
+  review running. **iLyricsDB pushed** (`feature/bcp47-language-policy`, #150–#153; API field
+  `language` now a tag, name in `languageName`, OpenAPI 1.0.0→1.1.0, CHANGELOG says so) and
+  **NetPLAYERapp pushed** (#210; migration 0015 checked twice on throwaway MySQL; schema v0.4.0);
+  stand-in reviews of both running. Still building: MeedyaDL, MeedyaManager, iHymns, plugin r3.
 - **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
   lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
   a squash**, or every consumer must run `--update` afterwards.
