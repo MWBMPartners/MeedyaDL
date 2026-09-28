@@ -207,9 +207,11 @@ fn expected_ids_for(section: &str, raw_value: &Value) -> Vec<String> {
 // These two functions read both pins straight off disk, and the test
 // refuses to run a single case unless they agree.
 
-/// The commit `src-tauri/Cargo.lock` actually resolved `meedya-lang` to.
+/// Every commit `raw` (a Cargo.lock's text) resolved a `meedya-lang`
+/// package entry to — one per `[[package]] name = "meedya-lang"` block
+/// found, in the order they appear.
 ///
-/// Cargo.lock is TOML, but only one line of it is needed here, so a small
+/// Cargo.lock is TOML, but only these lines are needed here, so a small
 /// line scan is used instead of pulling in a TOML parser as a test-only
 /// dependency. A `[[package]]` block's `source` line looks like
 /// `source = "git+https://…?rev=<hex>#<hex>"` — the commit after the `#`
@@ -217,10 +219,14 @@ fn expected_ids_for(section: &str, raw_value: &Value) -> Vec<String> {
 /// what Cargo.toml asked for; the two are the same commit on a normal,
 /// up-to-date checkout, but the fragment is the one Cargo treats as
 /// authoritative).
-fn read_crate_pin() -> String {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock");
-    let raw =
-        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {path}: {e}"));
+///
+/// Split out from `read_crate_pin` (independent review, round 4 of
+/// #1244) so the parsing itself is directly testable on a fixed sample
+/// string, without needing a Cargo.lock on disk that names the crate
+/// more than once. Kept `pub(crate)`-free and free-standing rather than
+/// a method, matching `read_crate_pin`'s own original shape.
+fn crate_pins(raw: &str) -> Vec<String> {
+    let mut commits = Vec::new();
     let mut lines = raw.lines();
     while let Some(line) = lines.next() {
         if line.trim() != "name = \"meedya-lang\"" {
@@ -229,6 +235,7 @@ fn read_crate_pin() -> String {
         // The `source` line is a few lines below `name` within the same
         // `[[package]]` block; stop at the next blank line (the end of
         // the block) if it is somehow not there.
+        let mut found_source_line = false;
         for line in lines.by_ref() {
             if line.trim().is_empty() {
                 break;
@@ -237,18 +244,107 @@ fn read_crate_pin() -> String {
                 continue;
             };
             let rest = rest.trim_end_matches('"');
-            return rest
+            let commit = rest
                 .rsplit('#')
                 .next()
                 .filter(|commit| !commit.is_empty())
                 .unwrap_or_else(|| {
                     panic!("Cargo.lock's meedya-lang source line has no commit: {line:?}")
-                })
-                .to_string();
+                });
+            commits.push(commit.to_string());
+            found_source_line = true;
+            break;
         }
-        panic!("Cargo.lock's meedya-lang package has no \"source\" line");
+        if !found_source_line {
+            panic!("Cargo.lock's meedya-lang package has no \"source\" line");
+        }
     }
-    panic!("Cargo.lock has no meedya-lang package entry to read a commit from");
+    commits
+}
+
+/// The commit `src-tauri/Cargo.lock` actually resolved `meedya-lang` to.
+///
+/// Panics unless the file names a `meedya-lang` package entry exactly
+/// ONCE. Before this, the reader stopped at the FIRST entry it found and
+/// used its commit without checking whether a second one existed
+/// (independent review, round 4 of #1244) — Cargo can resolve the same
+/// git dependency to two different commits in one lock file when two
+/// different `Cargo.toml` entries in the workspace ask for different
+/// refs of it, and a reader that silently picks whichever block happens
+/// to come first could end up comparing against a commit that is not
+/// the one `src-tauri/Cargo.toml`'s own `rev` actually asks for — quietly
+/// defeating the whole point of the check this feeds (see the module
+/// comment above: "The two pins must move together").
+fn read_crate_pin() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock");
+    let raw =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {path}: {e}"));
+    match crate_pins(&raw).as_slice() {
+        [] => panic!("Cargo.lock has no meedya-lang package entry to read a commit from"),
+        [only] => only.clone(),
+        many => panic!(
+            "Cargo.lock names a meedya-lang package {} times ({many:?}) — expected exactly \
+             one, so there is no single commit to compare against \
+             docs/standards/MWBM-MEDIA-LANG.lock",
+            many.len()
+        ),
+    }
+}
+
+#[test]
+fn crate_pins_finds_every_entry_not_just_the_first() {
+    // A Cargo.lock-shaped sample naming `meedya-lang` TWICE with two
+    // different commits -- the shape a real lock file takes when two
+    // different `Cargo.toml` entries in the workspace ask for different
+    // refs of the same git dependency. Before this round, `read_crate_pin`
+    // would have returned only the first commit (`aaaaaaa…`) with no sign
+    // that a second, different one existed at all.
+    let sample = "\
+[[package]]
+name = \"other-crate\"
+version = \"1.0.0\"
+
+[[package]]
+name = \"meedya-lang\"
+version = \"0.2.0\"
+source = \"git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=aaaaaaa1111111111111111111111111111111#aaaaaaa1111111111111111111111111111111\"
+dependencies = [
+ \"serde\",
+ \"serde_json\",
+]
+
+[[package]]
+name = \"meedya-lang\"
+version = \"0.3.0\"
+source = \"git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=bbbbbbb2222222222222222222222222222222#bbbbbbb2222222222222222222222222222222\"
+dependencies = [
+ \"serde\",
+]
+";
+    assert_eq!(
+        crate_pins(sample),
+        vec![
+            "aaaaaaa1111111111111111111111111111111".to_string(),
+            "bbbbbbb2222222222222222222222222222222".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn crate_pins_finds_the_one_entry_an_ordinary_lock_file_has() {
+    let sample = "\
+[[package]]
+name = \"meedya-lang\"
+version = \"0.2.0\"
+source = \"git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=ccccccc3333333333333333333333333333333#ccccccc3333333333333333333333333333333\"
+dependencies = [
+ \"serde\",
+]
+";
+    assert_eq!(
+        crate_pins(sample),
+        vec!["ccccccc3333333333333333333333333333333".to_string()]
+    );
 }
 
 /// The commit `docs/standards/MWBM-MEDIA-LANG.lock` records the policy
