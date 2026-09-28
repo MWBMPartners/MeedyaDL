@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 05:55) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -337,6 +337,22 @@ on PRs to / pushes to main.
   Decision: replace the method with a RUN-START SNAPSHOT (hashes of instruction files + config.yml
   recorded by the lead; later changes are data; PR code → PR base branch version). Revision 4
   builder running (watchdog `bjmeovnp1`).
+- **About 05:55:** iLyricsDB review fixes pushed (`d327373`, 10 commits, checked by me);
+  NetPLAYERapp review fixes pushed (`a456a40`: runtime files moved into `backend/vendor/`, a test
+  rebuilds the deploy layout; checked). Their second reviews wait for the re-pin sweep.
+  **MeedyaDL stand-in review: NOT clean** — must-fix: `meedya-lang` missing from
+  ACKNOWLEDGEMENTS.md (Licences check fails); should-fix: an old saved language with a line break
+  still reaches `config.ini`; conformance test lets nested fields go missing; minors (legacy name
+  path, lock, CLAUDE.md line, list loses an old value after a tab switch, UI-011 on the interface
+  list → show both names). Fix round running (same builder, in this checkout — do not touch its
+  files; it does not touch this handoff). Improved Release-Note wording goes to
+  `…/scratchpad/lang/meedyadl-release-notes.txt` for the PR body later.
+  **MeedyaManager stand-in review: NOT clean** — must-fix: the apps' Save re-sends every loaded
+  field, so saving only a title changes (`eng`→`en`, MP3 `pt-BR`→`por`) or refuses the language;
+  the reading half is wired to nothing, so rule matching now differs by format; the conformance test
+  lacks the stability check; a two-value TLAN is not kept (pre-existing; issue + ignored test).
+  Decision: `write_tags` skips a language value identical to what the file holds; rules and
+  `<Language>` use the standard tag. Fix round running.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
