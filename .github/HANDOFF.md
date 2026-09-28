@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:23) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:32) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -705,6 +705,18 @@ on PRs to / pushes to main.
   TTML control characters. **Decision (mine): fix the export injection NOW, not as an issue (security).**
   Round 4 to a FRESH **Opus** builder (`…/scratchpad/lang/brief-ilyricsdb-r4.md`), told to re-read every
   file before calling an item done. Watchdog on it.
+- **13:32 — MeedyaDL round 3 pushed (`192972d7`..`70fb7208`, 5 commits cherry-picked from the builder's own
+  clone; code identical to it)**: the conformance test fails unless the crate and the copies share one core
+  commit; per-case ID checks; the `label` section runs (241 cases, 10 sections); a subtitle-sort test; the
+  Interface Language list follows UI-040/UI-011; JSON-keyed remembered values; GAMDL gets the standard form
+  (stored value unchanged); an imported `ui_language` is checked as a tag. Checked by me: rustfmt (touched),
+  clippy, 2,146 Rust tests, conformance 241/10, deny, type-check, lint, 899 vitest, check:legal, all audit
+  checks, copy checker, actionlint, release-note lint; security read of `language_arg_for_gamdl`. Builder
+  used `git stash` once on a clean tree and `reset --soft` on its own unpushed commit to add a missing
+  Release-Note — both local, nothing lost; accepted. Its `rustfmt` reformatted whole touched files, so the
+  diff carries unrelated formatting. Comment on #1245. **Third stand-in review running**, watchdog on it.
+- **MeedyaPlayer round 5 (`4718590`) and MeedyaSubtitler round 5 (`5b09c30`) pushed**: one verified
+  review-history table each; notes shorter; CI passed on both; FIFTH stand-in review running, watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
