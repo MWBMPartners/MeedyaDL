@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 15:29) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 15:33) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -807,6 +807,22 @@ on PRs to / pushes to main.
   ran `pkill -f "mutate.py"`, which may have killed their own fault-planting runs and left a planted fault in
   their clones — each asked to check its clone is clean and re-run any cut-short batch. Builders are now told to
   stop processes by id only.
+- **15:33 — MeedyaPlayer and MeedyaSubtitler: stand-in review CLEAN** (tenth round, `b4cd924..bc901ad` and
+  `e284012..44cf095`): every hash, range and CI claim checked against git and GitHub, nothing false, contradictory or
+  missing. Done apart from the Codex catch-up. Pre-existing, for the maintainer: MeedyaSubtitler's first commit on
+  `main` (`53bbc0f`, 29 May) carries the personal author email; MeedyaPlayer's older files carry the first name
+  (from `dcaec9a` and earlier sessions) — this work added none and removed four.
+- **iLyricsDB round-4 review: 2 should (security), 6 minor, 4 nits.** A doubled bracket (`[[00:05.00]`) still forges
+  an LRC line in ffmpeg; typed text acts as ASS formatting/drawing commands (a lyric turned 94% of a frame red);
+  docs over-claim; four protections untested; placeholder-scanner blind spots; a damaged-but-valid bridge shows OK;
+  ordinary text like `I <3 you` does not round-trip; one bad UTF-8 byte kills the whole file. All decided "fix",
+  with a small LRC fuzz test. **Round 5 builder running** (Opus, `brief-ilyricsdb-r5.md`), watchdog on it.
+- **MeedyaDL round 4** (7 commits, cherry-picked from the builder clone's branch `r4`; code identical): Interface
+  Language order tested end to end and the fallback puts the interface language first; a long tag reaches GAMDL in
+  standard form; imported language fields over 256 bytes refused before parsing, logged by length only; `config.ini`
+  gets the standard form and no INI value can carry a NUL; the Cargo.lock reader insists on exactly one
+  `meedya-lang`. Builder used `git stash` once in its own clone (recorded). My full checks running; this entry is
+  pushed together with those commits once they pass.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
