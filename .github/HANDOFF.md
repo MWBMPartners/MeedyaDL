@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:57) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:03) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -661,6 +661,13 @@ on PRs to / pushes to main.
   **My slip:** the push command used `$h:refs/…`, which zsh mangles (`:r` is a modifier), so the push
   failed while the #150 comment saying "pushed" went up in the same command; pushed properly a minute
   later, so the comment is now true. Saved as a personal memory note (push first, braces always).
+- **13:03 — MeedyaPlayer/MeedyaSubtitler FOURTH stand-in review: NOT clean** (0 must, 1 should, 7 minor, 2
+  nits) — every earlier item confirmed fixed and the three new comments accurate; nearly all new findings are
+  wrong statements about REVIEW HISTORY in the notes (e.g. "none of the rounds' fixes has been reviewed"),
+  plus one substance point: ADR 0012 says TRACK-030/040 protect commentary, which they do not. **Decision
+  (mine): fix the cause, not the symptoms** — round 5 replaces the scattered history narrative with ONE
+  verified table per repository and removes present-tense status claims elsewhere. FRESH Sonnet builder
+  (`…/scratchpad/lang/brief-player-subtitler-r5.md`). Watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
