@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:53) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 14:44) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -751,6 +751,40 @@ on PRs to / pushes to main.
   true. Core CI watched (real conclusions read). **Codex hit its usage limit on the r9 review (back at 17:38)**
   — a fresh Opus agent stands in on the same prompt (`codex-prompt-r9.txt`); watchdog on it. Wake-up set for
   17:40 for the Codex catch-up: core revision 8 first, then the stand-in-reviewed work, one at a time.
+- **About 14:10–14:40 — the command-safety check gave no verdicts; nothing could be run or written.** Work
+  finished meanwhile stayed local until it recovered. Core CI does not run on this branch (core is public; only
+  "Lint Workflows" runs on branch pushes, and only for workflow changes) — revisions 6–9 are verified by my local
+  checks until core's pull request.
+- **Disk:** a reviewer warned 97% full (35 GB free). I deleted the build folders of eight FINISHED reviews in the
+  scratch area → 59 GB free (kept the ones running builders use).
+- **MeedyaDL third review (`9fe992cf..70fb7208`): 0 blocking, 0 major, 3 minor, 4 nits** — Interface Language
+  order untested; a >35-character tag reaches GAMDL raw; imported language fields not length-limited before
+  parsing/logging; `config.ini` language not in standard form; a comment citing the wrong file; the Cargo.lock
+  reader not insisting on one `meedya-lang`; the fallback order. All decided "fix": **round 4 builder running**
+  in the existing builder clone on a new branch `r4` (`brief-meedyadl-r4.md`), watchdog on it.
+- **Core revision-8 stand-in review: 1 medium, 6 low.** Medium: the M4A guard LISTS lossy cases and misses some
+  — a title-only save rewrites `pgap`/`hdvd`/`shwm` from numbers into text and renames freeform atoms to lofty's
+  spelling. **Decision (mine) — revision 9: VERIFY every M4A save on a temporary copy, atom by atom, before it
+  replaces the file; anything not asked for that would change → refuse, original untouched.** Also refuse
+  language frames split across two ID3 tags/chunks; close four test gaps. **Revision 9 builder running**
+  (`brief-revision-9.md`), watchdog on it.
+- **Pushed after checks** (each: identity, no name, the repository's own checks, exit codes read):
+  MeedyaConverter `e497c3b` (the CI fix — **CI now passes**, run 36429317656, read from GitHub; the fault only
+  shows on CI's Swift 6.1.2, not this Mac's 6.4); MeedyaPlayer `b5c85f5` + MeedyaSubtitler `48de926` (round 6:
+  narrative cut, handoffs 5,580 → 2,227 and 4,798 → 2,152 words); plugin `b39f40d` (round 4, 9 commits: 170/170
+  Bats; the guard runs only read-only git commands); NetPLAYERapp `205b33d` (round 4: 3,350 language checks,
+  deploy probe runs from the admin folder, safer suggestions); iLyricsDB `462ca5e` (round 4: export injection
+  closed in every format, 493-check test; placeholders; damaged-file fallback; #157, #158 opened); iHymns
+  `442dd92f` (round 4: stored links protected by row id on BOTH keys; SQL filter byte-exact; cap at 32;
+  "who ran it" in the backfill log).
+  **My slip:** one push command contained a stray push of a made-up ID `cd6c0d0` — it failed (no such object),
+  the real push was a clean fast-forward, and no remote ref changed unexpectedly (checked).
+  **Rule slips by builders, recorded:** the iLyricsDB builder amended two LOCAL commits (never pushed before).
+- **Decision needed later (from the iHymns builder):** the 32-language cap also limits the account's "save my
+  languages", and the settings picker has no limit — a person ticking more than 32 would have the rest ignored.
+  My decision: the picker must stop at 32 with a plain message; to be built after the running review.
+- **Reviews running (stand-ins; Codex is out until 17:38):** iHymns r4, iLyricsDB r4, MeedyaConverter r3 + fix,
+  plugin r4 — watchdog on each. Queued: MeedyaPlayer/MeedyaSubtitler round 6, NetPLAYERapp round 4.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
