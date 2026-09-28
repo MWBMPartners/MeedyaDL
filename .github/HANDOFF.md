@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 18:19) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 18:21) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -924,6 +924,16 @@ on PRs to / pushes to main.
   - MeedyaManager CI runs only the workflow check, and only when a workflow file changes.
   - I commented on #251.
   - **Codex is reviewing the whole language range `7697b9c..a150926` in place of a stand-in.** It has 36 commits and about 6,500 lines of code. The instructions are in `codex-prompt-mgr-catchup.txt`, and a watchdog is on it.
+- **MeedyaPlayer (`be430c9`) and MeedyaSubtitler (`415aa4c`) round 11 pushed.** It acts on all 8 of Codex's findings.
+  - My checks:
+    - A whole-word name search outside the copies found nothing, and there are no email or bad-address hits.
+    - The copies are unchanged.
+    - The checker, actionlint and `git diff --check` all passed.
+    - All 6 `.gitattributes` lines are hardened.
+    - The "Policy copies" CI passed on both.
+  - **These repositories live under the `MeedyaSuite` GitHub organisation** (`MeedyaSuite/MeedyaPlayer`, `MeedyaSuite/MeedyaSubtitler`), not MWBMPartners. Use `-R MeedyaSuite/...` with `gh`.
+  - The builder also replaced the first name in three ADRs that predate the branch (0001, 0008 and 0009). No history was rewritten.
+  - **Next: Codex reviews round 11**, `bc901ad..be430c9` and `44cf095..415aa4c`, after its MeedyaManager run.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
