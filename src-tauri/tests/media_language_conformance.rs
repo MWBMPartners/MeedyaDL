@@ -103,10 +103,21 @@ const HEADER_KEYS: &[&str] = &[
 ];
 
 /// The only needed section whose cases can require a refusal
-/// (`"error": true`): a sidecar number the builder must refuse (TEXT-030).
-/// A refusal case turning up in any OTHER needed section is a case this
-/// harness has no way to check, so it fails rather than guessing.
+/// (`"error": true`): a sidecar number the builder must refuse (TEXT-030) —
+/// and within it, only its "build" cases. An `error` key anywhere else (any
+/// other needed section, or a "parse" case) is refused outright, whatever
+/// its value: the schema does not allow it there, and a harness that
+/// quietly ignored it could be reading a case the file meant as a refusal
+/// as an ordinary one. (Tightened after the independent review: this used
+/// to refuse only `"error": true`, and only outside `sidecar_name`.)
 const SECTIONS_WITH_REFUSAL_CASES: &[&str] = &["sidecar_name"];
+
+/// The keys a non-null `expected` of a sidecar "parse" case must carry
+/// (schema: required, but `tag`, `unrecognised` and `number` may be
+/// `null`). Checked by hand because an `Option<T>` field cannot tell a
+/// missing key from a `null` one.
+const SIDECAR_PARSE_EXPECTED_KEYS: &[&str] =
+    &["tag", "unrecognised", "roles", "number", "extension"];
 
 // ---------------------------------------------------------------------
 // Fixture-shape robustness helpers (policy 8.1)
@@ -141,6 +152,9 @@ fn case_id_hint(case: &Value, section: &str) -> String {
 struct Fixtures {
     policy: String,
     policy_version: String,
+    /// Required by the schema. A plain `String` so a file without it fails
+    /// to read, rather than being accepted (independent review).
+    fixtures_version: String,
     data_version: String,
     canonicalise: Vec<CanonicaliseCase>,
     legacy_three_letter: Vec<SimpleCase>,
@@ -478,9 +492,8 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
         if !SECTIONS_WITH_REFUSAL_CASES.contains(section) {
             for case in cases {
                 assert!(
-                    case.get("error").and_then(Value::as_bool) != Some(true),
-                    "{}: a refusal case (\"error\": true) in a section this harness cannot \
-                     check refusals for",
+                    case.get("error").is_none(),
+                    "{}: an \"error\" key in a section that has no refusal cases",
                     case_id_hint(case, section)
                 );
             }
@@ -491,6 +504,14 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
         serde_json::from_str(&raw).expect("the test case file does not match the expected shape");
 
     assert_eq!(fixtures.policy, "MWBM-MEDIA-LANG");
+    // The test cases' own version moves by a minor step when the reference
+    // data is refreshed (policy "Changing this policy"), so only its major
+    // part is tied to the policy version this harness was written for.
+    assert!(
+        fixtures.fixtures_version.starts_with("1."),
+        "fixtures_version {:?} is not a 1.x version of the test cases",
+        fixtures.fixtures_version
+    );
     assert_eq!(
         fixtures.policy_version, "1.0.0",
         "MeedyaDL's copy of the test cases is for a policy version this harness was not \
@@ -695,6 +716,19 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                     &["id", "rules", "mode", "stem", "filename", "expected"],
                     &id_hint,
                 );
+                // Only "build" cases can ask for a refusal; the schema
+                // allows no `error` key on a "parse" case at all.
+                assert!(
+                    raw_case.get("error").is_none(),
+                    "{id_hint}: an \"error\" key on a parse case"
+                );
+                if !raw_case["expected"].is_null() {
+                    require_present(
+                        &raw_case["expected"],
+                        SIDECAR_PARSE_EXPECTED_KEYS,
+                        &format!("{id_hint} (expected)"),
+                    );
+                }
                 let got = parse_sidecar_name(stem, filename);
                 let matches = match (&got, expected) {
                     (None, None) => true,
@@ -873,8 +907,9 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
     let total_in_file: usize = counts.iter().map(|c| c.1).sum();
     let total_run: usize = counts.iter().map(|c| c.2).sum();
     println!(
-        "MWBM-MEDIA-LANG {} conformance (meedya-lang data {}):",
+        "MWBM-MEDIA-LANG {} conformance (test cases {}, meedya-lang data {}):",
         fixtures.policy_version,
+        fixtures.fixtures_version,
         embedded_data_version()
     );
     for (section, in_file, ran) in &counts {
