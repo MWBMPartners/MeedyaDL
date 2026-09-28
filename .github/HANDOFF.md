@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 08:20) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 08:05) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -382,7 +382,7 @@ on PRs to / pushes to main.
   Decisions sent to the iHymns builder (the backfill card becomes MANUAL and skips special codes).
   Its containers were removed (0 dangling volumes). **Codex round r7 on core `968d820..21fa942`
   RUNNING** (`codex-r7.out`, 90-min limit).
-- **About 08:10 — Codex round r7 on core `968d820..21fa942` DONE (`…/scratchpad/lang/codex-r7.out`,
+- **About 07:55 — Codex round r7 on core `968d820..21fa942` DONE (`…/scratchpad/lang/codex-r7.out`,
   final answer in the last ~60 lines):** no earlier case's answer changed, 26 new cases agree with
   the policy (it worked samples by hand). Six findings:
   1. multi-value language write keeps only the first value (`tag_io.rs` ~563);
@@ -403,6 +403,12 @@ on PRs to / pushes to main.
   every tag container kept consistent; CLI reports what was really stored; issue #254 for the
   pre-existing multi-value ID3 loss). To check and push next. Its reviewer's minor item 14 (rename
   `wav_riff_info_round_trip`) was not recognised by the builder — still open.
+- **About 08:05:** MeedyaManager fixes pushed (`2de3375`; fmt, clippy, 1,446 tests, docs, copy
+  check, actionlint — checked by me). **Codex is reviewing the plugin's whole #47 change**
+  (`413d570..748e87c`, from a read-only worktree `…/scratchpad/lang/plugin-review`; output
+  `codex-plugin.out`; 90-min limit). If Codex refuses (allowance), a fresh Opus stand-in reviews
+  `dbb5e31..748e87c`. Core revision 5 and iHymns fixes still building. (Times in this section
+  written earlier ran ahead of the clock again; corrected where noticed.)
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
