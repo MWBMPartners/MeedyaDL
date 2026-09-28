@@ -142,21 +142,37 @@ pub fn is_language_tag(raw: &str) -> bool {
 /// The setting is already put into standard form when it is saved or
 /// imported (see `standard_tag_for_storage`, `#1246`), but a value written
 /// before that existed — or one edited by hand — can still hold something
-/// that is not quite in standard form: `"en-GB\n"`, a stray leading space.
+/// that is not quite in standard form: `"en-GB\n"`, a stray leading space,
+/// or (only possible from a hand-edited file, since saving and importing
+/// both refuse one) a well-formed tag longer than [`MAX_TAG_LEN`].
 /// `canonicalise` reads a value like that as a tag just fine (it trims
-/// whitespace itself), so this sends the clean, standard form to GAMDL's
+/// whitespace itself and does not enforce MeedyaDL's own 35-character
+/// STORAGE limit), so this sends the clean, standard form to GAMDL's
 /// command line even though the STORED value is left exactly as it is —
 /// this never rewrites the setting, only what is sent this one time
 /// (COMPAT-030: valid metadata already on disk is kept, not rewritten
 /// just because it is being used for something else).
 ///
-/// When the stored value cannot be read as a tag at all, it is sent on
-/// unchanged, exactly as it always was before this function existed: GAMDL
-/// has always been given whatever was stored, and refusing to send
-/// anything now would be a behaviour change for a value that may still
-/// work today.
+/// This used to call `standard_tag_for_storage`, which also refuses a
+/// well-formed tag over [`MAX_TAG_LEN`] characters — a rule about what
+/// MeedyaDL is willing to STORE, not about what GAMDL can accept. That
+/// meant an over-length tag reached GAMDL completely unstandardised: any
+/// stray case, extra whitespace, or non-canonical part order in it was
+/// sent through raw, because `TooLong` and "not a tag at all" both fell
+/// into the same `Err` branch here and got the same untouched-raw
+/// treatment (independent review, round 4 of #1244). Only a value that
+/// cannot be read as a tag AT ALL is sent on unchanged now, exactly as it
+/// always was before this function existed: GAMDL has always been given
+/// whatever was stored, and refusing to send anything now would be a
+/// behaviour change for a value that may still work today. Everything
+/// else — too long for storage or not — is sent in standard form.
 pub fn language_arg_for_gamdl(raw: &str) -> String {
-    standard_tag_for_storage(raw).unwrap_or_else(|_| raw.to_string())
+    let tag = canonicalise(raw);
+    if tag.is_malformed() {
+        raw.to_string()
+    } else {
+        tag.tag
+    }
 }
 
 // ---------------------------------------------------------------------
@@ -560,6 +576,29 @@ mod tests {
         assert_eq!(language_arg_for_gamdl("EN-us"), "en-US");
         // Already standard: unchanged.
         assert_eq!(language_arg_for_gamdl("en-US"), "en-US");
+    }
+
+    #[test]
+    fn a_tag_over_the_storage_length_limit_still_reaches_gamdl_in_standard_form() {
+        // Well-formed (so `standard_tag_for_storage` would refuse it only
+        // for being over MAX_TAG_LEN, not for being unreadable as a tag
+        // at all) but 37 characters once canonicalised -- two past the
+        // 35-character limit MeedyaDL enforces when STORING a value. Only
+        // a hand-edited settings file could carry one this long, since
+        // saving and importing both refuse it (`standard_tag_for_storage`
+        // / `settle_imported_metadata_language`) -- but GAMDL itself has
+        // no such limit, and used to receive this completely
+        // unstandardised (mixed case, trailing newline and all) because
+        // the old implementation treated "too long to store" the same as
+        // "not a tag" (independent review, round 4 of #1244).
+        let raw = "EN-gb-u-ca-gregory-nu-latn-x-abcdefgh\n";
+        assert_eq!(standard_tag_for_storage(raw), Err(TagProblem::TooLong));
+        let sent = language_arg_for_gamdl(raw);
+        // Standardised: lower-case language, upper-case region, no
+        // trailing whitespace -- the same transform a well-formed,
+        // shorter tag gets.
+        assert_eq!(sent, "en-GB-u-ca-gregory-nu-latn-x-abcdefgh");
+        assert_ne!(sent, raw, "must not fall back to sending the raw value");
     }
 
     #[test]
