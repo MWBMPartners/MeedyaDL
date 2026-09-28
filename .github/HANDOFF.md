@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 14:44) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 15:29) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -785,6 +785,28 @@ on PRs to / pushes to main.
   My decision: the picker must stop at 32 with a plain message; to be built after the running review.
 - **Reviews running (stand-ins; Codex is out until 17:38):** iHymns r4, iLyricsDB r4, MeedyaConverter r3 + fix,
   plugin r4 — watchdog on each. Queued: MeedyaPlayer/MeedyaSubtitler round 6, NetPLAYERapp round 4.
+- **15:29 — MeedyaManager round 4 pushed (`aa7a30d`)** after my checks (fmt, clippy, 1,507 tests, doc, deny
+  known-only, copy checker, clean tree before/after); comment on #251; review running.
+- **MeedyaPlayer/MeedyaSubtitler kept looping on notes wording.** Rounds 7–9: completed the wrong-message
+  lists; made the review table record finished reviews only with a single "commits after X are not yet
+  reviewed" line; "Last updated" gives the date only; the CI line states the rule (GitHub runs on the last
+  commit of each push; MeedyaSubtitler's workflow arrived with `19aad9d`) instead of listing runs, because a
+  list went stale on every push. Pushed at MeedyaPlayer `bc901ad`, MeedyaSubtitler `44cf095`; CI passed on the
+  earlier pushes. Tenth short review running with the instruction "real problems only — false, contradictory
+  or missing". Lesson: every note that names a specific latest commit, count or run goes stale on the next
+  push; state rules and point at the record instead.
+- **Plugin round-4 stand-in review: 2 medium, 7 low.** The guard cannot be made to run anything (hostile repo
+  and `-c` options tested). Medium: git's matching refspec `:` pushes `main` unrefused; the word reader slows
+  with the square of command length (10,000-line heredoc 35 s) — so Claude Code's hook time limit could
+  abandon the check. **Decisions (mine):** refuse `:`; linear reader; at most 10 pushes resolved per command,
+  more → refuse; an overall time budget after which the guard REFUSES (fails closed); decode `$'…'`; state the
+  remaining spelling limits honestly and stop over-claiming; interrupted ci-medic passes recorded in the run
+  record and a new run refuses while one is left checked out. **Round 5 builder running** (Opus,
+  `brief-plugin-r5.md`), watchdog on it.
+- **Warning sent to three running reviewers** (MeedyaManager, iHymns, MeedyaConverter): the plugin reviewer
+  ran `pkill -f "mutate.py"`, which may have killed their own fault-planting runs and left a planted fault in
+  their clones — each asked to check its clone is clean and re-run any cut-short batch. Builders are now told to
+  stop processes by id only.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
