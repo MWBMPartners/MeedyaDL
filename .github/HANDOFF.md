@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 00:30) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 02:10) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -73,6 +73,31 @@ maintainer's local checkouts of the other repos — other sessions are active in
 **Core trap to remember:** core's CI has a doc test-count guard (`scripts/check-doc-test-counts.sh`)
 — adding a crate with tests means updating the documented counts, or CI fails. Core CI runs only
 on PRs to / pushes to main.
+
+**Progress (about 02:10, 28 Sept):**
+
+- Core foundation committed and pushed: **`f35a3e7`** on core's `feature/bcp47-language-policy`
+  (policy document, 169 test cases + schema, reference data + schema + generator, copy checker
+  `scripts/media-lang/check_copies.py`, agent pointers, core handoff §0.0). Core issue **#99**.
+  Its commit message wrongly says 184 cases — corrected on #99 (no force-push).
+- All 169 expected answers were cross-checked by a throwaway Python implementation
+  (`…/scratchpad/lang/oracle.py`, `run_oracle.py` → 194/194 incl. reversed-order runs). Not
+  committed anywhere; builders may read it as a reference, reviewers must not.
+- **Codex hit its usage limit** mid-review of `f35a3e7` (resets 02:31); it recorded no findings.
+  Stand-in: a fresh Opus reviewer that did not write the policy is reviewing it now; a Codex retry
+  is scheduled for 02:32 (background shell). The foundation is NOT fully reviewed until Codex runs.
+- Building now (scratch clones under `…/scratchpad/lang/`, nothing committed by builders):
+  Rust crate `crates/meedya-lang` (brief `brief-rust-crate.md`), PHP `bindings/php/media-language/`
+  (`brief-php.md`), dev-team plugin "repository instructions are authoritative" (`brief-plugin.md`).
+- Scratch clones made for every repo on `feature/bcp47-language-policy` — except MeedyaConverter,
+  whose branch is **`wip/bcp47-language-policy`**: its CI only runs on `wip/**` pushes, and XCTest
+  cannot run on this Mac (Command Line Tools only, no Xcode) — so CI is its test gate; the pure
+  policy code is also checked in a Linux Swift container.
+- Findings corrected: MeedyaManager writing `XXX` for an unknown ID3 language is NOT a conflict —
+  ID3v2.4 itself says to use `XXX`. MeedyaDL's `baseLanguageOf()` (i18n.ts) would merge zh-Hans
+  and zh-Hant if a Chinese interface translation were added — note only, no change now.
+- Out of scope, to raise as MeedyaDL issue: enrichment fetches album metadata from Apple without
+  `l=`, so tags can mix the storefront's default language with GAMDL's `--language` choice.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
