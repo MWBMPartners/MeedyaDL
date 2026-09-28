@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 11:59) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:04) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -581,6 +581,12 @@ on PRs to / pushes to main.
   `pt` to `pt-BR` deleted the `pt` link and could not store the new one — the old link must be KEPT
   and the warning must name the admin step. Its builder ran out of working memory, so a FRESH Sonnet
   builder has it (`…/scratchpad/lang/brief-ihymns-linkkeep.md`). iHymns' third review waits for it.
+- **12:04 — MeedyaPlayer round 3 pushed (`c9f1149`), MeedyaSubtitler round 3 pushed (`970f8f4`)**:
+  wording fixes to ADR 0012, the README and the notes, plus six short correction comments (MeedyaPlayer
+  #12, #3; MeedyaSubtitler #16, #14, #8, #6). Checked by me: copy checker, actionlint, whitespace,
+  identity, no name. Commits credit Sonnet correctly; the handoffs say plainly that the earlier two
+  commits in each wrongly credit Opus (not rewritten). CI watched; THIRD stand-in review (new work only)
+  running, watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
