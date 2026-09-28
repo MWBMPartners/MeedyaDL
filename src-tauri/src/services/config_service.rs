@@ -1486,17 +1486,22 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if !storefront_is_dead_ini_data {
         // Logic for the legacy path:
         //   - If the user has set an explicit storefront → use it as-is
-        //   - If empty (auto-detect) → derive from language region code
-        //     (e.g., "en-GB" → "gb", "ja-JP" → "jp", fallback "us")
+        //   - If empty (auto-detect) → the two-letter country (region)
+        //     part of the language tag (e.g., "en-GB" → "gb",
+        //     "zh-Hant-TW" → "tw"), fallback "us"
+        //
+        // The country is read from the PARSED tag (#1248, shared
+        // language policy LANG-001). This used to take the last
+        // hyphen-separated piece if it had two characters, so a bare
+        // "en" became the storefront "en" — not a country at all.
+        // No region, a multi-country area such as "419", or a value
+        // that is not a tag now gives the existing "us" fallback, which
+        // is a product rule about which storefront to try, not a guess
+        // at the person's language.
         let storefront = if !settings.storefront.is_empty() {
             settings.storefront.to_ascii_lowercase()
         } else {
-            settings
-                .language
-                .split('-')
-                .next_back()
-                .filter(|s| s.len() == 2)
-                .map(|s| s.to_ascii_lowercase())
+            crate::utils::language::storefront_from_language(&settings.language)
                 .unwrap_or_else(|| "us".to_string())
         };
         lines.push(format!("storefront = {storefront}"));
@@ -2360,6 +2365,29 @@ mod tests {
             ini.contains("storefront = us"),
             "unknown GAMDL: should auto-detect 'us' from 'en-US': {ini}"
         );
+    }
+
+    #[test]
+    fn ini_auto_storefront_is_the_country_part_of_the_language_tag() {
+        // #1248: the auto-derived storefront is the parsed tag's two-letter
+        // region. Before, a bare "en" gave the storefront "en" (not a
+        // country) and "es-419" gave "us" only by luck.
+        let _guard = VersionGuard::new(None);
+        for (language, expected) in [
+            ("zh-Hant-TW", "storefront = tw"),
+            ("en-GB", "storefront = gb"),
+            ("en", "storefront = us"),
+            ("es-419", "storefront = us"),
+            ("not a tag", "storefront = us"),
+        ] {
+            let mut settings = default_settings();
+            settings.language = language.to_string();
+            let ini = settings_to_ini(&settings);
+            assert!(
+                ini.contains(expected),
+                "{language}: expected {expected:?} in:\n{ini}"
+            );
+        }
     }
 
     #[test]
