@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 17:42) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 17:53) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -890,6 +890,20 @@ on PRs to / pushes to main.
 - **17:40 — Codex is back.** Its allowance is about 11 rounds per window, run one at a time.
   - The first catch-up is running: the WHOLE MeedyaDL language branch, `5738de7d..c37f2621`, excluding the copies and the handoff. The instructions are in `codex-prompt-mdl-catchup.txt`, the output goes to `codex-mdl-catchup.out`, and a watchdog is on it.
   - Next in order: MeedyaPlayer and MeedyaSubtitler, which are finished. Then each other repository once its current round settles. Core goes after revision 10.
+- **Codex catch-up on MeedyaDL (`5738de7d..c37f2621`, the whole branch): 3 new real problems.** I confirmed each against the code.
+  - **1.** The browser's `Intl.Locale` turns `cmn-Hans` into `zh-Hans` and refuses `zh-cmn-Hans`. The policy keeps `cmn` separate, so the frontend's grouping, and the list it sends to the backend, disagree with Rust.
+  - **2.** A stored `"EN-us"` shows as a second "English (United States)" row beside `en-US`.
+  - **3.** A failed subtitle extraction leaves a partial `.srt` file, which then blocks every retry (`AlreadyThere`). This is new on this branch: before, a numbered copy was written instead.
+  - **Added to the running MeedyaDL round 5** as addendum items A, B and C in `brief-meedyadl-r5.md`, and the builder was told:
+    - **A:** language identity comes from a backend command that uses `utils/language.rs`. Decision 1's pinning uses it.
+    - **B:** values are compared by their standard form, while the stored spelling is kept.
+    - **C:** extraction writes to a temporary file and publishes it without overwriting.
+  - Codex's allowance: the review used about 164,000 tokens and was accepted with no refusal.
+- **iLyricsDB round 5 pushed (`2d46cf2`).** My checks: `php -l` was clean on 130 files, and all 11 test files passed, including the 290 conformance cases, 699 injection checks and 19 fuzz checks. The copy checker found 9 of 9 copies matching, and actionlint was clean.
+  - The builder changed these of my decisions openly, and I accepted them: `{` is written as `\{{}` (as ffmpeg's own ASS writer does, and safe under the older VSFilter rules too); the word-joiner rule is wider; and the cleaning also applies to the JSON and plain-text exports.
+  - The builder opened #159 (the importer guesses the wrong encoding), and it needs a decision.
+  - I commented on #150. A stand-in review is running, with a watchdog on it.
+- **Codex catch-up on MeedyaPlayer (`d5e3e41..bc901ad`) and MeedyaSubtitler (`53bbc0f..44cf095`) is running as one run.** These branches have no application code: they hold the copies, the workflow, `.gitattributes`, the decision records and notes. The instructions are in `codex-prompt-ps-catchup.txt`, and a watchdog is on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
