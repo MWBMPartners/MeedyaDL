@@ -264,17 +264,32 @@ fn disposition_flag(stream: &serde_json::Value, name: &str) -> bool {
 /// Used only to RECOGNISE a file an earlier version already extracted, so
 /// a re-run does not extract the same stream a second time under its new
 /// name. Nothing is ever renamed (policy COMPAT-020).
-fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> String {
+///
+/// `None` — so there is no old name to look for — when ffprobe's language
+/// holds anything but ASCII letters, digits and hyphens. That language
+/// text comes out of the video file, so it can hold anything, and before
+/// this check a value such as `../../x` made this look for a file OUTSIDE
+/// the video's folder (independent review of #1251). Only an existence
+/// check was ever made there, never a write, but the check is now simply
+/// not made: a real language code never contains anything else, so no
+/// genuine old file is missed. A missing, empty or `und` language was left
+/// out of the old name, and still is.
+fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> Option<String> {
     let language = stream.facts.raw_language.as_deref().unwrap_or("und");
     let lang_suffix = if language == "und" || language.is_empty() {
         String::new()
-    } else {
+    } else if language
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
         format!(".{language}")
+    } else {
+        return None;
     };
-    format!(
+    Some(format!(
         "{stem}.cc.{}{lang_suffix}.{}",
         stream.index, stream.facts.extension
-    )
+    ))
 }
 
 /// Extract a single subtitle stream into the sidecar file `file_name`
@@ -311,9 +326,11 @@ async fn extract_single_stream(
     if sidecar_path.exists() {
         return Ok(ExtractOutcome::AlreadyThere(sidecar_path));
     }
-    let legacy_path = parent.join(legacy_sidecar_name(stem, stream));
-    if legacy_path.exists() {
-        return Ok(ExtractOutcome::AlreadyThere(legacy_path));
+    if let Some(legacy_name) = legacy_sidecar_name(stem, stream) {
+        let legacy_path = parent.join(legacy_name);
+        if legacy_path.exists() {
+            return Ok(ExtractOutcome::AlreadyThere(legacy_path));
+        }
     }
 
     let codec_args: &[&str] = if stream.facts.extension == "vtt" {
@@ -561,18 +578,74 @@ mod tests {
     #[test]
     fn the_pre_1251_name_is_reproduced_exactly() {
         let streams = parse_subtitle_streams(&ffprobe_json());
-        assert_eq!(
-            legacy_sidecar_name("01 Title", &streams[0]),
-            "01 Title.cc.2.eng.srt"
-        );
-        assert_eq!(
-            legacy_sidecar_name("01 Title", &streams[1]),
-            "01 Title.cc.3.fre.vtt"
-        );
+        let name = |i: usize| legacy_sidecar_name("01 Title", &streams[i]);
+        assert_eq!(name(0).as_deref(), Some("01 Title.cc.2.eng.srt"));
+        assert_eq!(name(1).as_deref(), Some("01 Title.cc.3.fre.vtt"));
         // No language (or `und`) was left out of the old name.
+        assert_eq!(name(3).as_deref(), Some("01 Title.cc.5.srt"));
+    }
+
+    #[test]
+    fn no_old_name_is_looked_for_when_the_files_language_is_not_plain_text() {
+        // Independent review of #1251: the language comes out of the video
+        // file, so `../../x` must never become part of a path.
+        let json = serde_json::json!({ "streams": [
+            { "index": 2, "codec_name": "mov_text", "tags": { "language": "../../x" } },
+            { "index": 3, "codec_name": "mov_text", "tags": { "language": "en/x" } },
+            { "index": 4, "codec_name": "mov_text", "tags": { "language": "en.x" } },
+            { "index": 5, "codec_name": "mov_text", "tags": { "language": "fre-ca" } },
+        ]});
+        let streams = parse_subtitle_streams(&json);
+        for stream in &streams[..3] {
+            assert_eq!(legacy_sidecar_name("T", stream), None, "{:?}", stream.facts);
+        }
         assert_eq!(
-            legacy_sidecar_name("01 Title", &streams[3]),
-            "01 Title.cc.5.srt"
+            legacy_sidecar_name("T", &streams[3]).as_deref(),
+            Some("T.cc.5.fre-ca.srt")
+        );
+        // The new name is never built from the raw text: an unreadable
+        // language is `und` (policy LANG-003), so nothing of `../../x`
+        // reaches it either.
+        let facts: Vec<_> = streams.iter().map(|s| s.facts.clone()).collect();
+        let planned = plan_subtitle_sidecar_names("T", &facts).unwrap();
+        assert_eq!(planned[0].file_name, "T.und.srt");
+        assert!(planned.iter().all(|p| !p.file_name.contains('/')));
+    }
+
+    /// The whole "already extracted?" step with a hostile language, but
+    /// without ffmpeg. Before the fix, the language text went straight into
+    /// the old name, so `../../../x` built `V.cc.2.../../../x.srt`: the
+    /// first `../` sticks to `V.cc.2.`, and the remaining two climb out of
+    /// the video's folder to `a/x.srt`. (With `../../x` it lands back in
+    /// the video's own folder, which is why this uses one more level. On
+    /// macOS and Linux the look-up only resolves if a folder named
+    /// `V.cc.2...` exists, so the test creates one; Windows tidies the
+    /// `..` parts away without needing it.) A file planted there must not
+    /// be taken as "already extracted". ffmpeg is given as a path that does
+    /// not exist, so reaching it shows up as an error, not a crash.
+    #[tokio::test]
+    async fn a_hostile_language_never_makes_the_extractor_look_outside_the_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let videos = root.path().join("a").join("b");
+        fs::create_dir_all(videos.join("V.cc.2...")).unwrap();
+        let video = videos.join("V.mp4");
+        fs::write(&video, "").unwrap();
+        fs::write(root.path().join("a").join("x.srt"), "not ours").unwrap();
+        let json = serde_json::json!({ "streams": [
+            { "index": 2, "codec_name": "mov_text", "tags": { "language": "../../../x" } },
+        ]});
+        let stream = parse_subtitle_streams(&json).remove(0);
+        let outcome = extract_single_stream(
+            Path::new("/nonexistent/ffmpeg"),
+            &video,
+            "V",
+            &stream,
+            "V.und.srt",
+        )
+        .await;
+        assert!(
+            !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
+            "a file outside the video's folder was taken as already extracted: {outcome:?}"
         );
     }
 
