@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:44) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:50) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -630,6 +630,21 @@ on PRs to / pushes to main.
   style fixer, house rules, schema examples, markdownlint, language tests 30, deploy test 5, conformance
   290/290, copy checker, actionlint, identity (the full database battery was run by the builder; the
   reviewer re-runs it). Comment on #210. **Third stand-in review running**, watchdog on it.
+- **12:50 — Codex core review (r8, `21fa942..7f944a7`): NOT clean — 4 new problems**, all in
+  `meedya-metadata` / `meedya-lyrics`; Codex confirms NONE touches the files the consumers are pinned to
+  (`aaaa585`): (1) old three-letter `TLA` language frames in ID3v2.3 bypass the preservation check, so an
+  unrelated save can delete a language; (2) the public helper `keep_languages_whole_before_saving` undoes
+  a deliberate language edit; (3) crafted input makes the language merge quadratic; (4) Lyricsfile YAML
+  still changes U+0085 after a newline. Plus #102/#103 again. **Decisions (mine):** fix all four; split
+  the helper into a recover step and a gather step; and change my earlier call on #102/#103 — until the
+  M4A route can keep extra covers and multi-value atoms, such a write must REFUSE rather than lose data,
+  and an unstorable registry key must report failure. Revision 8 to a FRESH Opus builder
+  (`…/scratchpad/lang/brief-revision-8.md`; protected paths untouched). Watchdog on it.
+- **MeedyaPlayer round 4 pushed (`d633047`), MeedyaSubtitler round 4 pushed (`1263d79`)**: CI passed on
+  both; checked by me (copy checker, actionlint, whitespace, identity, no name). FOURTH stand-in review
+  (new work only) running, watchdog on it.
+- **Codex plugin review running** (`codex-prompt-plugin-r3.txt`, `748e87c..42bd45e`, worktree
+  `…/scratchpad/lang/plugin-r3`, output `codex-plugin-r3.out`, 90-minute limit).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
