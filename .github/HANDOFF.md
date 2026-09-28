@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:44) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -623,6 +623,13 @@ on PRs to / pushes to main.
   actionlint fails only on style notes in two untouched workflows, same at `3a45ed7`. Comment on #251.
   **Third stand-in review running**, watchdog on it. Known gap for the next round: `help/rule-syntax.md`
   never explains how rules treat languages — needs a section.
+- **12:44 — NetPLAYERapp round 3 pushed (`14a1845`, 2 commits on `2ba4d0b`)**: tests now catch the
+  registry check, blank-to-null and stored-form length; the deploy probe runs inside the deploy copy;
+  `VENDORED.md` records the shared code; clearer refusal messages and whole-tag suggestions; a missing
+  data section throws; clean-up always runs. Issues #211 and #212 opened. Checked by me: PHPStan level 9,
+  style fixer, house rules, schema examples, markdownlint, language tests 30, deploy test 5, conformance
+  290/290, copy checker, actionlint, identity (the full database battery was run by the builder; the
+  reviewer re-runs it). Comment on #210. **Third stand-in review running**, watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
