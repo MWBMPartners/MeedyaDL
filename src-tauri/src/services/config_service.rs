@@ -1457,7 +1457,19 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
 fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
-    lines.push(format!("language = {}", settings.language));
+    //
+    // Passed through `sanitize_ini_value` like every other text value
+    // here (independent review of #1246). A NEW value can no longer carry
+    // a line break — save and import only accept a real language tag —
+    // but a value already in an existing settings file is deliberately
+    // kept exactly as it is (policy COMPAT-030). Without this, an old
+    // value such as "en-US\nffmpeg_path = /tmp/evil" would write a second
+    // INI line on every launch. Only the INI line is cleaned; the stored
+    // setting is left as it is.
+    lines.push(format!(
+        "language = {}",
+        sanitize_ini_value(&settings.language)
+    ));
 
     // Storefront — historically MeedyaDL emitted `storefront = us` (or
     // similar) into config.ini. Git archaeology against GAMDL upstream
@@ -1504,7 +1516,10 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
             crate::utils::language::storefront_from_language(&settings.language)
                 .unwrap_or_else(|| "us".to_string())
         };
-        lines.push(format!("storefront = {storefront}"));
+        // Same guard as the language line above: an explicit storefront
+        // comes from the settings file as it is, so a line break in an old
+        // value must not become a second INI line.
+        lines.push(format!("storefront = {}", sanitize_ini_value(&storefront)));
     }
     // Artist auto-selection mode (GAMDL >= 2.9.1). Controls which content
     // type is automatically downloaded when the user provides an artist URL.
@@ -2349,6 +2364,32 @@ mod tests {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("language = en-US"));
+    }
+
+    #[test]
+    fn an_old_language_value_with_a_line_break_cannot_add_an_ini_line() {
+        // Independent review of #1246: a value already on disk is kept as
+        // it is (COMPAT-030), so the INI writer must not trust it. The
+        // storefront line (legacy GAMDL only) is checked the same way.
+        let _guard = VersionGuard::new(None);
+        let mut settings = default_settings();
+        settings.language = "en-US\nffmpeg_path = /tmp/evil".to_string();
+        settings.storefront = "gb\r\nmp4box_path = /tmp/evil".to_string();
+        let ini = settings_to_ini(&settings);
+        let injected: Vec<&str> = ini
+            .lines()
+            .filter(|l| l.starts_with("ffmpeg_path") || l.starts_with("mp4box_path"))
+            .collect();
+        assert!(
+            injected.is_empty(),
+            "injected INI line(s) {injected:?} in:\n{ini}"
+        );
+        let language_line = "language = en-USffmpeg_path = /tmp/evil";
+        assert!(ini.lines().any(|l| l == language_line), "{ini}");
+        let storefront_line = "storefront = gbmp4box_path = /tmp/evil";
+        assert!(ini.lines().any(|l| l == storefront_line), "{ini}");
+        // Only the INI line is cleaned; the setting itself is untouched.
+        assert_eq!(settings.language, "en-US\nffmpeg_path = /tmp/evil");
     }
 
     #[test]
