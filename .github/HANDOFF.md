@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:50) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:53) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -745,6 +745,12 @@ on PRs to / pushes to main.
   reported the substitution) — caught by reading the run's conclusion directly. Fix to a FRESH Opus builder,
   told to run exactly CI's `swift build` + test step; watchdog on it. From now on my Swift checks run the
   whole-package `swift build`, and CI results are confirmed with `gh run view --json conclusion`.
+- **13:53 — Core revision 8 pushed (`354cfd5`)** after my checks: fmt, clippy, 853 / 1,000 tests, documented
+  counts, both crates' docs build, PHP conformance 290/290, protected paths unchanged, identity. (The copy
+  checker does not apply in core — it holds the master and has no lock file.) The #102/#103 comments are now
+  true. Core CI watched (real conclusions read). **Codex hit its usage limit on the r9 review (back at 17:38)**
+  — a fresh Opus agent stands in on the same prompt (`codex-prompt-r9.txt`); watchdog on it. Wake-up set for
+  17:40 for the Codex catch-up: core revision 8 first, then the stand-in-reviewed work, one at a time.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
