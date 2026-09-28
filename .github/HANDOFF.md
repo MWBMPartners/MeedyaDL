@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 17:27) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 17:42) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -878,6 +878,18 @@ on PRs to / pushes to main.
   - **M4:** the battery can be emptied and the suite still passes.
   - The nits are stale counts, one "Pushed" left, comments pointing at things a reader cannot find, and #211's wording of the call.
   - **All are to be fixed. Round 6 builder running** (Sonnet, `brief-netplayer-r6.md`), with a watchdog on it.
+- **iHymns round 5 pushed (`caffcd65`).** It covers all nine items, and each was proven on both servers by planting its fault back.
+  - My checks: 288 PHP suites and 114 JavaScript suites passed. `php -l`, ESLint and actionlint were clean. The copy checker found 9 of 9 copies matching. No name, scratch-path or password lines were added.
+  - No containers were left behind and there were 0 left-behind volumes.
+  - iHymns CI runs only the workflow check, and only when a workflow file changes, so nothing ran for this push.
+  - I commented on #2137. A stand-in review is running, with a watchdog on it.
+  - Two deviations the builder flagged openly:
+    - the rollback sits in a new function, `songTranslationsSaveLinksAllOrNothing()`, so it can be tested;
+    - the 32-language cap also applies to the grid's own dropdown.
+  - Known and not changed: a backfill web user id of `"7abc"` is recorded as user 7.
+- **17:40 — Codex is back.** Its allowance is about 11 rounds per window, run one at a time.
+  - The first catch-up is running: the WHOLE MeedyaDL language branch, `5738de7d..c37f2621`, excluding the copies and the handoff. The instructions are in `codex-prompt-mdl-catchup.txt`, the output goes to `codex-mdl-catchup.out`, and a watchdog is on it.
+  - Next in order: MeedyaPlayer and MeedyaSubtitler, which are finished. Then each other repository once its current round settles. Core goes after revision 10.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
