@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:15) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:29) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -595,6 +595,17 @@ on PRs to / pushes to main.
   wrong phrase. Watchdog on it. Outside this work: MeedyaPlayer's tree already carries the maintainer's
   first name in about 20 older lines (`CLAUDE.md`, `.claude/HANDOFF.md`, several ADRs, from older commits
   such as `dcaec9a`) — to report to the maintainer, not changed here.
+- **12:29 — MeedyaDL second stand-in review (`37d070be..4a3915e9`): NOT clean** (0 must, 1 should, 4
+  minor, 1 nit). All eight first-review items confirmed fixed on real input; every standard check
+  passes. Should-fix: nothing checks that the `meedya-lang` crate and the policy copies come from the
+  SAME core commit (an out-of-step pair passed — the exact mistake likely at the #1255 re-pin). Minors:
+  the subtitle-name sort is untested; the "ran N of M" check cannot see a skipped case; the `label`
+  section is skipped (decision: run it); the Interface Language list is not in UI-040 order. Plus the
+  two suggestions, both decided "do it": send GAMDL the standard form of a stored language (a trailing
+  line break reached `--language`), and check `ui_language` on import as a tag instead of cutting it at
+  20 bytes. Round 3 to a FRESH Sonnet builder in its OWN clone (`…/scratchpad/lang/meedyadl-r3`,
+  brief `brief-meedyadl-r3.md`) — never this checkout; the lead brings its commits across after
+  checking. Watchdog on it. This range still needs Codex's catch-up review.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
