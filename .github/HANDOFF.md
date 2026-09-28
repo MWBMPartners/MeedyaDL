@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:15) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 05:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -323,6 +323,20 @@ on PRs to / pushes to main.
   wins over repo instructions, so writing every default would overrule a project's caution).
   MeedyaDL's builder asked whether to reword two commit messages naming request details — no:
   the technical changelog section is technical by design and the live lint blanks it.
+- **About 05:40 — core revision 4 pushed: `21fa942`** (full `21fa942606caa9017f58d63b1f85b0d7fb738307`):
+  seven clarified rules (the six decisions + an invalid value keeps its TRIMMED text), 288 cases,
+  Rust + PHP fixed, both runners refuse a damaged case file, the checker needs all three PHP files
+  or none, per-crate counts corrected (780 / 927). Checked by me. Rust vs PHP: 353k random
+  comparisons agree. Rust API change (RoleItem supertrait; TagMatch::distance usize). NOT yet
+  independently reviewed — the Codex round at 07:35 uses `codex-prompt-r7.txt` (968d820..21fa942).
+  `core-review` worktree now at `21fa942`; a separate read-only worktree `core-995` holds the
+  crate MeedyaDL/MeedyaManager pin (their reviewers were told). **Re-pin sweep of every repo
+  waits for Codex to pass core.**
+- **Plugin third review: NOT clean** (uncommitted/untracked instruction edits slip past the
+  merge-base method; no answer for shallow clones; base can be rewritten; config.yml not covered).
+  Decision: replace the method with a RUN-START SNAPSHOT (hashes of instruction files + config.yml
+  recorded by the lead; later changes are data; PR code → PR base branch version). Revision 4
+  builder running (watchdog `bjmeovnp1`).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
