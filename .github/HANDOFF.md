@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:48) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:50) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -737,6 +737,14 @@ on PRs to / pushes to main.
   hold that record), keeping the table, one pin line, open decisions and next steps; target: shorter than
   before round 4. Plus one short correction comment on MeedyaPlayer #3 (commentary rests on COMPAT-030).
   FRESH Opus builder (`…/scratchpad/lang/brief-player-subtitler-r6.md`). Watchdog on it.
+- **13:50 — MeedyaConverter CI FAILED on `7271ae8`** (run 36424070177, "Build (debug)" = plain `swift build`):
+  a Swift 6 data-race error at `QualityPreviewView.swift:404`, introduced by round-3 commit `590371a` (the
+  preview now takes the same picture step). The round-3 builder only type-checked the app module with a
+  stand-in recipe, and my own checks built the three named targets, not the whole package — so neither ran
+  what CI runs. **My watch script also misreported it as "exit 0"** (`$?` after a `$(…)` in the same echo
+  reported the substitution) — caught by reading the run's conclusion directly. Fix to a FRESH Opus builder,
+  told to run exactly CI's `swift build` + test step; watchdog on it. From now on my Swift checks run the
+  whole-package `swift build`, and CI results are confirmed with `gh run view --json conclusion`.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
