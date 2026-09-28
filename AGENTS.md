@@ -26,6 +26,7 @@ through `.claude/`; both tools are meant to work by the same rules.
 - **Plain English, always.** No technical jargon in anything written or said — even to a
   technical reader. Say what a technical name means when one is unavoidable.
 - **Never write the maintainer's real name.** Use the GitHub username `Salem874`, everywhere.
+- **Languages, tracks and lyrics — mandatory:** any work touching BCP 47 language tags, languages, translations, audio or subtitle tracks, lyrics, language order or naming, language preferences, or accessibility roles MUST read and follow `docs/standards/media-language-bcp47-policy.md` (policy `MWBM-MEDIA-LANG`). It is normative and is not repeated here. Its conformance cases must pass. The copies are checked against the master in MWBMPartners/MeedyaSuite-core by `scripts/media-lang/check_copies.py` in CI; never edit the copies — change the master.
 - **One handoff: `.github/HANDOFF.md`.** Update it as the work happens, not at the end. Do
   not create another handoff anywhere else.
 - **Strongest model for thinking, cheapest capable model for building; checking is never done

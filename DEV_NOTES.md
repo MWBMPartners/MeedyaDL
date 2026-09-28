@@ -1850,6 +1850,31 @@ Requires MusicKit credentials (Team ID, Key ID, private key in keychain).
 
 ---
 
+## Language Tags — Where Language Handling Lives
+
+MeedyaDL follows the shared **Media Language & BCP 47 Policy** (`MWBM-MEDIA-LANG` 1.0.0), whose master copy is in MWBMPartners/MeedyaSuite-core. The copy in this repository, `docs/standards/media-language-bcp47-policy.md`, is the rulebook — read it before changing anything that touches language tags, audio or subtitle tracks, lyrics, language order or naming. This section only says where things are.
+
+| What | Where |
+| --- | --- |
+| The policy, its reference data, test cases and schemas (exact copies — never edit them) | `docs/standards/`, `tests/fixtures/` |
+| The checker that keeps the copies identical to the master, and its lock | `scripts/media-lang/check_copies.py`, `docs/standards/MWBM-MEDIA-LANG.lock` |
+| CI job running the checker | `Language policy copies` in `.github/workflows/ci.yml` |
+| The rules themselves (tag parsing, standard form, ordering, matching, sidecar names) | the shared `meedya-lang` crate, pinned by `rev` in `src-tauri/Cargo.toml` |
+| Proof the pinned crate agrees with our copy of the test cases | `src-tauri/tests/media_language_conformance.rs` |
+| Every use of the crate in MeedyaDL | `src-tauri/src/utils/language.rs` |
+| Metadata Language list order (backend) | `src-tauri/src/commands/language.rs` → `order_languages_for_display` |
+| Metadata Language list names and fallback order (frontend) | `src/lib/languageOptions.ts`, `src/hooks/useMetadataLanguageOptions.ts` |
+
+Things a person working here should know:
+
+- **Do not split a tag on hyphens or underscores.** Read it with the helpers in `utils/language.rs`, which parse it properly. Three bugs came from splitting: a Taiwan system (`zh-Hant-TW`) fell back to the US storefront, a bare `en` became the storefront `en`, and `en_US` was sent to Apple as `enUS`.
+- **A language read from a file or a tool** (ffprobe, TTML, a tag) goes through the three-letter reader (`known_file_language`, or `from_legacy_three_letter` inside `utils/language.rs`) so `eng` becomes `en`. A value that cannot be read is `und` or is left out — never guessed.
+- **Music-video subtitle files** are named `{video}.{tag}[.{role}…][.{n}].{ext}` (`Song.en.sdh.srt`). Files named the old way (`Song.cc.2.eng.srt`) are never renamed; the extractor and the lyrics pairing step recognise both.
+- **Lyric sidecars are deliberately not language-named** (`Song.lrc`, `Song.vtt`), because that exact name is what players look for. WebVTT made from TTML records the language in a `NOTE language: <tag>` comment block instead.
+- **Moving to a new policy version or crate commit:** `python3 scripts/media-lang/check_copies.py --update <commit>` for the copies, the same commit as the crate's `rev` (`cargo update -p meedya-lang` only), then `cargo test --test media_language_conformance` and the whole backend suite. The two pins are on core's feature branch until core merges it — see #1255.
+
+---
+
 ## Subtitle and Lyrics Generation
 
 MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g):
