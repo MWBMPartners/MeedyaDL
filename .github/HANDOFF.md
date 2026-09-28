@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 09:08) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 09:35) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -461,6 +461,13 @@ on PRs to / pushes to main.
   into `snapshot/pr-<n>/`; the direction rule and command rule stay. Plus: unique run ids and
   never-reused folders, exact hook descriptions, tests that catch text added next to a pinned
   passage. Revision 6 builder running (watchdog on it).
+- **09:35 — plugin revision 6 pushed (`42bd45e`):** provenance guessing removed (the start
+  checkout is the user's own, stated as a limit; only ci-medic, which checks PRs out itself, uses a
+  PR's base, into `snapshot/pr-<n>/`); unique run ids, never-reused folders, repository path in the
+  manifest; exact hook limits; whole-section pins (28 sections, 11 items, 13 fields); 154/154 bats;
+  checked by me. Its next review: **Codex at 12:37** (no stand-in round now — nothing waits on
+  the plugin). Core revision 6 still building; it gets a stand-in review when done because the
+  copy-update sweep waits on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
