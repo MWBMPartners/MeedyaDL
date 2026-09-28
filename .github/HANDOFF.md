@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:00) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 05:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -314,6 +314,15 @@ on PRs to / pushes to main.
   suggestion); no test of the project's own validator; schema pattern accepts `English` and
   rejects `i-default`. Fixes sent to the original builder (watchdog `byhqsen90`). **Same
   deploy-layout check sent to the iLyricsDB and iHymns builders.**
+- **About 05:10 — pushed after my own checks:** **MeedyaDL** (`d9e0b9e5`; issues #1244 umbrella,
+  #1245–#1251 pieces, #1252–#1255 follow-ups; clippy clean, 2,135 Rust tests, conformance 222
+  cases, type-check, 887 vitest, audit checks, copy check, actionlint as CI runs it) and
+  **MeedyaManager** (`feature/bcp47-language-policy`; #251–#253; fmt, clippy, 1,435 tests, copy
+  check, actionlint). Stand-in reviews of both running. **dev-team plugin r3 pushed** (`d98a02c`,
+  154/154); one more commit being built: `init` writes only keys the user chose (explicit config
+  wins over repo instructions, so writing every default would overrule a project's caution).
+  MeedyaDL's builder asked whether to reword two commit messages naming request details — no:
+  the technical changelog section is technical by design and the live lint blanks it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
