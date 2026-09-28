@@ -136,6 +136,29 @@ pub fn is_language_tag(raw: &str) -> bool {
     !canonicalise(raw).is_malformed()
 }
 
+/// The value to send GAMDL's `--language` argument, from the stored
+/// metadata language setting.
+///
+/// The setting is already put into standard form when it is saved or
+/// imported (see `standard_tag_for_storage`, `#1246`), but a value written
+/// before that existed — or one edited by hand — can still hold something
+/// that is not quite in standard form: `"en-GB\n"`, a stray leading space.
+/// `canonicalise` reads a value like that as a tag just fine (it trims
+/// whitespace itself), so this sends the clean, standard form to GAMDL's
+/// command line even though the STORED value is left exactly as it is —
+/// this never rewrites the setting, only what is sent this one time
+/// (COMPAT-030: valid metadata already on disk is kept, not rewritten
+/// just because it is being used for something else).
+///
+/// When the stored value cannot be read as a tag at all, it is sent on
+/// unchanged, exactly as it always was before this function existed: GAMDL
+/// has always been given whatever was stored, and refusing to send
+/// anything now would be a behaviour change for a value that may still
+/// work today.
+pub fn language_arg_for_gamdl(raw: &str) -> String {
+    standard_tag_for_storage(raw).unwrap_or_else(|_| raw.to_string())
+}
+
 // ---------------------------------------------------------------------
 // Sending a language to Apple Music (#1247)
 // ---------------------------------------------------------------------
@@ -526,6 +549,27 @@ mod tests {
         assert_eq!(standard_tag_for_storage(fits), Ok(fits.to_string()));
     }
 
+    // ── The GAMDL --language argument ───────────────────────────────────
+
+    #[test]
+    fn the_gamdl_language_argument_is_the_standard_form_of_a_stored_tag() {
+        // A trailing newline or stray space slips through fine -- the
+        // stored value itself is never touched, only what is sent here.
+        assert_eq!(language_arg_for_gamdl("en-GB\n"), "en-GB");
+        assert_eq!(language_arg_for_gamdl(" ja-JP"), "ja-JP");
+        assert_eq!(language_arg_for_gamdl("EN-us"), "en-US");
+        // Already standard: unchanged.
+        assert_eq!(language_arg_for_gamdl("en-US"), "en-US");
+    }
+
+    #[test]
+    fn a_stored_value_that_is_not_a_tag_is_sent_to_gamdl_exactly_as_stored() {
+        // Not a tag at all -- sent on unchanged, as it always was, rather
+        // than silently dropping the argument GAMDL has always been given.
+        assert_eq!(language_arg_for_gamdl("English"), "English");
+        assert_eq!(language_arg_for_gamdl(""), "");
+    }
+
     // ── Sending a language to Apple Music ───────────────────────────────
 
     #[test]
@@ -620,6 +664,17 @@ mod tests {
         }
     }
 
+    /// The same as `stream`, but marked as the video's original-language
+    /// track — used below to prove `sort_tracks` actually reorders
+    /// streams before they are named (see
+    /// `an_original_track_gets_the_plain_name_ahead_of_a_plain_one`).
+    fn original_stream(lang: Option<&str>, ext: &str) -> SubtitleStreamFacts {
+        SubtitleStreamFacts {
+            original: true,
+            ..stream(lang, ext)
+        }
+    }
+
     fn names(stem: &str, streams: &[SubtitleStreamFacts]) -> Vec<String> {
         plan_subtitle_sidecar_names(stem, streams)
             .unwrap()
@@ -689,10 +744,24 @@ mod tests {
     #[test]
     fn a_number_only_for_a_clash_counting_from_the_second_in_track_order() {
         // Streams in ffprobe order: an English SDH track, then two plain
-        // English tracks. Track order puts the plain ones first (full
-        // subtitles before SDH), so the SECOND plain one gets `.2`; the
-        // SDH one has a different name and gets no number. The result is
-        // returned in ffprobe's order.
+        // English tracks. This does NOT actually depend on `sort_tracks`
+        // reordering anything -- it passes identically with that call
+        // removed. The SDH stream's role gives it its own distinct name
+        // ("T.en.sdh.srt") whatever order the three are processed in, so
+        // it never contends for the same slot as the two plain tracks;
+        // and the two plain tracks tie on everything `sort_tracks`
+        // compares (same language, same roles, same track type), so a
+        // stable sort leaves them in ffprobe's own order too. What this
+        // test actually proves is narrower: a numbered suffix is added
+        // only for a genuine name CLASH, counted in the order the streams
+        // are processed, and a stream with no clash at all -- the SDH one
+        // here, and the mismatched-extension pair below -- never gets a
+        // number. (Independent review of #1251: an earlier version of
+        // this comment claimed the test pinned the effect of track-order
+        // sorting; it did not. The test that actually needs `sort_tracks`
+        // to reorder its streams is
+        // `an_original_track_gets_the_plain_name_ahead_of_a_plain_one`,
+        // below.)
         let sdh = SubtitleStreamFacts {
             hearing_impaired: true,
             ..stream(Some("eng"), "srt")
@@ -711,6 +780,31 @@ mod tests {
                 &[stream(Some("eng"), "vtt"), stream(Some("eng"), "srt")]
             ),
             ["T.en.vtt", "T.en.srt"]
+        );
+    }
+
+    #[test]
+    fn an_original_track_gets_the_plain_name_ahead_of_a_plain_one() {
+        // Both streams are English; only the SECOND is marked as the
+        // video's original-language track. `sort_tracks` (TRACK-050)
+        // promotes an original track ahead of a non-original one within
+        // the same language group, so the original stream is processed
+        // FIRST and claims the clash-free name -- even though it is
+        // second in ffprobe's own stream order. Without the `sort_tracks`
+        // call in `plan_subtitle_sidecar_names`, both streams would keep
+        // ffprobe's order instead, and the numbers would land the other
+        // way around (`T.en.srt`, `T.en.2.srt`). This is the test the
+        // independent review asked for: unlike the test above, it cannot
+        // pass unless the sort actually reorders the streams.
+        assert_eq!(
+            names(
+                "T",
+                &[
+                    stream(Some("eng"), "srt"),
+                    original_stream(Some("eng"), "srt")
+                ]
+            ),
+            ["T.en.2.srt", "T.en.srt"]
         );
     }
 

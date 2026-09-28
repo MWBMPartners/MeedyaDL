@@ -79,17 +79,18 @@ pub(crate) fn filter_tiers_by_audio_traits(
     // Always emits at debug level — surfaces in the on-disk
     // activity log when `--log-level=Debug` is configured (#768)
     // and stays out of the user-facing UI by default.
-    log::debug!(
-        "filter_tiers_by_audio_traits: available_traits = {available_traits:?}"
-    );
+    log::debug!("filter_tiers_by_audio_traits: available_traits = {available_traits:?}");
     let mut skipped = Vec::new();
     let kept: Vec<CompanionTier> = tiers
         .into_iter()
         .filter(|tier| {
-            let any_codec_supported = tier.codecs_to_try.iter().any(|c| match c.required_audio_trait() {
-                None => true,
-                Some(needed) => available_traits.iter().any(|t| t == needed),
-            });
+            let any_codec_supported =
+                tier.codecs_to_try
+                    .iter()
+                    .any(|c| match c.required_audio_trait() {
+                        None => true,
+                        Some(needed) => available_traits.iter().any(|t| t == needed),
+                    });
             let names: Vec<&str> = tier
                 .codecs_to_try
                 .iter()
@@ -155,7 +156,6 @@ pub(crate) fn lossy_chain_for_runtime() -> Vec<SongCodec> {
         vec![SongCodec::Aac, SongCodec::AacLegacy]
     }
 }
-
 
 /// Works out which extra copies of an album to download alongside the
 /// primary one, and in what order to try them.
@@ -585,8 +585,12 @@ pub(crate) async fn spawn_music_video_companion_inner(
     // happens inside GAMDL) — skip the snapshot in that case and fall
     // back to the count-of-attempts message. Better than emitting a
     // misleading "0 of N downloaded" when we just don't have visibility.
-    let video_count_tracking = (!settings.output_path.is_empty())
-        .then(|| (settings.output_path.clone(), snapshot_video_files(&settings.output_path).len()));
+    let video_count_tracking = (!settings.output_path.is_empty()).then(|| {
+        (
+            settings.output_path.clone(),
+            snapshot_video_files(&settings.output_path).len(),
+        )
+    });
 
     // Download each music video using the shared helper
     for relation in &unique_relations {
@@ -617,15 +621,8 @@ pub(crate) async fn spawn_music_video_companion_inner(
 
         emit_download_log(app, dl_id, &format!("Downloading music video: {mv_name}"));
 
-        download_music_video_by_url(
-            app,
-            dl_id,
-            &mv_url,
-            mv_name,
-            settings,
-            parent_album_path,
-        )
-        .await;
+        download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings, parent_album_path)
+            .await;
     }
 
     // Honest completion summary (#774-class false-positive fix). When
@@ -650,9 +647,7 @@ pub(crate) async fn spawn_music_video_companion_inner(
                     total_attempted - new_files
                 )
             } else {
-                format!(
-                    "Music video companion downloads complete ({new_files} video(s))"
-                )
+                format!("Music video companion downloads complete ({new_files} video(s))")
             }
         }
         None => format!(
@@ -822,11 +817,7 @@ pub(crate) async fn emit_companion_stream_line(
         // need to touch one place.
         let show_in_ui = verbose || Some(idx) == last_segment_idx;
         crate::utils::activity_log::emit_subprocess_line(
-            app,
-            dl_id,
-            stream,
-            clean_line,
-            show_in_ui,
+            app, dl_id, stream, clean_line, show_in_ui,
         );
     }
 
@@ -890,10 +881,7 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
 
     // Diff pre/post video sets to isolate the new files.
     let post_existing = snapshot_video_files(output_root);
-    let new_videos: Vec<_> = post_existing
-        .difference(pre_existing)
-        .cloned()
-        .collect();
+    let new_videos: Vec<_> = post_existing.difference(pre_existing).cloned().collect();
 
     if new_videos.is_empty() {
         log::debug!("No new music video files detected for {dl_id}");
@@ -940,10 +928,7 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         )
         .await
         {
-            Ok(0) => log::debug!(
-                "No subtitle streams in {}",
-                video_path.display()
-            ),
+            Ok(0) => log::debug!("No subtitle streams in {}", video_path.display()),
             Ok(n) => {
                 emit_download_log(
                     app,
@@ -968,10 +953,9 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         // 2. Pair any matching song lyrics sidecars from the album folder
         //    (works when the music video was a companion to an album track).
         if let Some(album_dir) = video_path.parent() {
-            let paired =
-                super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
-                    album_dir, video_path,
-                );
+            let paired = super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
+                album_dir, video_path,
+            );
             if paired > 0 {
                 emit_download_log(
                     app,
@@ -1004,7 +988,10 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
                 .unwrap_or("music video")
                 .to_string();
             match embed_and_remove_sidecar(video_path) {
-                EmbedOutcome::Embedded { sidecar_filename, bytes_embedded } => {
+                EmbedOutcome::Embedded {
+                    sidecar_filename,
+                    bytes_embedded,
+                } => {
                     emit_download_log(
                         app,
                         dl_id,
@@ -1017,7 +1004,10 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
                 EmbedOutcome::NoSidecar => {
                     log::debug!("No cover sidecar found next to {}", video_path.display());
                 }
-                EmbedOutcome::Failed { sidecar_filename, reason } => {
+                EmbedOutcome::Failed {
+                    sidecar_filename,
+                    reason,
+                } => {
                     // Sidecar kept (safe by design) — warn so the
                     // user knows the embed didn't happen.
                     log::warn!(
@@ -1200,15 +1190,14 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
     // — Tier 4 still gives a correct result.
     let team_id = settings.musickit_team_id.as_deref();
     let key_id = settings.musickit_key_id.as_deref();
-    let private_key =
-        match crate::services::apple_music_api::get_private_key_from_keychain() {
-            Ok(Some(key)) => Some(key),
-            Ok(None) => None,
-            Err(e) => {
-                log::debug!("Tier 2 skipped — keychain read failed: {e}");
-                return None;
-            }
-        };
+    let private_key = match crate::services::apple_music_api::get_private_key_from_keychain() {
+        Ok(Some(key)) => Some(key),
+        Ok(None) => None,
+        Err(e) => {
+            log::debug!("Tier 2 skipped — keychain read failed: {e}");
+            return None;
+        }
+    };
     let token_pair = match crate::services::apple_music_api::resolve_premium_feature_token(
         team_id,
         key_id,
@@ -1255,9 +1244,7 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
     let safe_artist = sanitize_fs_segment(&linkage.artist_name);
     let safe_album = sanitize_fs_segment(&linkage.album_name);
     if safe_artist.is_empty() || safe_album.is_empty() {
-        log::debug!(
-            "Tier 2 produced empty artist/album after sanitisation — falling through"
-        );
+        log::debug!("Tier 2 produced empty artist/album after sanitisation — falling through");
         return None;
     }
     Some(format!("{safe_artist}/{safe_album}"))
@@ -1271,7 +1258,13 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
 pub(crate) fn sanitize_fs_segment(raw: &str) -> String {
     const UNSAFE: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     raw.chars()
-        .map(|c| if UNSAFE.contains(&c) || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if UNSAFE.contains(&c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim_matches(|c: char| c == '.' || c.is_whitespace())
         .to_string()
@@ -1300,9 +1293,7 @@ pub(crate) async fn download_music_video_by_url(
     // GAMDL's MV pipeline — votify has no equivalent and the GAMDL
     // build would silently fail on the unsupported URL host.
     if video_url.contains("open.spotify.com") || video_url.starts_with("spotify:") {
-        log::warn!(
-            "download_music_video_by_url called with Spotify URL — skipping (M9-7 guard)"
-        );
+        log::warn!("download_music_video_by_url called with Spotify URL — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -1375,14 +1366,10 @@ pub(crate) async fn download_music_video_by_url(
         // Tier 3: parent album context known from caller (MV companion
         // or MusicBrainz fallback within an album-scoped enrichment
         // task). Use the literal on-disk path directly.
-        log::info!(
-            "MV folder resolved via Tier 3 (parent album context): {parent_path}"
-        );
+        log::info!("MV folder resolved via Tier 3 (parent album context): {parent_path}");
         emit_app_log(
             app,
-            &format!(
-                "MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"
-            ),
+            &format!("MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"),
         );
         parent_path.to_string()
     } else if let Some(literal_path) =
@@ -1401,9 +1388,7 @@ pub(crate) async fn download_music_video_by_url(
         literal_path
     } else {
         // Tier 4: safety net.
-        log::debug!(
-            "Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net"
-        );
+        log::debug!("Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net");
         MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
     };
 
@@ -1413,7 +1398,10 @@ pub(crate) async fn download_music_video_by_url(
         music_video_codec_priority: Some(settings.video_codec_priority_cli()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
         temp_path: Some(if settings.temp_path.is_empty() {
-            std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
+            std::env::temp_dir()
+                .join("MeedyaDL")
+                .to_string_lossy()
+                .to_string()
         } else {
             settings.temp_path.clone()
         }),
@@ -1442,7 +1430,13 @@ pub(crate) async fn download_music_video_by_url(
         mp4box_path: settings.mp4box_path.clone(),
         nm3u8dlre_path: settings.nm3u8dlre_path.clone(),
         // Metadata / language so music-video tags are localised consistently.
-        language: Some(settings.language.clone()),
+        // Sent in its standard form -- see `language_arg_for_gamdl`'s own
+        // comment (independent review, round 3 of #1244) for why the
+        // STORED setting is left untouched and only what reaches GAMDL's
+        // command line here is cleaned up.
+        language: Some(crate::utils::language::language_arg_for_gamdl(
+            &settings.language,
+        )),
         truncate: settings.truncate,
         download_mode: Some(settings.download_mode.clone()),
         remux_mode: Some(settings.remux_mode.clone()),
@@ -1556,8 +1550,7 @@ pub(crate) async fn download_music_video_by_url(
             let mut lines = reader.lines();
             let mut last = String::new();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(clean) =
-                    emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
+                if let Some(clean) = emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
                 {
                     last = clean;
                 }
@@ -1739,9 +1732,7 @@ pub(crate) async fn run_lyrics_fallback(
         .iter()
         .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
     {
-        log::warn!(
-            "run_lyrics_fallback called with Spotify URL(s) — skipping (M9-7 guard)"
-        );
+        log::warn!("run_lyrics_fallback called with Spotify URL(s) — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -1800,7 +1791,10 @@ pub(crate) async fn run_lyrics_fallback(
             synced_lyrics_only: Some(true),
             output_path: Some(settings.output_path.clone()),
             temp_path: Some(if settings.temp_path.is_empty() {
-                std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
+                std::env::temp_dir()
+                    .join("MeedyaDL")
+                    .to_string_lossy()
+                    .to_string()
             } else {
                 settings.temp_path.clone()
             }),
@@ -1979,12 +1973,15 @@ pub(crate) async fn detect_actual_primary_codec(
     };
 
     // Parse the requested codec for the ffprobe fallback path
-    let requested_song_codec = crate::models::gamdl_options::SongCodec::from_cli_string(requested_codec)
-        .unwrap_or(crate::models::gamdl_options::SongCodec::Aac);
+    let requested_song_codec =
+        crate::models::gamdl_options::SongCodec::from_cli_string(requested_codec)
+            .unwrap_or(crate::models::gamdl_options::SongCodec::Aac);
 
     // Try MediaInfo first (more reliable, especially for Atmos/AC3 distinction)
     if let Some(mediainfo_bin) = super::mediainfo_service::get_mediainfo_path(app) {
-        if let Some(result) = super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await {
+        if let Some(result) =
+            super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await
+        {
             let actual_str = result.codec.to_cli_string().to_string();
             if actual_str != requested_codec {
                 emit_download_log(
@@ -2008,8 +2005,13 @@ pub(crate) async fn detect_actual_primary_codec(
 
     // Fall back to ffprobe if MediaInfo unavailable or failed
     if let Ok(ffprobe) = super::metadata_tag_service::get_ffprobe_path(app) {
-        if let Some(info) = super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await {
-            let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(&info, &requested_song_codec);
+        if let Some(info) =
+            super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await
+        {
+            let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(
+                &info,
+                &requested_song_codec,
+            );
             let actual_str = actual.to_cli_string().to_string();
             if actual_str != requested_codec {
                 emit_download_log(
@@ -2063,8 +2065,7 @@ pub(crate) async fn detect_actual_primary_codec(
 /// downloads don't get spammed (a typical 8-track album with
 /// companions finishes in well under 2 min, so the heartbeat never
 /// even fires).
-pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(120);
+pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Lightweight handle for a heartbeat ticker spawned via
 /// [`start_heartbeat_ticker`]. Owning the handle keeps the ticker
@@ -2136,9 +2137,7 @@ pub(crate) fn start_heartbeat_ticker(
             let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
             // Skip the immediate tick — we don't want a heartbeat at
             // t=0 saying "0 min elapsed" right after the stage starts.
-            interval.set_missed_tick_behavior(
-                tokio::time::MissedTickBehavior::Delay,
-            );
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
 
             loop {
@@ -2184,7 +2183,9 @@ pub(crate) fn start_heartbeat_ticker(
                 emit_download_log(
                     &app,
                     &dl_id,
-                    &format!("⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"),
+                    &format!(
+                        "⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"
+                    ),
                 );
             }
         }
@@ -2455,9 +2456,7 @@ pub(crate) fn spawn_companion_downloads(
         .iter()
         .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
     {
-        log::warn!(
-            "spawn_companion_downloads called with Spotify URL(s) — skipping (M9-7 guard)"
-        );
+        log::warn!("spawn_companion_downloads called with Spotify URL(s) — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -2592,9 +2591,7 @@ pub(crate) fn spawn_companion_downloads(
                 // stop conditions are checked, and for the same reason:
                 // it is the point where nothing is half-done.
                 if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                    log::info!(
-                        "Companion downloads stopping early — {comp_dl_id} was cancelled"
-                    );
+                    log::info!("Companion downloads stopping early — {comp_dl_id} was cancelled");
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -2617,7 +2614,9 @@ pub(crate) fn spawn_companion_downloads(
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
-                        &format!("Companion task aborted — skipping remaining companions: {pending}"),
+                        &format!(
+                            "Companion task aborted — skipping remaining companions: {pending}"
+                        ),
                     );
                     return;
                 }
@@ -2655,9 +2654,7 @@ pub(crate) fn spawn_companion_downloads(
                     // after the person said stop. A reviewer caught the
                     // gap in the first version of this check.
                     if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                        log::info!(
-                            "Companion downloads stopping — {comp_dl_id} was cancelled"
-                        );
+                        log::info!("Companion downloads stopping — {comp_dl_id} was cancelled");
                         emit_download_log(
                             &comp_app,
                             &comp_dl_id,
@@ -2887,7 +2884,10 @@ pub(crate) fn spawn_companion_downloads(
                             if let Some(ref output_dir) = opts.output_path {
                                 // Rename cover art per user setting (#448)
                                 let comp_settings = load_settings_for_queue(&comp_app);
-                                rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
+                                rename_cover_art(
+                                    output_dir,
+                                    comp_settings.cover_art_name.to_filename_stem(),
+                                );
 
                                 // Scope the lyrics conversion AND the tag pass
                                 // (#816) to the album we just produced —
@@ -3207,8 +3207,10 @@ pub(crate) fn spawn_companion_downloads(
 
             // Enhanced LRC: TTML → word-by-word LRC
             if settings.enhanced_lrc {
-                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str, settings.keep_lyrics_sidecar)
-                {
+                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
+                    &dir_str,
+                    settings.keep_lyrics_sidecar,
+                ) {
                     Ok(count) if count > 0 => {
                         emit_download_log(
                             app,
@@ -3479,4 +3481,3 @@ pub(crate) fn spawn_companion_downloads(
     // (Lyrics companions are fire-and-forget — they're fast and non-critical.)
     codec_handle
 }
-
