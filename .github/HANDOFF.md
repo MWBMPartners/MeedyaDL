@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 18:21) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 18:25) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -934,6 +934,11 @@ on PRs to / pushes to main.
   - **These repositories live under the `MeedyaSuite` GitHub organisation** (`MeedyaSuite/MeedyaPlayer`, `MeedyaSuite/MeedyaSubtitler`), not MWBMPartners. Use `-R MeedyaSuite/...` with `gh`.
   - The builder also replaced the first name in three ADRs that predate the branch (0001, 0008 and 0009). No history was rewritten.
   - **Next: Codex reviews round 11**, `bc901ad..be430c9` and `44cf095..415aa4c`, after its MeedyaManager run.
+- **Codex ran out of allowance again partway through the MeedyaManager catch-up.** It resets at 22:42, and a wake-up is set for 22:45. The window lasted only three reviews: MeedyaDL used about 164,000 tokens, MeedyaPlayer and MeedyaSubtitler about 114,000, and MeedyaManager about 135,000 before it was cut off.
+  - The MeedyaManager review has NO final report. Its only interim note: giving `--set language=…` more than once in one `meedya edit` reports each value as saved, but only the last is stored, and the last value's note is attached to every row. The stand-in is told to check this.
+  - **Back to stand-in reviews (fresh Opus agents) until 22:45.** That covers MeedyaManager round 5 (`aa7a30d..a150926`, plus the lead above) and NetPLAYERapp round 6 (`978f2a0..9232ec6`), both running with watchdogs. The MeedyaPlayer/MeedyaSubtitler round-11 review is queued for when an agent slot frees up; I'm keeping fewer than about nine agents running at once so the session limit is not hit again.
+  - **Codex catch-up still owed** once it is back: MeedyaManager's whole range `7697b9c..`, iHymns, iLyricsDB, MeedyaConverter, the plugin, core after revision 10, NetPLAYERapp, and MeedyaPlayer/MeedyaSubtitler round 11.
+- **NetPLAYERapp round 6 pushed (`9232ec6`).** My checks: the language test ran 18,485 checks with none failing. `php -l`, PHPStan, cs-fixer, house rules, schema, markdownlint, actionlint and the copy checker (9 of 9) were all clean. Only comments changed in the application code, and all 10 `.gitattributes` lines are hardened. No containers or left-behind volumes remain. I commented on #210.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
