@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 06:20) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 07:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -364,6 +364,13 @@ on PRs to / pushes to main.
   setup cards after deploy (song language default → `und`; drop `fk_Trans_Lang`). Stand-in review
   running. **Plugin revision 4 pushed** (`748e87c`, run-start snapshot, 162/162). Its review:
   Codex after core, if the allowance lasts; otherwise a fresh Opus stand-in.
+- **About 06:30–07:10: usage limit hit** (Claude session limit, reset 07:10). Three agents stopped
+  mid-work and were RESUMED at 07:12 with their context (no hand-over needed — same system,
+  back within the hour): MeedyaConverter round-2 builder (11 local commits `23165c9`..`9f25ad7`,
+  clean tree), MeedyaManager fix builder (8 files uncommitted, no new commits), iHymns stand-in
+  reviewer (its containers `ihymns-review-mysql84` and `ihymns-review-mariadb` still running —
+  confirm they are removed when it finishes). Watchdog `bjng4paaf`. Codex wake-up at 07:35 still
+  pending (`bj3k2ubfr`).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
