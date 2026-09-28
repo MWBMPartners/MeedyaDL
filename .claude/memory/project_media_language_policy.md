@@ -49,7 +49,11 @@ yt-dlp do.
   `label` (UI-070) joined the run sections in that same round: it had been
   left as a not-needed, player-only section with no reason given, although
   section 8.1's own table lists it as needed by the "presentation" profile
-  MeedyaDL declares itself as following.
+  MeedyaDL declares itself as following. The Cargo.lock reader the test's
+  own "two pins must move together" check depends on now collects EVERY
+  `meedya-lang` package entry the file names and refuses to run unless
+  there is exactly one, rather than silently using whichever entry came
+  first (round 4).
 - MeedyaDL's own language code is all in `src-tauri/src/utils/language.rs` —
   every use of the crate's traits is there, so an API change in the crate is a
   change in that one file. The Metadata Language list's order comes from the
@@ -76,15 +80,24 @@ did not change.
 **What MeedyaDL does with it (#1245–#1251):**
 
 - Metadata language setting: stored in standard form on save and import; a
-  non-tag import is refused (this machine's value kept); a non-tag already on
-  disk is kept and reported once per launch, never rewritten (#1246). The
-  stored value is also put into standard form right before it reaches GAMDL's
-  `--language` argument, without ever rewriting the STORED value itself
-  (`utils::language::language_arg_for_gamdl`, round 3 of the independent
+  non-tag import is refused (this machine's value kept); an imported value
+  over 256 bytes is refused before it is even read as a tag, and any refusal
+  is logged by length alone, never the value itself (round 4); a non-tag
+  already on disk is kept and reported once per launch, never rewritten
+  (#1246). The stored value is also put into standard form right before it
+  reaches GAMDL's `--language` argument — whatever its length, not only a
+  tag short enough to be stored (round 4 closed that gap: a well-formed tag
+  over the 35-character storage limit used to reach GAMDL completely
+  unstandardised) — and right before it reaches config.ini's own `language`
+  line, which the lyrics-fallback retry path reads instead of being passed
+  `--language` directly (round 4) — without ever rewriting the STORED value
+  itself (`utils::language::language_arg_for_gamdl` /
+  `utils::language::MAX_TAG_LEN`, round 3 and round 4 of the independent
   review). The interface language setting (`ui_language`) follows the same
   import rule as the metadata language — standard form, refused and this
-  machine's value kept if it is not a tag — with one difference: an empty
-  value is kept, not refused, because it means "follow the system".
+  machine's value kept if it is not a tag, the same 256-byte pre-parse
+  refusal — with one difference: an empty value is kept, not refused,
+  because it means "follow the system".
 - The `l=` localisation on MeedyaDL's own Apple Music requests: a real tag, or
   none at all (#1247).
 - Storefront from a language: the parsed tag's two-letter region, else the
@@ -95,6 +108,12 @@ did not change.
   Interface Language list (Settings > General > Language) now uses the same
   order (`useInterfaceLanguageOptions`, round 3 of the independent review) —
   it used to just follow the order its three entries happen to be written in.
+  Its FALLBACK order (shown before the backend answers, or if it never does)
+  also pins the interface language's own row first, matching where the real
+  order would put it, so the list does not visibly jump the moment the
+  backend replies (round 4 — French is the case that showed the gap:
+  "allemand" sorts before "français" alphabetically, so the un-pinned
+  fallback showed German first for a French interface).
 - LRC `[la:]`: the standard tag or nothing; WebVTT from TTML gets a
   `NOTE language: <tag>` comment block (#1250).
 - Music-video subtitle files: `{video}.{tag}[.{role}…][.{n}].{ext}`; old
