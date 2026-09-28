@@ -1,0 +1,5062 @@
+{
+  "$schema": "./bcp47-language-policy-v1.schema.json",
+  "policy": "MWBM-MEDIA-LANG",
+  "policy_version": "1.0.0",
+  "fixtures_version": "1.0.0",
+  "data_version": "1.0.0",
+  "canonicalise": [
+    {
+      "id": "canon-01",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en",
+      "expected": "en",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-02",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "EN-gb",
+      "expected": "en-GB",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-03",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-hant-tw",
+      "expected": "zh-Hant-TW",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-04",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "ES-419",
+      "expected": "es-419",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-05",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "  en-GB\t",
+      "expected": "en-GB",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-06",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "iw",
+      "expected": "he",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-07",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "in-ID",
+      "expected": "id-ID",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-08",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "mo",
+      "expected": "ro",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-09",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "de-DD",
+      "expected": "de-DE",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-10",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-yue-HK",
+      "expected": "yue-HK",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-11",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "i-klingon",
+      "expected": "tlh",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-12",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-GB-oed",
+      "expected": "en-GB-oxendict",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-13",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "I-DEFAULT",
+      "expected": "i-default",
+      "kind": "grandfathered"
+    },
+    {
+      "id": "canon-14",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "sgn-BR",
+      "expected": "bzs",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-15",
+      "rules": [
+        "LANG-001",
+        "LANG-024"
+      ],
+      "input": "en-Latn",
+      "expected": "en-Latn",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-16",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-u-ca-gregory-a-xyz",
+      "expected": "en-a-xyz-u-ca-gregory",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-17",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "de-CH-1996",
+      "expected": "de-CH-1996",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-18",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "X-Private",
+      "expected": "x-private",
+      "kind": "privateuse"
+    },
+    {
+      "id": "canon-19",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "sr-Cyrl-CS",
+      "expected": "sr-Cyrl-CS",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-20",
+      "rules": [
+        "LANG-001",
+        "LANG-004"
+      ],
+      "input": "en_US",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-21",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en--GB",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-22",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-23",
+      "rules": [
+        "LANG-001",
+        "TEXT-070"
+      ],
+      "input": "English",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-24",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "de-1996-1996",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-25",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-a-bbb-a-ccc",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-26",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-yue-min",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-27",
+      "rules": [
+        "LANG-001",
+        "LANG-003"
+      ],
+      "input": "und",
+      "expected": "und",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-28",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-JJ",
+      "expected": "en-JJ",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-29",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "EN-latn-gb",
+      "expected": "en-Latn-GB",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-30",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-min-nan",
+      "expected": "nan",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-31",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "x",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-32",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-x",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-33",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "art-lojban",
+      "expected": "jbo",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-34",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-cmn-Hans",
+      "expected": "cmn-Hans",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-35",
+      "rules": [
+        "LANG-001",
+        "LANG-002"
+      ],
+      "input": "heb",
+      "expected": "heb",
+      "kind": "ordinary",
+      "note": "Canonical form does not convert three-letter ISO 639-2 codes; only reading an old three-letter field does (legacy_three_letter)."
+    },
+    {
+      "id": "canon-36",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "Hant-zh",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-37",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "Deutsch",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-38",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-GB-x-ABC",
+      "expected": "en-GB-x-abc",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-39",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-ünglish",
+      "expected": null,
+      "kind": "malformed"
+    },
+    {
+      "id": "canon-40",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "de-heploc",
+      "expected": "de-alalc97",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-41",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "ar-ajp",
+      "expected": "apc",
+      "kind": "ordinary",
+      "note": "A registered extlang replaces the language, and the language it leaves (ajp) is then replaced by its own Preferred-Value (apc)."
+    },
+    {
+      "id": "canon-42",
+      "rules": [
+        "LANG-001",
+        "LANG-021"
+      ],
+      "input": "zh-abc",
+      "expected": "zh-abc",
+      "kind": "ordinary",
+      "note": "An extlang the registry does not list is kept where it is."
+    },
+    {
+      "id": "canon-43",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": " en",
+      "expected": null,
+      "kind": "malformed",
+      "note": "Only space, tab, line feed and carriage return are trimmed; a no-break space makes the value malformed."
+    },
+    {
+      "id": "canon-44",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-x-foo-AB",
+      "expected": "en-x-foo-ab",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-45",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "zh-cmn",
+      "expected": "cmn",
+      "kind": "ordinary"
+    },
+    {
+      "id": "canon-46",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "EN-1-ABC",
+      "expected": "en-1-abc",
+      "kind": "ordinary",
+      "note": "A digit is a valid single-character extension subtag."
+    },
+    {
+      "id": "canon-47",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "ja-Latn-hepburn-heploc-alalc97",
+      "expected": "ja-Latn-hepburn-alalc97",
+      "kind": "ordinary",
+      "note": "A replacement that leaves the same variant twice drops the later one, so the result is stable."
+    },
+    {
+      "id": "canon-48",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "sgn-DD",
+      "expected": "gsg",
+      "kind": "ordinary",
+      "note": "Steps 4 and 5 repeat until stable: sgn-DD -> sgn-DE (region replaced) -> gsg (redundant tag replaced)."
+    },
+    {
+      "id": "canon-49",
+      "rules": [
+        "LANG-001"
+      ],
+      "input": "en-x-foo\n-bar",
+      "expected": null,
+      "kind": "malformed",
+      "note": "A line break inside the value is not trimmed; it makes the value malformed (a regular expression whose end anchor matches before a final line break would wrongly accept each part)."
+    }
+  ],
+  "legacy_three_letter": [
+    {
+      "id": "legacy-01",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "eng",
+      "expected": "en"
+    },
+    {
+      "id": "legacy-02",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "ger",
+      "expected": "de"
+    },
+    {
+      "id": "legacy-03",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "deu",
+      "expected": "de"
+    },
+    {
+      "id": "legacy-04",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "FRE",
+      "expected": "fr"
+    },
+    {
+      "id": "legacy-05",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "chi",
+      "expected": "zh"
+    },
+    {
+      "id": "legacy-06",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "zho",
+      "expected": "zh"
+    },
+    {
+      "id": "legacy-07",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "tib",
+      "expected": "bo"
+    },
+    {
+      "id": "legacy-08",
+      "rules": [
+        "LANG-002",
+        "LANG-003"
+      ],
+      "input": "und",
+      "expected": "und"
+    },
+    {
+      "id": "legacy-09",
+      "rules": [
+        "LANG-002",
+        "LANG-003"
+      ],
+      "input": "zxx",
+      "expected": "zxx"
+    },
+    {
+      "id": "legacy-10",
+      "rules": [
+        "LANG-002",
+        "LANG-003"
+      ],
+      "input": "XXX",
+      "expected": "und"
+    },
+    {
+      "id": "legacy-11",
+      "rules": [
+        "LANG-002",
+        "LANG-003"
+      ],
+      "input": "xxx",
+      "expected": "und"
+    },
+    {
+      "id": "legacy-12",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "yue",
+      "expected": "yue"
+    },
+    {
+      "id": "legacy-13",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "qab",
+      "expected": "qab"
+    },
+    {
+      "id": "legacy-14",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "scc",
+      "expected": "sr"
+    },
+    {
+      "id": "legacy-15",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "mol",
+      "expected": "ro"
+    },
+    {
+      "id": "legacy-16",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "fre-ca",
+      "expected": "fr-CA"
+    },
+    {
+      "id": "legacy-17",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "ger-ch",
+      "expected": "de-CH"
+    },
+    {
+      "id": "legacy-18",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "zqq",
+      "expected": null
+    },
+    {
+      "id": "legacy-19",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "en",
+      "expected": "en"
+    },
+    {
+      "id": "legacy-20",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "en-GB",
+      "expected": "en-GB"
+    },
+    {
+      "id": "legacy-21",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "English",
+      "expected": null
+    },
+    {
+      "id": "legacy-22",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "e",
+      "expected": null
+    },
+    {
+      "id": "legacy-23",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "heb",
+      "expected": "he"
+    },
+    {
+      "id": "legacy-24",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "afa",
+      "expected": "afa"
+    },
+    {
+      "id": "legacy-25",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "iw",
+      "expected": "he"
+    },
+    {
+      "id": "legacy-26",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "baq",
+      "expected": "eu"
+    },
+    {
+      "id": "legacy-27",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "eng\u0000",
+      "expected": "en"
+    },
+    {
+      "id": "legacy-28",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "eng\u0000swe",
+      "expected": "en"
+    },
+    {
+      "id": "legacy-29",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "\u0000\u0000\u0000",
+      "expected": null
+    },
+    {
+      "id": "legacy-30",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "alv",
+      "expected": "alv"
+    },
+    {
+      "id": "legacy-31",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "cmn",
+      "expected": "cmn"
+    },
+    {
+      "id": "legacy-32",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "zqq-ca",
+      "expected": null
+    },
+    {
+      "id": "legacy-33",
+      "rules": [
+        "LANG-002",
+        "COMPAT-040"
+      ],
+      "input": "xxx-ca",
+      "expected": null
+    },
+    {
+      "id": "legacy-34",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": " ENG ",
+      "expected": "en"
+    },
+    {
+      "id": "legacy-35",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "ajp",
+      "expected": "apc"
+    },
+    {
+      "id": "legacy-36",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "und-GB",
+      "expected": "und-GB"
+    },
+    {
+      "id": "legacy-37",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "ger-DD",
+      "expected": "de-DE"
+    },
+    {
+      "id": "legacy-38",
+      "rules": [
+        "LANG-002"
+      ],
+      "input": "yue-HK",
+      "expected": "yue-HK"
+    }
+  ],
+  "iso639_2_write": [
+    {
+      "id": "write-01",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "de",
+      "expected": {
+        "b": "ger",
+        "t": "deu"
+      }
+    },
+    {
+      "id": "write-02",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "zh",
+      "expected": {
+        "b": "chi",
+        "t": "zho"
+      }
+    },
+    {
+      "id": "write-03",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "en",
+      "expected": {
+        "b": "eng",
+        "t": "eng"
+      }
+    },
+    {
+      "id": "write-04",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "de-CH",
+      "expected": {
+        "b": "ger",
+        "t": "deu"
+      }
+    },
+    {
+      "id": "write-05",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "bo",
+      "expected": {
+        "b": "tib",
+        "t": "bod"
+      }
+    },
+    {
+      "id": "write-06",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "iw",
+      "expected": {
+        "b": "heb",
+        "t": "heb"
+      }
+    },
+    {
+      "id": "write-07",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "yue",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-08",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "alv",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-09",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "afa",
+      "expected": {
+        "b": "afa",
+        "t": "afa"
+      }
+    },
+    {
+      "id": "write-10",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "und",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-11",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "zxx",
+      "expected": {
+        "b": "zxx",
+        "t": "zxx"
+      }
+    },
+    {
+      "id": "write-12",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "mul",
+      "expected": {
+        "b": "mul",
+        "t": "mul"
+      }
+    },
+    {
+      "id": "write-13",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "qaa",
+      "expected": {
+        "b": "qaa",
+        "t": "qaa"
+      }
+    },
+    {
+      "id": "write-14",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "qtz-GB",
+      "expected": {
+        "b": "qtz",
+        "t": "qtz"
+      }
+    },
+    {
+      "id": "write-15",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "English",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-16",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "x-foo",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-17",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "i-default",
+      "expected": {
+        "b": "und",
+        "t": "und"
+      }
+    },
+    {
+      "id": "write-18",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "bh",
+      "expected": {
+        "b": "bih",
+        "t": "bih"
+      }
+    },
+    {
+      "id": "write-19",
+      "rules": [
+        "TRACK-070"
+      ],
+      "input": "zh-Hant-TW",
+      "expected": {
+        "b": "chi",
+        "t": "zho"
+      }
+    }
+  ],
+  "posix_locale": [
+    {
+      "id": "posix-01",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "en_US.UTF-8",
+      "expected": "en-US"
+    },
+    {
+      "id": "posix-02",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "sr_RS@latin",
+      "expected": "sr-Latn-RS"
+    },
+    {
+      "id": "posix-03",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "zh_TW",
+      "expected": "zh-TW"
+    },
+    {
+      "id": "posix-04",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "C",
+      "expected": null
+    },
+    {
+      "id": "posix-05",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "POSIX",
+      "expected": null
+    },
+    {
+      "id": "posix-06",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "de_DE@euro",
+      "expected": "de-DE"
+    },
+    {
+      "id": "posix-07",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "en",
+      "expected": "en"
+    },
+    {
+      "id": "posix-08",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "pt_BR.utf8",
+      "expected": "pt-BR"
+    },
+    {
+      "id": "posix-09",
+      "rules": [
+        "LANG-004"
+      ],
+      "input": "uz_UZ.UTF-8@cyrillic",
+      "expected": "uz-Cyrl-UZ"
+    },
+    {
+      "id": "posix-10",
+      "rules": [
+        "LANG-004",
+        "LANG-001"
+      ],
+      "input": "iw_IL",
+      "expected": "he-IL"
+    }
+  ],
+  "sidecar_name": [
+    {
+      "id": "sidecar-01",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en-GB",
+      "roles": [],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.en-GB.srt"
+    },
+    {
+      "id": "sidecar-02",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "EN",
+      "roles": [
+        "forced",
+        "sdh"
+      ],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.en.sdh.forced.srt"
+    },
+    {
+      "id": "sidecar-03",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "English",
+      "roles": [],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.und.srt"
+    },
+    {
+      "id": "sidecar-04",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Mr. Robot",
+      "tag": "fr-CA",
+      "roles": [
+        "commentary"
+      ],
+      "extension": "srt",
+      "number": 2,
+      "expected": "Mr. Robot.fr-CA.commentary.2.srt"
+    },
+    {
+      "id": "sidecar-05",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "und",
+      "roles": [
+        "sdh"
+      ],
+      "extension": "vtt",
+      "number": null,
+      "expected": "Film.und.sdh.vtt"
+    },
+    {
+      "id": "sidecar-06",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "de",
+      "roles": [
+        "other"
+      ],
+      "extension": "srt",
+      "number": null,
+      "expected": "Film.de.srt"
+    },
+    {
+      "id": "sidecar-07",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Mr. Robot",
+      "filename": "Mr. Robot.en.sdh.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "sdh"
+        ],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-08",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.sdh.srt",
+      "expected": {
+        "tag": "sdh",
+        "unrecognised": null,
+        "roles": [],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-09",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.eng.forced.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "forced"
+        ],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-10",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.hi.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "sdh"
+        ],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-11",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.cc.2.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "sdh"
+        ],
+        "number": 2,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-12",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.srt",
+      "expected": {
+        "tag": null,
+        "unrecognised": null,
+        "roles": [],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-13",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Other.en.srt",
+      "expected": null
+    },
+    {
+      "id": "sidecar-14",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.english.srt",
+      "expected": {
+        "tag": "und",
+        "unrecognised": "english",
+        "roles": [],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-15",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.EN-gb.FORCED.srt",
+      "expected": {
+        "tag": "en-GB",
+        "unrecognised": null,
+        "roles": [
+          "forced"
+        ],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-16",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.sdh.cc.forced.vtt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "sdh",
+          "forced"
+        ],
+        "number": null,
+        "extension": "vtt"
+      }
+    },
+    {
+      "id": "sidecar-17",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.sdh.backup.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [
+          "sdh"
+        ],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-18",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.1.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [],
+        "number": 1,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-19",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.2.3.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [],
+        "number": 3,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-20",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.9999999999.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [],
+        "number": null,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-21",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en",
+      "roles": [],
+      "extension": "srt",
+      "number": 999999999,
+      "expected": "Film.en.999999999.srt"
+    },
+    {
+      "id": "sidecar-22",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "parse",
+      "stem": "Film",
+      "filename": "Film.en.999999999.srt",
+      "expected": {
+        "tag": "en",
+        "unrecognised": null,
+        "roles": [],
+        "number": 999999999,
+        "extension": "srt"
+      }
+    },
+    {
+      "id": "sidecar-23",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en",
+      "roles": [],
+      "extension": "srt",
+      "number": 1,
+      "expected": null,
+      "error": true,
+      "description": "A builder refuses 1: numbering starts at the second file"
+    },
+    {
+      "id": "sidecar-24",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en",
+      "roles": [],
+      "extension": "srt",
+      "number": 0,
+      "expected": null,
+      "error": true,
+      "description": "A builder refuses 0"
+    },
+    {
+      "id": "sidecar-25",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en",
+      "roles": [],
+      "extension": "srt",
+      "number": -1,
+      "expected": null,
+      "error": true,
+      "description": "A builder refuses a negative number"
+    },
+    {
+      "id": "sidecar-26",
+      "rules": [
+        "TEXT-030"
+      ],
+      "mode": "build",
+      "stem": "Film",
+      "tag": "en",
+      "roles": [],
+      "extension": "srt",
+      "number": 1000000000,
+      "expected": null,
+      "error": true,
+      "description": "A builder refuses more than nine digits, which a reader could not read back"
+    }
+  ],
+  "canonical_order": [
+    {
+      "id": "order-01",
+      "rules": [
+        "LANG-020"
+      ],
+      "description": "Basic primary languages",
+      "items": [
+        {
+          "tag": "nl"
+        },
+        {
+          "tag": "de"
+        },
+        {
+          "tag": "fr"
+        },
+        {
+          "tag": "en"
+        }
+      ],
+      "expected": [
+        "de",
+        "en",
+        "fr",
+        "nl"
+      ]
+    },
+    {
+      "id": "order-02",
+      "rules": [
+        "LANG-021"
+      ],
+      "description": "Generic and regional English",
+      "items": [
+        {
+          "tag": "en-US"
+        },
+        {
+          "tag": "en"
+        },
+        {
+          "tag": "en-GB"
+        },
+        {
+          "tag": "en-AU"
+        }
+      ],
+      "expected": [
+        "en",
+        "en-AU",
+        "en-GB",
+        "en-US"
+      ]
+    },
+    {
+      "id": "order-03",
+      "rules": [
+        "LANG-021",
+        "LANG-023"
+      ],
+      "description": "Spanish: countries before the Latin America area code",
+      "items": [
+        {
+          "tag": "es-419"
+        },
+        {
+          "tag": "es-ES"
+        },
+        {
+          "tag": "es"
+        },
+        {
+          "tag": "es-MX"
+        }
+      ],
+      "expected": [
+        "es",
+        "es-ES",
+        "es-MX",
+        "es-419"
+      ]
+    },
+    {
+      "id": "order-04",
+      "rules": [
+        "LANG-021",
+        "LANG-022"
+      ],
+      "description": "Scripts",
+      "items": [
+        {
+          "tag": "zh-Hant"
+        },
+        {
+          "tag": "zh"
+        },
+        {
+          "tag": "zh-Hans"
+        }
+      ],
+      "expected": [
+        "zh",
+        "zh-Hans",
+        "zh-Hant"
+      ]
+    },
+    {
+      "id": "order-05",
+      "rules": [
+        "LANG-021",
+        "LANG-022"
+      ],
+      "description": "Script + region after script-only and region-only",
+      "items": [
+        {
+          "tag": "zh-Hant-TW"
+        },
+        {
+          "tag": "zh-TW"
+        },
+        {
+          "tag": "zh-Hans-CN"
+        },
+        {
+          "tag": "zh"
+        },
+        {
+          "tag": "zh-Hant"
+        },
+        {
+          "tag": "zh-Hans"
+        },
+        {
+          "tag": "zh-CN"
+        },
+        {
+          "tag": "zh-Hant-HK"
+        }
+      ],
+      "expected": [
+        "zh",
+        "zh-Hans",
+        "zh-Hant",
+        "zh-CN",
+        "zh-TW",
+        "zh-Hans-CN",
+        "zh-Hant-HK",
+        "zh-Hant-TW"
+      ]
+    },
+    {
+      "id": "order-06",
+      "rules": [
+        "LANG-010"
+      ],
+      "description": "The original language's whole group comes first",
+      "items": [
+        {
+          "tag": "fr"
+        },
+        {
+          "tag": "de"
+        },
+        {
+          "tag": "ja",
+          "original": true
+        },
+        {
+          "tag": "en"
+        },
+        {
+          "tag": "ja-Latn"
+        }
+      ],
+      "expected": [
+        "ja",
+        "ja-Latn",
+        "de",
+        "en",
+        "fr"
+      ]
+    },
+    {
+      "id": "order-07",
+      "rules": [
+        "LANG-010",
+        "LANG-021"
+      ],
+      "description": "Within the original group, the item marked original leads",
+      "items": [
+        {
+          "tag": "en-US"
+        },
+        {
+          "tag": "en-GB",
+          "original": true
+        },
+        {
+          "tag": "en"
+        },
+        {
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "en-GB",
+        "en",
+        "en-US",
+        "de"
+      ]
+    },
+    {
+      "id": "order-08",
+      "rules": [
+        "LANG-010"
+      ],
+      "description": "Two original languages: both groups first, in canonical order",
+      "items": [
+        {
+          "tag": "fr-CA",
+          "original": true
+        },
+        {
+          "tag": "es"
+        },
+        {
+          "tag": "en",
+          "original": true
+        },
+        {
+          "tag": "fr"
+        },
+        {
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "en",
+        "fr-CA",
+        "fr",
+        "de",
+        "es"
+      ]
+    },
+    {
+      "id": "order-09",
+      "rules": [
+        "LANG-025"
+      ],
+      "description": "Special codes after ordinary languages, in a fixed order",
+      "items": [
+        {
+          "tag": "und"
+        },
+        {
+          "tag": "zxx"
+        },
+        {
+          "tag": "en"
+        },
+        {
+          "tag": "mul"
+        },
+        {
+          "tag": "qaa"
+        },
+        {
+          "tag": "mis"
+        },
+        {
+          "tag": "x-foo"
+        },
+        {
+          "tag": "fr"
+        },
+        {
+          "tag": "und-Latn"
+        },
+        {
+          "tag": "i-default"
+        }
+      ],
+      "expected": [
+        "en",
+        "fr",
+        "mul",
+        "mis",
+        "qaa",
+        "und",
+        "und-Latn",
+        "zxx",
+        "i-default",
+        "x-foo"
+      ]
+    },
+    {
+      "id": "order-10",
+      "rules": [
+        "LANG-026"
+      ],
+      "description": "Malformed values last, in the order found",
+      "items": [
+        {
+          "id": "a",
+          "tag": "English"
+        },
+        {
+          "id": "b",
+          "tag": "fr"
+        },
+        {
+          "id": "c",
+          "tag": "en_US"
+        },
+        {
+          "id": "d",
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "d",
+        "b",
+        "a",
+        "c"
+      ]
+    },
+    {
+      "id": "order-11",
+      "rules": [
+        "LANG-001",
+        "LANG-020"
+      ],
+      "description": "Ordering uses canonical forms",
+      "items": [
+        {
+          "id": "EN-gb",
+          "tag": "EN-gb"
+        },
+        {
+          "id": "iw",
+          "tag": "iw"
+        },
+        {
+          "id": "de-DD",
+          "tag": "de-DD"
+        }
+      ],
+      "expected": [
+        "de-DD",
+        "EN-gb",
+        "iw"
+      ]
+    },
+    {
+      "id": "order-12",
+      "rules": [
+        "LANG-027"
+      ],
+      "description": "Equal tags keep their order",
+      "items": [
+        {
+          "id": "a1",
+          "tag": "en"
+        },
+        {
+          "id": "d",
+          "tag": "de"
+        },
+        {
+          "id": "a2",
+          "tag": "EN"
+        }
+      ],
+      "expected": [
+        "d",
+        "a1",
+        "a2"
+      ]
+    },
+    {
+      "id": "order-13",
+      "rules": [
+        "LANG-021"
+      ],
+      "description": "Variants and extensions after the plain forms",
+      "items": [
+        {
+          "tag": "de-CH-1996"
+        },
+        {
+          "tag": "de-1996"
+        },
+        {
+          "tag": "de-CH"
+        },
+        {
+          "tag": "de"
+        },
+        {
+          "tag": "de-Latn"
+        },
+        {
+          "tag": "de-u-co-phonebk"
+        }
+      ],
+      "expected": [
+        "de",
+        "de-Latn",
+        "de-CH",
+        "de-1996",
+        "de-u-co-phonebk",
+        "de-CH-1996"
+      ]
+    },
+    {
+      "id": "order-14",
+      "rules": [
+        "LANG-021",
+        "LANG-022"
+      ],
+      "description": "Serbian scripts and regions",
+      "items": [
+        {
+          "tag": "sr-Latn-RS"
+        },
+        {
+          "tag": "sr-Cyrl"
+        },
+        {
+          "tag": "sr-Latn"
+        },
+        {
+          "tag": "sr"
+        },
+        {
+          "tag": "sr-Cyrl-RS"
+        },
+        {
+          "tag": "sr-Latn-ME"
+        }
+      ],
+      "expected": [
+        "sr",
+        "sr-Cyrl",
+        "sr-Latn",
+        "sr-Cyrl-RS",
+        "sr-Latn-ME",
+        "sr-Latn-RS"
+      ]
+    },
+    {
+      "id": "order-15",
+      "rules": [
+        "LANG-020"
+      ],
+      "description": "Two- and three-letter codes compared as plain ASCII",
+      "items": [
+        {
+          "tag": "fil"
+        },
+        {
+          "tag": "fi"
+        },
+        {
+          "tag": "fr"
+        },
+        {
+          "tag": "ast"
+        },
+        {
+          "tag": "as"
+        }
+      ],
+      "expected": [
+        "as",
+        "ast",
+        "fi",
+        "fil",
+        "fr"
+      ]
+    },
+    {
+      "id": "order-16",
+      "rules": [
+        "LANG-020"
+      ],
+      "description": "Not by English name (which would give zh, de, el, ja)",
+      "items": [
+        {
+          "tag": "ja"
+        },
+        {
+          "tag": "de"
+        },
+        {
+          "tag": "zh"
+        },
+        {
+          "tag": "el"
+        }
+      ],
+      "expected": [
+        "de",
+        "el",
+        "ja",
+        "zh"
+      ]
+    },
+    {
+      "id": "order-17",
+      "rules": [
+        "LANG-024"
+      ],
+      "description": "zh-TW is region-only; it is not treated as zh-Hant-TW",
+      "items": [
+        {
+          "tag": "zh-Hant-TW"
+        },
+        {
+          "tag": "zh-TW"
+        }
+      ],
+      "expected": [
+        "zh-TW",
+        "zh-Hant-TW"
+      ]
+    },
+    {
+      "id": "order-18",
+      "rules": [
+        "LANG-010",
+        "LANG-025"
+      ],
+      "description": "A track marked original is promoted even when its language is not known",
+      "items": [
+        {
+          "tag": "en"
+        },
+        {
+          "tag": "und",
+          "original": true
+        }
+      ],
+      "expected": [
+        "und",
+        "en"
+      ]
+    },
+    {
+      "id": "order-19",
+      "rules": [
+        "LANG-025",
+        "LANG-021"
+      ],
+      "description": "Each local-use code is its own group",
+      "items": [
+        {
+          "tag": "qab"
+        },
+        {
+          "tag": "qaa-GB"
+        },
+        {
+          "tag": "qaa"
+        }
+      ],
+      "expected": [
+        "qaa",
+        "qaa-GB",
+        "qab"
+      ]
+    },
+    {
+      "id": "order-20",
+      "rules": [
+        "LANG-021"
+      ],
+      "description": "An unregistered extlang counts as an additional subtag",
+      "items": [
+        {
+          "tag": "zh-abc"
+        },
+        {
+          "tag": "zh-Hant"
+        },
+        {
+          "tag": "zh"
+        }
+      ],
+      "expected": [
+        "zh",
+        "zh-Hant",
+        "zh-abc"
+      ]
+    }
+  ],
+  "track_order": [
+    {
+      "id": "tracks-01",
+      "rules": [
+        "TRACK-050",
+        "TRACK-060"
+      ],
+      "description": "Types kept apart; roles ordered within a language",
+      "tracks": [
+        {
+          "id": "a1",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "s1",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "v1",
+          "type": "video",
+          "tag": "und",
+          "roles": []
+        },
+        {
+          "id": "a4",
+          "type": "audio",
+          "tag": "de",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "sdh"
+          ]
+        },
+        {
+          "id": "a2",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s3",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a3",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "subtitle",
+          "tag": "de",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "v1",
+        "a4",
+        "a2",
+        "a3",
+        "a1",
+        "s4",
+        "s3",
+        "s2",
+        "s1"
+      ]
+    },
+    {
+      "id": "tracks-02",
+      "rules": [
+        "LANG-010",
+        "TRACK-020",
+        "TRACK-050"
+      ],
+      "description": "Original flags promote per track type",
+      "tracks": [
+        {
+          "id": "a1",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a2",
+          "type": "audio",
+          "tag": "ja",
+          "roles": [],
+          "original": true
+        },
+        {
+          "id": "a3",
+          "type": "audio",
+          "tag": "ja",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "a4",
+          "type": "audio",
+          "tag": "fr",
+          "roles": []
+        },
+        {
+          "id": "s1",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "type": "subtitle",
+          "tag": "ja",
+          "roles": [],
+          "original": true
+        },
+        {
+          "id": "s3",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": [
+        "a2",
+        "a3",
+        "a1",
+        "a4",
+        "s2",
+        "s1",
+        "s3"
+      ]
+    },
+    {
+      "id": "tracks-03",
+      "rules": [
+        "TRACK-050"
+      ],
+      "description": "A track with several roles is placed by the latest of them",
+      "tracks": [
+        {
+          "id": "s1",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "s2",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "forced",
+            "sdh"
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": [
+            "sdh"
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a1",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "other"
+          ]
+        },
+        {
+          "id": "a2",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "a3",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a4",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "alternate"
+          ]
+        }
+      ],
+      "expected": [
+        "a3",
+        "a4",
+        "a2",
+        "a1",
+        "s4",
+        "s3",
+        "s2",
+        "s1"
+      ]
+    },
+    {
+      "id": "tracks-04",
+      "rules": [
+        "TRACK-050",
+        "LANG-021"
+      ],
+      "description": "Role comes before variant within a language",
+      "tracks": [
+        {
+          "id": "a1",
+          "type": "audio",
+          "tag": "en-GB",
+          "roles": []
+        },
+        {
+          "id": "a2",
+          "type": "audio",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "a3",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a4",
+          "type": "audio",
+          "tag": "en-US",
+          "roles": [
+            "audio_description"
+          ]
+        }
+      ],
+      "expected": [
+        "a3",
+        "a1",
+        "a4",
+        "a2"
+      ]
+    },
+    {
+      "id": "tracks-05",
+      "rules": [
+        "LANG-027"
+      ],
+      "description": "Identical tracks keep their order",
+      "tracks": [
+        {
+          "id": "x",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "y",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "x",
+        "y"
+      ]
+    },
+    {
+      "id": "tracks-06",
+      "rules": [
+        "LANG-010",
+        "TRACK-060"
+      ],
+      "description": "An original audio track does not promote unmarked subtitles of the same language",
+      "tracks": [
+        {
+          "id": "a1",
+          "type": "audio",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "a2",
+          "type": "audio",
+          "tag": "ja",
+          "roles": [],
+          "original": true
+        },
+        {
+          "id": "s1",
+          "type": "subtitle",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "type": "subtitle",
+          "tag": "ja",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "a2",
+        "a1",
+        "s1",
+        "s2"
+      ]
+    }
+  ],
+  "presentation_order": [
+    {
+      "id": "present-01",
+      "rules": [
+        "UI-030",
+        "UI-040"
+      ],
+      "description": "The policy's own example: English interface, Japanese original, no preferences",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French",
+        "ja": "Japanese",
+        "nl": "Dutch"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "es": "spanish",
+        "fr": "french",
+        "ja": "japanese",
+        "nl": "dutch"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "ja",
+          "tag": "ja",
+          "original": true
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        },
+        {
+          "id": "es",
+          "tag": "es"
+        },
+        {
+          "id": "nl",
+          "tag": "nl"
+        }
+      ],
+      "expected": [
+        "ja",
+        "nl",
+        "en",
+        "fr",
+        "de",
+        "es"
+      ]
+    },
+    {
+      "id": "present-02",
+      "rules": [
+        "UI-020",
+        "UI-030"
+      ],
+      "description": "Preferences first, in the user's order, then the original",
+      "preferences": [
+        "fr",
+        "en"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "ja",
+          "tag": "ja",
+          "original": true
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "fr",
+        "en",
+        "ja",
+        "de"
+      ]
+    },
+    {
+      "id": "present-03",
+      "rules": [
+        "UI-020",
+        "UI-030"
+      ],
+      "description": "A preference that is also the original is not listed twice",
+      "preferences": [
+        "ja"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "ja",
+          "tag": "ja",
+          "original": true
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "ja",
+        "en",
+        "de"
+      ]
+    },
+    {
+      "id": "present-04",
+      "rules": [
+        "UI-010",
+        "UI-040"
+      ],
+      "description": "French interface: éwé sorts with the e's, not after z",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "allemand",
+        "en": "anglais",
+        "es": "espagnol",
+        "ee": "éwé",
+        "fr": "français"
+      },
+      "collation_keys": {
+        "de": "allemand",
+        "en": "anglais",
+        "es": "espagnol",
+        "ee": "ewe",
+        "fr": "francais"
+      },
+      "items": [
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "ee",
+          "tag": "ee"
+        },
+        {
+          "id": "es",
+          "tag": "es"
+        },
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "de",
+        "en",
+        "es",
+        "ee",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-05",
+      "rules": [
+        "UI-010",
+        "UI-040"
+      ],
+      "description": "German interface: order follows German names, not codes",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "Deutsch",
+        "es": "Spanisch",
+        "ja": "Japanisch",
+        "nl": "Niederländisch"
+      },
+      "collation_keys": {
+        "de": "deutsch",
+        "es": "spanisch",
+        "ja": "japanisch",
+        "nl": "niederlandisch"
+      },
+      "items": [
+        {
+          "id": "ja",
+          "tag": "ja"
+        },
+        {
+          "id": "es",
+          "tag": "es"
+        },
+        {
+          "id": "nl",
+          "tag": "nl"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        }
+      ],
+      "expected": [
+        "de",
+        "ja",
+        "nl",
+        "es"
+      ]
+    },
+    {
+      "id": "present-06",
+      "rules": [
+        "UI-020",
+        "UI-045"
+      ],
+      "description": "An exact regional preference leads its group",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "en-AU",
+          "tag": "en-AU"
+        },
+        {
+          "id": "en-GB",
+          "tag": "en-GB"
+        },
+        {
+          "id": "en-US",
+          "tag": "en-US"
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        }
+      ],
+      "expected": [
+        "en-GB",
+        "en",
+        "en-AU",
+        "en-US",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-07",
+      "rules": [
+        "UI-045",
+        "MATCH-010"
+      ],
+      "description": "Only exact preferences are promoted; en-GB is not promoted by en-US",
+      "preferences": [
+        "en-US"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "en": "English"
+      },
+      "collation_keys": {
+        "en": "english"
+      },
+      "items": [
+        {
+          "id": "en-GB",
+          "tag": "en-GB"
+        },
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "en-US",
+          "tag": "en-US"
+        }
+      ],
+      "expected": [
+        "en-US",
+        "en",
+        "en-GB"
+      ]
+    },
+    {
+      "id": "present-08",
+      "rules": [
+        "UI-050"
+      ],
+      "description": "A selection does not reorder the menu (same as present-06)",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "selected": "en-US",
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "en-AU",
+          "tag": "en-AU"
+        },
+        {
+          "id": "en-GB",
+          "tag": "en-GB"
+        },
+        {
+          "id": "en-US",
+          "tag": "en-US"
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        }
+      ],
+      "expected": [
+        "en-GB",
+        "en",
+        "en-AU",
+        "en-US",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-09",
+      "rules": [
+        "UI-045",
+        "TRACK-050"
+      ],
+      "description": "Roles within a group: main, then description, then commentary",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english"
+      },
+      "items": [
+        {
+          "id": "a1",
+          "tag": "en",
+          "type": "audio",
+          "roles": []
+        },
+        {
+          "id": "a2",
+          "tag": "en",
+          "type": "audio",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "a3",
+          "tag": "en",
+          "type": "audio",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "a4",
+          "tag": "en-GB",
+          "type": "audio",
+          "roles": []
+        },
+        {
+          "id": "a5",
+          "tag": "de",
+          "type": "audio",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "a1",
+        "a4",
+        "a2",
+        "a3",
+        "a5"
+      ]
+    },
+    {
+      "id": "present-10",
+      "rules": [
+        "UI-045",
+        "AUTO-040"
+      ],
+      "description": "Asking for audio description moves it ahead within its group",
+      "preferences": [],
+      "accessibility": {
+        "audio_description": true
+      },
+      "display_names": {
+        "de": "German",
+        "en": "English"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english"
+      },
+      "items": [
+        {
+          "id": "a1",
+          "tag": "en",
+          "type": "audio",
+          "roles": []
+        },
+        {
+          "id": "a2",
+          "tag": "en",
+          "type": "audio",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "a3",
+          "tag": "en",
+          "type": "audio",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "a4",
+          "tag": "en-GB",
+          "type": "audio",
+          "roles": []
+        },
+        {
+          "id": "a5",
+          "tag": "de",
+          "type": "audio",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "a2",
+        "a1",
+        "a4",
+        "a3",
+        "a5"
+      ]
+    },
+    {
+      "id": "present-11",
+      "rules": [
+        "UI-040",
+        "LANG-025"
+      ],
+      "description": "Special codes after all named languages, in their fixed order",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "und",
+          "tag": "und"
+        },
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "zxx",
+          "tag": "zxx"
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "mul",
+          "tag": "mul"
+        }
+      ],
+      "expected": [
+        "en",
+        "fr",
+        "mul",
+        "und",
+        "zxx"
+      ]
+    },
+    {
+      "id": "present-12",
+      "rules": [
+        "UI-040",
+        "LANG-026"
+      ],
+      "description": "Malformed values last",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "m",
+          "tag": "English"
+        },
+        {
+          "id": "f",
+          "tag": "fr"
+        },
+        {
+          "id": "e",
+          "tag": "en"
+        }
+      ],
+      "expected": [
+        "e",
+        "f",
+        "m"
+      ]
+    },
+    {
+      "id": "present-13",
+      "rules": [
+        "UI-030",
+        "UI-040"
+      ],
+      "description": "Two originals with no preferences",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "es": "Spanish",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "es": "spanish",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "de",
+          "tag": "de"
+        },
+        {
+          "id": "en",
+          "tag": "en",
+          "original": true
+        },
+        {
+          "id": "fr",
+          "tag": "fr",
+          "original": true
+        },
+        {
+          "id": "es",
+          "tag": "es"
+        }
+      ],
+      "expected": [
+        "en",
+        "fr",
+        "de",
+        "es"
+      ]
+    },
+    {
+      "id": "present-14",
+      "rules": [
+        "UI-020"
+      ],
+      "description": "A preferred language that is not present is skipped",
+      "preferences": [
+        "it",
+        "de"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "de",
+          "tag": "de"
+        },
+        {
+          "id": "en",
+          "tag": "en"
+        }
+      ],
+      "expected": [
+        "de",
+        "en",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-15",
+      "rules": [
+        "UI-045",
+        "AUTO-040",
+        "TRACK-030"
+      ],
+      "description": "Asking for captions moves SDH ahead; forced stays after full",
+      "preferences": [],
+      "accessibility": {
+        "captions": true
+      },
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": [
+            "sdh"
+          ]
+        },
+        {
+          "id": "s3",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s4",
+          "tag": "fr",
+          "type": "subtitle",
+          "roles": []
+        }
+      ],
+      "expected": [
+        "s2",
+        "s1",
+        "s3",
+        "s4"
+      ]
+    },
+    {
+      "id": "present-16",
+      "rules": [
+        "UI-020",
+        "UI-045"
+      ],
+      "description": "A regional preference brings the whole group forward",
+      "preferences": [
+        "pt-BR"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "en": "English",
+        "pt": "Portuguese"
+      },
+      "collation_keys": {
+        "en": "english",
+        "pt": "portuguese"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "pt-PT",
+          "tag": "pt-PT"
+        },
+        {
+          "id": "pt",
+          "tag": "pt"
+        }
+      ],
+      "expected": [
+        "pt",
+        "pt-PT",
+        "en"
+      ]
+    },
+    {
+      "id": "present-17",
+      "rules": [
+        "UI-030",
+        "UI-040"
+      ],
+      "description": "Several originals are ordered by localised name, not code",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "de",
+          "tag": "de",
+          "original": true
+        },
+        {
+          "id": "en",
+          "tag": "en",
+          "original": true
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        }
+      ],
+      "expected": [
+        "en",
+        "de",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-18",
+      "rules": [
+        "UI-045",
+        "AUTO-040",
+        "TRACK-050"
+      ],
+      "description": "Asking for captions moves only tracks placed as SDH; a forced SDH track stays with forced",
+      "preferences": [],
+      "accessibility": {
+        "captions": true
+      },
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": [
+            "forced",
+            "sdh"
+          ]
+        },
+        {
+          "id": "s3",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": [
+            "sdh"
+          ]
+        }
+      ],
+      "expected": [
+        "s3",
+        "s1",
+        "s2"
+      ]
+    },
+    {
+      "id": "present-19",
+      "rules": [
+        "UI-020"
+      ],
+      "description": "A preference may name a special code",
+      "preferences": [
+        "zxx"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "zxx",
+          "tag": "zxx"
+        },
+        {
+          "id": "fr",
+          "tag": "fr"
+        }
+      ],
+      "expected": [
+        "zxx",
+        "en",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-20",
+      "rules": [
+        "UI-030",
+        "LANG-010"
+      ],
+      "description": "An original of unknown language still comes first",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "de": "German",
+        "en": "English",
+        "fr": "French",
+        "ja": "Japanese"
+      },
+      "collation_keys": {
+        "de": "german",
+        "en": "english",
+        "fr": "french",
+        "ja": "japanese"
+      },
+      "items": [
+        {
+          "id": "fr",
+          "tag": "fr"
+        },
+        {
+          "id": "und",
+          "tag": "und",
+          "original": true
+        },
+        {
+          "id": "en",
+          "tag": "en"
+        }
+      ],
+      "expected": [
+        "und",
+        "en",
+        "fr"
+      ]
+    },
+    {
+      "id": "present-21",
+      "rules": [
+        "UI-020",
+        "LANG-025"
+      ],
+      "description": "A private-use preference promotes only its own tag",
+      "preferences": [
+        "x-foo"
+      ],
+      "accessibility": {},
+      "display_names": {
+        "en": "English"
+      },
+      "collation_keys": {
+        "en": "english"
+      },
+      "items": [
+        {
+          "id": "en",
+          "tag": "en"
+        },
+        {
+          "id": "x-bar",
+          "tag": "x-bar"
+        },
+        {
+          "id": "x-foo",
+          "tag": "x-foo"
+        }
+      ],
+      "expected": [
+        "x-foo",
+        "en",
+        "x-bar"
+      ]
+    },
+    {
+      "id": "present-22",
+      "rules": [
+        "LANG-026",
+        "UI-040"
+      ],
+      "description": "Malformed entries keep the order they were found in; roles and original flags do not reorder them",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {},
+      "collation_keys": {},
+      "items": [
+        {
+          "id": "a",
+          "tag": "bad_value",
+          "type": "audio",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "b",
+          "tag": "bad_value",
+          "type": "audio",
+          "roles": [],
+          "original": true
+        }
+      ],
+      "expected": [
+        "a",
+        "b"
+      ]
+    }
+  ],
+  "subtitle_menu": [
+    {
+      "id": "submenu-01",
+      "rules": [
+        "UI-060",
+        "TRACK-050"
+      ],
+      "description": "Off comes first and is not a language",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {
+        "en": "English",
+        "fr": "French"
+      },
+      "collation_keys": {
+        "en": "english",
+        "fr": "french"
+      },
+      "items": [
+        {
+          "id": "s1",
+          "tag": "fr",
+          "type": "subtitle",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": []
+        },
+        {
+          "id": "s3",
+          "tag": "en",
+          "type": "subtitle",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": [
+        "off",
+        "s2",
+        "s3",
+        "s1"
+      ]
+    },
+    {
+      "id": "submenu-02",
+      "rules": [
+        "UI-060"
+      ],
+      "description": "Off is offered even with no subtitle tracks",
+      "preferences": [],
+      "accessibility": {},
+      "display_names": {},
+      "collation_keys": {},
+      "items": [],
+      "expected": [
+        "off"
+      ]
+    }
+  ],
+  "label": [
+    {
+      "id": "label-01",
+      "rules": [
+        "UI-070"
+      ],
+      "type": "audio",
+      "language_name": "English (United Kingdom)",
+      "roles": [
+        "audio_description"
+      ],
+      "role_names": {
+        "audio_description": "Audio Description"
+      },
+      "channels": "5.1",
+      "expected": "English (United Kingdom) — Audio Description — 5.1"
+    },
+    {
+      "id": "label-02",
+      "rules": [
+        "UI-070"
+      ],
+      "type": "audio",
+      "language_name": "Japanese",
+      "roles": [],
+      "role_names": {},
+      "channels": null,
+      "expected": "Japanese"
+    },
+    {
+      "id": "label-03",
+      "rules": [
+        "UI-070",
+        "TRACK-050"
+      ],
+      "type": "subtitle",
+      "language_name": "English",
+      "roles": [
+        "forced",
+        "sdh"
+      ],
+      "role_names": {
+        "forced": "Forced",
+        "sdh": "SDH"
+      },
+      "channels": null,
+      "expected": "English — SDH — Forced"
+    },
+    {
+      "id": "label-04",
+      "rules": [
+        "UI-070",
+        "TRACK-050"
+      ],
+      "type": "audio",
+      "language_name": "French",
+      "roles": [
+        "commentary",
+        "audio_description"
+      ],
+      "role_names": {
+        "audio_description": "Audio Description",
+        "commentary": "Commentary"
+      },
+      "channels": "2.0",
+      "expected": "French — Audio Description — Commentary — 2.0"
+    }
+  ],
+  "match": [
+    {
+      "id": "match-01",
+      "rules": [
+        "MATCH-010"
+      ],
+      "preference": "en-GB",
+      "candidate": "en-GB",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-02",
+      "rules": [
+        "MATCH-010",
+        "LANG-001"
+      ],
+      "preference": "en-GB",
+      "candidate": "EN-gb",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-03",
+      "rules": [
+        "MATCH-020"
+      ],
+      "preference": "en-GB",
+      "candidate": "en",
+      "expected": {
+        "level": "general",
+        "distance": 1
+      }
+    },
+    {
+      "id": "match-04",
+      "rules": [
+        "MATCH-020"
+      ],
+      "preference": "zh-Hant-TW",
+      "candidate": "zh-Hant",
+      "expected": {
+        "level": "general",
+        "distance": 1
+      }
+    },
+    {
+      "id": "match-05",
+      "rules": [
+        "MATCH-020"
+      ],
+      "preference": "zh-Hant-TW",
+      "candidate": "zh",
+      "expected": {
+        "level": "general",
+        "distance": 2
+      }
+    },
+    {
+      "id": "match-06",
+      "rules": [
+        "MATCH-030"
+      ],
+      "preference": "en",
+      "candidate": "en-GB",
+      "expected": {
+        "level": "specific",
+        "distance": 1
+      }
+    },
+    {
+      "id": "match-07",
+      "rules": [
+        "MATCH-030"
+      ],
+      "preference": "en",
+      "candidate": "en-Latn-GB",
+      "expected": {
+        "level": "specific",
+        "distance": 2
+      }
+    },
+    {
+      "id": "match-08",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "en-GB",
+      "candidate": "en-US",
+      "expected": {
+        "level": "related",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-09",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "zh-Hant",
+      "candidate": "zh-Hans",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-10",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "sr-Latn",
+      "candidate": "sr-Cyrl-RS",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-11",
+      "rules": [
+        "MATCH-040",
+        "LANG-024"
+      ],
+      "preference": "zh-Hant",
+      "candidate": "zh-TW",
+      "expected": {
+        "level": "related",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-12",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "en",
+      "candidate": "fr",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-13",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "und",
+      "candidate": "und",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-14",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "und",
+      "candidate": "en",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-15",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "en",
+      "candidate": "und",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-16",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "mul",
+      "candidate": "mul",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-17",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "x-foo",
+      "candidate": "x-foo",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-18",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "x-foo",
+      "candidate": "x-bar",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-19",
+      "rules": [
+        "MATCH-010",
+        "LANG-001"
+      ],
+      "preference": "iw",
+      "candidate": "he",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-20",
+      "rules": [
+        "MATCH-040",
+        "LANG-024"
+      ],
+      "preference": "zh-TW",
+      "candidate": "zh-Hant-TW",
+      "expected": {
+        "level": "related",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-21",
+      "rules": [
+        "MATCH-040",
+        "LANG-026"
+      ],
+      "preference": "en-GB",
+      "candidate": "English",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-22",
+      "rules": [
+        "MATCH-020"
+      ],
+      "preference": "de-CH-1996",
+      "candidate": "de-CH",
+      "expected": {
+        "level": "general",
+        "distance": 1
+      }
+    },
+    {
+      "id": "match-23",
+      "rules": [
+        "MATCH-030"
+      ],
+      "preference": "de",
+      "candidate": "de-CH-1996",
+      "expected": {
+        "level": "specific",
+        "distance": 2
+      }
+    },
+    {
+      "id": "match-24",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "zxx",
+      "candidate": "zxx-Latn",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-25",
+      "rules": [
+        "MATCH-030"
+      ],
+      "preference": "en",
+      "candidate": "en-x-foo",
+      "expected": {
+        "level": "specific",
+        "distance": 2
+      }
+    },
+    {
+      "id": "match-26",
+      "rules": [
+        "MATCH-020"
+      ],
+      "preference": "en-u-ca-gregory",
+      "candidate": "en",
+      "expected": {
+        "level": "general",
+        "distance": 3
+      }
+    },
+    {
+      "id": "match-27",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "mis",
+      "candidate": "mis-Latn",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-28",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "i-default",
+      "candidate": "i-mingo",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-29",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "zh",
+      "candidate": "zh-min",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-30",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "zh-Hans",
+      "candidate": "cmn-Hans",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-31",
+      "rules": [
+        "MATCH-010"
+      ],
+      "preference": "i-default",
+      "candidate": "I-DEFAULT",
+      "expected": {
+        "level": "exact",
+        "distance": 0
+      }
+    },
+    {
+      "id": "match-32",
+      "rules": [
+        "MATCH-040"
+      ],
+      "preference": "und-Latn",
+      "candidate": "und-Latn-GB",
+      "expected": {
+        "level": "none",
+        "distance": 0
+      }
+    }
+  ],
+  "auto_select_audio": [
+    {
+      "id": "audio-01",
+      "rules": [
+        "AUTO-020",
+        "MATCH-010"
+      ],
+      "description": "Exact preference wins",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "t2",
+          "tag": "en-GB",
+          "roles": []
+        },
+        {
+          "id": "t3",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-02",
+      "rules": [
+        "AUTO-020",
+        "MATCH-020",
+        "MATCH-040"
+      ],
+      "description": "The general form beats a related one",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en-US",
+          "roles": []
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "t3",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-03",
+      "rules": [
+        "AUTO-020",
+        "UI-020"
+      ],
+      "description": "Preference order comes before match strength",
+      "preferences": [
+        "fr",
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "t2",
+          "tag": "fr-CA",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-04",
+      "rules": [
+        "AUTO-020",
+        "LANG-010"
+      ],
+      "description": "No preference matches: the original",
+      "preferences": [
+        "de"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "t2",
+          "tag": "ja",
+          "roles": [],
+          "original": true
+        },
+        {
+          "id": "t3",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-05",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "No preference, no original: the default",
+      "preferences": [],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "t2",
+          "tag": "fr",
+          "roles": [],
+          "default": true
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-06",
+      "rules": [
+        "AUTO-020",
+        "AUTO-010"
+      ],
+      "description": "Nothing else to go on: first in canonical order, not first in the list",
+      "preferences": [],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "fr",
+          "roles": []
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-07",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "Commentary is never chosen automatically while another track exists",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-08",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "…unless every track is special",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "fr",
+          "roles": [
+            "commentary"
+          ]
+        }
+      ],
+      "expected": "t1"
+    },
+    {
+      "id": "audio-09",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "Main programme before audio description when not asked for",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en-GB",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-10",
+      "rules": [
+        "AUTO-020",
+        "AUTO-040"
+      ],
+      "description": "Audio description first when the user asked for it",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {
+        "audio_description": true
+      },
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en-GB",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t1"
+    },
+    {
+      "id": "audio-11",
+      "rules": [
+        "AUTO-020",
+        "AUTO-040"
+      ],
+      "description": "Role outranks match strength for a user who needs description",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {
+        "audio_description": true
+      },
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en-GB",
+          "roles": []
+        },
+        {
+          "id": "t2",
+          "tag": "en-US",
+          "roles": [
+            "audio_description"
+          ]
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-12",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Two equal tracks: the identifier decides, not the list position",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t1"
+    },
+    {
+      "id": "audio-13",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "Nothing else to go on: a main track rather than description nobody asked for",
+      "preferences": [],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "de",
+          "roles": [
+            "audio_description"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-14",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "An alternate mix ranks after the main programme",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [
+            "alternate"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-15",
+      "rules": [
+        "AUTO-020"
+      ],
+      "description": "A track placed as \"other\" is never chosen while another exists",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": [
+            "other"
+          ]
+        },
+        {
+          "id": "t2",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "t2"
+    },
+    {
+      "id": "audio-16",
+      "rules": [
+        "AUTO-010",
+        "LANG-026"
+      ],
+      "description": "Malformed languages: the identifier decides, not the list position",
+      "preferences": [],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t2",
+          "tag": "English",
+          "roles": []
+        },
+        {
+          "id": "t1",
+          "tag": "Deutsch",
+          "roles": []
+        }
+      ],
+      "expected": "t1"
+    },
+    {
+      "id": "audio-17",
+      "rules": [
+        "AUTO-020",
+        "TRACK-050"
+      ],
+      "description": "Role rank uses the placing role: alternate + audio description is placed as audio description",
+      "preferences": [
+        "en-GB"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "a",
+          "tag": "en-GB",
+          "roles": [
+            "alternate",
+            "audio_description"
+          ]
+        },
+        {
+          "id": "b",
+          "tag": "en",
+          "roles": [
+            "alternate"
+          ]
+        }
+      ],
+      "expected": "b"
+    },
+    {
+      "id": "audio-18",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Digits-only identifiers compare as numbers: 9 before 10",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "10",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "9",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "9"
+    },
+    {
+      "id": "audio-19",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Equal as numbers, then plain text: 01 before 1",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "01",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "01"
+    },
+    {
+      "id": "audio-20",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Two tracks with the same identifier: refuse rather than guess",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "tracks": [
+        {
+          "id": "t1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "t1",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": null,
+      "error": true
+    }
+  ],
+  "auto_select_subtitle": [
+    {
+      "id": "subs-01",
+      "rules": [
+        "AUTO-030",
+        "TRACK-030"
+      ],
+      "description": "Automatic, audio understood: the forced track in the audio's language",
+      "mode": "automatic",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s3",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-02",
+      "rules": [
+        "AUTO-030",
+        "TRACK-030"
+      ],
+      "description": "Automatic, audio understood, no forced track: nothing",
+      "mode": "automatic",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s3",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-03",
+      "rules": [
+        "AUTO-030",
+        "TRACK-030"
+      ],
+      "description": "Automatic, audio not understood: full subtitles, never a forced track",
+      "mode": "automatic",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "ja",
+      "tracks": [
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s3",
+          "tag": "ja",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "s1"
+    },
+    {
+      "id": "subs-04",
+      "rules": [
+        "AUTO-030",
+        "AUTO-040"
+      ],
+      "description": "Captions asked for: SDH first",
+      "mode": "automatic",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {
+        "captions": true
+      },
+      "audio": "ja",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": [
+            "sdh"
+          ]
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-05",
+      "rules": [
+        "AUTO-030",
+        "TRACK-030"
+      ],
+      "description": "Always: a forced track is not full subtitles",
+      "mode": "always",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-06",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "Off means off",
+      "mode": "off",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-07",
+      "rules": [
+        "AUTO-030",
+        "MATCH-040"
+      ],
+      "description": "Forced only: a related variant of the audio's language counts",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "en-GB",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en-US",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s2",
+          "tag": "fr",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "s1"
+    },
+    {
+      "id": "subs-08",
+      "rules": [
+        "AUTO-030",
+        "LANG-003"
+      ],
+      "description": "Forced only: unknown audio language, nothing to match",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "und",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-09",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "Automatic with no preferences acts as forced only",
+      "mode": "automatic",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "fr",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "fr",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "s1"
+    },
+    {
+      "id": "subs-10",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "Always: no preference matches, so the default full track",
+      "mode": "always",
+      "preferences": [
+        "de"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        },
+        {
+          "id": "s2",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": "s1"
+    },
+    {
+      "id": "subs-11",
+      "rules": [
+        "AUTO-030",
+        "MATCH-040"
+      ],
+      "description": "A different script is never a match",
+      "mode": "always",
+      "preferences": [
+        "zh-Hant"
+      ],
+      "accessibility": {},
+      "audio": "ja",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "zh-Hans",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "zh-Hant-TW",
+          "roles": []
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-12",
+      "rules": [
+        "AUTO-030",
+        "MATCH-010"
+      ],
+      "description": "Exact regional match first",
+      "mode": "always",
+      "preferences": [
+        "pt-BR"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "pt",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "pt-BR",
+          "roles": []
+        },
+        {
+          "id": "s3",
+          "tag": "pt-PT",
+          "roles": []
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-13",
+      "rules": [
+        "AUTO-030",
+        "MATCH-020"
+      ],
+      "description": "The general form beats another region",
+      "mode": "always",
+      "preferences": [
+        "pt-BR"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "pt-PT",
+          "roles": []
+        },
+        {
+          "id": "s2",
+          "tag": "pt",
+          "roles": []
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-14",
+      "rules": [
+        "AUTO-030",
+        "MATCH-020"
+      ],
+      "description": "Forced only: fewer removed subtags wins",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "zh-Hant-TW",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "zh",
+          "roles": [
+            "forced"
+          ]
+        },
+        {
+          "id": "s2",
+          "tag": "zh-Hant",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-15",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "No audio chosen: automatic acts as always when there are preferences",
+      "mode": "automatic",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": null,
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "s1"
+    },
+    {
+      "id": "subs-16",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "Always, no preference matches: the default among full subtitles, never a commentary track",
+      "mode": "always",
+      "preferences": [
+        "de"
+      ],
+      "accessibility": {},
+      "audio": "en",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "commentary"
+          ],
+          "default": true
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": [],
+          "default": true
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-17",
+      "rules": [
+        "AUTO-030"
+      ],
+      "description": "Forced only with no audio chosen: nothing",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": null,
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-18",
+      "rules": [
+        "AUTO-030",
+        "MATCH-040"
+      ],
+      "description": "Forced only: audio of unknown language with a script still matches nothing",
+      "mode": "forced_only",
+      "preferences": [],
+      "accessibility": {},
+      "audio": "und-Latn",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "und-Latn",
+          "roles": [
+            "forced"
+          ]
+        }
+      ],
+      "expected": null
+    },
+    {
+      "id": "subs-19",
+      "rules": [
+        "AUTO-030",
+        "TRACK-050"
+      ],
+      "description": "Captions asked for: a forced SDH track is placed as forced and is never full subtitles",
+      "mode": "always",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {
+        "captions": true
+      },
+      "audio": "ja",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": [
+            "forced",
+            "sdh"
+          ]
+        },
+        {
+          "id": "s2",
+          "tag": "en",
+          "roles": []
+        }
+      ],
+      "expected": "s2"
+    },
+    {
+      "id": "subs-20",
+      "rules": [
+        "AUTO-010"
+      ],
+      "description": "Two tracks with the same identifier: refuse rather than guess",
+      "mode": "always",
+      "preferences": [
+        "en"
+      ],
+      "accessibility": {},
+      "audio": "ja",
+      "tracks": [
+        {
+          "id": "s1",
+          "tag": "en",
+          "roles": []
+        },
+        {
+          "id": "s1",
+          "tag": "fr",
+          "roles": []
+        }
+      ],
+      "expected": null,
+      "error": true
+    }
+  ]
+}

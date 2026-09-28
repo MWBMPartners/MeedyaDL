@@ -16,7 +16,12 @@
 #      - cargo check (compilation verification)
 #      - cargo clippy (Rust linter with warnings-as-errors)
 #      - cargo deny (licence scanning and security advisory auditing)
-#      - cargo test (Rust unit tests)
+#      - cargo test (Rust unit tests — including the language policy
+#        conformance test, src-tauri/tests/media_language_conformance.rs)
+#
+#   3. Language policy copies (Linux only, a few seconds):
+#      - scripts/media-lang/check_copies.py compares MeedyaDL's copies of the
+#        shared language policy files with the master in MeedyaSuite-core
 #
 # Both job groups run on a 3x3 matrix across macOS, Windows, and Linux to catch
 # platform-specific issues. The frontend and backend jobs run independently
@@ -489,3 +494,49 @@ jobs:
         run: cargo doc --no-deps
         env:
           RUSTDOCFLAGS: "-A rustdoc::all"
+
+  # ============================================================
+  # Language Policy Copies Job (#1245)
+  # ============================================================
+  # MeedyaDL keeps exact copies of the shared Media Language & BCP 47 Policy
+  # (MWBM-MEDIA-LANG): the policy document, its reference data and schema,
+  # the conformance test cases and schema, and this checker itself. The
+  # master copies live in MWBMPartners/MeedyaSuite-core. The policy says
+  # every repository that carries copies must check them in its existing CI
+  # (policy section 8.3) — copies that nobody checks drift, and a drifted
+  # copy is worse than none because people trust it.
+  #
+  # What the checker fails on: a copy that has been edited; a required copy
+  # that is missing from the lock, or a file with a master file's name that
+  # is not in the lock (so deleting a lock line cannot switch a check off);
+  # a pinned core commit that is not part of core's own history on an
+  # approved branch (GitHub will serve a commit that exists only in a fork
+  # under the original repository's address, so this is checked); and a
+  # copy whose checksum does not match the master at that commit. A download
+  # or lookup that fails for ANY reason fails the job — it never passes
+  # silently. Its local-only mode (--offline) refuses to run in CI.
+  #
+  # What it does NOT check: whether the code follows the policy. That is the
+  # conformance test run by `cargo test` in the backend job above.
+  #
+  # Why its own job and not a step in the backend job: the backend job runs
+  # on three operating systems and takes many minutes; this check needs only
+  # Python (already on the runner, standard library only) and a few seconds,
+  # and asking GitHub the same question three times would add nothing.
+  #
+  # GITHUB_TOKEN: the core repository is public, so no secret is needed to
+  # read it — the token is passed only so the commit lookup is authenticated.
+  # GitHub allows just 60 unauthenticated lookups an hour per address, and
+  # shared runners share addresses, so without it the job would fail at
+  # random. The workflow's `permissions: contents: read` above is all it uses.
+  language-policy-copies:
+    name: Language policy copies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Check the policy copies against the master in MeedyaSuite-core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/media-lang/check_copies.py

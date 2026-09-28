@@ -3357,6 +3357,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "meedya-lang"
+version = "0.2.0"
+source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?rev=995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6#995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "meedya-lyrics"
 version = "0.1.0"
 source = "git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main#29eef388fa71c1be8b0004f56c1c8ffd19704e10"
@@ -3427,6 +3436,7 @@ dependencies = [
  "lzma-rs",
  "meedya-core",
  "meedya-fingerprint 0.1.0 (git+https://github.com/MWBMPartners/MeedyaSuite-core?branch=main)",
+ "meedya-lang",
  "meedya-lyrics",
  "mp4ameta",
  "pbkdf2",

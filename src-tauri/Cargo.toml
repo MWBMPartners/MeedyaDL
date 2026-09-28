@@ -107,6 +107,35 @@ tauri-build = { version = "2", features = [] }
 #   4. Run the full test suite — upstream may have changed APIs.
 meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
+# meedya-lang -- The shared implementation of the Media Language & BCP 47
+# Policy (MWBM-MEDIA-LANG 1.0.0): reading, putting into standard form,
+# ordering, matching and naming language tags (#1244, #1245). MeedyaDL
+# carries exact copies of the policy, its reference data and its test cases
+# (docs/standards/, tests/fixtures/), and src-tauri/tests/
+# media_language_conformance.rs proves this pinned version of the crate
+# gives the answers those test cases expect. Pure logic: no I/O, no network,
+# and nothing it depends on beyond serde / serde_json, which MeedyaDL
+# already has.
+#
+# @see https://github.com/MWBMPartners/MeedyaSuite-core/tree/feature/bcp47-language-policy/crates/meedya-lang
+#
+# **Pinned to a commit on core's `feature/bcp47-language-policy` branch**
+# (rev = …), because that is the only place the crate exists until core
+# merges the work into `main`. Same reason as meedya-core above for pinning
+# by `rev` rather than `branch`: a feature branch is deleted after merging,
+# and a branch pin would then break every fresh clone with "failed to
+# resolve git reference". Re-pin to the merge commit on core `main` once it
+# lands — tracked in #1255.
+#
+# **Bumping this commit:** replace the `rev`, run `cargo update -p
+# meedya-lang` (only that package), then the conformance test and the whole
+# backend suite. If core's policy files changed at the new commit, take
+# them in the same change with
+# `python3 scripts/media-lang/check_copies.py --update <commit>` — the crate
+# and the copies of the test cases must move together, or the conformance
+# test is checking the crate against the wrong answers.
+meedya-lang = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6" }
+
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.
 # Each plugin must also be registered in the Tauri app builder (main.rs) and may

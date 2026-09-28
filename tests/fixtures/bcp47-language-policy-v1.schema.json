@@ -1,0 +1,1027 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/MWBMPartners/MeedyaSuite-core/tests/fixtures/bcp47-language-policy-v1.schema.json",
+  "title": "MWBM-MEDIA-LANG conformance test cases, version 1",
+  "description": "The test cases every implementation of the Media Language & BCP 47 Policy (docs/standards/media-language-bcp47-policy.md) must pass for the profiles it implements. Each case lists the rule IDs it checks. The expected answers were worked out by hand from the policy text and cross-checked by an independent throwaway implementation before publication.",
+  "$comment": "Master copy: MWBMPartners/MeedyaSuite-core. Other repositories keep an exact copy checked by scripts/media-lang/check_copies.py. Changing an expected answer is a MAJOR policy version change; adding cases is MINOR (see the policy's 'Changing this policy').",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "policy",
+    "policy_version",
+    "fixtures_version",
+    "data_version",
+    "canonicalise",
+    "legacy_three_letter",
+    "iso639_2_write",
+    "posix_locale",
+    "sidecar_name",
+    "canonical_order",
+    "track_order",
+    "presentation_order",
+    "subtitle_menu",
+    "label",
+    "match",
+    "auto_select_audio",
+    "auto_select_subtitle"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Relative path to this schema, so editors can validate the file."
+    },
+    "policy": {
+      "const": "MWBM-MEDIA-LANG",
+      "description": "The policy these cases belong to."
+    },
+    "policy_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The policy version whose rules these cases test."
+    },
+    "fixtures_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Version of this case file. Tied to policy_version: a new MAJOR policy version always gets a new MAJOR fixtures version."
+    },
+    "data_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "The reference data version (docs/standards/data/bcp47-language-data-v1.json) the canonicalisation and legacy-code answers were computed against. A registry refresh that changes an answer must bump this and the fixtures version together."
+    },
+    "canonicalise": {
+      "type": "array",
+      "description": "LANG-001 canonical form. Implementations call their canonicalise function on 'input'. Harnesses MUST also check stability: canonicalising 'expected' again (for every case that is not malformed) must return 'expected' unchanged.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "input",
+          "expected",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "input": {
+            "type": "string",
+            "description": "Raw value as it might arrive from a file, database or user."
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Canonical tag, or null when the input is malformed (LANG-026)."
+          },
+          "kind": {
+            "enum": [
+              "ordinary",
+              "grandfathered",
+              "privateuse",
+              "malformed"
+            ],
+            "description": "ordinary = a normal langtag; grandfathered = a registry grandfathered tag with no replacement, kept as the registry spells it; privateuse = a tag starting 'x-'; malformed = not a well-formed tag."
+          },
+          "note": {
+            "type": "string",
+            "description": "Why this case exists, where that is not obvious."
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "legacy_three_letter": {
+      "type": "array",
+      "description": "LANG-002: reading a language value from a file, a tag or another system (old three-letter fields, free-text fields). Inputs may carry trailing null padding and several null-separated values.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "input": {
+            "type": "string",
+            "description": "The value found in the old field (e.g. 'ger', 'XXX', 'fre-ca')."
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The canonical BCP 47 tag, or null for 'unrecognised' (the caller then stores 'und' and keeps the raw text)."
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "iso639_2_write": {
+      "type": "array",
+      "description": "TRACK-070: the ISO 639-2 code to write into an old three-letter field, in both forms. Implementations call their writing function on the canonicalised 'input' and compare both forms.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "input": {
+            "type": "string",
+            "description": "The tag being written (raw; canonicalised first)."
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "b",
+              "t"
+            ],
+            "properties": {
+              "b": {
+                "type": "string",
+                "pattern": "^[a-z]{3}$",
+                "description": "Bibliographic form (Matroska's old Language element)."
+              },
+              "t": {
+                "type": "string",
+                "pattern": "^[a-z]{3}$",
+                "description": "Terminology form (MP4/MOV media header, ID3)."
+              }
+            }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "posix_locale": {
+      "type": "array",
+      "description": "LANG-004: converting an operating-system locale name.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "input",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "input": {
+            "type": "string",
+            "description": "A locale name such as 'en_US.UTF-8' or 'sr_RS@latin'."
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The canonical tag, or null when the locale names no language ('C', 'POSIX') or cannot be converted."
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "sidecar_name": {
+      "type": "array",
+      "description": "TEXT-030: building a sidecar file name, and reading one back. 'build' cases give the parts and expect a file name; 'parse' cases give the media file's stem and a file name and expect the parts (or null when the file does not belong to that media file).",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "rules",
+              "mode",
+              "stem",
+              "tag",
+              "roles",
+              "extension",
+              "number",
+              "expected"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/caseId"
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              },
+              "mode": {
+                "const": "build"
+              },
+              "stem": {
+                "type": "string",
+                "description": "The media file's name without its extension."
+              },
+              "tag": {
+                "type": "string",
+                "description": "The language value (raw; canonicalised first; malformed becomes und)."
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/role"
+                },
+                "description": "The track's roles; only sdh, forced and commentary produce a role word."
+              },
+              "extension": {
+                "type": "string",
+                "description": "File extension without the dot."
+              },
+              "number": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "description": "The clash-avoiding number, or null. Valid numbers are 2 to 999999999; any other number must be refused (such cases carry error: true)."
+              },
+              "expected": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The file name, or null when the case carries error: true."
+              },
+              "error": {
+                "const": true,
+                "description": "The implementation MUST refuse this input with an error (an exception, a Rust Err, a Swift throw). Returning any value — even the one in 'expected' — fails the case. When present, 'expected' is null."
+              },
+              "description": {
+                "type": "string",
+                "description": "What the case shows, in plain words."
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "required": [
+                    "error"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "expected": {
+                      "type": "null"
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "expected": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 2,
+                      "maximum": 999999999
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "rules",
+              "mode",
+              "stem",
+              "filename",
+              "expected"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/caseId"
+              },
+              "rules": {
+                "$ref": "#/$defs/rules"
+              },
+              "mode": {
+                "const": "parse"
+              },
+              "stem": {
+                "type": "string",
+                "description": "The stem of the media file the sidecar should belong to."
+              },
+              "filename": {
+                "type": "string",
+                "description": "The sidecar's file name."
+              },
+              "expected": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "tag",
+                      "unrecognised",
+                      "roles",
+                      "number",
+                      "extension"
+                    ],
+                    "properties": {
+                      "tag": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "The language read by LANG-002; 'und' when the part is unrecognised; null when the name has no language part at all."
+                      },
+                      "unrecognised": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "description": "The language part as written, when it was unrecognised; otherwise null."
+                      },
+                      "roles": {
+                        "type": "array",
+                        "items": {
+                          "enum": [
+                            "sdh",
+                            "forced",
+                            "commentary"
+                          ]
+                        },
+                        "description": "Roles read from role words (cc and hi read as sdh), without repeats, in TRACK-050 order.",
+                        "uniqueItems": true
+                      },
+                      "number": {
+                        "type": [
+                          "integer",
+                          "null"
+                        ],
+                        "minimum": 0,
+                        "description": "The number part, or null. Readers accept a part of one to nine ASCII digits (other tools may write .1); a longer run of digits is not a number. If there are several number parts, the last counts.",
+                        "maximum": 999999999
+                      },
+                      "extension": {
+                        "type": "string",
+                        "description": "File extension without the dot."
+                      }
+                    }
+                  }
+                ],
+                "description": "The parts, or null if the file does not start with the stem followed by a dot."
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "canonical_order": {
+      "type": "array",
+      "description": "Part A stored order of a list of language-tagged items (LANG-010 to LANG-027).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "description",
+          "items",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
+          },
+          "items": {
+            "type": "array",
+            "description": "Input, in this order.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "tag"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Identifier used in 'expected'. When absent, the tag itself is the identifier."
+                },
+                "tag": {
+                  "type": "string",
+                  "description": "Raw language value; canonicalised by the implementation."
+                },
+                "original": {
+                  "type": "boolean",
+                  "description": "Structured 'original language' marker (LANG-010). Absent means false."
+                }
+              }
+            }
+          },
+          "expected": {
+            "$ref": "#/$defs/idList"
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "track_order": {
+      "type": "array",
+      "description": "Part A stored order of container tracks (TRACK-050, TRACK-060).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "description",
+          "tracks",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/track"
+            },
+            "description": "Tracks in file order."
+          },
+          "expected": {
+            "$ref": "#/$defs/idList"
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "presentation_order": {
+      "type": "array",
+      "description": "Part B menu order (UI-020 to UI-050). Names and sorting keys are supplied in the case so the answer does not depend on the platform's locale data: the implementation's test harness MUST name groups with display_names and sort them by comparing collation_keys as plain strings, in place of real locale data.",
+      "items": {
+        "$ref": "#/$defs/presentationCase"
+      },
+      "minItems": 1
+    },
+    "subtitle_menu": {
+      "type": "array",
+      "description": "UI-060: a subtitle menu is 'off' followed by the subtitle tracks in presentation order.",
+      "items": {
+        "$ref": "#/$defs/presentationCase"
+      },
+      "minItems": 1
+    },
+    "label": {
+      "type": "array",
+      "description": "UI-070 menu labels built from structured data. Localised strings are supplied; the case checks the joining and role order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "type",
+          "language_name",
+          "roles",
+          "role_names",
+          "channels",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "type": {
+            "enum": [
+              "audio",
+              "subtitle"
+            ],
+            "description": "Track type; decides which role order applies (TRACK-050)."
+          },
+          "language_name": {
+            "type": "string",
+            "description": "The localised language name (already resolved)."
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/role"
+            },
+            "description": "The track's roles, in any order; the label lists them in TRACK-050 order."
+          },
+          "role_names": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Localised word for each role present."
+          },
+          "channels": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Channel layout text for audio (e.g. '5.1'), or null."
+          },
+          "expected": {
+            "type": "string",
+            "description": "The label, parts joined with ' — ' (space, U+2014 em dash, space)."
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "match": {
+      "type": "array",
+      "description": "MATCH-010 to MATCH-040: strength of match between one preference and one candidate tag.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "preference",
+          "candidate",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "preference": {
+            "type": "string",
+            "description": "The user's preferred tag (raw; canonicalised first)."
+          },
+          "candidate": {
+            "type": "string",
+            "description": "The track or translation tag (raw; canonicalised first)."
+          },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "level",
+              "distance"
+            ],
+            "properties": {
+              "level": {
+                "enum": [
+                  "exact",
+                  "general",
+                  "specific",
+                  "related",
+                  "none"
+                ],
+                "description": "Match strength, best first: exact, general (candidate is a shorter form), specific (candidate is a longer form), related (same language, no script conflict), none."
+              },
+              "distance": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "For general and specific: how many subtags were removed or added. 0 otherwise."
+              }
+            }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "auto_select_audio": {
+      "type": "array",
+      "description": "AUTO-020 audio selection. Harnesses MUST also run each case with the tracks in reverse order and get the same answer (AUTO-010).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "description",
+          "preferences",
+          "accessibility",
+          "tracks",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
+          },
+          "preferences": {
+            "$ref": "#/$defs/preferences"
+          },
+          "accessibility": {
+            "$ref": "#/$defs/accessibility"
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/selectTrack"
+            },
+            "description": "Audio tracks, in file order."
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier of the track chosen, or null when the case carries error: true."
+          },
+          "error": {
+            "const": true,
+            "description": "The implementation MUST refuse this input with an error (an exception, a Rust Err, a Swift throw). Returning any value — even the one in 'expected' — fails the case. When present, 'expected' is null."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "error"
+              ]
+            },
+            "then": {
+              "properties": {
+                "expected": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1
+    },
+    "auto_select_subtitle": {
+      "type": "array",
+      "description": "AUTO-030 subtitle selection. Harnesses MUST also run each case with the tracks in reverse order and get the same answer (AUTO-010).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "rules",
+          "description",
+          "mode",
+          "preferences",
+          "accessibility",
+          "audio",
+          "tracks",
+          "expected"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/caseId"
+          },
+          "rules": {
+            "$ref": "#/$defs/rules"
+          },
+          "description": {
+            "type": "string",
+            "description": "What the case shows, in plain words."
+          },
+          "mode": {
+            "enum": [
+              "automatic",
+              "always",
+              "forced_only",
+              "off"
+            ],
+            "description": "The user's subtitle mode (AUTO-030)."
+          },
+          "preferences": {
+            "$ref": "#/$defs/preferences"
+          },
+          "accessibility": {
+            "$ref": "#/$defs/accessibility"
+          },
+          "audio": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Tag of the audio track already chosen, or null if there is none."
+          },
+          "tracks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/selectTrack"
+            },
+            "description": "Subtitle tracks, in file order."
+          },
+          "expected": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Identifier of the subtitle track chosen, or null for none."
+          },
+          "error": {
+            "const": true,
+            "description": "The implementation MUST refuse this input with an error (an exception, a Rust Err, a Swift throw). Returning any value — even the one in 'expected' — fails the case. When present, 'expected' is null."
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "error"
+              ]
+            },
+            "then": {
+              "properties": {
+                "expected": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "caseId": {
+      "type": "string",
+      "pattern": "^[a-z]+-[0-9]{2}$",
+      "description": "Stable case identifier. Never reused for a different case."
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^(LANG|NAME|TRACK|UI|MATCH|AUTO|TEXT|COMPAT)-[0-9]{3}$"
+      },
+      "description": "Policy rule IDs this case checks."
+    },
+    "idList": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Expected order, as item identifiers."
+    },
+    "role": {
+      "enum": [
+        "alternate",
+        "audio_description",
+        "commentary",
+        "sdh",
+        "forced",
+        "other"
+      ],
+      "description": "Track role (TRACK-010). A track with no roles is the main programme (audio) or full subtitles."
+    },
+    "preferences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The user's language preferences, highest priority first (raw tags; malformed ones are ignored)."
+    },
+    "accessibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audio_description": {
+          "type": "boolean",
+          "description": "The user has asked for audio description (AUTO-040)."
+        },
+        "captions": {
+          "type": "boolean",
+          "description": "The user has asked for SDH / captions (AUTO-040)."
+        }
+      },
+      "description": "Accessibility preferences. In these test cases an absent key means false."
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "tag",
+        "roles"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Track identifier."
+        },
+        "type": {
+          "enum": [
+            "video",
+            "audio",
+            "subtitle",
+            "other"
+          ],
+          "description": "Track type (TRACK-060)."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Raw language value."
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/role"
+          },
+          "description": "Roles (TRACK-010)."
+        },
+        "original": {
+          "type": "boolean",
+          "description": "Structured original-language marker. In these test cases an absent flag means false — this is the test file's convention, not a format's: Matroska, for one, treats a missing FlagDefault as 1 (LANG-002)."
+        }
+      }
+    },
+    "selectTrack": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tag",
+        "roles"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Track identifier; the final tie-break (AUTO-010): identifiers of ASCII digits only come first, ordered as numbers and then as plain text; all others follow in plain-text order. Identifiers are unique within a case, except in cases that carry error: true to check that duplicates are refused."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Raw language value."
+        },
+        "roles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/role"
+          },
+          "description": "Roles (TRACK-010)."
+        },
+        "default": {
+          "type": "boolean",
+          "description": "Default flag. In these test cases an absent flag means false — this is the test file's convention, not a format's: Matroska, for one, treats a missing FlagDefault as 1 (LANG-002)."
+        },
+        "original": {
+          "type": "boolean",
+          "description": "Original-language flag. In these test cases an absent flag means false — this is the test file's convention, not a format's: Matroska, for one, treats a missing FlagDefault as 1 (LANG-002)."
+        }
+      }
+    },
+    "presentationCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "rules",
+        "description",
+        "preferences",
+        "accessibility",
+        "display_names",
+        "collation_keys",
+        "items",
+        "expected"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/caseId"
+        },
+        "rules": {
+          "$ref": "#/$defs/rules"
+        },
+        "description": {
+          "type": "string",
+          "description": "What the case shows, in plain words."
+        },
+        "preferences": {
+          "$ref": "#/$defs/preferences"
+        },
+        "accessibility": {
+          "$ref": "#/$defs/accessibility"
+        },
+        "selected": {
+          "type": "string",
+          "description": "An item the user has selected. Present only to show that selection changes nothing (UI-050); the ordering function takes no selection input."
+        },
+        "display_names": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Localised name of each ordinary primary language present, keyed by primary language subtag."
+        },
+        "collation_keys": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Stand-in for the interface language's sorting rules: groups sort by comparing these keys as plain strings (then by primary subtag)."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "tag"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Identifier used in 'expected'."
+              },
+              "tag": {
+                "type": "string",
+                "description": "Raw language value."
+              },
+              "type": {
+                "enum": [
+                  "audio",
+                  "subtitle",
+                  "text"
+                ],
+                "description": "Item type; decides which role order and accessibility preference apply. Absent means a plain language item with no roles."
+              },
+              "roles": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/role"
+                },
+                "description": "Roles (TRACK-010). Absent means none."
+              },
+              "original": {
+                "type": "boolean",
+                "description": "Original-language marker. Absent means false."
+              }
+            }
+          },
+          "description": "Items in file or database order."
+        },
+        "expected": {
+          "$ref": "#/$defs/idList"
+        }
+      }
+    }
+  }
+}
