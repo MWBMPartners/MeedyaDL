@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 11:20) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 11:26) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -509,6 +509,13 @@ on PRs to / pushes to main.
   tags not written). **Codex at 12:37:** `codex-prompt-r8.txt` (core `21fa942..7f944a7`), then the
   plugin `748e87c..42bd45e` if the allowance lasts. Stand-in reviews still running: iHymns,
   MeedyaManager, MeedyaConverter, iLyricsDB, NetPLAYERapp; queued: MeedyaPlayer/MeedyaSubtitler.
+- **11:26 — iHymns second stand-in review: NOT clean** (4 should, 4 minor; one data loss: the confirmed
+  songbook-language card rewrote `yue`/`cmn-Hans`/`de` songs to their book's language, unrecorded).
+  **Decision (mine): the card only ever fills songs with NO language**; differing songs are listed for a
+  curator, never changed; one activity-log row per filled song. Also: test the dry-run gate; the
+  curator's editor choice settles two stored links for one language; keep a link whose target song
+  vanished; widen the no-`en` guard; SQL filter learns retired aliases; warn on two SENT links for
+  one language. Round-3 fix builder running (watchdog on it).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
