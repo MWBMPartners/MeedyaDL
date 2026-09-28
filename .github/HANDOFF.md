@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:55) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 06:20) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -353,6 +353,17 @@ on PRs to / pushes to main.
   lacks the stability check; a two-value TLAN is not kept (pre-existing; issue + ignored test).
   Decision: `write_tags` skips a language value identical to what the file holds; rules and
   `<Language>` use the standard tag. Fix round running.
+- **About 06:20:** MeedyaDL review fixes pushed (`6a9657f1`; all nine items; clippy, 2,139 Rust
+  tests, conformance 222, cargo deny, type-check, lint, 892 vitest, audits, check:legal, copy check,
+  actionlint — checked by me). Improved Release-Note lines for the PR body are in
+  `…/scratchpad/lang/meedyadl-release-notes.txt`. **iHymns first build pushed**
+  (`feat/bcp47-language-policy`, #2131–#2138; its first placement of the shared code would never
+  have been deployed — `private_html` has not been deployed in 60 runs, #2138 — so it moved into
+  `public_html/includes/vendor/`, web-blocked, with a deploy-layout test). Two PHP suites run out of
+  memory at this Mac's 128 MB default on the BASE branch too — not a finding. Admin must run two
+  setup cards after deploy (song language default → `und`; drop `fk_Trans_Lang`). Stand-in review
+  running. **Plugin revision 4 pushed** (`748e87c`, run-start snapshot, 162/162). Its review:
+  Codex after core, if the allowance lasts; otherwise a fresh Opus stand-in.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
