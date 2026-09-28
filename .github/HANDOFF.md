@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 16:33) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 16:41) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -840,6 +840,14 @@ on PRs to / pushes to main.
   - CI does not start on this branch: billing blocks it.
   - I commented on #210. #211 has been retitled "the new language check" and now names the exact form rule.
   - A stand-in review is running, with a watchdog on it.
+- **MeedyaDL round-4 stand-in review: 3 minor, 5 nits, nothing unsafe.** Items 2, 4, 5 and 6 are correct, with red runs for each. The findings:
+  - **M1:** the fallback list still jumps for `fr-FR`, the usual value on "Auto".
+  - **M2:** the 256-byte tests would pass without the check being there.
+  - **M3:** three Release-Note lines describe changes that exist only on this unreleased branch.
+  - **N1 and N2:** the Cargo.lock "exactly one" rule has no test, and the reader expects exact spacing around `=`.
+  - **N3:** stale hook comments. **N4:** Prettier formatting. **N5:** an older NUL-to-GAMDL case.
+  - **All are to be fixed. Round 5 builder running** (Sonnet, `brief-meedyadl-r5.md`, branch `r5` in the builder clone), with a watchdog on it.
+  - **Decision on M3, binding on whoever opens the pull request:** do not rewrite pushed commits. **This branch is squash-merged**, and the pull request text carries curated Release-Note lines that describe changes against the last released build. The commit trailers on `f7a63362`, `22927718` and `c28a0fb5` are not accurate and must not be copied into the notes. From now on, builders write `Release-Note: none` for fixes to anything only this branch introduced.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
