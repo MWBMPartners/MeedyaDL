@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 16:41) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 17:27) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -870,6 +870,14 @@ on PRs to / pushes to main.
   - No hand-over was possible, because Codex was also out of allowance until 17:38.
   - At 17:11 every clone was checked and each agent was resumed with its context kept. Each was told to check its working tree for a half-made edit or a planted fault first.
   - The core revision-10 builder was started with a watchdog, and the plugin watchdog was restarted.
+- **NetPLAYERapp round-5 stand-in review: 1 should-fix, 4 minor, 6 nits. The application code is confirmed unchanged and correct, and #211 is correct** (checked against 23,603 values). Section J now catches 14 new wording faults. The findings:
+  - **S1:** the handoff points to a "round 5" section that does not exist.
+  - **M1:** the column note describes the old table's fault wrongly.
+  - **M2:** the check that spots a language-subtag problem also matches the extended-language message, so a `-abc` ending gives 303 false failures.
+  - **M3:** the wording check works in one direction only.
+  - **M4:** the battery can be emptied and the suite still passes.
+  - The nits are stale counts, one "Pushed" left, comments pointing at things a reader cannot find, and #211's wording of the call.
+  - **All are to be fixed. Round 6 builder running** (Sonnet, `brief-netplayer-r6.md`), with a watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
