@@ -865,6 +865,23 @@ mod tests {
     }
 
     #[test]
+    fn the_interface_languages_own_group_is_pinned_first_whatever_the_interface_language_is() {
+        // Pins the exact case the independent review (round 4 of #1244)
+        // asked for: MeedyaDL's three interface languages, ordered for a
+        // FRENCH interface. In French the three names are "allemand"
+        // (German), "anglais" (English) and "français" (French) --
+        // alphabetically "allemand" sorts first, ahead of "français" --
+        // so this only comes out interface-language-first because the
+        // caller's own preference is honoured, not because it happens to
+        // agree with plain alphabetical order (as it does for English and
+        // German, MeedyaDL's other two interface languages, which is
+        // exactly why a fault here could hide behind those two).
+        let tags = strings(&["en", "de", "fr"]);
+        let got = order_for_display(&tags, &strings(&["fr"]), &strings(&["de", "en", "fr"]));
+        assert_eq!(got, ["fr", "de", "en"]);
+    }
+
+    #[test]
     fn a_value_that_is_not_a_tag_goes_last_and_is_kept_as_written() {
         let tags = strings(&["en_US", "ja-JP", "de-DE"]);
         let got = order_for_display(&tags, &[], &strings(&["de", "ja"]));

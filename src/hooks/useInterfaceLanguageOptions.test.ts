@@ -68,11 +68,39 @@ describe('useInterfaceLanguageOptions', () => {
     expect(result.current).toEqual(['de', 'en', 'fr']);
   });
 
+  it('shows French first when the backend fails and the interface is French, not the plain alphabetical order (independent review, round 4 of #1244)', async () => {
+    // In French, the three names are "allemand" (German), "anglais"
+    // (English) and "français" (French) -- alphabetically "allemand"
+    // sorts FIRST, ahead of "français". A fallback that was merely
+    // alphabetical (no pin for the interface language itself) would
+    // show German first here, then jump to French-first the instant the
+    // backend answered -- the exact fault this test guards against.
+    order.mockRejectedValue(new Error('command not available'));
+    const { result } = renderHook(() => useInterfaceLanguageOptions('fr'));
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    expect(result.current).toEqual(['fr', 'de', 'en']);
+  });
+
   it('ignores a backend answer that lost an entry', async () => {
     order.mockImplementation(async (tags) => tags.slice(1));
     const { result } = renderHook(() => useInterfaceLanguageOptions('en'));
     await waitFor(() => expect(order).toHaveBeenCalled());
     expect(result.current).toHaveLength(AVAILABLE_LOCALES.length);
+  });
+
+  it('asks with the alphabetical-by-French-name order as the third argument when the interface is French (independent review, round 4 of #1244)', async () => {
+    // The three offered locales' own names IN FRENCH are "allemand"
+    // (German), "anglais" (English) and "français" (French) -- so the
+    // alphabetical order this hook must work out itself (the platform's
+    // own collator is the only thing that can do this correctly) is
+    // de, en, fr. This is the one argument `useInterfaceLanguageOptions`
+    // computes rather than merely forwarding, so it is the one worth
+    // pinning on its own, independently of what the backend sends back.
+    order.mockImplementation(async (tags) => [...tags]);
+    renderHook(() => useInterfaceLanguageOptions('fr'));
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    const [, , alphabeticalPrimaryOrder] = order.mock.calls[0];
+    expect(alphabeticalPrimaryOrder).toEqual(['de', 'en', 'fr']);
   });
 
   it('re-asks and re-orders when the interface language changes', async () => {

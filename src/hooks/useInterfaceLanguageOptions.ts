@@ -49,7 +49,24 @@ import { alphabeticalPrimaryOrder, collatorFallbackOrder, isSameList } from '@/l
  */
 export function useInterfaceLanguageOptions(uiLanguage: string): readonly string[] {
   const tags = AVAILABLE_LOCALES;
-  const fallback = useMemo(() => collatorFallbackOrder(tags, uiLanguage), [tags, uiLanguage]);
+  // `uiLanguage`'s own row pinned first (when it is one of `tags`), then
+  // the rest in `collatorFallbackOrder`'s alphabetical order -- matching
+  // where the real, backend-driven order (policy UI-020) would put it.
+  // Without this, the fallback shown before the backend answers (or if it
+  // never does) put every row in plain alphabetical order with no pin at
+  // all, so the interface language's own row could sit anywhere in the
+  // list -- and then visibly JUMP to the top the moment the real answer
+  // arrived, for any interface language whose own name does not happen
+  // to sort first (independent review, round 4 of #1244: French is
+  // exactly such a case -- "allemand" (German) sorts before "français"
+  // (French) alphabetically, so the un-pinned fallback showed German
+  // first for a French interface, then jumped to French-first once the
+  // backend replied).
+  const fallback = useMemo(() => {
+    const alphabetical = collatorFallbackOrder(tags, uiLanguage);
+    if (!alphabetical.includes(uiLanguage)) return alphabetical;
+    return [uiLanguage, ...alphabetical.filter((tag) => tag !== uiLanguage)];
+  }, [tags, uiLanguage]);
 
   // What the backend said, and for which interface language -- kept with
   // its input so an answer worked out for a previous language is never
