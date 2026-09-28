@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:30) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 06:00) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -202,6 +202,18 @@ on PRs to / pushes to main.
   pointed at the other session's working branch — a bare `git push` would have landed there.
   Caught before any push; upstreams removed in converter/manager/netplayer/ilyricsdb/ihymns;
   always push with `git push -u origin <ours>:<ours>`.
+
+**Progress (about 06:00, 28 Sept):**
+
+- **PHP fixed: core `904b056`** (268/268, 343 checks, PHP 8.1/8.4/8.5 and `php -n`; 50,000
+  variants 0.04 s; no extension needed). Not yet Codex-reviewed.
+- **Three PHP-site builders launched, pinned to `904b056`:** iHymns (Opus,
+  `feat/bcp47-language-policy`), NetPLAYERapp (Sonnet), iLyricsDB (Sonnet); all commit locally,
+  none pushes; watchdog `b2whptx14` on their transcripts.
+- **Wake-up set for 07:35** (`bj3k2ubfr`) to start the Codex catch-up: core `f2e106a..904b056`
+  (refusal cases + PHP fixes) and plugin `af39817..0c25209` first; then MeedyaPlayer,
+  MeedyaSubtitler, MeedyaConverter. Anything Codex cannot reach → fresh Opus stand-in, labelled.
+- Still running: Rust crate builder, MeedyaConverter builder.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
