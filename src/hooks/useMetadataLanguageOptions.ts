@@ -91,16 +91,24 @@ export function useMetadataLanguageOptions(
   //
   // This used to join the values with a U+0000 (NUL) separator, on the
   // claim that "no language tag or settings value uses" that character.
-  // Nothing actually enforced that claim: an imported settings file only
-  // has its `\n` and `\r` stripped (see
-  // .claude/memory/project_standing_rules.md), so a NUL byte in a saved
-  // value -- from a hand-edited file, or one brought in from elsewhere --
-  // would have survived into `currentValue` here and been split apart
-  // again on the next render, silently turning one remembered value into
-  // two (or shifting every value that came after it). `JSON.stringify` /
-  // `JSON.parse` round-trip a string exactly, whatever characters it
-  // contains, so there is no separator left to collide with (independent
-  // review, round 3 of #1244).
+  // Nothing actually enforced that claim AT THE TIME: an imported
+  // settings file's fields generally only have `\n` and `\r` stripped
+  // (see the "Import validation" section of `.claude/CLAUDE.md`), which
+  // does not touch a NUL byte.
+  //
+  // Since #1246, though, the metadata language field specifically is an
+  // exception to that general rule (same `.claude/CLAUDE.md` section): an
+  // IMPORTED value is checked as a language tag, and a NUL byte makes it
+  // unreadable as one, so it is refused outright and this machine's
+  // current value is kept instead -- it can never reach `currentValue`
+  // here by that route. The only way one still could is a value already
+  // on disk that nobody imported -- a settings file edited by hand, or
+  // one written before this check existed (policy COMPAT-030 keeps such
+  // a value exactly as it is, never rewriting or refusing it after the
+  // fact). `JSON.stringify` / `JSON.parse` round-trip a string exactly,
+  // whatever characters it contains, so there is no separator left to
+  // collide with even then (independent review, round 3 of #1244;
+  // comment corrected for accuracy, round 4).
   const extrasKey = JSON.stringify(withSavedValues(remembered, isUnoffered ? [currentValue] : []));
   const tags = useMemo(
     () => withSavedValues(METADATA_LANGUAGE_TAGS, JSON.parse(extrasKey) as string[]),
