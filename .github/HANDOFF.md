@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 03:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 04:30) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -164,6 +164,23 @@ on PRs to / pushes to main.
 - **MeedyaConverter** told to pin `4c4f373`. **MeedyaPlayer + MeedyaSubtitler** builder running
   (Sonnet, `brief-player-subtitler.md`, pinned `4c4f373`, commits locally only).
 - Still running: Rust crate builder (both revisions sent), plugin revision builder (Opus).
+
+**Progress (about 04:30, 28 Sept):**
+
+- **Codex reviewed the PHP (`dca5216`):** 253/253 passed, but 9 findings with its own inputs
+  (quadratic duplicate-variant check — 20,000 variants 7 s; `$` matching before a final newline;
+  role rank not by placing role; malformed menu entries reordered; `"1"`/`"01"` tie; duplicate ids;
+  runner passing empty/unknown sections; big sidecar numbers clamped; builder accepting 1/-1).
+  Five were policy ambiguities → **core `1d8c61a`** (260 cases; canon-49 caught the same `$` fault
+  in the throwaway oracle, now fixed; CI adds PHP 8.5). Codex r5 on it: one finding (builders
+  unbounded vs 9-digit readers) → **core `968d820`** (262 cases, oracle 335/335).
+- **Codex is out of allowance until 07:33.** The confirming round on `968d820` went to a fresh
+  Opus stand-in (running). **After 07:33: a Codex catch-up round** over everything reviewed only
+  by stand-ins or not at all: `1d8c61a..968d820`, the PHP fixes, the Rust crate, the plugin
+  revision, MeedyaConverter, Player/Subtitler.
+- **Current pin for every repo: core `968d820`** (all builders told). PHP builder is fixing the
+  nine findings (`brief-revision-3.md`); Rust and MeedyaConverter builders have revision 3.
+- My revision-2 note said "43" stability checks; correct is 35 (by revision 3, 36).
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
