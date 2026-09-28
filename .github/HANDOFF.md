@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 11:26) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 11:34) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -516,6 +516,18 @@ on PRs to / pushes to main.
   curator's editor choice settles two stored links for one language; keep a link whose target song
   vanished; widen the no-`en` guard; SQL filter learns retired aliases; warn on two SENT links for
   one language. Round-3 fix builder running (watchdog on it).
+- **11:34 — REAL NAME IN AUTHOR EMAIL (MeedyaManager, pushed):** six commits on MeedyaManager's
+  `feature/bcp47-language-policy` (`81964dd`, `d8254e6`, `2de3375`, `fb25404`, `09198ea`, `3a45ed7`) are
+  authored `Salem874 <lance@mwmail.me>`; the clone's configured identity is `Salem874@MWBMpartners.ltd`, so
+  the builder must have set the author itself. Every other repository's commits in this work use
+  Salem874@MWBMpartners.ltd (checked). Not rewritten — a force-push needs the maintainer's instruction;
+  told the maintainer. 106 older commits on MeedyaManager's `main` already carry that email. **My name
+  checks must include author/committer EMAIL (`%ae`/`%ce`), not only `%an`.** The builder is told never to
+  set the author.
+- **MeedyaManager second stand-in review: NOT clean** (2 must: the CLI note never shows in normal output;
+  no tests protect the two main fixes — five mutations passed; 7 should: clear leaves other containers,
+  note describes the plan not the result, WAV reads back two values, pattern rules changed meaning,
+  FFI message names the temp file, docs). Round-3 fixes sent to its builder (watchdog on it).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
