@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 03:10) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 03:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -148,6 +148,22 @@ on PRs to / pushes to main.
   (need the final core commit + PHP), `brief-player-subtitler.md` (needs the final core commit).
   MeedyaDL and MeedyaManager briefs wait for the Rust crate's function names.
 - MeedyaConverter builder told to pin core `e1d3189`.
+
+**Progress (about 03:40, 28 Sept):**
+
+- **Master files SETTLED at core `4c4f373`** (full `4c4f3738ca6b620caa0103ca968d09bb2e8aa605`):
+  Codex r3 confirmed all policy fixes and the 12 new answers, found 3 checker faults (lock path via
+  `jump/../`, linked folders outside git, 0600 permissions from new-file writes) → fixed in
+  `4c4f373` (27 checker tests, each fix mutation-proven) → **Codex r4 clean**. Review history
+  posted on core #99. Pin `4c4f373` for repos that need only the six required files.
+- **PHP committed: core `dca5216`** (253/253, 322 checks, PHP 8.5 + 8.1) with the
+  `language-policy` CI job. **Codex reviewing the PHP now** (`codex-prompt-php.txt` →
+  `codex-php.out`). The three PHP sites (iHymns, NetPLAYERapp, iLyricsDB) start after it — pin the
+  commit that contains the reviewed PHP. My revision-2 note said the stability check adds "43"
+  checks; the right number is 35 (the PHP builder caught it).
+- **MeedyaConverter** told to pin `4c4f373`. **MeedyaPlayer + MeedyaSubtitler** builder running
+  (Sonnet, `brief-player-subtitler.md`, pinned `4c4f373`, commits locally only).
+- Still running: Rust crate builder (both revisions sent), plugin revision builder (Opus).
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
