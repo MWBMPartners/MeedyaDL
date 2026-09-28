@@ -1215,8 +1215,20 @@ pub fn sync_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), 
 /// Strips newline and carriage return characters that could inject
 /// additional INI keys when parsed by Python's configparser.
 /// See: https://github.com/MWBMPartners/MeedyaDL/issues/226
+///
+/// Also strips a NUL byte (`\0`), which cannot inject a new INI key the
+/// way a line break can, but has no legitimate place in a text
+/// configuration file either — some downstream C-based readers treat it
+/// as an end-of-string marker, silently truncating everything after it,
+/// which is a subtler failure than an obviously-broken file. A value
+/// already on disk that is kept exactly as it is (policy COMPAT-030 —
+/// see `language_arg_for_gamdl` and its callers) can still hold a NUL
+/// from a hand-edited or corrupted settings file, since nothing on the
+/// LOAD path rejects one; this is the one place before the INI file
+/// itself that stops it going any further (independent review, round 4
+/// of #1244).
 fn sanitize_ini_value(value: &str) -> String {
-    value.replace(['\n', '\r'], "")
+    value.replace(['\n', '\r', '\0'], "")
 }
 
 /// Substitute MeedyaDL-introduced template variables before handing the
@@ -1463,17 +1475,31 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
     //
-    // Passed through `sanitize_ini_value` like every other text value
-    // here (independent review of #1246). A NEW value can no longer carry
-    // a line break — save and import only accept a real language tag —
-    // but a value already in an existing settings file is deliberately
-    // kept exactly as it is (policy COMPAT-030). Without this, an old
-    // value such as "en-US\nffmpeg_path = /tmp/evil" would write a second
-    // INI line on every launch. Only the INI line is cleaned; the stored
-    // setting is left as it is.
+    // Passed through `language_arg_for_gamdl` and then `sanitize_ini_value`
+    // like every other text value here (independent review of #1246,
+    // extended round 4 of #1244). A NEW value can no longer carry a line
+    // break — save and import only accept a real language tag — but a
+    // value already in an existing settings file is deliberately kept
+    // exactly as it is (policy COMPAT-030). Only the INI line is cleaned;
+    // the stored setting is left as it is.
+    //
+    // `language_arg_for_gamdl` runs FIRST so this line always carries the
+    // standard form of the tag, whatever form the stored value happens to
+    // be in (mixed case, a stray leading space) — the same value GAMDL's
+    // own `--language` CLI flag is given. Before this, the INI line sent
+    // the setting exactly as stored, unstandardised, so the GAMDL
+    // lyrics-fallback retry path — which reads config.ini rather than
+    // being passed `--language` directly — could receive a different
+    // form of the same language than the primary run did (independent
+    // review, round 4 of #1244). A value that cannot be read as a tag at
+    // all — old data COMPAT-030 keeps as it is — passes through
+    // unchanged, exactly as before; only `sanitize_ini_value` still
+    // touches it, to stop a stray line break becoming a second INI line.
     lines.push(format!(
         "language = {}",
-        sanitize_ini_value(&settings.language)
+        sanitize_ini_value(&crate::utils::language::language_arg_for_gamdl(
+            &settings.language
+        ))
     ));
 
     // Storefront — historically MeedyaDL emitted `storefront = us` (or
@@ -2369,6 +2395,39 @@ mod tests {
         let settings = default_settings();
         let ini = settings_to_ini(&settings);
         assert!(ini.contains("language = en-US"));
+    }
+
+    #[test]
+    fn the_ini_language_line_carries_the_standard_form_not_the_stored_form() {
+        // "EN-us" is a well-formed but non-standard-cased tag -- exactly
+        // the shape a value written before #1246 could still have on
+        // disk (policy COMPAT-030 keeps it, never rewrites it). The INI
+        // line now carries the clean `en-US` GAMDL's own `--language`
+        // flag would be given, so the lyrics-fallback run -- which reads
+        // config.ini rather than being passed `--language` directly --
+        // sees the same language the primary run did (independent
+        // review, round 4 of #1244).
+        let mut settings = default_settings();
+        settings.language = "EN-us".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("language = en-US"), "{ini}");
+        // Only what is WRITTEN is standardised -- the stored setting
+        // itself is left exactly as it was (COMPAT-030).
+        assert_eq!(settings.language, "EN-us");
+
+        // A value that cannot be read as a tag at all carries a NUL byte
+        // here -- something only a hand-edited or corrupted settings
+        // file could hold, since both save and import refuse it
+        // (#1246). It is not a tag, so it is sent to the INI file
+        // unchanged (same COMPAT-030 rule as any other unreadable
+        // value) -- EXCEPT for the NUL itself, which `sanitize_ini_value`
+        // strips along with `\n`/`\r`, so it never reaches the file no
+        // matter which field carries it.
+        let mut settings = default_settings();
+        settings.language = "en-US\0evil".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains('\0'), "{ini:?}");
+        assert!(ini.contains("language = en-USevil"), "{ini}");
     }
 
     #[test]
