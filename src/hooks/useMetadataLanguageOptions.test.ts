@@ -21,6 +21,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import * as commands from '@/lib/tauri-commands';
 import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
 import { METADATA_LANGUAGE_TAGS } from '@/lib/languageOptions';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 vi.mock('@/lib/tauri-commands', () => ({
   orderLanguagesForDisplay: vi.fn(),
@@ -32,6 +33,9 @@ describe('useMetadataLanguageOptions', () => {
   beforeEach(() => {
     order.mockReset();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // The values seen live in the (shared) settings store; start each test
+    // from a fresh app run.
+    useSettingsStore.setState({ seenMetadataLanguages: [] });
   });
 
   afterEach(() => {
@@ -43,7 +47,7 @@ describe('useMetadataLanguageOptions', () => {
     order.mockImplementation(async (tags) => [...tags].reverse());
     const { result } = renderHook(() => useMetadataLanguageOptions('en-GB', 'en'));
     await waitFor(() =>
-      expect(result.current.map((o) => o.value)).toEqual([...METADATA_LANGUAGE_TAGS].reverse()),
+      expect(result.current.map((o) => o.value)).toEqual([...METADATA_LANGUAGE_TAGS].reverse())
     );
     const [, preferences] = order.mock.calls[0];
     expect(preferences[0]).toBe('en');
@@ -69,7 +73,7 @@ describe('useMetadataLanguageOptions', () => {
     order.mockImplementation(async (tags) => [...tags]);
     const { result, rerender } = renderHook(
       ({ value }) => useMetadataLanguageOptions(value, 'en'),
-      { initialProps: { value: 'zh-CN' } },
+      { initialProps: { value: 'zh-CN' } }
     );
     const oldEntry = () => result.current.find((o) => o.value === 'zh-CN');
     expect(oldEntry()?.label).toBe('Chinese (China)');
@@ -79,6 +83,39 @@ describe('useMetadataLanguageOptions', () => {
     await waitFor(() => expect(order).toHaveBeenCalled());
     expect(oldEntry()).toBeDefined();
     expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
+  it('still lists the old value after another is picked and the Settings tab is left and reopened', async () => {
+    // Independent review of #1249: the list is unmounted on a tab switch,
+    // which used to throw the remembered value away.
+    order.mockImplementation(async (tags) => [...tags]);
+    const first = renderHook(({ value }) => useMetadataLanguageOptions(value, 'en'), {
+      initialProps: { value: 'zh-CN' },
+    });
+    first.rerender({ value: 'zh-Hant-TW' });
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    first.unmount(); // the person switches to another Settings tab
+
+    // ...and comes back: a brand-new list, with the new value selected.
+    const second = renderHook(() => useMetadataLanguageOptions('zh-Hant-TW', 'en'));
+    expect(second.result.current.find((o) => o.value === 'zh-CN')).toBeDefined();
+    expect(second.result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
+  it('keeps the same order when a different entry is chosen', async () => {
+    // Choosing must not move anything (policy UI-050): the list is keyed on
+    // its content, so a new choice does not even ask for a new order.
+    order.mockImplementation(async (tags) => [...tags].reverse());
+    const { result, rerender } = renderHook(
+      ({ value }) => useMetadataLanguageOptions(value, 'en'),
+      { initialProps: { value: 'en-GB' } }
+    );
+    await waitFor(() => expect(order).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current[0].value).toBe(METADATA_LANGUAGE_TAGS.at(-1)));
+    const before = result.current.map((o) => o.value);
+    rerender({ value: 'ja-JP' });
+    expect(result.current.map((o) => o.value)).toEqual(before);
+    expect(order).toHaveBeenCalledTimes(1);
   });
 });
 

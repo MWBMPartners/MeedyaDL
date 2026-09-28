@@ -821,7 +821,7 @@ export function saveSettings(settings: AppSettings): Promise<void> {
 export function orderLanguagesForDisplay(
   tags: readonly string[],
   preferences: readonly string[],
-  alphabeticalPrimaryOrder: readonly string[],
+  alphabeticalPrimaryOrder: readonly string[]
 ): Promise<string[]> {
   return invoke<string[]>('order_languages_for_display', {
     tags,

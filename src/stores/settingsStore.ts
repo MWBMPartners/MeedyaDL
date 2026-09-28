@@ -394,6 +394,34 @@ interface SettingsState {
    * saying so is recoverable, and half-resetting is not.
    */
   resetToDefaults: () => Promise<void>;
+
+  /**
+   * Metadata language values that are NOT in the offered list (an old
+   * `zh-CN`, or anything a settings file brought in) which the Metadata
+   * Language list has shown as the setting during this run of the app
+   * (#1249).
+   *
+   * Kept here rather than in the list's own component state so that such a
+   * value stays in the list after the person picks a different entry AND
+   * leaves the Settings tab and comes back: the component is unmounted on a
+   * tab switch, which threw its own state away, and the old value then
+   * vanished (independent review). Policy UI-050 says choosing an entry must
+   * not change the menu.
+   *
+   * Deliberately NOT part of `savedSettings` (whose other fields are not
+   * exact), never written to disk, and never cleared during a run -- it only
+   * grows. On the next launch it starts empty, and the list then shows
+   * whatever is saved.
+   */
+  seenMetadataLanguages: string[];
+
+  /**
+   * Record a metadata language value the list has shown. A no-op for an
+   * empty value or one already recorded, so it is safe to call on every
+   * render of the list. The caller decides which values are worth
+   * recording (only those not in the offered list).
+   */
+  noteMetadataLanguageSeen: (value: string) => void;
 }
 
 /**
@@ -443,6 +471,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isLoading: false, // No load in progress at creation time
   isDirty: false, // No unsaved changes at creation time
   error: null, // No error at creation time
+  seenMetadataLanguages: [], // Nothing shown yet this run (#1249)
 
   // -------------------------------------------------------------------------
   // Actions
@@ -697,4 +726,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       isDirty: true,
     }));
   },
+
+  /**
+   * See the declaration in `SettingsState`. Returning the unchanged state
+   * when there is nothing to add means Zustand notifies nobody, so calling
+   * this after every render of the list costs nothing.
+   */
+  noteMetadataLanguageSeen: (value) =>
+    set((state) =>
+      value === '' || state.seenMetadataLanguages.includes(value)
+        ? state
+        : { seenMetadataLanguages: [...state.seenMetadataLanguages, value] }
+    ),
 }));

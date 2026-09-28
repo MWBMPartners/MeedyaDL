@@ -144,7 +144,7 @@ export function alphabeticalPrimaryOrder(tags: readonly string[], uiLanguage: st
   return primaries.sort(
     (a, b) =>
       collator.compare(languageDisplayName(a, uiLanguage), languageDisplayName(b, uiLanguage)) ||
-      (a < b ? -1 : a > b ? 1 : 0),
+      (a < b ? -1 : a > b ? 1 : 0)
   );
 }
 
@@ -158,7 +158,7 @@ export function collatorFallbackOrder(tags: readonly string[], uiLanguage: strin
   return [...tags].sort(
     (a, b) =>
       collator.compare(languageDisplayName(a, uiLanguage), languageDisplayName(b, uiLanguage)) ||
-      (a < b ? -1 : a > b ? 1 : 0),
+      (a < b ? -1 : a > b ? 1 : 0)
   );
 }
 
@@ -171,7 +171,7 @@ export function collatorFallbackOrder(tags: readonly string[], uiLanguage: strin
  */
 export function languagePreferences(
   uiLanguage: string,
-  systemLanguages: readonly string[],
+  systemLanguages: readonly string[]
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -193,7 +193,7 @@ export function languagePreferences(
  */
 export function withSavedValues(
   offered: readonly string[],
-  savedValues: readonly string[],
+  savedValues: readonly string[]
 ): string[] {
   const out = [...offered];
   for (const value of savedValues) {
@@ -215,6 +215,9 @@ export function isSameList(ordered: readonly string[], tags: readonly string[]):
 }
 
 /** The list entries, in the given order, named in `uiLanguage`. */
-export function toLanguageOptions(ordered: readonly string[], uiLanguage: string): LanguageOption[] {
+export function toLanguageOptions(
+  ordered: readonly string[],
+  uiLanguage: string
+): LanguageOption[] {
   return ordered.map((tag) => ({ value: tag, label: languageDisplayName(tag, uiLanguage) }));
 }
