@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 17:53) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 17:59) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -904,6 +904,19 @@ on PRs to / pushes to main.
   - The builder opened #159 (the importer guesses the wrong encoding), and it needs a decision.
   - I commented on #150. A stand-in review is running, with a watchdog on it.
 - **Codex catch-up on MeedyaPlayer (`d5e3e41..bc901ad`) and MeedyaSubtitler (`53bbc0f..44cf095`) is running as one run.** These branches have no application code: they hold the copies, the workflow, `.gitattributes`, the decision records and notes. The instructions are in `codex-prompt-ps-catchup.txt`, and a watchdog is on it.
+- **Codex catch-up on MeedyaPlayer and MeedyaSubtitler: 8 findings.**
+  - **Both repositories:** `.gitattributes` uses `-text` only, so git filters, encoding conversion and `$Id$` expansion can still change a copy's bytes. Codex reproduced this with a temporary filter.
+  - **MeedyaPlayer:**
+    - The maintainer's real first name appears in about 20 current files, some from earlier-session commits on this branch and some already on `main`.
+    - `https://MWBM Partners Ltd.ltd` is a bad find-and-replace from `2337861`. It was `https://MWBMpartners.ltd`.
+    - ADR 0010 treats an upstream link as enough to meet the source-code obligation.
+    - `third-party.md` says removing a dependency ends its obligations.
+    - `CLAUDE.md` says the core is MIT/Apache. Core is MIT, which I checked on GitHub.
+    - The naming rule forbids even the real GitHub organisation name.
+    - The handoff contradicts itself about the pull-request target. `develop` does exist.
+  - The workflows were verified to fail correctly when a copy has changed or is missing, and when GitHub is unreachable.
+  - **All 8 are to be fixed. The Player/Subtitler round-11 builder is running** (Sonnet, `brief-player-subtitler-r11.md`), with a watchdog on it. History is not rewritten; that remains the maintainer's decision.
+  - **Cross-repository item G1, the `.gitattributes` hardening** (`-text -filter -working-tree-encoding -ident`). It is in the running MeedyaDL round 5 (addendum D) and NetPLAYERapp round 6 (item 7). **Still to add to the next round of:** MeedyaManager, MeedyaConverter, iHymns and iLyricsDB. The text is in `gitattributes-item.md`. Core and the plugin have no `.gitattributes`.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
