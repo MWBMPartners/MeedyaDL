@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 08:55) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 09:05) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -443,6 +443,15 @@ on PRs to / pushes to main.
   refuses what it used to accept (docs/API.md). Stand-in review (fresh Opus) of `21fa942..4a67e3a`
   running; Codex catch-up at 12:37 (wake-up set). **The copy-update sweep of every repository waits
   for this review.**
+- **09:05 — stand-in review of core revision 5: NOT clean.** MUST: several languages on MP3/WAV/AIFF
+  are lost on the library's NEXT write (lofty splits the TLAN frame on read and saves one frame per
+  item; only the last survives). Should: M4A writes one atom per language (ffprobe then shows the
+  last); two Language entries in one call keep the last; an unchanged value from another tool
+  blocks an unrelated write; Lyricsfile `parse` skips the reader. Minor: runners confuse `{}`/`[]`;
+  checker misses a runner outside `tests/`; UI-070 text lacks the empty-part rule; `MetadataError`
+  not `#[non_exhaustive]`. Also: doc-count substring match; YAML `no` unquoted; PHP runner crashes on
+  a bad `mode`. **All sent to a core revision-6 builder** (`brief-revision-6.md`; watchdog on it).
+  The copy-update sweep still waits for core to come back clean.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
