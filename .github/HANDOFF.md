@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 08:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 08:55) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -434,6 +434,15 @@ on PRs to / pushes to main.
   paragraph after a writer line still passes the pinned tests. **Stand-in: a fresh Opus reviewer**
   on `748e87c..a9fb292` (labelled as such). **Codex catch-up after 12:35:** core revision 5 and the
   plugin's `748e87c..a9fb292`.
+- **About 08:55 — core revision 5 pushed (`4a67e3a`, full on origin):** all six Codex r7 findings
+  fixed (multi-value write, metadata write refuses unrecognised values, Lyricsfile `und` +
+  `language_original`, both runners check top-level fields and types, checker completeness per PHP
+  copy + layout, CI pipefail, empty label parts), 290 cases, 796/943 tests, PHP 290/290 — checked by
+  me. Plus my own commit tightening policy §8.3 to match the checker. **Breaking API changes in
+  core:** `MetadataError` gains a variant; `LyricsfileMetadata` gains a field; `write_tags`
+  refuses what it used to accept (docs/API.md). Stand-in review (fresh Opus) of `21fa942..4a67e3a`
+  running; Codex catch-up at 12:37 (wake-up set). **The copy-update sweep of every repository waits
+  for this review.**
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
