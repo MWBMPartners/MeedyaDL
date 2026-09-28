@@ -419,7 +419,7 @@ on PRs to / pushes to main.
   provable own-branch checkout (anything else = someone else's PR, or ask/BLOCKED), commands from
   user/protocol/snapshotted instructions, and an honest statement that prompt rules cannot stop a
   manipulated agent — the guard hooks are the only enforcement. Revision 5 builder running.
-- **About 08:40:** iHymns review fixes pushed (`cc655f0f`, 9 commits; all ten items; the
+- **About 08:24:** iHymns review fixes pushed (`cc655f0f`, 9 commits; all ten items; the
   songbook-language card is now manual and dry-run-first and never touches `und`/`zxx`/`mul`;
   translation links under retired codes are updated in place; script-aware filter). Checked by me:
   288/288 PHP suites (two need no memory limit, as on the base branch), 112 Node suites, eslint,
@@ -427,6 +427,13 @@ on PRs to / pushes to main.
   **Admin steps after deploying iHymns:** run "Song language: default to not known (und)" and
   "Translations: allow regional and script languages"; the "Give songs their songbook's language"
   card is manual — dry run first, apply only as a curator's decision.
+- **About 08:37:** plugin revision 5 pushed (`a9fb292`: snapshot = plain copies in
+  `~/.dev-team/runs/<run-id>/snapshot/` + SHA-256 manifest, no seal; trust needs proof of provenance;
+  honest limits; 159/159 bats; checked by me). **Codex hit its usage limit during the follow-up
+  (resets 12:35)** — no final review. Its partial run showed an exception added as its own
+  paragraph after a writer line still passes the pinned tests. **Stand-in: a fresh Opus reviewer**
+  on `748e87c..a9fb292` (labelled as such). **Codex catch-up after 12:35:** core revision 5 and the
+  plugin's `748e87c..a9fb292`.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
