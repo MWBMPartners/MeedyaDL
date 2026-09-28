@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 12:04) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 12:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -587,6 +587,14 @@ on PRs to / pushes to main.
   identity, no name. Commits credit Sonnet correctly; the handoffs say plainly that the earlier two
   commits in each wrongly credit Opus (not rewritten). CI watched; THIRD stand-in review (new work only)
   running, watchdog on it.
+- **12:15 — CI passed on both MeedyaPlayer (`c9f1149`) and MeedyaSubtitler (`970f8f4`) pushes. Their
+  THIRD stand-in review: NOT clean** (0 must, 3 should, 12 minor) — mostly fixes applied in one place and
+  missed in another, plus one new false claim: "CI green on every commit" is untrue for MeedyaSubtitler
+  (GitHub only checked the last commit of each push). Round 4 to a FRESH Sonnet builder
+  (`…/scratchpad/lang/brief-player-subtitler-r4.md`), told to grep each repository for every copy of each
+  wrong phrase. Watchdog on it. Outside this work: MeedyaPlayer's tree already carries the maintainer's
+  first name in about 20 older lines (`CLAUDE.md`, `.claude/HANDOFF.md`, several ADRs, from older commits
+  such as `dcaec9a`) — to report to the maintainer, not changed here.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
