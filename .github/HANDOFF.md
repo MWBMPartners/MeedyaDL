@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 05:15) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 04:35) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -244,7 +244,7 @@ on PRs to / pushes to main.
 - **Decision (mine):** MeedyaDL's LYRIC sidecars stay `{song}.lrc` etc. — TEXT-030 covers files
   named by language, and players look for that exact name; renaming would break them.
 
-**Progress (about 04:20, 28 Sept):**
+**Progress (about 04:05, 28 Sept):**
 
 - **Stand-in reviews (fresh Opus agents, labelled as such — Codex out until 07:33):**
   - MeedyaPlayer `ef4b886`: NOT clean — ADR 0012 narrows the profile wrongly, says accessibility
@@ -274,7 +274,7 @@ on PRs to / pushes to main.
 - **MeedyaConverter done and pushed** (`wip/bcp47-language-policy`, 13 commits, head `67c41ca`,
   #530 stream-numbering fix first); CI running (watch `b900iza6r`, 50-min limit); stand-in review
   running. ffmpeg 9.0.1 cannot write Matroska `LanguageBCP47` or MP4 `elng` — follow-up issues.
-- **About 05:15:** core lyrics/metadata fixes pushed (`d2cf1b9`, 736/883 tests, checked by me);
+- **About 04:30:** core lyrics/metadata fixes pushed (`d2cf1b9`, 736/883 tests, checked by me);
   **core revision 4 builder running** (Opus, `brief-revision-4.md`, also fixes the per-crate test
   counts). MeedyaPlayer `2b29659` + MeedyaSubtitler `fc211a1` pushed (review fixes + issue
   corrections; the fixes themselves unreviewed — review them with the re-pin). MeedyaConverter
@@ -283,6 +283,13 @@ on PRs to / pushes to main.
   `language` now a tag, name in `languageName`, OpenAPI 1.0.0→1.1.0, CHANGELOG says so) and
   **NetPLAYERapp pushed** (#210; migration 0015 checked twice on throwaway MySQL; schema v0.4.0);
   stand-in reviews of both running. Still building: MeedyaDL, MeedyaManager, iHymns, plugin r3.
+- **Mistake (mine, about 04:29):** pushing a handoff commit with `git push origin HEAD` also pushed
+  the MeedyaDL builder's first three commits (`5e254902` #1245, `58aea067` #1244, `36ad90a8`
+  #1246) before review. Each says "Not yet independently reviewed", author Salem874, no real
+  name; MeedyaDL's rules allow pushing to the working branch before review. Not undone (would need
+  a force-push). Builder told not to rewrite them. **From now on: push handoff commits by their own
+  hash only when `origin..HEAD` lists nothing else.** (The "about" times in this section were
+  written ahead of the real clock; corrected.)
 - **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
   lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
   a squash**, or every consumer must run `--update` afterwards.
