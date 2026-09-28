@@ -2901,24 +2901,28 @@ pub fn extract_media_user_token(cookies_path: &str) -> Result<Option<String>, St
 }
 
 /// Builds the optional `&l={locale}` query suffix for Apple Music API
-/// calls (#973). BCP-47 tag from settings.language (same value handed to
-/// GAMDL --language). Returns "" when None/empty/all-rejected-chars.
-/// Input restricted to ASCII alphanumerics and '-' (max 35 chars) so a
-/// corrupt settings file can't inject extra query params.
+/// calls (#973). The value is settings.language (the same value handed to
+/// GAMDL as --language).
+///
+/// Read as a language tag, or — if it is not one but is an operating-system
+/// locale name such as `en_US` — converted with the shared language
+/// policy's rule (LANG-004, #1247), then sent in its standard form. When
+/// there is no usable language (`None`, empty, `und`, not a tag or locale
+/// name at all, over 35 characters) this returns "" and NO `l=` is sent:
+/// Apple then answers in the storefront's default language, which is
+/// better than a guess. See `utils::language::localisation_tag`.
+///
+/// Before #1247 this deleted every character that was not a letter, digit
+/// or hyphen and cut the rest at 35 characters. That kept injection out,
+/// but turned `en_US` into `enUS` (not a language at all) and could cut a
+/// tag mid-part. A standard-form tag holds only ASCII letters, digits and
+/// hyphens, so injection is still impossible — and a value with anything
+/// else in it is refused outright rather than cleaned up into something
+/// nobody wrote.
 fn locale_query_suffix(locale: Option<&str>) -> String {
-    let Some(raw) = locale else {
-        return String::new();
-    };
-    let tag: String = raw
-        .trim()
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .take(35)
-        .collect();
-    if tag.is_empty() {
-        String::new()
-    } else {
-        format!("&l={tag}")
+    match locale.and_then(crate::utils::language::localisation_tag) {
+        Some(tag) => format!("&l={tag}"),
+        None => String::new(),
     }
 }
 
@@ -4942,14 +4946,29 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
     fn locale_suffix_appends_bcp47_tag() {
         assert_eq!(locale_query_suffix(Some("en-US")), "&l=en-US");
         assert_eq!(locale_query_suffix(Some("ja-JP")), "&l=ja-JP");
+        assert_eq!(locale_query_suffix(Some("zh-Hant-TW")), "&l=zh-Hant-TW");
     }
 
     #[test]
-    fn locale_suffix_strips_injection_characters() {
-        assert_eq!(
-            locale_query_suffix(Some("en-US&extend=evil")),
-            "&l=en-USextendevil"
-        );
+    fn locale_suffix_sends_the_standard_form() {
+        // #1247: an OS-style locale name used to become `enUS`.
+        assert_eq!(locale_query_suffix(Some("en_US")), "&l=en-US");
+        assert_eq!(locale_query_suffix(Some("en_GB.UTF-8")), "&l=en-GB");
+        assert_eq!(locale_query_suffix(Some("EN-us")), "&l=en-US");
+    }
+
+    #[test]
+    fn locale_suffix_sends_nothing_rather_than_a_guess() {
+        for value in ["und", "zxx", "C", "English", "x-private"] {
+            assert_eq!(locale_query_suffix(Some(value)), "", "{value:?}");
+        }
+    }
+
+    #[test]
+    fn locale_suffix_refuses_injection_rather_than_cleaning_it() {
+        // Not a tag, so nothing at all is sent (it used to send the
+        // cleaned-up remainder `en-USextendevil`).
+        assert_eq!(locale_query_suffix(Some("en-US&extend=evil")), "");
         assert_eq!(locale_query_suffix(Some("?&=#/")), "");
     }
 
