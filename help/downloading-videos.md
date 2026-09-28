@@ -122,6 +122,18 @@ Music video downloads can include synchronized lyrics or subtitle tracks. The de
 
 You can configure lyric and subtitle format preferences in **Settings > Lyrics tab**. For more information on lyric formats and options, see [Lyrics and Metadata](lyrics-and-metadata.md).
 
+**Subtitles and captions saved from the video itself.** If a music video carries its own subtitle or caption tracks, MeedyaDL also saves each one as a separate file next to the video, named the way most video players expect: the video's name, then the track's language, then what kind of track it is, then the file type. For example, for `Song.mp4`:
+
+- `Song.en.srt` -- English subtitles
+- `Song.en.sdh.srt` -- English captions for people who are deaf or hard of hearing
+- `Song.fr.forced.vtt` -- French subtitles shown only where needed (for example, a sign in another language)
+- `Song.en.commentary.srt` -- an English commentary track
+- `Song.und.srt` -- a track that does not say which language it is in
+
+If two tracks would end up with the same name, the second gets a number (`Song.en.2.srt`). The same video always gives the same names, so downloading it again does not make duplicates. Files saved by older versions of MeedyaDL keep their old names (such as `Song.cc.2.eng.srt`) and are never renamed; a new download also recognises them, so the same track is not saved twice.
+
+These files are never mistaken for the song's lyrics: the lyric file MeedyaDL places beside a music video is named exactly like the video, with no language in the name (`Song.srt`).
+
 ### Metadata Embedding
 
 Downloaded video files are automatically tagged with metadata retrieved from Apple Music, including:
