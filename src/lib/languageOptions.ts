@@ -221,3 +221,35 @@ export function toLanguageOptions(
 ): LanguageOption[] {
   return ordered.map((tag) => ({ value: tag, label: languageDisplayName(tag, uiLanguage) }));
 }
+
+/**
+ * The label for one row of the Interface Language list (Settings >
+ * General > Language), per policy UI-011: a language's own name (its
+ * autonym, "Deutsch") must not be the ONLY label in a general menu, but
+ * may be shown as well. So each row reads "name in the interface language
+ * — the language's own name": "German — Deutsch" in an English interface,
+ * "Allemand — Deutsch" in a French one.
+ *
+ * - The first name comes from the platform (`Intl.DisplayNames`), in the
+ *   interface language, never a hand-typed English word (UI-010).
+ * - The second is the language's own name as MeedyaDL already lists it
+ *   (`LOCALES.nativeName` in `src/lib/i18n.ts`), followed by that
+ *   language's own "machine translation" note when it has one, so the
+ *   note stays next to the words it is about, in the same language.
+ * - When the two names are the same apart from letter case ("English" in
+ *   an English interface, "français" / "Français" in a French one) the
+ *   name is shown once, as UI-011 allows.
+ *
+ * The value of each row stays the locale code; only the label changes.
+ */
+export function interfaceLanguageLabel(
+  code: string,
+  ownName: string,
+  uiLanguage: string,
+  ownNote = ''
+): string {
+  const localised = languageDisplayName(code, uiLanguage);
+  const own = ownNote === '' ? ownName : `${ownName} (${ownNote})`;
+  const sameName = localised.localeCompare(ownName, undefined, { sensitivity: 'accent' }) === 0;
+  return sameName ? own : `${localised} — ${own}`;
+}

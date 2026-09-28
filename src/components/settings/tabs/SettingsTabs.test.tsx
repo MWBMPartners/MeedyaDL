@@ -342,11 +342,17 @@ describe('GeneralTab', () => {
   /**
    * German and French were translated by a machine and have not been
    * read through by a person who speaks the language. The dropdown says
-   * so directly on the option itself -- the option text comes straight
-   * from `LOCALES` in `src/lib/i18n.ts` (`nativeName` + the language's
-   * own `machineAssistedLabel`), so this test is really checking that
+   * so directly on the option itself -- the note comes straight from
+   * `LOCALES` in `src/lib/i18n.ts` (the language's own
+   * `machineAssistedLabel`), so this test is really checking that
    * GeneralTab builds its options from that data instead of a
    * hand-written label that could drift out of sync with it.
+   *
+   * Each row also names the language in the interface language first
+   * and then in its own language (policy UI-011: the language's own
+   * name must not be the only label) -- updated for the independent
+   * review of the language-policy work; the rows used to show only
+   * "Deutsch", "Français", "English".
    */
   it('shows the machine-translation qualifier on the German and French options, but not on English', () => {
     render(<GeneralTab />);
@@ -355,12 +361,32 @@ describe('GeneralTab', () => {
     const options = Array.from(select.options);
 
     expect(options.find((o) => o.value === 'de')?.textContent).toBe(
-      'Deutsch (automatische Übersetzung)',
+      'German — Deutsch (automatische Übersetzung)'
     );
     expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
-      'Français (traduction automatique)',
+      'French — Français (traduction automatique)'
     );
+    // The two names are the same, so it is shown once.
     expect(options.find((o) => o.value === 'en')?.textContent).toBe('English');
+  });
+
+  /** The first name follows the interface language; the value stays the code. */
+  it('names each interface language in the language the app is showing', async () => {
+    await useTestLanguage('fr');
+    try {
+      render(<GeneralTab />);
+      const select = screen.getByLabelText('Language') as HTMLSelectElement;
+      const options = Array.from(select.options);
+      expect(options.find((o) => o.value === 'de')?.textContent).toMatch(/^allemand — Deutsch/);
+      expect(options.find((o) => o.value === 'en')?.textContent).toBe('anglais — English');
+      // French in a French interface: "français" and "Français" differ only
+      // in letter case, so the name is shown once.
+      expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
+        'Français (traduction automatique)'
+      );
+    } finally {
+      await useTestLanguage('en');
+    }
   });
 
   /**

@@ -26,6 +26,7 @@ import {
   isSameList,
   languageDisplayName,
   languagePreferences,
+  interfaceLanguageLabel,
   primaryLanguageOf,
   toLanguageOptions,
   withSavedValues,
@@ -131,5 +132,21 @@ describe('toLanguageOptions', () => {
     expect(toLanguageOptions(['en-GB'], 'en')).toEqual([
       { value: 'en-GB', label: 'English (United Kingdom)' },
     ]);
+  });
+});
+
+describe('interfaceLanguageLabel', () => {
+  it("shows the name in the interface language first, then the language's own name", () => {
+    expect(interfaceLanguageLabel('de', 'Deutsch', 'en')).toBe('German — Deutsch');
+    expect(interfaceLanguageLabel('de', 'Deutsch', 'en', 'automatische Übersetzung')).toBe(
+      'German — Deutsch (automatische Übersetzung)'
+    );
+  });
+
+  it('shows one name when the two are the same apart from letter case', () => {
+    expect(interfaceLanguageLabel('en', 'English', 'en')).toBe('English');
+    expect(interfaceLanguageLabel('fr', 'Français', 'fr', 'traduction automatique')).toBe(
+      'Français (traduction automatique)'
+    );
   });
 });

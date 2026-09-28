@@ -69,6 +69,8 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Names and order for the Metadata Language list (#1249).
 import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
+// Two-name labels for the Interface Language list (policy UI-011).
+import { interfaceLanguageLabel } from '@/lib/languageOptions';
 
 // IPC command wrappers for settings export/import.
 import {
@@ -133,22 +135,38 @@ const THEME_OPTIONS = [
  *   the locale JSON file and add one entry to `LOCALES` — nothing here
  *   needs to change.
  *
+ * Each row reads "name in the interface language — the language's own
+ * name", e.g. "German — Deutsch" (policy UI-011: the language's own name
+ * must not be the only label; see `interfaceLanguageLabel` in
+ * src/lib/languageOptions.ts). Until the independent review of the
+ * language-policy work (#1244) the rows showed only the language's own
+ * name, which a person who does not read it cannot recognise.
+ *
  * For a language nobody has checked yet (`machineAssisted: true` in
- * `LOCALES`), the row's own name is followed by a short qualifier written
- * in that same language -- e.g. "Deutsch (automatische Übersetzung)" --
- * so a German or French reader sees the caveat before they even pick it,
- * not after. The qualifier text lives in `LOCALES.machineAssistedLabel`,
- * not here, so this file never has to carry its own copy of it.
+ * `LOCALES`), the language's own name is followed by a short qualifier
+ * written in that same language -- e.g. "German — Deutsch (automatische
+ * Übersetzung)" -- so a German or French reader sees the caveat before
+ * they even pick it, not after. The qualifier text lives in
+ * `LOCALES.machineAssistedLabel`, not here, so this file never has to
+ * carry its own copy of it.
+ *
+ * Built per render because the first name depends on the language the
+ * interface is showing right now.
  */
-const UI_LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto (System)' },
-  ...LOCALES.map((locale) => ({
-    value: locale.code,
-    label: locale.machineAssisted
-      ? `${locale.nativeName} (${locale.machineAssistedLabel})`
-      : locale.nativeName,
-  })),
-];
+function uiLanguageOptions(interfaceLanguage: string) {
+  return [
+    { value: 'auto', label: 'Auto (System)' },
+    ...LOCALES.map((locale) => ({
+      value: locale.code,
+      label: interfaceLanguageLabel(
+        locale.code,
+        locale.nativeName,
+        interfaceLanguage,
+        locale.machineAssisted ? locale.machineAssistedLabel : ''
+      ),
+    })),
+  ];
+}
 
 /**
  * Update check interval options. Value is in hours.
@@ -693,7 +711,7 @@ export function GeneralTab() {
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={UI_LANGUAGE_OPTIONS}
+            options={uiLanguageOptions(i18n.language)}
             value={uiLanguage.value || 'auto'}
             onChange={(e) => {
               const val = e.target.value;
