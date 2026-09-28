@@ -69,6 +69,9 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Names and order for the Metadata Language list (#1249).
 import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
+// Order for the Interface Language list (policy UI-040, independent
+// review round 3 of #1244).
+import { useInterfaceLanguageOptions } from '@/hooks/useInterfaceLanguageOptions';
 // Two-name labels for the Interface Language list (policy UI-011).
 import { interfaceLanguageLabel } from '@/lib/languageOptions';
 
@@ -129,11 +132,18 @@ const THEME_OPTIONS = [
  *
  * - 'auto': Detect from OS locale (default). Internally stored as `""`
  *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
- * - Every other row comes straight from `LOCALES` in `src/lib/i18n.ts`, so
- *   this dropdown can never fall out of step with the languages the app
- *   actually ships translation files for. To add a new language: create
- *   the locale JSON file and add one entry to `LOCALES` — nothing here
- *   needs to change.
+ *           Always the first row -- it is not a language, so the ordering
+ *           rule just below does not apply to it.
+ * - Every other row comes from `LOCALES` in `src/lib/i18n.ts`, in the order
+ *   `order` gives their codes -- see `useInterfaceLanguageOptions`
+ *   (src/hooks/), which the caller asks for that order with. Until the
+ *   independent review's round 3, this just followed `LOCALES`' own array
+ *   order ("English, Deutsch, Français", always, whatever language the
+ *   interface was actually showing) instead of policy UI-040's rule: the
+ *   interface language first, then everything else alphabetical by name IN
+ *   the interface language -- the same rule the Metadata Language list
+ *   already follows. To add a new language: create the locale JSON file
+ *   and add one entry to `LOCALES` — nothing here needs to change.
  *
  * Each row reads "name in the interface language — the language's own
  * name", e.g. "German — Deutsch" (policy UI-011: the language's own name
@@ -153,18 +163,26 @@ const THEME_OPTIONS = [
  * Built per render because the first name depends on the language the
  * interface is showing right now.
  */
-function uiLanguageOptions(interfaceLanguage: string) {
+function uiLanguageOptions(interfaceLanguage: string, order: readonly string[], autoLabel: string) {
   return [
-    { value: 'auto', label: 'Auto (System)' },
-    ...LOCALES.map((locale) => ({
-      value: locale.code,
-      label: interfaceLanguageLabel(
-        locale.code,
-        locale.nativeName,
-        interfaceLanguage,
-        locale.machineAssisted ? locale.machineAssistedLabel : ''
-      ),
-    })),
+    { value: 'auto', label: autoLabel },
+    ...order.map((code) => {
+      const locale = LOCALES.find((l) => l.code === code);
+      // Every code `order` can contain comes from `AVAILABLE_LOCALES`,
+      // which is `LOCALES.map(l => l.code)` -- so this is always found.
+      // The fallback below only exists so a malformed order can never
+      // crash the Settings screen.
+      if (!locale) return { value: code, label: code };
+      return {
+        value: locale.code,
+        label: interfaceLanguageLabel(
+          locale.code,
+          locale.nativeName,
+          interfaceLanguage,
+          locale.machineAssisted ? locale.machineAssistedLabel : ''
+        ),
+      };
+    }),
   ];
 }
 
@@ -325,6 +343,10 @@ export function GeneralTab() {
   // Named in the language the interface is showing right now, and ordered
   // with the person's own languages first (#1249).
   const metadataLanguageOptions = useMetadataLanguageOptions(language.value, i18n.language);
+  // The Interface Language list's own order (policy UI-040, independent
+  // review round 3 of #1244) -- the interface language first, then
+  // everything else alphabetical by name in the interface language.
+  const interfaceLanguageOrder = useInterfaceLanguageOptions(i18n.language);
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
@@ -711,7 +733,11 @@ export function GeneralTab() {
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={uiLanguageOptions(i18n.language)}
+            options={uiLanguageOptions(
+              i18n.language,
+              interfaceLanguageOrder,
+              t('settings.general.languageAuto')
+            )}
             value={uiLanguage.value || 'auto'}
             onChange={(e) => {
               const val = e.target.value;

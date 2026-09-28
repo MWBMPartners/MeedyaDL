@@ -9,8 +9,11 @@
 // One command: `order_languages_for_display`, which puts the entries of a
 // language list into the order a person should see them, per the shared
 // language policy (docs/standards/media-language-bcp47-policy.md, UI-020 to
-// UI-040). Its only caller today is the Metadata Language list in
-// Settings > General.
+// UI-040). Its callers today are the Metadata Language list and the
+// Interface Language list, both in Settings > General — the Interface
+// Language list joined as of the independent review, round 3 of #1244; it
+// used to just follow `LOCALES`' own array order, whatever language the
+// interface was actually showing.
 //
 // Why the ordering is done here and not in JavaScript: the rules are
 // implemented once, in the shared `meedya-lang` crate, and the policy's test
@@ -34,7 +37,7 @@ const MAX_VALUE_LEN: usize = 256;
 ///
 /// **Frontend caller:** `orderLanguagesForDisplay(tags, preferences,
 /// alphabeticalPrimaryOrder)` in `src/lib/tauri-commands.ts`, used by
-/// `useMetadataLanguageOptions`.
+/// `useMetadataLanguageOptions` and `useInterfaceLanguageOptions`.
 ///
 /// # Arguments
 /// * `tags` — the list entries, exactly as stored. They come back exactly
