@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 17:59) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 18:19) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -917,6 +917,13 @@ on PRs to / pushes to main.
   - The workflows were verified to fail correctly when a copy has changed or is missing, and when GitHub is unreachable.
   - **All 8 are to be fixed. The Player/Subtitler round-11 builder is running** (Sonnet, `brief-player-subtitler-r11.md`), with a watchdog on it. History is not rewritten; that remains the maintainer's decision.
   - **Cross-repository item G1, the `.gitattributes` hardening** (`-text -filter -working-tree-encoding -ident`). It is in the running MeedyaDL round 5 (addendum D) and NetPLAYERapp round 6 (item 7). **Still to add to the next round of:** MeedyaManager, MeedyaConverter, iHymns and iLyricsDB. The text is in `gitattributes-item.md`. Core and the plugin have no `.gitattributes`.
+- **MeedyaManager round 5 pushed (`a150926`).** It has 8 commits and covers all ten decisions.
+  - The builder opened **#260** (a locked file leaves a locked copy behind). It is on board 7 and linked from #251.
+  - My checks: fmt, clippy and the documentation build were clean. 1,526 tests passed. `cargo deny` showed only the known RUSTSEC-2026-0285. The copy checker found 6 of 6 copies matching. There were no name lines, and the tree was clean.
+  - The builder caught one fault of its own through the full check list: a public comment linked to a private function (`a1fa6be`).
+  - MeedyaManager CI runs only the workflow check, and only when a workflow file changes.
+  - I commented on #251.
+  - **Codex is reviewing the whole language range `7697b9c..a150926` in place of a stand-in.** It has 36 commits and about 6,500 lines of code. The instructions are in `codex-prompt-mgr-catchup.txt`, and a watchdog is on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
