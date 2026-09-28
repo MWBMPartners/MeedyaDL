@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 02:40) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 03:10) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -126,6 +126,28 @@ on PRs to / pushes to main.
   actionlint's one remark is on the older `doc-counts` step (SC2086), not the new job.
 - **Codex allowance:** roughly one review per reset — spent on the core foundation. The plugin,
   and later repos, get fresh Opus reviewers, labelled as stand-ins, until Codex is free.
+
+**Progress (about 03:10, 28 Sept):**
+
+- **Codex round r2 on `d5addcf`: no wrong expected answer among 241 cases; 11 findings, all acted
+  on in core `e1d3189`** (checker: lock path checked, new-file writes defeat hard links, git-based
+  stray-copy search; policy: stable canonical form, `und-GB` kept whole, private-use groups,
+  decorated und/mul/mis/zxx exact-only, list position never decides selection, sidecar extras;
+  cases 241 → **253**, plus a stability check → 322 checks, oracle agrees). Checker tests: 23;
+  undoing each fix makes its test fail. **Codex r3 (follow-up, `d5addcf..e1d3189` only) running.**
+- **PHP:** passed revision 1 (241/241 on PHP 8.5 and 8.1); now updating to revision 2
+  (`brief-revision-2.md`). Commit `bindings/php/` + the `language-policy` CI job together once it
+  passes 253.
+- **Plugin `af39817` review (fresh Opus stand-in): NOT ready** — "the repository wins" could
+  override the plugin's safety rules; untrusted PR/vendored instruction files would count; no
+  limits; nine briefing places missed; tests passed with the meaning reversed. Revision builder
+  running with the exact rule text I wrote (`brief-plugin-r2.md`): trusted sources only, safety
+  rules never overridable, nearest-file-wins layering, unattended runs mark BLOCKED, one identical
+  agent sentence, tests proven by mutation.
+- **Briefs written, waiting:** `brief-ihymns.md`, `brief-netplayer.md`, `brief-ilyricsdb.md`
+  (need the final core commit + PHP), `brief-player-subtitler.md` (needs the final core commit).
+  MeedyaDL and MeedyaManager briefs wait for the Rust crate's function names.
+- MeedyaConverter builder told to pin core `e1d3189`.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
