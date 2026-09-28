@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 07:35) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 08:20) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -382,6 +382,27 @@ on PRs to / pushes to main.
   Decisions sent to the iHymns builder (the backfill card becomes MANUAL and skips special codes).
   Its containers were removed (0 dangling volumes). **Codex round r7 on core `968d820..21fa942`
   RUNNING** (`codex-r7.out`, 90-min limit).
+- **About 08:10 — Codex round r7 on core `968d820..21fa942` DONE (`…/scratchpad/lang/codex-r7.out`,
+  final answer in the last ~60 lines):** no earlier case's answer changed, 26 new cases agree with
+  the policy (it worked samples by hand). Six findings:
+  1. multi-value language write keeps only the first value (`tag_io.rs` ~563);
+  2. unrecognised text kept as the structured language (`lyricsfile_ttml.rs` ~378, `tag_io.rs`
+     ~581; LANG-002 says the structured value is `und`, original kept alongside);
+  3. the PHP runner passes a case file with missing top-level fields or wrong field types;
+  4. the checker's completeness is global, so with two PHP copies one runner line can be deleted;
+  5. the CI doc-count step lacks pipefail (pre-existing);
+  6. Rust adds " — " for an empty label part where PHP does not.
+  **Decisions (mine, final) → core revision 5** (`brief-revision-5.md`): write every value; the
+  metadata write REFUSES an unrecognised value (no silent `und`); Lyricsfile gets `und` plus a
+  `language_original` field; both runners check top-level fields and types; completeness per
+  copied PHP folder; `shell: bash` + pipefail; empty label parts add nothing (+ label cases).
+  Builder running (watchdog on it). The tool safety check returned no verdict for ~15 minutes
+  around 08:10 (transient); nothing was lost.
+- **MeedyaManager fix round done** (5 local commits on `beb4c15`: Save no longer changes or
+  refuses an unchanged language; rules and `<Language>` compare standard tags; stability check;
+  every tag container kept consistent; CLI reports what was really stored; issue #254 for the
+  pre-existing multi-value ID3 loss). To check and push next. Its reviewer's minor item 14 (rename
+  `wav_riff_info_round_trip`) was not recognised by the builder — still open.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
