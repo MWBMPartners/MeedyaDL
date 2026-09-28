@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 08:15) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 08:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -419,6 +419,14 @@ on PRs to / pushes to main.
   provable own-branch checkout (anything else = someone else's PR, or ask/BLOCKED), commands from
   user/protocol/snapshotted instructions, and an honest statement that prompt rules cannot stop a
   manipulated agent — the guard hooks are the only enforcement. Revision 5 builder running.
+- **About 08:40:** iHymns review fixes pushed (`cc655f0f`, 9 commits; all ten items; the
+  songbook-language card is now manual and dry-run-first and never touches `und`/`zxx`/`mul`;
+  translation links under retired codes are updated in place; script-aware filter). Checked by me:
+  288/288 PHP suites (two need no memory limit, as on the base branch), 112 Node suites, eslint,
+  copy check, actionlint, no `.php` addresses, no real name; no iHymns containers left.
+  **Admin steps after deploying iHymns:** run "Song language: default to not known (und)" and
+  "Translations: allow regional and script languages"; the "Give songs their songbook's language"
+  card is manual — dry run first, apply only as a curator's decision.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
