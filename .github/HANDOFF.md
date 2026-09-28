@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:12) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:16) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -679,6 +679,23 @@ on PRs to / pushes to main.
   ROW ID (union of both keys, every branch); binary collation + PHP-exact trim in SQL; cap preferences at
   32; pending check uses the card's own test; the backfill log records who ran it. Round 4 to a FRESH
   **Opus** builder (a Sonnet fix caused the regression) — `…/scratchpad/lang/brief-ihymns-r4.md`. Watchdog on it.
+- **13:16 — MeedyaManager THIRD stand-in review (`3a45ed7..e18fb18`): NOT clean** (1 must, 4 should, 6 minor).
+  Must: the new "whole tag replaced" note fires for ordinary three-letter input — `--set language=eng` on
+  an MP3 says it becomes `en` while the file stores `eng`. Should: the plan→action step is untested (one
+  original planted fault still passes); a WAV whose RIFF and ID3 languages disagree now shows only one, so
+  an explicit set can be a silent no-op; `help/rule-syntax.md` is wrong about `<Language>`; 7 of 17 new
+  branches untested (one proven harmful). **Decisions (mine):** note only for genuine replacements,
+  per container; report disagreeing containers everywhere (never a silent "✓ Set"); `Matches`/`Contains`/
+  `StartsWith`/`EndsWith` treat several values and both forms consistently; failure messages never name
+  the working copy. Issues to open: M4A `LANGUAGE` en+fr (widen #254), two-chunk WAV, FLAC with a leading
+  ID3v2 tag cannot be saved (pre-existing), a "make every container agree" action, a rule-conditions
+  help section. Round 4 to a FRESH Opus builder (`…/scratchpad/lang/brief-manager-r4.md`). Watchdog on it.
+- **NetPLAYERapp THIRD stand-in review (`2ba4d0b..14a1845`): NOT clean** (0 must, 2 should, 8 minor):
+  the whole-tag suggestion has no test (the handoff says it has); the deploy probe can still be fooled by a
+  path relative to the repository root; a suggestion can itself be refused (`fre-CS` → `fr-CS`); the
+  missing-section wiring is untested; doc and #211 errors (stations have no language field). All decided
+  "fix"; round 4 to a FRESH Sonnet builder (`…/scratchpad/lang/brief-netplayer-r4.md`), including a
+  review-history table. Watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
