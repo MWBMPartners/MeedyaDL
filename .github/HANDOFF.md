@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 02:10) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 02:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -98,6 +98,34 @@ on PRs to / pushes to main.
   and zh-Hant if a Chinese interface translation were added — note only, no change now.
 - Out of scope, to raise as MeedyaDL issue: enrichment fetches album metadata from Apple without
   `l=`, so tags can mix the storefront's default language with GAMDL's `--language` choice.
+
+**Progress (about 02:40, 28 Sept):**
+
+- **Stand-in review of `f35a3e7` done** (fresh Opus agent, not Codex — Codex hit its limit). No
+  wrong expected answer among the 169 cases, but real faults: the copy checker could pass wrongly
+  (master path into another repo via `../`; fork-only commit accepted — GitHub serves one under the
+  original repo's raw address, confirmed live; deleting a lock line unchecks a file; `--update`
+  writes outside the repo); 50 ISO 639-5-only codes wrongly in the ISO 639-2 data; ~20 ambiguities.
+- **All fixed in core `28b84e7`** (+ `d5addcf` removing two `__pycache__` files committed by
+  mistake — `.gitignore` now covers them): checker hardened with 18 offline tests (each hole
+  reproduced; a removed guard makes its test fail; live GitHub compare lookup checked — a fork
+  commit reads "diverged"); data rebuilt from Debian iso-codes' ISO 639-2 list (commit
+  90b9fe56) instead of SIL; policy text settled point by point; test cases **169 → 241** with two
+  new sections (`iso639_2_write`, `sidecar_name`); throwaway oracle 273/273.
+- **Running now (each with a watchdog):** Codex round r2 on `d5addcf` (starts 02:33, 90-min
+  timeout; brief `…/scratchpad/lang/codex-prompt-r2.txt`, output `codex-r2.out`); Rust builder
+  (told about the revision mid-build, `brief-revision-1.md`); PHP builder resumed for the revision
+  (was 169/169 on PHP 8.5 + 8.1 before it); MeedyaConverter Opus builder (`brief-converter.md`,
+  pinned to core `d5addcf…`, branch `wip/bcp47-language-policy`, commits locally, does not push);
+  a fresh Opus reviewer on the plugin commit.
+- **Plugin done and pushed:** dev-team-plugin `af39817` on `feature/bcp47-language-policy`, issue
+  MWBMPartners/dev-team-plugin#47 — "Repository instructions are authoritative" rule, v1.6.0,
+  148/148 bats. Not yet independently reviewed (reviewer running).
+- **Uncommitted in core's scratch clone:** `.github/workflows/ci.yml` gains a `language-policy`
+  job (schema check, checker tests, PHP 8.1 + 8.4 conformance) — commit it WITH the PHP binding.
+  actionlint's one remark is on the older `doc-counts` step (SC2086), not the new job.
+- **Codex allowance:** roughly one review per reset — spent on the core foundation. The plugin,
+  and later repos, get fresh Opus reviewers, labelled as stand-ins, until Codex is free.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
