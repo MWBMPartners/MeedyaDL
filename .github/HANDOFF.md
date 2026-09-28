@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 04:35) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 04:55) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -299,6 +299,19 @@ on PRs to / pushes to main.
   (Opus, `brief-converter-r2.md`). Guiding decision: a remux never loses anything the source had
   that the person did not change — where ffmpeg cannot store the preferred form, keep the source's
   value and report it. Branch is not merged anywhere, so nothing reached users.
+- **iLyricsDB stand-in review (about 04:55): NOT clean** — 3 must-fix (a long `Accept-Language`
+  header costs ~200x (0.2–1.1 s per request, any visitor can cause it); the translation picker shows
+  own-language names sorted by English names; the JSON export's translations have no tag), 8
+  should-fix (a language with no two-letter code is exported as unknown and dropped from menus;
+  tests do not test the changed behaviour; importer loses original `xml:lang`; ordering and
+  matching gaps). Decisions sent to the original builder (resumed; watchdog `bjb5yge9a`). The
+  checker gap it found (deleting the runner's lock line goes unnoticed) added to core revision 4.
+- **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
+  (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
+  payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
+  NetPLAYERapp run 36373865581 — job with zero steps). NetPLAYERapp's last successful run was
+  18 Aug. Public repos (MeedyaDL, core, MeedyaConverter, MeedyaManager, iHymns) are unaffected.
+  Until the maintainer fixes billing, those three are checked on this Mac only.
 - **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
   lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
   a squash**, or every consumer must run `--update` afterwards.
