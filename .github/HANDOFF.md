@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 06:00) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 03:40) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -214,6 +214,35 @@ on PRs to / pushes to main.
   (refusal cases + PHP fixes) and plugin `af39817..0c25209` first; then MeedyaPlayer,
   MeedyaSubtitler, MeedyaConverter. Anything Codex cannot reach → fresh Opus stand-in, labelled.
 - Still running: Rust crate builder, MeedyaConverter builder.
+
+**Progress (about 03:40 by the clock, 28 Sept — the earlier "about" times above ran ahead):**
+
+- **Rust crate committed and pushed: core `995becb`** (full
+  `995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6`) — `crates/meedya-lang`, 268/268 cases, 72 crate
+  tests, workspace 716 / 863 (default / all features) matching the documented counts, fmt and
+  clippy clean — checked by me, exit codes read directly. NOT yet independently reviewed (goes
+  into the Codex catch-up). No policy file changed between `904b056` and `995becb`, so copies stay
+  pinned at `904b056`.
+- **Three more builders started (each commits locally, none pushes; watchdog `bybupn84w`):**
+  - **MeedyaDL** (Opus, brief `…/scratchpad/lang/brief-meedyadl.md`) — works IN this checkout on
+    this branch. It must not touch `.github/HANDOFF.md`; commit handoff edits with
+    `git commit -- .github/HANDOFF.md` only, so its staged files are never swept in.
+    Crate pinned by `rev = 995becb…`; settings-language canonical form; `l=` from OS locale via
+    LANG-004; storefront from the tag's region subtag; settings dropdown labels from
+    `Intl.DisplayNames` with order from the crate via a new Tauri command; LRC `[la:]`;
+    music-video subtitle files renamed per TEXT-030 for NEW downloads only; copies + checker in
+    `ci.yml`; a consumer conformance test; issues for the `l=` mixing, embedded-subtitle atoms,
+    `a:0` assumptions, and re-pinning to core main.
+  - **MeedyaManager** (Sonnet, `brief-manager.md`) — language tag read via LANG-002, written per
+    format (TLAN three-letter terminology form; free-text fields the tag), an unchanged language
+    written back exactly as read (COMPAT-030), `tags.json5` MP4 key, copies + checker in
+    `ci-rust.yml`, sidecar reading as an issue only.
+  - **Core fixes** (Sonnet, `brief-core-fixes.md`, in the core scratch clone) — meedya-lyrics
+    `DEFAULT_LANGUAGE` `eng` → `XXX` plus an `id3_language` helper, Lyricsfile `xml:lang`
+    through the reader, wrong "ISO 639" doc wording, meedya-metadata writes `TLAN` in the
+    three-letter form.
+- **Decision (mine):** MeedyaDL's LYRIC sidecars stay `{song}.lrc` etc. — TEXT-030 covers files
+  named by language, and players look for that exact name; renaming would break them.
 
 **MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
 (`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
