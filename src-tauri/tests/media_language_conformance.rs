@@ -23,14 +23,26 @@
 // test is the only thing that compares the two things MeedyaDL actually
 // ships with.
 //
+// Until the independent review of round 3 (28 Sept 2026), nothing actually
+// checked that those two pins pointed at the SAME commit of core — the
+// module comment above and .claude/memory/project_media_language_policy.md
+// both warned about the failure mode without anything catching it. The
+// test now reads the crate's commit out of src-tauri/Cargo.lock and the
+// copies' commit out of docs/standards/MWBM-MEDIA-LANG.lock and refuses to
+// run any case at all unless they agree — see `read_crate_pin` and
+// `read_copies_pin` below.
+//
 // Which sections run (policy section 2 and the table in section 8.1):
 // MeedyaDL's profiles are "canonical" and "text", plus "presentation" for
-// its own settings lists only. That needs nine of the thirteen sections —
-// NEEDED_SECTIONS below. The other four (the subtitle menu's "Off" entry,
-// menu labels, and automatic audio and subtitle selection) are player
-// features MeedyaDL does not have; they are KNOWN (so the file carrying
-// them is not an error) but deliberately not run, and the test prints
-// that it skipped them so nobody mistakes the count for the whole file.
+// its own settings lists only. That needs ten of the thirteen sections —
+// NEEDED_SECTIONS below (the independent review's round 3 added `label`,
+// which the crate implements and section 8.1 lists for the presentation
+// profile; it had been left out with no reason given). The other three
+// (the subtitle menu's "Off" entry, and automatic audio and subtitle
+// selection) are player features MeedyaDL does not have; they are KNOWN
+// (so the file carrying them is not an error) but deliberately not run,
+// and the test prints that it skipped them so nobody mistakes the count
+// for the whole file.
 //
 // Policy 8.1 requires a harness to FAIL — never quietly pass — when:
 //   * the case file has a section it does not know        -> checked
@@ -41,6 +53,20 @@
 // which covers most required fields; `require_present` closes the one gap
 // that leaves (a field the schema requires to be PRESENT but allows to be
 // `null` — an `Option<T>` cannot tell "missing" from "null" by itself).
+//
+// A fifth thing policy 8.1 implies, that this file used to get wrong: a
+// section must run EVERY ONE of its cases, not merely as many as it has.
+// Every per-section loop below used to count with a plain `run += 1` at
+// the top of the loop body, then compare that count against the number of
+// cases in the file. A `continue` placed anywhere AFTER that line would
+// still leave the count looking complete — the case was "counted" before
+// it was skipped — so a harness that silently stopped comparing a case
+// partway through would report the same "ran N of N" line as one that
+// checked everything. Independent review, round 3: every loop below now
+// collects the IDs of the cases it actually finished comparing, in each
+// section, and checks that list against every ID the file has for that
+// section — an exact match, not a count, checked with `assert_eq!` right
+// where each section's loop ends.
 //
 // This file is adapted from core's own harness,
 // crates/meedya-lang/tests/conformance.rs at the pinned commit. The helper
@@ -59,7 +85,7 @@ use serde_json::Value;
 
 use meedya_lang::{
     build_sidecar_name, canonicalise, embedded_data_version, from_legacy_three_letter,
-    from_posix_locale, iso639_2_write, match_tags, parse_sidecar_name, sort_canonical,
+    from_posix_locale, iso639_2_write, label, match_tags, parse_sidecar_name, sort_canonical,
     sort_for_presentation, sort_tracks, LanguageItem, LanguageTag, MatchLevel, PresentationContext,
     PresentationItem, PresentationKind, Role, RoleItem, TrackItem, TrackType,
 };
@@ -80,18 +106,22 @@ const NEEDED_SECTIONS: &[&str] = &[
     "canonical_order",
     "track_order",
     "presentation_order",
+    "label",
     "match",
 ];
 
 /// Sections the policy defines that MeedyaDL's profiles do not need —
-/// player features (UI-060 "Off" entry, UI-070 labels, AUTO-* automatic
-/// selection). Known, so their presence is not an error; not run.
-const KNOWN_NOT_NEEDED_SECTIONS: &[&str] = &[
-    "subtitle_menu",
-    "label",
-    "auto_select_audio",
-    "auto_select_subtitle",
-];
+/// player features (UI-060 "Off" entry, AUTO-* automatic selection).
+/// Known, so their presence is not an error; not run.
+///
+/// `label` (UI-070) used to be listed here too, with no reason given for
+/// treating it as a player-only feature — the independent review of round
+/// 3 pointed out that section 8.1's own table lists `label` as needed by
+/// the "presentation" profile, which MeedyaDL declares itself as
+/// following (see the module comment above), so it has moved up into
+/// NEEDED_SECTIONS.
+const KNOWN_NOT_NEEDED_SECTIONS: &[&str] =
+    &["subtitle_menu", "auto_select_audio", "auto_select_subtitle"];
 
 /// Top-level keys that are not sections at all.
 const HEADER_KEYS: &[&str] = &[
@@ -144,6 +174,106 @@ fn case_id_hint(case: &Value, section: &str) -> String {
         .unwrap_or_else(|| format!("{section}/<no id>"))
 }
 
+/// Every case ID the fixture file lists for `section`, in file order —
+/// what a section's loop must produce, one-for-one, having actually
+/// compared each one (see the module comment on the "ran N of M" fix).
+fn expected_ids_for(section: &str, raw_value: &Value) -> Vec<String> {
+    raw_value[section]
+        .as_array()
+        .unwrap_or_else(|| panic!("the test case file has no array section {section:?}"))
+        .iter()
+        .map(|case| {
+            case.get("id")
+                .and_then(Value::as_str)
+                .unwrap_or("<no id>")
+                .to_string()
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------
+// The two pins must move together (independent review, round 3)
+// ---------------------------------------------------------------------
+//
+// The `meedya-lang` crate (pinned by `rev` in src-tauri/Cargo.toml, and
+// therefore also recorded in src-tauri/Cargo.lock) and MeedyaDL's copy of
+// the policy's test cases (pinned by docs/standards/MWBM-MEDIA-LANG.lock,
+// written by scripts/media-lang/check_copies.py) are two SEPARATE pins
+// into the same commit history of MWBMPartners/MeedyaSuite-core. Nothing
+// before this compared them — a re-pin of one without the other would
+// leave this test quietly checking the crate against a set of answers
+// worked out for a different revision of the policy, which is exactly the
+// failure mode the module comment at the top of this file warns about.
+// These two functions read both pins straight off disk, and the test
+// refuses to run a single case unless they agree.
+
+/// The commit `src-tauri/Cargo.lock` actually resolved `meedya-lang` to.
+///
+/// Cargo.lock is TOML, but only one line of it is needed here, so a small
+/// line scan is used instead of pulling in a TOML parser as a test-only
+/// dependency. A `[[package]]` block's `source` line looks like
+/// `source = "git+https://…?rev=<hex>#<hex>"` — the commit after the `#`
+/// is what Cargo actually built against (the `rev=` query parameter is
+/// what Cargo.toml asked for; the two are the same commit on a normal,
+/// up-to-date checkout, but the fragment is the one Cargo treats as
+/// authoritative).
+fn read_crate_pin() -> String {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock");
+    let raw =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {path}: {e}"));
+    let mut lines = raw.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() != "name = \"meedya-lang\"" {
+            continue;
+        }
+        // The `source` line is a few lines below `name` within the same
+        // `[[package]]` block; stop at the next blank line (the end of
+        // the block) if it is somehow not there.
+        for line in lines.by_ref() {
+            if line.trim().is_empty() {
+                break;
+            }
+            let Some(rest) = line.trim().strip_prefix("source = \"") else {
+                continue;
+            };
+            let rest = rest.trim_end_matches('"');
+            return rest
+                .rsplit('#')
+                .next()
+                .filter(|commit| !commit.is_empty())
+                .unwrap_or_else(|| {
+                    panic!("Cargo.lock's meedya-lang source line has no commit: {line:?}")
+                })
+                .to_string();
+        }
+        panic!("Cargo.lock's meedya-lang package has no \"source\" line");
+    }
+    panic!("Cargo.lock has no meedya-lang package entry to read a commit from");
+}
+
+/// The commit `docs/standards/MWBM-MEDIA-LANG.lock` records the policy
+/// copies as having come from — written by
+/// `scripts/media-lang/check_copies.py --init`/`--update`.
+fn read_copies_pin() -> String {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../docs/standards/MWBM-MEDIA-LANG.lock"
+    );
+    let raw =
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {path}: {e}"));
+    for line in raw.lines() {
+        let Some(rest) = line.strip_prefix("source ") else {
+            continue;
+        };
+        return rest
+            .split_whitespace()
+            .last()
+            .unwrap_or_else(|| panic!("MWBM-MEDIA-LANG.lock's source line has no commit: {line:?}"))
+            .to_string();
+    }
+    panic!("MWBM-MEDIA-LANG.lock has no \"source\" line to read a commit from");
+}
+
 // ---------------------------------------------------------------------
 // Fixture file shape — only the sections this harness runs
 // ---------------------------------------------------------------------
@@ -164,6 +294,7 @@ struct Fixtures {
     canonical_order: Vec<OrderCase>,
     track_order: Vec<TrackOrderCase>,
     presentation_order: Vec<PresentationCase>,
+    label: Vec<LabelCase>,
     #[serde(rename = "match")]
     match_cases: Vec<MatchCase>,
 }
@@ -304,6 +435,29 @@ struct MatchCase {
     expected: MatchExpected,
 }
 
+/// A `label` (UI-070) case: structured data that already carries its
+/// localised names, so the crate's own `label()` function only has to
+/// join and order them — see the fixture schema's own description of this
+/// section.
+#[derive(Deserialize)]
+struct LabelCase {
+    id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    language_name: String,
+    roles: Vec<String>,
+    role_names: HashMap<String, String>,
+    /// `null` (no channel layout, e.g. a subtitle track) or an empty
+    /// string (an audio track whose layout is not known) both mean "add
+    /// nothing"; `label()` treats them the same way (see its own doc
+    /// comment), so one `Option<String>` covers both — a `null` becomes
+    /// `None` and an empty string stays `Some(String::new())`, and
+    /// `label()`'s `channels.filter(|ch| !ch.is_empty())` treats the
+    /// second exactly like the first.
+    channels: Option<String>,
+    expected: String,
+}
+
 // ---------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------
@@ -322,6 +476,21 @@ fn role_from_str(s: &str) -> Role {
 
 fn roles_from_strs(strs: &[String]) -> Vec<Role> {
     strs.iter().map(|s| role_from_str(s)).collect()
+}
+
+/// The reverse of `role_from_str` — the fixture's own word for a role, so
+/// a `label` case's `role_names` map (keyed by that same word) can be
+/// looked up from the `Role` values `label()` hands back to its
+/// `role_name` callback.
+fn role_to_str(role: Role) -> &'static str {
+    match role {
+        Role::Alternate => "alternate",
+        Role::AudioDescription => "audio_description",
+        Role::Commentary => "commentary",
+        Role::Sdh => "sdh",
+        Role::Forced => "forced",
+        Role::Other => "other",
+    }
 }
 
 fn track_type_from_str(s: &str) -> TrackType {
@@ -454,6 +623,23 @@ fn compare_groups_for<'a>(
 
 #[test]
 fn media_language_policy_cases_pass_through_the_pinned_crate() {
+    // The crate and the policy copies must be pinned to the SAME commit of
+    // core (see the module comment above) — checked FIRST, before a single
+    // case is read, because every other assertion in this test is
+    // meaningless if the two pins have already drifted apart.
+    let crate_pin = read_crate_pin();
+    let copies_pin = read_copies_pin();
+    assert_eq!(
+        crate_pin, copies_pin,
+        "the meedya-lang crate (src-tauri/Cargo.lock: {crate_pin}) and MeedyaDL's copy of the \
+         policy's test cases (docs/standards/MWBM-MEDIA-LANG.lock: {copies_pin}) are pinned to \
+         DIFFERENT commits of MWBMPartners/MeedyaSuite-core — they must move together, or every \
+         case below would be checking the crate against answers worked out for a different \
+         revision of the policy. Re-pin the crate to the copies' commit (`cargo update -p \
+         meedya-lang` after editing the `rev` in src-tauri/Cargo.toml), or update the copies to \
+         the crate's commit (`python3 scripts/media-lang/check_copies.py --update {crate_pin}`)."
+    );
+
     // The copy of the test cases at the repository root — the one the copy
     // checker (scripts/media-lang/check_copies.py) keeps identical to the
     // master. Never a copy inside src-tauri/: that would be a second copy
@@ -540,7 +726,7 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
     // -- canonicalise (LANG-001, LANG-026) ------------------------------
     // Plus the stability check every harness must make: re-canonicalising
     // an expected (non-malformed) answer must give it back unchanged.
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     let mut stability_checks_run = 0;
     for (idx, case) in fixtures.canonicalise.iter().enumerate() {
         let raw_case = &raw_value["canonicalise"][idx];
@@ -549,7 +735,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "input", "expected", "kind"],
             &case_id_hint(raw_case, "canonicalise"),
         );
-        run += 1;
         let got = canonicalise(&case.input);
         let got_kind = match got.kind {
             meedya_lang::TagKind::Ordinary => "ordinary",
@@ -579,6 +764,10 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 ));
             }
         }
+        // Recorded last, after every check this case gets — see the
+        // module comment on why a plain counter at the top of the loop
+        // could not tell a skipped case from one actually compared.
+        ids_run.push(case.id.clone());
     }
     let stability_checks_in_file = fixtures
         .canonicalise
@@ -590,10 +779,15 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
         "ran {stability_checks_run} stability checks but the file has {stability_checks_in_file} \
          canonicalise cases with an expected tag"
     );
-    counts.push(("canonicalise", fixtures.canonicalise.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("canonicalise", &raw_value),
+        "section \"canonicalise\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("canonicalise", fixtures.canonicalise.len(), ids_run.len()));
 
     // -- legacy_three_letter (LANG-002, LANG-003) -----------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.legacy_three_letter.iter().enumerate() {
         let raw_case = &raw_value["legacy_three_letter"][idx];
         require_present(
@@ -601,7 +795,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "input", "expected"],
             &case_id_hint(raw_case, "legacy_three_letter"),
         );
-        run += 1;
         let got = from_legacy_three_letter(&case.input).map(|t| t.tag);
         if got != case.expected {
             failures.push(format!(
@@ -609,15 +802,21 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.id, case.input, got, case.expected
             ));
         }
+        ids_run.push(case.id.clone());
     }
+    assert_eq!(
+        ids_run,
+        expected_ids_for("legacy_three_letter", &raw_value),
+        "section \"legacy_three_letter\" did not compare every one of its cases, in file order"
+    );
     counts.push((
         "legacy_three_letter",
         fixtures.legacy_three_letter.len(),
-        run,
+        ids_run.len(),
     ));
 
     // -- iso639_2_write (TRACK-070) -------------------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.iso639_2_write.iter().enumerate() {
         let raw_case = &raw_value["iso639_2_write"][idx];
         require_present(
@@ -625,7 +824,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "input", "expected"],
             &case_id_hint(raw_case, "iso639_2_write"),
         );
-        run += 1;
         let got = iso639_2_write(&canonicalise(&case.input));
         if got.bibliographic != case.expected.b || got.terminology != case.expected.t {
             failures.push(format!(
@@ -639,11 +837,21 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.expected.t
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("iso639_2_write", fixtures.iso639_2_write.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("iso639_2_write", &raw_value),
+        "section \"iso639_2_write\" did not compare every one of its cases, in file order"
+    );
+    counts.push((
+        "iso639_2_write",
+        fixtures.iso639_2_write.len(),
+        ids_run.len(),
+    ));
 
     // -- posix_locale (LANG-004) ----------------------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.posix_locale.iter().enumerate() {
         let raw_case = &raw_value["posix_locale"][idx];
         require_present(
@@ -651,7 +859,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "input", "expected"],
             &case_id_hint(raw_case, "posix_locale"),
         );
-        run += 1;
         let got = from_posix_locale(&case.input).map(|t| t.tag);
         if got != case.expected {
             failures.push(format!(
@@ -659,15 +866,20 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.id, case.input, got, case.expected
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("posix_locale", fixtures.posix_locale.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("posix_locale", &raw_value),
+        "section \"posix_locale\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("posix_locale", fixtures.posix_locale.len(), ids_run.len()));
 
     // -- sidecar_name (TEXT-030) ----------------------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.sidecar_name.iter().enumerate() {
         let raw_case = &raw_value["sidecar_name"][idx];
         let id_hint = case_id_hint(raw_case, "sidecar_name");
-        run += 1;
         match case {
             SidecarCase::Build {
                 id,
@@ -735,6 +947,7 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                         )),
                     }
                 }
+                ids_run.push(id.clone());
             }
             SidecarCase::Parse {
                 id,
@@ -778,13 +991,19 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                          {got:?}, expected {expected:?}"
                     ));
                 }
+                ids_run.push(id.clone());
             }
         }
     }
-    counts.push(("sidecar_name", fixtures.sidecar_name.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("sidecar_name", &raw_value),
+        "section \"sidecar_name\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("sidecar_name", fixtures.sidecar_name.len(), ids_run.len()));
 
     // -- canonical_order (LANG-010 to LANG-027) -------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.canonical_order.iter().enumerate() {
         let raw_case = &raw_value["canonical_order"][idx];
         require_present(
@@ -792,7 +1011,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "description", "items", "expected"],
             &case_id_hint(raw_case, "canonical_order"),
         );
-        run += 1;
         let mut items: Vec<OrderTestItem> = case
             .items
             .iter()
@@ -810,11 +1028,21 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.id, got, case.expected
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("canonical_order", fixtures.canonical_order.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("canonical_order", &raw_value),
+        "section \"canonical_order\" did not compare every one of its cases, in file order"
+    );
+    counts.push((
+        "canonical_order",
+        fixtures.canonical_order.len(),
+        ids_run.len(),
+    ));
 
     // -- track_order (TRACK-050, TRACK-060) ------------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.track_order.iter().enumerate() {
         let raw_case = &raw_value["track_order"][idx];
         require_present(
@@ -822,7 +1050,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "description", "tracks", "expected"],
             &case_id_hint(raw_case, "track_order"),
         );
-        run += 1;
         let mut tracks: Vec<TrackTestItem> = case
             .tracks
             .iter()
@@ -842,15 +1069,21 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.id, got, case.expected
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("track_order", fixtures.track_order.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("track_order", &raw_value),
+        "section \"track_order\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("track_order", fixtures.track_order.len(), ids_run.len()));
 
     // -- presentation_order (UI-020 to UI-050) ---------------------------
     // Some cases carry a `selected` item. It is deliberately never passed
     // to the sort (the crate's sort takes no "selected" input at all —
     // UI-050: selecting something must not move it); those cases check
     // that the order is the same as it would be with nothing selected.
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.presentation_order.iter().enumerate() {
         let raw_case = &raw_value["presentation_order"][idx];
         require_present(
@@ -868,7 +1101,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             ],
             &case_id_hint(raw_case, "presentation_order"),
         );
-        run += 1;
         let mut items: Vec<PresentationTestItem> = case
             .items
             .iter()
@@ -899,11 +1131,81 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.id, got, case.expected
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("presentation_order", fixtures.presentation_order.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("presentation_order", &raw_value),
+        "section \"presentation_order\" did not compare every one of its cases, in file order"
+    );
+    counts.push((
+        "presentation_order",
+        fixtures.presentation_order.len(),
+        ids_run.len(),
+    ));
+
+    // -- label (UI-070) ---------------------------------------------------
+    // Added by the independent review of round 3: section 8.1's own table
+    // lists `label` as needed by the "presentation" profile, which is one
+    // of the two profiles MeedyaDL declares itself as following (see the
+    // module comment above) — it had been left in KNOWN_NOT_NEEDED_SECTIONS
+    // with no reason given, alongside genuinely player-only features this
+    // app does not have.
+    let mut ids_run: Vec<String> = Vec::new();
+    for (idx, case) in fixtures.label.iter().enumerate() {
+        let raw_case = &raw_value["label"][idx];
+        require_present(
+            raw_case,
+            &[
+                "id",
+                "rules",
+                "type",
+                "language_name",
+                "roles",
+                "role_names",
+                "channels",
+                "expected",
+            ],
+            &case_id_hint(raw_case, "label"),
+        );
+        let track_type = track_type_from_str(&case.kind);
+        let roles = roles_from_strs(&case.roles);
+        let role_names = &case.role_names;
+        let got = label(
+            track_type,
+            &case.language_name,
+            &roles,
+            |role| {
+                role_names
+                    .get(role_to_str(role))
+                    .cloned()
+                    .unwrap_or_default()
+            },
+            case.channels.as_deref(),
+        );
+        if got != case.expected {
+            failures.push(format!(
+                "label/{}: label({:?}, {:?}, {:?}, .., {:?}) = {:?}, expected {:?}",
+                case.id,
+                track_type,
+                case.language_name,
+                case.roles,
+                case.channels,
+                got,
+                case.expected
+            ));
+        }
+        ids_run.push(case.id.clone());
+    }
+    assert_eq!(
+        ids_run,
+        expected_ids_for("label", &raw_value),
+        "section \"label\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("label", fixtures.label.len(), ids_run.len()));
 
     // -- match (MATCH-010 to MATCH-040) ----------------------------------
-    let mut run = 0;
+    let mut ids_run: Vec<String> = Vec::new();
     for (idx, case) in fixtures.match_cases.iter().enumerate() {
         let raw_case = &raw_value["match"][idx];
         require_present(
@@ -911,7 +1213,6 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
             &["id", "rules", "preference", "candidate", "expected"],
             &case_id_hint(raw_case, "match"),
         );
-        run += 1;
         let got = match_tags(
             &canonicalise(&case.preference),
             &canonicalise(&case.candidate),
@@ -929,8 +1230,14 @@ fn media_language_policy_cases_pass_through_the_pinned_crate() {
                 case.expected.distance
             ));
         }
+        ids_run.push(case.id.clone());
     }
-    counts.push(("match", fixtures.match_cases.len(), run));
+    assert_eq!(
+        ids_run,
+        expected_ids_for("match", &raw_value),
+        "section \"match\" did not compare every one of its cases, in file order"
+    );
+    counts.push(("match", fixtures.match_cases.len(), ids_run.len()));
 
     // -- Report ------------------------------------------------------------
     // Visible with `cargo test --test media_language_conformance -- --nocapture`,

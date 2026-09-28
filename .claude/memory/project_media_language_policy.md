@@ -37,11 +37,19 @@ yt-dlp do.
 - The rules are implemented once, in core's crate `meedya-lang`, pinned by
   `rev` in `src-tauri/Cargo.toml`.
 - `src-tauri/tests/media_language_conformance.rs` proves the pinned crate
-  passes MeedyaDL's copy of the test cases: nine sections, 234 of the file's
-  290 cases (at core `aaaa585`); the four player-only sections (56 cases) are
+  passes MeedyaDL's copy of the test cases: ten sections, 241 of the file's
+  290 cases (at core `aaaa585`); the three player-only sections (49 cases) are
   known but not run. It fails on an unknown section, an empty needed section,
   a missing required field, an `error` key where the schema allows none (or
-  `false` anywhere), or a refusal case that is answered.
+  `false` anywhere), a refusal case that is answered, the crate and the
+  policy copies being pinned to different core commits, or a section that
+  compares fewer of its cases than the file actually has (checked by ID, not
+  just a count — round 3 of the independent review, 28 Sept 2026, found a
+  count could stay right even if a case were skipped partway through).
+  `label` (UI-070) joined the run sections in that same round: it had been
+  left as a not-needed, player-only section with no reason given, although
+  section 8.1's own table lists it as needed by the "presentation" profile
+  MeedyaDL declares itself as following.
 - MeedyaDL's own language code is all in `src-tauri/src/utils/language.rs` —
   every use of the crate's traits is there, so an API change in the crate is a
   change in that one file. The Metadata Language list's order comes from the
@@ -69,14 +77,24 @@ did not change.
 
 - Metadata language setting: stored in standard form on save and import; a
   non-tag import is refused (this machine's value kept); a non-tag already on
-  disk is kept and reported once per launch, never rewritten (#1246).
+  disk is kept and reported once per launch, never rewritten (#1246). The
+  stored value is also put into standard form right before it reaches GAMDL's
+  `--language` argument, without ever rewriting the STORED value itself
+  (`utils::language::language_arg_for_gamdl`, round 3 of the independent
+  review). The interface language setting (`ui_language`) follows the same
+  import rule as the metadata language — standard form, refused and this
+  machine's value kept if it is not a tag — with one difference: an empty
+  value is kept, not refused, because it means "follow the system".
 - The `l=` localisation on MeedyaDL's own Apple Music requests: a real tag, or
   none at all (#1247).
 - Storefront from a language: the parsed tag's two-letter region, else the
   existing `us` fallback (#1248).
 - Metadata Language list: names in the interface language, policy order,
   `zh-Hans-CN` / `zh-Hant-TW` offered (checked against Apple's own Storefront
-  documentation), a saved value not in the list kept and shown (#1249).
+  documentation), a saved value not in the list kept and shown (#1249). The
+  Interface Language list (Settings > General > Language) now uses the same
+  order (`useInterfaceLanguageOptions`, round 3 of the independent review) —
+  it used to just follow the order its three entries happen to be written in.
 - LRC `[la:]`: the standard tag or nothing; WebVTT from TTML gets a
   `NOTE language: <tag>` comment block (#1250).
 - Music-video subtitle files: `{video}.{tag}[.{role}…][.{n}].{ext}`; old

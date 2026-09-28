@@ -1864,6 +1864,7 @@ MeedyaDL follows the shared **Media Language & BCP 47 Policy** (`MWBM-MEDIA-LANG
 | Every use of the crate in MeedyaDL | `src-tauri/src/utils/language.rs` |
 | Metadata Language list order (backend) | `src-tauri/src/commands/language.rs` → `order_languages_for_display` |
 | Metadata Language list names and fallback order (frontend) | `src/lib/languageOptions.ts`, `src/hooks/useMetadataLanguageOptions.ts` |
+| Interface Language list order (frontend) | `src/hooks/useInterfaceLanguageOptions.ts` (asks the same backend command as the Metadata Language list above) |
 
 Things a person working here should know:
 
@@ -1871,7 +1872,8 @@ Things a person working here should know:
 - **A language read from a file or a tool** (ffprobe, TTML, a tag) goes through the three-letter reader (`known_file_language`, or `from_legacy_three_letter` inside `utils/language.rs`) so `eng` becomes `en`. A value that cannot be read is `und` or is left out — never guessed.
 - **Music-video subtitle files** are named `{video}.{tag}[.{role}…][.{n}].{ext}` (`Song.en.sdh.srt`). Files named the old way (`Song.cc.2.eng.srt`) are never renamed; the extractor and the lyrics pairing step recognise both.
 - **Lyric sidecars are deliberately not language-named** (`Song.lrc`, `Song.vtt`), because that exact name is what players look for. WebVTT made from TTML records the language in a `NOTE language: <tag>` comment block instead.
-- **Moving to a new policy version or crate commit:** `python3 scripts/media-lang/check_copies.py --update <commit>` for the copies, the same commit as the crate's `rev` (`cargo update -p meedya-lang` only), then `cargo test --test media_language_conformance` and the whole backend suite. The two pins are on core's feature branch until core merges it — see #1255.
+- **The metadata language setting is put into standard form again right before it reaches GAMDL's `--language` argument** (`utils::language::language_arg_for_gamdl`), on top of already being put into standard form when it is saved or imported — a value written before that existed, or edited by hand, could otherwise carry a stray newline or leading space onto the command line. The stored setting itself is never rewritten by this. The interface language setting (`ui_language`) is checked on import the same way the metadata language is — standard form, refused and this machine's value kept if it is not a tag — except an empty value is always kept, since it means "follow the system".
+- **Moving to a new policy version or crate commit:** `python3 scripts/media-lang/check_copies.py --update <commit>` for the copies, the same commit as the crate's `rev` (`cargo update -p meedya-lang` only), then `cargo test --test media_language_conformance` and the whole backend suite. The two pins are on core's feature branch until core merges it — see #1255. The conformance test itself now fails outright if the two pins (the crate's commit from `src-tauri/Cargo.lock`, the copies' commit from `docs/standards/MWBM-MEDIA-LANG.lock`) do not match, rather than silently checking the crate against test cases worked out for a different revision of the policy.
 
 ---
 
