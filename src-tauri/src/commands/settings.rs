@@ -413,6 +413,44 @@ fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSe
     }
 }
 
+/// Keeps an imported interface language only if it is empty (meaning
+/// "follow the system") or a real language tag (independent review round
+/// 3 of #1244). Called from `preserve_local_only_settings`, right beside
+/// `settle_imported_metadata_language` above and for the same reason:
+/// refusing a bad value needs this machine's current value to fall back
+/// to, which `sanitize_imported_settings` below cannot do because it is
+/// never given one.
+///
+/// `ui_language` differs from the metadata language in one respect: an
+/// EMPTY value here is not a mistake, it is the "Auto (System)" choice
+/// (see `LOCALES` in `src/lib/i18n.ts`) — so it is always kept, never
+/// refused and never replaced with this machine's value.
+///
+/// This replaces cutting the value to 20 bytes and stripping line breaks
+/// in `sanitize_imported_settings`, which had the same two faults
+/// described on `settle_imported_metadata_language` above for the
+/// metadata language: a fixed byte cut could stop a valid tag in the
+/// middle of a part, and a value that was never a tag passed straight
+/// through untouched — the exact fault this work already fixed for the
+/// metadata language, left standing here until this review round.
+fn settle_imported_ui_language(imported: &mut AppSettings, current: &AppSettings) {
+    if imported.ui_language.is_empty() {
+        return;
+    }
+    match crate::utils::language::standard_tag_for_storage(&imported.ui_language) {
+        Ok(standard) => imported.ui_language = standard,
+        Err(problem) => {
+            log::warn!(
+                "Imported interface language {:?} {} — keeping this machine's {:?}",
+                imported.ui_language,
+                problem.describe(),
+                current.ui_language
+            );
+            imported.ui_language = current.ui_language.clone();
+        }
+    }
+}
+
 /// Reports, once per launch, a metadata language setting that is not a
 /// language tag (#1246). It is NOT changed: the policy keeps existing data
 /// (COMPAT-030) and forbids inventing a replacement (LANG-003), and the
@@ -679,7 +717,8 @@ pub struct CookieCheckResult {
 /// cookie parsing and expiry detection.
 #[tauri::command]
 pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
+    let settings =
+        crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Wrapper users don't need cookies — the wrapper handles authentication
     if settings.use_wrapper {
@@ -1177,7 +1216,6 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-
 /// Cleans and checks one Apple Music identifier.
 ///
 /// Trimmed, upper-cased, and then required to be exactly ten letters or
@@ -1292,13 +1330,15 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     // means nothing on another machine anyway. Keep the local value.
     imported.prd_path = current.prd_path.clone();
 
-    // NOT a local-only setting, but checked here because this is the one
+    // NOT local-only settings, but checked here because this is the one
     // function both import routes (settings file, profile bundle) call,
-    // and the check needs this machine's current value to fall back to:
+    // and the checks need this machine's current value to fall back to:
     // an imported metadata language that is not a language tag is refused
-    // (#1246). Two separate call sites is how the other checks here once
-    // drifted apart.
+    // (#1246), and the same now applies to the interface language
+    // (independent review, round 3 of #1244). Two separate call sites is
+    // how the other checks here once drifted apart.
     settle_imported_metadata_language(imported, current);
+    settle_imported_ui_language(imported, current);
 
     // What happens when the queue finishes is this person's choice, and
     // one of the choices is to shut the computer down or restart it.
@@ -1348,15 +1388,17 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
         current.service_settings.spotify.cookies_path.clone();
     imported.service_settings.spotify.spotify_dll_path =
         current.service_settings.spotify.spotify_dll_path.clone();
-    imported.service_settings.spotify.wvd_path =
-        current.service_settings.spotify.wvd_path.clone();
+    imported.service_settings.spotify.wvd_path = current.service_settings.spotify.wvd_path.clone();
     imported.service_settings.youtube.cookies_path =
         current.service_settings.youtube.cookies_path.clone();
 
     // The sign-in details for a music service are this person's own, and
     // an imported file has no business setting them either.
-    imported.service_settings.apple_music.musickit_team_id =
-        current.service_settings.apple_music.musickit_team_id.clone();
+    imported.service_settings.apple_music.musickit_team_id = current
+        .service_settings
+        .apple_music
+        .musickit_team_id
+        .clone();
     imported.service_settings.apple_music.musickit_key_id =
         current.service_settings.apple_music.musickit_key_id.clone();
     // Security: where the persistent activity log is written is also a
@@ -1470,16 +1512,21 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
 
     // Language/storefront (short strings)
     //
-    // The metadata language is NOT cut here any more (#1246). A fixed
-    // 20-byte cut could stop a valid language tag in the middle of a part,
-    // and let a value that was never a tag through. It is checked properly
-    // — standard form, at most 35 characters, refused and this machine's
-    // value kept if it is not a tag — by `settle_imported_metadata_language`,
-    // which runs from `preserve_local_only_settings` on both import routes.
+    // Neither the metadata language nor the interface language is cut here
+    // any more (#1246; the interface language independently, round 3 of
+    // #1244 — it had the identical 20-byte cut left in place with no
+    // reason given, after the metadata language's own copy of this exact
+    // fault was fixed). A fixed byte cut could stop a valid language tag
+    // in the middle of a part, and let a value that was never a tag
+    // through. Both are checked properly instead — standard form, at most
+    // 35 characters, refused and this machine's value kept if it is not a
+    // tag (the interface language also keeps an empty value, which means
+    // "follow the system", rather than treating it as a refusal) — by
+    // `settle_imported_metadata_language` and `settle_imported_ui_language`,
+    // which run from `preserve_local_only_settings` on both import routes.
     // A tag in standard form contains only letters, digits and hyphens, so
-    // the line-break removal this cut also did is not needed for it.
+    // the line-break removal this cut also did is not needed for either.
     truncate(&mut settings.storefront, 10);
-    truncate(&mut settings.ui_language, 20);
 
     // Exclude tags (prevent excessively large arrays)
     if settings.exclude_tags.len() > 50 {
@@ -1632,8 +1679,7 @@ mod tests {
             Some("/Users/them/cookies.txt".to_string());
         imported.service_settings.apple_music.cookies_path =
             Some("/Users/them/apple.txt".to_string());
-        imported.service_settings.youtube.cookies_path =
-            Some("/Users/them/yt.txt".to_string());
+        imported.service_settings.youtube.cookies_path = Some("/Users/them/yt.txt".to_string());
         imported.service_settings.apple_music.musickit_team_id = Some("THEIRTEAM1".to_string());
 
         let current = crate::models::settings::AppSettings::default();
@@ -1700,7 +1746,10 @@ mod tests {
 
         assert!(!imported.spotify_consent_acknowledged);
         assert!(!imported.terms_accepted);
-        assert!(!imported.sentry_enabled, "consent to send crash data must be given, not inherited");
+        assert!(
+            !imported.sentry_enabled,
+            "consent to send crash data must be given, not inherited"
+        );
         assert!(!imported.analytics_enabled);
     }
 
@@ -1773,6 +1822,63 @@ mod tests {
         sanitize_imported_settings(&mut imported);
         preserve_local_only_settings(&mut imported, &with_language("en-US"));
         assert_eq!(imported.language, "zh-Hant-TW-u-ca-gregory");
+    }
+
+    // ── The interface language setting (independent review, round 3 of
+    // ── #1244) ───────────────────────────────────────────────────────────
+    //
+    // Same rules as the metadata language above, with one difference: an
+    // EMPTY value here is not a mistake, it is the "Auto (System)" choice,
+    // so it is always kept rather than refused.
+
+    fn with_ui_language(ui_language: &str) -> crate::models::settings::AppSettings {
+        crate::models::settings::AppSettings {
+            ui_language: ui_language.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_imported_interface_language_travels_in_its_standard_form() {
+        let mut imported = with_ui_language("de-at");
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "de-AT");
+    }
+
+    #[test]
+    fn an_empty_imported_interface_language_is_kept_it_means_follow_the_system() {
+        let mut imported = with_ui_language("");
+        preserve_local_only_settings(&mut imported, &with_ui_language("de"));
+        assert_eq!(
+            imported.ui_language, "",
+            "empty must be kept, not refused and not replaced with this machine's value"
+        );
+    }
+
+    #[test]
+    fn an_imported_interface_language_that_is_not_a_tag_keeps_this_machines_value() {
+        for bad in ["English", "de_DE", "de-DE\nfoo = bar"] {
+            let mut imported = with_ui_language(bad);
+            preserve_local_only_settings(&mut imported, &with_ui_language("fr"));
+            assert_eq!(imported.ui_language, "fr", "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_long_imported_interface_language_is_refused_not_cut_in_the_middle() {
+        // The old import cut it to 20 bytes, exactly the fault
+        // `a_long_imported_language_is_refused_not_cut_in_the_middle` above
+        // already fixed for the metadata language, left standing here
+        // until this review round.
+        let mut imported = with_ui_language("en-GB-u-ca-gregory-nu-latn-x-abcdefgh");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "en");
+
+        let mut imported = with_ui_language("zh-Hant-TW-u-ca-gregory");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "zh-Hant-TW-u-ca-gregory");
     }
 
     #[test]
