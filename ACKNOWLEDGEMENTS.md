@@ -74,6 +74,7 @@ exact number.
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
 | lzma-rs | 0.3 | MIT | Pure-Rust XZ decompression (.tar.xz tool archives) |
 | meedya-core | (git, rev-pinned) | MIT | Shared platform primitives (metadata + codecs + fingerprint + lyrics + providers + tags + library-import + db, full feature set) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
+| meedya-lang | (git, rev-pinned) | MIT | Shared implementation of the Media Language & BCP 47 Policy, from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | meedya-fingerprint | (git, branch=main) | MIT | Shared audio-fingerprint primitives (Chromaprint + ebur128) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core). Its optional `chromaprint` feature pulls in `rusty-chromaprint` (MIT) and `symphonia` (MPL-2.0 — the one licence anywhere in this dependency tree that isn't MIT/Apache-2.0/BSD/ISC/Unlicense) as transitive dependencies; neither is a direct MeedyaDL dependency, so neither gets its own row here. |
 | meedya-lyrics | (git, branch=main) | MIT | Shared lyrics primitives (TTML parser + classifier + Lyricsfile YAML + LRC offset round-trip) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
