@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 11:43) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 11:54) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -548,6 +548,29 @@ on PRs to / pushes to main.
   a few issue comments; no code. Copies, checker, workflow and pins confirmed correct. Sent to the
   round-2 builder (`a6bff901567dda149`, a SONNET agent — its earlier commits credit Opus; not rewritten,
   its handoffs will say so; its new commits credit Sonnet). Watchdog on it.
+- **11:54 — MeedyaConverter second stand-in review: NOT clean** (3 must: cover art to WebM now FAILS
+  the job — a regression; Matroska cover art loses its name and description because the probe never
+  asks for them; "kept as the source had it" is only true for Matroska — MP4 cuts `romanian` to `rom`
+  (Romany), MOV drops German/Chinese/Greek; 4 should: mkvmerge files' full tags lost, notes never shown
+  on pipeline/Shortcuts, other cover-art losses unnoted, the strict Swift runner can read a different
+  input on macOS). Its round-2 builder ran out of working memory, so round 3 went to a FRESH Opus
+  builder with a full written brief (`…/scratchpad/lang/brief-converter-r3.md`) and the review saved
+  as `review-tmp/converter-review-2/REPORT.md`. Watchdog on it.
+- **NetPLAYERapp second stand-in review: NOT clean** (0 must, 3 should: the new tests miss most of the
+  registry check, the blank-to-null change and the stored-length rule — five planted faults passed;
+  the deploy test can be fooled by the current folder; `VENDORED.md` still says the vendor folder is
+  empty; 6 minor). Round 3 sent to its Sonnet builder (`aa3835bb84307a157`). Watchdog on it.
+  Suggestion for core, not yet raised: a public "which subtags are unregistered or retired" function,
+  so iHymns and iLyricsDB need not each write their own.
+- **Real-name scan of every clone's OWN commits** (commits on no other remote branch; script
+  `…/scratchpad/lang/name-scan.sh`): only the two known cases — MeedyaManager's six author emails and
+  this handoff's `df539d6c`. Scratch paths with the name that reviewers saw in NetPLAYERapp's handoff
+  and MeedyaConverter's older history predate this work. (Separately, MeedyaConverter has 22 OLDER
+  commits, e.g. `5a6cdc9` from 18 July, whose git author is the real name — not this work; told the
+  maintainer.)
+- **MeedyaDL second stand-in review STARTED** over `37d070be..4a3915e9` (the unreviewed fix round
+  `af9d9796..6a9657f1` plus the `aaaa585` update), in a fresh clone under `review-tmp/meedyadl-review-2/`,
+  never this checkout. Watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
