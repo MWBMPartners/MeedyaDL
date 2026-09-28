@@ -922,6 +922,11 @@ fn one_off_in_memory(app: &AppHandle) -> Option<Option<AfterQueueAction>> {
 /// the file as it is at this moment; `in_memory` is the running app's
 /// settings cache, which may know something the file does not (see
 /// `commands::settings::keep_fields_the_settings_screen_cannot_change`).
+/// `keep` may also REFUSE the save by returning `Err`; nothing is written
+/// then, and the error is returned. It exists so a decision that depends
+/// on what is on disk — whether a metadata language that is not a language
+/// tag was already there (#1246) — is made against the file as it is
+/// inside this lock, not a copy read before it.
 ///
 /// # Why the whole sequence is under one lock
 ///
@@ -942,7 +947,7 @@ pub fn save_settings_from_screen<F>(
     keep: F,
 ) -> Result<AppSettings, String>
 where
-    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>),
+    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>) -> Result<(), String>,
 {
     use tauri::Manager as _;
     let _guard = SETTINGS_WRITE_LOCK
@@ -953,7 +958,7 @@ where
     let in_memory = app
         .try_state::<crate::services::settings_cache::SettingsCache>()
         .and_then(|cache| cache.peek());
-    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref());
+    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref())?;
 
     save_settings_while_locked(app, &incoming)?;
     if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {

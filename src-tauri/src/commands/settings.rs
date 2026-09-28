@@ -251,6 +251,29 @@ fn keep_fields_the_settings_screen_cannot_change(
     };
 }
 
+/// Everything the Settings screen's Save does to the incoming settings
+/// inside the settings lock, just before the write: puts back the fields
+/// the screen does not own, then decides the metadata language (#1246).
+///
+/// `on_disk` is the file as it is at that moment, read inside the lock.
+/// That matters for the language: `settle_metadata_language_on_save` lets
+/// a value that is not a language tag through only if it is EXACTLY the
+/// value already stored, and the only stored value that counts is the one
+/// the write is about to replace — not a copy read before the lock, which
+/// another write (an import, say) could already have changed.
+///
+/// Returns `Err` to refuse the save; nothing is written then.
+fn prepare_screen_save(
+    settings: &mut AppSettings,
+    on_disk: Option<&AppSettings>,
+    in_memory: Option<&AppSettings>,
+) -> Result<(), String> {
+    keep_fields_the_settings_screen_cannot_change(settings, on_disk, in_memory);
+    settings.language =
+        settle_metadata_language_on_save(&settings.language, on_disk.map(|p| p.language.as_str()))?;
+    Ok(())
+}
+
 /// Saves application settings to disk.
 ///
 /// **Frontend caller:** `saveSettings(settings)` in `src/lib/tauri-commands.ts`
@@ -288,27 +311,22 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::read_settings_from_disk(&app).ok();
 
-    // The metadata language is stored in its standard form (#1246). See
-    // `settle_metadata_language_on_save` for why a value already on disk
-    // is let through unchanged.
-    settings.language = settle_metadata_language_on_save(
-        &settings.language,
-        previous.as_ref().map(|p| p.language.as_str()),
-    )?;
-
-    // Restore the fields this screen does not own, write, and refresh the
-    // in-process cache (#690) — all inside ONE lock. Reading the file for
-    // this before taking the lock let a one-off after-queue action the
-    // backend had just cleared be written straight back (Codex, batch-3
-    // review). `previous` above is for the change log only.
+    // Restore the fields this screen does not own, decide the metadata
+    // language, write, and refresh the in-process cache (#690) — all
+    // inside ONE lock. Reading the file for this before taking the lock
+    // let a one-off after-queue action the backend had just cleared be
+    // written straight back (Codex, batch-3 review). `previous` above is
+    // for the change log only.
+    //
+    // The metadata language decision (#1246) used to be made here, before
+    // the lock, against `previous`. The independent review pointed out
+    // that `previous` could then be out of date by the time of the write,
+    // so it now happens inside `prepare_screen_save`, against the file as
+    // it is inside the lock.
     //
     // config_service performs two writes: settings.json, and GAMDL's
     // config.ini derived from it.
-    let settings = config_service::save_settings_from_screen(
-        &app,
-        settings,
-        keep_fields_the_settings_screen_cannot_change,
-    )?;
+    let settings = config_service::save_settings_from_screen(&app, settings, prepare_screen_save)?;
 
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
@@ -1883,6 +1901,49 @@ mod tests {
         };
         keep_fields_the_settings_screen_cannot_change(&mut from_page, None, None);
         assert_eq!(from_page.after_queue_once, None);
+    }
+
+    /// The metadata language decision is part of the locked step and uses
+    /// the file as it is there (independent review of #1246): a value that
+    /// is not a tag is kept only when that same value is on disk, and
+    /// otherwise the whole save is refused.
+    #[test]
+    fn the_locked_save_step_decides_the_metadata_language_against_the_file() {
+        let on_disk = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        let mut from_page = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            prepare_screen_save(&mut from_page, Some(&on_disk), None),
+            Ok(())
+        );
+        assert_eq!(from_page.language, "en_US");
+
+        let mut from_page = AppSettings {
+            language: "EN-gb".to_string(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            prepare_screen_save(&mut from_page, Some(&on_disk), None),
+            Ok(())
+        );
+        assert_eq!(from_page.language, "en-GB");
+
+        // The file has since changed (another write replaced it): the old
+        // non-tag no longer counts as "already there".
+        let changed = AppSettings {
+            language: "ja-JP".to_string(),
+            ..AppSettings::default()
+        };
+        let mut from_page = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        assert!(prepare_screen_save(&mut from_page, Some(&changed), None).is_err());
     }
 
     /// The older rule in the same function, pinned alongside it.
