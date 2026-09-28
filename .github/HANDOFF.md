@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 08:05) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 08:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -409,6 +409,16 @@ on PRs to / pushes to main.
   `codex-plugin.out`; 90-min limit). If Codex refuses (allowance), a fresh Opus stand-in reviews
   `dbb5e31..748e87c`. Core revision 5 and iHymns fixes still building. (Times in this section
   written earlier ran ahead of the clock again; corrected where noticed.)
+- **About 08:10 — Codex reviewed the plugin's whole #47 change (`codex-plugin.out`): NOT clean,
+  10 findings.** High: the seal sits beside the editable text, so both can be replaced; a failed
+  pull-request lookup (no `gh`, detached HEAD) falls through to trusting the checkout. Medium:
+  base-tree discovery, `git hash-object` filters, no storage for non-git/dry runs, autopilot
+  spawns before the snapshot exists, the command rule blocks ordinary tests, ci-medic assigns the
+  record to the scribe, writer tests accept an appended exception. **Decision (mine): SIMPLIFY** —
+  plain file copies in a run folder outside the project (no git objects, no seal), trust only a
+  provable own-branch checkout (anything else = someone else's PR, or ask/BLOCKED), commands from
+  user/protocol/snapshotted instructions, and an honest statement that prompt rules cannot stop a
+  manipulated agent — the guard hooks are the only enforcement. Revision 5 builder running.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
