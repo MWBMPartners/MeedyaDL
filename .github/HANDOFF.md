@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 13:32) — see ★★★★ LATEST below
+**Last updated:** 2026-09-28 (about 13:48) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -717,6 +717,26 @@ on PRs to / pushes to main.
   diff carries unrelated formatting. Comment on #1245. **Third stand-in review running**, watchdog on it.
 - **MeedyaPlayer round 5 (`4718590`) and MeedyaSubtitler round 5 (`5b09c30`) pushed**: one verified
   review-history table each; notes shorter; CI passed on both; FIFTH stand-in review running, watchdog on it.
+- **13:48 — Core revision 8 built** (5 local commits on `7f944a7`: `dc28381`, `8c75917`, `e185d1b`, `b0f36a9`,
+  `354cfd5`): every language frame name lofty reads is merged, in linear time; the old helper is split into
+  `recover_languages_after_reading` + `gather_languages_before_saving`; YAML quotes any other line break; M4A
+  writes that would lose data are REFUSED (#102/#103 interim guards). Two refusals beyond the brief, both
+  measured on real files and accepted by me: an ID3v2.4 `TLA`+zero frame, and an M4A freeform name with a
+  colon (the save route renamed it). No consumer uses the removed helper. Protected paths untouched. The
+  builder already commented on #102/#103 naming `b0f36a9` — so it must be pushed promptly. My checks running.
+- **MeedyaConverter round 3 pushed (`7271ae8`, 9 commits on `59f8667`)**: WebM with cover art succeeds (picture
+  left out, noted); Matroska covers keep names and descriptions; one table of what each writer stores
+  (13 types × 10 values checked against ffmpeg; never truncates — `und` + a true note; MOV uses Apple's table);
+  mkvmerge files' full tags read by a small bounded reader; pipeline/Shortcuts/preview share the picture step;
+  strict runner reads the file once. Checked by me: three `swift build` targets, copy checker, identity,
+  whitespace; actionlint fails only on style notes in untouched workflows (same at `59f8667`). New issues
+  #540, #541. CI watched (the full Swift tests run there).
+- **MeedyaPlayer/MeedyaSubtitler FIFTH review: NOT clean** (1 should, 9 minor) — tables verified correct, but
+  the handoffs got LONGER and the kept narrative sections produced new errors again. **Decision (mine):
+  round 6 CUTS the narrative review sections out entirely** (git history, commit messages and issue comments
+  hold that record), keeping the table, one pin line, open decisions and next steps; target: shorter than
+  before round 4. Plus one short correction comment on MeedyaPlayer #3 (commentary rests on COMPAT-030).
+  FRESH Opus builder (`…/scratchpad/lang/brief-player-subtitler-r6.md`). Watchdog on it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
