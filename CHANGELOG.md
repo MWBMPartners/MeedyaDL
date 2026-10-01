@@ -11,12 +11,29 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.10.8 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
 - Bring the watch workflows to main so they can run (#1221, #1219) (#1230)
 
 Brings dependency-canary (fixed), workflow-health (also watching the canary, the channel security audit and the release-page audit), release-body-audit and upstream-engine-watch to the default branch so their schedules can run; retires upstream-gamdl-watch and the three old channel workflows; updates the release-notes lint and adds plain-English notes for stable 1.10.4-1.10.6. No app code. Reviewed by Codex over four rounds, the last clean.
+
+
+### 🧹 Maintenance
+
+- **(deps-dev)** Bump brace-expansion from 5.0.9 to 5.0.12
+
+Bumps [brace-expansion](https://github.com/juliangruber/brace-expansion) from 5.0.9 to 5.0.12.
+  - [Release notes](https://github.com/juliangruber/brace-expansion/releases)
+  - [Commits](https://github.com/juliangruber/brace-expansion/compare/v5.0.9...v5.0.12)
+
+  ---
+  updated-dependencies:
+  - dependency-name: brace-expansion
+    dependency-version: 5.0.12
+    dependency-type: indirect
+  ...
 
 
 ## [1.10.8] - 2026-09-22
