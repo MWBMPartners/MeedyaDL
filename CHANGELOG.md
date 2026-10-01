@@ -10,6 +10,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 - **(security)** Update supported versions to 1.10.8 [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
