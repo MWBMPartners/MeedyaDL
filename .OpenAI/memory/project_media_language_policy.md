@@ -124,17 +124,32 @@ did not change.
   grouping identity. `Intl.Locale` folds `cmn` into `zh` and cannot read
   `zh-cmn-Hans`, so `Intl` now supplies only names and their alphabetical
   order; `src/hooks/useLanguageIdentities.ts` is the one place identity is
-  fetched (browser reading only as a fallback while pending). The same
-  identity makes a stored `"EN-us"` show as one row beside the offered
-  `"en-US"`; the stored spelling is never rewritten (COMPAT-030).
+  fetched. Until the backend has answered for a tag -- while pending, AND
+  for good if the request keeps failing (it is retried three times, after
+  0.5, 1 and 2 seconds) -- the tag's standard form is the tag itself, so
+  nothing is merged or hidden on the browser's reading (which would hide a
+  stored Mandarin `cmn-Hans-CN` behind the offered `zh-Hans-CN`); the
+  browser's reading is used only to sort (Codex's review of round 5). Once
+  answered, a stored `"EN-us"` shows as one row beside the offered
+  `"en-US"`, and the dropdown is handed that row's value so it shows English
+  selected (handing it `"EN-us"` made it show its first row); the stored
+  spelling is never rewritten (COMPAT-030).
 - An imported language's length check and tag check are one small function
   returning its reason (`decide_imported_language`), and the log line is built
   by a function never given the value (round 5). A stored non-tag value reaches
   GAMDL's command line with the same NUL/CR/LF removed as the `config.ini` line.
-- Music-video subtitle extraction writes ffmpeg's output to an exclusively
-  created temporary file and publishes it under the real name without
-  overwriting (hard link, or rename-if-free on FAT/exFAT, which has a small
-  window), so a failed run cannot block the next (Codex's catch-up review).
+- Music-video subtitle extraction writes ffmpeg's output to a short,
+  exclusively created temporary file (`.meedyadl-partial-<pid>-<n>.srt`) and
+  publishes it under the real name without ever overwriting: a hard link, or
+  on a drive without hard links the system's one-step rename-only-if-free
+  (`fs_safe::rename_no_replace`); a drive that cannot do that gets no
+  subtitle and an activity-log message, never a plain rename. A forced stop
+  can leave a temporary file; the next extraction in that folder removes it
+  if its process has ended or it is a second name of a finished subtitle,
+  never a running process's. Failed removals are reported. The fake ffmpeg
+  in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
+  output yet exits 0, which published an empty file). Windows/Linux branches
+  type-checked, only run on macOS (Codex's catch-up review and round 5).
 - `.gitattributes` protects each policy copy with
   `-text -filter -working-tree-encoding -ident`; a higher-priority setting on
   someone's own machine can still change the bytes and the checker would then
