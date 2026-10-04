@@ -264,10 +264,7 @@ pub fn classify_path_components(path: &Path) -> FilenameClassification {
         let cls = classify_filename(synthetic);
         match (&worst, &cls) {
             (FilenameClassification::Ok, _) => worst = cls,
-            (
-                FilenameClassification::Suspicious { .. },
-                FilenameClassification::Degenerate { .. },
-            ) => {
+            (FilenameClassification::Suspicious { .. }, FilenameClassification::Degenerate { .. }) => {
                 worst = cls;
             }
             _ => {}
@@ -1047,20 +1044,14 @@ mod tests {
     fn appledouble_sidecar_is_detected() {
         // The single most impactful case: macOS `._*` files on
         // exFAT / FAT32 / HFS external drives.
-        assert!(is_filesystem_sidecar(std::path::Path::new(
-            "._1 - 01 Track.m4a"
-        )));
-        assert!(is_filesystem_sidecar(std::path::Path::new(
-            "/full/path/._Cover.jpg"
-        )));
+        assert!(is_filesystem_sidecar(std::path::Path::new("._1 - 01 Track.m4a")));
+        assert!(is_filesystem_sidecar(std::path::Path::new("/full/path/._Cover.jpg")));
     }
 
     #[test]
     fn ds_store_is_detected() {
         assert!(is_filesystem_sidecar(std::path::Path::new(".DS_Store")));
-        assert!(is_filesystem_sidecar(std::path::Path::new(
-            "/Users/bob/Music/.DS_Store"
-        )));
+        assert!(is_filesystem_sidecar(std::path::Path::new("/Users/bob/Music/.DS_Store")));
     }
 
     #[test]
@@ -1080,16 +1071,10 @@ mod tests {
         // that START with legal single dots or underscores, must NOT
         // be misclassified. Only `._` (dot-underscore together at the
         // start) is reserved.
-        assert!(!is_filesystem_sidecar(std::path::Path::new(
-            "1 - 01 Track.m4a"
-        )));
+        assert!(!is_filesystem_sidecar(std::path::Path::new("1 - 01 Track.m4a")));
         assert!(!is_filesystem_sidecar(std::path::Path::new("Cover.jpg")));
-        assert!(!is_filesystem_sidecar(std::path::Path::new(
-            ".hidden_file.m4a"
-        )));
-        assert!(!is_filesystem_sidecar(std::path::Path::new(
-            "_underscore_start.m4a"
-        )));
+        assert!(!is_filesystem_sidecar(std::path::Path::new(".hidden_file.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new("_underscore_start.m4a")));
         assert!(!is_filesystem_sidecar(std::path::Path::new("Ds_Store.m4a")));
     }
 
