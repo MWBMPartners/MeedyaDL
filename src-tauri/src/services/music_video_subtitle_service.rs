@@ -823,7 +823,16 @@ mod tests {
             .unwrap();
         assert_eq!(written, 3);
         for name in ["01 Title.en.srt", "01 Title.en.sdh.srt", "01 Title.und.srt"] {
-            assert!(dir.path().join(name).exists(), "{name} missing");
+            // The words, not just a file: given `-n`, ffmpeg 9.0.1 refuses
+            // the extractor's empty placeholder and still exits with 0, so
+            // an existence check alone passed with an empty subtitle
+            // (Codex's review of round 5, finding 6).
+            let text = fs::read_to_string(dir.path().join(name))
+                .unwrap_or_else(|e| panic!("{name} missing: {e}"));
+            assert!(
+                text.contains("Hello"),
+                "{name} has no subtitle text: {text:?}"
+            );
         }
 
         // A re-run writes nothing new.
@@ -889,17 +898,66 @@ mod tests {
     /// file) and exits with `code`. macOS only, like the other fake-tool
     /// tests (running a just-written script can hit "Text file busy" on
     /// Linux).
+    ///
+    /// It obeys ffmpeg's overwrite flags the way the real one does (Codex's
+    /// review of round 5, finding 6): an output that already exists is
+    /// overwritten only with `-y`; with `-n`, or with neither (input is
+    /// switched off by `-nostdin`, so it cannot ask), it is refused and left
+    /// exactly as it was. The real ffmpeg 9.0.1 on the build machine then
+    /// prints "File '…' already exists. Exiting." and exits with code 0
+    /// (checked on 4 Oct 2026), which is the dangerous case -- the caller
+    /// cannot tell it apart from success -- so the fake does the same. The
+    /// placeholder the extractor creates exclusively always exists, so
+    /// putting `-n` back makes every extraction here publish an EMPTY file,
+    /// and the content checks below fail. The earlier fake ignored every
+    /// flag, so that change passed every test.
     #[cfg(target_os = "macos")]
     fn fake_ffmpeg(dir: &Path, name: &str, content: &str, code: i32) -> PathBuf {
         use std::os::unix::fs::PermissionsExt;
         let path = dir.join(name);
         fs::write(
             &path,
-            format!("#!/bin/sh\nfor last; do :; done\nprintf '%s' '{content}' > \"$last\"\nexit {code}\n"),
+            format!(
+                "#!/bin/sh\n\
+                 overwrite=ask\n\
+                 for arg; do\n\
+                 \x20 case \"$arg\" in -y) overwrite=yes ;; -n) overwrite=no ;; esac\n\
+                 \x20 last=$arg\n\
+                 done\n\
+                 if [ -e \"$last\" ] && [ \"$overwrite\" != yes ]; then\n\
+                 \x20 echo \"File '$last' already exists. Exiting.\" >&2\n\
+                 \x20 exit 0\n\
+                 fi\n\
+                 printf '%s' '{content}' > \"$last\"\n\
+                 exit {code}\n"
+            ),
         )
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         path
+    }
+
+    /// The fake itself must keep obeying the overwrite flags, or the tests
+    /// built on it stop meaning anything (see `fake_ffmpeg`).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_fake_ffmpeg_overwrites_only_when_told_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let fake = fake_ffmpeg(dir.path(), "ffmpeg", "new", 0);
+        let out = dir.path().join("out.srt");
+        let run = |flag: &str| {
+            fs::write(&out, "old").unwrap();
+            let status = std::process::Command::new(&fake)
+                .args(["-nostdin", flag, "-i", "in.mp4"])
+                .arg(&out)
+                .status()
+                .unwrap();
+            assert!(status.success());
+            fs::read_to_string(&out).unwrap()
+        };
+        assert_eq!(run("-n"), "old", "-n must refuse an existing output");
+        assert_eq!(run("-hide_banner"), "old", "no flag must refuse too");
+        assert_eq!(run("-y"), "new", "-y must overwrite");
     }
 
     fn only_stream() -> SubtitleStream {
