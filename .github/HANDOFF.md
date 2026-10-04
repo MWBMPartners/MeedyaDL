@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 20:41) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 20:47) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1077,6 +1077,23 @@ on PRs to / pushes to main.
 - **MeedyaDL round 6** (9 commits; safe publish through `renamex_np`/`renameat2`/`MoveFileExW`, which adds `libc` and `windows-sys` use) is cherry-picked into the main checkout, and its check run is going.
 - **iLyricsDB round 7 carry-over** (`ilyricsdb-r7-carryover.md`): copy APlayer's MIT notice exactly, including the author's published email. The licence requires it, and the personal-email rule is about the maintainer's own details.
 - **Disk:** free space fell to 12 GB, mostly other work on the Mac. I removed two finished scratch build folders (core and the MeedyaDL builder clone), which brought it back to 26 GB. **The main MeedyaDL checkout's `src-tauri/target` is 49 GB.** That is for the maintainer: `cargo clean` there frees it, and the cost is a full rebuild.
+- **MeedyaDL round 6 pushed** (9 commits; the tip, including this handoff, is `d4fd0e66`).
+  - My checks: 2,194 Rust tests passed, and the conformance suite ran 241 cases in 10 sections with none failing. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker and actionlint were all clean. The `fs_safe.rs` rustfmt difference has 4 hunks before and after, so it is older drift. The round adds 10 `unsafe` blocks, all for the system calls behind the safe publish; they are for Codex to read closely.
+  - **Frontend timeouts:** the full vitest run had 11 failures, all timeouts (load average about 200 to 250).
+    - Re-run with `--testTimeout`/`--hookTimeout=120000`, 63 passed and 5 were skipped.
+    - `tailwindColorClasses.test.ts` has a hard-coded `beforeAll` limit of 30 s. Run alone it passed 5 of 5 twice, in about 13 s.
+    - The round touched no styles. **Lesson:** a timeout under heavy load is not a failure, but prove it by re-running before you push.
+  - I commented on #1244, #1246, #1249 and #1251.
+- **MeedyaManager round 6 pushed (`48af967`..`49cec29`).** My checks: fmt, clippy and the documentation build were clean, 1,549 tests passed, deny showed only the known advisory, and the copy checker found 6 of 6 copies matching. I commented on #251 and #259 (the WAV with two `LIST INFO` chunks is now refused).
+- **Codex queue at 23:00:**
+  1. core revisions 8 to 10;
+  2. the plugin's guard (`42bd45e..2f91439`);
+  3. MeedyaManager round 6 (Codex checking its own findings);
+  4. MeedyaDL round 6 (Codex's own findings, plus the `unsafe` calls);
+  5. iLyricsDB round 6, once the stand-in has reported;
+  6. the NetPLAYERapp catch-up.
+
+  One window covers about two of these, so the rest wait for later windows or go to stand-ins.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
