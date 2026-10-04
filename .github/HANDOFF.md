@@ -1187,6 +1187,16 @@ on PRs to / pushes to main.
     - record in `docs/decisions/README.md` that replacing the real name with "the maintainer" is the one change made to accepted ADR text;
     - commits carry `Refs #27` / `Refs #16` again.
   - **Round-13 fixes builder running** (Sonnet, `brief-player-subtitler-r14.md`), with a watchdog.
+- **MeedyaPlayer `5a83142` / MeedyaSubtitler `8817667` pushed** (the round-13 fixes, acting on the thirteenth review). CI is green on both. The fourteenth review (stand-in) is running, with a watchdog.
+- **iLyricsDB: the seventh review (stand-in) of round 7 (`278657e..c59ed74`) is NOT clean — 1 high, 2 medium, 4 low, 4 nits.** The SRT fix held against 15 new shapes in three readers.
+  - **Medium:** digits newer than the server's PCRE knows still forge LRC lines; a typed `[offset:…]` moves every line in Kodi.
+  - **Round-8 builder running** (Opus, `brief-ilyricsdb-r8.md`), with a watchdog.
+- **DECISION FOR THE MAINTAINER — personal details in tracked files:** `.claude/settings.local.json` is tracked in git in four repositories, each added in a "track recovered configuration" commit:
+  - MeedyaDL: 47 lines with `/Users/<real name>` paths;
+  - MeedyaConverter: 10 such lines;
+  - iHymns: 32 such lines;
+  - iLyricsDB: 31 such lines, plus the personal email in a scraper command with `--password test`.
+  Recommended: untrack each file and add it to `.gitignore`; the local copy stays. Removing it from history is part of the history-rewrite decision. Nothing has been changed meanwhile, because tracking it looked deliberate.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
