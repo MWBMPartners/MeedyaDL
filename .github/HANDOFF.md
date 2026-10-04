@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 22:49) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (evening) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1145,6 +1145,12 @@ on PRs to / pushes to main.
     - prefer the single same-language row;
     - the guard's false alarms are fixed and its gaps listed;
     - the docs are corrected.
+- **MeedyaSuite-core: Codex's catch-up review of revisions 8–10 (`7f944a7..cd3ca07`) is NOT clean — 10 findings.**
+  - **High:** the temporary copy is made readable by others while it is checked (a private original loses its privacy for that moment); a `meta` box shorter than its version field makes the whole-file check panic; the whole-file comparison slows with the square of the number of sibling atoms; nesting depth is unlimited, so the stack can run out.
+  - **Medium:** 1–7 stray bytes inside `ilst` go unnoticed; Windows named streams are lost and undocumented; a failed clean-up is swallowed; two permission tests pass when their guard is broken, and there is no `co64` test; the doc test-count check accepts any number anywhere; ID3 raw reading has no overall memory limit.
+  - **Revision-11 builder running** (Opus, `brief-revision-11.md`), with a watchdog. It must reproduce each finding before fixing it.
+- **iLyricsDB round 7: CI passed on 4 Oct** (run 37238382004, head `c59ed74`). So the billing block below appears lifted for iLyricsDB at least; NetPLAYERapp and the plugin have not been re-checked yet.
+- **Two instruction audits (maintainer's requests of 4 Oct) were delivered in chat. Nothing was changed.** They wait for the maintainer to choose which deletes and rewrites to apply. The polish audit (unfinished-looking pages, stray logs, heading order) has four open questions; the first read-only pass on MeedyaDL found `LibraryScanPage.tsx` using its own `<h1>` where every other page uses `<h2>`, and six `console.debug` calls left in.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
