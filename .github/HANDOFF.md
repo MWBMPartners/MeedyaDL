@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 22:01) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 22:12) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1125,6 +1125,11 @@ on PRs to / pushes to main.
   - **Accepted behaviour change:** those helpers now also pass deadlocks and lock timeouts on outside transactions.
   - My checks: 289 PHP suites and 114 JavaScript suites passed. `php -l` was clean on 36 files, as were ESLint and actionlint, and the copy checker found 9 of 9 copies matching.
   - I commented on #2137. **A stand-in review is running**, with a watchdog on it.
+- **MeedyaConverter round-4 stand-in review.** The new work was correct apart from 3 minor wording errors (the CI ffmpeg version; `zh-Hant` used as the "cannot store" example; `sve`/`iri` called "not a language code").
+  - It also found 2 faults in OLDER, round-3 code:
+    - **Serious:** a Matroska full tag with no three-letter code (`abq`, `pnb`, `und-x-foo`, `und-Latn`, `und-419`) is LOST going to Matroska, MP4 or MPEG-TS. ffprobe hides the `und` legacy field and ffmpeg copies nothing, yet the note says "kept".
+    - **Medium:** with map-all, any Matroska attachment (a font, or a BMP or WebP cover) makes an MP4 job fail.
+  - **Round-5 builder running** (Opus, `brief-converter-r5.md`). It covers both faults, the MOV read-back carry-over, the wording, and `.gitattributes`.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
