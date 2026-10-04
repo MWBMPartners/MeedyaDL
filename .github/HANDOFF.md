@@ -1169,6 +1169,11 @@ on PRs to / pushes to main.
   - only a `.gitattributes` in the copy's own folder or above it wins;
   - `.git/info/attributes` wins because git always puts it first.
   The running NetPLAYERapp, MeedyaConverter and iHymns builders were told. The carry-overs for iLyricsDB round 8, MeedyaManager round 7 and MeedyaDL round 7 include it.
+- **MeedyaPlayer `9fbf42a` / MeedyaSubtitler `fa7cd79` pushed: the round-12 fixes, which act on the twelfth review.**
+  - Verified: copy checker, `git diff --check`, identity, copies unchanged.
+  - ADR 0010's body is back to its accepted text (at `4a8ba62`), with a dated clarification section.
+  - The builder also listed other accepted ADRs edited in place: 0001, 0008, 0009 and 0011 (the real name replaced by "the maintainer"), and 0006. Those edits are left as they are; the name removals are required by the no-real-name rule.
+  - CI is being watched, and a stand-in review of just these two commits (the thirteenth) is running with a watchdog. The copyright lines still wait on the maintainer.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
