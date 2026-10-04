@@ -689,6 +689,150 @@ pub fn is_hard_link_unsupported(error: &std::io::Error) -> bool {
     }
 }
 
+/// Whether the process with id `pid` is still running -- used to tell a
+/// temporary file abandoned by a process that has gone (safe to remove)
+/// from one a live process is still writing (never touched).
+///
+/// Errs towards "running": whenever the answer is not certain (no
+/// permission to ask, an id that cannot be a process id here, a system
+/// with no known way to ask) it says `true`, so a file is only ever
+/// removed when its process is known to be gone. One consequence, which
+/// is the safe one: a process id the system has since given to an
+/// unrelated program also reads as running, and that leftover simply
+/// stays until a later check.
+#[must_use]
+pub fn process_is_running(pid: u32) -> bool {
+    process_is_running_impl(pid)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn process_is_running_impl(pid: u32) -> bool {
+    // 0 and anything above the largest process id would mean "my process
+    // group" or wrap negative ("every process") to `kill`: never asked.
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return true;
+    };
+    if pid <= 0 {
+        return true;
+    }
+    // SAFETY: signal 0 sends nothing; it only asks whether `pid` exists
+    // and could be signalled. No memory is passed.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return true;
+    }
+    // ESRCH: no such process. Anything else (EPERM: it exists but belongs
+    // to someone else) counts as running.
+    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+#[cfg(windows)]
+fn process_is_running_impl(pid: u32) -> bool {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER};
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    /// What `GetExitCodeProcess` reports for a process that has not ended
+    /// (`STILL_ACTIVE`). A process that really exited with this number
+    /// reads as running -- the safe direction.
+    const STILL_ACTIVE: u32 = 259;
+    if pid == 0 {
+        return true;
+    }
+    // SAFETY: plain value arguments; the handle returned is closed below
+    // and never used after that.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        // ERROR_INVALID_PARAMETER: no process has this id. Anything else
+        // (access denied) means it exists.
+        // SAFETY: no arguments; reads this thread's last error.
+        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
+    }
+    let mut code: u32 = 0;
+    // SAFETY: `handle` is a valid process handle opened above; `code` is
+    // a writable u32 that outlives the call.
+    let asked = unsafe { GetExitCodeProcess(handle, &mut code) };
+    // SAFETY: `handle` was opened above and is closed exactly once.
+    unsafe { CloseHandle(handle) };
+    asked == 0 || code == STILL_ACTIVE
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn process_is_running_impl(_pid: u32) -> bool {
+    true
+}
+
+/// Which file a name refers to, and how many names that file has: enough
+/// to tell that two names are the same file (hard links), and that a name
+/// is not the file's only one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FileIdentity {
+    /// The volume the file is on.
+    pub device: u64,
+    /// The file's number on that volume.
+    pub index: u64,
+    /// How many names (hard links) the file has.
+    pub links: u64,
+}
+
+/// The [`FileIdentity`] of the regular file at `path`, without following
+/// a symbolic link (a link's own identity, never its target's).
+///
+/// # Errors
+/// Any error reading it; [`std::io::ErrorKind::Unsupported`] on a system
+/// with no known way to ask.
+pub fn file_identity(path: &Path) -> std::io::Result<FileIdentity> {
+    file_identity_impl(path)
+}
+
+#[cfg(unix)]
+fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::symlink_metadata(path)?;
+    Ok(FileIdentity {
+        device: meta.dev(),
+        index: meta.ino(),
+        links: meta.nlink(),
+    })
+}
+
+#[cfg(windows)]
+fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_OPEN_REPARSE_POINT,
+    };
+    // Opened for no access at all (just to ask about it), sharing
+    // everything, and not following a reparse point (a link).
+    let file = std::fs::OpenOptions::new()
+        .access_mode(0)
+        .share_mode(7)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    // SAFETY: an all-zero BY_HANDLE_FILE_INFORMATION is a valid value
+    // (plain numbers and times).
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: the handle belongs to `file`, which stays open for the call;
+    // `info` is writable and outlives it.
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(FileIdentity {
+        device: u64::from(info.dwVolumeSerialNumber),
+        index: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        links: u64::from(info.nNumberOfLinks),
+    })
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_identity_impl(_path: &Path) -> std::io::Result<FileIdentity> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no known way to identify a file here",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1153,5 +1297,46 @@ mod tests {
                 libc::EINVAL
             )));
         }
+    }
+
+    // ── process_is_running and file_identity (Codex's review of round 5,
+    // ── finding 4) ─────────────────────────────────────────────────────
+
+    #[test]
+    fn this_process_is_running_and_a_finished_one_is_not() {
+        assert!(process_is_running(std::process::id()));
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--help")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(!process_is_running(pid), "{pid}");
+        // Ids that cannot be asked about safely count as running.
+        assert!(process_is_running(0));
+    }
+
+    #[test]
+    fn file_identity_sees_two_names_of_one_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b, c) = (
+            dir.path().join("a"),
+            dir.path().join("b"),
+            dir.path().join("c"),
+        );
+        fs::write(&a, "x").unwrap();
+        fs::write(&c, "x").unwrap();
+        assert_eq!(file_identity(&a).unwrap().links, 1);
+        fs::hard_link(&a, &b).unwrap();
+        let (ia, ib, ic) = (
+            file_identity(&a).unwrap(),
+            file_identity(&b).unwrap(),
+            file_identity(&c).unwrap(),
+        );
+        assert_eq!(ia, ib);
+        assert_eq!(ia.links, 2);
+        assert_ne!((ia.device, ia.index), (ic.device, ic.index));
     }
 }

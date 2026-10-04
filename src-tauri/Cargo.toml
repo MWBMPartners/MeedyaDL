@@ -719,6 +719,10 @@ libc = "0.2"
 # Windows: the Windows form of that step, `MoveFileExW` WITHOUT
 # `MOVEFILE_REPLACE_EXISTING` (Rust's own rename passes that flag, so it
 # replaces). The same crate and version are already in the dependency tree
-# through Tauri; this only names the parts used.
+# through Tauri; this only names the parts used. `Win32_System_Threading`
+# is for asking whether a process is still running, and file information
+# (in `Win32_Storage_FileSystem`) for telling that two names are one file:
+# both used to tidy up temporary files a stopped run left behind (Codex's
+# review of round 5, finding 4).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Threading"] }
