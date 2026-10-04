@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 19:29) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 20:41) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1056,6 +1056,27 @@ on PRs to / pushes to main.
   - **Decision for round 7** (in `ihymns-r7-carryover.md`): `CreatedAt` changes only when a row comes to link to a different song, not when "verified" is cleared.
   - I commented on #2137. **A stand-in review is running** (Codex was out), with a watchdog on it.
 - **Codex order at 23:00:** core revisions 8 to 10 first (`codex-prompt-r11.txt`, `7f944a7..cd3ca07`), because it is data-loss work. Then the NetPLAYERapp catch-up, then MeedyaPlayer/MeedyaSubtitler round 11.
+- **Pushed since the last entry, each after my own checks:**
+  - **iLyricsDB round 6** (`278657e`): the SRT and LRC security fixes. 786 injection checks, 26 fuzz checks and the 290 conformance cases passed. **A stand-in review is running.**
+  - **The plugin's round 5** (`2f91439`, 11 commits, rebuilt after the restart): the push guard reads more spellings, runs in time proportional to the command, and refuses after 20 s. Both audits, the smoke test, shellcheck and actionlint were clean, and 193 of 193 bats tests passed. **Queued for Codex** (`42bd45e..`, the guard is security work).
+  - **MeedyaPlayer round 12** (`61985e1`) and **MeedyaSubtitler round 12** (`8dfa024`, `46c7501`), acting on the stand-in review of round 11:
+    - the handoffs no longer ask for a Codex review that already happened, and the review tables are fixed;
+    - the source-disclosure template is fixed;
+    - the `.gitattributes` comment names all three overrides;
+    - every push-status claim is removed.
+  - **NOT done, and blocked for the maintainer:** decision M2, restoring three copyright lines in MeedyaPlayer ADRs 0005 (~28) and 0006 (~25, ~54) to "Copyright © 2026 MWBMPartners.", their accepted wording before `2337861`. The permission system refused the builder's edit, so I did not do it either. It is the maintainer's call.
+- **iHymns round-6 stand-in review: 1 medium and 7 low.** The main rule held in 27 scenarios on both servers.
+  - **Medium:** `tuneFindOrCreateByName()` and `publisherFindOrCreateByName()` catch every error, so the deliberately re-thrown 1020 is swallowed and the save carries on with no transaction. This was reproduced on MariaDB.
+  - **Round-7 builder running** (Opus, `brief-ihymns-r7.md`, including the CreatedAt carry-over). It audits EVERY catch block reachable inside the save's transaction, adds a behavioural rollback test, and fixes the rest.
+- **The `.gitattributes` comment overstates its protection in every repository.** A later line in the same file, or a `.gitattributes` in a sub-folder, also overrides it, not only `.git/info/attributes`. This is in `gitattributes-item.md`'s addendum.
+  - Already done: MeedyaPlayer, MeedyaSubtitler and iHymns round 7.
+  - **Still to do in each next round:** MeedyaDL, MeedyaManager, MeedyaConverter, iLyricsDB and NetPLAYERapp.
+- **MeedyaManager round 6** is in my check run, and its **round 7 decisions** are recorded in `manager-r7-carryover.md`:
+  - every WAV save, not only language saves, keeps every other `INFO` entry, because `--remove artist` still deletes a Latin-1 title;
+  - the C API and UniFFI refuse a key that appears twice.
+- **MeedyaDL round 6** (9 commits; safe publish through `renamex_np`/`renameat2`/`MoveFileExW`, which adds `libc` and `windows-sys` use) is cherry-picked into the main checkout, and its check run is going.
+- **iLyricsDB round 7 carry-over** (`ilyricsdb-r7-carryover.md`): copy APlayer's MIT notice exactly, including the author's published email. The licence requires it, and the personal-email rule is about the maintainer's own details.
+- **Disk:** free space fell to 12 GB, mostly other work on the Mac. I removed two finished scratch build folders (core and the MeedyaDL builder clone), which brought it back to 26 GB. **The main MeedyaDL checkout's `src-tauri/target` is 49 GB.** That is for the maintainer: `cargo clean` there frees it, and the cost is a full rebuild.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
