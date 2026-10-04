@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 20:47) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 21:14) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1094,6 +1094,26 @@ on PRs to / pushes to main.
   6. the NetPLAYERapp catch-up.
 
   One window covers about two of these, so the rest wait for later windows or go to stand-ins.
+- **MeedyaConverter round 4 pushed (`48e60ba`..`6dfc16a`, 9 commits), redone after the restart.**
+  - What changed:
+    - "No language is stored" is now true, because the field is cleared;
+    - MOV gets the QuickTime code Apple reads as the same language (all 98 written codes were read back through AVFoundation);
+    - MP4 skips cover types it cannot hold, with a note;
+    - Ogg notes an unregistered language;
+    - the Matroska track-list reader is bounded;
+    - CI installs ffmpeg and MKVToolNix, and `MEEDYA_REQUIRE_MEDIA_TOOLS=1` makes the real-tool tests fail rather than skip.
+  - My checks: the three targets built, and the copy checker found 6 of 6 copies matching. actionlint was clean with CI's errors-only setting; there were style notes in older workflows. **CI Build & Test passed** (run 37230989543) with the real-tool tests, and Lint Workflows passed.
+  - I commented on #531. **A stand-in review is running**, with a watchdog on it.
+  - **Round-5 carry-over** (`converter-r5-carryover.md`): read MOV/MP4 QuickTime codes with Apple's meaning. A MOV→MOV remux of `chi` currently stores NO language, which is a COMPAT-030 loss.
+- **iLyricsDB round-6 stand-in review: 3 should-fix (2 security), 2 minor, 3 nits.**
+  - **Security:** an SRT `<font size=… color=…>` tag still paints the picture through ffmpeg. Separately, LRC timestamps in Arabic-Indic or full-width digits forge a line in Kodi's reader.
+  - **CI:** on `ubuntu-latest` (ffmpeg 6.1.1), 31 export checks fail: the tests do not strip carriage returns, and two checks depend on the ffmpeg version.
+  - **I posted a correction on #150**, because my round-6 comment had claimed the SRT export could no longer act as formatting commands.
+  - **Round-7 builder running** (Opus, `brief-ilyricsdb-r7.md`):
+    - a word joiner after every `<` in SRT;
+    - `/u` digits and `\s` in the LRC rules;
+    - the tests made independent of the ffmpeg version, and proven in an `ubuntu:24.04` container;
+    - Kodi's reader used as evidence only, because it is GPL.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
