@@ -1174,6 +1174,12 @@ on PRs to / pushes to main.
   - ADR 0010's body is back to its accepted text (at `4a8ba62`), with a dated clarification section.
   - The builder also listed other accepted ADRs edited in place: 0001, 0008, 0009 and 0011 (the real name replaced by "the maintainer"), and 0006. Those edits are left as they are; the name removals are required by the no-real-name rule.
   - CI is being watched, and a stand-in review of just these two commits (the thirteenth) is running with a watchdog. The copyright lines still wait on the maintainer.
+- **NetPLAYERapp round 7 pushed (`9232ec6..6bd61ed`, 7 commits), acting on Codex's catch-up review.**
+  - I re-ran the checks myself: language tests 18,496 passed; deployment test 6 passed; conformance 290/290; copy checker 9 copies match; `php -l` clean; policy copies unchanged.
+  - Any raw language value over 256 bytes is now refused before parsing.
+  - The memory use is inside the shared PHP policy code, so that is now **MeedyaSuite-core#104** (opened today). It needs a new policy release; NetPLAYERapp has its own guard meanwhile.
+  - #211's body is corrected (a stored NULL is turned into empty text first, as the forms do), and #210 has a comment.
+  - CI is being watched, and a stand-in review of round 7 (fresh Opus, Codex being out) is running with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
