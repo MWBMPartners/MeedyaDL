@@ -169,7 +169,14 @@ pub fn is_language_tag(raw: &str) -> bool {
 pub fn language_arg_for_gamdl(raw: &str) -> String {
     let tag = canonicalise(raw);
     if tag.is_malformed() {
-        raw.to_string()
+        // Largely unchanged, but a NUL, carriage return or line feed is
+        // removed: exactly what `config_service::sanitize_ini_value`
+        // removes from the `language =` INI line, so the command-line
+        // argument and the INI line carry identical text (independent
+        // review, round 5 of #1244). Only a hand-edited settings file can
+        // hold such a value; save and import refuse it. Kept as the same
+        // three characters on purpose; `utils` cannot call into `services`.
+        raw.replace(['\n', '\r', '\0'], "")
     } else {
         tag.tag
     }
@@ -607,6 +614,14 @@ mod tests {
         // than silently dropping the argument GAMDL has always been given.
         assert_eq!(language_arg_for_gamdl("English"), "English");
         assert_eq!(language_arg_for_gamdl(""), "");
+    }
+
+    #[test]
+    fn a_stored_value_that_is_not_a_tag_has_the_same_characters_removed_as_the_ini_line() {
+        // Round 5 of #1244: same three characters as `sanitize_ini_value`.
+        assert_eq!(language_arg_for_gamdl("en-US\0evil"), "en-USevil");
+        assert_eq!(language_arg_for_gamdl("English\n"), "English");
+        assert_eq!(language_arg_for_gamdl("English"), "English");
     }
 
     // ── Sending a language to Apple Music ───────────────────────────────

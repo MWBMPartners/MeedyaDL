@@ -1493,8 +1493,11 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // form of the same language than the primary run did (independent
     // review, round 4 of #1244). A value that cannot be read as a tag at
     // all — old data COMPAT-030 keeps as it is — passes through
-    // unchanged, exactly as before; only `sanitize_ini_value` still
-    // touches it, to stop a stray line break becoming a second INI line.
+    // largely unchanged: `language_arg_for_gamdl` itself now removes a NUL,
+    // carriage return or line feed from that path too (round 5 of #1244),
+    // so `sanitize_ini_value` is normally a no-op here, kept so this line
+    // is cleaned like every other and the command line and this INI line
+    // can never disagree.
     lines.push(format!(
         "language = {}",
         sanitize_ini_value(&crate::utils::language::language_arg_for_gamdl(
