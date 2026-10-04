@@ -1202,6 +1202,10 @@ on PRs to / pushes to main.
   - **Medium:** the second size guard is not really tested; the new test code fails PHP-CS-Fixer, which would fail CI.
   - **NetPLAYERapp's GitHub CI does not run on this branch** (only on release branches and pull requests), so local checks are the only gate until the pull request.
   - **Round-8 builder running** (Sonnet, `brief-netplayer-r8.md`), with a watchdog. It must run every check CI would run.
+- **MeedyaPlayer/MeedyaSubtitler: the fourteenth review (stand-in) of `5a83142` / `8817667` is NOT clean — 0 high, 1 medium, 2 low, 13 nits.** All of them are about wording; CI is green.
+  - **Lead's decision:** the corrected LGPL source-disclosure wording becomes a PROPOSED decision record (ADR 0013, amending 0010), instead of a "clarification" bolted onto accepted ADR 0010. Accepting it is the maintainer's call.
+  - **How this loop will stop:** a round that finds only nits (pure wording, nothing untrue or unsafe) counts as clean. Its nits are fixed in the next commit without another review round. This follows the "stop when a round finds no real problems" rule; the last few rounds' findings came mostly from each round's own new sentences.
+  - **Round-14 fixes builder running** (Sonnet, `brief-player-subtitler-r15.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
