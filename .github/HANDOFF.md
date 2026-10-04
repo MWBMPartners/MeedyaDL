@@ -1219,6 +1219,11 @@ on PRs to / pushes to main.
 - **MeedyaPlayer/MeedyaSubtitler: the fifteenth review is NOT clean — 0 high, 0 medium, 7 low, 8 nits.** Most come from ADR 0013 being only Proposed while some files already apply its stricter rule; the licence check has done so since 2026-09-28. The round-15 fixes builder is running (`brief-player-subtitler-r16.md`), with a watchdog.
 - **MeedyaDL round 6 (`5bcd7f06..c1999825`, 9 commits): stand-in review running** (fresh Opus agent, Codex being out), with a watchdog. It reuses the maintainer checkout's Rust build folder as a build cache only.
 - **MeedyaPlayer `c88a006` / MeedyaSubtitler `29e1ce5` pushed** (the round-15 fixes). The sixteenth review (stand-in) is running, with a watchdog.
+- **NetPLAYERapp round 8 pushed (`6bd61ed..fcac576`, 6 commits).**
+  - I re-ran the checks myself: language tests 18,531 passed; deployment test 6 passed; PHP-CS-Fixer 0 of 215 files to fix; `php -l` clean. The builder also ran PHPStan, house rules, schema, markdownlint and the whole 30-suite battery, all clean.
+  - One 256-byte limit now guards every public way into the shared parser, and the value is trimmed before it is measured.
+  - #210 has a comment (including a correction of the round-7 comment) and #212 has a note.
+  - A stand-in review of round 8 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
