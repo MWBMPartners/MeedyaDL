@@ -53,7 +53,10 @@ yt-dlp do.
   own "two pins must move together" check depends on now collects EVERY
   `meedya-lang` package entry the file names and refuses to run unless
   there is exactly one, rather than silently using whichever entry came
-  first (round 4).
+  first (round 4). The "exactly one" decision is its own function on the
+  lock file's text (`single_crate_pin`), tested at zero, one and two entries,
+  and the `name = "meedya-lang"` line is matched with spaces or tabs around
+  the `=` allowed (round 5).
 - MeedyaDL's own language code is all in `src-tauri/src/utils/language.rs` —
   every use of the crate's traits is there, so an API change in the crate is a
   change in that one file. The Metadata Language list's order comes from the
@@ -109,11 +112,33 @@ did not change.
   order (`useInterfaceLanguageOptions`, round 3 of the independent review) —
   it used to just follow the order its three entries happen to be written in.
   Its FALLBACK order (shown before the backend answers, or if it never does)
-  also pins the interface language's own row first, matching where the real
-  order would put it, so the list does not visibly jump the moment the
-  backend replies (round 4 — French is the case that showed the gap:
-  "allemand" sorts before "français" alphabetically, so the un-pinned
-  fallback showed German first for a French interface).
+  pins the interface language's whole primary-language GROUP first, matching
+  where the real order puts it, so the list does not visibly jump when the
+  backend replies. Round 4 pinned only an exact match, which passed all its
+  tests (bare codes) yet still jumped for the full tags "Auto" really sends
+  (`fr-FR`, `fr-CA`); round 5 groups by identity, and the test table is
+  copied from the real Rust ordering for ten cases.
+- **Language identity comes from the backend, not the browser** (Codex's
+  catch-up review): `language_identities` (`commands/language.rs`, through
+  `utils::language::language_identity`) gives each tag's standard form and
+  grouping identity. `Intl.Locale` folds `cmn` into `zh` and cannot read
+  `zh-cmn-Hans`, so `Intl` now supplies only names and their alphabetical
+  order; `src/hooks/useLanguageIdentities.ts` is the one place identity is
+  fetched (browser reading only as a fallback while pending). The same
+  identity makes a stored `"EN-us"` show as one row beside the offered
+  `"en-US"`; the stored spelling is never rewritten (COMPAT-030).
+- An imported language's length check and tag check are one small function
+  returning its reason (`decide_imported_language`), and the log line is built
+  by a function never given the value (round 5). A stored non-tag value reaches
+  GAMDL's command line with the same NUL/CR/LF removed as the `config.ini` line.
+- Music-video subtitle extraction writes ffmpeg's output to an exclusively
+  created temporary file and publishes it under the real name without
+  overwriting (hard link, or rename-if-free on FAT/exFAT, which has a small
+  window), so a failed run cannot block the next (Codex's catch-up review).
+- `.gitattributes` protects each policy copy with
+  `-text -filter -working-tree-encoding -ident`; a higher-priority setting on
+  someone's own machine can still change the bytes and the checker would then
+  say so.
 - LRC `[la:]`: the standard tag or nothing; WebVTT from TTML gets a
   `NOTE language: <tag>` comment block (#1250).
 - Music-video subtitle files: `{video}.{tag}[.{role}…][.{n}].{ext}`; old

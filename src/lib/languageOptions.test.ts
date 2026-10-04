@@ -95,6 +95,28 @@ describe('alphabeticalPrimaryOrder', () => {
   it('leaves out values that are not tags (they are ordered last by the Rust side)', () => {
     expect(alphabeticalPrimaryOrder(['en_US', 'fr-FR'], 'en')).toEqual(['fr']);
   });
+
+  it("uses the given resolver: the backend's groups, one per language (Codex's catch-up review)", () => {
+    const backend: Record<string, string> = {
+      'cmn-Hans': 'cmn',
+      'zh-cmn-Hans': 'cmn',
+      yue: 'yue',
+      'zh-Hant': 'zh',
+      nan: 'nan',
+    };
+    const tags = Object.keys(backend);
+    expect(alphabeticalPrimaryOrder(tags, 'en', (t) => backend[t]).sort()).toEqual([
+      'cmn',
+      'nan',
+      'yue',
+      'zh',
+    ]);
+  });
+
+  it('the browser default loses the Mandarin group (the fault the resolver replaces)', () => {
+    const tags = ['cmn-Hans', 'zh-cmn-Hans', 'yue', 'zh-Hant', 'nan'];
+    expect(alphabeticalPrimaryOrder(tags, 'en')).not.toContain('cmn');
+  });
 });
 
 describe('collatorFallbackOrder', () => {
@@ -116,6 +138,20 @@ describe('withSavedValues', () => {
   it('adds a saved value that is not offered, and nothing else', () => {
     expect(withSavedValues(['en-US', 'ja-JP'], ['zh-CN'])).toEqual(['en-US', 'ja-JP', 'zh-CN']);
     expect(withSavedValues(['en-US', 'ja-JP'], ['ja-JP', ''])).toEqual(['en-US', 'ja-JP']);
+  });
+
+  it('with no resolver a differently spelled equivalent is still added (the old behaviour)', () => {
+    expect(withSavedValues(['en-US'], ['EN-us'])).toEqual(['en-US', 'EN-us']);
+  });
+
+  it('with a standard-form resolver it is recognised and not added again', () => {
+    const standardOf = (tag: string) => new Intl.Locale(tag).toString();
+    expect(withSavedValues(['en-US', 'ja-JP'], ['EN-us'], standardOf)).toEqual(['en-US', 'ja-JP']);
+    expect(withSavedValues(['en-US', 'ja-JP'], ['zh-CN'], standardOf)).toEqual([
+      'en-US',
+      'ja-JP',
+      'zh-CN',
+    ]);
   });
 });
 

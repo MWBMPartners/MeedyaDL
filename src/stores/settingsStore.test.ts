@@ -798,4 +798,23 @@ describe('settingsStore', () => {
       expect(after.settings.default_song_codec).toBe('aac-legacy');
     });
   });
+
+  describe('noteMetadataLanguageSeen (Codex catch-up review of #1244, finding 2)', () => {
+    beforeEach(() => useSettingsStore.setState({ seenMetadataLanguages: [] }));
+
+    it('remembers a new value once, ignores an empty one', () => {
+      const note = useSettingsStore.getState().noteMetadataLanguageSeen;
+      note('zh-CN');
+      note('zh-CN');
+      note('');
+      expect(useSettingsStore.getState().seenMetadataLanguages).toEqual(['zh-CN']);
+    });
+
+    it('does not remember a value differing only by case beside one it already has', () => {
+      const note = useSettingsStore.getState().noteMetadataLanguageSeen;
+      note('en-us');
+      note('EN-US');
+      expect(useSettingsStore.getState().seenMetadataLanguages).toEqual(['en-us']);
+    });
+  });
 });

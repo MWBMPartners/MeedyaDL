@@ -3,23 +3,25 @@
 
 /**
  * @file Unit tests for useInterfaceLanguageOptions (independent review,
- * round 3 of #1244).
+ * rounds 3 to 5 of #1244).
  *
- * Pins the contract GeneralTab.tsx's Interface Language dropdown relies
- * on:
- *   - the order the backend (shared `meedya-lang` code) sends back is
- *     used, and it is asked with the interface language as the SOLE
- *     preference;
- *   - if the backend fails, the alphabetical fallback is shown instead --
- *     and for the three locales MeedyaDL actually ships, that fallback
- *     already reads exactly right for both interface languages this round
- *     of review named: "English, French, German" when the interface is
- *     English, "Deutsch, Englisch, Französisch" when it is German. (For
- *     this particular set of three names, the interface language happens
- *     to sort first alphabetically too -- "English" and "Deutsch" both
- *     start earliest in their own alphabets -- so the two rules give the
- *     same answer here; that is a property of these three names, not a
- *     coincidence this test relies on for languages in general.)
+ * Pins the contract GeneralTab.tsx's Interface Language dropdown relies on:
+ *   - the order the backend sends back is used, asked with the interface
+ *     language as the SOLE preference;
+ *   - if the backend fails, a fallback is shown: the interface language's
+ *     whole primary-language group first, then the rest alphabetical by
+ *     name in that language.
+ *
+ * The fallback must never visibly JUMP when the real answer arrives, which
+ * can only be checked against what the backend really says. So the table in
+ * "the fallback matches the real backend order" is not worked out by hand:
+ * it is copied from the Rust test
+ * `the_real_order_for_every_interface_language_case_the_frontend_fallback_mirrors`
+ * (`src-tauri/src/utils/language.rs`), which runs the real `order_for_display`
+ * for each case with the alphabetical order `Intl` gives (en/de/fr offered).
+ * Round 4 only tried bare codes (`en`, `fr`), not the full tags "Auto (System)"
+ * really sends (`fr-FR`, `fr-CA`...), so its exact-match pin passed every test
+ * and still jumped; the reviewer's `fr-FR` probe is in the table.
  */
 
 import { renderHook, waitFor } from '@testing-library/react';
@@ -30,6 +32,9 @@ import { AVAILABLE_LOCALES } from '@/lib/i18n';
 
 vi.mock('@/lib/tauri-commands', () => ({
   orderLanguagesForDisplay: vi.fn(),
+  // Left failing: the browser's reading is then used, which agrees with the
+  // backend for en/de/fr and their regional forms (the table above).
+  languageIdentities: vi.fn(() => Promise.reject(new Error('not mocked here'))),
 }));
 
 const order = vi.mocked(commands.orderLanguagesForDisplay);
@@ -54,32 +59,26 @@ describe('useInterfaceLanguageOptions', () => {
     expect(preferences).toEqual(['en']);
   });
 
-  it('shows English, French, German when the backend fails and the interface is English', async () => {
-    order.mockRejectedValue(new Error('command not available'));
-    const { result } = renderHook(() => useInterfaceLanguageOptions('en'));
-    await waitFor(() => expect(order).toHaveBeenCalled());
-    expect(result.current).toEqual(['en', 'fr', 'de']);
-  });
-
-  it('shows Deutsch, Englisch, Französisch when the backend fails and the interface is German', async () => {
-    order.mockRejectedValue(new Error('command not available'));
-    const { result } = renderHook(() => useInterfaceLanguageOptions('de'));
-    await waitFor(() => expect(order).toHaveBeenCalled());
-    expect(result.current).toEqual(['de', 'en', 'fr']);
-  });
-
-  it('shows French first when the backend fails and the interface is French, not the plain alphabetical order (independent review, round 4 of #1244)', async () => {
-    // In French, the three names are "allemand" (German), "anglais"
-    // (English) and "français" (French) -- alphabetically "allemand"
-    // sorts FIRST, ahead of "français". A fallback that was merely
-    // alphabetical (no pin for the interface language itself) would
-    // show German first here, then jump to French-first the instant the
-    // backend answered -- the exact fault this test guards against.
-    order.mockRejectedValue(new Error('command not available'));
-    const { result } = renderHook(() => useInterfaceLanguageOptions('fr'));
-    await waitFor(() => expect(order).toHaveBeenCalled());
-    expect(result.current).toEqual(['fr', 'de', 'en']);
-  });
+  it.each([
+    ['en', ['en', 'fr', 'de']],
+    ['de', ['de', 'en', 'fr']],
+    ['fr', ['fr', 'de', 'en']],
+    ['fr-FR', ['fr', 'de', 'en']],
+    ['fr-CA', ['fr', 'de', 'en']],
+    ['de-DE', ['de', 'en', 'fr']],
+    ['en-GB', ['en', 'fr', 'de']],
+    ['es', ['de', 'fr', 'en']],
+    ['ja', ['de', 'fr', 'en']],
+    ['', ['en', 'fr', 'de']],
+  ] as const)(
+    'the fallback matches the real backend order for %j',
+    async (uiLanguage, expected) => {
+      order.mockRejectedValue(new Error('command not available'));
+      const { result } = renderHook(() => useInterfaceLanguageOptions(uiLanguage));
+      await waitFor(() => expect(order).toHaveBeenCalled());
+      expect(result.current).toEqual(expected);
+    }
+  );
 
   it('ignores a backend answer that lost an entry', async () => {
     order.mockImplementation(async (tags) => tags.slice(1));

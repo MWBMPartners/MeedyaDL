@@ -6,7 +6,7 @@
 // Language-list IPC commands (#1249)
 // ==================================
 //
-// One command: `order_languages_for_display`, which puts the entries of a
+// Two commands. First, `order_languages_for_display`, which puts the entries of a
 // language list into the order a person should see them, per the shared
 // language policy (docs/standards/media-language-bcp47-policy.md, UI-020 to
 // UI-040). Its callers today are the Metadata Language list and the
@@ -14,6 +14,12 @@
 // Language list joined as of the independent review, round 3 of #1244; it
 // used to just follow `LOCALES`' own array order, whatever language the
 // interface was actually showing.
+//
+// Second, `language_identities` (Codex's catch-up review of #1244): for each
+// tag, its standard form and the identity to group it by, read by the same
+// shared code the ordering uses. The frontend used `Intl.Locale` for this,
+// which disagrees with the policy for some real tags (`cmn-Hans`,
+// `zh-cmn-Hans`); `Intl` now only supplies names and their alphabetical order.
 //
 // Why the ordering is done here and not in JavaScript: the rules are
 // implemented once, in the shared `meedya-lang` crate, and the policy's test
@@ -88,6 +94,52 @@ pub fn order_languages_for_display(
     ))
 }
 
+/// One tag's identity, as `language_identities` answers it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct LanguageIdentity {
+    /// The value exactly as asked about, so an answer can be matched back
+    /// without relying on array order.
+    pub raw: String,
+    /// Its standard form (or `raw` unchanged when it is not a tag).
+    pub standard: String,
+    /// The identity to group it by — see `utils::language::language_identity`.
+    pub primary: String,
+}
+
+/// For each tag, its standard form and grouping identity (Codex's
+/// catch-up review of #1244, finding 1).
+///
+/// **Frontend caller:** `languageIdentities(tags)` in
+/// `src/lib/tauri-commands.ts`, used by `useLanguageIdentities`.
+///
+/// # Errors
+/// `Err` only for a call that is too large (same bounds as
+/// `order_languages_for_display`); the frontend then keeps its `Intl`
+/// reading for that batch.
+#[tauri::command]
+pub fn language_identities(tags: Vec<String>) -> Result<Vec<LanguageIdentity>, String> {
+    if tags.len() > MAX_LIST_LEN {
+        return Err(format!(
+            "Too many tags to identify ({}; at most {MAX_LIST_LEN})",
+            tags.len()
+        ));
+    }
+    if tags.iter().any(|value| value.len() > MAX_VALUE_LEN) {
+        return Err(format!("A value is longer than {MAX_VALUE_LEN} characters"));
+    }
+    Ok(tags
+        .into_iter()
+        .map(|raw| {
+            let (standard, primary) = crate::utils::language::language_identity(&raw);
+            LanguageIdentity {
+                raw,
+                standard,
+                primary,
+            }
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +174,28 @@ mod tests {
         assert!(order_languages_for_display(too_many, vec![], vec![]).is_err());
         let too_long = vec!["a".repeat(MAX_VALUE_LEN + 1)];
         assert!(order_languages_for_display(vec![], too_long, vec![]).is_err());
+    }
+
+    #[test]
+    fn answers_one_identity_per_tag_in_the_order_asked() {
+        let got = language_identities(strings(&["EN-us", "cmn-Hans", "zh-cmn-Hans"])).unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(
+            (
+                got[0].raw.as_str(),
+                got[0].standard.as_str(),
+                got[0].primary.as_str()
+            ),
+            ("EN-us", "en-US", "en")
+        );
+        assert_eq!(got[1].primary, "cmn");
+        assert_eq!(got[2].raw, "zh-cmn-Hans");
+        assert_eq!(got[2].primary, "cmn");
+    }
+
+    #[test]
+    fn refuses_an_identity_call_that_is_too_large() {
+        assert!(language_identities(vec!["en".to_string(); MAX_LIST_LEN + 1]).is_err());
+        assert!(language_identities(vec!["a".repeat(MAX_VALUE_LEN + 1)]).is_err());
     }
 }

@@ -733,9 +733,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * this after every render of the list costs nothing.
    */
   noteMetadataLanguageSeen: (value) =>
-    set((state) =>
-      value === '' || state.seenMetadataLanguages.includes(value)
-        ? state
-        : { seenMetadataLanguages: [...state.seenMetadataLanguages, value] }
-    ),
+    set((state) => {
+      if (value === '') return state;
+      // Case-insensitive: all a synchronous action can do without the
+      // backend (Codex's catch-up review of #1244, finding 2). The real
+      // check is the caller's, by standard form; this is a backstop so
+      // `"EN-us"` is not remembered beside an already-remembered `"en-us"`.
+      const already = state.seenMetadataLanguages.some(
+        (seen) => seen.toLowerCase() === value.toLowerCase()
+      );
+      return already ? state : { seenMetadataLanguages: [...state.seenMetadataLanguages, value] };
+    }),
 }));

@@ -118,6 +118,11 @@ export function languageDisplayName(tag: string, uiLanguage: string): string {
  * platform's own tag parser rather than by splitting text on hyphens.
  * `null` when the platform cannot read `tag` as a tag at all -- such a value
  * is not an ordinary language group, and the Rust ordering puts it last.
+ *
+ * **A fallback, not the source of truth** (Codex's catch-up review of
+ * #1244): `Intl.Locale` folds `cmn` into `zh` and cannot read `zh-cmn-Hans`
+ * at all, which the policy does not. Anything that can use a hook should
+ * use `useLanguageIdentities` (the backend's reading) instead.
  */
 export function primaryLanguageOf(tag: string): string | null {
   try {
@@ -135,11 +140,17 @@ export function primaryLanguageOf(tag: string): string | null {
  *
  * This is the one thing the Rust ordering asks the frontend for: the
  * command compares ordinary language groups by their position in this list.
+ *
+ * @param primaryOf - how to read a tag's group. Defaults to the browser's
+ *   reading; real callers pass `useLanguageIdentities(...).primaryOf` so the
+ *   groups are the ones the Rust ordering uses (Codex's catch-up review).
  */
-export function alphabeticalPrimaryOrder(tags: readonly string[], uiLanguage: string): string[] {
-  const primaries = [
-    ...new Set(tags.map(primaryLanguageOf).filter((p): p is string => p !== null)),
-  ];
+export function alphabeticalPrimaryOrder(
+  tags: readonly string[],
+  uiLanguage: string,
+  primaryOf: (tag: string) => string | null = primaryLanguageOf
+): string[] {
+  const primaries = [...new Set(tags.map(primaryOf).filter((p): p is string => p !== null))];
   const collator = collatorFor(uiLanguage);
   return primaries.sort(
     (a, b) =>
@@ -190,14 +201,27 @@ export function languagePreferences(
  * `zh-CN`, or anything a settings file brought in -- still appears in the
  * list and stays selected, instead of the list silently showing the first
  * entry while keeping a value nobody can see.
+ *
+ * "Not among them" is decided by STANDARD FORM when `standardOf` is given
+ * (Codex's catch-up review of #1244, finding 2): a stored `"EN-us"` is the
+ * same language as an offered `"en-US"`, and adding it made two rows both
+ * labelled "English (United States)". The value itself is never rewritten
+ * (COMPAT-030) -- only whether it needs its own row is decided this way.
+ * The default compares raw text, as before.
  */
 export function withSavedValues(
   offered: readonly string[],
-  savedValues: readonly string[]
+  savedValues: readonly string[],
+  standardOf: (tag: string) => string = (tag) => tag
 ): string[] {
   const out = [...offered];
+  const standards = out.map(standardOf);
   for (const value of savedValues) {
-    if (value !== '' && !out.includes(value)) out.push(value);
+    if (value === '' || out.includes(value)) continue;
+    const standard = standardOf(value);
+    if (standards.includes(standard)) continue;
+    out.push(value);
+    standards.push(standard);
   }
   return out;
 }

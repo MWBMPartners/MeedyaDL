@@ -1497,6 +1497,26 @@ export interface CookieCheckResult {
 }
 
 // ============================================================
+// Language identity (Codex's catch-up review of #1244)
+// ============================================================
+
+/**
+ * One tag's standard form and grouping identity, as the shared language
+ * policy defines them (not as `Intl.Locale` guesses them).
+ *
+ * Mirrors: Rust struct `LanguageIdentity` in `src-tauri/src/commands/language.rs`.
+ * Returned by `language_identities`; fetched only through `useLanguageIdentities`.
+ */
+export interface LanguageIdentity {
+  /** The value exactly as asked about. */
+  raw: string;
+  /** Its standard form (`raw` itself when it is not a tag). */
+  standard: string;
+  /** The identity to group it by (its primary language, for a real tag). */
+  primary: string;
+}
+
+// ============================================================
 // Browser Cookie Import Types
 // ============================================================
 

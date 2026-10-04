@@ -44,7 +44,7 @@ use std::collections::HashMap;
 use meedya_lang::{
     build_sidecar_name, canonicalise, from_legacy_three_letter, from_posix_locale,
     parse_sidecar_name, sort_for_presentation, sort_tracks, LanguageItem, LanguageTag,
-    PresentationContext, PresentationItem, Role, RoleItem, TrackItem, TrackType,
+    PresentationContext, PresentationItem, Role, RoleItem, TagKind, TrackItem, TrackType,
 };
 
 /// The longest language tag MeedyaDL stores or sends. RFC 5646 section
@@ -180,6 +180,32 @@ pub fn language_arg_for_gamdl(raw: &str) -> String {
     } else {
         tag.tag
     }
+}
+
+// ---------------------------------------------------------------------
+// Telling the frontend which language a tag really is (Codex's catch-up
+// review of #1244, finding 1)
+// ---------------------------------------------------------------------
+
+/// A tag's standard form, and the identity to GROUP it with other tags
+/// naming the same language: the primary language subtag for an ordinary
+/// tag (`en-GB` and `en-US` both group as `"en"`); for anything else
+/// (grandfathered, private-use, not a tag) its own lower-cased standard
+/// text, so it is a stable key that never groups with a real language.
+///
+/// The frontend used to work this out with `Intl.Locale`, which disagrees
+/// with the policy for real tags: it folds `cmn-Hans` into `zh` (the policy
+/// keeps `cmn` distinct) and refuses `zh-cmn-Hans` outright. This reads the
+/// tag with the same `canonicalise()` that `order_for_display` already uses
+/// to group, so the two can never disagree. Returns plain strings, as this
+/// file's header says every function here does.
+pub fn language_identity(raw: &str) -> (String, String) {
+    let tag = canonicalise(raw);
+    let group = match (tag.kind, tag.language.as_deref()) {
+        (TagKind::Ordinary, Some(language)) => language.to_string(),
+        _ => tag.tag.to_ascii_lowercase(),
+    };
+    (tag.tag, group)
 }
 
 // ---------------------------------------------------------------------
@@ -622,6 +648,88 @@ mod tests {
         assert_eq!(language_arg_for_gamdl("en-US\0evil"), "en-USevil");
         assert_eq!(language_arg_for_gamdl("English\n"), "English");
         assert_eq!(language_arg_for_gamdl("English"), "English");
+    }
+
+    // ── Language identity, for the frontend ─────────────────────────────
+
+    #[test]
+    fn mandarin_groups_the_same_in_the_new_and_the_old_extlang_form() {
+        assert_eq!(
+            language_identity("cmn-Hans"),
+            ("cmn-Hans".to_string(), "cmn".to_string())
+        );
+        assert_eq!(
+            language_identity("zh-cmn-Hans"),
+            ("cmn-Hans".to_string(), "cmn".to_string())
+        );
+        // Mandarin is not the Chinese macrolanguage.
+        assert_eq!(language_identity("zh-Hant").1, "zh");
+    }
+
+    #[test]
+    fn other_ordinary_languages_group_by_their_primary_subtag() {
+        for (raw, group) in [
+            ("yue", "yue"),
+            ("nan", "nan"),
+            ("fr-CA", "fr"),
+            ("EN-gb", "en"),
+        ] {
+            assert_eq!(language_identity(raw).1, group, "{raw}");
+        }
+        assert_eq!(language_identity("EN-us").0, "en-US");
+    }
+
+    #[test]
+    fn a_value_that_is_not_a_tag_groups_only_with_itself() {
+        assert_eq!(language_identity("English").1, "english");
+        assert_eq!(language_identity("ENGLISH").1, "english");
+    }
+
+    #[test]
+    fn the_extlang_form_sits_with_mandarin_not_with_chinese_in_the_real_order() {
+        // With the alphabetical order built from `language_identity`'s
+        // groups, every group gets its own place: cmn-Hans and zh-cmn-Hans
+        // together, zh-Hant elsewhere. (An order built from `Intl.Locale`
+        // had no `cmn` entry at all, so Rust put Mandarin last.)
+        let tags = strings(&["cmn-Hans", "zh-cmn-Hans", "yue", "zh-Hant", "nan", "en"]);
+        let mut groups: Vec<String> = tags.iter().map(|t| language_identity(t).1).collect();
+        groups.sort();
+        groups.dedup();
+        assert_eq!(groups, ["cmn", "en", "nan", "yue", "zh"]);
+        assert_eq!(
+            order_for_display(&tags, &[], &groups),
+            ["cmn-Hans", "zh-cmn-Hans", "en", "nan", "yue", "zh-Hant"]
+        );
+    }
+
+    #[test]
+    fn the_real_order_for_every_interface_language_case_the_frontend_fallback_mirrors() {
+        // The table in `src/hooks/useInterfaceLanguageOptions.test.ts` is
+        // copied from this test's output. Offered locales en/de/fr; the
+        // third argument is the frontend's alphabetical order by name in
+        // that interface language (from `Intl`, verified on Node 26).
+        let tags = strings(&["en", "de", "fr"]);
+        let cases: [(&str, [&str; 3], [&str; 3]); 10] = [
+            ("en", ["en", "fr", "de"], ["en", "fr", "de"]),
+            ("de", ["de", "en", "fr"], ["de", "en", "fr"]),
+            ("fr", ["de", "en", "fr"], ["fr", "de", "en"]),
+            ("fr-FR", ["de", "en", "fr"], ["fr", "de", "en"]),
+            ("fr-CA", ["de", "en", "fr"], ["fr", "de", "en"]),
+            ("de-DE", ["de", "en", "fr"], ["de", "en", "fr"]),
+            ("en-GB", ["en", "fr", "de"], ["en", "fr", "de"]),
+            ("es", ["de", "fr", "en"], ["de", "fr", "en"]),
+            ("ja", ["de", "fr", "en"], ["de", "fr", "en"]),
+            ("", ["en", "fr", "de"], ["en", "fr", "de"]),
+        ];
+        for (ui, alphabetical, expected) in cases {
+            let prefs = if ui.is_empty() {
+                vec![]
+            } else {
+                strings(&[ui])
+            };
+            let got = order_for_display(&tags, &prefs, &strings(&alphabetical));
+            assert_eq!(got, expected, "interface language {ui:?}");
+        }
     }
 
     // ── Sending a language to Apple Music ───────────────────────────────

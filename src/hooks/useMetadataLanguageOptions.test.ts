@@ -25,13 +25,18 @@ import { useSettingsStore } from '@/stores/settingsStore';
 
 vi.mock('@/lib/tauri-commands', () => ({
   orderLanguagesForDisplay: vi.fn(),
+  // Default: "nothing to add" -- every tag then uses the browser's reading.
+  languageIdentities: vi.fn(async () => []),
 }));
 
 const order = vi.mocked(commands.orderLanguagesForDisplay);
+const identities = vi.mocked(commands.languageIdentities);
 
 describe('useMetadataLanguageOptions', () => {
   beforeEach(() => {
     order.mockReset();
+    identities.mockReset();
+    identities.mockImplementation(async () => []);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     // The values seen live in the (shared) settings store; start each test
     // from a fresh app run.
@@ -131,12 +136,74 @@ describe('useMetadataLanguageOptions', () => {
       ({ value }) => useMetadataLanguageOptions(value, 'en'),
       { initialProps: { value: 'en-GB' } }
     );
-    await waitFor(() => expect(order).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(result.current[0].value).toBe(METADATA_LANGUAGE_TAGS.at(-1)));
+    // Two asks settle: one with the browser's grouping, one once the
+    // backend's identities arrive (Codex's catch-up review).
+    await waitFor(() => expect(order).toHaveBeenCalledTimes(2));
+    const callsBefore = order.mock.calls.length;
     const before = result.current.map((o) => o.value);
     rerender({ value: 'ja-JP' });
     expect(result.current.map((o) => o.value)).toEqual(before);
-    expect(order).toHaveBeenCalledTimes(1);
+    // What this test is about: choosing an entry asks for nothing new.
+    expect(order).toHaveBeenCalledTimes(callsBefore);
+  });
+
+  // -- One row per language (Codex's catch-up review of #1244, finding 2) --
+
+  it('a stored "EN-us" is the offered "en-US": one row, not two', async () => {
+    order.mockImplementation(async (tags) => [...tags]);
+    const { result } = renderHook(() => useMetadataLanguageOptions('EN-us', 'en'));
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length);
+    const rows = result.current.filter((o) => o.value === 'en-US' || o.value === 'EN-us');
+    expect(rows.map((o) => o.value)).toEqual(['en-US']);
+  });
+
+  it('a remembered "en-us" does not duplicate the offered "en-US"', async () => {
+    useSettingsStore.setState({ seenMetadataLanguages: ['en-us'] });
+    order.mockImplementation(async (tags) => [...tags]);
+    const { result } = renderHook(() => useMetadataLanguageOptions('ja-JP', 'en'));
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length);
+  });
+
+  it("uses the backend's identity, not only the browser's reading, once it answers", async () => {
+    // Artificial: the backend says `cmn-Hans` standardises to the offered
+    // `ja-JP`, which `Intl` would never conclude.
+    identities.mockImplementation(async (tags) =>
+      tags.map((raw) => ({
+        raw,
+        standard: raw === 'cmn-Hans' ? 'ja-JP' : raw,
+        primary: raw.toLowerCase(),
+      }))
+    );
+    order.mockImplementation(async (tags) => [...tags]);
+    const { result } = renderHook(() => useMetadataLanguageOptions('cmn-Hans', 'en'));
+    await waitFor(() => expect(identities).toHaveBeenCalled());
+    await waitFor(() => expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length));
+    expect(result.current.some((o) => o.value === 'cmn-Hans')).toBe(false);
+  });
+
+  it('sends the backend identity of mandarin and cantonese as groups of their own', async () => {
+    // With an English interface: the groups handed to the ordering are the
+    // backend's (`cmn`, `yue`, `nan`, `zh`), so none is missing.
+    const backend: Record<string, string> = {
+      'cmn-Hans': 'cmn',
+      'zh-cmn-Hans': 'cmn',
+      yue: 'yue',
+      'zh-Hant': 'zh',
+      nan: 'nan',
+    };
+    identities.mockImplementation(async (tags) =>
+      tags.map((raw) => ({ raw, standard: raw, primary: backend[raw] ?? 'x' + raw }))
+    );
+    useSettingsStore.setState({ seenMetadataLanguages: Object.keys(backend) });
+    order.mockImplementation(async (tags) => [...tags]);
+    renderHook(() => useMetadataLanguageOptions('en-US', 'en'));
+    await waitFor(() => {
+      const last = order.mock.calls.at(-1);
+      expect(last?.[2]).toEqual(expect.arrayContaining(['cmn', 'yue', 'nan', 'zh']));
+    });
   });
 });
 
@@ -146,6 +213,10 @@ describe('useMetadataLanguageOptions when the IPC call throws before returning a
     order.mockImplementation(() => {
       throw new Error('IPC bridge missing');
     });
+    identities.mockReset();
+    identities.mockImplementation(async () => []);
+    // The store is process-wide: a test above may have left values in it.
+    useSettingsStore.setState({ seenMetadataLanguages: [] });
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { result } = renderHook(() => useMetadataLanguageOptions('en-GB', 'en'));
     await waitFor(() => expect(order).toHaveBeenCalled());

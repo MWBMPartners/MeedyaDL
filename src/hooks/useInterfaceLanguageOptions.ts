@@ -32,16 +32,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { orderLanguagesForDisplay } from '@/lib/tauri-commands';
 import { AVAILABLE_LOCALES } from '@/lib/i18n';
 import { alphabeticalPrimaryOrder, collatorFallbackOrder, isSameList } from '@/lib/languageOptions';
+import { useLanguageIdentities } from '@/hooks/useLanguageIdentities';
 
 /**
  * The codes from `AVAILABLE_LOCALES`, ordered for display in `uiLanguage`:
- * `uiLanguage` itself first (when it is one of the offered locales), then
- * the rest alphabetical by name in `uiLanguage` (policy UI-020 to UI-040).
+ * `uiLanguage`'s whole primary-language group first (when an offered locale
+ * shares it), then the rest alphabetical by name in `uiLanguage` (policy
+ * UI-020 to UI-040).
  *
- * Shows the plain alphabetical order (`collatorFallbackOrder`) until the
- * backend answers, and if it ever fails or sends back a list with an entry
- * lost or added -- the same never-empty, never-broken guarantee
- * `useMetadataLanguageOptions` makes.
+ * Shows that pinned-then-alphabetical fallback until the backend answers,
+ * and if it ever fails or sends back a list with an entry lost or added --
+ * the same never-empty, never-broken guarantee `useMetadataLanguageOptions`
+ * makes. Which group a tag belongs to comes from `useLanguageIdentities`
+ * (the backend's reading, Codex's catch-up review of #1244), with the
+ * browser's reading only while that is pending.
  *
  * @param uiLanguage -- the language the interface is showing text in right
  *   now (`i18n.language`), used both to name the entries (by the caller)
@@ -49,24 +53,27 @@ import { alphabeticalPrimaryOrder, collatorFallbackOrder, isSameList } from '@/l
  */
 export function useInterfaceLanguageOptions(uiLanguage: string): readonly string[] {
   const tags = AVAILABLE_LOCALES;
-  // `uiLanguage`'s own row pinned first (when it is one of `tags`), then
-  // the rest in `collatorFallbackOrder`'s alphabetical order -- matching
-  // where the real, backend-driven order (policy UI-020) would put it.
-  // Without this, the fallback shown before the backend answers (or if it
-  // never does) put every row in plain alphabetical order with no pin at
-  // all, so the interface language's own row could sit anywhere in the
-  // list -- and then visibly JUMP to the top the moment the real answer
-  // arrived, for any interface language whose own name does not happen
-  // to sort first (independent review, round 4 of #1244: French is
-  // exactly such a case -- "allemand" (German) sorts before "français"
-  // (French) alphabetically, so the un-pinned fallback showed German
-  // first for a French interface, then jumped to French-first once the
-  // backend replied).
+  // "Auto (System)" hands this hook the OS's FULL tag (`fr-FR`, `fr-CA`,
+  // `de-DE`, `en-GB`), never the bare `fr`/`de`/`en` offered here, so
+  // `uiLanguage` has to be identified too, not only the offered tags.
+  const identityKey = JSON.stringify([...tags, uiLanguage]);
+  const identityTags = useMemo(() => JSON.parse(identityKey) as string[], [identityKey]);
+  const identities = useLanguageIdentities(identityTags);
+
+  // The interface language's whole primary-language GROUP first, then the
+  // rest alphabetical -- where the real backend order puts them, so the
+  // list does not visibly JUMP when the real answer arrives. Round 4 of
+  // #1244 pinned only an EXACT match, which passed every test (all bare
+  // codes) yet still jumped for `fr-FR`, the shape "Auto" really sends;
+  // grouping by identity fixes that, and by the BACKEND's identity keeps
+  // this and the order request below from disagreeing (round 5).
   const fallback = useMemo(() => {
     const alphabetical = collatorFallbackOrder(tags, uiLanguage);
-    if (!alphabetical.includes(uiLanguage)) return alphabetical;
-    return [uiLanguage, ...alphabetical.filter((tag) => tag !== uiLanguage)];
-  }, [tags, uiLanguage]);
+    const ui = identities.primaryOf(uiLanguage);
+    const pinned = alphabetical.filter((tag) => identities.primaryOf(tag) === ui);
+    if (pinned.length === 0) return alphabetical;
+    return [...pinned, ...alphabetical.filter((tag) => identities.primaryOf(tag) !== ui)];
+  }, [tags, uiLanguage, identities]);
 
   // What the backend said, and for which interface language -- kept with
   // its input so an answer worked out for a previous language is never
@@ -83,7 +90,7 @@ export function useInterfaceLanguageOptions(uiLanguage: string): readonly string
         return orderLanguagesForDisplay(
           tags,
           [uiLanguage],
-          alphabeticalPrimaryOrder(tags, uiLanguage)
+          alphabeticalPrimaryOrder(tags, uiLanguage, identities.primaryOf)
         );
       } catch (error) {
         return Promise.reject(error);
@@ -98,12 +105,21 @@ export function useInterfaceLanguageOptions(uiLanguage: string): readonly string
         }
       })
       .catch((error: unknown) => {
-        console.warn('[settings] interface language order unavailable, showing A-Z', error);
+        console.warn(
+          '[settings] interface language order unavailable, showing the pinned-then-A-Z fallback',
+          error
+        );
       });
     return () => {
       cancelled = true;
     };
-  }, [tags, uiLanguage]);
+  }, [
+    tags,
+    uiLanguage,
+    // Asked again once the backend's identities arrive, so the real order
+    // uses the real groups ("the backend's answer replaces it").
+    identities,
+  ]);
 
   return ordered !== null && ordered.ui === uiLanguage ? ordered.order : fallback;
 }

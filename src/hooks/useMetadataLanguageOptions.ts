@@ -33,6 +33,11 @@
  * component state, and the independent review found the gap: switching to
  * another Settings tab unmounts this list, which threw that state away, so
  * after picking another value and coming back the old `zh-CN` was gone.
+ *
+ * "Already offered" is decided by STANDARD FORM from the backend
+ * (`useLanguageIdentities`; Codex's catch-up review of #1244, finding 2): a
+ * stored `"EN-us"` is the offered `"en-US"`, not a second, dead row. The
+ * stored value is never rewritten (COMPAT-030).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -49,6 +54,7 @@ import {
   withSavedValues,
   type LanguageOption,
 } from '@/lib/languageOptions';
+import { useLanguageIdentities } from '@/hooks/useLanguageIdentities';
 
 /** The system's preferred languages, or none where there is no browser. */
 function systemLanguages(): readonly string[] {
@@ -73,7 +79,21 @@ export function useMetadataLanguageOptions(
   // file comment).
   const remembered = useSettingsStore((s) => s.seenMetadataLanguages);
   const noteSeen = useSettingsStore((s) => s.noteMetadataLanguageSeen);
-  const isUnoffered = currentValue !== '' && !METADATA_LANGUAGE_TAGS.includes(currentValue);
+
+  // Identities for every offered tag, the current value and everything
+  // remembered (a plain raw-text list is enough to ASK about; it needs to
+  // be complete, not deduplicated).
+  const identityKey = JSON.stringify(
+    withSavedValues(METADATA_LANGUAGE_TAGS, [...remembered, currentValue])
+  );
+  const identityTags = useMemo(() => JSON.parse(identityKey) as string[], [identityKey]);
+  const identities = useLanguageIdentities(identityTags);
+  const offeredStandards = useMemo(
+    () => new Set(METADATA_LANGUAGE_TAGS.map(identities.standardOf)),
+    [identities]
+  );
+  const isUnoffered =
+    currentValue !== '' && !offeredStandards.has(identities.standardOf(currentValue));
 
   // Record the current value once it has been shown. After rendering, not
   // during it: changing a store while React is rendering a component that
@@ -109,10 +129,17 @@ export function useMetadataLanguageOptions(
   // whatever characters it contains, so there is no separator left to
   // collide with even then (independent review, round 3 of #1244;
   // comment corrected for accuracy, round 4).
-  const extrasKey = JSON.stringify(withSavedValues(remembered, isUnoffered ? [currentValue] : []));
+  const extrasKey = JSON.stringify(
+    withSavedValues(remembered, isUnoffered ? [currentValue] : [], identities.standardOf)
+  );
   const tags = useMemo(
-    () => withSavedValues(METADATA_LANGUAGE_TAGS, JSON.parse(extrasKey) as string[]),
-    [extrasKey]
+    () =>
+      withSavedValues(
+        METADATA_LANGUAGE_TAGS,
+        JSON.parse(extrasKey) as string[],
+        identities.standardOf
+      ),
+    [extrasKey, identities]
   );
 
   const fallback = useMemo(() => collatorFallbackOrder(tags, uiLanguage), [tags, uiLanguage]);
@@ -134,7 +161,7 @@ export function useMetadataLanguageOptions(
         return orderLanguagesForDisplay(
           tags,
           languagePreferences(uiLanguage, systemLanguages()),
-          alphabeticalPrimaryOrder(tags, uiLanguage)
+          alphabeticalPrimaryOrder(tags, uiLanguage, identities.primaryOf)
         );
       } catch (error) {
         return Promise.reject(error);
@@ -156,7 +183,12 @@ export function useMetadataLanguageOptions(
     return () => {
       cancelled = true;
     };
-  }, [tags, uiLanguage]);
+  }, [
+    tags,
+    uiLanguage,
+    // Asked again once the backend's identities arrive.
+    identities,
+  ]);
 
   return useMemo(() => {
     const useBackendOrder = ordered !== null && ordered.tags === tags && ordered.ui === uiLanguage;

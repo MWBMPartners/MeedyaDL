@@ -73,6 +73,7 @@ import type {
   DetectedBrowser,
   DownloadRequest,
   ExternalGamdlInfo,
+  LanguageIdentity,
   PlatformInfo,
   PythonVenvHealthDto,
   QueueStatus,
@@ -828,6 +829,24 @@ export function orderLanguagesForDisplay(
     preferences,
     alphabeticalPrimaryOrder,
   });
+}
+
+/**
+ * For each tag, its standard form and the identity to group it by (Codex's
+ * catch-up review of #1244, finding 1).
+ *
+ * Rust handler: `language_identities()` in `src-tauri/src/commands/language.rs`,
+ * which reads tags with the same shared code `order_languages_for_display`
+ * groups by. `Intl.Locale` disagrees with the policy for some real tags
+ * (`cmn-Hans`, `zh-cmn-Hans`), so it is never used for identity.
+ *
+ * Called only by `useLanguageIdentities`.
+ *
+ * @param tags - The values to identify.
+ * @returns One identity per tag, in the same order.
+ */
+export function languageIdentities(tags: readonly string[]): Promise<LanguageIdentity[]> {
+  return invoke<LanguageIdentity[]>('language_identities', { tags });
 }
 
 /**

@@ -1267,6 +1267,7 @@ pub fn run() {
             commands::lyrics::test_lyrics_connection,
             // Language-list ordering by the shared language policy (#1249)
             commands::language::order_languages_for_display,
+            commands::language::language_identities,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
