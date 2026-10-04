@@ -1152,6 +1152,12 @@ on PRs to / pushes to main.
 - **iLyricsDB round 7: CI passed on 4 Oct** (run 37238382004, head `c59ed74`). So the billing block below appears lifted for iLyricsDB at least; NetPLAYERapp and the plugin have not been re-checked yet.
 - **Two instruction audits (maintainer's requests of 4 Oct) were delivered in chat. Nothing was changed.** They wait for the maintainer to choose which deletes and rewrites to apply. The polish audit (unfinished-looking pages, stray logs, heading order) has four open questions; the first read-only pass on MeedyaDL found `LibraryScanPage.tsx` using its own `<h1>` where every other page uses `<h2>`, and six `console.debug` calls left in.
 - **Running at about 23:20 on 4 Oct, each with its own watchdog:** Codex's catch-up review of NetPLAYERapp (`f24983b..9232ec6`; its earlier run was cut off by the usage limit); a stand-in review (fresh Opus agent) of iLyricsDB round 7 (`278657e..c59ed74`); a stand-in review of MeedyaPlayer/MeedyaSubtitler round 12 (documents only); the core revision-11, MeedyaConverter round-5 and iHymns round-8 builders. Still waiting for Codex after NetPLAYERapp, one at a time: the plugin, MeedyaManager round 6, MeedyaDL round 6.
+- **NetPLAYERapp: Codex's catch-up review of `f24983b..9232ec6` is NOT clean — 2 medium, 3 low.**
+  - **Medium:** a huge language value (6 MB) makes validation run out of memory and crash, before the length check is reached (admin forms only, after sign-in); the #211 pre-deploy check as written wrongly flags a stored NULL, which the forms treat as empty and accept.
+  - **Low:** the deployment test claims more isolation than it has; the docs say every stored station language is a checked tag, but old values are kept as they were; "35 characters holds any real tag" is not true for long private-use tags.
+  - Codex ran 18,485 language checks and the 290 shared conformance cases, all passing; it could not run the database suites.
+  - **Round-7 builder running** (`brief-netplayer-r7.md`), with a watchdog. It must reproduce each finding first, and find out whether the shared PHP code itself is what runs out of memory (if so, a core issue is drafted).
+- **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (24 commits, rounds 2–5) is running**, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
