@@ -341,8 +341,11 @@ export function GeneralTab() {
   const uiLanguage = useSettingsField('ui_language');
   const language = useSettingsField('language');
   // Named in the language the interface is showing right now, and ordered
-  // with the person's own languages first (#1249).
-  const metadataLanguageOptions = useMetadataLanguageOptions(language.value, i18n.language);
+  // with the person's own languages first (#1249). `selectedValue` is the
+  // row that shows the saved language: a saved `EN-us` is shown on the one
+  // `en-US` row (handing the dropdown `EN-us` matched no row, so it showed
+  // its first row instead). Display only; the saved value is untouched.
+  const metadataLanguage = useMetadataLanguageOptions(language.value, i18n.language);
   // The Interface Language list's own order (policy UI-040, independent
   // review round 3 of #1244) -- the interface language first, then
   // everything else alphabetical by name in the interface language.
@@ -771,8 +774,8 @@ export function GeneralTab() {
         <Select
           label="Metadata Language"
           description="Language preference for track and album metadata"
-          options={metadataLanguageOptions}
-          value={language.value}
+          options={metadataLanguage.options}
+          value={metadataLanguage.selectedValue}
           onChange={(e) => language.set(e.target.value)}
         />
 

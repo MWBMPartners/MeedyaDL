@@ -31,6 +31,12 @@
  *      below by recording the arguments the mocked backend command was
  *      called with and checking the preference sent is `['de']`, not
  *      `['en']`, when the interface language is German.
+ *
+ * It also checks the Metadata Language dropdown SHOWS the saved language
+ * as selected when the saved spelling differs from its row's value
+ * (Codex's review of round 5, finding 1): a saved `EN-us` is shown as the
+ * one `en-US` row, and the dropdown used to fall back to its FIRST row
+ * instead -- German, in a German interface.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -38,6 +44,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import * as commands from '@/lib/tauri-commands';
 import { GeneralTab } from '@/components/settings/tabs/GeneralTab';
 import { AVAILABLE_LOCALES } from '@/lib/i18n';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 // The one German string this suite cares about -- everything else GeneralTab
 // asks `t()` for during an ordinary render is returned as its own key,
@@ -56,7 +63,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-// Only `orderLanguagesForDisplay` is replaced; everything else GeneralTab
+// Only the two language commands are replaced; everything else GeneralTab
 // imports from this module (export/import settings, profile bundles) keeps
 // its real implementation, since nothing in this test clicks those buttons.
 vi.mock('@/lib/tauri-commands', async (importOriginal) => {
@@ -64,14 +71,33 @@ vi.mock('@/lib/tauri-commands', async (importOriginal) => {
   return {
     ...actual,
     orderLanguagesForDisplay: vi.fn(),
+    languageIdentities: vi.fn(),
   };
 });
 
 const order = vi.mocked(commands.orderLanguagesForDisplay);
+const identities = vi.mocked(commands.languageIdentities);
+
+/**
+ * Answers the way the real backend does for the plain tags on this screen
+ * (`utils::language::language_identity`, whose own tests pin `EN-us` ->
+ * `en-US`): the standard letter case, grouped by the primary language.
+ */
+const backendLike = async (tags: readonly string[]) =>
+  tags.map((raw) => {
+    try {
+      const locale = new Intl.Locale(raw);
+      return { raw, standard: locale.toString(), primary: locale.language };
+    } catch {
+      return { raw, standard: raw, primary: raw.toLowerCase() };
+    }
+  });
 
 describe('GeneralTab -- Interface Language dropdown (independent review, round 4)', () => {
   beforeEach(() => {
     order.mockReset();
+    identities.mockReset();
+    identities.mockImplementation(backendLike);
   });
 
   afterEach(() => {
@@ -124,5 +150,57 @@ describe('GeneralTab -- Interface Language dropdown (independent review, round 4
     const [tags, preferences] = interfaceCall!;
     expect(tags).toEqual(AVAILABLE_LOCALES);
     expect(preferences).toEqual(['de']);
+  });
+});
+
+describe('GeneralTab -- Metadata Language dropdown (Codex review of round 5, finding 1)', () => {
+  const savedSettings = useSettingsStore.getState().settings;
+
+  beforeEach(() => {
+    order.mockReset();
+    identities.mockReset();
+    identities.mockImplementation(backendLike);
+    useSettingsStore.setState({ seenMetadataLanguages: [] });
+  });
+
+  afterEach(() => {
+    useSettingsStore.setState({ settings: savedSettings, seenMetadataLanguages: [] });
+    vi.restoreAllMocks();
+  });
+
+  it('shows a saved "EN-us" as the selected English row, not the first row, in a German interface', async () => {
+    useSettingsStore.setState({ settings: { ...savedSettings, language: 'EN-us' } });
+    // German first, as the backend orders it for a German interface: the
+    // row a mismatched value would fall back to is then German.
+    order.mockImplementation(async (tags) =>
+      tags.length === AVAILABLE_LOCALES.length
+        ? [...tags]
+        : ['de-DE', ...tags.filter((tag) => tag !== 'de-DE')]
+    );
+
+    render(<GeneralTab />);
+    const select = screen.getByLabelText('Metadata Language') as HTMLSelectElement;
+    const optionValues = () =>
+      within(select)
+        .getAllByRole('option')
+        .map((option) => (option as HTMLOptionElement).value);
+
+    // The backend's answers are in: German first, and one English row.
+    // (A longer wait than the default: the whole tab renders here.)
+    await waitFor(
+      () => {
+        expect(optionValues()[0]).toBe('de-DE');
+        expect(optionValues()).not.toContain('EN-us');
+      },
+      { timeout: 5000 }
+    );
+    expect(optionValues().filter((value) => value === 'en-US')).toHaveLength(1);
+
+    // The dropdown shows English (in German) selected -- not German.
+    expect(select.value).toBe('en-US');
+    expect(select.selectedOptions[0].textContent).toBe('Englisch (Vereinigte Staaten)');
+    // Only what is SHOWN changed: the saved value is exactly as it was.
+    expect(useSettingsStore.getState().settings.language).toBe('EN-us');
+    expect(useSettingsStore.getState().isDirty).toBe(false);
   });
 });

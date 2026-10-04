@@ -7,8 +7,8 @@
  * policy (#1249; docs/standards/media-language-bcp47-policy.md, UI-010 to
  * UI-050).
  *
- *   const options = useMetadataLanguageOptions(language.value, i18n.language);
- *   <Select options={options} value={language.value} ... />
+ *   const list = useMetadataLanguageOptions(language.value, i18n.language);
+ *   <Select options={list.options} value={list.selectedValue} ... />
  *
  * What it does:
  *   - Names every entry in the interface language, from the WebView's own
@@ -45,6 +45,15 @@
  * and a stored Mandarin `"cmn-Hans-CN"` beside the offered Chinese
  * `"zh-Hans-CN"`, which the browser alone would have taken for the same
  * language and hidden.
+ *
+ * Which row shows as SELECTED is returned too (`selectedValue`; Codex's
+ * review of round 5, finding 1). Once a stored `"EN-us"` has become the
+ * one `"en-US"` row, the dropdown cannot be handed `"EN-us"` as its value:
+ * a native dropdown matches its value to a row by exact text, finds none,
+ * and shows its FIRST row instead -- German, in a German interface. So the
+ * dropdown is handed the row's own value, found by the backend-verified
+ * standard form. That changes only what is shown: the stored setting stays
+ * `"EN-us"` until the person picks a different language and saves.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -70,9 +79,24 @@ function systemLanguages(): readonly string[] {
     : [];
 }
 
+/** What `useMetadataLanguageOptions` returns. */
+export interface MetadataLanguageList {
+  /** The list's entries, in display order. */
+  options: LanguageOption[];
+  /**
+   * The value to hand the dropdown so it shows the saved language as
+   * selected: the saved value itself when a row has exactly that value,
+   * otherwise the value of the row the backend says is the same language
+   * (a saved `"EN-us"` shows as the `"en-US"` row). For display only --
+   * never written back to the setting.
+   */
+  selectedValue: string;
+}
+
 /**
  * The Metadata Language list entries for the current value and interface
- * language. See the file comment for what it does and why.
+ * language, and which of them shows as selected. See the file comment for
+ * what it does and why.
  *
  * @param currentValue - The setting's value right now (the stored tag).
  * @param uiLanguage   - The language the interface is showing text in.
@@ -80,7 +104,7 @@ function systemLanguages(): readonly string[] {
 export function useMetadataLanguageOptions(
   currentValue: string,
   uiLanguage: string
-): LanguageOption[] {
+): MetadataLanguageList {
   // Values not in the offered list that the list has already shown during
   // this run (kept in the store so they survive a tab switch -- see the
   // file comment).
@@ -197,8 +221,23 @@ export function useMetadataLanguageOptions(
     identities,
   ]);
 
-  return useMemo(() => {
+  const options = useMemo(() => {
     const useBackendOrder = ordered !== null && ordered.tags === tags && ordered.ui === uiLanguage;
     return toLanguageOptions(useBackendOrder ? ordered.order : fallback, uiLanguage);
   }, [ordered, tags, uiLanguage, fallback]);
+
+  // The row to show as selected (see the file comment). `standardOf` is
+  // the backend's answer, or the raw text while that is pending -- and
+  // while it is pending the saved value has a row of its own anyway, so
+  // the exact match below finds it.
+  const selectedValue = useMemo(() => {
+    if (options.some((option) => option.value === currentValue)) return currentValue;
+    const standard = identities.standardOf(currentValue);
+    return (
+      options.find((option) => identities.standardOf(option.value) === standard)?.value ??
+      currentValue
+    );
+  }, [options, currentValue, identities]);
+
+  return useMemo(() => ({ options, selectedValue }), [options, selectedValue]);
 }
