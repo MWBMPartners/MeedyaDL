@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-28 (about 18:28) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 17:28) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -968,6 +968,36 @@ on PRs to / pushes to main.
     - one issue for the older gaps;
     - nits and `.gitattributes`.
   - **Round-6 builder running** (Opus), with a watchdog on it.
+- **28 September, about 21:00 — the WEEKLY Claude limit stopped every agent mid-step.** It reset on 4 October at 16:00. Eight agents stopped at once:
+  - builders: MeedyaDL r5, core r10, MeedyaConverter r4, plugin r5, iHymns r6 and iLyricsDB r6;
+  - reviewers: MeedyaManager r5 and NetPLAYERapp r6.
+- **2 October, 00:47 — the Mac restarted, and macOS emptied `/private/tmp`.** That held the whole scratch area: all ten working clones, every brief, every reviewer's evidence, and all UNPUSHED work.
+  - **Lost:** core r10's first commit; the plugin's three round-5 commits; MeedyaConverter's round-4 work, including a local handoff commit; MeedyaDL r5's progress; and all generated test media and logs.
+  - **Nothing pushed was lost.**
+  - **Lesson:** the scratch area does not survive a restart. Push each verified round promptly, and never let unpushed work sit for days.
+- **4 October, about 17:20 — recovered and resumed.**
+  - 199 scratch files were rebuilt from the conversation and agent records. That covers every brief, every Codex prompt, the `r9b/` drafts and the reviewers' own scripts, and was recovered from the file-tool writes. The two briefs that had sections added by shell commands (MeedyaDL r5's addenda A to D, and `gitattributes-item.md`) were rebuilt by replaying those commands.
+  - All ten clones were re-cloned at their pushed heads, on the same paths.
+  - The six builders were resumed with their memory intact. Each was told its clone was wiped, to redo its unpushed work as new commits, and to re-run its checks. Each has a watchdog.
+  - The MeedyaManager r5 and NetPLAYERapp r6 stand-in reviews were NOT resumed: those reviews go to Codex, the usual reviewer.
+  - Disk is tight, at about 28 GB free.
+- **Codex** refused again at 17:2x: "usage limit … try again at 5:55 PM". Other Codex sessions on this Mac share the allowance. A retry of the MeedyaManager catch-up is set for 17:57. Queued after it: NetPLAYERapp (whole branch), then MeedyaPlayer/MeedyaSubtitler round 11.
+- **New from the maintainer on 4 October; nothing changed yet:**
+  - **(1) A review of the instruction files** (`~/.claude/CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md`, `.claude/agents/`, standing rules) against Anthropic's Opus 5.5 and Sonnet 5.5 guidance. The recommendations were given in chat:
+    - remove "think hardest" and "ultrathink";
+    - give planning the whole problem with a definition of done, instead of "one agent at a time";
+    - drop "do not start the next unit until …";
+    - give the documentation sweep a definition of done;
+    - add an end-of-run report under the headings Blocked on me, Changed, Found;
+    - fix two contradictions: the commit-before-review order, and the size of Codex's allowance;
+    - fix stale model names.
+
+    **Waiting for the maintainer's choice of which to apply.** The pasted request also ended mid-sentence at "Also find".
+  - **(2) A "does it look AI-made" polish audit, with fixes, as a standing rule everywhere, checked automatically.** It is mostly web-app checks.
+    - A first read-only pass on MeedyaDL found:
+      - the Library page uses its own top-level heading instead of the shared page header;
+      - six leftover debug messages, one of which prints every deep link.
+    - **Waiting for the maintainer:** which apps; the go-ahead to fix on a new branch from `alpha`; whether this comes before or after the language work (recommended after); and what "automatically" should mean (recommended: a rule plus CI checks per repository).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
