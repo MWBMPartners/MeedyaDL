@@ -1224,6 +1224,7 @@ on PRs to / pushes to main.
   - One 256-byte limit now guards every public way into the shared parser, and the value is trimmed before it is measured.
   - #210 has a comment (including a correction of the round-7 comment) and #212 has a note.
   - A stand-in review of round 8 is running, with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the sixteenth review was NOT clean, but only small: 0 high, 0 medium, 3 low, 5 nits.** The fixes are pushed as `461dcdf` / `0fc0a5b`, and the seventeenth review (stand-in) is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
