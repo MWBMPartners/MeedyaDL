@@ -16,10 +16,11 @@
  *     preferences.
  */
 
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import * as commands from '@/lib/tauri-commands';
 import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
+import { IDENTITY_RETRY_DELAYS_MS } from '@/hooks/useLanguageIdentities';
 import { METADATA_LANGUAGE_TAGS } from '@/lib/languageOptions';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -31,6 +32,31 @@ vi.mock('@/lib/tauri-commands', () => ({
 
 const order = vi.mocked(commands.orderLanguagesForDisplay);
 const identities = vi.mocked(commands.languageIdentities);
+
+/**
+ * Answers the way the real backend does (`utils::language::language_identity`
+ * in `src-tauri/src/utils/language.rs`, whose own tests pin these): Mandarin
+ * keeps its own code, and an ordinary tag is put into its standard letter
+ * case (`EN-us` -> `en-US`), grouped by its primary language. For the plain
+ * tags these tests use, that standard form is also what `Intl.Locale` gives.
+ */
+const backendLike = async (tags: readonly string[]) =>
+  tags.map((raw) => {
+    if (raw === 'cmn-Hans-CN') return { raw, standard: raw, primary: 'cmn' };
+    try {
+      const locale = new Intl.Locale(raw);
+      return { raw, standard: locale.toString(), primary: locale.language };
+    } catch {
+      return { raw, standard: raw, primary: raw.toLowerCase() };
+    }
+  });
+
+/** Lets every timer due within `ms` fire, and the promises they start settle. */
+async function wait(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
 describe('useMetadataLanguageOptions', () => {
   beforeEach(() => {
@@ -150,21 +176,21 @@ describe('useMetadataLanguageOptions', () => {
 
   // -- One row per language (Codex's catch-up review of #1244, finding 2) --
 
-  it('a stored "EN-us" is the offered "en-US": one row, not two', async () => {
+  it('a stored "EN-us" is the offered "en-US": one row, not two, once the backend says so', async () => {
+    identities.mockImplementation(backendLike);
     order.mockImplementation(async (tags) => [...tags]);
     const { result } = renderHook(() => useMetadataLanguageOptions('EN-us', 'en'));
-    await waitFor(() => expect(order).toHaveBeenCalled());
-    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length);
+    await waitFor(() => expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length));
     const rows = result.current.filter((o) => o.value === 'en-US' || o.value === 'EN-us');
     expect(rows.map((o) => o.value)).toEqual(['en-US']);
   });
 
   it('a remembered "en-us" does not duplicate the offered "en-US"', async () => {
     useSettingsStore.setState({ seenMetadataLanguages: ['en-us'] });
+    identities.mockImplementation(backendLike);
     order.mockImplementation(async (tags) => [...tags]);
     const { result } = renderHook(() => useMetadataLanguageOptions('ja-JP', 'en'));
-    await waitFor(() => expect(order).toHaveBeenCalled());
-    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length);
+    await waitFor(() => expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length));
   });
 
   it("uses the backend's identity, not only the browser's reading, once it answers", async () => {
@@ -204,6 +230,74 @@ describe('useMetadataLanguageOptions', () => {
       const last = order.mock.calls.at(-1);
       expect(last?.[2]).toEqual(expect.arrayContaining(['cmn', 'yue', 'nan', 'zh']));
     });
+  });
+});
+
+// -- Unverified identities never merge or remove a row (Codex's review of
+// -- round 5, finding 2). The browser reads `cmn-Hans-CN` as `zh-Hans-CN`
+// -- (the offered Chinese row); the policy keeps Mandarin distinct. Until
+// -- the backend has said which language a tag is, every entry keeps a
+// -- row of its own.
+
+describe('useMetadataLanguageOptions while the backend has not identified the tags', () => {
+  const MANDARIN = 'cmn-Hans-CN';
+  const values = (options: { value: string }[]) => options.map((o) => o.value);
+
+  beforeEach(() => {
+    order.mockReset();
+    order.mockImplementation(async (tags) => [...tags]);
+    identities.mockReset();
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    useSettingsStore.setState({ seenMetadataLanguages: [] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('keeps a stored Mandarin row while the answer is pending', async () => {
+    identities.mockImplementation(() => new Promise(() => {}));
+    const { result, rerender } = renderHook(() => useMetadataLanguageOptions(MANDARIN, 'en'));
+    expect(values(result.current)).toContain(MANDARIN);
+    expect(values(result.current)).toContain('zh-Hans-CN');
+    await waitFor(() => expect(order).toHaveBeenCalled());
+    rerender();
+    expect(values(result.current)).toContain(MANDARIN);
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
+  it('keeps a stored Mandarin row when every request fails, across rerenders', async () => {
+    vi.useFakeTimers();
+    identities.mockRejectedValue(new Error('backend unavailable'));
+    const { result, rerender } = renderHook(() => useMetadataLanguageOptions(MANDARIN, 'en'));
+    await wait(60_000);
+    // Asked once, then retried a bounded number of times, then left alone.
+    expect(identities).toHaveBeenCalledTimes(1 + IDENTITY_RETRY_DELAYS_MS.length);
+    rerender();
+    await wait(60_000);
+    rerender();
+    expect(identities).toHaveBeenCalledTimes(1 + IDENTITY_RETRY_DELAYS_MS.length);
+    expect(values(result.current)).toContain(MANDARIN);
+    expect(values(result.current)).toContain('zh-Hans-CN');
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
+  it('a later success keeps Mandarin as its own group', async () => {
+    vi.useFakeTimers();
+    identities.mockRejectedValueOnce(new Error('not yet')).mockImplementation(backendLike);
+    const { result, rerender } = renderHook(() => useMetadataLanguageOptions(MANDARIN, 'en'));
+    await wait(0);
+    expect(values(result.current)).toContain(MANDARIN);
+    await wait(IDENTITY_RETRY_DELAYS_MS[0]);
+    expect(identities).toHaveBeenCalledTimes(2);
+    rerender();
+    expect(values(result.current)).toContain(MANDARIN);
+    expect(result.current).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+    // The groups handed to the ordering are the backend's: Mandarin has a
+    // group of its own, beside (not inside) Chinese.
+    const [, , groups] = order.mock.calls.at(-1)!;
+    expect(groups).toEqual(expect.arrayContaining(['cmn', 'zh']));
   });
 });
 

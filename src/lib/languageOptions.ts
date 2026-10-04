@@ -207,7 +207,10 @@ export function languagePreferences(
  * same language as an offered `"en-US"`, and adding it made two rows both
  * labelled "English (United States)". The value itself is never rewritten
  * (COMPAT-030) -- only whether it needs its own row is decided this way.
- * The default compares raw text, as before.
+ * The default compares raw text, as before. Callers pass
+ * `useLanguageIdentities(...).standardOf`, which is the raw text itself
+ * until the backend has answered, so nothing is merged on the browser's
+ * reading alone (Codex's review of round 5, finding 2).
  */
 export function withSavedValues(
   offered: readonly string[],

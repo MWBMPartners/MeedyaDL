@@ -15,11 +15,25 @@
  * `utils::language::language_identity`) reads tags with the same code the
  * real ordering uses, so the two can never disagree.
  *
- * `Intl` still supplies display names and their alphabetical order. It no
- * longer supplies identity -- except as a FALLBACK: until the backend
- * answers (or if it never does), both functions below use the browser's
- * reading. That is close for most tags and wrong for a few, which is
- * exactly why the backend's answer replaces it the moment it arrives.
+ * `Intl` still supplies display names and their alphabetical order. It
+ * does NOT supply identity any more.
+ *
+ * **Until the backend has answered for a tag, nothing is merged or removed
+ * on the browser's say-so** (Codex's review of round 5, finding 2). That
+ * used to happen: while the answer was pending, and for good if the one
+ * request failed, `standardOf` used `Intl.Locale`, which reads a stored
+ * `cmn-Hans-CN` (Mandarin) as `zh-Hans-CN` -- the offered Chinese row -- so
+ * the Mandarin row was dropped as a "duplicate" and, after a failure,
+ * never came back. Now, while a tag is unverified:
+ *   - `standardOf(tag)` is the tag itself, unchanged, so two different
+ *     spellings stay two rows (`EN-us` beside `en-US`) until the backend
+ *     says they are one;
+ *   - `primaryOf(tag)` is still the browser's reading, because it is used
+ *     only as an ORDERING hint (which group to sort an entry with); it
+ *     never decides whether an entry is shown.
+ * A failed request is tried again a few times, each time after a longer
+ * wait (`IDENTITY_RETRY_DELAYS_MS`); after the last failure the raw
+ * readings simply stay. A success at any point replaces them.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -32,33 +46,49 @@ interface Identity {
   primary: string;
 }
 
-/** The browser's reading of a tag; a fallback only (see the file comment). */
-function fallbackIdentity(tag: string): Identity {
-  let standard = tag;
-  try {
-    // `Intl.Locale` normalises case (`EN-us` -> `en-US`) but not, for
-    // instance, a retired language code.
-    standard = new Intl.Locale(tag).toString();
-  } catch {
-    // Not readable as a tag: shown and grouped by its own text.
-  }
-  return { standard, primary: primaryLanguageOf(tag) ?? tag.toLowerCase() };
+/**
+ * How long to wait before each further try after a failed request, in
+ * milliseconds: three more tries, each after a longer wait, then no more.
+ * Bounded on purpose -- the request only fails when the backend is not
+ * there at all (or the list is malformed), and asking for ever would not
+ * change that. Exported for the tests.
+ */
+export const IDENTITY_RETRY_DELAYS_MS: readonly number[] = [500, 1000, 2000];
+
+/**
+ * A tag's identity while the backend has not vouched for it: its standard
+ * form is the tag itself (so nothing is merged with anything else), and its
+ * group is the browser's reading, used only to sort (see the file comment).
+ */
+function unverifiedIdentity(tag: string): Identity {
+  return { standard: tag, primary: primaryLanguageOf(tag) ?? tag.toLowerCase() };
 }
 
 /** What `useLanguageIdentities` returns. */
 export interface LanguageIdentityMaps {
-  /** The tag's standard form. */
+  /**
+   * The tag's standard form, as the backend gives it -- or the tag itself,
+   * unchanged, while the backend has not answered for it. Safe to compare
+   * for "is this the same language?": an unverified tag only ever equals
+   * the exact same text.
+   */
   standardOf: (tag: string) => string;
-  /** The identity to group the tag by (its primary language). */
+  /**
+   * The identity to group the tag by (its primary language). The browser's
+   * reading while unverified: an ordering hint, never a reason to drop or
+   * merge an entry.
+   */
   primaryOf: (tag: string) => string;
   /** True once the backend's answer for the CURRENT tags is in. */
   ready: boolean;
 }
 
 /**
- * Backend-verified identities for `tags`, with the browser's reading while
- * the answer is pending. Asked again only when the CONTENT of `tags`
- * changes, so passing a freshly built array each render is fine.
+ * Backend-verified identities for `tags` (see the file comment for what is
+ * used while the answer is pending or after it failed). Asked again only
+ * when the CONTENT of `tags` changes, so passing a freshly built array each
+ * render is fine. An answer, or a retry, for a list that has since changed
+ * is dropped.
  */
 export function useLanguageIdentities(tags: readonly string[]): LanguageIdentityMaps {
   const tagsKey = JSON.stringify(tags);
@@ -66,38 +96,51 @@ export function useLanguageIdentities(tags: readonly string[]): LanguageIdentity
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const list = JSON.parse(tagsKey) as string[];
-    // A failure before a promise exists (no IPC bridge) takes the same
-    // path as a rejected call.
-    const request = (): ReturnType<typeof languageIdentities> => {
-      try {
-        return languageIdentities(list);
-      } catch (error) {
-        return Promise.reject(error);
-      }
+
+    const attempt = (failuresSoFar: number): void => {
+      // `Promise.resolve().then(...)`: a failure before a promise exists
+      // (no IPC bridge) takes the same path as a rejected call.
+      Promise.resolve()
+        .then(() => languageIdentities(list))
+        .then((answers) => {
+          if (cancelled) return;
+          if (!Array.isArray(answers)) throw new Error('unexpected answer');
+          const map = new Map(
+            answers.map((a) => [a.raw, { standard: a.standard, primary: a.primary }])
+          );
+          setBackend({ key: tagsKey, map });
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const delay = IDENTITY_RETRY_DELAYS_MS[failuresSoFar];
+          if (delay === undefined) {
+            console.warn(
+              '[settings] language identities unavailable after retrying; ' +
+                'every entry keeps its own row',
+              error
+            );
+            return;
+          }
+          console.warn(
+            `[settings] language identities unavailable, trying again in ${delay} ms`,
+            error
+          );
+          retryTimer = setTimeout(() => attempt(failuresSoFar + 1), delay);
+        });
     };
-    request()
-      .then((answers) => {
-        if (cancelled) return;
-        const map = new Map(
-          answers.map((a) => [a.raw, { standard: a.standard, primary: a.primary }])
-        );
-        setBackend({ key: tagsKey, map });
-      })
-      .catch((error: unknown) => {
-        console.warn(
-          "[settings] language identities unavailable, using the browser's reading",
-          error
-        );
-      });
+    attempt(0);
+
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
   }, [tagsKey]);
 
   return useMemo(() => {
     const map = backend !== null && backend.key === tagsKey ? backend.map : null;
-    const identityOf = (tag: string): Identity => map?.get(tag) ?? fallbackIdentity(tag);
+    const identityOf = (tag: string): Identity => map?.get(tag) ?? unverifiedIdentity(tag);
     return {
       standardOf: (tag: string) => identityOf(tag).standard,
       primaryOf: (tag: string) => identityOf(tag).primary,

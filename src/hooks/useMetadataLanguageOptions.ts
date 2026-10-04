@@ -38,6 +38,13 @@
  * (`useLanguageIdentities`; Codex's catch-up review of #1244, finding 2): a
  * stored `"EN-us"` is the offered `"en-US"`, not a second, dead row. The
  * stored value is never rewritten (COMPAT-030).
+ *
+ * Only the BACKEND's standard form ever merges two entries (Codex's review
+ * of round 5, finding 2). While its answer is pending, or if it never
+ * comes, every entry keeps a row of its own -- `"EN-us"` beside `"en-US"`,
+ * and a stored Mandarin `"cmn-Hans-CN"` beside the offered Chinese
+ * `"zh-Hans-CN"`, which the browser alone would have taken for the same
+ * language and hidden.
  */
 
 import { useEffect, useMemo, useState } from 'react';

@@ -45,7 +45,8 @@ import { useLanguageIdentities } from '@/hooks/useLanguageIdentities';
  * the same never-empty, never-broken guarantee `useMetadataLanguageOptions`
  * makes. Which group a tag belongs to comes from `useLanguageIdentities`
  * (the backend's reading, Codex's catch-up review of #1244), with the
- * browser's reading only while that is pending.
+ * browser's reading while that is pending or if it failed -- only ever to
+ * decide the ORDER here, never which entries are shown.
  *
  * @param uiLanguage -- the language the interface is showing text in right
  *   now (`i18n.language`), used both to name the entries (by the caller)
