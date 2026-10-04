@@ -392,18 +392,50 @@ pub(crate) fn settle_metadata_language_on_save(
 /// costs nothing to be generous here rather than exact.
 const MAX_IMPORTED_LANGUAGE_LEN: usize = 256;
 
-/// A safe stand-in for an imported language value in a log line: its
-/// byte length, never the value itself.
+/// What became of one imported `language` or `ui_language` value — the
+/// ONE place this decision is made, shared by both
+/// `settle_imported_metadata_language` and `settle_imported_ui_language`,
+/// so there is exactly one length check and one "not a tag" check to lose.
 ///
-/// Both functions below used to `{:?}`-format the raw imported value
-/// straight into `log::warn!` on refusal, at WHATEVER length the
-/// imported file gave it — a settings file is something a person may
-/// have been sent, so there was no limit on how much of an arbitrary,
-/// possibly adversarial file's text could end up written into the log
-/// (independent review, round 4 of #1244). This always writes a small,
-/// fixed amount regardless of what was imported.
-fn describe_imported_value(raw: &str) -> String {
-    format!("a {}-byte value", raw.len())
+/// (Independent review, round 5 of #1244: round 4 believed it had proven
+/// the length check with a test, but that test's 300-letter fixture is
+/// refused by `standard_tag_for_storage`'s OWN 35-character limit whether
+/// or not the 256-byte guard runs — so the guard could be deleted and every
+/// test still passed. Returning the REASON, and testing that, is what makes
+/// the two refusals tell apart.)
+#[derive(Debug, PartialEq)]
+enum ImportedLanguageVerdict {
+    /// Refused before being read as a tag at all: over
+    /// [`MAX_IMPORTED_LANGUAGE_LEN`] bytes.
+    TooLongToRead,
+    /// Read as a tag and refused for this reason.
+    NotATag(crate::utils::language::TagProblem),
+    /// Read as a tag and accepted, in its standard form.
+    Accepted(String),
+}
+
+/// Decides what to do with a raw imported language value. No side effect
+/// (no log, no write), so it can be tested directly at exact byte lengths.
+fn decide_imported_language(raw: &str) -> ImportedLanguageVerdict {
+    if raw.len() > MAX_IMPORTED_LANGUAGE_LEN {
+        return ImportedLanguageVerdict::TooLongToRead;
+    }
+    match crate::utils::language::standard_tag_for_storage(raw) {
+        Ok(standard) => ImportedLanguageVerdict::Accepted(standard),
+        Err(problem) => ImportedLanguageVerdict::NotATag(problem),
+    }
+}
+
+/// The text logged when an imported language is refused: built ONLY from
+/// the field's plain name, the byte LENGTH of the refused value, the
+/// reason, and this machine's value being kept — never from any part of the
+/// refused value itself (a settings file may be adversarial; round 4 raised
+/// this, round 5 found no test had checked it and made it its own function
+/// so one could).
+fn refusal_log_line(field: &str, byte_len: usize, reason: &str, current_value: &str) -> String {
+    format!(
+        "Imported {field} language is a {byte_len}-byte value — {reason} — keeping this machine's {current_value:?}"
+    )
 }
 
 /// Keeps an imported metadata language only if it is a real language tag
@@ -427,30 +459,29 @@ fn describe_imported_value(raw: &str) -> String {
 /// A value over [`MAX_IMPORTED_LANGUAGE_LEN`] bytes is refused BEFORE it
 /// is handed to the tag parser at all, rather than being read as a tag
 /// (and, on refusal, logged in full) whatever its length — see
-/// `describe_imported_value` (independent review, round 4 of #1244).
+/// [`decide_imported_language`] and [`refusal_log_line`] (round 4 of #1244;
+/// split out and tested directly in round 5).
 fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSettings) {
-    if imported.language.len() > MAX_IMPORTED_LANGUAGE_LEN {
-        log::warn!(
-            "Imported metadata language is {} — far too long to be a real language tag — \
-             refused before being read as one — keeping this machine's {:?}",
-            describe_imported_value(&imported.language),
-            current.language
-        );
-        imported.language = current.language.clone();
-        return;
-    }
-    match crate::utils::language::standard_tag_for_storage(&imported.language) {
-        Ok(standard) => imported.language = standard,
-        Err(problem) => {
-            log::warn!(
-                "Imported metadata language ({}) {} — keeping this machine's {:?}",
-                describe_imported_value(&imported.language),
-                problem.describe(),
-                current.language
-            );
-            imported.language = current.language.clone();
+    let reason = match decide_imported_language(&imported.language) {
+        ImportedLanguageVerdict::Accepted(standard) => {
+            imported.language = standard;
+            return;
         }
-    }
+        ImportedLanguageVerdict::TooLongToRead => {
+            "far too long to be a real language tag — refused before being read as one"
+        }
+        ImportedLanguageVerdict::NotATag(problem) => problem.describe(),
+    };
+    log::warn!(
+        "{}",
+        refusal_log_line(
+            "metadata",
+            imported.language.len(),
+            reason,
+            &current.language
+        )
+    );
+    imported.language = current.language.clone();
 }
 
 /// Keeps an imported interface language only if it is empty (meaning
@@ -483,28 +514,26 @@ fn settle_imported_ui_language(imported: &mut AppSettings, current: &AppSettings
     if imported.ui_language.is_empty() {
         return;
     }
-    if imported.ui_language.len() > MAX_IMPORTED_LANGUAGE_LEN {
-        log::warn!(
-            "Imported interface language is {} — far too long to be a real language tag — \
-             refused before being read as one — keeping this machine's {:?}",
-            describe_imported_value(&imported.ui_language),
-            current.ui_language
-        );
-        imported.ui_language = current.ui_language.clone();
-        return;
-    }
-    match crate::utils::language::standard_tag_for_storage(&imported.ui_language) {
-        Ok(standard) => imported.ui_language = standard,
-        Err(problem) => {
-            log::warn!(
-                "Imported interface language ({}) {} — keeping this machine's {:?}",
-                describe_imported_value(&imported.ui_language),
-                problem.describe(),
-                current.ui_language
-            );
-            imported.ui_language = current.ui_language.clone();
+    let reason = match decide_imported_language(&imported.ui_language) {
+        ImportedLanguageVerdict::Accepted(standard) => {
+            imported.ui_language = standard;
+            return;
         }
-    }
+        ImportedLanguageVerdict::TooLongToRead => {
+            "far too long to be a real language tag — refused before being read as one"
+        }
+        ImportedLanguageVerdict::NotATag(problem) => problem.describe(),
+    };
+    log::warn!(
+        "{}",
+        refusal_log_line(
+            "interface",
+            imported.ui_language.len(),
+            reason,
+            &current.ui_language
+        )
+    );
+    imported.ui_language = current.ui_language.clone();
 }
 
 /// Reports, once per launch, a metadata language setting that is not a
@@ -1894,6 +1923,75 @@ mod tests {
         sanitize_imported_settings(&mut imported);
         preserve_local_only_settings(&mut imported, &with_language("en-US"));
         assert_eq!(imported.language, "en-US");
+    }
+
+    // ── The length guard and the log line, proven directly (independent
+    // ── review, round 5 of #1244) ────────────────────────────────────────
+    //
+    // The tests above only see the FINAL stored value, and a value long
+    // enough for the 256-byte guard is also refused by the tag parser's own
+    // 35-character limit — so deleting the guard changed nothing they could
+    // see. These check the REASON, which the two refusals give differently.
+
+    #[test]
+    fn the_import_length_guard_is_exact_at_the_255_256_257_byte_boundary() {
+        assert_ne!(
+            decide_imported_language(&"a".repeat(255)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        assert_ne!(
+            decide_imported_language(&"a".repeat(256)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        assert_eq!(
+            decide_imported_language(&"a".repeat(257)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+    }
+
+    #[test]
+    fn the_import_length_guard_counts_bytes_when_a_multi_byte_character_straddles_the_limit() {
+        // 255 ASCII bytes plus a 3-byte euro sign: 256 characters but 258
+        // bytes. Counting characters would let it through.
+        let straddling = format!("{}{}", "a".repeat(255), '\u{20ac}');
+        assert_eq!(straddling.chars().count(), 256);
+        assert_eq!(straddling.len(), 258);
+        assert_eq!(
+            decide_imported_language(&straddling),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+    }
+
+    #[test]
+    fn the_refusal_log_line_is_built_from_the_length_never_from_the_value() {
+        let marker = "UNMISTAKABLE-MARKER-4f9c1e";
+        let refused = format!("{marker}{}", "x".repeat(300));
+        assert_eq!(
+            decide_imported_language(&refused),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        let line = refusal_log_line("metadata", refused.len(), "too long", "en-US");
+        assert!(!line.contains(marker), "{line:?}");
+        assert!(line.contains(&refused.len().to_string()), "{line:?}");
+    }
+
+    #[test]
+    fn both_settle_functions_use_the_shared_decision() {
+        // Wiring check: each field refuses a 257-byte value and keeps this
+        // machine's value (the decision itself is proven above).
+        let mut imported = with_language(&"a".repeat(257));
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+        let mut imported = crate::models::settings::AppSettings {
+            ui_language: "a".repeat(257),
+            ..Default::default()
+        };
+        let current = crate::models::settings::AppSettings {
+            ui_language: "en".to_string(),
+            ..Default::default()
+        };
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.ui_language, "en");
     }
 
     // ── The interface language setting (independent review, round 3 of
