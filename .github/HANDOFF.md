@@ -1180,6 +1180,13 @@ on PRs to / pushes to main.
   - The memory use is inside the shared PHP policy code, so that is now **MeedyaSuite-core#104** (opened today). It needs a new policy release; NetPLAYERapp has its own guard meanwhile.
   - #211's body is corrected (a stored NULL is turned into empty text first, as the forms do), and #210 has a comment.
   - CI is being watched, and a stand-in review of round 7 (fresh Opus, Codex being out) is running with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the thirteenth review (stand-in) of `9fbf42a` / `fa7cd79` is NOT clean — 0 high, 1 medium, 7 low, 12 nits.** These are all small documentation precision points; CI is green on both.
+  - The medium: the eleventh review's count is shared across both repositories, but its table rows do not say so.
+  - Lead's decisions:
+    - correct the new ADR 0010 clarification in place, since it is not accepted text;
+    - record in `docs/decisions/README.md` that replacing the real name with "the maintainer" is the one change made to accepted ADR text;
+    - commits carry `Refs #27` / `Refs #16` again.
+  - **Round-13 fixes builder running** (Sonnet, `brief-player-subtitler-r14.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
