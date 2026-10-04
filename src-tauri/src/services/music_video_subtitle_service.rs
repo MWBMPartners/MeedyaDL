@@ -292,17 +292,27 @@ fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> Option<String> {
     ))
 }
 
+/// The start of every temporary subtitle name: `.meedyadl-partial-`.
+const TEMP_PREFIX: &str = ".meedyadl-partial-";
+
 /// Claims a temporary sidecar name, exclusively, next to the real one,
 /// keeping the real extension (ffmpeg picks the output format from it):
-/// `.{stem}.meedyadl-partial-<pid>-<n>.{ext}`. Leading dot so it is not an
+/// `.meedyadl-partial-<pid>-<n>.{ext}`. Leading dot so it is not an
 /// ordinary-looking file, the process id so two MeedyaDL processes in one
 /// folder cannot collide, and a counter `<n>` tried upward in case a name is
 /// already taken (a leftover of a crashed run). `create_new` makes each
 /// attempt exclusive: a name that exists is never reused.
-fn create_temp_sidecar_path(parent: &Path, stem: &str, extension: &str) -> Result<PathBuf, String> {
+///
+/// **Short on purpose** (Codex's review of round 5, finding 5): it used to
+/// begin with the whole video name (`.{stem}.meedyadl-partial-…`), so a
+/// video whose name, and whose subtitle's name, fit the usual 255-character
+/// limit could still need a temporary name over it -- 270 characters for a
+/// 240-character video name -- and every extraction of it failed. At most
+/// about 50 characters now, whatever the video is called.
+fn create_temp_sidecar_path(parent: &Path, extension: &str) -> Result<PathBuf, String> {
     let pid = std::process::id();
     for n in 0..1000u32 {
-        let candidate = parent.join(format!(".{stem}.meedyadl-partial-{pid}-{n}.{extension}"));
+        let candidate = parent.join(format!("{TEMP_PREFIX}{pid}-{n}.{extension}"));
         match std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -426,7 +436,7 @@ async fn extract_single_stream(
         &["-c:s", "srt"]
     };
 
-    let temp_path = create_temp_sidecar_path(parent, stem, &stream.facts.extension)?;
+    let temp_path = create_temp_sidecar_path(parent, &stream.facts.extension)?;
 
     let mut cmd = Command::new(ffmpeg_path);
     cmd.arg("-nostdin")
@@ -1030,12 +1040,39 @@ mod tests {
         );
     }
 
+    /// Codex's review of round 5, finding 5: the temporary name used to
+    /// carry the whole video name (`.{stem}.meedyadl-partial-<pid>-<n>.srt`),
+    /// so a 240-character video name -- whose subtitle name, 247 characters,
+    /// fits the usual 255-character limit -- needed a 270-character
+    /// temporary name, and every extraction failed.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_long_video_name_still_extracts() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = tempfile::tempdir().unwrap();
+        let stem = "a".repeat(240);
+        let video = dir.path().join(format!("{stem}.mp4"));
+        fs::write(&video, "").unwrap();
+        let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "1\nHello", 0);
+        let name = format!("{stem}.en.srt");
+        let outcome = extract_single_stream(&working, &video, &stem, &only_stream(), &name).await;
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::Written(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join(&name)).unwrap(),
+            "1\nHello"
+        );
+        assert_eq!(folder_listing(dir.path()), [name, format!("{stem}.mp4")]);
+    }
+
     #[test]
     fn publishing_never_overwrites_a_file_that_appeared_meanwhile() {
         // The name becomes taken between the existence check and the
         // publish step: the other file wins, ours is thrown away.
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".V.meedyadl-partial-1-0.srt");
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
         let fin = dir.path().join("V.en.srt");
         fs::write(&temp, "ours").unwrap();
         fs::write(&fin, "theirs").unwrap();
@@ -1049,16 +1086,15 @@ mod tests {
     }
 
     #[test]
-    fn temporary_names_are_exclusive_and_keep_the_extension() {
+    fn temporary_names_are_exclusive_short_and_keep_the_extension() {
         let dir = tempfile::tempdir().unwrap();
-        let a = create_temp_sidecar_path(dir.path(), "V", "srt").unwrap();
-        let b = create_temp_sidecar_path(dir.path(), "V", "srt").unwrap();
+        let a = create_temp_sidecar_path(dir.path(), "srt").unwrap();
+        let b = create_temp_sidecar_path(dir.path(), "srt").unwrap();
         assert_ne!(a, b);
         assert!(a.extension().is_some_and(|e| e == "srt"));
-        assert!(a
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .starts_with(".V.meedyadl-partial-"));
+        let name = a.file_name().unwrap().to_string_lossy().into_owned();
+        let pid = std::process::id();
+        assert_eq!(name, format!(".meedyadl-partial-{pid}-0.srt"));
+        assert!(name.len() <= 50, "{name}");
     }
 }
