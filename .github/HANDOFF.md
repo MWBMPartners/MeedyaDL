@@ -1158,6 +1158,7 @@ on PRs to / pushes to main.
   - Codex ran 18,485 language checks and the 290 shared conformance cases, all passing; it could not run the database suites.
   - **Round-7 builder running** (`brief-netplayer-r7.md`), with a watchdog. It must reproduce each finding first, and find out whether the shared PHP code itself is what runs out of memory (if so, a core issue is drafted).
 - **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (24 commits, rounds 2–5) is running**, with a watchdog.
+- **Codex ran out partway through the plugin review** (about 23:40 on 4 Oct, after 140,000 tokens and before writing any findings). It names 04:01 on 5 Oct as the reset. A background command retries the same review at 04:06, and a watchdog watches it; the cut-off output is kept as `codex-plugin-catchup-cutoff1.out`. **MeedyaManager round 6 (`a150926..49cec29`) went to a stand-in instead** (a fresh Opus agent), with a watchdog. It therefore counts as not yet fully reviewed, and Codex's next catch-up of MeedyaManager must cover it. MeedyaDL round 6 waits for the machine to be less loaded before it gets its own stand-in.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
