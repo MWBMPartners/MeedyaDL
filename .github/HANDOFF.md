@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 18:14) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 19:29) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1034,6 +1034,28 @@ on PRs to / pushes to main.
     - a fake ffmpeg that enforces the flags.
 - **Codex catch-up on NetPLAYERapp (`f24983b..9232ec6`) is running now**, with a watchdog. Next in Codex's queue: MeedyaPlayer/MeedyaSubtitler round 11, then each round as it lands.
 - **Watchdog trap, found today:** a refusal check that looks for the words "usage limit" also matches those words inside files Codex reads, such as this handoff. Match the exact line `^ERROR: You've hit your usage limit` instead.
+- **Codex ran out again partway through the NetPLAYERapp catch-up** (about 80,000 tokens, no final report). It said to try again at 22:58, and a wake-up is set for 23:00.
+  - Its one interim note corrected my instructions: the resolver change only turns an empty station language into null, with no listener-preference matching. The prompt is fixed.
+- **Core revision 10 pushed (`f8c20c3`..`cd3ca07`, 8 commits)**, redone after the restart. Every finding reproduced first, and all 38 planted faults are caught.
+  - **What changed:**
+    - the whole-file M4A check, with (a) the audio, (b) the offsets, (c) the rest of `moov` and (d) the top-level atoms;
+    - fragmented files refused;
+    - `meta` without `ilst` refused;
+    - language frames in any later ID3 tag or chunk refused;
+    - the comparison is linear (32,000 atoms take 0.19 s);
+    - values are measured against the caller's own text (track and disc 1–65535, compilation 1/0, year 1000–9999);
+    - Arranger, AcoustId and ReplayGainReferenceLoudness are refused by name on M4A, since Producer and Engineer turned out to have atoms;
+    - the copy is made through its own handle, flushed with `sync_all`, and checked by identity before the rename.
+  - **New Windows-only dependency `winapi-util`** (MIT or Unlicense). I accepted it, because it keeps `unsafe` out.
+  - **Consequence:** `write_acoustid_tags` and `write_replaygain_tags` now fail on every M4A. The suggested follow-up is to store them as freeform atoms, as Picard does. It needs an issue and a decision.
+  - My checks: fmt, clippy, the documentation build and the test-count check were clean. Tests were 913 default and 1,060 with all features. The protected paths are unchanged.
+  - `cargo deny` cannot check licences, because of core #98 (`deny.toml` is rejected by the current cargo-deny). That is older and not caused by this revision.
+  - I commented on #99. The #102/#103 drafts are in `r10b/` for the maintainer.
+- **iHymns round 6 pushed (`b17d8711`..`833f69d6`, 9 commits).** The builder rebuilt the lost harness from its own earlier reading.
+  - My checks: 288 PHP suites and 114 JavaScript suites passed. `php -l`, ESLint and actionlint were clean. The copy checker found 9 of 9 copies matching, and all 10 `.gitattributes` lines are hardened.
+  - **Decision for round 7** (in `ihymns-r7-carryover.md`): `CreatedAt` changes only when a row comes to link to a different song, not when "verified" is cleared.
+  - I commented on #2137. **A stand-in review is running** (Codex was out), with a watchdog on it.
+- **Codex order at 23:00:** core revisions 8 to 10 first (`codex-prompt-r11.txt`, `7f944a7..cd3ca07`), because it is data-loss work. Then the NetPLAYERapp catch-up, then MeedyaPlayer/MeedyaSubtitler round 11.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
