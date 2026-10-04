@@ -1209,6 +1209,13 @@ on PRs to / pushes to main.
 - **MeedyaPlayer `c67ccc1` / MeedyaSubtitler `c2e4ef9` pushed (the round-14 fixes).**
   - ADR 0013 "LGPL source disclosure needs more than a link to upstream" is now **Proposed** and amends 0010. ADR 0010 differs from its accepted text only in its Status line (checked with git).
   - The fifteenth review (stand-in) is running, with a watchdog. Its brief defines "nit" as pure wording that is neither untrue nor unsafe.
+- **MeedyaManager: the stand-in review of round 6 (`a150926..49cec29`, 11 commits) is NOT clean — 3 medium, 8 low, 7 nits.** All six of Codex's findings were fixed and held up on real files.
+  - **Medium:**
+    - a WAV with two INFO lists still half-changes a Test Mode copy while the command says "refused";
+    - `--dry-run` predicts success where the real run refuses;
+    - `--set` and `--remove` of the same field still means the last one wins.
+  - The test suite passes (1,549 passed). The review restored the build folder's `meedya` binary after its planted-fault runs.
+  - **Round-7 builder running** (Opus, `brief-manager-r7.md`, with the carry-overs), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
