@@ -112,14 +112,14 @@ describe('GeneralTab -- Interface Language dropdown (independent review, round 4
     // Scoped to THIS select -- the Theme dropdown elsewhere on the page
     // legitimately has its own, unrelated "Auto (System)" option, and a
     // whole-document query would wrongly flag that as a failure too.
-    expect(
-      within(select).queryByRole('option', { name: 'Auto (System)' })
-    ).not.toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: 'Auto (System)' })).not.toBeInTheDocument();
 
     // Fault 3: the interface-language call's preferences argument is
     // `['de']` -- the language actually showing -- never a hard-coded
     // `['en']`.
-    const interfaceCall = order.mock.calls.find(([tags]) => tags.length === AVAILABLE_LOCALES.length);
+    const interfaceCall = order.mock.calls.find(
+      ([tags]) => tags.length === AVAILABLE_LOCALES.length
+    );
     expect(interfaceCall).toBeDefined();
     const [tags, preferences] = interfaceCall!;
     expect(tags).toEqual(AVAILABLE_LOCALES);
