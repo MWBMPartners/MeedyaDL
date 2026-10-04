@@ -292,13 +292,98 @@ fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> Option<String> {
     ))
 }
 
+/// Claims a temporary sidecar name, exclusively, next to the real one,
+/// keeping the real extension (ffmpeg picks the output format from it):
+/// `.{stem}.meedyadl-partial-<pid>-<n>.{ext}`. Leading dot so it is not an
+/// ordinary-looking file, the process id so two MeedyaDL processes in one
+/// folder cannot collide, and a counter `<n>` tried upward in case a name is
+/// already taken (a leftover of a crashed run). `create_new` makes each
+/// attempt exclusive: a name that exists is never reused.
+fn create_temp_sidecar_path(parent: &Path, stem: &str, extension: &str) -> Result<PathBuf, String> {
+    let pid = std::process::id();
+    for n in 0..1000u32 {
+        let candidate = parent.join(format!(".{stem}.meedyadl-partial-{pid}-{n}.{extension}"));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+        {
+            Ok(_) => return Ok(candidate),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                return Err(format!(
+                    "could not create a temporary subtitle file in {}: {e}",
+                    parent.display()
+                ))
+            }
+        }
+    }
+    Err(format!(
+        "no free temporary subtitle file name in {} after 1000 tries",
+        parent.display()
+    ))
+}
+
+/// Publishes a finished temporary file under its real name WITHOUT ever
+/// overwriting a file already there.
+///
+/// First a hard link: `std::fs::hard_link` refuses (`AlreadyExists`) when
+/// the final name is taken, which is an atomic "only if still free" — two
+/// extractions racing for one name cannot both win. The temporary name is
+/// removed either way.
+///
+/// FAT and exFAT (most external drives) cannot make hard links, so there
+/// `hard_link` fails for some other reason. The fallback is "rename only if
+/// the final name is still free". **That fallback has a small window**:
+/// another process could create the name between the check and the rename.
+/// It is the best available there, and still better than writing straight
+/// to the final name.
+fn publish_extracted_subtitle(
+    temp_path: &Path,
+    final_path: &Path,
+) -> Result<ExtractOutcome, String> {
+    match std::fs::hard_link(temp_path, final_path) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(temp_path);
+            Ok(ExtractOutcome::Written(final_path.to_path_buf()))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = std::fs::remove_file(temp_path);
+            Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()))
+        }
+        Err(_) => {
+            if final_path.exists() {
+                let _ = std::fs::remove_file(temp_path);
+                return Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()));
+            }
+            if let Err(e) = std::fs::rename(temp_path, final_path) {
+                let _ = std::fs::remove_file(temp_path);
+                return Err(format!(
+                    "could not publish the extracted subtitle to {}: {e}",
+                    final_path.display()
+                ));
+            }
+            Ok(ExtractOutcome::Written(final_path.to_path_buf()))
+        }
+    }
+}
+
 /// Extract a single subtitle stream into the sidecar file `file_name`
 /// (planned by `plan_subtitle_sidecar_names`), next to the video.
 ///
 /// **Never overwrites, and never extracts twice.** If `file_name` is
 /// already there, or the name an older MeedyaDL gave this same stream
 /// (`legacy_sidecar_name`), the stream counts as already extracted and
-/// nothing is done. ffmpeg is also run with `-n` (refuse to overwrite).
+/// nothing is done.
+///
+/// **A failed attempt leaves nothing behind** (Codex's catch-up review of
+/// #1244, finding 3). ffmpeg used to write straight to the real name, so a
+/// run that failed part way (disk full) left a half file there, and the
+/// existence check above then took it for finished work on every retry.
+/// Now ffmpeg writes only to an exclusively created temporary file, which
+/// is published under the real name (never overwriting) only after ffmpeg
+/// succeeded, and removed on any failure. This blocking is new on this
+/// branch: v1.10.8 wrote a numbered copy instead.
 ///
 /// Before #1251 this used `resolve_non_clobbering_path` and then checked
 /// whether the result was the planned path — which can never be true
@@ -341,27 +426,35 @@ async fn extract_single_stream(
         &["-c:s", "srt"]
     };
 
+    let temp_path = create_temp_sidecar_path(parent, stem, &stream.facts.extension)?;
+
     let mut cmd = Command::new(ffmpeg_path);
     cmd.arg("-nostdin")
         .arg("-loglevel")
         .arg("error")
-        // Deliberately DO NOT pass `-y` — we never want ffmpeg to silently
-        // overwrite an existing file. The existence checks above already
-        // skipped a name that is taken, but belt-and-braces.
-        .arg("-n")
+        // `-y` here, not `-n`: `temp_path` was just created by us
+        // exclusively, so overwriting its empty placeholder is intended.
+        // The no-overwrite promise does not weaken: ffmpeg is never given
+        // the REAL name any more; that promise now lives in
+        // `publish_extracted_subtitle`, which runs only after success.
+        .arg("-y")
         .arg("-i")
         .arg(video_path)
         .arg("-map")
         .arg(format!("0:{}", stream.index));
     cmd.args(codec_args);
-    cmd.arg(&sidecar_path);
+    cmd.arg(&temp_path);
 
-    let output = cmd
-        .output()
-        .await
-        .map_err(|e| format!("ffmpeg spawn failed: {e}"))?;
+    let output = match cmd.output().await {
+        Ok(output) => output,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_path);
+            return Err(format!("ffmpeg spawn failed: {e}"));
+        }
+    };
 
     if !output.status.success() {
+        let _ = std::fs::remove_file(&temp_path);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "ffmpeg exited with {}: {}",
@@ -370,7 +463,7 @@ async fn extract_single_stream(
         ));
     }
 
-    Ok(ExtractOutcome::Written(sidecar_path))
+    publish_extracted_subtitle(&temp_path, &sidecar_path)
 }
 
 /// Copy existing audio lyrics sidecars (TTML, LRC, SRT, VTT, ASS) alongside
@@ -787,5 +880,127 @@ mod tests {
             fs::read_to_string(dir.path().join("01 Title [Lossless].ttml")).unwrap(),
             "song lyrics"
         );
+    }
+
+    // ── A failed extraction must not block the next attempt (Codex's
+    // ── catch-up review of #1244, finding 3) ─────────────────────────────
+
+    /// A fake ffmpeg: writes `content` to its LAST argument (the output
+    /// file) and exits with `code`. macOS only, like the other fake-tool
+    /// tests (running a just-written script can hit "Text file busy" on
+    /// Linux).
+    #[cfg(target_os = "macos")]
+    fn fake_ffmpeg(dir: &Path, name: &str, content: &str, code: i32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.join(name);
+        fs::write(
+            &path,
+            format!("#!/bin/sh\nfor last; do :; done\nprintf '%s' '{content}' > \"$last\"\nexit {code}\n"),
+        )
+        .unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn only_stream() -> SubtitleStream {
+        let json = serde_json::json!({ "streams": [
+            { "index": 2, "codec_name": "mov_text", "tags": { "language": "eng" } },
+        ]});
+        parse_subtitle_streams(&json).remove(0)
+    }
+
+    fn folder_listing(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn a_failed_extraction_leaves_nothing_and_the_next_attempt_writes_the_subtitle() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = tempfile::tempdir().unwrap();
+        let video = dir.path().join("V.mp4");
+        fs::write(&video, "").unwrap();
+        let stream = only_stream();
+
+        // First attempt: ffmpeg writes half a file, then fails.
+        let failing = fake_ffmpeg(tools.path(), "ffmpeg-fails", "1\n00:00:00", 1);
+        let first = extract_single_stream(&failing, &video, "V", &stream, "V.en.srt").await;
+        assert!(first.is_err(), "{first:?}");
+        assert_eq!(
+            folder_listing(dir.path()),
+            ["V.mp4"],
+            "nothing may be left behind"
+        );
+
+        // Second attempt, ffmpeg working: the subtitle is written.
+        let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "1\nHello", 0);
+        let second = extract_single_stream(&working, &video, "V", &stream, "V.en.srt").await;
+        assert!(
+            matches!(second, Ok(ExtractOutcome::Written(_))),
+            "{second:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("V.en.srt")).unwrap(),
+            "1\nHello"
+        );
+        assert_eq!(folder_listing(dir.path()), ["V.en.srt", "V.mp4"]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn an_existing_subtitle_is_never_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let tools = tempfile::tempdir().unwrap();
+        let video = dir.path().join("V.mp4");
+        fs::write(&video, "").unwrap();
+        fs::write(dir.path().join("V.en.srt"), "mine").unwrap();
+        let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "theirs", 0);
+        let outcome =
+            extract_single_stream(&working, &video, "V", &only_stream(), "V.en.srt").await;
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(
+            fs::read_to_string(dir.path().join("V.en.srt")).unwrap(),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn publishing_never_overwrites_a_file_that_appeared_meanwhile() {
+        // The name becomes taken between the existence check and the
+        // publish step: the other file wins, ours is thrown away.
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".V.meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        fs::write(&fin, "theirs").unwrap();
+        let outcome = publish_extracted_subtitle(&temp, &fin);
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs");
+        assert!(!temp.exists());
+    }
+
+    #[test]
+    fn temporary_names_are_exclusive_and_keep_the_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = create_temp_sidecar_path(dir.path(), "V", "srt").unwrap();
+        let b = create_temp_sidecar_path(dir.path(), "V", "srt").unwrap();
+        assert_ne!(a, b);
+        assert!(a.extension().is_some_and(|e| e == "srt"));
+        assert!(a
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with(".V.meedyadl-partial-"));
     }
 }
