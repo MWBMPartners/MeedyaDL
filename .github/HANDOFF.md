@@ -1197,6 +1197,11 @@ on PRs to / pushes to main.
   - iHymns: 32 such lines;
   - iLyricsDB: 31 such lines, plus the personal email in a scraper command with `--password test`.
   Recommended: untrack each file and add it to `.gitignore`; the local copy stays. Removing it from history is part of the history-rewrite decision. Nothing has been changed meanwhile, because tracking it looked deliberate.
+- **NetPLAYERapp: the stand-in review of round 7 (`9232ec6..6bd61ed`) is NOT clean — 2 medium, 10 low, 11 nits.**
+  - The 6 MB crash fix works (peak memory 14 MB).
+  - **Medium:** the second size guard is not really tested; the new test code fails PHP-CS-Fixer, which would fail CI.
+  - **NetPLAYERapp's GitHub CI does not run on this branch** (only on release branches and pull requests), so local checks are the only gate until the pull request.
+  - **Round-8 builder running** (Sonnet, `brief-netplayer-r8.md`), with a watchdog. It must run every check CI would run.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
