@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 18:02) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 18:14) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1003,6 +1003,37 @@ on PRs to / pushes to main.
   - My checks: 2,174 Rust tests passed. The conformance suite ran 241 cases in 10 sections with none failing, and 923 frontend tests passed. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker, actionlint and the release-note lint were all clean, with no name lines.
   - `rustfmt`: `lib.rs` has 4 differences before and after, and `config_service.rs` has 14 before and after. Both are older drift. Note: checking `lib.rs` in place also walks into every module, about 100 files of older drift. Compare against a worktree of the previous head, never a copied-out file, because a copied file cannot see its modules.
   - I commented on #1244, #1245, #1246 and #1249. **Codex review queued**, after MeedyaManager.
+- **Codex catch-up on MeedyaManager (`7697b9c..a150926`, about 208,000 tokens): 1 P1 and 5 P2.** Codex confirmed its own earlier lead.
+  - **P1:** a WAV language save rebuilds the RIFF `INFO` list and silently drops a non-UTF-8 `INAM` (Latin-1 `Café`).
+  - **P2:**
+    - a NUL-separated language value keeps only the first value;
+    - repeated `--set language` reports writes that never happened;
+    - APE language lists are not split, so conditions match the second value;
+    - `str::trim()` makes a no-break-space value look valid;
+    - C API and UniFFI callers get no conversion warning.
+  - **Round-6 builder running** (Opus, `brief-manager-r6.md`), told to reproduce each finding first. Its decisions:
+    - verify the raw `INFO` list on a copy, or refuse;
+    - refuse a NUL in a language value on every way in;
+    - refuse the same field set twice;
+    - split on NUL for every format;
+    - trim only the policy's whitespace;
+    - the write result carries the notes, with showing them in the apps left to #256;
+    - `.gitattributes`.
+- **Codex review of MeedyaDL round 5 (`f5f5bbc0..5bcd7f06`, about 127,000 tokens): 3 high and 3 medium.**
+  - **High:**
+    - a stored `EN-us` makes the dropdown show the wrong language as selected;
+    - a failed or pending identity request merges by the browser's reading and hides Mandarin;
+    - the no-hard-link fallback can still overwrite in a race.
+  - **Medium:** leftover temporary files after a crash; the temporary name breaks long filenames; the fake ffmpeg cannot catch `-n`.
+  - **Round-6 builder running** (Opus, branch `r6` in the builder clone, `brief-meedyadl-r6.md`). Its decisions:
+    - map the selected value by its standard form;
+    - never merge on unverified identities, with a bounded retry;
+    - publish only with an operating-system no-replace rename, and otherwise refuse;
+    - clean up leftovers by pattern and dead process id, and report removal failures;
+    - a short temporary name;
+    - a fake ffmpeg that enforces the flags.
+- **Codex catch-up on NetPLAYERapp (`f24983b..9232ec6`) is running now**, with a watchdog. Next in Codex's queue: MeedyaPlayer/MeedyaSubtitler round 11, then each round as it lands.
+- **Watchdog trap, found today:** a refusal check that looks for the words "usage limit" also matches those words inside files Codex reads, such as this handoff. Match the exact line `^ERROR: You've hit your usage limit` instead.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
