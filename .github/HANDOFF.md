@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 17:28) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 18:02) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -998,6 +998,11 @@ on PRs to / pushes to main.
       - the Library page uses its own top-level heading instead of the shared page header;
       - six leftover debug messages, one of which prints every deep link.
     - **Waiting for the maintainer:** which apps; the go-ahead to fix on a new branch from `alpha`; whether this comes before or after the language work (recommended after); and what "automatically" should mean (recommended: a rule plus CI checks per repository).
+- **MeedyaDL round 5 pushed (`c72de729`..`5bcd7f06`, 7 commits).** It was redone after the restart and covers the fourth review's M1, M2, N1, N2, N4 and N5, Codex's A, B and C, and D (`.gitattributes`).
+  - The builder made one reasoned change to the brief: ffmpeg gets `-y` for its OWN freshly made temporary file, and the never-overwrite promise moves to the publish step (hard link, or rename-if-free on FAT/exFAT).
+  - My checks: 2,174 Rust tests passed. The conformance suite ran 241 cases in 10 sections with none failing, and 923 frontend tests passed. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker, actionlint and the release-note lint were all clean, with no name lines.
+  - `rustfmt`: `lib.rs` has 4 differences before and after, and `config_service.rs` has 14 before and after. Both are older drift. Note: checking `lib.rs` in place also walks into every module, about 100 files of older drift. Compare against a worktree of the previous head, never a copied-out file, because a copied file cannot see its modules.
+  - I commented on #1244, #1245, #1246 and #1249. **Codex review queued**, after MeedyaManager.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
