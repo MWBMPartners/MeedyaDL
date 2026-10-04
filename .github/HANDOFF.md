@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (about 22:12) — see ★★★★ LATEST below
+**Last updated:** 2026-10-04 (about 22:49) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1130,6 +1130,21 @@ on PRs to / pushes to main.
     - **Serious:** a Matroska full tag with no three-letter code (`abq`, `pnb`, `und-x-foo`, `und-Latn`, `und-419`) is LOST going to Matroska, MP4 or MPEG-TS. ffprobe hides the `und` legacy field and ffmpeg copies nothing, yet the note says "kept".
     - **Medium:** with map-all, any Matroska attachment (a font, or a BMP or WebP cover) makes an MP4 job fail.
   - **Round-5 builder running** (Opus, `brief-converter-r5.md`). It covers both faults, the MOV read-back carry-over, the wording, and `.gitattributes`.
+- **iHymns round-7 stand-in review: 0 high, 0 medium, 5 low.** The reviewer re-derived the audit with a wider tool of its own and found no catch that still swallows a 1213, 1205 or 1020. Every planted save-path fault was caught.
+  - **The low findings:**
+    - **L1:** the 84 guards have no test of their own;
+    - **L2:** the geo-cache write inside the save's transaction gives a needless 1020 on MariaDB;
+    - **L3:** a two-spelling edge case loses the translator;
+    - **L4:** the English-fallback guard has false alarms and gaps;
+    - **L5:** the notes say 72 transactions, but there are 67.
+  - **A consequence of the accepted outside-transaction change:** a `logActivity()` call made AFTER a successful commit can now fail the request during a large log purge, and a retry could create a duplicate.
+  - **Round-8 builder running** (Opus, `brief-ihymns-r8.md`). Its decisions:
+    - the audit becomes a permanent tokenizer test with an allow-list;
+    - no geo-cache write while a transaction is open;
+    - post-commit log writes catch, log and carry on, while inside a transaction they still re-throw;
+    - prefer the single same-language row;
+    - the guard's false alarms are fixed and its gaps listed;
+    - the docs are corrected.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
