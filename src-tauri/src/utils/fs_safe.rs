@@ -264,7 +264,10 @@ pub fn classify_path_components(path: &Path) -> FilenameClassification {
         let cls = classify_filename(synthetic);
         match (&worst, &cls) {
             (FilenameClassification::Ok, _) => worst = cls,
-            (FilenameClassification::Suspicious { .. }, FilenameClassification::Degenerate { .. }) => {
+            (
+                FilenameClassification::Suspicious { .. },
+                FilenameClassification::Degenerate { .. },
+            ) => {
                 worst = cls;
             }
             _ => {}
@@ -484,6 +487,208 @@ pub fn is_filesystem_sidecar(path: &std::path::Path) -> bool {
     )
 }
 
+// ---------------------------------------------------------------------
+// Operating-system operations the standard library does not offer
+// (Codex's review of round 5, findings 3 and 4)
+// ---------------------------------------------------------------------
+//
+// `std::fs::rename` REPLACES an existing destination on macOS and Linux,
+// and on Windows it asks for exactly that (`MOVEFILE_REPLACE_EXISTING`).
+// Checking first and renaming second leaves a gap in which another
+// process can create the name, which the rename then destroys. The only
+// way to "put this file here unless something is already there" with no
+// gap is to ask the operating system to do both as one step:
+//
+//   - macOS:   `renamex_np(from, to, RENAME_EXCL)`
+//   - Linux:   `renameat2(AT_FDCWD, from, AT_FDCWD, to, RENAME_NOREPLACE)`
+//   - Windows: `MoveFileExW(from, to, 0)` -- WITHOUT
+//              `MOVEFILE_REPLACE_EXISTING`, so it refuses a taken name.
+//
+// A file system that cannot do that step reports it (see
+// `is_no_replace_rename_unsupported`); callers then REFUSE rather than
+// fall back to a plain rename.
+//
+// The Windows branches are compiled for Windows (checked with
+// `cargo check --target x86_64-pc-windows-msvc`) but have not been run on
+// Windows: no Windows machine was available when they were written.
+
+/// Moves `from` to `to` only if nothing is at `to`, as ONE operation the
+/// operating system performs atomically -- no window in which another
+/// process can create `to` and have it replaced (see the section comment
+/// above for the call used on each system).
+///
+/// # Errors
+/// - [`std::io::ErrorKind::AlreadyExists`] when `to` is taken; nothing is
+///   moved and both files are left exactly as they were.
+/// - An error for which [`is_no_replace_rename_unsupported`] is true when
+///   the file system (or system) cannot do this; nothing is moved.
+/// - Any other error from the call, unchanged.
+pub fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    rename_no_replace_impl(from, to)
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    let to_c = |path: &Path| {
+        CString::new(path.as_os_str().as_bytes()).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "a file name contains a zero byte",
+            )
+        })
+    };
+    let (from_c, to_c) = (to_c(from)?, to_c(to)?);
+
+    // SAFETY: both arguments are text ending in a zero byte (`CString`)
+    // that outlives the call, which reads them and keeps neither pointer.
+    #[cfg(target_os = "macos")]
+    let result = unsafe { libc::renamex_np(from_c.as_ptr(), to_c.as_ptr(), libc::RENAME_EXCL) };
+
+    // SAFETY: as above. `AT_FDCWD` makes both names relative to the
+    // current folder exactly as `rename` would; absolute names ignore it.
+    #[cfg(target_os = "linux")]
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            from_c.as_ptr(),
+            libc::AT_FDCWD,
+            to_c.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    let wide = |path: &Path| -> Vec<u16> {
+        path.as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    };
+    let (from_w, to_w) = (wide(from), wide(to));
+    if from_w[..from_w.len() - 1].contains(&0) || to_w[..to_w.len() - 1].contains(&0) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "a file name contains a zero character",
+        ));
+    }
+    // SAFETY: both arguments are wide text ending in a zero character
+    // that outlives the call, which reads them and keeps neither pointer.
+    // Flags 0: no MOVEFILE_REPLACE_EXISTING, so a taken name is refused
+    // (ERROR_ALREADY_EXISTS / ERROR_FILE_EXISTS, both AlreadyExists); no
+    // MOVEFILE_COPY_ALLOWED, so it never turns into copy-then-delete.
+    let ok = unsafe {
+        windows_sys::Win32::Storage::FileSystem::MoveFileExW(from_w.as_ptr(), to_w.as_ptr(), 0)
+    };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no operating-system call to rename without replacing is known here",
+    ))
+}
+
+/// True when [`rename_no_replace`] failed because the file system (or the
+/// system) cannot rename without replacing -- not because of anything
+/// about these particular files. A caller must then refuse; falling back
+/// to a plain rename would bring back the overwrite this exists to stop.
+///
+/// - Any system: [`std::io::ErrorKind::Unsupported`] (the call does not
+///   exist, `ENOSYS`; or `EOPNOTSUPP`).
+/// - macOS: `EINVAL`, `ENOTSUP` (a volume that cannot honour
+///   `RENAME_EXCL`).
+/// - Linux: `EINVAL` (a file system that does not support
+///   `RENAME_NOREPLACE`).
+/// - Windows: `ERROR_INVALID_FUNCTION`, `ERROR_NOT_SUPPORTED`.
+#[must_use]
+pub fn is_no_replace_rename_unsupported(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::Unsupported {
+        return true;
+    }
+    let Some(code) = error.raw_os_error() else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    {
+        code == libc::EINVAL || code == libc::ENOTSUP
+    }
+    #[cfg(target_os = "linux")]
+    {
+        code == libc::EINVAL
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED};
+        u32::try_from(code).is_ok_and(|c| c == ERROR_INVALID_FUNCTION || c == ERROR_NOT_SUPPORTED)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        let _ = code;
+        false
+    }
+}
+
+/// True when `std::fs::hard_link` failed because the FILE SYSTEM cannot
+/// make hard links (FAT and exFAT drives, many network shares) -- the one
+/// case in which a caller may try [`rename_no_replace`] instead. Any other
+/// failure (no permission, disk full, a missing folder) is a real failure
+/// and must be reported as one, not "worked around".
+///
+/// - Any system: [`std::io::ErrorKind::Unsupported`] (`ENOSYS`,
+///   `EOPNOTSUPP`, Windows `ERROR_CALL_NOT_IMPLEMENTED`).
+/// - macOS: `ENOTSUP` ("the file system does not support links").
+/// - Linux: `EPERM`, which `link(2)` documents for "the file system does
+///   not support the creation of hard links" (its other meanings -- a
+///   folder, an immutable file, or someone else's file under
+///   `protected_hardlinks` -- cannot apply to a temporary file this app
+///   has just created itself).
+/// - Windows: `ERROR_INVALID_FUNCTION` (what FAT and exFAT answer) and
+///   `ERROR_NOT_SUPPORTED`.
+#[must_use]
+pub fn is_hard_link_unsupported(error: &std::io::Error) -> bool {
+    if error.kind() == std::io::ErrorKind::Unsupported {
+        return true;
+    }
+    let Some(code) = error.raw_os_error() else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    {
+        code == libc::ENOTSUP
+    }
+    #[cfg(target_os = "linux")]
+    {
+        code == libc::EPERM
+    }
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::Foundation::{ERROR_INVALID_FUNCTION, ERROR_NOT_SUPPORTED};
+        u32::try_from(code).is_ok_and(|c| c == ERROR_INVALID_FUNCTION || c == ERROR_NOT_SUPPORTED)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    {
+        let _ = code;
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -698,14 +903,20 @@ mod tests {
     fn appledouble_sidecar_is_detected() {
         // The single most impactful case: macOS `._*` files on
         // exFAT / FAT32 / HFS external drives.
-        assert!(is_filesystem_sidecar(std::path::Path::new("._1 - 01 Track.m4a")));
-        assert!(is_filesystem_sidecar(std::path::Path::new("/full/path/._Cover.jpg")));
+        assert!(is_filesystem_sidecar(std::path::Path::new(
+            "._1 - 01 Track.m4a"
+        )));
+        assert!(is_filesystem_sidecar(std::path::Path::new(
+            "/full/path/._Cover.jpg"
+        )));
     }
 
     #[test]
     fn ds_store_is_detected() {
         assert!(is_filesystem_sidecar(std::path::Path::new(".DS_Store")));
-        assert!(is_filesystem_sidecar(std::path::Path::new("/Users/bob/Music/.DS_Store")));
+        assert!(is_filesystem_sidecar(std::path::Path::new(
+            "/Users/bob/Music/.DS_Store"
+        )));
     }
 
     #[test]
@@ -725,10 +936,16 @@ mod tests {
         // that START with legal single dots or underscores, must NOT
         // be misclassified. Only `._` (dot-underscore together at the
         // start) is reserved.
-        assert!(!is_filesystem_sidecar(std::path::Path::new("1 - 01 Track.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new(
+            "1 - 01 Track.m4a"
+        )));
         assert!(!is_filesystem_sidecar(std::path::Path::new("Cover.jpg")));
-        assert!(!is_filesystem_sidecar(std::path::Path::new(".hidden_file.m4a")));
-        assert!(!is_filesystem_sidecar(std::path::Path::new("_underscore_start.m4a")));
+        assert!(!is_filesystem_sidecar(std::path::Path::new(
+            ".hidden_file.m4a"
+        )));
+        assert!(!is_filesystem_sidecar(std::path::Path::new(
+            "_underscore_start.m4a"
+        )));
         assert!(!is_filesystem_sidecar(std::path::Path::new("Ds_Store.m4a")));
     }
 
@@ -867,5 +1084,74 @@ mod tests {
             reason: "x".to_string()
         }
         .is_problem());
+    }
+
+    // ── rename_no_replace (Codex's review of round 5, finding 3) ────────
+
+    #[test]
+    fn rename_no_replace_moves_to_a_free_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&from, "a").unwrap();
+        rename_no_replace(&from, &to).unwrap();
+        assert!(!from.exists());
+        assert_eq!(fs::read_to_string(&to).unwrap(), "a");
+    }
+
+    #[test]
+    fn rename_no_replace_refuses_a_taken_name_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&from, "a").unwrap();
+        fs::write(&to, "b").unwrap();
+        let err = rename_no_replace(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "{err}");
+        assert!(!is_no_replace_rename_unsupported(&err));
+        assert_eq!(fs::read_to_string(&from).unwrap(), "a");
+        assert_eq!(fs::read_to_string(&to).unwrap(), "b");
+    }
+
+    #[test]
+    fn only_not_supported_errors_count_as_not_supported() {
+        use std::io::{Error, ErrorKind};
+        let unsupported = Error::from(ErrorKind::Unsupported);
+        assert!(is_hard_link_unsupported(&unsupported));
+        assert!(is_no_replace_rename_unsupported(&unsupported));
+        for kind in [
+            ErrorKind::PermissionDenied,
+            ErrorKind::NotFound,
+            ErrorKind::AlreadyExists,
+            ErrorKind::StorageFull,
+        ] {
+            assert!(!is_hard_link_unsupported(&Error::from(kind)), "{kind:?}");
+            assert!(
+                !is_no_replace_rename_unsupported(&Error::from(kind)),
+                "{kind:?}"
+            );
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(is_hard_link_unsupported(&Error::from_raw_os_error(
+                libc::ENOTSUP
+            )));
+            assert!(!is_hard_link_unsupported(&Error::from_raw_os_error(
+                libc::EACCES
+            )));
+            assert!(is_no_replace_rename_unsupported(&Error::from_raw_os_error(
+                libc::EINVAL
+            )));
+        }
+        #[cfg(target_os = "linux")]
+        {
+            assert!(is_hard_link_unsupported(&Error::from_raw_os_error(
+                libc::EPERM
+            )));
+            assert!(!is_hard_link_unsupported(&Error::from_raw_os_error(
+                libc::EACCES
+            )));
+            assert!(is_no_replace_rename_unsupported(&Error::from_raw_os_error(
+                libc::EINVAL
+            )));
+        }
     }
 }

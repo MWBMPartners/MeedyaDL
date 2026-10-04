@@ -90,27 +90,40 @@ fn sidecar_extension(codec: &str) -> &'static str {
     }
 }
 
+/// What one call to [`extract_subtitles_to_sidecars`] did.
+#[derive(Debug, Default)]
+pub struct SubtitleExtraction {
+    /// How many sidecars were newly written (zero if the video has no
+    /// subtitle streams, or every stream was already extracted).
+    pub written: usize,
+    /// Plain sentences the person should see in the activity log: a
+    /// subtitle that was deliberately NOT saved because the drive cannot
+    /// add a file without the risk of replacing one, or a temporary file
+    /// that could not be removed. Each is also in the log file.
+    pub notices: Vec<String>,
+}
+
 /// Probe the given video file and extract every subtitle/caption stream
 /// to a sidecar file alongside it.
 ///
-/// Returns `Ok(count)` where `count` is the number of sidecars newly
-/// written (zero if the video has no subtitle streams, or every stream was
-/// already extracted by an earlier run). Errors are reported only when
-/// probing fundamentally fails — per-stream failures are logged and
+/// Returns how many sidecars were newly written, and anything the person
+/// should be told (see [`SubtitleExtraction`]). Errors are reported only
+/// when probing fundamentally fails — per-stream failures are logged and
 /// skipped.
 pub async fn extract_subtitles_to_sidecars(
     ffprobe_path: &Path,
     ffmpeg_path: &Path,
     video_path: &Path,
-) -> Result<usize, String> {
+) -> Result<SubtitleExtraction, String> {
     if !video_path.is_file() {
         return Err(format!("Video file not found: {}", video_path.display()));
     }
+    let mut report = SubtitleExtraction::default();
 
     let streams = probe_subtitle_streams(ffprobe_path, video_path).await?;
     if streams.is_empty() {
         log::debug!("No subtitle streams in {}", video_path.display());
-        return Ok(0);
+        return Ok(report);
     }
 
     let stem = video_path
@@ -124,7 +137,6 @@ pub async fn extract_subtitles_to_sidecars(
     let facts: Vec<SubtitleStreamFacts> = streams.iter().map(|s| s.facts.clone()).collect();
     let planned = plan_subtitle_sidecar_names(stem, &facts)?;
 
-    let mut extracted = 0;
     for (stream, plan) in streams.iter().zip(planned) {
         if let Some(raw) = &plan.unrecognised_language {
             // Report doubt rather than guess (policy COMPAT-040): the file
@@ -136,7 +148,16 @@ pub async fn extract_subtitles_to_sidecars(
                 video_path.display()
             );
         }
-        match extract_single_stream(ffmpeg_path, video_path, stem, stream, &plan.file_name).await {
+        match extract_single_stream(
+            ffmpeg_path,
+            video_path,
+            stem,
+            stream,
+            &plan.file_name,
+            &mut report.notices,
+        )
+        .await
+        {
             Ok(ExtractOutcome::Written(sidecar_path)) => {
                 log::info!(
                     "Extracted subtitle stream #{} ({}, {}) → {}",
@@ -145,7 +166,7 @@ pub async fn extract_subtitles_to_sidecars(
                     plan.tag,
                     sidecar_path.display()
                 );
-                extracted += 1;
+                report.written += 1;
             }
             Ok(ExtractOutcome::AlreadyThere(sidecar_path)) => {
                 log::debug!(
@@ -164,7 +185,7 @@ pub async fn extract_subtitles_to_sidecars(
         }
     }
 
-    Ok(extracted)
+    Ok(report)
 }
 
 /// Run ffprobe and parse every subtitle stream out of the video file.
@@ -334,46 +355,123 @@ fn create_temp_sidecar_path(parent: &Path, extension: &str) -> Result<PathBuf, S
     ))
 }
 
+/// Removes a temporary file, and REPORTS a failure instead of ignoring it
+/// (Codex's review of round 5, finding 4): in the log, and as a notice for
+/// the activity log, naming the file so the person can delete it. A file
+/// that is already gone counts as removed.
+fn remove_temporary(path: &Path, notices: &mut Vec<String>) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            log::warn!(
+                "Could not remove the temporary subtitle file {}: {e}",
+                path.display()
+            );
+            notices.push(format!(
+                "Could not remove the temporary file {} ({e}). It is left over from \
+                 saving a subtitle and can be deleted.",
+                path.display()
+            ));
+        }
+    }
+}
+
 /// Publishes a finished temporary file under its real name WITHOUT ever
-/// overwriting a file already there.
-///
-/// First a hard link: `std::fs::hard_link` refuses (`AlreadyExists`) when
-/// the final name is taken, which is an atomic "only if still free" — two
-/// extractions racing for one name cannot both win. The temporary name is
-/// removed either way.
-///
-/// FAT and exFAT (most external drives) cannot make hard links, so there
-/// `hard_link` fails for some other reason. The fallback is "rename only if
-/// the final name is still free". **That fallback has a small window**:
-/// another process could create the name between the check and the rename.
-/// It is the best available there, and still better than writing straight
-/// to the final name.
+/// overwriting a file already there -- on any file system (Codex's review
+/// of round 5, finding 3). See [`publish_with`] for how.
 fn publish_extracted_subtitle(
     temp_path: &Path,
     final_path: &Path,
+    notices: &mut Vec<String>,
 ) -> Result<ExtractOutcome, String> {
-    match std::fs::hard_link(temp_path, final_path) {
+    publish_with(
+        temp_path,
+        final_path,
+        notices,
+        |from, to| std::fs::hard_link(from, to),
+        crate::utils::fs_safe::rename_no_replace,
+    )
+}
+
+/// The publish step, with its two file-system operations passed in so the
+/// tests can force the path a FAT or exFAT drive takes on any machine.
+///
+/// 1. A hard link from the temporary name to the real one. It refuses
+///    (`AlreadyExists`) when the real name is taken -- an atomic "only if
+///    still free": two extractions racing for one name cannot both win.
+///    The temporary name is then removed (it is a second name for the same
+///    file, so nothing is lost if that fails; it is reported).
+/// 2. ONLY when the link failed because the file system cannot make hard
+///    links (`fs_safe::is_hard_link_unsupported`; FAT, exFAT, many network
+///    shares): `fs_safe::rename_no_replace`, which asks the operating
+///    system to move the file into place only if the name is free, as one
+///    step with no gap. This used to be "check the name is free, then a
+///    plain rename" -- a gap in which a racing extraction could create the
+///    name, which the rename then replaced.
+/// 3. If the file system cannot do that step either, NOTHING is published:
+///    the temporary file is removed and the person is told why, in the
+///    activity log. Never a plain rename.
+///
+/// Any other failure of the link (no permission, disk full) is a real
+/// failure and is reported as one; it does not try the second step.
+fn publish_with(
+    temp_path: &Path,
+    final_path: &Path,
+    notices: &mut Vec<String>,
+    hard_link: impl Fn(&Path, &Path) -> std::io::Result<()>,
+    rename_no_replace: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<ExtractOutcome, String> {
+    use crate::utils::fs_safe::{is_hard_link_unsupported, is_no_replace_rename_unsupported};
+    let link_error = match hard_link(temp_path, final_path) {
         Ok(()) => {
-            let _ = std::fs::remove_file(temp_path);
-            Ok(ExtractOutcome::Written(final_path.to_path_buf()))
+            remove_temporary(temp_path, notices);
+            return Ok(ExtractOutcome::Written(final_path.to_path_buf()));
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            let _ = std::fs::remove_file(temp_path);
+            remove_temporary(temp_path, notices);
+            return Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()));
+        }
+        Err(e) => e,
+    };
+    if !is_hard_link_unsupported(&link_error) {
+        remove_temporary(temp_path, notices);
+        return Err(format!(
+            "could not publish the extracted subtitle to {}: {link_error}",
+            final_path.display()
+        ));
+    }
+    match rename_no_replace(temp_path, final_path) {
+        Ok(()) => Ok(ExtractOutcome::Written(final_path.to_path_buf())),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            remove_temporary(temp_path, notices);
             Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()))
         }
-        Err(_) => {
-            if final_path.exists() {
-                let _ = std::fs::remove_file(temp_path);
-                return Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()));
-            }
-            if let Err(e) = std::fs::rename(temp_path, final_path) {
-                let _ = std::fs::remove_file(temp_path);
-                return Err(format!(
-                    "could not publish the extracted subtitle to {}: {e}",
-                    final_path.display()
-                ));
-            }
-            Ok(ExtractOutcome::Written(final_path.to_path_buf()))
+        Err(e) if is_no_replace_rename_unsupported(&e) => {
+            remove_temporary(temp_path, notices);
+            let name = final_path.file_name().map_or_else(
+                || final_path.display().to_string(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            log::warn!(
+                "Not publishing {}: the file system can neither make hard links ({link_error}) \
+                 nor rename without replacing ({e})",
+                final_path.display()
+            );
+            let notice = format!(
+                "Subtitle \"{name}\" was not saved: the drive it would go on cannot add a file \
+                 without the risk of replacing one with the same name, so nothing was written \
+                 there."
+            );
+            notices.push(notice.clone());
+            Err(notice)
+        }
+        Err(e) => {
+            remove_temporary(temp_path, notices);
+            Err(format!(
+                "could not publish the extracted subtitle to {}: {e}",
+                final_path.display()
+            ))
         }
     }
 }
@@ -386,14 +484,17 @@ fn publish_extracted_subtitle(
 /// (`legacy_sidecar_name`), the stream counts as already extracted and
 /// nothing is done.
 ///
-/// **A failed attempt leaves nothing behind** (Codex's catch-up review of
-/// #1244, finding 3). ffmpeg used to write straight to the real name, so a
-/// run that failed part way (disk full) left a half file there, and the
-/// existence check above then took it for finished work on every retry.
-/// Now ffmpeg writes only to an exclusively created temporary file, which
-/// is published under the real name (never overwriting) only after ffmpeg
-/// succeeded, and removed on any failure. This blocking is new on this
-/// branch: v1.10.8 wrote a numbered copy instead.
+/// **A failed attempt leaves no half file under the real name** (Codex's
+/// catch-up review of #1244, finding 3). ffmpeg used to write straight to
+/// the real name, so a run that failed part way (disk full) left a half
+/// file there, and the existence check above then took it for finished
+/// work on every retry. Now ffmpeg writes only to an exclusively created
+/// temporary file, which is published under the real name only after
+/// ffmpeg succeeded -- never overwriting, on any file system, and not at
+/// all on a drive that cannot promise that (see `publish_with`) -- and
+/// removed on any failure. A removal that fails is reported (log and
+/// activity log), never ignored. This blocking is new on this branch:
+/// v1.10.8 wrote a numbered copy instead.
 ///
 /// Before #1251 this used `resolve_non_clobbering_path` and then checked
 /// whether the result was the planned path — which can never be true
@@ -412,6 +513,7 @@ async fn extract_single_stream(
     stem: &str,
     stream: &SubtitleStream,
     file_name: &str,
+    notices: &mut Vec<String>,
 ) -> Result<ExtractOutcome, String> {
     let parent = video_path
         .parent()
@@ -458,13 +560,13 @@ async fn extract_single_stream(
     let output = match cmd.output().await {
         Ok(output) => output,
         Err(e) => {
-            let _ = std::fs::remove_file(&temp_path);
+            remove_temporary(&temp_path, notices);
             return Err(format!("ffmpeg spawn failed: {e}"));
         }
     };
 
     if !output.status.success() {
-        let _ = std::fs::remove_file(&temp_path);
+        remove_temporary(&temp_path, notices);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "ffmpeg exited with {}: {}",
@@ -473,7 +575,7 @@ async fn extract_single_stream(
         ));
     }
 
-    publish_extracted_subtitle(&temp_path, &sidecar_path)
+    publish_extracted_subtitle(&temp_path, &sidecar_path, notices)
 }
 
 /// Copy existing audio lyrics sidecars (TTML, LRC, SRT, VTT, ASS) alongside
@@ -744,6 +846,7 @@ mod tests {
             "V",
             &stream,
             "V.und.srt",
+            &mut Vec::new(),
         )
         .await;
         assert!(
@@ -830,7 +933,8 @@ mod tests {
         let ffprobe = Path::new("ffprobe");
         let written = extract_subtitles_to_sidecars(ffprobe, ffmpeg, &video)
             .await
-            .unwrap();
+            .unwrap()
+            .written;
         assert_eq!(written, 3);
         for name in ["01 Title.en.srt", "01 Title.en.sdh.srt", "01 Title.und.srt"] {
             // The words, not just a file: given `-n`, ffmpeg 9.0.1 refuses
@@ -848,7 +952,8 @@ mod tests {
         // A re-run writes nothing new.
         let again = extract_subtitles_to_sidecars(ffprobe, ffmpeg, &video)
             .await
-            .unwrap();
+            .unwrap()
+            .written;
         assert_eq!(again, 0);
 
         // A file under the pre-#1251 name also counts as already extracted.
@@ -856,7 +961,8 @@ mod tests {
         fs::write(dir.path().join("01 Title.cc.1.eng.srt"), "old").unwrap();
         let with_old = extract_subtitles_to_sidecars(ffprobe, ffmpeg, &video)
             .await
-            .unwrap();
+            .unwrap()
+            .written;
         assert_eq!(with_old, 0);
         assert!(!dir.path().join("01 Title.en.srt").exists());
     }
@@ -997,7 +1103,9 @@ mod tests {
 
         // First attempt: ffmpeg writes half a file, then fails.
         let failing = fake_ffmpeg(tools.path(), "ffmpeg-fails", "1\n00:00:00", 1);
-        let first = extract_single_stream(&failing, &video, "V", &stream, "V.en.srt").await;
+        let first =
+            extract_single_stream(&failing, &video, "V", &stream, "V.en.srt", &mut Vec::new())
+                .await;
         assert!(first.is_err(), "{first:?}");
         assert_eq!(
             folder_listing(dir.path()),
@@ -1007,7 +1115,9 @@ mod tests {
 
         // Second attempt, ffmpeg working: the subtitle is written.
         let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "1\nHello", 0);
-        let second = extract_single_stream(&working, &video, "V", &stream, "V.en.srt").await;
+        let second =
+            extract_single_stream(&working, &video, "V", &stream, "V.en.srt", &mut Vec::new())
+                .await;
         assert!(
             matches!(second, Ok(ExtractOutcome::Written(_))),
             "{second:?}"
@@ -1028,8 +1138,15 @@ mod tests {
         fs::write(&video, "").unwrap();
         fs::write(dir.path().join("V.en.srt"), "mine").unwrap();
         let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "theirs", 0);
-        let outcome =
-            extract_single_stream(&working, &video, "V", &only_stream(), "V.en.srt").await;
+        let outcome = extract_single_stream(
+            &working,
+            &video,
+            "V",
+            &only_stream(),
+            "V.en.srt",
+            &mut Vec::new(),
+        )
+        .await;
         assert!(
             matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
             "{outcome:?}"
@@ -1055,7 +1172,15 @@ mod tests {
         fs::write(&video, "").unwrap();
         let working = fake_ffmpeg(tools.path(), "ffmpeg-works", "1\nHello", 0);
         let name = format!("{stem}.en.srt");
-        let outcome = extract_single_stream(&working, &video, &stem, &only_stream(), &name).await;
+        let outcome = extract_single_stream(
+            &working,
+            &video,
+            &stem,
+            &only_stream(),
+            &name,
+            &mut Vec::new(),
+        )
+        .await;
         assert!(
             matches!(outcome, Ok(ExtractOutcome::Written(_))),
             "{outcome:?}"
@@ -1076,12 +1201,195 @@ mod tests {
         let fin = dir.path().join("V.en.srt");
         fs::write(&temp, "ours").unwrap();
         fs::write(&fin, "theirs").unwrap();
-        let outcome = publish_extracted_subtitle(&temp, &fin);
+        let outcome = publish_extracted_subtitle(&temp, &fin, &mut Vec::new());
         assert!(
             matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
             "{outcome:?}"
         );
         assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs");
+        assert!(!temp.exists());
+    }
+
+    // ── Publishing never overwrites, on any file system (Codex's review
+    // ── of round 5, finding 3). The hard link is FORCED to fail the way a
+    // ── FAT or exFAT drive makes it fail, so these run the other path on
+    // ── any machine, with the real `rename_no_replace`. ──────────────────
+
+    /// The error a drive without hard links gives (see
+    /// `fs_safe::is_hard_link_unsupported`).
+    fn no_hard_links(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+
+    #[test]
+    fn without_hard_links_an_existing_subtitle_is_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        fs::write(&fin, "theirs").unwrap();
+        let mut notices = Vec::new();
+        let outcome = publish_with(
+            &temp,
+            &fin,
+            &mut notices,
+            no_hard_links,
+            crate::utils::fs_safe::rename_no_replace,
+        );
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs");
+        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
+        assert!(notices.is_empty(), "{notices:?}");
+    }
+
+    #[test]
+    fn without_hard_links_a_free_name_is_published() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        let outcome = publish_with(
+            &temp,
+            &fin,
+            &mut Vec::new(),
+            no_hard_links,
+            crate::utils::fs_safe::rename_no_replace,
+        );
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::Written(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "ours");
+        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
+    }
+
+    /// Two extractions publish to one name at the same moment on a drive
+    /// without hard links: exactly one wins, the winner's text is what is
+    /// there, the loser's is thrown away, and no temporary file is left.
+    /// Both are held at a barrier inside the (failing) link step, so they
+    /// reach the second step together. Repeated, because a race shows
+    /// only sometimes; with "check the name is free, then rename" this
+    /// reported two winners.
+    #[test]
+    fn without_hard_links_two_racing_publishes_never_overwrite_each_other() {
+        use std::sync::Barrier;
+        for round in 0..100 {
+            let dir = tempfile::tempdir().unwrap();
+            let fin = dir.path().join("V.en.srt");
+            let temps: Vec<PathBuf> = (0..2)
+                .map(|i| {
+                    let temp = dir.path().join(format!(".meedyadl-partial-1-{i}.srt"));
+                    fs::write(&temp, format!("writer {i}")).unwrap();
+                    temp
+                })
+                .collect();
+            let barrier = Barrier::new(2);
+            let outcomes: Vec<_> = std::thread::scope(|scope| {
+                let handles: Vec<_> = temps
+                    .iter()
+                    .map(|temp| {
+                        let (barrier, fin) = (&barrier, &fin);
+                        scope.spawn(move || {
+                            let link = |a: &Path, b: &Path| {
+                                barrier.wait();
+                                no_hard_links(a, b)
+                            };
+                            publish_with(
+                                temp,
+                                fin,
+                                &mut Vec::new(),
+                                link,
+                                crate::utils::fs_safe::rename_no_replace,
+                            )
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            let winners: Vec<usize> = outcomes
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| matches!(o, Ok(ExtractOutcome::Written(_))))
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(winners.len(), 1, "round {round}: {outcomes:?}");
+            assert!(
+                outcomes
+                    .iter()
+                    .any(|o| matches!(o, Ok(ExtractOutcome::AlreadyThere(_)))),
+                "round {round}: {outcomes:?}"
+            );
+            assert_eq!(
+                fs::read_to_string(&fin).unwrap(),
+                format!("writer {}", winners[0]),
+                "round {round}"
+            );
+            assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "round {round}");
+        }
+    }
+
+    #[test]
+    fn a_drive_that_cannot_rename_without_replacing_gets_nothing_and_says_why() {
+        // No hard links, and the no-replace step itself not available
+        // (`EINVAL` from Linux, say): refuse, never a plain rename.
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        let mut notices = Vec::new();
+        let outcome = publish_with(&temp, &fin, &mut notices, no_hard_links, |_, _| {
+            Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+        });
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert!(!fin.exists());
+        assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("\"V.en.srt\" was not saved"),
+            "{notices:?}"
+        );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn einval_from_the_no_replace_step_is_a_refusal_not_a_failure_to_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        let mut notices = Vec::new();
+        let outcome = publish_with(&temp, &fin, &mut notices, no_hard_links, |_, _| {
+            Err(std::io::Error::from_raw_os_error(libc::EINVAL))
+        });
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
+        assert_eq!(notices.len(), 1, "{notices:?}");
+    }
+
+    #[test]
+    fn any_other_hard_link_failure_is_a_failure_not_a_fallback() {
+        // No permission, say: reported, and the second step never tried.
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        let tried_rename = std::cell::Cell::new(false);
+        let outcome = publish_with(
+            &temp,
+            &fin,
+            &mut Vec::new(),
+            |_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
+            |_, _| {
+                tried_rename.set(true);
+                Ok(())
+            },
+        );
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert!(!tried_rename.get());
+        assert!(!fin.exists());
         assert!(!temp.exists());
     }
 

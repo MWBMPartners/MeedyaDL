@@ -928,19 +928,31 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         )
         .await
         {
-            Ok(0) => log::debug!("No subtitle streams in {}", video_path.display()),
-            Ok(n) => {
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!(
-                        "Extracted {n} subtitle/caption track(s) from {}",
-                        video_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("music video")
-                    ),
-                );
+            Ok(report) => {
+                // Anything the person needs to know, even when nothing
+                // failed outright: a subtitle deliberately not saved on a
+                // drive that cannot add a file without the risk of
+                // replacing one, or a temporary file that could not be
+                // removed (Codex's review of round 5, findings 3 and 4).
+                for notice in &report.notices {
+                    emit_download_warn(app, dl_id, notice);
+                }
+                if report.written == 0 {
+                    log::debug!("No new subtitle sidecars for {}", video_path.display());
+                } else {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Extracted {} subtitle/caption track(s) from {}",
+                            report.written,
+                            video_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("music video")
+                        ),
+                    );
+                }
             }
             Err(e) => {
                 log::warn!(

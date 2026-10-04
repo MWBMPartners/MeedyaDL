@@ -703,5 +703,22 @@ tempfile = "3"
 # `open_downloaded_file` in `commands/history.rs` for why that matters.
 # Already compiled as part of the dependency tree; naming it here just
 # makes it callable directly.
+#
+# Also used on macOS for `renamex_np(…, RENAME_EXCL)`: putting a finished
+# subtitle in place only if nothing is already there, as one step the
+# system does without a gap (`utils::fs_safe::rename_no_replace`; Codex's
+# review of round 5, finding 3).
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+# Linux: the same crate as above, for the Linux form of that step,
+# `renameat2(…, RENAME_NOREPLACE)`. Already in the dependency tree.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+# Windows: the Windows form of that step, `MoveFileExW` WITHOUT
+# `MOVEFILE_REPLACE_EXISTING` (Rust's own rename passes that flag, so it
+# replaces). The same crate and version are already in the dependency tree
+# through Tauri; this only names the parts used.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
