@@ -69,7 +69,7 @@ exact number.
 | fs2 | 0.4 | MIT/Apache-2.0 | Filesystem free-space + advisory locking (disk-space preflight) |
 | jsonwebtoken | 10.3 | MIT | MusicKit JWT generation |
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
-| libc | 0.2 | MIT/Apache-2.0 | macOS only: reads the flag Finder sets on an alias, so the app can refuse to open one (already part of the dependency tree; listed because the app now calls it directly) |
+| libc | 0.2 | MIT/Apache-2.0 | macOS and Linux only: reads the flag Finder sets on an alias, so the app can refuse to open one (macOS); puts a finished subtitle in place only if nothing is already there, and checks whether a process is still running, when tidying up after a stopped run (macOS and Linux). Already part of the dependency tree; listed because the app calls it directly |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
 | lzma-rs | 0.3 | MIT | Pure-Rust XZ decompression (.tar.xz tool archives) |
@@ -101,6 +101,7 @@ exact number.
 | tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
+| windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there, and checks whether a process is still running, when tidying up after a stopped run. Already part of the dependency tree; listed because the app calls it directly |
 | zip | 2.4 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
