@@ -207,6 +207,20 @@ fn expected_ids_for(section: &str, raw_value: &Value) -> Vec<String> {
 // These two functions read both pins straight off disk, and the test
 // refuses to run a single case unless they agree.
 
+/// Whether `line` is a `[[package]]` block's `name = "meedya-lang"` line.
+/// Key and value are compared SEPARATELY, each trimmed of spaces and tabs,
+/// so `name="meedya-lang"` and `name   =   "meedya-lang"` both count.
+/// (Independent review, round 5 of #1244: the old test compared the whole
+/// line to one fixed string with exactly one space either side of `=`, so an
+/// entry written with other spacing was silently not counted — the
+/// "exactly one entry" rule then missed it.)
+fn is_meedya_lang_name_line(line: &str) -> bool {
+    let Some((key, value)) = line.split_once('=') else {
+        return false;
+    };
+    key.trim() == "name" && value.trim() == "\"meedya-lang\""
+}
+
 /// Every commit `raw` (a Cargo.lock's text) resolved a `meedya-lang`
 /// package entry to — one per `[[package]] name = "meedya-lang"` block
 /// found, in the order they appear.
@@ -229,7 +243,7 @@ fn crate_pins(raw: &str) -> Vec<String> {
     let mut commits = Vec::new();
     let mut lines = raw.lines();
     while let Some(line) = lines.next() {
-        if line.trim() != "name = \"meedya-lang\"" {
+        if !is_meedya_lang_name_line(line) {
             continue;
         }
         // The `source` line is a few lines below `name` within the same
@@ -279,7 +293,16 @@ fn read_crate_pin() -> String {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.lock");
     let raw =
         std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {path}: {e}"));
-    match crate_pins(&raw).as_slice() {
+    single_crate_pin(&raw)
+}
+
+/// The zero / one / many decision, on the lock file's TEXT so it can be
+/// tested at zero, one and two entries (independent review, round 5 of
+/// #1244: the round-4 version of this match was only ever run against the
+/// real file, which names the crate once, so a wrong pattern that took the
+/// first of several would not have been noticed).
+fn single_crate_pin(raw: &str) -> String {
+    match crate_pins(raw).as_slice() {
         [] => panic!("Cargo.lock has no meedya-lang package entry to read a commit from"),
         [only] => only.clone(),
         many => panic!(
@@ -345,6 +368,68 @@ dependencies = [
         crate_pins(sample),
         vec!["ccccccc3333333333333333333333333333333".to_string()]
     );
+}
+
+fn lock_entry(spaced_name: &str, commit: &str) -> String {
+    format!(
+        "[[package]]\n{spaced_name}\nversion = \"0.2.0\"\nsource = \"git+https://example.invalid/core?rev={commit}#{commit}\"\n\n"
+    )
+}
+
+#[test]
+fn the_name_line_is_recognised_whatever_the_spacing_around_the_equals_sign() {
+    for ok in [
+        "name = \"meedya-lang\"",
+        "name=\"meedya-lang\"",
+        "name   =   \"meedya-lang\"",
+        "\tname\t=\t\"meedya-lang\"\t",
+    ] {
+        assert!(is_meedya_lang_name_line(ok), "{ok:?}");
+    }
+    for bad in [
+        "name = \"other\"",
+        "version = \"meedya-lang\"",
+        "// name = \"meedya-lang\"",
+        "",
+    ] {
+        assert!(!is_meedya_lang_name_line(bad), "{bad:?}");
+    }
+}
+
+#[test]
+#[should_panic(expected = "has no meedya-lang package entry")]
+fn single_crate_pin_panics_on_zero_entries() {
+    single_crate_pin("[[package]]\nname = \"other\"\n");
+}
+
+#[test]
+fn single_crate_pin_returns_the_one_entry() {
+    assert_eq!(
+        single_crate_pin(&lock_entry("name = \"meedya-lang\"", "c1c1")),
+        "c1c1"
+    );
+}
+
+#[test]
+#[should_panic(expected = "expected exactly")]
+fn single_crate_pin_panics_on_two_entries() {
+    let two = format!(
+        "{}{}",
+        lock_entry("name = \"meedya-lang\"", "a1a1"),
+        lock_entry("name = \"meedya-lang\"", "b2b2")
+    );
+    single_crate_pin(&two);
+}
+
+#[test]
+#[should_panic(expected = "expected exactly")]
+fn single_crate_pin_counts_an_oddly_spaced_second_entry() {
+    let two = format!(
+        "{}{}",
+        lock_entry("name = \"meedya-lang\"", "a1a1"),
+        lock_entry("name   =   \"meedya-lang\"", "b2b2")
+    );
+    single_crate_pin(&two);
 }
 
 /// The commit `docs/standards/MWBM-MEDIA-LANG.lock` records the policy
