@@ -1159,6 +1159,16 @@ on PRs to / pushes to main.
   - **Round-7 builder running** (`brief-netplayer-r7.md`), with a watchdog. It must reproduce each finding first, and find out whether the shared PHP code itself is what runs out of memory (if so, a core issue is drafted).
 - **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (24 commits, rounds 2–5) is running**, with a watchdog.
 - **Codex ran out partway through the plugin review** (about 23:40 on 4 Oct, after 140,000 tokens and before writing any findings). It names 04:01 on 5 Oct as the reset. A background command retries the same review at 04:06, and a watchdog watches it; the cut-off output is kept as `codex-plugin-catchup-cutoff1.out`. **MeedyaManager round 6 (`a150926..49cec29`) went to a stand-in instead** (a fresh Opus agent), with a watchdog. It therefore counts as not yet fully reviewed, and Codex's next catch-up of MeedyaManager must cover it. MeedyaDL round 6 waits for the machine to be less loaded before it gets its own stand-in.
+- **MeedyaPlayer/MeedyaSubtitler: the twelfth review (stand-in, fresh Opus) of `be430c9..61985e1` / `415aa4c..46c7501` is NOT clean — 1 high, 2 medium, 5 low, 7 nits.** All checks pass; CI is green on both heads.
+  - **High:** the three MeedyaPlayer copyright lines (ADR 0005 and 0006) were not restored. This is the item the permission system refused; it waits on the maintainer and must not be retried another way.
+  - **Medium:** both handoffs leave out the eleventh review; ADR 0010 (an append-only, accepted decision) was edited in place.
+  - Older commits carry the maintainer's personal email as author (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). This is part of the existing history-rewrite decision.
+  - **Round-12 fixes builder running** (Sonnet, `brief-player-subtitler-r13.md`), with a watchdog.
+- **The shared `.gitattributes` wording was wrong in three places**, and a correction is appended to `gitattributes-item.md`:
+  - any later matching line wins, not only a broader one;
+  - only a `.gitattributes` in the copy's own folder or above it wins;
+  - `.git/info/attributes` wins because git always puts it first.
+  The running NetPLAYERapp, MeedyaConverter and iHymns builders were told. The carry-overs for iLyricsDB round 8, MeedyaManager round 7 and MeedyaDL round 7 include it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
