@@ -7,19 +7,27 @@
 # These files are copies of master files in MWBMPartners/MeedyaSuite-core.
 # scripts/media-lang/check_copies.py (run by CI) compares each one's SHA-256
 # checksum with the lock file and with the master. A single changed byte
-# fails that check — and a line-ending conversion (a Windows checkout with
-# core.autocrlf turning every "\n" into "\r\n") changes every line. `-text`
-# tells git never to convert these files, on any machine.
+# fails that check.
+#
+# The settings on each line below stop git changing a copy's bytes through
+# line-ending conversion (-text: a Windows checkout turning every "\n" into
+# "\r\n"), through a filter (-filter), through text-encoding conversion
+# (-working-tree-encoding), or through "$Id$" expansion (-ident).
+#
+# What they CANNOT do: stop a setting with higher priority on somebody's own
+# machine, such as one in .git/info/attributes. If someone has one, git will
+# change the copy's bytes there, and the copy checker will correctly report
+# the copy as changed.
 #
 # Never edit the copies. Change the master in MeedyaSuite-core, then take it
 # here with: python3 scripts/media-lang/check_copies.py --update <commit>
 #
 # The lock file is written by the checker rather than copied, but it is read
 # back line by line, so it gets the same protection.
-docs/standards/media-language-bcp47-policy.md -text
-docs/standards/data/bcp47-language-data-v1.json -text
-docs/standards/data/bcp47-language-data-v1.schema.json -text
-tests/fixtures/bcp47-language-policy-v1.json -text
-tests/fixtures/bcp47-language-policy-v1.schema.json -text
-scripts/media-lang/check_copies.py -text
-docs/standards/MWBM-MEDIA-LANG.lock -text
+docs/standards/media-language-bcp47-policy.md -text -filter -working-tree-encoding -ident
+docs/standards/data/bcp47-language-data-v1.json -text -filter -working-tree-encoding -ident
+docs/standards/data/bcp47-language-data-v1.schema.json -text -filter -working-tree-encoding -ident
+tests/fixtures/bcp47-language-policy-v1.json -text -filter -working-tree-encoding -ident
+tests/fixtures/bcp47-language-policy-v1.schema.json -text -filter -working-tree-encoding -ident
+scripts/media-lang/check_copies.py -text -filter -working-tree-encoding -ident
+docs/standards/MWBM-MEDIA-LANG.lock -text -filter -working-tree-encoding -ident
