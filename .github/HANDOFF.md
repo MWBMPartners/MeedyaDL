@@ -1216,6 +1216,8 @@ on PRs to / pushes to main.
     - `--set` and `--remove` of the same field still means the last one wins.
   - The test suite passes (1,549 passed). The review restored the build folder's `meedya` binary after its planted-fault runs.
   - **Round-7 builder running** (Opus, `brief-manager-r7.md`, with the carry-overs), with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the fifteenth review is NOT clean — 0 high, 0 medium, 7 low, 8 nits.** Most come from ADR 0013 being only Proposed while some files already apply its stricter rule; the licence check has done so since 2026-09-28. The round-15 fixes builder is running (`brief-player-subtitler-r16.md`), with a watchdog.
+- **MeedyaDL round 6 (`5bcd7f06..c1999825`, 9 commits): stand-in review running** (fresh Opus agent, Codex being out), with a watchdog. It reuses the maintainer checkout's Rust build folder as a build cache only.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
