@@ -1206,6 +1206,9 @@ on PRs to / pushes to main.
   - **Lead's decision:** the corrected LGPL source-disclosure wording becomes a PROPOSED decision record (ADR 0013, amending 0010), instead of a "clarification" bolted onto accepted ADR 0010. Accepting it is the maintainer's call.
   - **How this loop will stop:** a round that finds only nits (pure wording, nothing untrue or unsafe) counts as clean. Its nits are fixed in the next commit without another review round. This follows the "stop when a round finds no real problems" rule; the last few rounds' findings came mostly from each round's own new sentences.
   - **Round-14 fixes builder running** (Sonnet, `brief-player-subtitler-r15.md`), with a watchdog.
+- **MeedyaPlayer `c67ccc1` / MeedyaSubtitler `c2e4ef9` pushed (the round-14 fixes).**
+  - ADR 0013 "LGPL source disclosure needs more than a link to upstream" is now **Proposed** and amends 0010. ADR 0010 differs from its accepted text only in its Status line (checked with git).
+  - The fifteenth review (stand-in) is running, with a watchdog. Its brief defines "nit" as pure wording that is neither untrue nor unsafe.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
