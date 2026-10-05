@@ -130,6 +130,12 @@ def package_json(overrides: list[tuple[str, str]]) -> str:
     return '{\n  "name": "demo",\n  "version": "1.0.0",\n  "overrides": {\n' + body + "\n  }\n}\n"
 
 
+def cargo_manifest(body: str) -> str:
+    """A Cargo.toml with a fixed [package] table followed by `body`, written
+    out by hand so a test can choose the exact table layout."""
+    return '[package]\nname = "demo"\nversion = "1.0.0"\n\n' + body
+
+
 def cargo_toml(dependency_lines: list[str]) -> str:
     return '[package]\nname = "demo"\nversion = "1.0.0"\n\n[dependencies]\n' + "".join(
         line + "\n" for line in dependency_lines
@@ -765,6 +771,135 @@ class ShortcutOnlySkipsWhatItChecked(HelperTestCase):
             }
         )
         self.assertVerdict(FIXED, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+
+# ---------------------------------------------------------------------------
+# Decision A (Codex's second review): manifests are compared as data
+# ---------------------------------------------------------------------------
+
+LOCK_BEFORE = cargo_lock([("baz", "0.4.15")])
+LOCK_AFTER = cargo_lock([("baz", "0.4.18")])
+
+
+class ManifestsComparedAsData(HelperTestCase):
+    """Which dependency a setting belongs to matters. A loose line match
+    cannot see that; comparing each dependency entry by its position can."""
+
+    def cargo_case(self, before: str, after: str, channel: str) -> str:
+        """Run the helper on a fix that changes Cargo.toml from `before` to
+        `after` and bumps a crate, against a channel that already has the
+        bump and whose Cargo.toml is `channel`."""
+        old, new = self.fix(
+            {CARGO_MANIFEST: cargo_manifest(before), CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: cargo_manifest(after), CARGO_LOCK: LOCK_AFTER},
+        )
+        target = self.branch({CARGO_MANIFEST: channel, CARGO_LOCK: LOCK_AFTER})
+        return self.verdict(old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_setting_under_another_dependency_does_not_count_codex_review_2_finding_1(self) -> None:
+        # Codex's case: the fix turns `foo`'s default features off. The
+        # channel leaves them on for `foo`, and has `default-features =
+        # false` under `bar` instead. Line by line, the added line "is there"
+        # and the removed line "is gone".
+        answer = self.cargo_case(
+            '[dependencies.foo]\nversion = "1"\ndefault-features = true\n\n[dependencies.bar]\nversion = "2"\n',
+            '[dependencies.foo]\nversion = "1"\ndefault-features = false\n\n[dependencies.bar]\nversion = "2"\n',
+            cargo_manifest('[dependencies.foo]\nversion = "1"\n\n[dependencies.bar]\nversion = "2"\ndefault-features = false\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_same_entry_under_another_table_does_not_count(self) -> None:
+        # The fix changes the Windows-only entry; the channel has the new
+        # value, but under the everyday [dependencies] table.
+        answer = self.cargo_case(
+            "[target.'cfg(windows)'.dependencies]\nfoo = \"1.1\"\n",
+            "[target.'cfg(windows)'.dependencies]\nfoo = \"1.2\"\n",
+            cargo_manifest('[dependencies]\nfoo = "1.2"\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_removed_entry_still_present_in_another_form_needs_the_fix(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1"\nrisky = "1"\n',
+            '[dependencies]\nfoo = "1"\n',
+            cargo_manifest('[dependencies]\nfoo = "1"\nrisky = { version = "1" }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_a_change_outside_the_dependency_tables_needs_the_fix(self) -> None:
+        # Only dependency entries can be checked. A build setting the fix
+        # changed is something else, so the shortcut must step aside even
+        # when a matching line happens to sit elsewhere on the channel.
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1"\n\n[profile.release]\noverflow-checks = false\n',
+            '[dependencies]\nfoo = "1"\n\n[profile.release]\noverflow-checks = true\n',
+            cargo_manifest('[dependencies]\nfoo = "1"\n\n[profile.dev]\noverflow-checks = true\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_a_channel_manifest_that_does_not_parse_needs_the_fix(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1.1"\n',
+            '[dependencies]\nfoo = "1.2"\n',
+            cargo_manifest('[dependencies]\nfoo = "1.2"\n[[[not toml\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_patch_entry_must_match_on_the_channel(self) -> None:
+        before = '[dependencies]\nfoo = "1"\n'
+        after = before + '\n[patch.crates-io]\nfoo = { git = "https://example.invalid/foo", rev = "abc123" }\n'
+        self.assertEqual(self.cargo_case(before, after, cargo_manifest(before)), NEEDS, self.last_output)
+        self.assertEqual(self.cargo_case(before, after, cargo_manifest(after)), FIXED, self.last_output)
+
+    def test_the_same_entry_written_another_way_is_already_fixed(self) -> None:
+        # Data, not text: an inline table and a [dependencies.foo] table with
+        # the same contents are the same entry.
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1.1" }\n',
+            '[dependencies]\nfoo = { version = "1.2", default-features = false }\n',
+            cargo_manifest('[dependencies.foo]\nversion = "1.2"\ndefault-features = false\n'),
+        )
+        self.assertEqual(answer, FIXED, self.last_output)
+
+    def test_npm_nested_override_must_match_exactly(self) -> None:
+        # The fix pins `bar` inside `foo`'s override. The channel has that
+        # pin under a different package's override, and not under `foo`.
+        def manifest(overrides: dict) -> str:
+            return json.dumps({"name": "demo", "version": "1.0.0", "overrides": overrides}, indent=2) + "\n"
+
+        old, new = self.fix(
+            {NPM_MANIFEST: manifest({"foo": {"bar": "1.0.1"}}), NPM_LOCK: npm_lock({"node_modules/bar": "1.0.1"})},
+            {NPM_MANIFEST: manifest({"foo": {"bar": "1.0.3"}}), NPM_LOCK: npm_lock({"node_modules/bar": "1.0.3"})},
+        )
+        target = self.branch(
+            {
+                NPM_MANIFEST: manifest({"foo": {"baz": "9.0.0"}, "qux": {"bar": "1.0.3"}}),
+                NPM_LOCK: npm_lock({"node_modules/bar": "1.0.3"}),
+            }
+        )
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_npm_change_outside_the_dependency_sections_needs_the_fix(self) -> None:
+        def manifest(script: str) -> str:
+            return json.dumps({"name": "demo", "scripts": {"postinstall": script}, "overrides": {"bar": "^1.0.3"}}, indent=2) + "\n"
+
+        old, new = self.fix(
+            {NPM_MANIFEST: manifest("node setup.js --unsafe"), NPM_LOCK: npm_lock({"node_modules/bar": "1.0.1"})},
+            {NPM_MANIFEST: manifest("node setup.js"), NPM_LOCK: npm_lock({"node_modules/bar": "1.0.3"})},
+        )
+        # The channel's install script is still unsafe (in another way); the
+        # fix's new line sits under `config` instead, where it does nothing.
+        channel = json.dumps(
+            {
+                "name": "demo",
+                "scripts": {"postinstall": "node setup.js --also-unsafe"},
+                "config": {"postinstall": "node setup.js"},
+                "overrides": {"bar": "^1.0.3"},
+            },
+            indent=2,
+        ) + "\n"
+        target = self.branch({NPM_MANIFEST: channel, NPM_LOCK: npm_lock({"node_modules/bar": "1.0.3"})})
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
 
 
 if __name__ == "__main__":

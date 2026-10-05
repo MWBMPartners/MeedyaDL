@@ -49,18 +49,28 @@ commit (`--new`) and the branch to check (`--target`), the answer is
      feature AND bumps a crate. A branch that already had the bump still
      had the unsafe feature, and the old shortcut skipped the whole fix.)
 
-  2. Every manifest change is already on the target. For each named
-     manifest the fix changed, every line the fix added must already be in
-     the target's copy of that file, and every line it removed must be
-     absent from it. Lines are compared after trimming leading and trailing
-     whitespace and one trailing comma, so `"undici": "^7.30.0"` (the last
-     entry in a JSON object) matches `"undici": "^7.30.0",` (the same entry
-     with another after it). Note what this cannot do: a line that only
-     changed its trailing comma counts as both removed and added, so it can
-     never be satisfied, and a line moved to another part of the file (into
-     another TOML table, say) is not noticed as moved. The first only costs
-     a cherry-pick; the second is why the comparison stays this literal
-     rather than trying to be clever about it.
+  2. Every manifest change is already on the target, compared as data.
+     Each named manifest is parsed (`package.json` as JSON, `Cargo.toml`
+     with Python's own `tomllib`), and every dependency entry is keyed by
+     where it sits:
+       - `package.json`: the section (`dependencies`, `devDependencies`,
+         `optionalDependencies`, `peerDependencies`, `overrides` — nested
+         overrides compared whole — or `resolutions`) plus the package name;
+       - `Cargo.toml`: the table (`dependencies`, `dev-dependencies` or
+         `build-dependencies`, at the top level, under
+         `target.<platform>.`, or as `workspace.dependencies`; or the
+         `patch.<registry>` and `replace` tables) plus the crate name.
+     For every entry the fix added or changed, the target's entry in the
+     SAME place must be exactly equal to the fix's new one (every field,
+     nested values included); for every entry it removed, the target must
+     have no entry in that place. Anything else the fix changed in a
+     manifest — a build setting, a script, a feature list, anything outside
+     those tables — means "needs the fix", and so does a manifest that
+     cannot be read or parsed on any side.
+     (This replaced a line-by-line comparison, which Codex's second review
+     of #1275 showed could not tell WHICH dependency a setting belonged
+     to: a fix turning off `foo`'s default features read as present on a
+     branch that had `default-features = false` under `bar` instead.)
 
   3. At least one named lockfile changed, and every package whose versions
      the fix changed is fixed on the target:
@@ -126,6 +136,12 @@ HOW THE FILES ARE READ
     Its `packages` section is used; a file without one (lockfileVersion 1)
     is "cannot read". Entries marked `"link": true` are pointers to a local
     folder rather than installed copies, and are skipped.
+  - `package.json` is read with `json`, and `Cargo.toml` with `tomllib`
+    (Python 3.11 or later, which GitHub's runners have). On an older
+    Python there is no `tomllib`, so a changed `Cargo.toml` is "cannot
+    tell". Cargo's old underscore spellings (`dev_dependencies`) are not
+    treated as dependency tables, so a change there also reads as
+    "something else changed".
   - `Cargo.lock` is read block by block with a small hand-written reader
     rather than a TOML library, matching the house style of
     `tools/audit-checks/check_codec_registry.py`: no third-party
@@ -141,13 +157,18 @@ HOW THE FILES ARE READ
 from __future__ import annotations
 
 import argparse
-import functools
+import copy
 import json
 import re
 import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+
+try:  # Python 3.11 or later
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - only on an old Python
+    tomllib = None
 
 # A `[[package]]` header in Cargo.lock, and any other table header (which
 # ends the current package block — e.g. `[metadata]`, `[[patch.unused]]`).
@@ -198,39 +219,6 @@ def changed_files(repo_root: Path, old_ref: str, new_ref: str) -> list[str] | No
     if result.returncode != 0:
         return None
     return [line for line in result.stdout.split("\n") if line]
-
-
-def manifest_line_changes(repo_root: Path, old_ref: str, new_ref: str, path: str) -> tuple[list[str], list[str]] | None:
-    """(lines the fix added, lines the fix removed) in one file, as git's own
-    diff reports them, or None if git could not produce the diff."""
-    result = run_git(
-        repo_root,
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--no-color",
-        "--no-renames",
-        "--unified=0",
-        old_ref,
-        new_ref,
-        "--",
-        path,
-    )
-    if result.returncode != 0:
-        return None
-    added: list[str] = []
-    removed: list[str] = []
-    in_hunk = False
-    for line in result.stdout.split("\n"):
-        # Everything before the first "@@" is the file header ("--- a/...",
-        # "+++ b/..."), which must not be mistaken for changed lines.
-        if line.startswith("@@"):
-            in_hunk = True
-        elif in_hunk and line.startswith("+"):
-            added.append(line[1:])
-        elif in_hunk and line.startswith("-"):
-            removed.append(line[1:])
-    return added, removed
 
 
 # ---------------------------------------------------------------------------
@@ -524,35 +512,145 @@ def compare_lockfile(label: str, old: Copies | None, new: Copies | None, target:
     return all_fixed, details
 
 
-def normalise_manifest_line(line: str) -> str:
-    """Trim surrounding whitespace and one trailing comma."""
-    text = line.strip()
-    if text.endswith(","):
-        text = text[:-1].rstrip()
-    return text
+# A dependency entry that is not there at all (distinct from any real value).
+MISSING = object()
+
+NPM_DEPENDENCY_SECTIONS = (
+    "dependencies",
+    "devDependencies",
+    "optionalDependencies",
+    "peerDependencies",
+    "overrides",
+    "resolutions",
+)
+CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 
 
-def compare_manifest(path: str, added: list[str], removed: list[str], target: str | None) -> tuple[bool, list[str]]:
-    """Is every line the fix added already on the target, and every line it
-    removed gone from it?"""
-    if not added and not removed:
-        return False, [f"{path}: git reports a change but no changed lines (a binary or permissions-only change?) — cannot tell, so treating it as needing the fix"]
-    if target is None:
-        return False, [f"{path}: the target branch has no copy of this file that can be read — needs the fix"]
+class ManifestError(Exception):
+    """A manifest that cannot be read the way this script needs."""
 
-    target_lines = {normalise_manifest_line(line) for line in target.split("\n")}
-    details: list[str] = []
+
+def parse_manifest(path: str, content: str):
+    name = Path(path).name
+    if name == "package.json":
+        doc = json.loads(content)
+    elif name == "Cargo.toml":
+        if tomllib is None:
+            raise ManifestError("this Python has no tomllib (it needs Python 3.11 or later)")
+        doc = tomllib.loads(content)
+    else:
+        raise ManifestError("not a manifest type this check understands")
+    if not isinstance(doc, dict):
+        raise ManifestError("the top level is not an object/table")
+    return doc
+
+
+def split_manifest(path: str, doc: dict) -> tuple[dict[tuple, object], dict]:
+    """(every dependency entry keyed by where it sits, everything else).
+
+    The position is the table path plus the dependency's name, e.g.
+    ("dependencies", "foo"), ("target", "cfg(windows)", "dependencies",
+    "foo"), ("patch", "crates-io", "foo") or ("overrides", "brace-expansion").
+    A dependency table that is not a table at all is a ManifestError."""
+    entries: dict[tuple, object] = {}
+    rest = copy.deepcopy(doc)
+
+    def take(container: dict, key: str, prefix: tuple) -> None:
+        table = container.pop(key)
+        if not isinstance(table, dict):
+            raise ManifestError(f"'{' > '.join(prefix)}' is not a table")
+        for dep, value in table.items():
+            entries[prefix + (dep,)] = value
+
+    def table_at(container: dict, key: str) -> dict | None:
+        value = container.get(key)
+        if value is not None and not isinstance(value, dict):
+            raise ManifestError(f"'{key}' is not a table")
+        return value
+
+    if Path(path).name == "package.json":
+        for section in NPM_DEPENDENCY_SECTIONS:
+            if section in rest:
+                take(rest, section, (section,))
+        return entries, rest
+
+    for table in CARGO_DEPENDENCY_TABLES:
+        if table in rest:
+            take(rest, table, (table,))
+    workspace = table_at(rest, "workspace")
+    if workspace is not None and "dependencies" in workspace:
+        take(workspace, "dependencies", ("workspace", "dependencies"))
+    targets = table_at(rest, "target")
+    for platform, platform_tables in (targets or {}).items():
+        if not isinstance(platform_tables, dict):
+            raise ManifestError(f"'target > {platform}' is not a table")
+        for table in CARGO_DEPENDENCY_TABLES:
+            if table in platform_tables:
+                take(platform_tables, table, ("target", platform, table))
+    patches = table_at(rest, "patch")
+    if patches is not None:
+        rest.pop("patch")
+        for registry in list(patches):
+            take(patches, registry, ("patch", registry))
+    if table_at(rest, "replace") is not None:
+        take(rest, "replace", ("replace",))
+    return entries, rest
+
+
+def show_value(value) -> str:
+    text = json.dumps(value, sort_keys=True, default=str)
+    return text if len(text) <= 120 else text[:117] + "..."
+
+
+def compare_manifest(path: str, old: str | None, new: str | None, target: str | None) -> tuple[bool, list[str]]:
+    """Is every dependency entry the fix added, changed or removed in this
+    manifest the same on the target, in the same place — and did the fix
+    change nothing else in it?"""
+    split: list[tuple[dict, dict]] = []
+    for side, text in (("before the fix", old), ("after the fix", new), ("on the target branch", target)):
+        if text is None:
+            return False, [f"{path}: the file could not be read {side} — cannot tell, so treating it as needing the fix"]
+        try:
+            split.append(split_manifest(path, parse_manifest(path, text)))
+        except (ValueError, ManifestError) as error:  # json and tomllib errors are ValueErrors
+            return False, [f"{path}: the file {side} could not be parsed ({error}) — cannot tell, so treating it as needing the fix"]
+    (old_entries, old_rest), (new_entries, new_rest), (target_entries, _) = split
+
     fixed = True
-    for line in added:
-        if normalise_manifest_line(line) not in target_lines:
+    details: list[str] = []
+    if old_rest != new_rest:
+        fixed = False
+        details.append(
+            f"{path}: the fix changed something other than dependency entries (a build setting, a script, a "
+            "feature list...), which this check cannot compare — needs the fix"
+        )
+
+    changed = sorted(
+        position
+        for position in set(old_entries) | set(new_entries)
+        if old_entries.get(position, MISSING) != new_entries.get(position, MISSING)
+    )
+    for position in changed:
+        where = " > ".join(position)
+        if position in new_entries:
+            wanted = new_entries[position]
+            have = target_entries.get(position, MISSING)
+            if have is MISSING:
+                fixed = False
+                details.append(f"{path}: the fix set {where} to {show_value(wanted)}, but the target branch has no such entry — needs the fix")
+            elif have != wanted:
+                fixed = False
+                details.append(f"{path}: the fix set {where} to {show_value(wanted)}, but the target branch has {show_value(have)} — needs the fix")
+            else:
+                details.append(f"{path}: {where} on the target branch is exactly what the fix set it to")
+        elif position in target_entries:
             fixed = False
-            details.append(f"{path}: the fix added the line '{line.strip()}', which the target branch does not have — needs the fix")
-    for line in removed:
-        if normalise_manifest_line(line) in target_lines:
-            fixed = False
-            details.append(f"{path}: the fix removed the line '{line.strip()}', which the target branch still has — needs the fix")
-    if fixed:
-        details.append(f"{path}: the target branch already has every line the fix added ({len(added)}) and none it removed ({len(removed)})")
+            details.append(f"{path}: the fix removed {where}, but the target branch still has it — needs the fix")
+        else:
+            details.append(f"{path}: the fix removed {where}, and the target branch does not have it either")
+
+    if fixed and not changed:
+        details.append(f"{path}: the fix changed only the file's layout, not what it says")
     return fixed, details
 
 
@@ -569,7 +667,7 @@ def main() -> int:
         action="append",
         default=[],
         metavar="PATH",
-        help="A dependency manifest the fix may also change (repeatable). Its changed lines must already be on the target.",
+        help="A dependency manifest (package.json or Cargo.toml) the fix may also change (repeatable). Every dependency entry it changed must match on the target.",
     )
     parser.add_argument(
         "--lockfile-changes-only",
@@ -604,12 +702,12 @@ def main() -> int:
         for path in args.manifest:
             if path not in files:
                 continue
-            changes = manifest_line_changes(repo_root, args.old, args.new, path)
-            if changes is None:
-                all_fixed = False
-                details.append(f"{path}: git could not show what the fix changed — cannot tell, so treating it as needing the fix")
-                continue
-            fixed, lines = compare_manifest(path, changes[0], changes[1], git_show(repo_root, args.target, path))
+            fixed, lines = compare_manifest(
+                path,
+                git_show(repo_root, args.old, path),
+                git_show(repo_root, args.new, path),
+                git_show(repo_root, args.target, path),
+            )
             all_fixed = all_fixed and fixed
             details.extend(lines)
 
