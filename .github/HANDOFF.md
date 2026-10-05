@@ -1312,6 +1312,14 @@ on PRs to / pushes to main.
   - **Medium:** a damaged full language tag now overrides a valid old field, under a note that says "kept".
   - Two older faults were filed: **#542** ("map all streams" with ASS subtitles fails the whole job) and **#543** (copying H.264 into AVI fails).
   - **Round-6 builder running** (Opus, `brief-converter-r6.md`), with a watchdog.
+- **iHymns round 9 pushed (`e9cf5fea..17e3eaa3`, 7 commits).**
+  - The geo cache and the token slide write only outside a transaction and never fail the request.
+  - The "is a transaction open?" probe keeps the session's own settings.
+  - "Could not tell" now counts as open, and is tested.
+  - The audit reaches further.
+  - The builder ran the full PHP suite: 291/291 on MariaDB and on MySQL 8.4. I re-ran `npm test` (114), `php -l` and the copy checker.
+  - Filed **#2145** (the unused songbooks list) and **#2146** (the /manage token slide), and commented on #2137.
+  - A stand-in review of round 9 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
