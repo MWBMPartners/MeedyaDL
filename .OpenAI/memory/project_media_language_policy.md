@@ -173,17 +173,20 @@ did not change.
   and Linux move the file to a private name
   (`.meedyadl-partial-<pid>-<random>.discard`) with the no-replace rename
   (where that is "not supported", as on exFAT on a Mac: create the private
-  name exclusively, close it, rename onto it; put-back the same way round),
+  name exclusively, close it, rename onto it),
   compare it there with the held creating handle (both read at that
   moment; a stored number fails on FAT32/exFAT, which renumber files), and
-  delete only the private name; not ours: put back, or if its name was
-  taken again, left aside and both names reported. Windows deletes through
+  delete only the private name; not ours: put back with the one-step
+  rename only; if that fails, or the drive has none (exFAT on a Mac), it is
+  kept aside, both names reported, and the person told it can be renamed
+  back (round 9's placeholder put-back could overwrite a subtitle saved at
+  the name meanwhile; Codex's review of round 9). Windows deletes through
   a checked handle (compiled, not run). Not guaranteed: a program that
   learns the private name in that moment (or swaps a placeholder between
   its creation and the rename); and a drive that cannot move a file aside
   even through a placeholder gets nothing deleted -- left and reported,
   never deleted by name. With the placeholder, exFAT on a Mac leaves
-  nothing behind (measured). Failed removals are reported. The fake ffmpeg
+  nothing behind in normal saving (measured). Failed removals are reported. The fake ffmpeg
   in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).

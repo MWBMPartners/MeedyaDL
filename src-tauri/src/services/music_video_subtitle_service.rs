@@ -525,8 +525,10 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
 /// - A file that cannot be moved aside at all: nothing is moved or deleted;
 ///   the temporary file is left where it is and reported. Never deleted by
 ///   name instead.
-/// - Moved aside, not this run's, and its name taken again meanwhile: left
-///   under the private name, and both names reported.
+/// - Moved aside and not this run's, and either its name was taken again
+///   meanwhile or the drive cannot put a file back safely (no one-step
+///   rename, as on an exFAT drive on a Mac): kept under the private name,
+///   both names reported, and the person told it can be renamed back.
 ///
 /// See `fs_safe::remove_if_still_ours` for what is still not guaranteed.
 fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
@@ -568,10 +570,13 @@ fn remove_temporary_with(
         ),
         Removal::LeftAside { aside, why } => format!(
             "Moved the file {} aside to {} to delete it, but did not delete it: {why}. It \
-             is left as {}. Whatever is now at {} was not touched.",
+             is kept as {}, so nothing was deleted, and whatever is now at {} was not \
+             touched. If it belongs at {}, it can be renamed back once nothing else has \
+             that name.",
             path.display(),
             aside.display(),
             aside.display(),
+            path.display(),
             path.display()
         ),
         Removal::DeleteFailed { at, error } => format!(
@@ -2224,7 +2229,11 @@ mod tests {
         if !as_expected {
             problems.push(format!("2c failed copy: {result:?} {:?}", listing(&dir)));
         }
-        // 2d: a file put at the name BEFORE the clean-up is left.
+        // 2d: a file put at the name BEFORE the clean-up is never deleted.
+        //     A drive with the one-step rename puts it back; one without it
+        //     (exFAT on a Mac) keeps it under its private name, because
+        //     putting it back there could overwrite a subtitle saved at the
+        //     name meanwhile (Codex's review of round 9).
         let dir = fresh("2d-copy-fails-replaced-before");
         let to = dir.join("V.en.srt");
         let result = copy_to_new_file_with(
@@ -2237,14 +2246,56 @@ mod tests {
             &mut |_| {},
         );
         eprintln!("2d replaced before: {result:?} {:?}", listing(&dir));
-        if !result.as_ref().is_err_and(left_a_file_in_place)
-            || fs::read_to_string(&to).ok().as_deref() != Some("somebody else's")
-            || !temporaries(&dir).is_empty()
-        {
+        let kept_aside = temporaries(&dir);
+        let as_expected = result.as_ref().is_err_and(left_a_file_in_place)
+            && if one_step {
+                fs::read_to_string(&to).ok().as_deref() == Some("somebody else's")
+                    && kept_aside.is_empty()
+            } else {
+                !to.exists()
+                    && kept_aside.len() == 1
+                    && fs::read_to_string(dir.join(&kept_aside[0])).ok().as_deref()
+                        == Some("somebody else's")
+                    && result
+                        .as_ref()
+                        .is_err_and(|e| e.to_string().contains("renamed back"))
+            };
+        if !as_expected {
             problems.push(format!(
                 "2d replaced before: {result:?} {:?}",
                 listing(&dir)
             ));
+        }
+        // 2g: a file not ours is moved aside, and AFTER that decision another
+        //     file appears at the name. It survives untouched on every drive
+        //     (Codex's review of round 9), and the moved file is kept aside.
+        let dir = fresh("2g-not-ours-then-a-new-file");
+        let to = dir.join("V.en.srt");
+        let result = copy_to_new_file_with(
+            &not_a_file,
+            &to,
+            |to| {
+                fs::rename(to, to.with_file_name("moved away")).unwrap();
+                fs::write(to, "somebody else's").unwrap();
+            },
+            &mut |step| {
+                if let RemovalStep::AfterCheck { .. } = step {
+                    fs::write(&to, "a subtitle saved meanwhile").unwrap();
+                }
+            },
+        );
+        eprintln!(
+            "2g new file after the decision: {result:?} {:?}",
+            listing(&dir)
+        );
+        let kept_aside = temporaries(&dir);
+        if !result.as_ref().is_err_and(left_a_file_in_place)
+            || fs::read_to_string(&to).ok().as_deref() != Some("a subtitle saved meanwhile")
+            || kept_aside.len() != 1
+            || fs::read_to_string(dir.join(&kept_aside[0])).ok().as_deref()
+                != Some("somebody else's")
+        {
+            problems.push(format!("2g: {result:?} {:?}", listing(&dir)));
         }
         // 2e: a file put at the name AFTER the check, before the deletion,
         //     survives (finding 1), and the copy's own file is deleted.
