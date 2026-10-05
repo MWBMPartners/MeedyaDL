@@ -53,6 +53,12 @@ import { invoke } from '@tauri-apps/api/core';
 import App from './App';
 
 /**
+ * Sets up the translation system with the bundled English, synchronously.
+ * Called below, before the first render -- see the comment there.
+ */
+import { setUpI18n } from './lib/i18n';
+
+/**
  * Scrubs a personal folder path (and any address query string) out of a
  * crash report before it is sent — see the file header on this module
  * for why that is necessary here specifically.
@@ -323,6 +329,18 @@ if (!rootElement) {
  * @see {@link https://react.dev/reference/react-dom/client/createRoot} - createRoot API
  * @see {@link https://react.dev/reference/react/StrictMode#fixing-bugs-found-by-double-rendering-in-development} - StrictMode double-rendering
  */
+/**
+ * Translation first, then the first render.
+ *
+ * The first render looks words up straight away (the window title, the
+ * skip link, any start-up message). When i18next was only set up later,
+ * from an effect inside App, those words came out as raw keys
+ * ("nav.download — MeedyaDL") and a language change that ran too early made
+ * i18next throw an internal error that was shown to the person on every
+ * launch. English is bundled into the app, so this costs nothing to do now.
+ */
+setUpI18n();
+
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <ErrorBoundary>

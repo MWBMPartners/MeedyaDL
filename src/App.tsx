@@ -510,7 +510,9 @@ function App() {
     if (!isReady) return;
 
     const initialize = async () => {
-      /* Step 0: Initialize i18n translation system (loads English + detected locale) */
+      /* Step 0: Finish starting the translation system. English was set up
+       * in main.tsx before the first render; this fetches the system's
+       * language when MeedyaDL has a translation for it. */
       await initI18n();
 
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */

@@ -27,15 +27,50 @@ import { useTranslation } from 'react-i18next';
 import deTranslations from '../../public/locales/de/translation.json';
 import enTranslations from '../../public/locales/en/translation.json';
 import frTranslations from '../../public/locales/fr/translation.json';
+import i18next from 'i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
 import i18n, {
   AVAILABLE_LOCALES,
   LOCALES,
   baseLanguageOf,
   changeUiLanguage,
+  i18nOptions,
   initI18n,
+  setUpI18n,
   systemLanguageOrEnglish,
   isMachineAssisted,
 } from './i18n';
+
+/* ------------------------------------------------------------------ */
+/* 0. English is ready before the first screen is drawn                 */
+/* ------------------------------------------------------------------ */
+
+describe('English is ready the moment set-up returns (so the first screen never shows raw keys)', () => {
+  // main.tsx calls setUpI18n() and then renders straight away, without
+  // waiting. That only works if i18next has finished by the time init()
+  // returns. When it had not (set-up used to happen later, from an effect),
+  // the window title read "nav.download — MeedyaDL", the skip link read
+  // "common.skipToMainContent", and an early language change made i18next
+  // throw an internal error that was shown as a warning on every launch.
+  //
+  // A separate i18next instance is used here, because the shared one was
+  // already set up by the test setup file before this test could run.
+  it('can look up an English word immediately after init(), with no await', () => {
+    const fresh = i18next.createInstance();
+    void fresh.use(LanguageDetector).init(i18nOptions());
+    expect(fresh.isInitialized).toBe(true);
+    expect(fresh.t('nav.download')).toBe('Download');
+    expect(fresh.t('common.skipToMainContent')).not.toBe('common.skipToMainContent');
+  });
+
+  it('can be called again without starting i18next a second time', () => {
+    const before = i18n.options;
+    setUpI18n();
+    setUpI18n();
+    expect(i18n.isInitialized).toBe(true);
+    expect(i18n.options).toBe(before);
+  });
+});
 
 /* ------------------------------------------------------------------ */
 /* 1. The addResourceBundle-doesn't-repaint-the-screen bug             */
