@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (15:23) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (15:45) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1426,7 +1426,13 @@ on PRs to / pushes to main.
         - `release-candidate`: skipped, as already fixed.
       - **Combined into one PR per branch**; the originals are closed and their branches deleted:
         - **#1319 → `beta`**, with the brace-expansion floor added by hand: MERGED `9203c44b`; #1314 closed; `v1.9.4-beta.10` build watched.
-        - **#1318 → `alpha`**: MERGED `03d8e1ea`; `v1.13.0-alpha.78` build watched.
+        - **#1318 → `alpha`**: MERGED `03d8e1ea`.
+      - **Deployments finished, all six platforms each:**
+        - `v1.13.0-alpha.78`: 22 files, 12 manifest entries, all signed;
+        - `v1.9.4-beta.10`: 20 files, 6 manifest entries (the #1166 gap; noted there).
+        - CI passed on both version-bump commits. The merge commits' own CI runs were "cancelled" only because the bump commit replaced them, which is normal.
+      - **All four channels now carry the undici and brace-expansion fixes.**
+      - The worktrees `deps/main`, `deps/rc`, `deps/sec-alpha` and `deps/sec-beta` are removed; `deps/fp` is kept for the Codex catch-up.
       - `alpha` also needs the new workflow files (a separate PR). `alpha`'s copy never runs, so it only matters for keeping the two identical; low priority.
       - `alpha` then needs the same files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
