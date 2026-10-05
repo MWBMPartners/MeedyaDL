@@ -1264,6 +1264,16 @@ on PRs to / pushes to main.
   - stale comments in the deployment test;
   - small handoff inaccuracies.
   The posted round-9 #210 comment slightly overstates item 4, and round 10's comment corrects it. **Round-10 builder running** (Sonnet, `brief-netplayer-r10.md`), with a watchdog.
+- **MeedyaManager round 7 built (13 commits on `49cec29`, local).** All 12 decisions were done, and the builder reported 1,566 tests passing. I am re-running fmt, clippy, the tests, the docs and the copy checker myself before pushing; a watchdog is on that run.
+- **DECISION FOR THE MAINTAINER — the real name is in tracked files in six repositories.** The MeedyaManager builder found one, and a sweep found the rest. All of it predates the language-policy work. I checked each branch's own commits: the earliest is 2026-08-27, and the latest is MeedyaSuite-core `9dc58c2` (2026-09-23).
+  - MeedyaSuite-core: 1 file (handoff `cd "/Users/<name>/…"` lines).
+  - MeedyaConverter: 1 file (a plan).
+  - MeedyaManager: 2 files (the handoff's scratch path, `settings.json`).
+  - iHymns: 10 files, including three code comments that give the maintainer's full name as an example user label, two ProPresenter test fixtures with a `file:///Users/<name>/…` path, and `tools/sync-claude-session.sh`.
+  - NetPLAYERapp: 4 files.
+  - dev-team plugin: 5 plan files.
+  - MeedyaDL itself, MeedyaPlayer, MeedyaSubtitler and iLyricsDB: none, apart from the `settings.local.json` files already raised.
+  - **Recommended:** one clean-up commit per repository replacing the name and paths with "the maintainer", `~` or Salem874. The test fixtures need care, because the tests compare them. History stays for the history-rewrite decision. Nothing has been changed yet.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
