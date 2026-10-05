@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (09:06) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (09:20) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1392,6 +1392,12 @@ on PRs to / pushes to main.
     - A focused Codex review (`scratchpad/deps/codex-chain-fp.sh`, output `codex-fp.out`) runs after the 09:08 MeedyaDL review, with a watchdog. **Do not merge #1275 before it is clean.**
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
+- **Codex reviewed MeedyaDL rounds 6–7 at 09:08 on 5 Oct: NOT clean — 2 high, 3 medium.** All five are ways the subtitle code can delete or lose a file (full answer: `scratchpad/lang/codex-mdl-r7.out`, last message):
+  - **High:** a failed copy can delete somebody else's replacement file; cleanup can delete a newly reused temporary name.
+  - **Medium:** the one-hour rule still deletes live work on shared folders; a matching name is treated as proof of ownership; the Windows no-replace rename loses long-path support.
+  - **Lead's decision for round 8:** no run deletes a temporary file it did not create in that run. This **reverses round 7's decision 5** (the hour rule), because neither a name nor a clock proves ownership. Leftovers are reported in the activity log, not removed. Temporary names get a random part, and every removal first checks the file is still the one created.
+  - **Round-8 builder running** (Opus, `brief-meedyadl-r8.md`), with a watchdog.
+- **Trap found:** `pgrep -f "codex exec"` also matches the ChatGPT app's permanent `codex exec-server` process, so a "wait until no Codex is running" loop never ends. The #1275 review chain had stalled on it; it was started directly at about 09:15.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
