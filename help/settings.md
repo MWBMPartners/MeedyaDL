@@ -33,7 +33,7 @@ Reorder the audio codec and video codec fallback chains using the up/down arrow 
 ## Tools
 
 - **Core Dependencies** -- Status, install, and update controls for Python and GAMDL, including GAMDL version management (which validated version range MeedyaDL supports, and whether to upgrade).
-- **External Tools** -- The five required tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) plus the optional rclone tool (only needed if you turn on direct-to-cloud upload), each with status, install, and a **Configure custom binary path** option if you'd rather point MeedyaDL at your own copy.
+- **External Tools** -- The five required tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo), each with status, install, and a **Configure custom binary path** option if you'd rather point MeedyaDL at your own copy.
 - **Directories** -- The temporary working directory GAMDL uses during a download (default: your OS temp folder plus `MeedyaDL`).
 - **Backups** -- Snapshots of your settings, queue and download history. MeedyaDL takes one automatically each time it closes, and you can press **Create snapshot now** at any time; only the 10 most recent are kept. Restoring a snapshot replaces your current settings, queue and history, and deleting one cannot be undone -- both ask you to confirm first.
 

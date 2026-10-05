@@ -756,9 +756,10 @@ pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
 ///   The order matches the tool registration order in `dependency_manager`.
 #[tauri::command]
 pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStatus>, String> {
-    // get_all_tools() returns the static list of tool definitions
-    // (id, name, required, download URLs per platform)
-    let tools = dependency_manager::get_all_tools();
+    // get_offered_tools() returns the tool definitions offered to people
+    // (id, name, required) -- every registered tool except those whose
+    // feature has not landed yet (rclone, until cloud upload exists)
+    let tools = dependency_manager::get_offered_tools();
     let mut results = Vec::new();
 
     // Check each tool's installation status by probing for its binary
@@ -1206,7 +1207,7 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     }
 
     // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
-    for tool in dependency_manager::get_all_tools() {
+    for tool in dependency_manager::get_offered_tools() {
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
         let installed = binary_path.exists();
         let version = if installed {

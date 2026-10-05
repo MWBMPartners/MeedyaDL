@@ -2183,7 +2183,7 @@ pub struct ToolInfo {
 /// The first four tools are required for full functionality: `FFmpeg` for remuxing,
 /// mp4decrypt for DRM decryption, N_m3u8DL-RE for HLS/DASH streams, and
 /// `MP4Box` for MP4 muxing.
-/// This list is returned by `get_all_tools()` for the setup wizard UI.
+/// The tools offered to people are returned by `get_offered_tools()`.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -2219,6 +2219,8 @@ const TOOLS: &[ToolInfo] = &[
     // upload (M11, #859). `required: false` keeps the setup wizard non-blocking
     // when rclone is absent. Cloud Destination settings will trigger
     // `install_tool(app, "rclone")` on-demand when the feature is enabled.
+    // That feature does not exist yet, so rclone is NOT offered to anyone
+    // until it does -- see `NOT_OFFERED_YET` below.
     ToolInfo {
         name: "rclone",
         id: "rclone",
@@ -4595,13 +4597,30 @@ pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
     get_tool_binary_path(app, tool_id).exists()
 }
 
-/// Returns the list of all tool dependencies with their metadata.
+/// Tools registered in [`TOOLS`] whose feature does not exist yet, so they
+/// are offered to nobody: not listed in Settings > Tools or the setup
+/// wizard, not counted by "Install All", not installed, and not listed in
+/// the version list.
 ///
-/// Used by the setup wizard and dependency status UI to display
-/// the full list of tools with their installation requirements.
+/// rclone is here until direct-to-cloud upload lands (#859). Until October
+/// 2026 it was listed for everyone as "Optional -- Direct-to-cloud upload"
+/// with an Install button, and the wizard's "Install All (1 missing)" with
+/// every required tool present was counting it -- inviting people to
+/// install a tool nothing in the app uses. Remove an id from this list in
+/// the same change that ships the feature behind it.
+const NOT_OFFERED_YET: &[&str] = &["rclone"];
+
+/// Returns the tools offered to people, with their metadata: every entry in
+/// [`TOOLS`] except those in [`NOT_OFFERED_YET`].
+///
+/// Used by the setup wizard and dependency status UI to display the list of
+/// tools with their installation requirements.
 #[must_use]
-pub const fn get_all_tools() -> &'static [ToolInfo] {
+pub fn get_offered_tools() -> Vec<&'static ToolInfo> {
     TOOLS
+        .iter()
+        .filter(|tool| !NOT_OFFERED_YET.contains(&tool.id))
+        .collect()
 }
 
 /// Removes a tool's installation directory and all its contents.
@@ -4638,6 +4657,19 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// rclone is not offered to anyone until direct-to-cloud upload exists
+    /// (#859), while all five tools a download needs still are.
+    #[test]
+    fn rclone_is_not_offered_until_cloud_upload_exists() {
+        let offered: Vec<&str> = get_offered_tools().iter().map(|t| t.id).collect();
+        assert!(!offered.contains(&"rclone"), "rclone offered: {offered:?}");
+        for id in ["ffmpeg", "mp4decrypt", "nm3u8dlre", "mp4box", "mediainfo"] {
+            assert!(offered.contains(&id), "{id} missing from {offered:?}");
+        }
+        // Still registered, so cloud upload can offer it the day it lands.
+        assert!(TOOLS.iter().any(|t| t.id == "rclone"));
+    }
     use tempfile::TempDir;
 
     /// Every probed system dir must be absolute (a relative CWD can never inject

@@ -120,7 +120,6 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
 | **MP4Box** ([GPAC](https://github.com/gpac/gpac)) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
 | **[MediaInfo](https://github.com/MediaArea/MediaInfo)** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
-| **[rclone](https://rclone.org/)** | OPTIONAL — direct-to-cloud upload (Settings → Cloud Destinations). Subprocess-invoked; bundled like FFmpeg / N_m3u8DL-RE. Only installed on-demand when the user enables a cloud destination. | 1.60.0+ | 1.66+ | `src-tauri/tool-versions.toml` → `[rclone]` |
 | **[votify](https://github.com/glomatico/votify)** | The program that would download from Spotify. In development and hidden behind a developer-only preview, so it does nothing in an ordinary build. Run as a separate program, the same way GAMDL is. | 1.9.0 – 1.9.9 | 1.9.9 | `src-tauri/tool-versions.toml` → `[votify]` |
 
 ### How the support window is enforced

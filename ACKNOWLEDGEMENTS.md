@@ -24,7 +24,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | [MediaInfo](https://mediaarea.net/en/MediaInfo) | BSD-2-Clause | Media file analysis and codec detection |
 | [Python](https://www.python.org/) | PSF | Runtime for pip-based download engines |
 | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) | MPL-2.0 (packaging only — the Python it packages is still PSF-licensed) | Portable CPython distribution bundled by the offline installer |
-| [rclone](https://rclone.org/) | MIT | Cloud-storage transport for direct-to-cloud downloads (optional, installed on-demand) |
+| [rclone](https://rclone.org/) | MIT | Planned cloud-storage transport for direct-to-cloud upload; not offered or installed by current releases |
 
 **mp4decrypt / Bento4 is copyleft (GPL-2.0), not permissive — do not read
 the row above as MIT.** MeedyaDL never builds Bento4 into its own code;

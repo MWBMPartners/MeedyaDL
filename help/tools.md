@@ -27,11 +27,6 @@ Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 ### MediaInfo
 Used to accurately detect the codec of a downloaded file, so the app can tell what quality it actually got.
 
-## Optional Tools
-
-### rclone
-Powers direct-to-cloud upload. Unlike the five required tools above, rclone is **not** installed during first-time setup -- MeedyaDL only downloads and installs it the moment you turn on a cloud destination in Settings. If you never use that feature, rclone never lands on your machine.
-
 ## Installation & Management
 
 Tools are automatically downloaded during first-time setup. After setup, go to **Settings > Tools** to:

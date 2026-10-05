@@ -151,8 +151,8 @@ export function DependenciesStep() {
       <div>
         <h2 className="text-xl font-semibold text-content-primary">External Tools</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL uses several external tools for processing downloads. Required tools must be
-          installed; optional tools provide additional features.
+          MeedyaDL uses a few helper programs to download and process music. Each one is downloaded
+          for you, or a copy you already have is used.
         </p>
       </div>
 

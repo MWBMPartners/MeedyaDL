@@ -395,7 +395,7 @@ export function ToolsTab() {
       {/* ============================================================ */}
       <SettingsSection
         title="External Tools"
-        description="Required tools must be installed for downloads to work. Optional tools provide additional features. Click a tool to configure a custom binary path."
+        description="Required tools must be installed for downloads to work. Click a tool to configure a custom binary path."
       >
 
         {/* Action buttons */}
