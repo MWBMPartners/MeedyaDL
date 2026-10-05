@@ -249,6 +249,15 @@ class ErrorBoundary extends React.Component<
  * React's render cycle (setTimeout, requestAnimationFrame, inline handlers, etc.).
  * Returns `true` to suppress the default browser error logging (we log ourselves).
  */
+/**
+ * What the two global handlers below tell the person. Both catch faults in
+ * MeedyaDL's own code that nothing else caught, so there is no specific
+ * cause to name; what helps is knowing it was not their doing, what to do
+ * if something stops working, and where to report it.
+ */
+const UNEXPECTED_ERROR_MESSAGE =
+  'Something went wrong inside MeedyaDL. If anything stops working, restart MeedyaDL; if it keeps happening, report it from Settings > Advanced > Error Reporting.';
+
 window.onerror = (message, source, lineno, colno, error) => {
   const errorMessage = error?.message || String(message);
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
@@ -257,9 +266,12 @@ window.onerror = (message, source, lineno, colno, error) => {
   persistFrontendError('frontend_error', errorMessage, error?.stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(`Unexpected error: ${errorMessage}`, 'error', 8000);
+  // Polish pass (M8): the message says what happened and what to do; the
+  // error's own text is folded under "Details". It used to be the whole
+  // message ("Unexpected error: Cannot read properties of undefined ...").
+  import('./lib/errorMessages')
+    .then(({ showError }) => {
+      showError(UNEXPECTED_ERROR_MESSAGE, errorMessage);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough
@@ -281,9 +293,11 @@ window.addEventListener('unhandledrejection', (event) => {
   persistFrontendError('unhandled_rejection', errorMessage, stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(`Async error: ${errorMessage}`, 'error', 8000);
+  // Same message as the handler above ("Async error: ..." used to be the
+  // whole message); the error's own text is under "Details".
+  import('./lib/errorMessages')
+    .then(({ showError }) => {
+      showError(UNEXPECTED_ERROR_MESSAGE, errorMessage);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough

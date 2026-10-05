@@ -120,7 +120,7 @@ export function SpotifyTab() {
     const load = async () => {
       const result = await withErrorToast(
         async () => getSpotifyDailyCapStatus(),
-        { errorMsg: 'Failed to read Spotify daily-cap status' }
+        { errorMsg: "MeedyaDL could not read today's Spotify download count. Open this tab again to retry." }
       );
       if (!cancelled && result) {
         setCapStatus(result);
@@ -224,7 +224,7 @@ export function SpotifyTab() {
           setCapStatus(next);
           useUiStore.getState().addToast('Spotify daily counter reset', 'success');
         },
-        { errorMsg: 'Failed to reset Spotify daily counter' }
+        { errorMsg: 'MeedyaDL could not reset the Spotify download count. Try again in a moment.' }
       );
     },
   });

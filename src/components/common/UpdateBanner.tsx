@@ -76,6 +76,7 @@ import type { ComponentUpdate } from '@/types';
 
 /** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
+import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
 
 /**
  * Renders an accent-themed banner showing available updates with
@@ -193,8 +194,9 @@ export function UpdateBanner() {
       // returned. Without this, all failures collapse to "Failed to
       // upgrade GAMDL" with no way to see which pip step actually broke
       // (resolver, network, dep conflict, …).
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to upgrade GAMDL', 'error');
+      // The installer's own report goes under "Details" (it used to be the
+      // whole message); the message says what to do.
+      showError(GAMDL_UPDATE_FAILED, e);
     }
   };
 
@@ -211,8 +213,7 @@ export function UpdateBanner() {
       addToast(`${c.name} updated successfully`, 'success');
       checkForUpdates().catch(() => {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || `Failed to update ${c.name}`, 'error');
+      showError(componentUpdateFailed(c.name), e);
     } finally {
       setUpgradingComponent(null);
     }
@@ -230,8 +231,7 @@ export function UpdateBanner() {
       await downloadAndInstallAppUpdate(tag);
       addToast('Update installed! Restart to apply.', 'success');
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
   };
 
@@ -243,7 +243,7 @@ export function UpdateBanner() {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   };
 

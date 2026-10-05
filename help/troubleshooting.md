@@ -14,6 +14,8 @@ This guide covers common errors you may encounter while using MeedyaDL, along wi
 
 MeedyaDL classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If MeedyaDL is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
 
+Every error message says what went wrong and what to do next. The technical text behind it — what the download tool or your computer actually reported — is folded away under **Details** below the message (on a failed download in the Queue or History, under the short summary). Open **Details** when you report a problem: that text is what helps track it down.
+
 ---
 
 ## Common Errors and Solutions

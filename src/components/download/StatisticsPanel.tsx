@@ -10,7 +10,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
-import { SettingsSection } from '@/components/common';
+import { InlineError, SettingsSection } from '@/components/common';
+import { rawError } from '@/lib/errorMessages';
 import { SONG_CODEC_LABELS, type SongCodec } from '@/types';
 import { getLifetimeStats, type LifetimeStats } from '@/lib/tauri-commands';
 
@@ -194,7 +195,7 @@ function LifetimeStatsSection() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(rawError(e));
         }
       });
     return () => {
@@ -207,7 +208,10 @@ function LifetimeStatsSection() {
   if (error) {
     return (
       <SettingsSection title="Lifetime Statistics" defaultOpen={false}>
-        <p className="text-xs text-status-error-text">{error}</p>
+        <InlineError
+          message="MeedyaDL could not read your download history to count it. Open this panel again later."
+          details={error}
+        />
       </SettingsSection>
     );
   }

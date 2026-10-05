@@ -72,6 +72,7 @@ import { parseAppleMusicUrl } from '@/lib/url-parser';
 /** Zustand stores for UI navigation and download URL input. */
 import { useUiStore } from '@/stores/uiStore';
 import { useDownloadStore } from '@/stores/downloadStore';
+import { NOT_A_RECORD } from '@/lib/errorMessages';
 
 /**
  * Ceiling on how many links a single dropped `.meedyadl` file can hand to
@@ -369,17 +370,17 @@ export function MainLayout({ children }: MainLayoutProps) {
             try {
               parsed = JSON.parse(reader.result as string);
             } catch {
-              addToast('Invalid .meedyadl manifest file', 'error');
+              addToast(NOT_A_RECORD, 'error');
               return;
             }
 
             const urls = extractManifestUrls(parsed);
             if (urls === null) {
-              addToast('Invalid .meedyadl manifest file', 'error');
+              addToast(NOT_A_RECORD, 'error');
               return;
             }
             if (urls.length === 0) {
-              addToast('Manifest contains no download sources', 'error');
+              addToast('That download record has no links in it, so there is nothing to download. Drop a different one.', 'error');
               return;
             }
 
@@ -393,7 +394,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
             if (wasTruncated) {
               addToast(
-                `Manifest had ${urls.length} URLs — only imported the first ${MAX_DROPPED_MANIFEST_URLS}`,
+                `That download record has ${urls.length} links; only the first ${MAX_DROPPED_MANIFEST_URLS} were added, the most one drop can add.`,
                 'warning'
               );
             } else {
@@ -433,7 +434,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         setUrlInput(url);
         addToast('Apple Music URL dropped successfully', 'success');
       } else {
-        addToast('Not a valid Apple Music URL', 'error');
+        addToast('That is not an Apple Music link. Drag a link from music.apple.com, or paste it into the box on the Download page.', 'error');
       }
     },
     [setPage, setUrlInput, addToast],

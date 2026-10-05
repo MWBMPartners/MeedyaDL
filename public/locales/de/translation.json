@@ -196,6 +196,7 @@
     "dismiss": "Ausblenden",
     "showMore": "Mehr anzeigen",
     "showLess": "Weniger anzeigen",
+    "details": "Details",
     "ariaLabel": "Benachrichtigungen"
   },
   "featureFlags": {

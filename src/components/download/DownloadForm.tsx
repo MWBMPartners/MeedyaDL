@@ -149,6 +149,7 @@ import { SONG_CODEC_LABELS, VIDEO_RESOLUTION_LABELS, MEDIA_SERVICE_LABELS } from
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
+import { ADD_FAILED_MANY, ADD_FAILED_ONE, showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Icon mapping for detected Apple Music content types.
@@ -538,7 +539,13 @@ export function DownloadForm() {
     try {
       const outputCheck = await checkOutputPathBeforeDownload();
       if (!outputCheck.ready) {
-        addToast(outputCheck.message ?? 'Output directory is not writable', 'error');
+        // The backend's message names the real cause (a disconnected
+        // drive, a full disk); the fallback says what to do.
+        addToast(
+          outputCheck.message ??
+            'MeedyaDL cannot save to your download folder. Choose another in Settings > General > Output, then try again.',
+          'error'
+        );
         return;
       }
     } catch {
@@ -726,8 +733,8 @@ export function DownloadForm() {
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
         }
-      } catch {
-        addToast('Failed to add downloads', 'error');
+      } catch (err) {
+        showBackendError(ADD_FAILED_MANY, err);
       }
     } else {
       // --- Single-URL mode (existing flow) ---
@@ -756,8 +763,8 @@ export function DownloadForm() {
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
         }
-      } catch {
-        addToast('Failed to add download', 'error');
+      } catch (err) {
+        showBackendError(ADD_FAILED_ONE, err);
       }
     }
   };
@@ -826,7 +833,10 @@ export function DownloadForm() {
         // User cancelled the dialog — silently ignore
         return;
       }
-      addToast('Failed to scan folder for manifests', 'error');
+      showError(
+        'MeedyaDL could not look through that folder. Check that it still exists and you can open it, then try again.',
+        error
+      );
     }
   };
 
@@ -853,7 +863,7 @@ export function DownloadForm() {
         setUrlInput(lines.join('\n'));
         addToast(`Loaded ${lines.length} URL${lines.length !== 1 ? 's' : ''} from file`, 'success');
       } else {
-        addToast('No URLs found in file', 'warning');
+        addToast('That file has no links in it. Put one Apple Music link on each line, then try again.', 'warning');
       }
     } catch {
       // User cancelled the dialog — silently ignore

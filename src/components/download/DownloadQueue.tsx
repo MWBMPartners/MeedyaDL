@@ -103,6 +103,7 @@ import { formatPrimaryIdentifier } from './QueueItem';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
 import type { DownloadState, QueueItemStatus } from '@/types';
+import { MOVE_FAILED, RETRY_FAILED, showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Renders the download queue page showing all download items with their
@@ -403,7 +404,7 @@ export function DownloadQueue() {
         addToast('Queue paused — running items will complete', 'info');
       }
     } catch (err) {
-      addToast(`Failed to ${isPaused ? 'resume' : 'pause'} queue: ${err}`, 'error');
+      showError(`MeedyaDL could not ${isPaused ? 'resume' : 'pause'} the queue. Try again in a moment.`, err);
     }
   }, [isPaused, addToast]);
 
@@ -501,8 +502,11 @@ export function DownloadQueue() {
       try {
         await cancelDownload(id);
         addToast('Download cancelled', 'info');
-      } catch {
-        addToast('Failed to cancel download', 'error');
+      } catch (err) {
+        showBackendError(
+          'MeedyaDL could not cancel that download. It may already have finished; choose Refresh in the More menu to see.',
+          err
+        );
       }
     },
     [cancelDownload, addToast]
@@ -513,8 +517,10 @@ export function DownloadQueue() {
       try {
         await retryDownload(id);
         addToast('Download requeued', 'info');
-      } catch {
-        addToast('Failed to retry download', 'error');
+      } catch (err) {
+        // The backend says why a retry is refused (for example, every
+        // track is already on disk) in a plain sentence; that is shown.
+        showBackendError(RETRY_FAILED, err);
       }
     },
     [retryDownload, addToast]
@@ -525,8 +531,8 @@ export function DownloadQueue() {
       try {
         await retryWithoutWrapper(id);
         addToast('Download requeued without wrapper', 'info');
-      } catch {
-        addToast('Failed to retry download without wrapper', 'error');
+      } catch (err) {
+        showBackendError(RETRY_FAILED, err);
       }
     },
     [retryWithoutWrapper, addToast]
@@ -554,41 +560,41 @@ export function DownloadQueue() {
     async (id: string) => {
       try {
         await moveQueueItemToTop(id);
-      } catch {
-        addToast('Failed to move item', 'error');
+      } catch (err) {
+        showError(MOVE_FAILED, err);
       }
     },
-    [addToast]
+    []
   );
   const handleMoveUp = useCallback(
     async (id: string) => {
       try {
         await moveQueueItemUp(id);
-      } catch {
-        addToast('Failed to move item', 'error');
+      } catch (err) {
+        showError(MOVE_FAILED, err);
       }
     },
-    [addToast]
+    []
   );
   const handleMoveDown = useCallback(
     async (id: string) => {
       try {
         await moveQueueItemDown(id);
-      } catch {
-        addToast('Failed to move item', 'error');
+      } catch (err) {
+        showError(MOVE_FAILED, err);
       }
     },
-    [addToast]
+    []
   );
   const handleMoveToBottom = useCallback(
     async (id: string) => {
       try {
         await moveQueueItemToBottom(id);
-      } catch {
-        addToast('Failed to move item', 'error');
+      } catch (err) {
+        showError(MOVE_FAILED, err);
       }
     },
-    [addToast]
+    []
   );
 
   /**
@@ -618,7 +624,7 @@ export function DownloadQueue() {
         addToast('There is nothing in the queue to export yet', 'info');
         return;
       }
-      addToast(msg, 'error');
+      showBackendError('MeedyaDL could not save the queue file. Choose a folder you can save to, then try again.', e);
     }
   };
 
@@ -639,7 +645,7 @@ export function DownloadQueue() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'Import cancelled') return;
-      addToast(msg, 'error');
+      showBackendError('MeedyaDL could not import that queue file. Check that it is a queue file saved by MeedyaDL (.meedyadl), then try again.', e);
     }
   };
 
@@ -658,8 +664,7 @@ export function DownloadQueue() {
     await withErrorToast(() => processQueue(), {
       successMsg: 'Queue processing started',
       successVariant: 'info',
-      errorMsg: (err) =>
-        `Could not start the queue: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not start the queue. Try again in a moment.',
     });
   };
 
@@ -677,8 +682,7 @@ export function DownloadQueue() {
    */
   const handleClearFinished = async () => {
     const removed = await withErrorToast(() => clearFinished(), {
-      errorMsg: (err) =>
-        `Could not clear finished downloads: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not clear the finished downloads. Try again in a moment.',
     });
     if (removed !== undefined) {
       addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
@@ -696,8 +700,7 @@ export function DownloadQueue() {
    */
   const handleClearAllConfirmed = async () => {
     const removed = await withErrorToast(() => clearAll(), {
-      errorMsg: (err) =>
-        `Could not clear the queue: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not clear the queue. Try again in a moment.',
     });
     if (removed !== undefined) {
       addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
@@ -736,10 +739,9 @@ export function DownloadQueue() {
       await deleteItem(target.id);
       addToast('Item removed from queue', 'info');
     } catch (e) {
-      addToast(
-        e instanceof Error ? e.message : 'Failed to delete item',
-        'error',
-      );
+      // The backend's refusal ("cannot remove an item that is
+      // downloading") is a plain sentence and is shown as it is.
+      showBackendError('MeedyaDL could not remove that item. Choose Refresh in the More menu, then try again.', e);
     }
   };
 
@@ -800,10 +802,7 @@ export function DownloadQueue() {
         );
       }
     } catch (e) {
-      addToast(
-        `Bulk retry failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', e);
     }
   };
 
@@ -875,6 +874,27 @@ export function DownloadQueue() {
    * success — a single network glitch shouldn't halt the rest). The
    * selection is cleared on success so the bulk-action bar collapses.
    */
+  /**
+   * One message for a bulk action: how many worked, and -- when some did
+   * not -- how many, with the first failure's text under "Details".
+   */
+  const reportBulkResult = useCallback(
+    (past: string, total: number, failures: unknown[], whyNot: string) => {
+      const done = total - failures.length;
+      const noun = (n: number) => `${n} item${n === 1 ? '' : 's'}`;
+      if (failures.length === 0) {
+        addToast(`${past} ${noun(total)}`, 'info');
+      } else {
+        showError(
+          `${past} ${done} of ${noun(total)}; ${failures.length} ${whyNot}. Choose Refresh in the More menu to see where things stand.`,
+          failures[0],
+          { type: done > 0 ? 'warning' : 'error' },
+        );
+      }
+    },
+    [addToast],
+  );
+
   const handleBulkCancel = useCallback(async () => {
     const targets = useDownloadStore
       .getState()
@@ -883,16 +903,20 @@ export function DownloadQueue() {
           selectedVisibleIds.includes(i.id) &&
           (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'),
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Cancelled N
+    // items" whatever happened.
+    const failures: unknown[] = [];
     for (const t of targets) {
       try {
         await cancelDownload(t.id);
       } catch (e) {
-        console.warn(`bulk cancel: failed for ${t.id}:`, e);
+        failures.push(e);
       }
     }
-    addToast(`Cancelled ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    reportBulkResult('Cancelled', targets.length, failures, 'could not be cancelled — they may already have finished');
     clearSelection();
-  }, [cancelDownload, addToast, selectedVisibleIds, clearSelection]);
+  }, [cancelDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
   const handleBulkRetry = useCallback(async () => {
     const targets = useDownloadStore
@@ -900,16 +924,20 @@ export function DownloadQueue() {
       .queueItems.filter(
         (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled'),
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Retried N
+    // items" whatever happened.
+    const failures: unknown[] = [];
     for (const t of targets) {
       try {
         await retryDownload(t.id);
       } catch (e) {
-        console.warn(`bulk retry: failed for ${t.id}:`, e);
+        failures.push(e);
       }
     }
-    addToast(`Retried ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    reportBulkResult('Retried', targets.length, failures, 'could not be retried');
     clearSelection();
-  }, [retryDownload, addToast, selectedVisibleIds, clearSelection]);
+  }, [retryDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
   const handleBulkDelete = useCallback(async () => {
     // Bulk delete removes finished/queued/cancelled rows in one pass.
@@ -924,16 +952,20 @@ export function DownloadQueue() {
           i.state !== 'downloading' &&
           i.state !== 'processing',
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Removed N
+    // items" whatever happened.
+    const failures: unknown[] = [];
     for (const t of targets) {
       try {
         await deleteItem(t.id);
       } catch (e) {
-        console.warn(`bulk delete: failed for ${t.id}:`, e);
+        failures.push(e);
       }
     }
-    addToast(`Removed ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    reportBulkResult('Removed', targets.length, failures, 'could not be removed — items that are downloading cannot be removed');
     clearSelection();
-  }, [deleteItem, addToast, selectedVisibleIds, clearSelection]);
+  }, [deleteItem, reportBulkResult, selectedVisibleIds, clearSelection]);
 
   /**
    * Select all rows currently visible in `filteredItems`. Honours the

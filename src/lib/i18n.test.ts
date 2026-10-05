@@ -299,7 +299,7 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
     // "zz" has no file, and the stand-in fetch refuses anything but German.
     // Before, the loader swallowed that and the switch "worked" -- with
     // every string still English and nothing said.
-    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not be loaded/);
+    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not load that translation/);
   });
 
   it('keeps no copy of the language in the browser -- the saved setting is the only record', () => {

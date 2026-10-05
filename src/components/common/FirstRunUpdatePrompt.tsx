@@ -44,6 +44,8 @@ import { useUiStore } from '@/stores/uiStore';
 import { useUpdateStore } from '@/stores/updateStore';
 import { Button } from './Button';
 import { Modal } from './Modal';
+import { RESTART_FAILED, UPDATE_FAILED, showError } from '@/lib/errorMessages';
+import { InlineError } from './InlineError';
 
 export default function FirstRunUpdatePrompt() {
   const show = useUiStore((s) => s.showFirstRunUpdatePrompt);
@@ -84,16 +86,15 @@ export default function FirstRunUpdatePrompt() {
       await downloadAndInstallAppUpdate(info.tagName);
       await relaunch();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
-  }, [info, downloadAndInstallAppUpdate, addToast]);
+  }, [info, downloadAndInstallAppUpdate]);
 
   const handleRestart = useCallback(async () => {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   }, [addToast]);
 
@@ -123,9 +124,7 @@ export default function FirstRunUpdatePrompt() {
         </p>
 
         {downloadError && (
-          <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3">
-            <p className="text-xs text-status-error-text">{downloadError}</p>
-          </div>
+          <InlineError look="box" message={UPDATE_FAILED} details={downloadError} />
         )}
 
         {isDownloadingUpdate && (

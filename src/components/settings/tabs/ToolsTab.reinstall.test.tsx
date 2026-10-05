@@ -152,7 +152,7 @@ describe('ToolsTab -- Reinstall button', () => {
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ }));
 
     await waitFor(() =>
-      expect(toastMessages().some((m) => m.startsWith('Could not reinstall FFmpeg.'))).toBe(true),
+      expect(toastMessages().some((m) => m.startsWith('MeedyaDL could not reinstall FFmpeg.'))).toBe(true),
     );
     expect(toastMessages().some((m) => m.includes('has been kept'))).toBe(true);
     await waitFor(() => expect(checkAll).toHaveBeenCalledTimes(2)); // on mount, and after the failure

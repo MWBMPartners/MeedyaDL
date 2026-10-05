@@ -49,7 +49,8 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import { useAsyncTask } from '@/hooks/useAsyncTask';
 
 // Shared form component: Toggle for boolean switches.
-import { Button, Toggle, SettingsSection } from '@/components/common';
+import { Button, InlineError, Toggle, SettingsSection } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 // IPC wrapper for the word-level lyrics connectivity probe (#934).
 import { testLyricsConnection } from '@/lib/tauri-commands';
@@ -194,7 +195,12 @@ export function LyricsTab() {
               </span>
             )}
             {lyricsTest.error && (
-              <span role="alert" className="text-xs text-status-error-text">{lyricsTest.error}</span>
+              <InlineError
+                {...explainError(
+                  'MeedyaDL could not test the word-level lyrics connection. Check your internet connection and your sign-in (Settings > Cookies), then try again.',
+                  lyricsTest.error
+                )}
+              />
             )}
           </div>
 

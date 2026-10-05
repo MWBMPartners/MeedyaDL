@@ -59,7 +59,13 @@ vi.mock('@/components/download/QueueItem', () => ({
  * QueueItem mock provides, so test queries keep working unchanged. (#467)
  */
 vi.mock('@/components/download/QueueListVirtualized', () => ({
-  QueueListVirtualized: ({ queueItems }: { queueItems: QueueItemStatus[] }) => {
+  QueueListVirtualized: ({
+    queueItems,
+    onToggleSelect,
+  }: {
+    queueItems: QueueItemStatus[];
+    onToggleSelect?: (id: string) => void;
+  }) => {
     if (queueItems.length === 0) {
       return (
         <div>
@@ -76,6 +82,8 @@ vi.mock('@/components/download/QueueListVirtualized', () => ({
             data-testid={`queue-item-${item.id}`}
             data-state={item.state}
           >
+            {/* Selection, so the bulk actions can be tested. */}
+            <input type="checkbox" aria-label={`Select ${item.id}`} onChange={() => onToggleSelect?.(item.id)} />
             {item.current_track ?? item.urls[0]}
           </div>
         ))}
@@ -392,6 +400,33 @@ describe('DownloadQueue', () => {
     render(<DownloadQueue />);
     fireEvent.click(screen.getByRole('button', { name: /^abort$/i }));
     expect(screen.getByRole('dialog', { name: /abort queue/i })).toBeInTheDocument();
+  });
+
+  // ===========================================================================
+  // Bulk actions report failures (polish pass M8)
+  // ===========================================================================
+
+  it('a bulk cancel says how many could not be cancelled, instead of claiming all of them', async () => {
+    const cancel = vi.fn((id: string) => (id === 'b' ? Promise.reject(new Error('already finished')) : Promise.resolve()));
+    const realCancel = useDownloadStore.getState().cancelDownload;
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [makeItem({ id: 'a', state: 'queued' }), makeItem({ id: 'b', state: 'queued' })],
+        cancelDownload: cancel,
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByLabelText('Select a'));
+    fireEvent.click(screen.getByLabelText('Select b'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /cancel selected/i }));
+    });
+    const toasts = useUiStore.getState().toasts;
+    const report = toasts.find((t) => /Cancelled 1 of 2 items; 1 could not be cancelled/.test(t.message));
+    expect(report?.type).toBe('warning');
+    expect(report?.details).toBe('already finished');
+    expect(toasts.some((t) => t.message === 'Cancelled 2 items')).toBe(false);
+    act(() => useDownloadStore.setState({ cancelDownload: realCancel }));
   });
 
   // ===========================================================================

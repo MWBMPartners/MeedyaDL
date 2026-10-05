@@ -40,6 +40,7 @@ import { Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen, M
 import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useLocalWallClock } from '@/hooks/useLocalWallClock';
+import { LOGS_FOLDER_FAILED, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Formats an ISO 8601 timestamp to a short HH:MM:SS format.
@@ -663,9 +664,8 @@ export function ActivityLog() {
       const kb = (bytes / 1024).toFixed(1);
       addToast(`Exported on-disk activity log (${kb} KB, last 3 days)`, 'success');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.toLowerCase().includes('cancel')) {
-        addToast(`Failed to export on-disk log: ${msg}`, 'error');
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not export the full log. Choose a folder you can save to, then try again.', err);
       }
     }
   };
@@ -684,14 +684,12 @@ export function ActivityLog() {
    * open an address (same pattern as QueueItem's "Open Folder" action).
    */
   const handleRevealLogsFolder = async () => {
-    const addToast = useUiStore.getState().addToast;
     try {
       const path = await getLogsFolderPath();
       const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
       await revealItemInDir(path);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to open logs folder: ${msg}`, 'error');
+      showError(LOGS_FOLDER_FAILED, err);
     }
   };
 

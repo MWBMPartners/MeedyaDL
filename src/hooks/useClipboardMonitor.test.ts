@@ -216,7 +216,16 @@ describe('useClipboardMonitor', () => {
         await Promise.resolve();
       });
 
-      expect(addToastMock).toHaveBeenCalledWith('network down', 'error');
+      // Polish pass (M8): a plain message, with what was thrown folded
+      // under "Details" (the last argument) -- never the raw text alone.
+      expect(addToastMock).toHaveBeenCalledWith(
+        'MeedyaDL could not add the copied link to the queue. Paste it on the Download page instead.',
+        'error',
+        undefined,
+        undefined,
+        undefined,
+        'network down',
+      );
 
       unmount();
     });

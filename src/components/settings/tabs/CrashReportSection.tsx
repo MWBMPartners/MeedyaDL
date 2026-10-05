@@ -126,7 +126,7 @@ export function CrashReportSection() {
     }, {
       successMsg: 'Crash report deleted',
       successVariant: 'info',
-      errorMsg: (err) => `Failed to delete crash report: ${err}`,
+      errorMsg: 'MeedyaDL could not delete that error report. Try again in a moment.',
     });
     if (ok) {
       setReports((prev) => prev.filter((r) => r.id !== id));
@@ -136,7 +136,7 @@ export function CrashReportSection() {
   /** Deletes all crash reports and clears the displayed list. */
   const handleDeleteAll = async () => {
     const count = await withErrorToast(() => deleteAllCrashReports(), {
-      errorMsg: (err) => `Failed to clear error reports: ${err}`,
+      errorMsg: 'MeedyaDL could not delete the error reports. Try again in a moment.',
     });
     if (count !== undefined) {
       setReports([]);

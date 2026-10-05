@@ -145,6 +145,13 @@ export { Tooltip } from './Tooltip';
 export { ErrorMessageDisplay } from './ErrorMessageDisplay';
 
 /**
+ * The folded "Details" part under an error message, and an on-page error
+ * (plain message + folded details). See lib/errorMessages.ts.
+ */
+export { ErrorDetails } from './ErrorDetails';
+export { InlineError } from './InlineError';
+
+/**
  * Small "?" icon button that navigates to the Help page with a specific
  * topic pre-selected. Used inline next to settings labels for contextual help.
  * Used in: Input, Select, Toggle (via helpTopic prop), and standalone in settings tabs.

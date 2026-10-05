@@ -38,6 +38,7 @@ import { scanForBundles, importProfile } from '@/lib/tauri-commands';
 import type { DiscoveredBundle } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { showError } from '@/lib/errorMessages';
 
 /**
  * WelcomeStep -- Renders the welcome screen.
@@ -167,8 +168,7 @@ export function WelcomeStep() {
       // or restore a different bundle. They can simply ignore it
       // and click Continue.
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to restore bundle: ${message}`, 'error');
+      showError('MeedyaDL could not restore from that file. Check the password and that the file is complete, then try again — or carry on setting up from scratch.', err);
     } finally {
       setIsRestoringBundle(false);
     }

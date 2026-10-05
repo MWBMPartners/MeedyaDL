@@ -89,7 +89,8 @@ import { useUiStore } from '@/stores/uiStore';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components.
-import { FilePickerButton, Button } from '@/components/common';
+import { FilePickerButton, Button, InlineError } from '@/components/common';
+import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -723,7 +724,7 @@ export function CookiesStep() {
                 <XCircle size={16} className="text-status-error" />
                 <span className="text-sm font-medium text-content-primary">Import Failed</span>
               </div>
-              <p className="text-xs text-content-secondary ml-6">{importError}</p>
+              <InlineError className="ml-6" {...explainError(COOKIES_IMPORT_FAILED, importError)} />
             </div>
           )}
 

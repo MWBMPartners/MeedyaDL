@@ -71,7 +71,8 @@ import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
 
 // Shared UI components for the install buttons and loading indicator.
-import { Button, LoadingSpinner } from '@/components/common';
+import { Button, InlineError, LoadingSpinner } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 /**
  * PythonStep -- Renders the Python installation step.
@@ -353,10 +354,17 @@ export function PythonStep() {
       </div>
 
       {/* Error display */}
+      {/* The installer's own report is folded under "Details" (it used to
+          be the whole message); the backend's words are kept when they are
+          already a plain sentence. */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {error}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not set up Python. Check your internet connection, then try again — or use Browse to choose a Python you already have.',
+            error
+          )}
+        />
       )}
     </div>
   );

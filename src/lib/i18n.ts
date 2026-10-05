@@ -233,7 +233,7 @@ export async function changeUiLanguage(lng: string): Promise<void> {
     // the caller shows it. The language on screen does not change.
     if (!i18n.hasResourceBundle(base, 'translation')) {
       throw new Error(
-        `The ${lng} language file could not be loaded, so the language has not changed.`
+        'MeedyaDL could not load that translation, so the language has not changed. Restart MeedyaDL and choose it again.'
       );
     }
   }

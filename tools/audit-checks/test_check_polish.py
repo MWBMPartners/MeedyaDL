@@ -246,6 +246,26 @@ def cases():
             lambda r: append(r / "src/components/layout/CrashScreen.tsx", '\nexport const Extra = () => <button type="button" onClick={() => window.close()}>Close</button>;\n'),
         ),
         (
+            # Polish pass M8: the raw error as a toast's whole message, and
+            # interpolated into one, are both counted (the ceiling is 0).
+            "a toast that shows the raw error interpolated into its message",
+            "Ratchet: a count that may only go down has moved",
+            "toast whose message is the raw error",
+            lambda r: append(
+                r / "src/components/layout/CrashScreen.tsx",
+                "\nexport function warn(addToast: (m: string, t: string) => void, err: unknown) { addToast(`Could not save: ${err}`, 'error'); }\n",
+            ),
+        ),
+        (
+            "a toast whose whole message is the raw error",
+            "Ratchet: a count that may only go down has moved",
+            "toast whose message is the raw error",
+            lambda r: append(
+                r / "src/components/layout/CrashScreen.tsx",
+                "\nexport function warn(addToast: (m: string, t: string) => void, err: unknown) { addToast(err instanceof Error ? err.message : String(err), 'error'); }\n",
+            ),
+        ),
+        (
             "a ratchet count going down without lowering the ceiling",
             "Ratchet: a count that may only go down has moved",
             "below the ceiling",

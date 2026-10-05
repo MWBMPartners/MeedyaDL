@@ -36,9 +36,10 @@ import {
 } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
-import { Button } from '@/components/common';
+import { Button, InlineError } from '@/components/common';
 import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
 import type { ComponentUpdate } from '@/types';
+import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
 
 /**
  * Strips the "Choose your download" section and everything after it from
@@ -179,8 +180,7 @@ export function UpdatesPage() {
       // a swallowed error makes upgrade failures un-diagnosable in the
       // field. The activity log already gets the same string from the
       // Rust handler.
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to upgrade GAMDL', 'error');
+      showError(GAMDL_UPDATE_FAILED, e);
     }
   };
 
@@ -196,8 +196,7 @@ export function UpdatesPage() {
       addToast(`${c.name} updated successfully`, 'success');
       checkForUpdates().catch(() => {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || `Failed to update ${c.name}`, 'error');
+      showError(componentUpdateFailed(c.name), e);
     } finally {
       setUpgradingComponent(null);
     }
@@ -208,8 +207,7 @@ export function UpdatesPage() {
       await downloadAndInstallAppUpdate(tag);
       addToast('Update installed! Restart to apply.', 'success');
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
   };
 
@@ -217,7 +215,7 @@ export function UpdatesPage() {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   };
 
@@ -353,9 +351,15 @@ export function UpdatesPage() {
                       if (failCount === 0) {
                         addToast(`${successCount} component${successCount > 1 ? 's' : ''} updated successfully`, 'success');
                       } else if (successCount === 0) {
-                        addToast(`Failed to update ${failCount} component${failCount > 1 ? 's' : ''}`, 'error');
+                        addToast(
+                          `MeedyaDL could not install ${failCount === 1 ? 'the update' : `any of the ${failCount} updates`}. Check your internet connection, then try again.`,
+                          'error'
+                        );
                       } else {
-                        addToast(`${successCount} updated, ${failCount} failed`, 'warning');
+                        addToast(
+                          `${successCount} updated; ${failCount} could not be updated. Check your internet connection, then update ${failCount === 1 ? 'that one' : 'those'} again.`,
+                          'warning'
+                        );
                       }
 
                       checkForUpdates().catch(() => {});
@@ -609,7 +613,7 @@ export function UpdatesPage() {
                 {/* Download error with manual fallback */}
                 {update.name === APP_COMPONENT_NAME && downloadError && !updateInstalled && (
                   <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3 mb-3">
-                    <p className="text-xs text-status-error-text mb-2">{downloadError}</p>
+                    <InlineError message={UPDATE_FAILED} details={downloadError} className="mb-2" />
                     {update.release_url && (
                       <button
                         type="button"

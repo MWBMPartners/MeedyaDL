@@ -65,6 +65,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { MvGapFillModal } from './MvGapFillModal';
 import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 import { PageHeader } from '@/components/layout';
+import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Human-readable label for a canonical codec-registry ID. Used by
@@ -353,8 +354,7 @@ export function LibraryScanPage() {
         'success'
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Re-download failed: ${msg}`, 'error');
+      showBackendError('MeedyaDL could not add that album to the queue again. Try again in a moment.', err);
     }
   };
 
@@ -426,12 +426,11 @@ export function LibraryScanPage() {
       );
     } catch (err) {
       // User cancelled the folder picker, or I/O failure.
-      const msg = err instanceof Error ? err.message : String(err);
       // "cancelled" is the expected user-cancelled-folder-picker
-      // path; suppress the toast for it (matching the convention
-      // used by `useDownloadStore.startDownload`).
-      if (!msg.toLowerCase().includes('cancel')) {
-        addToast(`Scan failed: ${msg}`, 'error');
+      // path; no message for it (matching the convention used by
+      // `useDownloadStore.startDownload`).
+      if (!isCancellation(err)) {
+        showError(FOLDER_SCAN_FAILED, err);
       }
     } finally {
       setScanning(false);

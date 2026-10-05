@@ -251,6 +251,7 @@ import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n'
  * @see ./types/index.ts for the full type definition
  */
 import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
+import { showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -786,12 +787,10 @@ function App() {
 
     initialize().catch((err) => {
       console.error('App initialization failed:', err);
-      useUiStore
-        .getState()
-        .addToast(
-          'App initialization failed — some features may not work correctly. Try restarting.',
-          'error'
-        );
+      showError(
+        'MeedyaDL did not finish starting up, so some features may not work. Quit and reopen MeedyaDL; if this keeps happening, report it from Settings > Advanced > Error Reporting.',
+        err
+      );
     });
   }, [isReady, loadSettings, checkAll, checkForUpdates, setShowSetupWizard]);
 
@@ -853,9 +852,13 @@ function App() {
     // English — never a language that has no file.
     const target = uiLanguageSetting || systemLanguageOrEnglish();
     changeUiLanguage(target).catch((err: unknown) => {
-      useUiStore
-        .getState()
-        .addToast(err instanceof Error ? err.message : String(err), 'warning', undefined, 'ui-language');
+      // changeUiLanguage's own message is a plain sentence; anything else
+      // (an unexpected failure) gets the fallback, details folded away.
+      showBackendError(
+        'MeedyaDL could not change the language, so it has not changed. Restart MeedyaDL and choose it again.',
+        err,
+        { type: 'warning', key: 'ui-language' }
+      );
     });
   }, [uiLanguageSetting]);
 
@@ -1260,7 +1263,7 @@ function App() {
               ui.addToast(`Back online — starting ${waiting} waiting download${plural}.`, 'success');
             } else {
               ui.addToast(
-                `Back online — ${waiting} download${plural} waiting. Press Start Queue to begin.`,
+                `Back online — ${waiting} download${plural} waiting. Press Start on the Queue page to begin.`,
                 'warning'
               );
             }

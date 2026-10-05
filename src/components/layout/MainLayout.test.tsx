@@ -159,7 +159,7 @@ describe('MainLayout .meedyadl drop handling (review fix)', () => {
 
     await waitFor(() => {
       expect(
-        useUiStore.getState().toasts.some((t) => t.type === 'error' && /invalid .meedyadl manifest/i.test(t.message))
+        useUiStore.getState().toasts.some((t) => t.type === 'error' && /not a MeedyaDL download record/i.test(t.message))
       ).toBe(true);
     });
 
@@ -187,7 +187,7 @@ describe('MainLayout .meedyadl drop handling (review fix)', () => {
 
     await waitFor(() => {
       expect(
-        useUiStore.getState().toasts.some((t) => t.type === 'error' && /invalid .meedyadl manifest/i.test(t.message))
+        useUiStore.getState().toasts.some((t) => t.type === 'error' && /not a MeedyaDL download record/i.test(t.message))
       ).toBe(true);
     });
     expect(useDownloadStore.getState().urlInput).toBe('');
@@ -223,7 +223,7 @@ describe('MainLayout .meedyadl drop handling (review fix)', () => {
     expect(importedUrls[0]).toBe('https://music.apple.com/us/album/track-0/0');
 
     expect(
-      useUiStore.getState().toasts.some((t) => t.type === 'warning' && /only imported the first 500/i.test(t.message))
+      useUiStore.getState().toasts.some((t) => t.type === 'warning' && /only the first 500 were added/i.test(t.message))
     ).toBe(true);
   });
 });

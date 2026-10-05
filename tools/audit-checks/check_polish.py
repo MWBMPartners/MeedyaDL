@@ -940,8 +940,8 @@ RATCHETS = {
     "raw_select": 3,
     "raw_input": 11,
     "px_font_size": 47,
-    "non_token_rounding": 86,
-    "failed_to_toast": 17,
+    "non_token_rounding": 85,
+    "failed_to_toast": 0,
 }
 
 RATCHET_WHAT = {
@@ -950,7 +950,7 @@ RATCHET_WHAT = {
     "raw_input": "hand-made <input> outside components/common (use <Input>, <Toggle>, ...)",
     "px_font_size": "hard-coded text-[Npx] font size (use the type scale)",
     "non_token_rounding": "corner rounding that bypasses rounded-platform",
-    "failed_to_toast": 'error toast shaped "Failed to X: ${error}" with no next step',
+    "failed_to_toast": 'toast whose message is the raw error ("Failed to X: ${error}", "${err}", "err.message")',
 }
 
 
@@ -962,6 +962,25 @@ def _ratchet_counts() -> tuple[tuple[str, int], ...]:
 def ratchet_counts() -> dict[str, int]:
     """Today's count for each ratchet (worked out once per run)."""
     return dict(_ratchet_counts())
+
+
+# A toast whose message is, or is built from, the raw error. The polish
+# pass (M8) rewrote every one: the message says what went wrong and what to
+# do next, and the raw text goes under "Details" (showError /
+# showBackendError / withErrorToast in src/lib). Three shapes are counted:
+#   - "Failed to X: ${...}" (the original ratchet);
+#   - a template that interpolates the caught error (`${e}`, `${err}`,
+#     `${error}`, `${msg}`, `${reason}`);
+#   - the caught error by itself (`err instanceof Error ? err.message : ...`).
+# A variable called `message` is not counted: in this codebase it usually
+# holds a sentence written for people.
+RAW_ERROR_TOAST = re.compile(
+    r"addToast\(\s*(?:"
+    r"`[^`]*\bFailed to\b[^`]*\$\{"
+    r"|`[^`]*\$\{\s*(?:e|err|error|msg|reason)\s*(?:\}|\binstanceof\b|\.message)"
+    r"|(?:e|err|error)\s+instanceof\s+Error\s*\?"
+    r")"
+)
 
 
 def _count_ratchets() -> dict[str, int]:
@@ -977,7 +996,7 @@ def _count_ratchets() -> dict[str, int]:
         counts["non_token_rounding"] += len(
             re.findall(r"(?<![\w-])rounded(?:-(?:t|b|l|r|s|e|tl|tr|bl|br))?(?:-(?:sm|md|lg|xl|2xl|3xl))?(?![\w-])", code)
         )
-        counts["failed_to_toast"] += len(re.findall(r"addToast\(\s*`[^`]*\bFailed to\b[^`]*\$\{", code))
+        counts["failed_to_toast"] += len(re.findall(RAW_ERROR_TOAST, code))
     return counts
 
 

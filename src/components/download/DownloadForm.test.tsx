@@ -217,7 +217,7 @@ describe('DownloadForm', () => {
     expect(row.parentElement?.className).toContain('@container');
   });
 
-  it('gives the text-file button the same size as its neighbours and a label that says what it does', () => {
+  it('gives the link-list button the same size as its neighbours and a label that says what it does', () => {
     render(<DownloadForm />);
     const linkList = screen.getByRole('button', { name: /^link list$/i });
     const importButton = screen.getByRole('button', { name: /^import$/i });

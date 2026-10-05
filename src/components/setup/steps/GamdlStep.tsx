@@ -48,7 +48,8 @@ import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
 
 // Shared UI components.
-import { Button, LoadingSpinner } from '@/components/common';
+import { Button, InlineError, LoadingSpinner } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 // Read-only detection of a `gamdl` installed outside MeedyaDL's managed venv.
 import { detectExternalGamdl } from '@/lib/tauri-commands';
@@ -197,10 +198,17 @@ export function GamdlStep() {
       )}
 
       {/* Error display */}
+      {/* The installer's own report is folded under "Details" (it used to
+          be the whole message); the backend's words are kept when they are
+          already a plain sentence. */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {error}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not install GAMDL, the tool it downloads with. Check your internet connection, then try again.',
+            error
+          )}
+        />
       )}
     </div>
   );

@@ -57,6 +57,7 @@ import { parseSubmittableUrl } from '@/lib/url-parser';
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { ABORT_FAILED, showError, undoFailed } from '@/lib/errorMessages';
 
 /**
  * Module-level handle for the undo-buffer auto-expiry timer (#894).
@@ -508,7 +509,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     try {
       await commands.cancelDownload(downloadId);
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -525,7 +531,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -541,7 +552,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -658,10 +674,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                   }
                 })
                 .catch((e) => {
-                  addToast(
-                    `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                    'error'
-                  );
+                  showError(undoFailed(urls.length), e);
                 });
             }
           },
@@ -787,10 +800,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                         }
                       })
                       .catch((e) => {
-                        addToast(
-                          `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                          'error'
-                        );
+                        showError(undoFailed(urls.length), e);
                       });
                   }
                 },
@@ -820,9 +830,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // here, so the failure is too, and every caller is covered at once.
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message });
-      useUiStore
-        .getState()
-        .addToast(`Could not stop the downloads: ${message}`, 'error', undefined, 'abort-failed');
+      showError(ABORT_FAILED, e, { key: 'abort-failed' });
       return 0;
     }
   },
@@ -1205,7 +1213,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             // House style: never show the words "rate limit" on
             // screen -- say what it actually means instead.
             addToast(
-              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
+              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box — press Add to Queue again in about ${waitSeconds} seconds.`,
               'warning',
             );
           }

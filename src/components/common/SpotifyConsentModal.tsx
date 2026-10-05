@@ -90,7 +90,7 @@ export default function SpotifyConsentModal() {
         await acknowledgeSpotifyConsent();
         return true;
       },
-      { errorMsg: 'Failed to record consent — please try again.' }
+      { errorMsg: 'MeedyaDL could not save your answer. Please try again.' }
     );
     if (success) {
       // Capture the callback BEFORE clearing it; the closure persists

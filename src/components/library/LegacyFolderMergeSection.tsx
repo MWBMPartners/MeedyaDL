@@ -27,6 +27,7 @@ import {
   type MergePreview,
   type MergeReport,
 } from '@/lib/tauri-commands';
+import { FOLDER_SCAN_FAILED, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Standalone section embedded on `LibraryScanPage`. Owns its own
@@ -73,9 +74,8 @@ export function LegacyFolderMergeSection() {
         );
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.toLowerCase().includes('cancel')) {
-        addToast(`Scan failed: ${msg}`, 'error');
+      if (!isCancellation(err)) {
+        showError(FOLDER_SCAN_FAILED, err);
       }
     } finally {
       setScanning(false);
@@ -89,8 +89,7 @@ export function LegacyFolderMergeSection() {
       const preview = await previewLegacyFolderMerge(pair);
       setActivePreview(preview);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Preview failed: ${msg}`, 'error');
+      showError('MeedyaDL could not work out what merging those two folders would do. Nothing was moved; scan the folder again, then try again.', err);
     } finally {
       setPreviewing(false);
     }
@@ -113,13 +112,24 @@ export function LegacyFolderMergeSection() {
           ) ?? null
       );
       setActivePreview(null);
-      addToast(
-        `Merged "${report.pair.album_basename}" — ${report.audio_moved} audio + ${report.sidecars_moved} sidecars moved${report.warnings.length > 0 ? ` (${report.warnings.length} warning${report.warnings.length === 1 ? '' : 's'})` : ''}`,
-        report.warnings.length > 0 ? 'warning' : 'success'
-      );
+      // Plain words for what moved ("sidecars" meant the lyrics and
+      // subtitle files kept beside each track). The merge's own warnings
+      // (files it could not move) are folded under "Details".
+      const moved = `moved ${report.audio_moved} music file${report.audio_moved === 1 ? '' : 's'} and ${report.sidecars_moved} lyrics or subtitle file${report.sidecars_moved === 1 ? '' : 's'}`;
+      if (report.warnings.length > 0) {
+        addToast(
+          `Merged "${report.pair.album_basename}": ${moved}, but ${report.warnings.length} thing${report.warnings.length === 1 ? '' : 's'} could not be moved. Check the album folder; the details list them.`,
+          'warning',
+          undefined,
+          undefined,
+          undefined,
+          report.warnings.join('\n'),
+        );
+      } else {
+        addToast(`Merged "${report.pair.album_basename}": ${moved}.`, 'success');
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Merge failed: ${msg}`, 'error');
+      showError('MeedyaDL could not finish merging those two folders. Scan the folder again to see what is left to merge; the details say what stopped it.', err);
     } finally {
       setExecuting(false);
     }

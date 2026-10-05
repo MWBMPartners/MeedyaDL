@@ -466,8 +466,19 @@ interface UiState {
    * @param duration -- Auto-dismiss delay in ms; 0 means persistent (default: 5000)
    * @param key      -- Optional deduplication key (e.g. 'preflight:Wrapper')
    * @param action   -- Optional action button (label + onClick callback)
+   * @param details  -- Optional technical text, folded under "Details"
+   *                    below the message. Use `showError` in
+   *                    lib/errorMessages.ts rather than passing it by hand.
    */
-  addToast: (message: string, type: ToastType, duration?: number, key?: string, action?: { label: string; onClick: () => void }) => void;
+  addToast: (
+    message: string,
+    type: ToastType,
+    duration?: number,
+    key?: string,
+    action?: { label: string; onClick: () => void },
+    /** Technical text folded under "Details" (see lib/errorMessages.ts). */
+    details?: string
+  ) => void;
 
   /**
    * Remove a specific toast from the stack by its unique ID.
@@ -620,7 +631,7 @@ export const useUiStore = create<UiState>((set, get) => ({
    * it uses the updater-function form of `set()` to safely read the latest toast
    * array (avoiding stale closures over the `toasts` array).
    */
-  addToast: (message, type, duration?, key?, action?) => {
+  addToast: (message, type, duration?, key?, action?, details?) => {
     const { settings } = useSettingsStore.getState();
 
     // "Desktop Notifications" in Settings > General is the master on/off
@@ -688,7 +699,8 @@ export const useUiStore = create<UiState>((set, get) => ({
       kind: ToastType,
       ms: number,
       toastKey?: string,
-      toastAction?: { label: string; onClick: () => void }
+      toastAction?: { label: string; onClick: () => void },
+      toastDetails?: string
     ): void => {
       // Generate a collision-resistant unique ID for this toast.
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -722,6 +734,7 @@ export const useUiStore = create<UiState>((set, get) => ({
             expiresAt,
             key: toastKey,
             action: toastAction,
+            details: toastDetails,
           },
         ];
 
@@ -758,7 +771,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     //  - once per run, the person is told why, and what to change.
     const fallBackToInApp = (reason: 'blocked' | 'failed'): void => {
       if (style === 'native_only') {
-        showInApp(message, type, duration ?? 0, key, action);
+        showInApp(message, type, duration ?? 0, key, action, details);
       }
       if (!nativeNotificationProblemReported) {
         nativeNotificationProblemReported = true;
@@ -812,7 +825,7 @@ export const useUiStore = create<UiState>((set, get) => ({
     // the native notification then fails, `fallBackToInApp` shows it.)
     if (style === 'native_only') return;
 
-    showInApp(message, type, duration, key, action);
+    showInApp(message, type, duration, key, action, details);
   },
 
   /**

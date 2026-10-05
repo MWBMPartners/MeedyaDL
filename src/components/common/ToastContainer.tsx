@@ -35,6 +35,7 @@
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_TOP, KEEP_CLEAR_ATTRIBUTE, toastStackTop } from '@/lib/toastPlacement';
+import { ErrorDetails } from './ErrorDetails';
 
 // Every toast in the app passes through this one shared container, so
 // translating its two fixed strings (the dismiss button, the landmark
@@ -166,6 +167,9 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         >
           {toast.message}
         </p>
+        {/* The technical text, folded away: the message above says what
+            went wrong and what to do; this is for anybody reporting it. */}
+        <ErrorDetails details={toast.details} label={t('toast.details')} />
         {(cut || expanded) && (
           <button
             type="button"

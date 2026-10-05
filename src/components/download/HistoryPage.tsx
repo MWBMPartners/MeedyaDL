@@ -44,6 +44,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { openContainingFolder } from '@/lib/openPath';
 
 import type { HistoryEntry } from '@/types';
+import { showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Formats an ISO 8601 timestamp to a short locale-appropriate date/time string.
@@ -167,7 +168,7 @@ export function HistoryPage() {
       addToast('Download history cleared', 'info');
     } catch (err) {
       console.error('Failed to clear history:', err);
-      addToast('Failed to clear history', 'error');
+      showError('MeedyaDL could not clear the history. Try again; if it keeps happening, restart MeedyaDL.', err);
     }
   }, [addToast]);
 
@@ -216,8 +217,7 @@ export function HistoryPage() {
         setEntries((current) => current.filter((item) => item.id !== entry.id));
         addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        addToast(`Retry failed: ${message}`, 'error');
+        showBackendError('MeedyaDL could not add that download to the queue again. Try again in a moment.', err);
       }
     },
     [addToast],
@@ -234,7 +234,7 @@ export function HistoryPage() {
         await navigator.clipboard.writeText(entry.url);
         addToast('URL copied to clipboard', 'info');
       } catch {
-        addToast('Could not copy to clipboard', 'error');
+        addToast('MeedyaDL could not copy the link. Try again in a moment.', 'error');
       }
     },
     [addToast],
@@ -270,8 +270,7 @@ export function HistoryPage() {
         'success',
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Bulk retry failed: ${message}`, 'error');
+      showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', err);
     }
   }, [failedEntries, failedCount, addToast]);
 
@@ -289,8 +288,7 @@ export function HistoryPage() {
       setEntries((current) => current.filter((entry) => entry.id !== target.id));
       addToast('History entry removed', 'info');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to remove: ${message}`, 'error');
+      showError('MeedyaDL could not remove that entry from the history. Try again in a moment.', err);
     }
   }, [deleteTarget, addToast]);
 

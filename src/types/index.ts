@@ -1959,6 +1959,13 @@ export interface Toast {
     label: string;
     onClick: () => void;
   };
+  /**
+   * Optional technical text (a backend error, a traceback) shown folded
+   * under "Details" below the message. The message itself must make sense
+   * without it -- see lib/errorMessages.ts. Never sent to the OS
+   * notification, which shows the message only.
+   */
+  details?: string;
 }
 
 /**

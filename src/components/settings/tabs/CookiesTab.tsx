@@ -96,7 +96,8 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components used in the form controls and action buttons.
-import { FilePickerButton, Button, Tooltip, SettingsSection } from '@/components/common';
+import { FilePickerButton, Button, InlineError, Tooltip, SettingsSection } from '@/components/common';
+import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -1138,7 +1139,7 @@ export function CookiesTab() {
             <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
               <div className="flex items-center gap-1.5">
                 <XCircle size={14} className="text-status-error flex-shrink-0" />
-                <p className="text-status-error-text">{importError}</p>
+                <InlineError {...explainError(COOKIES_IMPORT_FAILED, importError)} />
               </div>
             </div>
           )}

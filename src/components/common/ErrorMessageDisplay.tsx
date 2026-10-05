@@ -48,8 +48,10 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
 import { Tooltip } from './Tooltip';
+import { ErrorDetails } from './ErrorDetails';
 import { useUiStore } from '@/stores/uiStore';
 import { redactForPublicReport, redactUrlForPublicReport } from '@/lib/tauri-commands';
+import { summariseDownloadError } from '@/lib/errorMessages';
 
 export interface ErrorMessageDisplayProps {
   /** The error message to render. */
@@ -180,7 +182,7 @@ export function ErrorMessageDisplay({
       await navigator.clipboard.writeText(message);
       addToast('Error message copied to clipboard', 'info');
     } catch {
-      addToast('Could not copy to clipboard', 'error');
+      addToast('MeedyaDL could not copy the message. Open Details below it, select the text and copy it with Cmd/Ctrl+C.', 'error');
     }
   }, [addToast, message]);
 
@@ -211,14 +213,17 @@ export function ErrorMessageDisplay({
       // 9257863f).
       cleanedSourceUrl = sourceUrl ? await redactUrlForPublicReport(sourceUrl) : undefined;
     } catch {
-      addToast('Could not prepare the report safely', 'error');
+      addToast(
+        'MeedyaDL could not remove your personal details from the report, so it has not opened it. Try again in a moment.',
+        'error'
+      );
       return;
     }
     const url = buildGamdlIssueUrl(cleaned, cleanedSourceUrl);
     try {
       await openExternal(url);
     } catch {
-      addToast('Could not open browser', 'error');
+      addToast('MeedyaDL could not open your web browser. Check that a default browser is set, then try again.', 'error');
     }
   }, [addToast, message, sourceUrl]);
 
@@ -236,6 +241,15 @@ export function ErrorMessageDisplay({
   }, []);
 
   if (!message) return null;
+
+  // Polish pass (M8): a technical error (a traceback, an exception name,
+  // an error number, a file path) is shown as a short plain summary with
+  // a next step, and the original is folded under "Details". It used to
+  // be shown as it came, so a failed row read "GAMDL bug — Traceback (most
+  // recent call last): File "/Users/…". A message that is already a plain
+  // sentence is shown as it is. "Copy error message" and the GAMDL report
+  // still use the original text.
+  const { summary, details } = summariseDownloadError(message);
 
   const items: ContextMenuItem[] = [
     {
@@ -270,7 +284,7 @@ export function ErrorMessageDisplay({
   return (
     <>
       <div className="flex items-start gap-1">
-        <Tooltip content={message} position="top">
+        <Tooltip content={summary} position="top">
           <p
             className={`${className} ${clampClass} cursor-default select-text`}
             onContextMenu={handleContextMenu}
@@ -279,7 +293,7 @@ export function ErrorMessageDisplay({
             // hovering with a mouse — tabIndex={0} lets Tab reach it too.
             tabIndex={0}
           >
-            {message}
+            {summary}
           </p>
         </Tooltip>
         <button
@@ -292,6 +306,7 @@ export function ErrorMessageDisplay({
           <MoreVertical size={12} aria-hidden="true" />
         </button>
       </div>
+      <ErrorDetails details={details} className="mt-0.5" />
       {menuPos && (
         <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />
       )}

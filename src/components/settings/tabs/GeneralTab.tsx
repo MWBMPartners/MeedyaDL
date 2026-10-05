@@ -83,7 +83,7 @@ import type {
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, SettingsSection, Modal } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Button, InlineError, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 import { LOCALES, isMachineAssisted } from '@/lib/i18n';
@@ -91,6 +91,7 @@ import { LOCALES, isMachineAssisted } from '@/lib/i18n';
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
 import type { AfterQueueAction } from '@/types';
+import { explainError, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Available language options for GAMDL's metadata language preference.
@@ -446,10 +447,9 @@ export function GeneralTab() {
       await exportSettings();
       addToast('Settings exported successfully', 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Don't show a toast for user cancellation
-      if (!message.includes('cancelled')) {
-        addToast(`Failed to export settings: ${message}`, 'error');
+      // No message when the person closed the file picker.
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not save your settings to a file. Choose a folder you can save to, then try again.', err);
       }
     } finally {
       setIsExporting(false);
@@ -484,9 +484,8 @@ export function GeneralTab() {
       setImportPicks(picks);
       setPendingImport(summary);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.toLowerCase().includes('cancel')) {
-        addToast(`Failed to open bundle: ${message}`, 'error');
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not open that file. Check that it was saved by MeedyaDL and is complete, then try again.', err);
       }
     }
   };
@@ -507,7 +506,7 @@ export function GeneralTab() {
       Boolean(importPicks.credentials);
     if (wantsCredentials && importPassword.length === 0) {
       addToast(
-        'Enter the password the bundle was exported with to restore credentials.',
+        'Enter the password that was set when this file was saved, so MeedyaDL can restore the sign-ins in it.',
         'error',
       );
       return;
@@ -543,15 +542,14 @@ export function GeneralTab() {
       );
       if (result.credentials_skipped_p4) {
         addToast(
-          'Bundle contained credentials but encryption support is not yet released (P4). Re-import cookies / re-enter MusicKit credentials manually on this install.',
+          'That file has sign-ins in it, but this version of MeedyaDL cannot restore them yet. Sign in again in Settings > Cookies, and enter your MusicKit details again in Settings > Advanced > API Credentials.',
           'info',
         );
       }
       setPendingImport(null);
       setImportPassword('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to import profile: ${message}`, 'error');
+      showError('MeedyaDL could not bring in that file. Check the password and that the file is complete, then try again.', err);
     } finally {
       setIsImportingBundle(false);
     }
@@ -568,7 +566,7 @@ export function GeneralTab() {
     // the user a clearer message.
     if (bundleOptions.include_credentials && credentialsPassword.length < 6) {
       addToast(
-        'Please set a credentials password of at least 6 characters before exporting.',
+        'Set a password of at least 6 characters to protect the sign-ins, then save the file again.',
         'error',
       );
       return;
@@ -589,9 +587,8 @@ export function GeneralTab() {
       // success so it can't sit in DevTools / state inspector.
       setCredentialsPassword('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.toLowerCase().includes('cancel')) {
-        addToast(`Failed to export profile: ${message}`, 'error');
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not save that file. Choose a folder you can save to, then try again.', err);
       }
     } finally {
       setIsExportingBundle(false);
@@ -610,10 +607,9 @@ export function GeneralTab() {
       await loadSettings();
       addToast('Settings imported successfully', 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Don't show a toast for user cancellation
-      if (!message.includes('cancelled')) {
-        addToast(`Failed to import settings: ${message}`, 'error');
+      // No message when the person closed the file picker.
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not bring in those settings. Check that the file was saved by MeedyaDL, then try again.', err);
       }
     } finally {
       setIsImporting(false);
@@ -925,12 +921,11 @@ export function GeneralTab() {
                       'info',
                     );
                   } catch (err) {
-                    // The backend returns a structured error string with
-                    // the actual OS-level failure reason — surface it
-                    // verbatim so the user knows what to fix.
-                    addToast(
-                      `Test notification failed: ${err instanceof Error ? err.message : String(err)}`,
-                      'error',
+                    // The backend's reason (the system's own) is under
+                    // "Details"; the message says what usually fixes it.
+                    showError(
+                      'MeedyaDL could not send a test notification. Check that notifications are allowed for MeedyaDL in your system settings, then try again.',
+                      err,
                     );
                   }
                 }}
@@ -1043,7 +1038,11 @@ export function GeneralTab() {
               <span role="status" className="text-xs text-content-secondary">{checkMessage}</span>
             )}
           </div>
-          {checkError && !isChecking && <p role="alert" className="text-xs text-status-error-text">{checkError}</p>}
+          {checkError && !isChecking && (
+            <InlineError
+              {...explainError('MeedyaDL could not check for updates. Check your internet connection, then try again.', checkError)}
+            />
+          )}
         </div>
       </SettingsSection>
 

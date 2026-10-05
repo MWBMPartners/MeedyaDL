@@ -122,6 +122,7 @@ import {
   Input,
   Button,
   HelpButton,
+  InlineError,
   SettingsSection,
   Modal,
   FilePickerButton,
@@ -185,6 +186,7 @@ import {
   shouldShowSecurityHint,
   type WrapperUrlClass,
 } from '@/lib/wrapper-url-classifier';
+import { LOGS_FOLDER_FAILED, WRAPPER_SIGN_IN_FAILED, explainError, rawError, showError } from '@/lib/errorMessages';
 
 /**
  * Download mode dropdown options.
@@ -312,6 +314,8 @@ export function AdvancedTab() {
   const [validating, setValidating] = useState(false);
   /** Result message from the credential validation test */
   const [validationResult, setValidationResult] = useState<string | null>(null);
+  /** What the credentials check threw, if it failed (shown with InlineError). */
+  const [validationError, setValidationError] = useState<unknown>(null);
 
   // ── AcoustID state ──
   /** Whether a built-in AcoustID API key is available (embedded at compile time) */
@@ -474,6 +478,7 @@ export function AdvancedTab() {
   const handleTestCredentials = useCallback(async () => {
     setValidating(true);
     setValidationResult(null);
+    setValidationError(null);
     try {
       const result = await validateMusicKitCredentialsWithInput(
         musickitTeamId.value ?? null,
@@ -481,7 +486,9 @@ export function AdvancedTab() {
       );
       setValidationResult(result);
     } catch (err) {
-      setValidationResult(`Error: ${err}`);
+      // Shown under the button as a plain message with the backend's
+      // reason folded away (it used to read "Error: Keychain error: ...").
+      setValidationError(err);
     } finally {
       setValidating(false);
     }
@@ -706,14 +713,12 @@ export function AdvancedTab() {
                 variant="secondary"
                 size="sm"
                 onClick={async () => {
-                  const addToast = useUiStore.getState().addToast;
                   try {
                     const path = await getLogsFolderPath();
                     const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
                     await revealItemInDir(path);
                   } catch (err) {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    addToast(`Failed to open logs folder: ${msg}`, 'error');
+                    showError(LOGS_FOLDER_FAILED, err);
                   }
                 }}
               >
@@ -797,7 +802,7 @@ export function AdvancedTab() {
               useUiStore
                 .getState()
                 .addToast(
-                  'Could not start the setup wizard again — MeedyaDL was unable to save the change.',
+                  'MeedyaDL could not start the setup again, because it could not save the change. Try again; if it keeps happening, restart MeedyaDL.',
                   'error'
                 );
               return;
@@ -1058,7 +1063,9 @@ export function AdvancedTab() {
                 <span role="status" className="text-xs text-status-success-text">Saved to keychain</span>
               )}
               {keyStatus === 'error' && (
-                <span role="alert" className="text-xs text-status-error-text">Failed to save</span>
+                <span role="alert" className="text-xs text-status-error-text">
+                MeedyaDL could not save the key. Try again.
+              </span>
               )}
               {keyStored && keyStatus === 'idle' && (
                 <span className="text-xs text-status-success-text">Key stored in keychain</span>
@@ -1080,15 +1087,24 @@ export function AdvancedTab() {
             >
               {validating ? 'Testing...' : 'Test Credentials'}
             </Button>
+            {/* The check either succeeds (its result is the backend's own
+                success sentence) or throws; a failure is shown as a plain
+                message with the backend's reason under "Details". It used
+                to print "Error: <backend text>" in the same place, told
+                apart from success only by the word it began with. */}
             {validationResult && (
-              // Fix 13 (a11y audit): same as the two results above --
-              // "alert" for the error-shaped wording, "status" otherwise.
-              <span
-                role={validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'alert' : 'status'}
-                className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error-text' : 'text-status-success-text'}`}
-              >
+              <span role="status" className="text-xs leading-relaxed pt-1 text-status-success-text">
                 {validationResult}
               </span>
+            )}
+            {validationError !== null && (
+              <InlineError
+                className="pt-1"
+                {...explainError(
+                  'Apple Music did not accept those MusicKit details. Check the Team ID, the Key ID and the saved key, then test again.',
+                  validationError
+                )}
+              />
             )}
           </div>
         </div>
@@ -1345,24 +1361,26 @@ function NotificationDiagnosticsRow() {
         const backend = await getNotificationDiagnostics();
         setDiag(backend);
       } catch (e) {
-        setError(`Failed to load backend diagnostics: ${e instanceof Error ? e.message : String(e)}`);
+        setError(rawError(e));
         return;
       }
       try {
         const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
         const granted = await isPermissionGranted();
         setOsPermission(granted ? 'granted' : 'not granted');
-      } catch (e) {
-        setOsPermission(`error: ${e instanceof Error ? e.message : String(e)}`);
+      } catch {
+        setOsPermission('could not be checked');
       }
     })();
   }, []);
 
   if (error) {
     return (
-      <div className="p-3 rounded-lg bg-status-error-bg border border-status-error">
-        <p className="text-xs text-status-error-text">{error}</p>
-      </div>
+      <InlineError
+        look="box"
+        message="MeedyaDL could not read how its notifications are set up. Close Settings and open it again."
+        details={error}
+      />
     );
   }
 
@@ -1468,7 +1486,7 @@ function IntegrityScanSection() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
-      addToast(`Integrity scan failed: ${msg}`, 'error');
+      showError('MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it.', e);
     } finally {
       setRunning(false);
     }
@@ -1500,7 +1518,11 @@ function IntegrityScanSection() {
         changes nothing.
       </p>
       {error && (
-        <p className="text-xs text-status-error-text mb-2">{error}</p>
+        <InlineError
+          message="MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it."
+          details={error}
+          className="mb-2"
+        />
       )}
       {report && (
         <div className="mt-2">
@@ -1703,10 +1725,7 @@ function DiagnosticBundleSection() {
       });
       setBundle(result);
     } catch (e) {
-      addToast(
-        `Diagnostic bundle failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not put the diagnostic report together. Try again; if it keeps happening, restart MeedyaDL.', e);
     } finally {
       setBusy(false);
     }
@@ -1718,10 +1737,7 @@ function DiagnosticBundleSection() {
       await navigator.clipboard.writeText(bundle.markdown_body);
       addToast('Bundle copied to clipboard.', 'success');
     } catch (e) {
-      addToast(
-        `Copy failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not copy the report. Select the report text and copy it with Cmd/Ctrl+C instead.', e);
     }
   };
 
@@ -1731,10 +1747,7 @@ function DiagnosticBundleSection() {
       const { open } = await import('@tauri-apps/plugin-shell');
       await open(bundle.github_issue_url);
     } catch (e) {
-      addToast(
-        `Failed to open browser: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not open your web browser. Copy the report instead, and paste it into a new issue on GitHub yourself.', e);
     }
   };
 
@@ -1863,10 +1876,7 @@ function WrapperSignInSection() {
       await wrapperSignOut();
       addToast('Signed out of wrapper.', 'success');
     } catch (err) {
-      addToast(
-        `Sign-out failed: ${err instanceof Error ? err.message : String(err)}`,
-        'error',
-      );
+      showError('MeedyaDL could not sign out of the wrapper. Check that the wrapper is running, then try again.', err);
     } finally {
       setSigningOut(false);
       refreshStatus();
@@ -1944,7 +1954,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
   /** Instructional text shown on the 2FA step (echoes the daemon's `message`). */
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   /** Inline failure text -- from a `failed`/`error` result OR a thrown/rejected call. */
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<{ message: string; details: string | null } | null>(null);
   /** True while a sign-in or 2FA request is in flight; disables the submit button. */
   const [submitting, setSubmitting] = useState(false);
 
@@ -1987,9 +1997,14 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       );
       return;
     }
-    // 'failed' | 'error' -- stay open, surface the daemon's message inline.
+    // 'failed' | 'error' -- stay open, show the daemon's message inline
+    // (its own words when they are a plain sentence; see explainError).
     setInfoMessage(null);
-    setErrorMessage(result.message ?? 'Sign-in failed. Please try again.');
+    setErrorMessage(
+      result.message
+        ? explainError(WRAPPER_SIGN_IN_FAILED, result.message)
+        : { message: 'Apple did not accept that sign-in. Check your Apple ID and password, then try again.', details: null },
+    );
   };
 
   const handleCredentialsSubmit = async (e: FormEvent) => {
@@ -2002,8 +2017,10 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       handleResult(result);
     } catch (err) {
       // Thrown/rejected call -- e.g. rate-limit Err(String) or the
-      // daemon being unreachable. Surface verbatim inline.
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      // daemon being unreachable. Shown inline: the backend's words when
+      // they are a plain sentence, otherwise a plain message with the
+      // technical text folded under "Details".
+      setErrorMessage(explainError(WRAPPER_SIGN_IN_FAILED, err));
     } finally {
       setSubmitting(false);
     }
@@ -2018,7 +2035,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       const result = await wrapperSubmit2fa(code.trim());
       handleResult(result);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      setErrorMessage(explainError(WRAPPER_SIGN_IN_FAILED, err));
     } finally {
       setSubmitting(false);
     }
@@ -2064,7 +2081,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
               under Sign-In and Security &gt; App-Specific Passwords.
             </p>
           </div>
-          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
+          {errorMessage && <InlineError {...errorMessage} />}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel
@@ -2096,7 +2113,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             placeholder="123456"
             required
           />
-          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
+          {errorMessage && <InlineError {...errorMessage} />}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel

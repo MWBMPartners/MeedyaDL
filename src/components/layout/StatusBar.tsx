@@ -51,7 +51,7 @@ import { useTranslation } from 'react-i18next';
  */
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useUiStore } from '@/stores/uiStore';
+import { ABORT_FAILED, showError } from '@/lib/errorMessages';
 
 /**
  * Translation keys (under `statusBar.actions.*`) for each after-queue
@@ -204,7 +204,6 @@ export function StatusBar() {
   const abortQueueConfirm = useSettingsStore(
     (s) => s.settings.abort_queue_confirm,
   );
-  const addToast = useUiStore((s) => s.addToast);
   const triggerAbort = useCallback(() => {
     if (abortQueueConfirm) {
       // `window.confirm` is a blocking native modal — acceptable here
@@ -215,8 +214,10 @@ export function StatusBar() {
       const confirmed = window.confirm(t('statusBar.abortConfirm'));
       if (!confirmed) return;
     }
-    void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
-  }, [abortAll, abortQueueConfirm, addToast, t]);
+    // abortAll reports its own failures (downloadStore); this catch is for
+    // anything that escapes it, worded the same way.
+    void abortAll().catch((e) => showError(ABORT_FAILED, e, { key: 'abort-failed' }));
+  }, [abortAll, abortQueueConfirm, t]);
 
   /**
    * Plain-English summary of the counters below, read aloud by a screen

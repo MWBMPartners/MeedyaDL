@@ -121,6 +121,7 @@ import { TemplatesTab } from './tabs/TemplatesTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { MetadataTab } from './tabs/MetadataTab';
 import { SpotifyTab } from './tabs/SpotifyTab';
+import { showError } from '@/lib/errorMessages';
 
 /**
  * Shape of a single tab entry in the TABS configuration array.
@@ -370,7 +371,7 @@ export function SettingsPage() {
       },
       {
         successMsg: 'Settings saved successfully',
-        errorMsg: 'Failed to save settings',
+        errorMsg: 'MeedyaDL could not save your settings, so your changes are not saved yet. Press Save Changes again.',
       },
     );
     if (!saved) return;
@@ -403,10 +404,9 @@ export function SettingsPage() {
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
     } catch (e) {
-      addToast(
-        `Failed to restart: ${e instanceof Error ? e.message : String(e)}. \
-Please quit and reopen MeedyaDL manually.`,
-        'error',
+      showError(
+        'MeedyaDL could not restart itself. Quit MeedyaDL and open it again to use the new setting.',
+        e,
       );
     }
   };
@@ -463,7 +463,7 @@ Please quit and reopen MeedyaDL manually.`,
           await resetToDefaults();
           return true;
         },
-        { errorMsg: 'Could not reset the settings' },
+        { errorMsg: 'MeedyaDL could not reset the settings. Try again; if it keeps happening, restart MeedyaDL.' },
       );
       if (!reset) return;
       addToast(

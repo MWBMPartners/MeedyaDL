@@ -84,9 +84,10 @@ import { useConfirmation } from '@/lib/useConfirmation';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { sourceLabel } from '@/lib/pm-source';
 
-import { Button, LoadingSpinner, FilePickerButton, SettingsSection, Modal } from '@/components/common';
+import { Button, LoadingSpinner, FilePickerButton, InlineError, SettingsSection, Modal } from '@/components/common';
 
 import { useState } from 'react';
+import { GAMDL_INSTALL_FAILED, explainError, showError } from '@/lib/errorMessages';
 
 /**
  * Maps tool names from the dependency store to their corresponding
@@ -190,7 +191,8 @@ export function ToolsTab() {
       },
       {
         successMsg: `${name} has been reinstalled.`,
-        errorMsg: (err) => `Could not reinstall ${name}. ${err instanceof Error ? err.message : String(err)}`,
+        // A working copy is never lost (#1225), so the message can say so.
+        errorMsg: `MeedyaDL could not reinstall ${name}. If your copy was working, it has been kept. Check your internet connection, then try again.`,
       },
     );
     // `installTool` already refreshes the tool list after a success. After
@@ -609,9 +611,13 @@ export function ToolsTab() {
       {/* Error display                                                 */}
       {/* ============================================================ */}
       {depError && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {depError}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not check or install a tool. Check your internet connection, then try again.',
+            depError
+          )}
+        />
       )}
     </div>
   );
@@ -751,10 +757,7 @@ function GamdlVersionManagement({
       addToast(`GAMDL v${installed} (recommended) installed successfully.`, 'success');
       await fetchAll();
     } catch (e) {
-      addToast(
-        `GAMDL install failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError(GAMDL_INSTALL_FAILED, e);
     } finally {
       setIsInstallingRecommended(false);
     }
@@ -770,10 +773,7 @@ function GamdlVersionManagement({
       setVersionInput('');
       await fetchAll();
     } catch (e) {
-      addToast(
-        `GAMDL install failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError(GAMDL_INSTALL_FAILED, e);
     } finally {
       setIsInstallingSpecific(false);
     }
@@ -944,10 +944,10 @@ function BackupManagement() {
       const list = await listBackups();
       setSnapshots(list);
     } catch (e) {
-      addToast(`Failed to list backups: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not list the saved backups. Open this tab again to retry.', e);
       setSnapshots([]);
     }
-  }, [addToast]);
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -963,7 +963,7 @@ function BackupManagement() {
       );
       await refresh();
     } catch (e) {
-      addToast(`Snapshot failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not make a backup. Check there is free space on this computer, then try again.', e);
     } finally {
       setBusy(false);
     }
@@ -981,7 +981,7 @@ function BackupManagement() {
         'warning',
       );
     } catch (e) {
-      addToast(`Restore failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not restore that backup. Try again; the details say what went wrong.', e);
     } finally {
       setBusy(false);
     }
@@ -1004,7 +1004,7 @@ function BackupManagement() {
       addToast('Snapshot deleted.', 'info');
       await refresh();
     } catch (e) {
-      addToast(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not delete that backup. Try again in a moment.', e);
     } finally {
       setBusy(false);
     }

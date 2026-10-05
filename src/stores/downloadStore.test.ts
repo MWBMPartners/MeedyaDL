@@ -471,9 +471,13 @@ describe('downloadStore', () => {
       const total = await useDownloadStore.getState().abortAll();
       expect(total).toBe(0);
       const toasts = useUiStore.getState().toasts;
-      expect(toasts.some((t) => t.type === 'error' && t.message.includes('backend unavailable'))).toBe(
-        true,
-      );
+      // The message says what to do; the backend's words are under
+      // "Details" (polish pass M8).
+      expect(
+        toasts.some(
+          (t) => t.type === 'error' && t.message.includes('could not stop the downloads') && t.details === 'backend unavailable',
+        ),
+      ).toBe(true);
     });
 
     it('does not report a successful abort as failed when only the list refresh fails', async () => {
@@ -499,10 +503,11 @@ describe('downloadStore', () => {
       expect(commands.cancelDownload).toHaveBeenCalledWith('dl-1');
     });
 
-    it('sets error on failure', async () => {
+    it('sets error on failure and passes the failure on', async () => {
       vi.mocked(commands.cancelDownload).mockRejectedValueOnce('Cancel failed');
 
-      await useDownloadStore.getState().cancelDownload('dl-1');
+      // Passed on so the caller does not report "cancelled" (polish M8).
+      await expect(useDownloadStore.getState().cancelDownload('dl-1')).rejects.toBe('Cancel failed');
 
       expect(useDownloadStore.getState().error).toBe('Cancel failed');
     });
@@ -525,6 +530,12 @@ describe('downloadStore', () => {
 
       expect(commands.retryDownload).toHaveBeenCalledWith('dl-1');
       expect(useDownloadStore.getState().queueItems).toEqual(refreshedItems);
+    });
+
+    it('passes a refused retry on, so the caller can say why', async () => {
+      vi.mocked(commands.retryDownload).mockRejectedValueOnce('Every track is already on disk.');
+      await expect(useDownloadStore.getState().retryDownload('dl-1')).rejects.toBe('Every track is already on disk.');
+      expect(useDownloadStore.getState().error).toBe('Every track is already on disk.');
     });
   });
 
@@ -983,7 +994,7 @@ describe('downloadStore', () => {
 
       await vi.waitFor(() => {
         expect(
-          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('Failed to re-queue'))
+          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('could not put back'))
         ).toBe(true);
       });
     });
