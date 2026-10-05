@@ -142,8 +142,9 @@ did not change.
   by a function never given the value (round 5). A stored non-tag value reaches
   GAMDL's command line with the same NUL/CR/LF removed as the `config.ini` line.
 - Music-video subtitle extraction writes ffmpeg's output to a short,
-  exclusively created temporary file (`.meedyadl-partial-<pid>-<n>.srt`) and
-  publishes it under the real name without ever overwriting: a hard link; on
+  exclusively created temporary file (`.meedyadl-partial-<pid>-<random>.srt`,
+  64 random bits, so a name never repeats; it was a counter from 0, which
+  handed a just-removed name to the next extraction) and publishes it under the real name without ever overwriting: a hard link; on
   a drive without hard links the system's one-step rename-only-if-free
   (`fs_safe::rename_no_replace`; FAT32 on a Mac); and where that is refused
   too (exFAT on a Mac, which refuses it whenever the name is free) a copy
@@ -159,7 +160,12 @@ did not change.
   clock proves nothing about who owns a file (Codex's review of rounds 6-7).
   The next extraction in that folder writes one activity-log line saying
   how many it found, where, and that they are safe to delete once no
-  MeedyaDL is saving subtitles there. Failed removals are reported. The fake ffmpeg
+  MeedyaDL is saving subtitles there. A run removes its own temporary file
+  only if the name still shows the identity recorded from the creating
+  handle (held open meanwhile); otherwise it leaves and reports it. The
+  check and the removal are two steps, so a replacement made in the instant
+  between them would still be removed (Codex's review of rounds 6-7,
+  finding 2). Failed removals are reported. The fake ffmpeg
   in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).

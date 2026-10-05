@@ -23,9 +23,11 @@
 // 3. For each stream, invoke ffmpeg to copy/convert it into that sidecar
 //    next to the video — unless the sidecar is already there, under its
 //    new name or the name an older MeedyaDL gave it. ffmpeg writes to a
-//    short temporary file (`.meedyadl-partial-<pid>-<n>.srt`), which is
-//    put in place only if the real name is still free, never replacing
-//    anything (see `publish_with`). Temporary files that another run, or
+//    short temporary file with a random part
+//    (`.meedyadl-partial-<pid>-<random>.srt`), which is put in place only
+//    if the real name is still free, never replacing anything (see
+//    `publish_with`), and is removed only while it is still the file this
+//    run made (`remove_temporary`). Temporary files that another run, or
 //    an earlier forcibly stopped one, left in the folder are never removed:
 //    they are counted and reported (`report_leftover_temporaries`).
 // 4. Best-effort: failures are logged but never affect the success of
@@ -334,7 +336,9 @@ const TEMP_PREFIX: &str = ".meedyadl-partial-";
 
 /// True when `name` has the shape of one of this app's temporary subtitle
 /// names: `.meedyadl-partial-`, then digits (a process id), `-`, then
-/// lower-case hexadecimal digits, then `.srt` or `.vtt`.
+/// lower-case hexadecimal digits (the random part; earlier builds of this
+/// branch put a plain counter there, which this also matches), then `.srt`
+/// or `.vtt`.
 ///
 /// Used ONLY to count such files for [`report_leftover_temporaries`]. A
 /// name proves nothing about who made a file (anyone can create one with
@@ -440,30 +444,87 @@ fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
     notices.push(notice);
 }
 
+/// A temporary subtitle file this run created, with what proves it is this
+/// run's own: the file's identity, read from the handle that created it
+/// (never from its name), and that handle, kept open until the file is
+/// removed or published.
+///
+/// The handle is held because a file's number (its identity) can be handed
+/// to a new file once the old one is gone -- Linux file systems often do so
+/// at once. While this run still holds the file open, the file still
+/// exists, so its number cannot have been given to anything else, and a
+/// name that shows this number is certainly still this run's file.
+struct OwnTemporary {
+    /// Where the file is: `.meedyadl-partial-<pid>-<random>.<ext>`.
+    path: PathBuf,
+    /// Which file it is, read from `handle` when it was created.
+    identity: crate::utils::fs_safe::FileIdentity,
+    /// The handle that created it (see above). Never read or written.
+    handle: std::fs::File,
+}
+
+/// How many times [`create_temp_sidecar`] tries a fresh random name when
+/// one is taken. With 64 random bits a clash is practically impossible, so
+/// more than one try means something odd is creating these names.
+const TEMP_NAME_TRIES: u32 = 8;
+
 /// Claims a temporary sidecar name, exclusively, next to the real one,
 /// keeping the real extension (ffmpeg picks the output format from it):
-/// `.meedyadl-partial-<pid>-<n>.{ext}`. Leading dot so it is not an
-/// ordinary-looking file, the process id so two MeedyaDL processes in one
-/// folder cannot collide, and a counter `<n>` tried upward in case a name is
-/// already taken (a leftover of a crashed run). `create_new` makes each
-/// attempt exclusive: a name that exists is never reused.
+/// `.meedyadl-partial-<pid>-<random>.{ext}`. A leading dot so it is not an
+/// ordinary-looking file; the process id; then 64 bits from the operating
+/// system's random source, as 16 hexadecimal digits. `create_new` makes
+/// each attempt exclusive: a name that exists is never taken over.
+///
+/// **A name never repeats** (Codex's review of rounds 6-7, finding 2). The
+/// part after the process id used to be a counter starting at 0, so the
+/// first temporary file of every extraction by one process had the SAME
+/// name: once one run had removed its file, the next extraction took that
+/// name again, and anything that had decided to remove the old file then
+/// removed the new one. A random part means a name is never handed out
+/// twice, and removal is checked against the file's identity anyway (see
+/// [`remove_temporary`]).
+///
+/// The file is opened for reading as well as writing only because Windows
+/// needs read access to report which file it is (`fs_safe::handle_identity`).
 ///
 /// **Short on purpose** (Codex's review of round 5, finding 5): it used to
 /// begin with the whole video name (`.{stem}.meedyadl-partial-…`), so a
 /// video whose name, and whose subtitle's name, fit the usual 255-character
 /// limit could still need a temporary name over it -- 270 characters for a
 /// 240-character video name -- and every extraction of it failed. At most
-/// about 50 characters now, whatever the video is called.
-fn create_temp_sidecar_path(parent: &Path, extension: &str) -> Result<PathBuf, String> {
+/// 49 characters now, whatever the video is called.
+fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, String> {
+    use rand::RngCore;
     let pid = std::process::id();
-    for n in 0..1000u32 {
-        let candidate = parent.join(format!("{TEMP_PREFIX}{pid}-{n}.{extension}"));
+    for _ in 0..TEMP_NAME_TRIES {
+        let mut random = [0u8; 8];
+        rand::rngs::OsRng.try_fill_bytes(&mut random).map_err(|e| {
+            format!("could not get a random temporary subtitle file name from the system: {e}")
+        })?;
+        let random = u64::from_le_bytes(random);
+        let candidate = parent.join(format!("{TEMP_PREFIX}{pid}-{random:016x}.{extension}"));
         match std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
             .create_new(true)
             .open(&candidate)
         {
-            Ok(_) => return Ok(candidate),
+            Ok(handle) => {
+                return match crate::utils::fs_safe::handle_identity(&handle) {
+                    Ok(identity) => Ok(OwnTemporary {
+                        path: candidate,
+                        identity,
+                        handle,
+                    }),
+                    // Without its identity this run could never prove the
+                    // file is its own, so it could never remove it.
+                    Err(e) => Err(format!(
+                        "created the temporary subtitle file {} but could not read which file \
+                         it is ({e}); it was left in place and can be deleted",
+                        candidate.display()
+                    )),
+                };
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => {
                 return Err(format!(
@@ -474,31 +535,82 @@ fn create_temp_sidecar_path(parent: &Path, extension: &str) -> Result<PathBuf, S
         }
     }
     Err(format!(
-        "no free temporary subtitle file name in {} after 1000 tries",
+        "no free temporary subtitle file name in {} after {TEMP_NAME_TRIES} tries",
         parent.display()
     ))
 }
 
-/// Removes a temporary file, and REPORTS a failure instead of ignoring it
-/// (Codex's review of round 5, finding 4): in the log, and as a notice for
-/// the activity log, naming the file so the person can delete it. A file
-/// that is already gone counts as removed.
-fn remove_temporary(path: &Path, notices: &mut Vec<String>) {
-    match std::fs::remove_file(path) {
-        Ok(()) => {}
+/// Removes this run's own temporary file -- but only after checking that
+/// the name still refers to the file this run created (Codex's review of
+/// rounds 6-7, finding 2): the identity found at the name now must match
+/// the identity recorded from the handle at creation. While this runs, the
+/// handle is still open (see [`OwnTemporary`]), so a match cannot be a new
+/// file that was given the old file's number.
+///
+/// - The name is gone: nothing to do (it counts as removed).
+/// - Same file: removed. A removal that fails is REPORTED, never ignored
+///   (Codex's review of round 5, finding 4): in the log, and as a notice
+///   for the activity log naming the file so the person can delete it.
+/// - A different file, or one whose identity cannot be read: LEFT ALONE,
+///   and reported. It may be another run's work.
+///
+/// **What this still cannot do: be one step.** The check and the removal
+/// are two operations, and no system offers "delete this name only if it
+/// is still this file" as one. A file that replaces this one in the
+/// instant between them would still be removed. Holding the handle closes
+/// only the other gap, a number being reused.
+fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
+    let OwnTemporary {
+        path,
+        identity,
+        handle,
+    } = temp;
+    match crate::utils::fs_safe::file_identity(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => {
+        Ok(now) if now.is_same_file(&identity) => match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                log::warn!(
+                    "Could not remove the temporary subtitle file {}: {e}",
+                    path.display()
+                );
+                notices.push(format!(
+                    "Could not remove the temporary file {} ({e}). It is left over from \
+                     saving a subtitle and can be deleted.",
+                    path.display()
+                ));
+            }
+        },
+        Ok(_) => {
             log::warn!(
-                "Could not remove the temporary subtitle file {}: {e}",
+                "Not removing {}: it is no longer the temporary subtitle file this run created",
                 path.display()
             );
             notices.push(format!(
-                "Could not remove the temporary file {} ({e}). It is left over from \
-                 saving a subtitle and can be deleted.",
+                "Left the file {} alone: it has the name of a temporary file MeedyaDL made \
+                 while saving a subtitle, but it is now a different file, which MeedyaDL did \
+                 not make.",
+                path.display()
+            ));
+        }
+        Err(e) => {
+            log::warn!(
+                "Not removing {}: could not check that it is still the temporary subtitle \
+                 file this run created: {e}",
+                path.display()
+            );
+            notices.push(format!(
+                "Left the temporary file {} in place: MeedyaDL could not check that it is \
+                 still the file it made while saving a subtitle ({e}). It can be deleted once \
+                 no copy of MeedyaDL is saving subtitles in that folder.",
                 path.display()
             ));
         }
     }
+    // Only now: until here the open handle kept the file's number from
+    // being given to another file.
+    drop(handle);
 }
 
 /// Publishes a finished temporary file under its real name WITHOUT ever
@@ -506,11 +618,11 @@ fn remove_temporary(path: &Path, notices: &mut Vec<String>) {
 /// of round 5, finding 3). See [`publish_with`] for how, and
 /// [`real_publish_operations`] for the operations it uses.
 fn publish_extracted_subtitle(
-    temp_path: &Path,
+    temp: OwnTemporary,
     final_path: &Path,
     notices: &mut Vec<String>,
 ) -> Result<ExtractOutcome, String> {
-    publish_with(temp_path, final_path, notices, &real_publish_operations())
+    publish_with(temp, final_path, notices, &real_publish_operations())
 }
 
 /// One file-system operation of the publish step, given the temporary
@@ -581,11 +693,12 @@ fn real_publish_operations(
 ///    why, and what they can do, in the activity log. Never a plain rename.
 ///
 /// Whatever happens, the temporary file is removed at the end (after a
-/// successful step 2 it is already gone). Any other failure of the link
-/// (no permission, disk full), or of step 2, is a real failure and is
-/// reported as one; it does not try the next step.
+/// successful step 2 it is already gone) -- if it is still the file this
+/// run made (see [`remove_temporary`]). Any other failure of the link (no
+/// permission, disk full), or of step 2, is a real failure and is reported
+/// as one; it does not try the next step.
 fn publish_with<L, R, C>(
-    temp_path: &Path,
+    temp: OwnTemporary,
     final_path: &Path,
     notices: &mut Vec<String>,
     operations: &PublishOperations<L, R, C>,
@@ -596,33 +709,35 @@ where
     C: Fn(&Path, &Path) -> std::io::Result<()>,
 {
     use crate::utils::fs_safe::{is_hard_link_unsupported, is_no_replace_rename_unsupported};
-    let link_error = match (operations.hard_link)(temp_path, final_path) {
+    let link_error = match (operations.hard_link)(&temp.path, final_path) {
         Ok(()) => {
-            remove_temporary(temp_path, notices);
+            remove_temporary(temp, notices);
             return Ok(ExtractOutcome::Written(final_path.to_path_buf()));
         }
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            remove_temporary(temp_path, notices);
+            remove_temporary(temp, notices);
             return Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()));
         }
         Err(e) => e,
     };
     if !is_hard_link_unsupported(&link_error) {
-        remove_temporary(temp_path, notices);
+        remove_temporary(temp, notices);
         return Err(format!(
             "could not publish the extracted subtitle to {}: {link_error}",
             final_path.display()
         ));
     }
-    match (operations.rename_no_replace)(temp_path, final_path) {
+    match (operations.rename_no_replace)(&temp.path, final_path) {
+        // The file now lives under the real name; dropping `temp` only
+        // closes this run's handle to it.
         Ok(()) => Ok(ExtractOutcome::Written(final_path.to_path_buf())),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-            remove_temporary(temp_path, notices);
+            remove_temporary(temp, notices);
             Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()))
         }
         Err(rename_error) if is_no_replace_rename_unsupported(&rename_error) => {
-            let copied = (operations.copy_to_new_file)(temp_path, final_path);
-            remove_temporary(temp_path, notices);
+            let copied = (operations.copy_to_new_file)(&temp.path, final_path);
+            remove_temporary(temp, notices);
             match copied {
                 Ok(()) => Ok(ExtractOutcome::Written(final_path.to_path_buf())),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -652,7 +767,7 @@ where
             }
         }
         Err(e) => {
-            remove_temporary(temp_path, notices);
+            remove_temporary(temp, notices);
             Err(format!(
                 "could not publish the extracted subtitle to {}: {e}",
                 final_path.display()
@@ -725,13 +840,13 @@ async fn extract_single_stream(
         &["-c:s", "srt"]
     };
 
-    let temp_path = create_temp_sidecar_path(parent, &stream.facts.extension)?;
+    let temp = create_temp_sidecar(parent, &stream.facts.extension)?;
 
     let mut cmd = Command::new(ffmpeg_path);
     cmd.arg("-nostdin")
         .arg("-loglevel")
         .arg("error")
-        // `-y` here, not `-n`: `temp_path` was just created by us
+        // `-y` here, not `-n`: the temporary file was just created by us
         // exclusively, so overwriting its empty placeholder is intended.
         // The no-overwrite promise does not weaken: ffmpeg is never given
         // the REAL name any more; that promise now lives in
@@ -742,18 +857,22 @@ async fn extract_single_stream(
         .arg("-map")
         .arg(format!("0:{}", stream.index));
     cmd.args(codec_args);
-    cmd.arg(&temp_path);
+    // ffmpeg opens this file again and empties it before writing (it does
+    // not delete and recreate it), so it stays the same file, with the
+    // identity recorded at creation; the real-ffmpeg test checks that no
+    // temporary file is left behind.
+    cmd.arg(&temp.path);
 
     let output = match cmd.output().await {
         Ok(output) => output,
         Err(e) => {
-            remove_temporary(&temp_path, notices);
+            remove_temporary(temp, notices);
             return Err(format!("ffmpeg spawn failed: {e}"));
         }
     };
 
     if !output.status.success() {
-        remove_temporary(&temp_path, notices);
+        remove_temporary(temp, notices);
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
             "ffmpeg exited with {}: {}",
@@ -762,7 +881,7 @@ async fn extract_single_stream(
         ));
     }
 
-    publish_extracted_subtitle(&temp_path, &sidecar_path, notices)
+    publish_extracted_subtitle(temp, &sidecar_path, notices)
 }
 
 /// Copy existing audio lyrics sidecars (TTML, LRC, SRT, VTT, ASS) alongside
@@ -1118,11 +1237,22 @@ mod tests {
 
         let ffmpeg = Path::new("ffmpeg");
         let ffprobe = Path::new("ffprobe");
-        let written = extract_subtitles_to_sidecars(ffprobe, ffmpeg, &video)
+        let report = extract_subtitles_to_sidecars(ffprobe, ffmpeg, &video)
             .await
-            .unwrap()
-            .written;
-        assert_eq!(written, 3);
+            .unwrap();
+        assert_eq!(report.written, 3);
+        // Real ffmpeg empties the temporary file and writes into it; it does
+        // not delete and recreate it. Otherwise the file would no longer be
+        // the one this run created, and would be left behind with a notice
+        // (Codex's review of rounds 6-7, finding 2).
+        assert!(report.notices.is_empty(), "{:?}", report.notices);
+        assert!(
+            !folder_listing(dir.path())
+                .iter()
+                .any(|n| n.starts_with(TEMP_PREFIX)),
+            "a temporary file was left: {:?}",
+            folder_listing(dir.path())
+        );
         for name in ["01 Title.en.srt", "01 Title.en.sdh.srt", "01 Title.und.srt"] {
             // The words, not just a file: given `-n`, ffmpeg 9.0.1 refuses
             // the extractor's empty placeholder and still exits with 0, so
@@ -1609,17 +1739,17 @@ mod tests {
         // The name becomes taken between the existence check and the
         // publish step: the other file wins, ours is thrown away.
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
         let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
         fs::write(&fin, "theirs").unwrap();
-        let outcome = publish_extracted_subtitle(&temp, &fin, &mut Vec::new());
+        let outcome = publish_extracted_subtitle(temp, &fin, &mut Vec::new());
         assert!(
             matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
             "{outcome:?}"
         );
         assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs");
-        assert!(!temp.exists());
+        assert!(!temp_path.exists());
     }
 
     // ── Publishing never overwrites, on any file system (Codex's review
@@ -1674,12 +1804,11 @@ mod tests {
             ("exFAT on a Mac", real_operations_as_on_mac_exfat()),
         ] {
             let dir = tempfile::tempdir().unwrap();
-            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let temp = own_temporary(dir.path(), "ours");
             let fin = dir.path().join("V.en.srt");
-            fs::write(&temp, "ours").unwrap();
             fs::write(&fin, "theirs").unwrap();
             let mut notices = Vec::new();
-            let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+            let outcome = publish_with(temp, &fin, &mut notices, &operations);
             assert!(
                 matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
                 "{drive}: {outcome:?}"
@@ -1697,11 +1826,10 @@ mod tests {
             ("exFAT on a Mac", real_operations_as_on_mac_exfat()),
         ] {
             let dir = tempfile::tempdir().unwrap();
-            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let temp = own_temporary(dir.path(), "ours");
             let fin = dir.path().join("V.en.srt");
-            fs::write(&temp, "ours").unwrap();
             let mut notices = Vec::new();
-            let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+            let outcome = publish_with(temp, &fin, &mut notices, &operations);
             assert!(
                 matches!(outcome, Ok(ExtractOutcome::Written(_))),
                 "{drive}: {outcome:?}"
@@ -1736,17 +1864,13 @@ mod tests {
             for round in 0..100 {
                 let dir = tempfile::tempdir().unwrap();
                 let fin = dir.path().join("V.en.srt");
-                let temps: Vec<PathBuf> = (0..2)
-                    .map(|i| {
-                        let temp = dir.path().join(format!(".meedyadl-partial-1-{i}.srt"));
-                        fs::write(&temp, format!("writer {i}")).unwrap();
-                        temp
-                    })
+                let temps: Vec<OwnTemporary> = (0..2)
+                    .map(|i| own_temporary(dir.path(), &format!("writer {i}")))
                     .collect();
                 let barrier = Barrier::new(2);
                 let outcomes: Vec<_> = std::thread::scope(|scope| {
                     let handles: Vec<_> = temps
-                        .iter()
+                        .into_iter()
                         .map(|temp| {
                             let (barrier, fin) = (&barrier, &fin);
                             scope.spawn(move || {
@@ -1797,9 +1921,8 @@ mod tests {
         // `EINVAL` (what Linux answers for a file system without
         // `RENAME_NOREPLACE`) leads to the third step, not to a failure.
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let temp = own_temporary(dir.path(), "ours");
         let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
         let mut notices = Vec::new();
         fn einval(_: &Path, _: &Path) -> std::io::Result<()> {
             Err(std::io::Error::from_raw_os_error(libc::EINVAL))
@@ -1808,7 +1931,7 @@ mod tests {
             rename_no_replace: einval as PublishOperation,
             ..real_operations_as_on_mac_exfat()
         };
-        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+        let outcome = publish_with(temp, &fin, &mut notices, &operations);
         assert!(
             matches!(outcome, Ok(ExtractOutcome::Written(_))),
             "{outcome:?}"
@@ -1824,9 +1947,8 @@ mod tests {
         // new file fails too (a full drive, say): nothing published, never
         // a plain rename, and the activity-log message says what to do.
         let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let temp = own_temporary(dir.path(), "ours");
         let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
         let mut notices = Vec::new();
         let operations = PublishOperations {
             hard_link: no_hard_links,
@@ -1835,7 +1957,7 @@ mod tests {
                 Err(std::io::Error::from(std::io::ErrorKind::StorageFull))
             },
         };
-        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+        let outcome = publish_with(temp, &fin, &mut notices, &operations);
         assert!(outcome.is_err(), "{outcome:?}");
         assert!(!fin.exists());
         assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
@@ -1862,9 +1984,9 @@ mod tests {
         };
         for link_works_as_on_exfat in [false, true] {
             let dir = tempfile::tempdir().unwrap();
-            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let temp = own_temporary(dir.path(), "ours");
+            let temp_path = temp.path.clone();
             let fin = dir.path().join("V.en.srt");
-            fs::write(&temp, "ours").unwrap();
             let (tried_rename, tried_copy) =
                 (std::cell::Cell::new(false), std::cell::Cell::new(false));
             let operations = PublishOperations {
@@ -1884,12 +2006,12 @@ mod tests {
                     Ok(())
                 },
             };
-            let outcome = publish_with(&temp, &fin, &mut Vec::new(), &operations);
+            let outcome = publish_with(temp, &fin, &mut Vec::new(), &operations);
             assert!(outcome.is_err(), "{outcome:?}");
             assert_eq!(tried_rename.get(), link_works_as_on_exfat);
             assert!(!tried_copy.get());
             assert!(!fin.exists());
-            assert!(!temp.exists());
+            assert!(!temp_path.exists());
         }
     }
 
@@ -1951,9 +2073,8 @@ mod tests {
         let dir = fresh("2-taken");
         let taken = dir.join("V.en.srt");
         fs::write(&taken, "mine").unwrap();
-        let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
-        fs::write(&temp, "ours").unwrap();
-        let outcome = publish_extracted_subtitle(&temp, &taken, &mut Vec::new());
+        let temp = own_temporary(&dir, "ours");
+        let outcome = publish_extracted_subtitle(temp, &taken, &mut Vec::new());
         eprintln!("2 taken: {outcome:?} {:?}", listing(&dir));
         if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
             || fs::read_to_string(&taken).unwrap() != "mine"
@@ -1968,10 +2089,9 @@ mod tests {
         let dir = fresh("2b-taken-copy");
         let taken = dir.join("V.en.srt");
         fs::write(&taken, "mine").unwrap();
-        let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
-        fs::write(&temp, "ours").unwrap();
+        let temp = own_temporary(&dir, "ours");
         let outcome = publish_with(
-            &temp,
+            temp,
             &taken,
             &mut Vec::new(),
             &real_operations_as_on_mac_exfat(),
@@ -2009,26 +2129,25 @@ mod tests {
         let mut outcomes_seen = std::collections::BTreeMap::new();
         for round in 0..40 {
             let fin = dir.join(format!("R{round}.en.srt"));
-            let temps: Vec<PathBuf> = (0..2)
-                .map(|i| {
-                    let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
-                    fs::write(&temp, format!("writer {i}")).unwrap();
-                    temp
-                })
+            let temps: Vec<OwnTemporary> = (0..2)
+                .map(|i| own_temporary(&dir, &format!("writer {i}")))
                 .collect();
+            let temp_paths: Vec<PathBuf> = temps.iter().map(|t| t.path.clone()).collect();
             let barrier = std::sync::Barrier::new(2);
-            let outs: Vec<_> = std::thread::scope(|scope| {
+            let (outs, notices): (Vec<_>, Vec<_>) = std::thread::scope(|scope| {
                 let handles: Vec<_> = temps
-                    .iter()
+                    .into_iter()
                     .map(|temp| {
                         let (barrier, fin) = (&barrier, &fin);
                         scope.spawn(move || {
                             barrier.wait();
-                            publish_extracted_subtitle(temp, fin, &mut Vec::new())
+                            let mut notices = Vec::new();
+                            let outcome = publish_extracted_subtitle(temp, fin, &mut notices);
+                            (outcome, notices)
                         })
                     })
                     .collect();
-                handles.into_iter().map(|h| h.join().unwrap()).collect()
+                handles.into_iter().map(|h| h.join().unwrap()).unzip()
             });
             let kinds: Vec<&str> = outs
                 .iter()
@@ -2042,9 +2161,10 @@ mod tests {
             let winners: Vec<usize> = (0..2).filter(|&i| kinds[i] == "written").collect();
             if winners.len() != 1
                 || fs::read_to_string(&fin).ok() != Some(format!("writer {}", winners[0]))
-                || temps.iter().any(|t| t.exists())
+                || temp_paths.iter().any(|t| t.exists())
+                || notices.iter().any(|n: &Vec<String>| !n.is_empty())
             {
-                problems.push(format!("5 race, round {round}: {outs:?}"));
+                problems.push(format!("5 race, round {round}: {outs:?} {notices:?}"));
             }
         }
         eprintln!("5 race: {outcomes_seen:?}");
@@ -2064,16 +2184,193 @@ mod tests {
         assert!(problems.is_empty(), "{problems:#?}");
     }
 
+    /// A temporary file of this run's own, holding `text`. Created the way
+    /// the app creates one (`create_temp_sidecar`), so it carries the
+    /// identity a later removal is checked against; then filled in place,
+    /// as ffmpeg fills it.
+    fn own_temporary(dir: &Path, text: &str) -> OwnTemporary {
+        let temp = create_temp_sidecar(dir, "srt").unwrap();
+        fs::write(&temp.path, text).unwrap();
+        temp
+    }
+
+    /// The part of a temporary name after the process id and before the
+    /// extension.
+    fn random_part(temp: &OwnTemporary) -> String {
+        let name = temp
+            .path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let prefix = format!("{TEMP_PREFIX}{}-", std::process::id());
+        name.strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_suffix(".srt"))
+            .unwrap_or_else(|| panic!("unexpected temporary name {name}"))
+            .to_string()
+    }
+
     #[test]
-    fn temporary_names_are_exclusive_short_and_keep_the_extension() {
+    fn temporary_names_are_exclusive_short_random_and_keep_the_extension() {
         let dir = tempfile::tempdir().unwrap();
-        let a = create_temp_sidecar_path(dir.path(), "srt").unwrap();
-        let b = create_temp_sidecar_path(dir.path(), "srt").unwrap();
-        assert_ne!(a, b);
-        assert!(a.extension().is_some_and(|e| e == "srt"));
-        let name = a.file_name().unwrap().to_string_lossy().into_owned();
-        let pid = std::process::id();
-        assert_eq!(name, format!(".meedyadl-partial-{pid}-0.srt"));
-        assert!(name.len() <= 50, "{name}");
+        let temps: Vec<OwnTemporary> = (0..20)
+            .map(|_| create_temp_sidecar(dir.path(), "srt").unwrap())
+            .collect();
+        let mut names = std::collections::BTreeSet::new();
+        for temp in &temps {
+            let name = temp
+                .path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert!(temp.path.extension().is_some_and(|e| e == "srt"), "{name}");
+            assert!(name.len() <= 49, "{name}");
+            assert!(is_temporary_name(&name), "{name}");
+            let random = random_part(temp);
+            assert_eq!(random.len(), 16, "64 random bits as 16 hex digits: {name}");
+            assert!(
+                random
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()),
+                "{name}"
+            );
+            names.insert(name);
+        }
+        assert_eq!(names.len(), temps.len(), "a name repeated: {names:?}");
+    }
+
+    /// Codex's review of rounds 6-7, finding 2: the part after the process
+    /// id was a counter starting at 0, so once a run had removed its
+    /// temporary file, the next extraction got the very same name. Now a
+    /// removed name is not handed out again.
+    #[test]
+    fn a_removed_temporary_name_is_not_given_out_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = create_temp_sidecar(dir.path(), "srt").unwrap();
+        let first_path = first.path.clone();
+        let mut notices = Vec::new();
+        remove_temporary(first, &mut notices);
+        assert!(!first_path.exists());
+        assert!(notices.is_empty(), "{notices:?}");
+        for _ in 0..20 {
+            let next = create_temp_sidecar(dir.path(), "srt").unwrap();
+            assert_ne!(
+                next.path, first_path,
+                "the removed name was given out again"
+            );
+            remove_temporary(next, &mut notices);
+        }
+        assert!(notices.is_empty(), "{notices:?}");
+    }
+
+    /// The reviewer's sequence (Codex's review of rounds 6-7, finding 2):
+    /// a run has decided its temporary file can go -- here, just after the
+    /// hard link has published it -- and before the removal happens, its
+    /// temporary name is taken by a NEW file (another run's new temporary,
+    /// say). The new file must survive: the removal is checked against the
+    /// identity recorded when this run created its own file.
+    #[test]
+    fn a_new_file_that_took_the_temporary_name_meanwhile_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let fin = dir.path().join("V.en.srt");
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        let operations = PublishOperations {
+            hard_link: |from: &Path, to: &Path| {
+                fs::hard_link(from, to)?;
+                // In between: the old name is let go of and a new file is
+                // created under it.
+                fs::remove_file(from).unwrap();
+                fs::write(from, "another run's new temporary").unwrap();
+                Ok(())
+            },
+            rename_no_replace: real_publish_operations().rename_no_replace,
+            copy_to_new_file: real_publish_operations().copy_to_new_file,
+        };
+        let mut notices = Vec::new();
+        let outcome = publish_with(temp, &fin, &mut notices, &operations);
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::Written(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "ours");
+        assert_eq!(
+            fs::read_to_string(&temp_path).ok().as_deref(),
+            Some("another run's new temporary"),
+            "the new file under the temporary name was deleted"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("Left the file"), "{notices:?}");
+        assert!(notices[0].contains("did not make"), "{notices:?}");
+    }
+
+    /// The same check on every path that removes a temporary file: the
+    /// file moved away and replaced by another one under the same name
+    /// before a failed extraction tidies up.
+    #[test]
+    fn a_replaced_temporary_file_is_never_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        fs::rename(&temp_path, dir.path().join("moved")).unwrap();
+        fs::write(&temp_path, "someone else's").unwrap();
+        let mut notices = Vec::new();
+        remove_temporary(temp, &mut notices);
+        assert_eq!(fs::read_to_string(&temp_path).unwrap(), "someone else's");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("moved")).unwrap(),
+            "ours"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+    }
+
+    /// When the name cannot be checked at all, the file is left in place and
+    /// that is reported. Made unreadable by taking away permission to look
+    /// inside the folder (Unix; skipped when running as the superuser, who
+    /// may look anyway).
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_that_cannot_be_checked_is_left_and_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o600)).unwrap();
+        let blocked = fs::symlink_metadata(&temp_path).is_err();
+        let mut notices = Vec::new();
+        remove_temporary(temp, &mut notices);
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may look inside a folder without permission");
+            return;
+        }
+        assert!(temp_path.exists());
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("could not check"), "{notices:?}");
+    }
+
+    /// A removal that fails is reported, never ignored (Codex's review of
+    /// round 5, finding 4). Made to fail by taking away permission to
+    /// change the folder (Unix; skipped as the superuser).
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_that_cannot_be_removed_is_reported() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        let blocked = fs::write(dir.path().join("probe"), "").is_err();
+        let mut notices = Vec::new();
+        remove_temporary(temp, &mut notices);
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may change a read-only folder");
+            return;
+        }
+        assert!(temp_path.exists());
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("Could not remove"), "{notices:?}");
     }
 }

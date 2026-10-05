@@ -490,7 +490,8 @@ pbkdf2 = { version = "0.12", features = ["hmac"] }
 # rand -- Cryptographically secure random number generator. Used to
 # produce salt (32 bytes) + GCM nonce (12 bytes) on every encrypt.
 # `OsRng` reads from the OS entropy pool — no userspace state to
-# leak.
+# leak. Also gives the random part of temporary subtitle file names
+# (64 bits from `OsRng`), so a name is never handed out twice.
 rand = "0.8"
 
 # ---- Platform Directories ----
@@ -720,8 +721,10 @@ libc = "0.2"
 # `MOVEFILE_REPLACE_EXISTING` (Rust's own rename passes that flag, so it
 # replaces). The same crate and version are already in the dependency tree
 # through Tauri; this only names the parts used. File information (in
-# `Win32_Storage_FileSystem`) tells which file a name refers to
-# (`utils::fs_safe::file_identity`). `Win32_System_Threading` (asking
+# `Win32_Storage_FileSystem`) tells which file a name, or an open handle,
+# refers to (`utils::fs_safe::file_identity`, `handle_identity`), so a
+# temporary subtitle file is deleted only while it is still the one
+# MeedyaDL made (Codex's review of rounds 6-7, finding 2). `Win32_System_Threading` (asking
 # whether a process is still running) was dropped with the clean-up of
 # other runs' temporary files that used it (Codex's review of rounds 6-7,
 # findings 3 and 4).

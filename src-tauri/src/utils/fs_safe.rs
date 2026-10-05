@@ -753,6 +753,22 @@ pub struct FileIdentity {
     pub links: u64,
 }
 
+impl FileIdentity {
+    /// True when both describe the same file: the same volume and the same
+    /// number on it. The number of names is left out on purpose, because
+    /// it changes when a name is added (a hard link) or removed.
+    ///
+    /// What this can prove depends on when the two were read. A file's
+    /// number can be handed to a NEW file once the old one is gone (Linux
+    /// file systems often do this at once), so a match proves "the same
+    /// file" only while the first file certainly still exists -- for
+    /// example while a handle to it is held open, as the callers here do.
+    #[must_use]
+    pub fn is_same_file(&self, other: &FileIdentity) -> bool {
+        self.device == other.device && self.index == other.index
+    }
+}
+
 /// The [`FileIdentity`] of the regular file at `path`, without following
 /// a symbolic link (a link's own identity, never its target's).
 ///
@@ -777,10 +793,7 @@ fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
 #[cfg(windows)]
 fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
     use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
-    use windows_sys::Win32::Storage::FileSystem::{
-        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_OPEN_REPARSE_POINT,
-    };
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
     // Opened for no access at all (just to ask about it), sharing
     // everything, and not following a reparse point (a link).
     let file = std::fs::OpenOptions::new()
@@ -788,6 +801,17 @@ fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
         .share_mode(7)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
         .open(path)?;
+    identity_of_open_windows_file(&file)
+}
+
+/// The identity of an open file on Windows, shared by [`file_identity`] and
+/// [`handle_identity`].
+#[cfg(windows)]
+fn identity_of_open_windows_file(file: &std::fs::File) -> std::io::Result<FileIdentity> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
     // SAFETY: an all-zero BY_HANDLE_FILE_INFORMATION is a valid value
     // (plain numbers and times).
     let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
@@ -806,6 +830,45 @@ fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
 
 #[cfg(not(any(unix, windows)))]
 fn file_identity_impl(_path: &Path) -> std::io::Result<FileIdentity> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "no known way to identify a file here",
+    ))
+}
+
+/// The [`FileIdentity`] of the file `file` is open on, read from the handle
+/// itself rather than from a name -- so it is certainly the file that was
+/// opened (or created), whatever has since happened to its name.
+///
+/// On Windows the handle must have been opened with read access (Windows
+/// asks for permission to read a file's attributes); the callers here open
+/// their files for reading as well as writing for that reason.
+///
+/// # Errors
+/// Any error reading it; [`std::io::ErrorKind::Unsupported`] on a system
+/// with no known way to ask.
+pub fn handle_identity(file: &std::fs::File) -> std::io::Result<FileIdentity> {
+    handle_identity_impl(file)
+}
+
+#[cfg(unix)]
+fn handle_identity_impl(file: &std::fs::File) -> std::io::Result<FileIdentity> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = file.metadata()?;
+    Ok(FileIdentity {
+        device: meta.dev(),
+        index: meta.ino(),
+        links: meta.nlink(),
+    })
+}
+
+#[cfg(windows)]
+fn handle_identity_impl(file: &std::fs::File) -> std::io::Result<FileIdentity> {
+    identity_of_open_windows_file(file)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn handle_identity_impl(_file: &std::fs::File) -> std::io::Result<FileIdentity> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "no known way to identify a file here",
@@ -1307,6 +1370,28 @@ mod tests {
     }
 
     // ── file_identity (Codex's review of round 5, finding 4) ───────────
+
+    /// The identity read from the handle that created a file matches what
+    /// its name shows, until the name is given to a different file.
+    #[test]
+    fn handle_identity_tells_the_created_file_from_a_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a");
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        let made = handle_identity(&file).unwrap();
+        assert!(file_identity(&path).unwrap().is_same_file(&made));
+        fs::rename(&path, dir.path().join("moved")).unwrap();
+        fs::write(&path, "replacement").unwrap();
+        assert!(!file_identity(&path).unwrap().is_same_file(&made));
+        assert!(file_identity(&dir.path().join("moved"))
+            .unwrap()
+            .is_same_file(&made));
+    }
 
     #[test]
     fn file_identity_sees_two_names_of_one_file() {
