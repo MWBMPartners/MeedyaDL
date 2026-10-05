@@ -1333,6 +1333,19 @@ on PRs to / pushes to main.
   - Low: separate commands combine into a false refusal.
   - Codex's earlier ten findings are all resolved except the notes.
   - **Round-6 builder running** (Opus, `brief-plugin-r6.md`), with a watchdog. Codex then moved straight on to core revision 11 (the chained script), and MeedyaDL rounds 6–7 follow it.
+- **MeedyaDL polish audit done (read-only, alpha at `0e515cb3`).** 8 high, 21 medium, 20 low, 5 nits; full report and 127 screenshots in the scratch folder `polish/` (`audit-report.md`).
+  - **High:**
+    - a raw programming error toast on every launch (translation set-up order);
+    - "Welcome to GAMDL";
+    - a developer crash screen;
+    - an unusable URL box and an off-screen Abort button at the minimum window size;
+    - Spotify offered to everyone and then refused;
+    - rclone and "direct-to-cloud" advertised with no code behind them;
+    - channel versions that disagree.
+  - **Work:** one effort branch, `feature/polish-pass`, cut from alpha and kept separate from the language branch.
+    - **Part A builder running** (Opus, `polish/brief-polish-a.md`), with a watchdog. It covers the pre-push check (`tools/audit-checks/check_polish.py`, `tools/hooks/pre-push`, installer, self-test) plus H1–H3, H6, H7, M1–M4, M9, M11, M14–M16, and the low items that need no browser.
+    - Part B follows: layout at small windows, error messages, bundle size and consistency.
+  - **Waiting on the maintainer:** H8 (the RC and beta branches carry versions older than stable), M18 (the GitHub repository's description, topics, homepage and social preview), M19 (the wiki: stale, and it publishes the developer-access key sequence), M21 (the releases page: a draft duplicate and inconsistent pre-release flags), L18 (the OnlyFans engine entry ships in every installer).
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
