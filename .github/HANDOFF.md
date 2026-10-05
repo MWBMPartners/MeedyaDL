@@ -1293,6 +1293,13 @@ on PRs to / pushes to main.
   - The maintainer's three queued requests ran first:
     - two instruction reviews, delivered in chat, nothing changed;
     - the polish audit of MeedyaDL, a read-only Opus auditor, with a watchdog.
+- **MeedyaDL round 7 pushed (`7d9806b4..e40fc0a7`, 10 commits, cherry-picked from the builder clone's `r7`; the code is identical).**
+  - It restores music-video subtitles on Mac exFAT drives with a third, never-replacing step, and has a real `Release-Note:`. It also fixes the clean-up age rule, the label clashes and the retry of a too-large call.
+  - My re-run: clippy clean, `cargo test` 2,199 passed, type-check clean, copy checker clean.
+  - vitest gave 937 of 938 in the full run under a load average of about 300. The one failure, `GeneralTab.test.tsx` "orders the Interface Language rows…", passed 3 of 3 alone. It waits with the default timeout, and that is recorded in `meedyadl-r7-carryover.md` item 2.
+  - Filed **#1267** (the Interface Language dropdown with `de-AT`).
+  - **Review:** the change can lose files, so it needs a round. Codex runs on rounds 6–7 straight after the core review, through the chained script `codex-chain-mdl7.sh`, with a watchdog.
+- **MeedyaConverter round 5 pushed (`6dfc16a..bbf2cd8`); CI green.** #531 has a comment. A stand-in review is running with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
