@@ -580,7 +580,7 @@ export function GeneralTab() {
       if (result.manifests_restored > 0)
         restored.push(`${result.manifests_restored} manifest(s)`);
       addToast(
-        `Profile imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to fully apply.`,
+        `Full copy imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to finish applying it.`,
         'success',
       );
       if (result.credentials_skipped_p4) {
@@ -623,7 +623,7 @@ export function GeneralTab() {
           : null,
       });
       addToast(
-        `Profile exported — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
+        `Full copy saved — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
         'success',
       );
       // Clear the password from component state immediately on
@@ -1035,10 +1035,14 @@ export function GeneralTab() {
       </SettingsSection>
 
       {/* Section: Backup */}
-      <SettingsSection title="Backup">
+      {/* Polish pass L13: three backup features had near-identical names
+          ("Backup" and "Profile Bundle" here, "Backups" in Tools). Each name
+          now says what it holds: Settings File (settings only), Full Copy of
+          MeedyaDL (everything you tick), and Automatic Snapshots (Tools). */}
+      <SettingsSection title="Settings File">
         <p className="text-xs text-content-secondary mb-2">
-          Export your settings to a file for backup or transfer to another device.
-          Sensitive fields (cookies, credentials) are excluded from the export.
+          Save just your settings to a file, or load them from one: to keep a copy, or to set up
+          another computer the same way. Cookies and other sign-in details are left out.
         </p>
         <div className="flex items-center gap-3">
           <Button
@@ -1063,9 +1067,9 @@ export function GeneralTab() {
       </SettingsSection>
 
       {/* Section: Profile Bundle (#876 P2) */}
-      <SettingsSection title="Profile Bundle">
+      <SettingsSection title="Full Copy of MeedyaDL">
         <p className="text-xs text-content-secondary mb-2">
-          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it with the Import Profile button below, or from the first-launch wizard.
+          Everything this copy of MeedyaDL holds — your settings, plus whichever parts you tick below — in one <code>.meedyabundle</code> file. Use it to move to a new computer, or keep one before a big change. To put it back, use Import Full Copy below, or open MeedyaDL for the first time on the new computer.
         </p>
         {/* Fix 10 (a11y audit): fieldset/legend say these checkboxes
             are one group ("which sections to include"), not a list of
@@ -1113,7 +1117,7 @@ export function GeneralTab() {
             loading={isExportingBundle}
             onClick={handleExportProfile}
           >
-            {isExportingBundle ? 'Exporting…' : 'Export Profile'}
+            {isExportingBundle ? 'Exporting…' : 'Export Full Copy'}
           </Button>
           <Button
             variant="secondary"
@@ -1122,7 +1126,7 @@ export function GeneralTab() {
             loading={isImportingBundle}
             onClick={handlePickImport}
           >
-            {isImportingBundle ? 'Importing…' : 'Import Profile'}
+            {isImportingBundle ? 'Importing…' : 'Import Full Copy'}
           </Button>
         </div>
       </SettingsSection>
@@ -1151,7 +1155,7 @@ export function GeneralTab() {
         <Modal
           open={true}
           onClose={() => setPendingImport(null)}
-          title="Restore from .meedyabundle"
+          title="Restore a Full Copy"
           maxWidth="max-w-xl"
         >
           <div className="space-y-3 text-sm">
@@ -1183,7 +1187,7 @@ export function GeneralTab() {
                       decorative -- the sentence itself already says
                       "not MeedyaDL", so a screen reader doesn't need
                       the symbol read out loud first. */}
-                  <span aria-hidden="true">⚠</span> This bundle was produced by{' '}
+                  <span aria-hidden="true">⚠</span> This file was made by{' '}
                   <span className="font-mono">{pendingImport.producer}</span>,
                   not MeedyaDL. The <code>.meedyabundle</code> extension is
                   shared across MeedyaSuite apps — sections from another
@@ -1198,7 +1202,7 @@ export function GeneralTab() {
               </p>
               {pendingImport.sections.length === 0 ? (
                 <p className="text-xs text-content-tertiary italic">
-                  This bundle contains settings only — no optional sections to choose from.
+                  This copy holds settings only — there is nothing else to choose.
                 </p>
               ) : (
                 // Fix 10 (a11y audit): same fieldset/legend fix as the
@@ -1226,8 +1230,8 @@ export function GeneralTab() {
                     type="password"
                     value={importPassword}
                     onChange={(e) => setImportPassword(e.target.value)}
-                    placeholder="The password used when this bundle was exported"
-                    description="Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores."
+                    placeholder="The password chosen when this copy was made"
+                    description="Needed to unlock the sign-in details (cookies, MusicKit key and web-player token). With a wrong password only those are skipped; everything else is still restored."
                   />
                 </div>
               )}

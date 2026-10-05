@@ -73,7 +73,6 @@ import {
   FileText, // Manual import icon
   Loader2, // Loading spinner
   ExternalLink, // External link icon (System Settings)
-  Info, // Info notice icon
   LogIn, // Sign-in icon for embedded browser login
 } from 'lucide-react';
 
@@ -599,8 +598,14 @@ export function CookiesStep() {
   }, [completeStep]);
 
   // --- Render ---
+  // Polish pass L7: at the default 1100x700 window this step was taller than
+  // the space between the progress bar and the footer, so "Import from file
+  // instead" and "Skip for Now" ended up under the footer. What brings them
+  // into view is the order (the two links straight after the choices, the
+  // notes after them, see below). space-y-4 adds margin: with three browsers
+  // listed the links end 38px above the footer (14px with space-y-6).
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div>
         <h1 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h1>
@@ -627,7 +632,6 @@ export function CookiesStep() {
           {!isLoginWindowOpen ? (
             /* Show the "Sign in" card when the login window is not open */
             <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
-              <p className="text-xs text-content-secondary">Sign in with your Apple Account:</p>
               <Button variant="primary" onClick={handleOpenLoginWindow} disabled={isImporting}>
                 <LogIn size={16} className="mr-2" />
                 Sign in with Apple Music
@@ -697,18 +701,6 @@ export function CookiesStep() {
           ) : (
             <div className="p-4 rounded-platform border border-border-light bg-surface-elevated text-sm text-content-secondary">
               No browsers detected. Please use the manual import option below.
-            </div>
-          )}
-
-          {/* macOS Keychain notice (shown for Chromium browsers on macOS) */}
-          {isMacOS && !showFdaPanel && !importResult && (
-            <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
-              <Info size={14} className="text-content-tertiary flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-content-secondary">
-                macOS may ask for your password when importing cookies from Chrome, Edge, or other
-                Chromium-based browsers. This is a standard macOS security prompt to access browser
-                data.
-              </p>
             </div>
           )}
 
@@ -843,20 +835,6 @@ export function CookiesStep() {
       )}
 
       {/* ================================================
-          Privacy Notice
-          ================================================ */}
-      {!isManualMode && (
-        <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
-          <Shield size={14} className="text-accent flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-content-secondary">
-            Only cookies for <span className="font-medium text-content-primary">apple.com</span> and{' '}
-            <span className="font-medium text-content-primary">mzstatic.com</span> are read. No
-            other browsing data is accessed.
-          </p>
-        </div>
-      )}
-
-      {/* ================================================
           Mode Toggle & Skip
           ================================================ */}
       <div className="flex gap-3">
@@ -890,6 +868,32 @@ export function CookiesStep() {
           Skip for Now
         </Button>
       </div>
+
+      {/* ================================================
+          What is read, and the Mac password prompt
+          One note, after the choices (polish pass L7). These used to be
+          two separate boxes ABOVE "Import from file instead" and "Skip for
+          Now", which pushed those two under the footer at the default
+          window size. They are reassurance, not steps, so they come last.
+          ================================================ */}
+      {!isManualMode && (
+        <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
+          <Shield size={14} className="text-accent flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-content-secondary">
+            Only Apple Music&apos;s own cookies (from{' '}
+            <span className="font-medium text-content-primary">apple.com</span> and{' '}
+            <span className="font-medium text-content-primary">mzstatic.com</span>) are read; nothing
+            else in your browser is touched.
+            {isMacOS && !showFdaPanel && !importResult && (
+              <>
+                {' '}
+                Importing from Chrome, Edge or another Chromium-based browser may make your Mac ask for
+                your password; that is macOS&apos;s own standard prompt.
+              </>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

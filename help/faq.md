@@ -14,7 +14,7 @@ Answers to the most commonly asked questions about MeedyaDL.
 
 ### What is MeedyaDL?
 
-MeedyaDL is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. MeedyaDL is open-source software developed by MeedyaSuite and released under the MIT License.
+MeedyaDL is a desktop app for Mac, Windows and Linux that downloads songs, albums, playlists, artists' discographies and music videos from Apple Music, with your choice of quality, format, lyrics and tags. Behind the scenes it uses GAMDL, a free download tool that is normally run by typing commands; MeedyaDL gives it windows and buttons instead, so you never have to. MeedyaDL is open-source software from MeedyaSuite, released under the MIT License.
 
 For more information, see [Getting Started](getting-started.md).
 

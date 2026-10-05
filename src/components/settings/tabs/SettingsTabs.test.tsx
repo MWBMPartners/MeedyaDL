@@ -203,6 +203,18 @@ beforeEach(() => {
 // GeneralTab
 // =============================================================================
 describe('GeneralTab', () => {
+  // Polish pass L13: three backup features had near-identical names
+  // ("Backup", "Profile Bundle", and "Backups" in Tools).
+  it('names the two ways to save settings by what each one holds', () => {
+    render(<GeneralTab />);
+    expect(screen.getByRole('button', { name: 'Settings File' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Full Copy of MeedyaDL' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export Full Copy/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Import Full Copy/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Profile Bundle|Export Profile|Import Profile/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
+  });
+
   // ===========================================================================
   // Toggle rendering -- initial state
   // ===========================================================================

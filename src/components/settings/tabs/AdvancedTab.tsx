@@ -524,24 +524,30 @@ export function AdvancedTab() {
   return (
     <div className="space-y-3">
       {/* ── Processing ── */}
-      <SettingsSection title="Processing" description="Download and remux tool selection.">
+      {/* Polish pass L8: each description opens with a plain sentence; the
+          technical words ("HLS", "remux") come after it, for the people who
+          look here for them. */}
+      <SettingsSection
+        title="Processing"
+        description="Which helper programs fetch and package your downloads. The defaults suit almost everyone."
+      >
         <Select
           label="Download Mode"
-          description="Which tool to use for downloading HLS streams"
+          description="Which helper program fetches the audio and video. Leave it on the default unless downloads keep failing. (Technically: the tool that downloads Apple's HLS streams.)"
           options={DOWNLOAD_MODE_OPTIONS}
           value={downloadMode.value}
           onChange={(e) => downloadMode.set(e.target.value as DownloadMode)}
         />
         <Select
           label="Remux Mode"
-          description="Which tool to use for video remuxing. MP4Box handles subtitle/CC tracks better."
+          description="Which helper program puts a music video's picture, sound and subtitles together into one file (remuxing). MP4Box keeps subtitles and captions more reliably."
           options={REMUX_MODE_OPTIONS}
           value={remuxMode.value}
           onChange={(e) => remuxMode.set(e.target.value as RemuxMode)}
         />
         <Select
-          label="GAMDL Idle Timeout"
-          description="Kill the GAMDL process if no output arrives for this many minutes. The watchdog pauses automatically once post-processing (remux / decrypt) begins, so this won't cut short a slow remux on a network volume."
+          label="Stop a Stalled Download After"
+          description="If the download tool shows no sign of progress for this many minutes, MeedyaDL stops it so the queue can move on. The timer pauses while a finished download is being decrypted and packaged, so a slow save to a network drive is not cut short."
           options={GAMDL_IDLE_TIMEOUT_OPTIONS}
           value={String(gamdlIdleTimeout.value)}
           onChange={(e) => gamdlIdleTimeout.set(Number(e.target.value))}

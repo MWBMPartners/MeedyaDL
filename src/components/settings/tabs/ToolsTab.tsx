@@ -105,11 +105,13 @@ const TOOL_PATH_KEYS: Record<string, string> = {
  * User-friendly descriptions for each tool's custom path override.
  */
 const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
-  FFmpeg: 'Audio/video processing and remuxing. Required for most operations.',
-  mp4decrypt: 'Decrypting DRM-protected streams (Bento4 toolkit).',
-  'N_m3u8DL-RE': 'HLS/DASH stream downloader. Used when download mode is set to N_m3u8DL-RE.',
-  MP4Box: 'MP4 muxing and remuxing (GPAC toolkit). Used when remux mode is set to MP4Box.',
-  MediaInfo: 'Accurate codec detection for the enrichment pipeline. Identifies Dolby Atmos, AC-3, ALAC, and AAC variants.',
+  // Plain words first (polish pass L8); each says what the tool does for
+  // you, then where in Settings it is chosen, if anywhere.
+  FFmpeg: 'Converts and packages audio and video. Needed for most downloads.',
+  mp4decrypt: 'Unlocks the protected files Apple Music sends (part of Bento4).',
+  'N_m3u8DL-RE': 'Fetches audio and video. Used when Settings > Advanced > Download Mode is set to N_m3u8DL-RE.',
+  MP4Box: 'Packages music videos into their final file (part of GPAC). Used when Settings > Advanced > Remux Mode is set to MP4Box.',
+  MediaInfo: 'Works out exactly which format each downloaded file is in, such as Dolby Atmos, AC-3, ALAC or AAC.',
 };
 
 /**
@@ -396,7 +398,7 @@ export function ToolsTab() {
       {/* ============================================================ */}
       <SettingsSection
         title="External Tools"
-        description="Required tools must be installed for downloads to work. Click a tool to configure a custom binary path."
+        description="Required tools must be installed for downloads to work. To use a copy of a tool that you installed yourself, open it with the arrow on its right."
       >
 
         {/* Action buttons */}
@@ -556,7 +558,7 @@ export function ToolsTab() {
                       <IconButton
                         size="sm"
                         onClick={() => togglePathExpanded(tool.name)}
-                        label="Configure custom binary path"
+                        label={`Use your own copy of ${tool.name}`}
                         aria-expanded={isExpanded}
                         icon={<ExpandChevron open={isExpanded} size={16} />}
                       />
@@ -568,8 +570,8 @@ export function ToolsTab() {
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
                       <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
                       <FilePickerButton
-                        label="Custom Path"
-                        description="Override the managed version with a custom binary. Leave empty to use the auto-installed version."
+                        label="Your Own Copy"
+                        description="Choose a copy of this tool that you installed yourself. Leave empty to use the copy MeedyaDL installs."
                         value={customPath}
                         onChange={(path) => setToolPath(tool.name, path)}
                         placeholder={placeholder}
@@ -939,7 +941,7 @@ function BackupManagement() {
       const list = await listBackups();
       setSnapshots(list);
     } catch (e) {
-      showError('MeedyaDL could not list the saved backups. Open this tab again to retry.', e);
+      showError('MeedyaDL could not list the saved snapshots. Open this tab again to retry.', e);
       setSnapshots([]);
     }
   }, []);
@@ -958,7 +960,7 @@ function BackupManagement() {
       );
       await refresh();
     } catch (e) {
-      showError('MeedyaDL could not make a backup. Check there is free space on this computer, then try again.', e);
+      showError('MeedyaDL could not take a snapshot. Check there is free space on this computer, then try again.', e);
     } finally {
       setBusy(false);
     }
@@ -976,7 +978,7 @@ function BackupManagement() {
         'warning',
       );
     } catch (e) {
-      showError('MeedyaDL could not restore that backup. Try again; the details say what went wrong.', e);
+      showError('MeedyaDL could not restore that snapshot. Try again; the details say what went wrong.', e);
     } finally {
       setBusy(false);
     }
@@ -999,7 +1001,7 @@ function BackupManagement() {
       addToast('Snapshot deleted.', 'info');
       await refresh();
     } catch (e) {
-      showError('MeedyaDL could not delete that backup. Try again in a moment.', e);
+      showError('MeedyaDL could not delete that snapshot. Try again in a moment.', e);
     } finally {
       setBusy(false);
     }
@@ -1007,8 +1009,8 @@ function BackupManagement() {
 
   return (
     <SettingsSection
-      title="Backups"
-      description="Snapshots include settings, queue, and history. A snapshot is taken automatically when MeedyaDL exits; only the most recent 10 are kept on disk."
+      title="Automatic Snapshots"
+      description="MeedyaDL keeps a snapshot of your settings, queue and history each time it closes, and you can take one at any time. Only the 10 most recent are kept."
     >
       <div className="space-y-3">
         <div className="flex items-center gap-2">

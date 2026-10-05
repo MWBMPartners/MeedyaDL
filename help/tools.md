@@ -34,7 +34,7 @@ Tools are automatically downloaded during first-time setup. After setup, go to *
 - **Check All** — refresh the status of all tools
 - **Install missing tools** — individually or all at once
 - **Reinstall** — every installed tool has a **Reinstall** button. It downloads the tool again, or uses a suitable copy already on your computer. If your copy came from a package manager (for example Homebrew or APT), it may ask that package manager to update it instead, which can ask for your password. It asks you first. If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept.
-- **Override paths** — click the chevron on any tool to set a custom binary path (e.g., if you have a system-wide installation you prefer)
+- **Use your own copy** — open any tool with the arrow on its right and choose a copy you installed yourself (for example, one installed for your whole computer that you prefer)
 
 If new tools are added in a future update, the Tools tab will show them as missing so you can install them.
 

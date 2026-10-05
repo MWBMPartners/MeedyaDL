@@ -143,15 +143,16 @@ export function SpotifyTab() {
       <div className="space-y-2 text-sm text-content-secondary">
         <p>
           <span className="font-medium text-content-primary">
-            This is the flagship anti-ban mitigation.
+            This is the most important account-safety setting.
           </span>{' '}
-          Without it, votify can finish an album in seconds — the
-          most obvious bot signature Spotify's heuristics look for.
+          Without it, a whole album can download in seconds, which is
+          the clearest sign to Spotify that a program, not a person,
+          is listening.
         </p>
         <p>
-          Leaving the throttle on is the safer choice. Only disable
-          it if you're on a throwaway account and you accept the
-          higher account-suspension risk.
+          Leaving it on is the safer choice. Only turn it off on an
+          account you can afford to lose, and accept that Spotify is
+          then more likely to suspend it.
         </p>
       </div>
     ),
@@ -236,7 +237,7 @@ export function SpotifyTab() {
       {/* ================================================================ */}
       <SettingsSection
         title="Session"
-        description="Pick how votify authenticates with Spotify. librespot works without a premium account and downloads Ogg Vorbis only. desktop and web both require a premium account and an external file you supply."
+        description="How MeedyaDL signs in to Spotify. The free option works without Premium but downloads Ogg Vorbis only; the other two need Premium and a file you supply yourself."
       >
         <Select
           label="Session type"
@@ -245,18 +246,18 @@ export function SpotifyTab() {
             patchSpotify({ session_type: e.target.value || null })
           }
           options={[
-            { value: 'librespot', label: 'librespot (free-tier, Vorbis only)' },
+            { value: 'librespot', label: 'Free account — Ogg Vorbis only' },
             {
               value: 'desktop',
-              label: 'desktop (premium + Spotify DLL — Windows-only FLAC)',
+              label: 'Premium, Windows only — FLAC (needs the Spotify app’s DLL file)',
             },
-            { value: 'web', label: 'web (premium + Widevine .wvd — cross-platform FLAC)' },
+            { value: 'web', label: 'Premium, any computer — FLAC (needs a Widevine .wvd file)' },
           ]}
         />
         {spotify.session_type === 'desktop' && (
           <FilePickerButton
             label="Spotify desktop DLL"
-            description="Path to the Spotify Windows desktop DLL (verified working: Spotify 1.2.88.483). User-supplied — MeedyaDL does not ship this file."
+            description="The DLL file from the Spotify app for Windows, which you supply; MeedyaDL does not include it. Tested with Spotify 1.2.88.483."
             value={spotify.spotify_dll_path}
             onChange={(v) => patchSpotify({ spotify_dll_path: v })}
             filters={[
@@ -267,7 +268,7 @@ export function SpotifyTab() {
         {spotify.session_type === 'web' && (
           <FilePickerButton
             label="Widevine .wvd"
-            description="Path to a Widevine .wvd file (extracted from rooted Android or via pywidevine). Required for FLAC on macOS / Linux. The acquisition path is intentionally not documented in-app — see the project wiki."
+            description="A Widevine device file (.wvd), which you supply. Needed for FLAC on a Mac or Linux. How to get one is deliberately not explained in the app; see the project wiki."
             value={spotify.wvd_path}
             onChange={(v) => patchSpotify({ wvd_path: v })}
             filters={[
@@ -277,7 +278,7 @@ export function SpotifyTab() {
         )}
         <FilePickerButton
           label="Cookies file (optional)"
-          description="Netscape-format cookies file for Spotify. Optional — leave empty unless votify reports a session error."
+          description="A cookies file exported from your browser while signed in to Spotify. Optional: leave it empty unless Spotify downloads fail to sign in."
           value={spotify.cookies_path}
           onChange={(v) => patchSpotify({ cookies_path: v })}
           filters={[{ name: 'Cookies', extensions: ['txt'] }]}
@@ -288,14 +289,14 @@ export function SpotifyTab() {
       {/* Section 2: Anti-ban safeguards                                   */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Anti-Ban Safeguards"
-        description="These knobs shape votify's traffic pattern to look more like a slow human listener. The defaults are designed to be safe — only disable them on a throwaway account that you accept could be suspended."
+        title="Account Safety"
+        description="These settings slow downloads to a listening pace, so Spotify is less likely to suspend your account. The defaults are the safe choice; turn them off only on an account you can afford to lose."
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1">
             <Toggle
               label="Real-time playback-speed throttle"
-              description="When on, each track download is paced to finish no faster than the track would play. The flagship mitigation."
+              description="Each track takes at least as long to download as it does to play. This is the most important of these settings."
               checked={antiBan.playback_speed_throttle_enabled}
               onChange={(checked) => {
                 if (checked) {
@@ -337,7 +338,7 @@ export function SpotifyTab() {
           <div className="flex-1">
             <Input
               label="Inter-track jitter (seconds)"
-              description="Maximum random jitter added on top of the base delay. Setting this to 0 removes the random component (don't — fixed intervals are an obvious bot signature)."
+              description="Up to this many extra seconds, chosen at random, on top of the pause above. Not recommended at 0: pauses of exactly the same length are an obvious sign of a program."
               type="number"
               min={0}
               max={600}

@@ -147,3 +147,14 @@ describe('ToolsTab -- Backups "Delete" confirmation', () => {
     expect(deleteBackup).not.toHaveBeenCalled();
   });
 });
+
+// Polish pass L13: "Backups" here was easy to confuse with the two ways of
+// saving in Settings > General. It is named for what it is.
+describe('ToolsTab -- the snapshots section name', () => {
+  it('is called Automatic Snapshots, and says when one is taken', async () => {
+    render(<ToolsTab />);
+    expect(await screen.findByRole('button', { name: 'Automatic Snapshots' })).toBeInTheDocument();
+    expect(screen.getByText(/each time it closes/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
+  });
+});

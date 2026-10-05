@@ -120,7 +120,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Chrome Web Store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies as a Netscape-format .txt file.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file somewhere you can find it (e.g., your Downloads folder).',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -142,7 +142,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Edge Add-ons store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies in Netscape format.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file to a location you can easily browse to.',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -153,7 +153,7 @@ const BROWSER_INSTRUCTIONS = [
       'Safari does not have a direct cookie export extension.',
       'Use a third-party tool like "Cookie Exporter" or export via developer tools.',
       'Alternatively, open music.apple.com in Chrome or Firefox to export cookies.',
-      'Ensure the exported file is in Netscape/Mozilla cookie format.',
+      'If the tool asks for a format, choose "Netscape" (the cookies.txt format).',
       'Use the "Browse" button below to select the exported file.',
     ],
   },
@@ -360,8 +360,8 @@ function BrowserInstructions() {
         <div className="border-t border-border-light px-4 pb-4 pt-2 space-y-2">
           {/* Introductory paragraph */}
           <p className="text-xs text-content-secondary mb-3">
-            Select your browser below for step-by-step instructions on how to export your Apple
-            Music cookies in Netscape format.
+            Select your browser below for step-by-step instructions on how to save your Apple Music
+            cookies to a cookies.txt file.
           </p>
 
           {/* One accordion panel per browser */}
@@ -925,15 +925,19 @@ export function CookiesTab() {
         <div className="flex items-start gap-3">
           <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
           <div className="text-sm text-content-secondary space-y-2">
+            {/* Polish pass L8: this box used to open with "You need a
+                Netscape-format cookies file", ahead of the one-click Sign in
+                below it. It now says the simple way first, and the
+                cookies-file route comes last on the page, for the people
+                who want it. */}
             <p>
-              GAMDL requires Apple Music cookies for authentication. You need a Netscape-format
-              cookies file exported from your browser.
+              MeedyaDL needs to sign in to Apple Music to download with your subscription. The
+              quickest way is <span className="font-medium text-content-primary">Sign in with Apple Music</span>,
+              just below.
             </p>
             <p>
-              Use a browser extension like{' '}
-              <span className="font-medium text-content-primary">cookies.txt</span> to export
-              cookies from <span className="font-medium text-content-primary">music.apple.com</span>{' '}
-              after logging in.
+              You can also import the sign-in from a browser where you are already signed in, or,
+              further down, use a cookies file you exported yourself.
             </p>
           </div>
         </div>
@@ -1135,6 +1139,9 @@ export function CookiesTab() {
           Collapsible accordion with per-browser step-by-step guides
           for exporting cookies in Netscape format.
           ============================================================ */}
+      {/* The cookies-file route, last: for people who prefer to export the
+          file themselves (polish pass L8). */}
+      <h3 className="text-xs font-medium text-content-primary pt-2">Or use a cookies file</h3>
       <BrowserInstructions />
 
       {/* ============================================================
@@ -1144,7 +1151,7 @@ export function CookiesTab() {
           ============================================================ */}
       <FilePickerButton
         label="Cookies File"
-        description="Path to the Netscape-format cookies.txt file"
+        description="The cookies.txt file you exported from your browser"
         value={cookiesPath.value}
         onChange={handleFileChange}
         placeholder="No cookies file selected"

@@ -57,6 +57,7 @@
 
 // Zustand stores: setupStore manages the wizard state machine;
 // SETUP_STEPS is the ordered array of step identifiers.
+import { useEffect, useRef, useState } from 'react';
 import { useSetupStore, SETUP_STEPS } from '@/stores/setupStore';
 
 // uiStore provides setShowSetupWizard to dismiss the wizard overlay.
@@ -145,6 +146,38 @@ export function SetupWizard() {
    * a switch statement.
    */
   const StepComponent = STEP_COMPONENTS[currentStep];
+
+  /**
+   * "There is more below" (polish pass L7). A step taller than the space
+   * between the progress bar and the footer scrolls, and before this the
+   * only sign was a row cut in half at the footer's edge, so "Import from
+   * file instead" and "Skip for Now" on the cookies step read as broken
+   * rather than as "scroll down". While the step can still scroll further,
+   * a fade is drawn over its bottom edge; it goes once the end is reached.
+   *
+   * Worked out from the real sizes on every scroll, and whenever the step
+   * or the window changes size (a ResizeObserver on both). Where the
+   * browser has no ResizeObserver (the test environment), it is worked out
+   * on scroll and when the step changes only.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // 4px of slack: a fraction of a pixel left over from rounding is not "more".
+    const update = () => setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(el);
+    if (contentRef.current) observer?.observe(contentRef.current);
+    return () => {
+      el.removeEventListener('scroll', update);
+      observer?.disconnect();
+    };
+  }, [currentStep]);
 
   /**
    * Derived navigation flags:
@@ -293,11 +326,21 @@ export function SetupWizard() {
         </div>
       </div>
 
-      {/* Step content */}
-      <div className="flex-1 overflow-y-auto px-8">
-        <div className="max-w-2xl mx-auto py-6">
-          <StepComponent />
+      {/* Step content. The outer box holds the scrolling area and the
+          "more below" fade drawn over its bottom edge (see moreBelow). */}
+      <div className="relative min-h-0 flex-1">
+        <div ref={scrollRef} className="h-full overflow-y-auto px-8">
+          <div ref={contentRef} className="max-w-2xl mx-auto py-6">
+            <StepComponent />
+          </div>
         </div>
+        {moreBelow && (
+          <div
+            data-testid="wizard-more-below"
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-surface-primary to-transparent"
+          />
+        )}
       </div>
 
       {/* Navigation buttons */}

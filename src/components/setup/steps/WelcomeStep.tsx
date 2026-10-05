@@ -124,7 +124,7 @@ export function WelcomeStep() {
         ['settings', ...bundle.summary.sections]
           .filter((s) => s !== 'credentials')
           .join(', ')
-      }.\n\nCredentials (if present) are NOT restored here — re-import them later from Settings > General > Profile Bundle.`,
+      }.\n\nSign-in details (if present) are NOT restored here — import the full copy again later from Settings > General > Full Copy of MeedyaDL.`,
     );
     if (!confirmed) return;
     setIsRestoringBundle(true);
@@ -207,8 +207,8 @@ export function WelcomeStep() {
             <Package size={18} className="text-accent flex-shrink-0 mt-0.5" />
             <div>
               <h2 className="text-sm font-semibold text-content-primary">
-                Found {discoveredBundles.length} previous-install bundle
-                {discoveredBundles.length === 1 ? '' : 's'}
+                Found {discoveredBundles.length === 1 ? 'a full copy' : `${discoveredBundles.length} full copies`} of
+                MeedyaDL from before
               </h2>
               <p className="text-xs text-content-secondary mt-0.5">
                 Restore your settings, queue, history, and library index in
