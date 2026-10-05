@@ -519,8 +519,10 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
 ///   delete it.
 /// - A different file, or one that cannot be checked: LEFT (put back where
 ///   it was), and reported. It may be another run's work.
-/// - A drive that cannot move a file aside without the risk of replacing
-///   another (an exFAT drive on a Mac, always): nothing is moved or deleted;
+/// - Where the one-step rename that refuses to replace is "not supported"
+///   (an exFAT drive on a Mac), the file is moved aside through an exclusive
+///   placeholder instead, so nothing is left behind there either.
+/// - A file that cannot be moved aside at all: nothing is moved or deleted;
 ///   the temporary file is left where it is and reported. Never deleted by
 ///   name instead.
 /// - Moved aside, not this run's, and its name taken again meanwhile: left
@@ -653,9 +655,8 @@ fn real_publish_operations(
 ///    (`fs_safe::copy_to_new_file`): created only if no file has that name,
 ///    filled, flushed, and on any failure deleted again only if it is proved
 ///    to be the file it made (`fs_safe::remove_if_still_ours`; a file put
-///    there meanwhile is left alone and the person told; on an exFAT drive
-///    on a Mac, which cannot move a file aside, it is left and the person
-///    told), so it too never replaces a file. Its limit,
+///    there meanwhile is left alone and the person told), so it too never
+///    replaces a file. Its limit,
 ///    which steps 1 and 2 do not have: a forced
 ///    stop (the app killed, the power lost) part-way through the copy
 ///    leaves a PARTLY written subtitle under the real name, and later runs
@@ -2129,34 +2130,31 @@ mod tests {
                 .filter(|n| n.starts_with(TEMP_PREFIX))
                 .collect()
         };
-        // Can this drive move a file aside -- rename it to a free name,
-        // refusing to replace? Files are deleted only after that (Codex's
-        // review of round 8, finding 1). An exFAT drive on a Mac cannot, so
-        // there nothing is deleted: each temporary file is left and
-        // reported.
+        // Which way does this drive move a file aside before deleting it
+        // (Codex's review of round 8, finding 1)? With the one-step rename
+        // that refuses to replace (APFS, FAT32), or, where that is "not
+        // supported" (an exFAT drive on a Mac, whenever the new name is
+        // free), through an exclusive placeholder. Either way nothing should
+        // be left behind; this only says which path the run below takes.
         let probe = fresh("0-probe");
         fs::write(probe.join("a"), "").unwrap();
-        let moves_aside = match rename_no_replace(&probe.join("a"), &probe.join("b")) {
+        let one_step = match rename_no_replace(&probe.join("a"), &probe.join("b")) {
             Ok(()) => true,
             Err(e) if is_no_replace_rename_unsupported(&e) => false,
-            Err(e) => panic!("could not tell whether this drive can move a file aside: {e}"),
+            Err(e) => panic!("could not tell how this drive renames: {e}"),
         };
-        eprintln!("this drive can move a file aside: {moves_aside}");
-        // What an extraction may leave besides its subtitle: nothing; or,
-        // where nothing can be moved aside, its temporary file(s), each with
-        // a notice naming it.
-        let left_as_expected = |dir: &Path, notices: &[String], temporaries_made: usize| {
-            let left = temporaries(dir);
-            if moves_aside {
-                left.is_empty() && notices.is_empty()
+        eprintln!(
+            "this drive moves a file aside {}",
+            if one_step {
+                "in one step"
             } else {
-                left.len() == temporaries_made
-                    && notices.len() == temporaries_made
-                    && notices
-                        .iter()
-                        .all(|n| n.contains("would not let it be moved aside"))
-                    && left.iter().all(|t| notices.iter().any(|n| n.contains(t)))
+                "through an exclusive placeholder"
             }
+        );
+        // An extraction leaves nothing besides its subtitle, and says
+        // nothing.
+        let nothing_left = |dir: &Path, notices: &[String]| -> bool {
+            temporaries(dir).is_empty() && notices.is_empty()
         };
         let tools = tempfile::tempdir().unwrap();
         let ffprobe = fake_ffprobe(tools.path());
@@ -2168,7 +2166,7 @@ mod tests {
         fs::write(dir.join("V.mp4"), "").unwrap();
         let report = extract_subtitles_to_sidecars(&ffprobe, &ffmpeg, &dir.join("V.mp4")).await;
         eprintln!("1 plain: {report:?} {:?}", listing(&dir));
-        if !matches!(&report, Ok(r) if r.written == 1 && left_as_expected(&dir, &r.notices, 1))
+        if !matches!(&report, Ok(r) if r.written == 1 && nothing_left(&dir, &r.notices))
             || fs::read_to_string(dir.join("V.en.srt")).ok().as_deref() != Some("1\nHello")
             || finished(&dir) != ["V.en.srt", "V.mp4"]
         {
@@ -2186,7 +2184,7 @@ mod tests {
         if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
             || fs::read_to_string(&taken).unwrap() != "mine"
             || finished(&dir) != ["V.en.srt"]
-            || !left_as_expected(&dir, &notices, 1)
+            || !nothing_left(&dir, &notices)
         {
             problems.push(format!("2 taken: {outcome:?} {:?}", listing(&dir)));
         }
@@ -2208,7 +2206,7 @@ mod tests {
         if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
             || fs::read_to_string(&taken).unwrap() != "mine"
             || finished(&dir) != ["V.en.srt"]
-            || !left_as_expected(&dir, &notices, 1)
+            || !nothing_left(&dir, &notices)
         {
             problems.push(format!("2b taken copy: {outcome:?} {:?}", listing(&dir)));
         }
@@ -2216,17 +2214,13 @@ mod tests {
         // 2c-2e. The third step's clean-up after a failed copy, made to fail
         //     by copying from a folder (which can be opened but not read).
         let not_a_file = fresh("2c-not-a-file");
-        // 2c: it deletes the file it made -- where the drive can move it
-        //     aside; elsewhere it leaves it, and says so.
+        // 2c: it deletes the file it made, and leaves nothing.
         let dir = fresh("2c-copy-fails");
         let to = dir.join("V.en.srt");
         let result = copy_to_new_file(&not_a_file, &to);
         eprintln!("2c failed copy: {result:?} {:?}", listing(&dir));
-        let as_expected = if moves_aside {
-            result.as_ref().is_err_and(|e| !left_a_file_in_place(e)) && listing(&dir).is_empty()
-        } else {
-            result.as_ref().is_err_and(left_a_file_in_place) && to.exists()
-        };
+        let as_expected =
+            result.as_ref().is_err_and(|e| !left_a_file_in_place(e)) && listing(&dir).is_empty();
         if !as_expected {
             problems.push(format!("2c failed copy: {result:?} {:?}", listing(&dir)));
         }
@@ -2253,8 +2247,7 @@ mod tests {
             ));
         }
         // 2e: a file put at the name AFTER the check, before the deletion,
-        //     survives (finding 1). Where nothing can be moved aside there is
-        //     no check: the copy's own file is left, and said so.
+        //     survives (finding 1), and the copy's own file is deleted.
         let dir = fresh("2e-copy-fails-replaced-after");
         let to = dir.join("V.en.srt");
         let result = copy_to_new_file_with(&not_a_file, &to, |_| {}, &mut |step| {
@@ -2266,13 +2259,9 @@ mod tests {
             "2e replaced after the check: {result:?} {:?}",
             listing(&dir)
         );
-        let as_expected = if moves_aside {
-            result.as_ref().is_err_and(|e| !left_a_file_in_place(e))
-                && fs::read_to_string(&to).ok().as_deref() == Some("somebody else's")
-                && listing(&dir) == ["V.en.srt"]
-        } else {
-            result.as_ref().is_err_and(left_a_file_in_place) && to.exists()
-        };
+        let as_expected = result.as_ref().is_err_and(|e| !left_a_file_in_place(e))
+            && fs::read_to_string(&to).ok().as_deref() == Some("somebody else's")
+            && listing(&dir) == ["V.en.srt"];
         if !as_expected {
             problems.push(format!("2e replaced after: {result:?} {:?}", listing(&dir)));
         }
@@ -2291,14 +2280,10 @@ mod tests {
             "2f temporary replaced after: {:?} {notices:?}",
             listing(&dir)
         );
-        let as_expected = if moves_aside {
-            fs::read_to_string(&temp_path).ok().as_deref() == Some("another run's new file")
-                && notices.is_empty()
-                && listing(&dir).len() == 1
-        } else {
-            fs::read_to_string(&temp_path).ok().as_deref() == Some("ours")
-                && left_as_expected(&dir, &notices, 1)
-        };
+        let as_expected = fs::read_to_string(&temp_path).ok().as_deref()
+            == Some("another run's new file")
+            && notices.is_empty()
+            && listing(&dir).len() == 1;
         if !as_expected {
             problems.push(format!("2f: {notices:?} {:?}", listing(&dir)));
         }
@@ -2316,16 +2301,14 @@ mod tests {
                 "{case}: {:?}",
                 report.as_ref().map(|r| (r.written, &r.notices))
             );
-            if !matches!(&report, Ok(r) if r.written == 1 && left_as_expected(&dir, &r.notices, 1))
-            {
+            if !matches!(&report, Ok(r) if r.written == 1 && nothing_left(&dir, &r.notices)) {
                 problems.push(format!("{case}: {report:?} {:?}", listing(&dir)));
             }
         }
 
         // 5. Forty rounds of two extractions publishing to one name at the
         //    same moment, with the real publish step: exactly one winner,
-        //    the winner's text in place, and the temporary files removed
-        //    (or, where nothing can be moved aside, left and reported).
+        //    the winner's text in place, and the temporary files removed.
         let dir = fresh("5-race");
         let mut outcomes_seen = std::collections::BTreeMap::new();
         for round in 0..40 {
@@ -2360,19 +2343,8 @@ mod tests {
                 .collect();
             *outcomes_seen.entry(kinds.join(" + ")).or_insert(0) += 1;
             let winners: Vec<usize> = (0..2).filter(|&i| kinds[i] == "written").collect();
-            let temporaries_as_expected = if moves_aside {
-                temp_paths.iter().all(|t| !t.exists())
-                    && notices.iter().all(|n: &Vec<String>| n.is_empty())
-            } else {
-                // A temporary file published by the one-step rename has
-                // moved to the real name; any other is left and reported.
-                notices.iter().zip(&temp_paths).all(|(n, t)| {
-                    !t.exists() && n.is_empty()
-                        || t.exists()
-                            && n.len() == 1
-                            && n[0].contains("would not let it be moved aside")
-                })
-            };
+            let temporaries_as_expected = temp_paths.iter().all(|t| !t.exists())
+                && notices.iter().all(|n: &Vec<String>| n.is_empty());
             if winners.len() != 1
                 || fs::read_to_string(&fin).ok() != Some(format!("writer {}", winners[0]))
                 || !temporaries_as_expected
@@ -2381,7 +2353,7 @@ mod tests {
             }
         }
         eprintln!("5 race: {outcomes_seen:?}");
-        if moves_aside && !temporaries(&dir).is_empty() {
+        if !temporaries(&dir).is_empty() {
             problems.push(format!("5 race: leftovers {:?}", temporaries(&dir)));
         }
 
@@ -2541,9 +2513,9 @@ mod tests {
         assert_eq!(notices.len(), 1, "{notices:?}");
     }
 
-    /// A temporary file that cannot be moved aside (an exFAT drive on a Mac
-    /// always refuses) is left where it is and reported -- never deleted by
-    /// name instead (Codex's review of round 8, finding 1). Made so here by
+    /// A temporary file that cannot be moved aside at all is left where it
+    /// is and reported -- never deleted by name instead (Codex's review of
+    /// round 8, finding 1). Made so here by
     /// taking away permission to change the folder (Unix; skipped as the
     /// superuser, who may change it anyway).
     #[cfg(unix)]
@@ -2646,6 +2618,61 @@ mod tests {
             notices[0].contains(&aside.display().to_string()),
             "{notices:?}"
         );
+    }
+
+    /// As on an exFAT drive on a Mac (the lead's decision after round 9):
+    /// the one-step rename that refuses to replace is "not supported", so
+    /// the temporary file is moved aside through an exclusive placeholder.
+    /// Publishing to a free or a taken name leaves only the subtitle (or the
+    /// file already there), and says nothing. Before, every temporary file
+    /// on such a drive was left behind and reported.
+    #[cfg(not(windows))]
+    #[test]
+    fn as_on_mac_exfat_publishing_leaves_nothing_behind() {
+        crate::utils::fs_safe::as_if_one_step_rename_were_unsupported(|| {
+            for taken in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let fin = dir.path().join("V.en.srt");
+                if taken {
+                    fs::write(&fin, "theirs").unwrap();
+                }
+                let mut notices = Vec::new();
+                let outcome = publish_with(
+                    own_temporary(dir.path(), "ours"),
+                    &fin,
+                    &mut notices,
+                    &real_operations_as_on_mac_exfat(),
+                );
+                let expected = if taken { "theirs" } else { "ours" };
+                assert!(outcome.is_ok(), "taken {taken}: {outcome:?}");
+                assert_eq!(fs::read_to_string(&fin).unwrap(), expected);
+                assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "taken {taken}");
+                assert!(notices.is_empty(), "taken {taken}: {notices:?}");
+            }
+        });
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn as_on_mac_exfat_a_file_put_at_the_temporary_name_after_the_check_survives() {
+        use crate::utils::fs_safe::RemovalStep;
+        crate::utils::fs_safe::as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let temp = own_temporary(dir.path(), "ours");
+            let temp_path = temp.path.clone();
+            let mut notices = Vec::new();
+            remove_temporary_with(temp, &mut notices, &mut |step| {
+                if let RemovalStep::AfterCheck { .. } = step {
+                    fs::write(&temp_path, "another run's new file").unwrap();
+                }
+            });
+            assert_eq!(
+                fs::read_to_string(&temp_path).unwrap(),
+                "another run's new file"
+            );
+            assert!(notices.is_empty(), "{notices:?}");
+            assert_eq!(folder_listing(dir.path()).len(), 1);
+        });
     }
 
     /// Codex's review of round 8, finding 1: the run has checked that the

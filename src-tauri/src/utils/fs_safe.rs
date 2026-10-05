@@ -795,10 +795,10 @@ fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
 ///   name, and nothing can then tell it from a finished one, so later runs
 ///   keep it. Hard links and [`rename_no_replace`] never leave a partial
 ///   file under the real name; use this only when neither is available.
-/// - Delete anything on a drive that cannot move a file aside without the
-///   risk of replacing another: an exFAT drive on a Mac. There a failed copy
-///   leaves its partly written file under the real name, reported, rather
-///   than delete by name. See [`remove_if_still_ours`] for its other limits.
+/// - Delete anything on a drive that cannot move a file aside at all, even
+///   through an exclusive placeholder. There a failed copy leaves its partly
+///   written file under the real name, reported, rather than delete by name.
+///   See [`remove_if_still_ours`] for its other limits.
 ///
 /// # Errors
 /// - [`std::io::ErrorKind::AlreadyExists`] when `to` is taken: nothing is
@@ -1256,9 +1256,8 @@ pub enum Removal {
     /// It could not be told whether the file was this run's own, so it is
     /// where it was (put back, on macOS and Linux).
     LeftUnchecked(std::io::Error),
-    /// The file could not be moved aside to be checked, so nothing was
-    /// moved or deleted. An exFAT drive on a Mac always refuses (it cannot
-    /// rename without replacing when the new name is free).
+    /// The file could not be moved aside to be checked -- not even through
+    /// an exclusive placeholder -- so nothing was moved or deleted.
     NotMovedAside(std::io::Error),
     /// Moved aside, found not to be this run's (or not checkable), and it
     /// could not be put back -- the name was taken again meanwhile -- so it
@@ -1291,7 +1290,10 @@ pub enum Removal {
 /// 1. the file is moved to a private name in the same folder, made of the
 ///    temporary prefix, fresh random bits and `.discard`
 ///    (`.meedyadl-partial-<pid>-<random>.discard`), with the rename that
-///    refuses to replace a file ([`rename_no_replace`]);
+///    refuses to replace a file ([`rename_no_replace`]), or, where that is
+///    "not supported" (an exFAT drive on a Mac, whenever the new name is
+///    free), through an exclusive placeholder at the private name
+///    ([`move_onto_private_placeholder`]);
 /// 2. the file now at the private name is compared with the file the handle
 ///    is on, both read at that moment ([`check_name_against_handle`]; this
 ///    works on a Mac's FAT32 drive too, which gives a file a new number when
@@ -1319,11 +1321,14 @@ pub enum Removal {
 ///   random and exists for a moment) and puts its own file there between
 ///   steps 2 and 3 would lose that file. No system offers "delete this
 ///   name only if it is still this file" as one step.
-/// - A drive that cannot rename without replacing gets nothing deleted:
-///   the file is left where it is ([`Removal::NotMovedAside`]). An exFAT
-///   drive on a Mac is such a drive whenever the new name is free, which a
-///   private name always is, so there every file this would delete is left
-///   and reported instead. This never falls back to deleting by name.
+/// - Where the one-step rename is "not supported", the placeholder steps
+///   have a gap of their own: a program that learns the private name could
+///   swap the placeholder between its creation and the rename onto it. The
+///   same gap, at the private name.
+/// - A drive that cannot move a file aside at all, not even through a
+///   placeholder, gets nothing deleted: the file is left where it is
+///   ([`Removal::NotMovedAside`]). This never falls back to deleting by
+///   name.
 /// - In the [`Removal::LeftAside`] case another program's file can end up
 ///   under the private name; the caller names both.
 /// - The Windows branch has been compiled for Windows but not run there.
@@ -1382,8 +1387,11 @@ fn remove_if_still_ours_impl(
     }
 }
 
-/// Moves `path` to a fresh private name in its folder, only if that name is
-/// free ([`rename_no_replace`]). `Ok(None)` when nothing has the name.
+/// Moves `path` to a fresh private name in its folder, never replacing a
+/// file: with the one-step [`rename_no_replace`], or, where that is "not
+/// supported" (an exFAT drive on a Mac, whenever the new name is free),
+/// through an exclusive placeholder ([`move_onto_private_placeholder`]).
+/// `Ok(None)` when nothing has the name.
 #[cfg(not(windows))]
 fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
     const TRIES: u32 = 8;
@@ -1397,7 +1405,13 @@ fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
             std::process::id(),
             random_name_part()?
         ));
-        match rename_no_replace(path, &aside) {
+        let moved = match one_step_rename_no_replace(path, &aside) {
+            Err(e) if is_no_replace_rename_unsupported(&e) => {
+                move_onto_private_placeholder(path, &aside)
+            }
+            other => other,
+        };
+        match moved {
             Ok(()) => return Ok(Some(aside)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             // Practically impossible with 64 random bits: try another.
@@ -1411,18 +1425,125 @@ fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
     ))
 }
 
+/// The move aside where the one-step no-replace rename is "not supported"
+/// (the lead's decision after round 9 measured that an exFAT drive on a Mac
+/// refuses it every time the new name is free, so that, without this, every
+/// temporary file there was left behind):
+/// 1. the private name `aside` (fresh random bits) is created exclusively
+///    (`create_new`), so the name is certainly this run's;
+/// 2. that empty placeholder is closed;
+/// 3. `path` is renamed onto it with an ordinary rename, which can only
+///    replace that placeholder.
+///
+/// If the rename fails (for example `path` has gone), nothing was moved, and
+/// the empty placeholder is deleted again -- by its private name, the same
+/// as the private name is deleted after the check.
+///
+/// **What this cannot do:** a program that learns the random private name
+/// could swap its own file in for the placeholder between steps 1 and 3,
+/// and the rename would then replace that file. That is the same gap that
+/// already exists between the check and the deletion of the private name.
+#[cfg(not(windows))]
+fn move_onto_private_placeholder(path: &Path, aside: &Path) -> std::io::Result<()> {
+    drop(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(aside)?,
+    );
+    std::fs::rename(path, aside).inspect_err(|_| {
+        // Nothing moved: only our own empty placeholder is at `aside`.
+        if let Err(e) = std::fs::remove_file(aside) {
+            log::warn!(
+                "Could not delete the empty placeholder {}: {e}",
+                aside.display()
+            );
+        }
+    })
+}
+
 /// Puts a file that turned out not to be this run's back under `path`,
-/// only if that name is free; `left` says what happened when it is. If
-/// that fails, the file stays at `aside` ([`Removal::LeftAside`]).
+/// never replacing a file: with the one-step [`rename_no_replace`], or,
+/// where that is "not supported", through an exclusive placeholder at
+/// `path` ([`put_back_onto_placeholder`]). `left` says what happened when
+/// that works. If it fails -- the name was taken again meanwhile, say -- the
+/// file stays at `aside` ([`Removal::LeftAside`]).
 #[cfg(not(windows))]
 fn put_back(aside: &Path, path: &Path, left: Removal, why: String) -> Removal {
-    match rename_no_replace(aside, path) {
+    let back = match one_step_rename_no_replace(aside, path) {
+        Err(e) if is_no_replace_rename_unsupported(&e) => put_back_onto_placeholder(aside, path),
+        other => other,
+    };
+    match back {
         Ok(()) => left,
         Err(e) => Removal::LeftAside {
             aside: aside.to_path_buf(),
             why: format!("{why}, and putting it back failed ({e})"),
         },
     }
+}
+
+/// The put-back where the one-step no-replace rename is "not supported":
+/// the same way round as [`move_onto_private_placeholder`]. `path` is created
+/// exclusively; if that fails because the name is taken, the file stays
+/// aside (the caller reports both names). Otherwise that empty placeholder
+/// is closed and the file is renamed onto it with an ordinary rename, which
+/// can only replace the placeholder.
+///
+/// If that rename fails, the empty placeholder is LEFT at `path` and the
+/// error says so: `path` is not a private name, so it is never deleted by
+/// name. A program that put its own file at `path` between the creation and
+/// the rename would have it replaced -- the gap described at
+/// [`move_onto_private_placeholder`], here at a name another program could
+/// know.
+#[cfg(not(windows))]
+fn put_back_onto_placeholder(aside: &Path, path: &Path) -> std::io::Result<()> {
+    drop(
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?,
+    );
+    std::fs::rename(aside, path).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "{e}; an empty placeholder MeedyaDL made is left at {}",
+                path.display()
+            ),
+        )
+    })
+}
+
+/// [`rename_no_replace`] as the removal uses it. In tests it can be made to
+/// answer "not supported" every time, as an exFAT drive on a Mac does for a
+/// free name, so the placeholder path runs on any machine
+/// (`as_if_one_step_rename_were_unsupported`).
+#[cfg(not(windows))]
+fn one_step_rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(test)]
+    if PRETEND_ONE_STEP_RENAME_UNSUPPORTED.with(std::cell::Cell::get) {
+        return Err(std::io::Error::from(std::io::ErrorKind::Unsupported));
+    }
+    rename_no_replace(from, to)
+}
+
+#[cfg(all(test, not(windows)))]
+thread_local! {
+    /// See [`one_step_rename_no_replace`]. Per test thread.
+    static PRETEND_ONE_STEP_RENAME_UNSUPPORTED: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f` with the one-step no-replace rename answering "not supported",
+/// as an exFAT drive on a Mac does for a free name, so the removal takes
+/// the exclusive-placeholder path on any machine. For tests only.
+#[cfg(all(test, not(windows)))]
+pub(crate) fn as_if_one_step_rename_were_unsupported<T>(f: impl FnOnce() -> T) -> T {
+    PRETEND_ONE_STEP_RENAME_UNSUPPORTED.with(|pretend| pretend.set(true));
+    let result = f();
+    PRETEND_ONE_STEP_RENAME_UNSUPPORTED.with(|pretend| pretend.set(false));
+    result
 }
 
 #[cfg(windows)]
@@ -2238,8 +2359,6 @@ mod tests {
     /// and says so: it is never deleted by name instead (Codex's review of
     /// round 8, finding 1). Made so by taking away permission to change the
     /// folder (Unix; skipped as the superuser, who may change it anyway).
-    /// An exFAT drive on a Mac refuses the move every time; the real-drive
-    /// test checks that.
     #[cfg(unix)]
     #[test]
     fn a_failed_copy_that_cannot_move_its_file_aside_leaves_it() {
@@ -2483,6 +2602,132 @@ mod tests {
         }
         assert!(matches!(outcome, Removal::NotMovedAside(_)), "{outcome:?}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "ours");
+    }
+
+    // ── The exclusive-placeholder path (the lead's decision after round
+    // ── 9): where the one-step no-replace rename is "not supported", as on
+    // ── an exFAT drive on a Mac whenever the new name is free. These
+    // ── pretend it is unsupported, so they run on any machine; the
+    // ── real-drive test runs them for real on exFAT.
+
+    #[cfg(not(windows))]
+    #[test]
+    fn through_a_placeholder_removal_deletes_its_own_file_and_leaves_nothing() {
+        as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("V.en.srt");
+            let handle = own_file(&path, "ours");
+            let outcome = remove_if_still_ours(&path, &handle);
+            assert!(matches!(outcome, Removal::Removed), "{outcome:?}");
+            // Nothing at the name: no placeholder is left behind either.
+            let outcome = remove_if_still_ours(&path, &handle);
+            assert!(matches!(outcome, Removal::AlreadyGone), "{outcome:?}");
+            drop(handle);
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+        });
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn through_a_placeholder_a_file_put_at_the_name_after_the_check_survives() {
+        as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("V.en.srt");
+            let handle = own_file(&path, "ours");
+            let outcome = remove_if_still_ours_with(&path, &handle, &mut |step| {
+                if let RemovalStep::AfterCheck { .. } = step {
+                    put_replacement_at(&path);
+                }
+            });
+            assert!(matches!(outcome, Removal::Removed), "{outcome:?}");
+            assert_eq!(
+                fs::read_to_string(&path).ok().as_deref(),
+                Some("somebody else's finished file"),
+                "the file put there after the check was deleted"
+            );
+            drop(handle);
+            assert!(!folder_has_private_names(dir.path()));
+        });
+    }
+
+    /// Not ours: put back through a placeholder at its own name, which is
+    /// created only if that name is free.
+    #[cfg(not(windows))]
+    #[test]
+    fn through_a_placeholder_a_file_that_took_the_name_is_put_back() {
+        as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("V.en.srt");
+            let handle = own_file(&path, "ours");
+            put_replacement_at(&path);
+            let outcome = remove_if_still_ours(&path, &handle);
+            assert!(matches!(outcome, Removal::LeftOtherFile), "{outcome:?}");
+            assert_eq!(
+                fs::read_to_string(&path).unwrap(),
+                "somebody else's finished file"
+            );
+            assert!(!folder_has_private_names(dir.path()));
+        });
+    }
+
+    /// Not ours, and its name taken again before it can be put back: the
+    /// placeholder cannot be created there, so the file stays aside and the
+    /// file now at the name is never replaced.
+    #[cfg(not(windows))]
+    #[test]
+    fn through_a_placeholder_a_file_not_ours_stays_aside_if_its_name_is_taken_again() {
+        as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("V.en.srt");
+            let handle = own_file(&path, "ours");
+            put_replacement_at(&path);
+            let outcome = remove_if_still_ours_with(&path, &handle, &mut |step| {
+                if let RemovalStep::AfterCheck { .. } = step {
+                    fs::write(&path, "a third file").unwrap();
+                }
+            });
+            let Removal::LeftAside { aside, why } = outcome else {
+                panic!("{outcome:?}");
+            };
+            assert_eq!(
+                fs::read_to_string(&aside).unwrap(),
+                "somebody else's finished file"
+            );
+            assert_eq!(fs::read_to_string(&path).unwrap(), "a third file");
+            assert!(why.contains("putting it back failed"), "{why}");
+        });
+    }
+
+    /// A failed copy, through the placeholder path: it deletes its own file
+    /// and leaves nothing; and a file put at the name after the check
+    /// survives. (Copying from a folder: Unix only.)
+    #[cfg(unix)]
+    #[test]
+    fn through_a_placeholder_a_failed_copy_deletes_only_its_own_file() {
+        as_if_one_step_rename_were_unsupported(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let from = dir.path().join("a folder");
+            fs::create_dir(&from).unwrap();
+            let work = dir.path().join("work");
+            fs::create_dir(&work).unwrap();
+            let to = work.join("V.en.srt");
+            let err = copy_to_new_file(&from, &to).unwrap_err();
+            assert!(!left_a_file_in_place(&err), "{err}");
+            assert_eq!(fs::read_dir(&work).unwrap().count(), 0);
+
+            let err = copy_to_new_file_with(&from, &to, |_| {}, &mut |step| {
+                if let RemovalStep::AfterCheck { .. } = step {
+                    put_replacement_at(&to);
+                }
+            })
+            .unwrap_err();
+            assert!(!left_a_file_in_place(&err), "{err}");
+            assert_eq!(
+                fs::read_to_string(&to).unwrap(),
+                "somebody else's finished file"
+            );
+            assert_eq!(fs::read_dir(&work).unwrap().count(), 1);
+        });
     }
 
     /// The private name is the temporary prefix, the process id, 16 random
