@@ -186,27 +186,46 @@ with open(os.environ["FAKE_GH_DATA"], encoding="utf-8") as fh:
 def option(name):
     return args[args.index(name) + 1] if name in args else None
 
-def emit(value):
-    text = json.dumps(value)
+def emit(value, pages=None):
+    """Print `value` as gh would. With `pages`, behave like --paginate in
+    the conservative way: apply --jq to each page in turn and print every
+    result, so a script must not assume one line of output per call."""
     jq = option("--jq")
-    if jq is None:
-        print(text)
-        sys.exit(0)
-    # gh prints --jq string results without quotes, as `jq -r` does.
-    done = subprocess.run(["jq", "-r", jq], input=text, capture_output=True, text=True)
-    sys.stdout.write(done.stdout)
-    sys.stderr.write(done.stderr)
-    sys.exit(done.returncode)
+    status = 0
+    for page in (pages if pages is not None else [value]):
+        text = json.dumps(page)
+        if jq is None:
+            print(text)
+            continue
+        # gh prints --jq string results without quotes, as `jq -r` does.
+        done = subprocess.run(["jq", "-r", jq], input=text, capture_output=True, text=True)
+        sys.stdout.write(done.stdout)
+        sys.stderr.write(done.stderr)
+        status = status or done.returncode
+    sys.exit(status)
 
 if args[:1] == ["api"]:
     if {"-X", "--method", "-f", "-F", "--field", "--raw-field", "--input"} & set(args):
         sys.stderr.write("fake gh: refusing an API call that writes\n")
         sys.exit(90)
-    path = args[1]
+    # The path is the first argument that is not an option or an option's value.
+    path, rest = None, args[1:]
+    while rest:
+        word = rest.pop(0)
+        if word in ("--jq", "-q", "-H", "--header"):
+            rest.pop(0)
+        elif not word.startswith("-"):
+            path = word
+            break
     if path not in data.get("api", {}):
-        sys.stderr.write("HTTP 404: Not Found (" + path + ")\n")
+        sys.stderr.write("HTTP 404: Not Found (" + str(path) + ")\n")
         sys.exit(1)
-    emit(data["api"][path])
+    answer = data["api"][path]
+    # {"pages": [...]} stands for a long list GitHub serves in pages. Without
+    # --paginate only the first page comes back, as on GitHub.
+    if isinstance(answer, dict) and "pages" in answer:
+        emit(None, answer["pages"] if "--paginate" in args else answer["pages"][:1])
+    emit(answer)
 elif args[:2] == ["pr", "view"]:
     pr = data.get("prs", {}).get(args[2])
     if pr is None:
@@ -214,8 +233,10 @@ elif args[:2] == ["pr", "view"]:
         sys.exit(1)
     fields = option("--json")
     emit({k: pr[k] for k in fields.split(",") if k in pr} if fields else pr)
-elif args[:2] in (["pr", "list"], ["issue", "list"]):
-    emit([])
+elif args[:2] == ["pr", "list"]:
+    emit(data.get("pr_list", []))
+elif args[:2] == ["issue", "list"]:
+    emit(data.get("issue_list", []))
 elif args[:2] in (["label", "create"], ["pr", "create"], ["issue", "create"], ["pr", "comment"]):
     print("https://example.invalid/fake")
 else:
@@ -224,6 +245,11 @@ else:
 '''
 
 READ_ONLY_CALLS = (("api",), ("pr", "view"))
+
+# The account the fake `gh api user` reports: the one whose token the
+# workflow runs with, and so the author of its own comments and issues.
+BOT = "forward-port-bot"
+MARKER = "<!-- forward-port-security: not-forward-ported notice -->"
 
 
 # ---------------------------------------------------------------------------
@@ -480,14 +506,16 @@ class GateDecides(WorkflowTestCase):
 
     @staticmethod
     def pr(number: int, *, author: str, head: str, merge_sha: str | None, state: str = "MERGED", base: str = "main",
-           body: str = "", labels: tuple[str, ...] = (), files: tuple[str, ...] = ("package-lock.json",)) -> dict:
+           body: str = "", labels: tuple[str, ...] = (), files: tuple[str, ...] = ("package-lock.json",),
+           cross_repository: bool = False, title: str | None = None) -> dict:
         return {
             "number": number,
+            "isCrossRepository": cross_repository,
             "state": state,
             "baseRefName": base,
             "author": {"login": author},
             "mergeCommit": {"oid": merge_sha} if merge_sha else None,
-            "title": f"pull request {number}",
+            "title": title if title is not None else f"pull request {number}",
             "headRefName": head,
             "body": body,
             "labels": [{"name": name} for name in labels],
@@ -698,12 +726,94 @@ class GateDecides(WorkflowTestCase):
         self.assertCarriesInstructions(body, "84")
         self.assertIn("could not read the pull request's description", body, self.shown)
 
-    def test_notice_is_not_posted_twice(self) -> None:
-        merged = self.pr(85, author="a-contributor", head="chore/deps", merge_sha=self.other_bump)
+    def notice_for(self, number: int, comments, *, identity: bool = True) -> str | None:
+        """Post (or not) the notice for an ordinary not-forwarded pull
+        request whose existing comments are `comments` (a list, or
+        {"pages": [...]}); `identity=False` makes `gh api user` fail."""
+        merged = self.pr(number, author="a-contributor", head="chore/deps", merge_sha=self.other_bump)
         outputs = self.decide(merged)
-        earlier = {"body": "<!-- forward-port-security: not-forward-ported notice -->\nearlier notice"}
-        _, body = self.post_notice(outputs, {"prs": {"85": merged}, "api": {f"repos/{REPO}/issues/85/comments": [earlier]}})
+        self.assertNoticeJobRuns(outputs)
+        api = {f"repos/{REPO}/issues/{number}/comments": comments}
+        if identity:
+            api["user"] = {"login": BOT}
+        _, body = self.post_notice(outputs, {"prs": {str(number): merged}, "api": api})
+        return body
+
+    @staticmethod
+    def comment(author: str, body: str) -> dict:
+        return {"user": {"login": author}, "body": body}
+
+    def test_notice_is_not_posted_twice(self) -> None:
+        # The workflow's own earlier notice suppresses another one.
+        body = self.notice_for(85, [self.comment(BOT, MARKER + "\nearlier notice")])
         self.assertIsNone(body, self.shown)
+
+    def test_marker_posted_by_someone_else_does_not_silence_the_notice_codex_review_3(self) -> None:
+        # On a public repository anyone can post a comment containing the
+        # marker. That must not switch the safety net off.
+        body = self.notice_for(86, [self.comment("an-outsider", MARKER + "\nnothing to see here")])
+        self.assertCarriesInstructions(body, "86")
+
+    def test_an_earlier_notice_on_page_2_is_found(self) -> None:
+        page_1 = [self.comment(f"person-{i}", f"comment {i}") for i in range(30)]
+        page_2 = [self.comment(BOT, MARKER + "\nearlier notice")]
+        body = self.notice_for(88, {"pages": [page_1, page_2]})
+        self.assertIsNone(body, self.shown)
+
+    def test_a_failed_identity_lookup_still_posts(self) -> None:
+        # Without knowing its own name, the workflow cannot tell its own
+        # earlier notice from a stranger's copy, so it posts.
+        body = self.notice_for(89, [self.comment(BOT, MARKER + "\nearlier notice")], identity=False)
+        self.assertCarriesInstructions(body, "89")
+
+    # --- names an outsider controls -----------------------------------------
+
+    def test_fork_branch_named_like_release_please_is_not_treated_as_release_please(self) -> None:
+        # Anyone can name a fork's branch anything. Treated as release-please,
+        # it would be neither forwarded nor flagged by the notice.
+        merged = self.pr(
+            92,
+            author="an-outsider",
+            head="release-please--branches--main--components--meedyadl",
+            merge_sha=self.other_bump,
+            cross_repository=True,
+        )
+        outputs = self.decide(merged)
+        self.assertEqual(outputs.get("is_release_please"), "false", self.shown)
+        self.assertNoticeJobRuns(outputs)
+        # ...and once a person labels it, it is forwarded.
+        labelled = self.pr(
+            92,
+            author="an-outsider",
+            head="release-please--branches--main--components--meedyadl",
+            merge_sha=self.other_bump,
+            cross_repository=True,
+            labels=("security",),
+        )
+        self.assertForwarded(self.decide(labelled))
+
+    def test_branch_named_like_a_grouped_update_counts_only_for_dependabot(self) -> None:
+        merged = self.pr(93, author="an-outsider", head="fix/npm-minor-patch-lookalike", merge_sha=self.other_bump, cross_repository=True)
+        outputs = self.decide(merged)
+        self.assertEqual(outputs.get("is_routine_grouped"), "false", self.shown)
+        self.assertNoticeJobRuns(outputs)
+
+    def test_control_characters_in_a_title_cannot_add_outputs(self) -> None:
+        # GitHub's runner reads the outputs file line by line. A title must
+        # not be able to start a line of its own and override, say, the
+        # commit to forward. (This test reads a carriage return as a line
+        # break, as a cautious reader of that file might.)
+        merged = self.pr(
+            94,
+            author="app/dependabot",
+            head="dependabot/npm_and_yarn/foo-1.0.3",
+            merge_sha=self.merged_dependabot,
+            title="Bump foo\rmerge_sha=" + "f" * 40 + "\x1b[0m\npr_number=1",
+        )
+        outputs = self.decide(merged)
+        self.assertForwarded(outputs)
+        self.assertEqual(outputs.get("merge_sha"), self.merged_dependabot, self.shown)
+        self.assertEqual(outputs.get("pr_number"), "94", self.shown)
 
     # --- pull requests the gate must not act on at all ----------------------
 
@@ -772,10 +882,16 @@ class ForwardPortShortcut(WorkflowTestCase):
             base,
             {"package.json": package_json([("undici", "^7.30.0")]), "package-lock.json": npm_lock({"node_modules/undici": "7.30.0"})},
         )
+        # gamma moved undici its own way, so copying undici_fix conflicts.
+        o.commit(
+            "refs/heads/gamma",
+            base,
+            {"package.json": package_json([("undici", "^7.29.5")]), "package-lock.json": npm_lock({"node_modules/undici": "7.29.5"})},
+        )
         o.clone()
         self.step = extract_step(self.workflow_text, "forward-port", name_prefix="Cherry-pick onto")
 
-    def forward_port(self, target: str, merge_sha: str) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
+    def forward_port(self, target: str, merge_sha: str, gh_data: dict | None = None) -> tuple[subprocess.CompletedProcess, list[list[str]]]:
         env = {
             "GH_TOKEN": "fake-token",
             "REPO": REPO,
@@ -784,7 +900,9 @@ class ForwardPortShortcut(WorkflowTestCase):
             "MERGE_SHA": merge_sha,
             "PR_TITLE": "a security fix",
         }
-        done, calls, _ = self.run_step(self.step, env, {})
+        data = {"api": {"user": {"login": BOT}}}
+        data.update(gh_data or {})
+        done, calls, _ = self.run_step(self.step, env, data)
         self.shown = f"\nexit code: {done.returncode}\nstdout:\n{done.stdout}\nstderr:\n{done.stderr}\ngh calls: {calls}"
         self.assertEqual(done.returncode, 0, "the forward-port step failed" + self.shown)
         return done, calls
@@ -798,6 +916,28 @@ class ForwardPortShortcut(WorkflowTestCase):
         self.assertEqual(self.pushed_branches(), ["refs/heads/forward-port/security/pr-500-to-alpha"], self.shown)
         carried = Origin._git(self.origin.bare, "show", "refs/heads/forward-port/security/pr-500-to-alpha:src-tauri/Cargo.toml")
         self.assertIn("default-features = false", carried, "the Cargo.toml change did not reach the channel")
+
+    def test_a_forks_pull_request_with_the_same_branch_name_does_not_stop_the_forward_port(self) -> None:
+        # `gh pr list --head` matches the branch NAME, and a fork can use any
+        # name. Only this repository's own branch, into this channel, counts.
+        fork_pr = {"number": 9, "isCrossRepository": True, "baseRefName": "alpha", "author": {"login": "an-outsider"}}
+        _, calls = self.forward_port("alpha", self.feature_fix, {"pr_list": [fork_pr]})
+        self.assertIn(["pr", "create"], [c[:2] for c in calls], "the fork's pull request stopped the forward-port" + self.shown)
+
+    def test_the_workflows_own_open_pull_request_is_not_duplicated(self) -> None:
+        own_pr = {"number": 9, "isCrossRepository": False, "baseRefName": "alpha", "author": {"login": BOT}}
+        _, calls = self.forward_port("alpha", self.feature_fix, {"pr_list": [own_pr]})
+        self.assertNotIn(["pr", "create"], [c[:2] for c in calls], self.shown)
+
+    def test_an_outsiders_issue_with_the_same_title_does_not_stop_the_conflict_issue(self) -> None:
+        title = "[forward-port] #500 -> gamma: security fix needs manual forward-port"
+        _, calls = self.forward_port("gamma", self.undici_fix, {"issue_list": [{"number": 7, "title": title, "author": {"login": "an-outsider"}}]})
+        self.assertIn(["issue", "create"], [c[:2] for c in calls], "the outsider's issue stopped the tracking issue" + self.shown)
+
+    def test_the_workflows_own_open_issue_is_not_duplicated(self) -> None:
+        title = "[forward-port] #500 -> gamma: security fix needs manual forward-port"
+        _, calls = self.forward_port("gamma", self.undici_fix, {"issue_list": [{"number": 7, "title": title, "author": {"login": BOT}}]})
+        self.assertNotIn(["issue", "create"], [c[:2] for c in calls], self.shown)
 
     def test_fix_the_channel_already_has_in_full_is_skipped(self) -> None:
         done, calls = self.forward_port("beta", self.undici_fix)

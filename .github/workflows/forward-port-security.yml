@@ -38,9 +38,11 @@
 # grouped-update branch with `/npm-minor-patch-` or `/cargo-minor-patch-`
 # (see the `npm-minor-patch` / `cargo-minor-patch` group names in
 # dependabot.yml); a security-update branch never contains that substring.
-# A Dependabot pull request is forwarded automatically only from a branch
-# WITHOUT that marker. A person can still forward any pull request, a
-# grouped one included, with the `security` label or a manual run (see
+# The name only counts on a pull request Dependabot opened: anyone can give
+# a branch any name. A Dependabot pull request is forwarded automatically
+# only from a branch WITHOUT that marker. A person can still forward any
+# pull request, a grouped one included, with the `security` label or a
+# manual run (see
 # "WHAT QUALIFIES A PULL REQUEST" below): a person choosing to forward is
 # never second-guessed, because a wrong forward costs only a pull request
 # somebody can close.
@@ -67,9 +69,10 @@
 #   (c) somebody ran this workflow by hand for it (`workflow_dispatch` with
 #       its number as `pr_number`).
 # Never forwarded, whatever else would qualify it (a manual run included):
-# release-please's own release PRs (`release-please--branches--` branches),
-# which bump version numbers in the lockfiles on every release and must
-# never be copied onto the channel branches.
+# release-please's own release PRs (`release-please--branches--` branches
+# in this repository — a fork can name a branch anything), which bump
+# version numbers in the lockfiles on every release and must never be
+# copied onto the channel branches.
 #
 # Why a person has to say so. This repo has a "combine pull requests
 # instead of stacking them" rule (see CLAUDE.md), so a Dependabot fix often
@@ -288,14 +291,24 @@ jobs:
           fi
 
           data=$(gh pr view "$PR" --repo "$REPO" \
-            --json number,state,baseRefName,author,mergeCommit,title,headRefName,body,labels,files)
+            --json number,state,baseRefName,author,mergeCommit,title,headRefName,isCrossRepository,labels,files)
           [ "$(jq -r .state <<<"$data")" = "MERGED" ]     || skip "PR #$PR is not merged — nothing to do."
           [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
 
           AUTHOR=$(jq -r '.author.login' <<<"$data")
           HEAD_REF=$(jq -r '.headRefName' <<<"$data")
           MERGE_SHA=$(jq -r '.mergeCommit.oid // empty' <<<"$data")
+          # The title is written into this step's outputs, one `key=value`
+          # per line. Anyone can write a pull request's title, so every
+          # control character in it (a line break, a carriage return, an
+          # escape) becomes a space: otherwise it could start a line of its
+          # own and set another output, such as which commit to copy.
           TITLE=$(jq -r '.title' <<<"$data")
+          TITLE=${TITLE//[[:cntrl:]]/ }
+          # Whether the head branch lives in a fork. Branch NAMES are chosen
+          # by whoever opens the pull request, so a name only means something
+          # for a branch in this repository (see the two checks below).
+          IS_CROSS_REPO=$(jq -r '.isCrossRepository' <<<"$data")
           [ -n "$MERGE_SHA" ] || skip "No merge commit SHA for PR #$PR — skipping."
 
           # GitHub's REST API reports Dependabot's login as "dependabot[bot]",
@@ -334,10 +347,16 @@ jobs:
           # its own direct `target-branch: main` entry. A person can still
           # forward one with the `security` label or a manual run (see the
           # order of checks below).
+          #
+          # Only Dependabot's own branch counts: anyone can give a branch this
+          # name, and a pull request taken for a grouped update is neither
+          # forwarded nor flagged by the notice.
           IS_ROUTINE_GROUPED=false
-          case "$HEAD_REF" in
-            */npm-minor-patch-*|*/cargo-minor-patch-*) IS_ROUTINE_GROUPED=true ;;
-          esac
+          if [ "$IS_DEPENDABOT" = "true" ]; then
+            case "$HEAD_REF" in
+              */npm-minor-patch-*|*/cargo-minor-patch-*) IS_ROUTINE_GROUPED=true ;;
+            esac
+          fi
 
           # release-please's own version-bump PRs use this exact branch name
           # shape (see CLAUDE.md's "Release Please Branch Naming"). They touch
@@ -345,11 +364,17 @@ jobs:
           # security fix, so they are never forward-ported — whatever else
           # might qualify them, even a manual run (copying a release's version
           # bumps onto the channel branches would be wrong in itself) — and
-          # the miss-comment job skips them too.
+          # the miss-comment job skips them too. Only a branch in THIS
+          # repository counts (release-please opens its branches here): a fork
+          # can name its branch anything, and a pull request taken for
+          # release-please's would be neither forwarded nor flagged. If
+          # GitHub does not say where the branch lives, it does not count.
           IS_RELEASE_PLEASE=false
-          case "$HEAD_REF" in
-            release-please--branches--*) IS_RELEASE_PLEASE=true ;;
-          esac
+          if [ "$IS_CROSS_REPO" = "false" ]; then
+            case "$HEAD_REF" in
+              release-please--branches--*) IS_RELEASE_PLEASE=true ;;
+            esac
+          fi
 
           HAS_SECURITY_LABEL=false
           if jq -e '.labels[]? | select(.name=="security")' <<<"$data" >/dev/null 2>&1; then
@@ -407,8 +432,8 @@ jobs:
             echo "proceed=true"
             echo "pr_number=$PR"
             echo "merge_sha=$MERGE_SHA"
-            # Title may contain arbitrary text; write it as a single line.
-            echo "pr_title=${TITLE//$'\n'/ }"
+            # The title had its control characters replaced above.
+            echo "pr_title=${TITLE}"
             echo "author=$AUTHOR"
             echo "should_forward_port=$SHOULD_FORWARD_PORT"
             echo "forward_port_reason=${REASON}"
@@ -506,10 +531,21 @@ jobs:
 
           WORK="forward-port/security/pr-${PR_NUMBER}-to-${TARGET}"
 
-          # Idempotency: don't stack duplicate PRs on re-run.
-          if [ "$(gh pr list --repo "$REPO" --head "$WORK" --state open --json number --jq 'length')" != "0" ]; then
-            echo "::notice::Forward-port PR for #$PR_NUMBER -> $TARGET already open — skipping."
-            exit 0
+          # Idempotency: don't stack duplicate PRs on re-run. Only this
+          # workflow's own pull request counts: its branch lives in THIS
+          # repository (only someone who can push here can create one) and it
+          # targets $TARGET. `--head` matches a branch NAME, and a fork can
+          # open a pull request from a branch with the same name; when that
+          # counted, a stranger could stop the forward-port. If the lookup
+          # fails, carry on: at worst the push below fails, loudly.
+          if OPEN_PRS=$(gh pr list --repo "$REPO" --head "$WORK" --state open --json isCrossRepository,baseRefName \
+                --jq "[.[] | select(.isCrossRepository == false and .baseRefName == \$ENV.TARGET)] | length"); then
+            if [ "$OPEN_PRS" != "0" ]; then
+              echo "::notice::Forward-port PR for #$PR_NUMBER -> $TARGET already open — skipping."
+              exit 0
+            fi
+          else
+            echo "::warning::Could not check for an open forward-port PR for #$PR_NUMBER -> $TARGET — carrying on."
           fi
 
           git checkout -B "$WORK" "origin/$TARGET"
@@ -542,11 +578,26 @@ jobs:
             echo "::notice::Opened forward-port PR: #$PR_NUMBER -> $TARGET"
           else
             git cherry-pick --abort || true
-            # Idempotency: one tracking issue per (PR, target).
+            # Idempotency: one tracking issue per (PR, target). Only this
+            # workflow's own open issue with exactly this title counts:
+            # anyone can open an issue on a public repository, and when a
+            # title search alone counted, a stranger's issue could stop this
+            # one being opened. "This workflow's own" means opened by the
+            # account behind GH_TOKEN. If that account or the issue list
+            # cannot be looked up, the issue is opened anyway: a duplicate is
+            # a small nuisance, a missing one could hide a security fix.
             MARKER="[forward-port] #${PR_NUMBER} -> ${TARGET}"
-            if [ "$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER\"" --json number --jq 'length')" != "0" ]; then
-              echo "::notice::Tracking issue for $MARKER already open — skipping."
-              exit 0
+            ISSUE_TITLE="$MARKER: security fix needs manual forward-port"
+            export ISSUE_TITLE
+            if ISSUE_AUTHOR=$(gh api user --jq .login) && [ -n "$ISSUE_AUTHOR" ] && export ISSUE_AUTHOR \
+               && OPEN_ISSUES=$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER\"" --json title,author \
+                    --jq "[.[] | select(.author.login == \$ENV.ISSUE_AUTHOR and .title == \$ENV.ISSUE_TITLE)] | length"); then
+              if [ "$OPEN_ISSUES" != "0" ]; then
+                echo "::notice::Tracking issue for $MARKER already open — skipping."
+                exit 0
+              fi
+            else
+              echo "::warning::Could not check for an open tracking issue for $MARKER — opening one anyway."
             fi
             BODY=$(printf '%s\n' \
               "The security fix merged to \`main\` in #${PR_NUMBER} could not be cleanly cherry-picked onto \`${TARGET}\` — the channel's lockfile/manifest has diverged and the cherry-pick conflicts." \
@@ -568,7 +619,7 @@ jobs:
               "---" \
               "_Generated by [Claude Code](https://claude.ai/code)_")
             gh issue create --repo "$REPO" \
-              --title "$MARKER: security fix needs manual forward-port" \
+              --title "$ISSUE_TITLE" \
               --label "dependencies" --label "security" \
               --body "$BODY"
             echo "::warning::Conflict forward-porting #$PR_NUMBER to $TARGET — opened tracking issue."
@@ -612,19 +663,34 @@ jobs:
           set -euo pipefail
 
           # Idempotency: a marker HTML comment (invisible when rendered)
-          # identifies our own past comments, so a re-run of this workflow
-          # against the same PR never leaves a second copy. If that check
-          # itself fails, the notice is posted anyway: a duplicate is a small
-          # nuisance, a missing notice could hide a security fix.
+          # identifies our own past notices, so a re-run of this workflow
+          # against the same PR never leaves a second copy.
+          #
+          # Only a comment POSTED BY THIS WORKFLOW'S ACCOUNT counts. On a
+          # public repository anyone can post a comment containing the
+          # marker; when any author counted, a stranger could switch the
+          # notice off (found in Codex's third review of #1275). The account
+          # is the one behind GH_TOKEN, asked for once. Every page of
+          # comments is read (`--paginate`): one call returns only the first
+          # 30. The filter prints one line per matching comment, so the
+          # answer is right however gh splits the pages.
+          #
+          # If either lookup fails, the notice is posted anyway: a duplicate
+          # is a small nuisance, a missing notice could hide a security fix.
           MARKER="<!-- forward-port-security: not-forward-ported notice -->"
-          if EXISTING=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" \
-                --jq "[.[] | select(.body | contains(\"${MARKER}\"))] | length"); then
-            if [ "$EXISTING" != "0" ]; then
-              echo "::notice::Already left the not-forward-ported notice on #$PR_NUMBER — skipping."
-              exit 0
+          if NOTICE_AUTHOR=$(gh api user --jq .login) && [ -n "$NOTICE_AUTHOR" ]; then
+            export NOTICE_AUTHOR
+            if EARLIER=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                  --jq ".[] | select(.user.login == \$ENV.NOTICE_AUTHOR and (.body | contains(\"${MARKER}\"))) | .id"); then
+              if [ -n "$EARLIER" ]; then
+                echo "::notice::Already left the not-forward-ported notice on #$PR_NUMBER — skipping."
+                exit 0
+              fi
+            else
+              echo "::warning::Could not read #$PR_NUMBER's comments to check for an earlier notice — posting one anyway."
             fi
           else
-            echo "::warning::Could not check #$PR_NUMBER for an earlier notice — posting one anyway."
+            echo "::warning::Could not find out which account posts this notice, so cannot tell its earlier notice from anyone else's — posting one anyway."
           fi
 
           # Best effort: which Dependabot pull requests does this one's
