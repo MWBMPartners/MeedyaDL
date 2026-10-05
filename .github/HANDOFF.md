@@ -1238,6 +1238,13 @@ on PRs to / pushes to main.
 - **NetPLAYERapp: the stand-in review of round 8 (`6bd61ed..fcac576`) is NOT clean — 0 high, 0 medium, 12 low, 3 nits.** All three size guards, the real-controller test and the deployment test held when attacked. The whole battery passed under PHP 8.4 with MySQL 8.0, the versions CI uses.
   - Most findings are sentences that said slightly more than the code does. The posted #210 round-8 comment repeats three of them, so round 9's comment corrects them.
   - **Round-9 builder running** (Sonnet, `brief-netplayer-r9.md`), with a watchdog.
+- **iHymns round 8 pushed (`c60ed8b7..e9cf5fea`, 7 commits).**
+  - The builder ran the full PHP suite: 291/291 on MariaDB 11.8 and on MySQL 8.4. I re-ran the 114 JavaScript suites, `php -l` and the copy checker (9 match).
+  - The catch audit is now a permanent test.
+  - The geo cache is never written inside a transaction (a new `dbTransactionIsOpen()` check).
+  - `logActivity()` carries on after a deadlock or timeout when no transaction is open.
+  - #2137 has a comment. A stand-in review of round 8 is running, with a watchdog; the round-9 carry-over is in `ihymns-r9-carryover.md`.
+- **MeedyaPlayer/MeedyaSubtitler: the nineteenth review found 0 high, 0 medium, 2 low, 2 nits.** The lead fixed them directly (`3351294` / `222842e`, pushed); the twentieth review is running.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
