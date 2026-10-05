@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-04 (evening) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (about 08:35) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1363,6 +1363,23 @@ on PRs to / pushes to main.
   - The round-10 brief is written (`brief-ihymns-r10.md`) and waits for a free helper slot (the limit is 6).
   - **Round 10 changes only checks, tests, notes and one log line, so under the narrowed rule it needs no review round of its own.** After it, iHymns waits only for a Codex catch-up.
 - **Core revision 12 is now building** (Opus, `brief-revision-12.md`), with a watchdog. It took the slot the iHymns review freed.
+- **The maintainer's decision, 5 Oct about 08:00: finish the half-built rounds, then hand each repository over to its own handoff.**
+  - **New stop rule:** a review loop stops when a review finds no high or medium problems. Low findings, wording points and older faults a reviewer finds become issues, not new rounds.
+  - **Why it was taking so long** (told to the maintainer): the old stop rule was "no findings at all", applied to reviewers told to report everything; each fix added new text to review; older faults were folded into the rounds; and session limits cut builders off mid-round.
+  - **Handed over — no longer run from here; each repository's own handoff is the record:**
+    - **iHymns** — `.claude/sessions/2026-09-23-HANDOFF.md`, `743e38c2`. The ninth review found 0 high and 0 medium, so it is finished; its 8 low findings are #2147–#2151. Owed: a Codex review of the whole branch.
+    - **iLyricsDB** — its handoff at `0f54a1e` (round 9 pushed; every host check passes again here). Owed: a review of round 9.
+    - **MeedyaManager** — `.claude/HANDOFF.md`, `8c2fbd0` (round 8 pushed; 1,583 tests pass again here). Filed #263 (`year` is never written to MP3, M4A or WAV). Owed: a review of round 8.
+  - **Still finishing here, then handed over the same way:** core revision 12, MeedyaConverter round 6, plugin round 6 (each builder running, each with its own watchdog), and the MeedyaDL polish pass part A.
+- **Dependency pull requests, asked for by the maintainer at about 08:15 on 5 Oct.**
+  - #1259–#1262 all failed one check, "Tauri npm/Rust version sync". The npm and Rust halves of one Tauri plugin update (updater 2.11 → 2.12) were in separate PRs, so neither could pass alone.
+  - **Combined, unchanged** (Dependabot's commits cherry-picked onto today's bases, no conflicts):
+    - **#1272** → `main`, replacing #1259 and #1261;
+    - **#1273** → `release-candidate`, replacing #1260 and #1262. The maintainer wrote "still targeting main" for this pair; I read that as a slip, since "still" means keeping the base.
+  - Local checks passed on both: version sync, `npm ci`, type-check, lint, vitest (489 and 305), `cargo metadata --locked`.
+  - The four originals are closed with pointers, and Dependabot deleted their branches. A PR cannot be deleted on GitHub.
+  - **Maintainer's instruction:** fix any failing check; merge each once green; then watch the post-merge runs and the packaging and deployment they start, fixing issues, until the deployments finish. A merge to `release-candidate` cuts `1.0.0-rc.39` and builds every platform.
+  - **Watched by** `scratchpad/deps/watch-pr.sh` (one background loop per PR, two-hour deadline). The working copies are git worktrees at `scratchpad/deps/main` and `scratchpad/deps/rc`; remove them when done.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
