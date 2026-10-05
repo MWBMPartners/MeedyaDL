@@ -1308,6 +1308,10 @@ on PRs to / pushes to main.
   - `\p{Cn}` also rounds brackets around newer emoji.
   - **Lead's decisions for round 9:** judge brackets as Kodi would read them with that setting on; replace `\p{Cn}` with an explicit list of the Unicode 17 digits, plus a test that warns when the server's PCRE knows more; make the `[` rule linear even with the JIT off.
   - Round-9 builder running (Opus, `brief-ilyricsdb-r9.md`), with a watchdog.
+- **MeedyaConverter: the stand-in review of round 5 is NOT clean — 1 medium, 8 low, 4 nits.** All 20 planted faults were caught, and the new MOV/MP4 reader survived 72,000 hostile inputs.
+  - **Medium:** a damaged full language tag now overrides a valid old field, under a note that says "kept".
+  - Two older faults were filed: **#542** ("map all streams" with ASS subtitles fails the whole job) and **#543** (copying H.264 into AVI fails).
+  - **Round-6 builder running** (Opus, `brief-converter-r6.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
