@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (09:43) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (09:54) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1373,7 +1373,7 @@ on PRs to / pushes to main.
     - **NetPLAYERapp** — `.claude/HANDOFF.md`, `a409c67` (the maintainer agreed at about 08:30). Finished: the round-9 stand-in review found 0 high, 0 medium. Owed: Codex review of rounds 7–10 (after `9232ec6`). CI is still blocked by billing.
     - **MeedyaPlayer** `75c7329` and **MeedyaSubtitler** `dd1f66a` — each `.claude/HANDOFF.md`. Finished: the twentieth review was clean. Owed: Codex review after `bc901ad` / `44cf095`.
     - **dev-team plugin** — round 6 pushed (`afa1f5d`, 9 commits; 199/199 bats tests, smoke test, both audits, ShellCheck and actionlint pass again here). Its notes carry the next steps. The builder corrected decision 8: Codex DID review `748e87c..42bd45e`; the notes now record the true history. Filed **#48** (`conventions.md` says both guards fail open). Owed: a review of round 6.
-    - **MeedyaSuite-core** — revision 12 built (8 commits, unpushed until the lead's checks pass). It adds the `exacl` crate (macOS only, MIT, reads access lists only). Without it, every M4A save on macOS would have to be refused. **Maintainer to confirm keeping it.** Then file the FAT/exFAT issue (draft `r12b/issue-fat-exfat.md`) and post `r12b/comment-99.md`.
+    - **MeedyaSuite-core** — `.claude/HANDOFF.md`, `447616f`. Revision 12 pushed (`2569f02`): fmt, clippy, 945 and 1,092 tests, and the count check pass here. `cargo doc` with warnings as errors fails on two older links (filed **#108**). Filed **#107** (FAT/exFAT saves on macOS) and **#109** (keep `exacl`? maintainer's call), and posted the #99 note. Owed: a review of revision 12.
   - **Still finishing here, then handed over the same way:** core revision 12, MeedyaConverter round 6, plugin round 6 (each builder running, each with its own watchdog), and the MeedyaDL polish pass part A.
 - **Dependency pull requests, asked for by the maintainer at about 08:15 on 5 Oct.**
   - #1259–#1262 all failed one check, "Tauri npm/Rust version sync". The npm and Rust halves of one Tauri plugin update (updater 2.11 → 2.12) were in separate PRs, so neither could pass alone.
