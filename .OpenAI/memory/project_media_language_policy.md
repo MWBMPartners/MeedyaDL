@@ -161,8 +161,11 @@ did not change.
   The next extraction in that folder writes one activity-log line saying
   how many it found, where, and that they are safe to delete once no
   MeedyaDL is saving subtitles there. A run removes its own temporary file
-  only if the name still shows the identity recorded from the creating
-  handle (held open meanwhile); otherwise it leaves and reports it. The
+  only if the name refers to the file its creating handle (held open) is
+  on, both read at that moment (`fs_safe::check_name_against_handle`); not
+  a number stored at creation, because a Mac's FAT32 and exFAT drives
+  renumber a file once it is written to or renamed. Otherwise it leaves
+  and reports it. The
   check and the removal are two steps, so a replacement made in the instant
   between them would still be removed (Codex's review of rounds 6-7,
   finding 2). Failed removals are reported. The fake ffmpeg

@@ -758,11 +758,17 @@ impl FileIdentity {
     /// number on it. The number of names is left out on purpose, because
     /// it changes when a name is added (a hard link) or removed.
     ///
-    /// What this can prove depends on when the two were read. A file's
-    /// number can be handed to a NEW file once the old one is gone (Linux
-    /// file systems often do this at once), so a match proves "the same
-    /// file" only while the first file certainly still exists -- for
-    /// example while a handle to it is held open, as the callers here do.
+    /// What this can prove depends on when the two were read:
+    ///   - a file's number can be handed to a NEW file once the old one is
+    ///     gone (Linux file systems often do this at once), so a match
+    ///     proves "the same file" only while the first file certainly still
+    ///     exists -- for example while a handle to it is held open;
+    ///   - on some drives a file's number CHANGES while it exists: on a
+    ///     Mac's FAT32 and exFAT drives it changes once data is first
+    ///     written into the file, and when the file is renamed (checked on
+    ///     macOS 27). A number stored earlier then no longer matches the
+    ///     same file. Compare two identities read at the same moment, as
+    ///     [`check_name_against_handle`] does.
     #[must_use]
     pub fn is_same_file(&self, other: &FileIdentity) -> bool {
         self.device == other.device && self.index == other.index
@@ -873,6 +879,53 @@ fn handle_identity_impl(_file: &std::fs::File) -> std::io::Result<FileIdentity> 
         std::io::ErrorKind::Unsupported,
         "no known way to identify a file here",
     ))
+}
+
+/// What a name refers to, compared with an open file (see
+/// [`check_name_against_handle`]).
+#[derive(Debug)]
+pub enum NameCheck {
+    /// Nothing has that name.
+    Gone,
+    /// The name refers to the very file the handle is open on.
+    SameFile,
+    /// The name refers to a different file.
+    OtherFile,
+    /// It could not be told (the reason is given). Treat as "not proven".
+    CannotTell(std::io::Error),
+}
+
+/// Whether `path` refers, at this moment, to the file `handle` is open on.
+/// Both identities are read now, one from the handle and one from the name,
+/// and compared.
+///
+/// Why "now" for both, and not a number stored when the file was created:
+/// a Mac's FAT32 and exFAT drives give a file a new number once data is
+/// first written into it, and when it is renamed (checked on macOS 27 with
+/// disk images: a number read at creation no longer matched the same file
+/// after 300 kB were written, while the handle and the name read at the
+/// same moment matched every time, and never matched a different file put
+/// at that name, whether the original had been renamed away or deleted).
+/// And while the handle is open, the file still exists, so its number
+/// cannot have been handed to a new file meanwhile.
+///
+/// The caller must keep `handle` open until it has acted on the answer, and
+/// should know the answer can go stale: a removal after [`NameCheck::SameFile`]
+/// is a second step, and a file put at the name in the instant between them
+/// would still be removed. No system offers "remove this name only if it is
+/// still this file" as one step.
+#[must_use]
+pub fn check_name_against_handle(path: &Path, handle: &std::fs::File) -> NameCheck {
+    let at_name = match file_identity(path) {
+        Ok(identity) => identity,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return NameCheck::Gone,
+        Err(e) => return NameCheck::CannotTell(e),
+    };
+    match handle_identity(handle) {
+        Ok(ours) if ours.is_same_file(&at_name) => NameCheck::SameFile,
+        Ok(_) => NameCheck::OtherFile,
+        Err(e) => NameCheck::CannotTell(e),
+    }
 }
 
 #[cfg(test)]
@@ -1391,6 +1444,49 @@ mod tests {
         assert!(file_identity(&dir.path().join("moved"))
             .unwrap()
             .is_same_file(&made));
+    }
+
+    /// The four answers of `check_name_against_handle`: the same file
+    /// (also after it was filled through another open, as ffmpeg fills a
+    /// temporary file), a different file put at the name after the original
+    /// was renamed away or deleted, and no file at all.
+    #[test]
+    fn check_name_against_handle_tells_own_file_replacement_and_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let open_new = |path: &Path| {
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(path)
+                .unwrap()
+        };
+        let a = dir.path().join("a");
+        let handle = open_new(&a);
+        fs::write(&a, "filled through another open").unwrap();
+        assert!(matches!(
+            check_name_against_handle(&a, &handle),
+            NameCheck::SameFile
+        ));
+        fs::rename(&a, dir.path().join("moved")).unwrap();
+        assert!(matches!(
+            check_name_against_handle(&a, &handle),
+            NameCheck::Gone
+        ));
+        fs::write(&a, "replacement").unwrap();
+        assert!(matches!(
+            check_name_against_handle(&a, &handle),
+            NameCheck::OtherFile
+        ));
+
+        let b = dir.path().join("b");
+        let handle = open_new(&b);
+        fs::remove_file(&b).unwrap();
+        fs::write(&b, "replacement").unwrap();
+        assert!(matches!(
+            check_name_against_handle(&b, &handle),
+            NameCheck::OtherFile
+        ));
     }
 
     #[test]

@@ -445,20 +445,22 @@ fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
 }
 
 /// A temporary subtitle file this run created, with what proves it is this
-/// run's own: the file's identity, read from the handle that created it
-/// (never from its name), and that handle, kept open until the file is
-/// removed or published.
+/// run's own: the handle that created it, kept open until the file is
+/// removed or published. Before removing the file, the run checks that the
+/// name still refers to the file this handle is on
+/// (`fs_safe::check_name_against_handle`, which reads both at that moment).
 ///
-/// The handle is held because a file's number (its identity) can be handed
-/// to a new file once the old one is gone -- Linux file systems often do so
-/// at once. While this run still holds the file open, the file still
-/// exists, so its number cannot have been given to anything else, and a
-/// name that shows this number is certainly still this run's file.
+/// Why the handle, and not a number stored at creation: the file's number
+/// is not fixed on every drive -- a Mac's FAT32 and exFAT drives renumber a
+/// file once data is written into it, so a number stored at creation would
+/// stop matching this run's own file as soon as ffmpeg had written it, and
+/// the run would leave its own temporary file behind on every extraction
+/// there (an earlier commit on this branch did exactly that, found by the
+/// real-drive test). And while the handle is open the file still exists,
+/// so its number cannot have been handed to a new file meanwhile.
 struct OwnTemporary {
     /// Where the file is: `.meedyadl-partial-<pid>-<random>.<ext>`.
     path: PathBuf,
-    /// Which file it is, read from `handle` when it was created.
-    identity: crate::utils::fs_safe::FileIdentity,
     /// The handle that created it (see above). Never read or written.
     handle: std::fs::File,
 }
@@ -481,8 +483,8 @@ const TEMP_NAME_TRIES: u32 = 8;
 /// name: once one run had removed its file, the next extraction took that
 /// name again, and anything that had decided to remove the old file then
 /// removed the new one. A random part means a name is never handed out
-/// twice, and removal is checked against the file's identity anyway (see
-/// [`remove_temporary`]).
+/// twice, and removal is checked against the file this run's handle is on
+/// anyway (see [`remove_temporary`]).
 ///
 /// The file is opened for reading as well as writing only because Windows
 /// needs read access to report which file it is (`fs_safe::handle_identity`).
@@ -510,20 +512,10 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
             .open(&candidate)
         {
             Ok(handle) => {
-                return match crate::utils::fs_safe::handle_identity(&handle) {
-                    Ok(identity) => Ok(OwnTemporary {
-                        path: candidate,
-                        identity,
-                        handle,
-                    }),
-                    // Without its identity this run could never prove the
-                    // file is its own, so it could never remove it.
-                    Err(e) => Err(format!(
-                        "created the temporary subtitle file {} but could not read which file \
-                         it is ({e}); it was left in place and can be deleted",
-                        candidate.display()
-                    )),
-                };
+                return Ok(OwnTemporary {
+                    path: candidate,
+                    handle,
+                })
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => {
@@ -542,17 +534,17 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
 
 /// Removes this run's own temporary file -- but only after checking that
 /// the name still refers to the file this run created (Codex's review of
-/// rounds 6-7, finding 2): the identity found at the name now must match
-/// the identity recorded from the handle at creation. While this runs, the
-/// handle is still open (see [`OwnTemporary`]), so a match cannot be a new
-/// file that was given the old file's number.
+/// rounds 6-7, finding 2): the file at the name, and the file the creating
+/// handle is open on, both read at this moment
+/// (`fs_safe::check_name_against_handle`; see [`OwnTemporary`] for why not
+/// a number stored at creation).
 ///
 /// - The name is gone: nothing to do (it counts as removed).
 /// - Same file: removed. A removal that fails is REPORTED, never ignored
 ///   (Codex's review of round 5, finding 4): in the log, and as a notice
 ///   for the activity log naming the file so the person can delete it.
-/// - A different file, or one whose identity cannot be read: LEFT ALONE,
-///   and reported. It may be another run's work.
+/// - A different file, or one that cannot be checked: LEFT ALONE, and
+///   reported. It may be another run's work.
 ///
 /// **What this still cannot do: be one step.** The check and the removal
 /// are two operations, and no system offers "delete this name only if it
@@ -560,14 +552,11 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
 /// instant between them would still be removed. Holding the handle closes
 /// only the other gap, a number being reused.
 fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
-    let OwnTemporary {
-        path,
-        identity,
-        handle,
-    } = temp;
-    match crate::utils::fs_safe::file_identity(&path) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Ok(now) if now.is_same_file(&identity) => match std::fs::remove_file(&path) {
+    use crate::utils::fs_safe::{check_name_against_handle, NameCheck};
+    let OwnTemporary { path, handle } = temp;
+    match check_name_against_handle(&path, &handle) {
+        NameCheck::Gone => {}
+        NameCheck::SameFile => match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {
@@ -582,7 +571,7 @@ fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
                 ));
             }
         },
-        Ok(_) => {
+        NameCheck::OtherFile => {
             log::warn!(
                 "Not removing {}: it is no longer the temporary subtitle file this run created",
                 path.display()
@@ -594,7 +583,7 @@ fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
                 path.display()
             ));
         }
-        Err(e) => {
+        NameCheck::CannotTell(e) => {
             log::warn!(
                 "Not removing {}: could not check that it is still the temporary subtitle \
                  file this run created: {e}",
@@ -858,9 +847,9 @@ async fn extract_single_stream(
         .arg(format!("0:{}", stream.index));
     cmd.args(codec_args);
     // ffmpeg opens this file again and empties it before writing (it does
-    // not delete and recreate it), so it stays the same file, with the
-    // identity recorded at creation; the real-ffmpeg test checks that no
-    // temporary file is left behind.
+    // not delete and recreate it), so it stays the same file, the one this
+    // run's handle is on; the real-ffmpeg test checks that no temporary
+    // file is left behind.
     cmd.arg(&temp.path);
 
     let output = match cmd.output().await {
@@ -2185,9 +2174,9 @@ mod tests {
     }
 
     /// A temporary file of this run's own, holding `text`. Created the way
-    /// the app creates one (`create_temp_sidecar`), so it carries the
-    /// identity a later removal is checked against; then filled in place,
-    /// as ffmpeg fills it.
+    /// the app creates one (`create_temp_sidecar`), so it carries the open
+    /// handle a later removal is checked against; then filled in place, as
+    /// ffmpeg fills it.
     fn own_temporary(dir: &Path, text: &str) -> OwnTemporary {
         let temp = create_temp_sidecar(dir, "srt").unwrap();
         fs::write(&temp.path, text).unwrap();
@@ -2269,7 +2258,7 @@ mod tests {
     /// hard link has published it -- and before the removal happens, its
     /// temporary name is taken by a NEW file (another run's new temporary,
     /// say). The new file must survive: the removal is checked against the
-    /// identity recorded when this run created its own file.
+    /// file this run's creating handle is on.
     #[test]
     fn a_new_file_that_took_the_temporary_name_meanwhile_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
