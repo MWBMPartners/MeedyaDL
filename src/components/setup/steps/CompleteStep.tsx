@@ -127,7 +127,7 @@ export function CompleteStep() {
       </div>
 
       <p className="text-xs text-content-tertiary">
-        Click "Get Started" below to begin using GAMDL
+        Choose Get Started below to begin using MeedyaDL
       </p>
     </div>
   );

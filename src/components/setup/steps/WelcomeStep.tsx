@@ -28,7 +28,7 @@
 import { useEffect, useState } from 'react';
 
 // Icons used in the welcome step layout.
-import { Download, AlertTriangle, Package } from 'lucide-react';
+import { AlertTriangle, Package } from 'lucide-react';
 
 // Zustand store providing the completeStep action.
 import { useSetupStore } from '@/stores/setupStore';
@@ -229,15 +229,21 @@ export function WelcomeStep() {
         </div>
       )}
 
-      {/* App icon */}
-      <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-accent">
-        <Download size={40} className="text-content-on-accent" />
-      </div>
+      {/* MeedyaDL's own logo -- the same file the sidebar shows. This used
+          to be a generic download arrow in a blue square, under the heading
+          "Welcome to GAMDL" / "Apple Music Downloader": the first screen a
+          new user saw was branded for the download engine underneath, not
+          for the app they had installed. alt="" because the heading right
+          below already says "MeedyaDL"; reading the logo out as well would
+          only say it twice. */}
+      <img src="/logo.svg" alt="" className="inline-block w-20 h-20" />
 
       {/* Welcome heading */}
       <div>
-        <h2 className="text-2xl font-bold text-content-primary">Welcome to GAMDL</h2>
-        <p className="text-base text-content-secondary mt-2">Apple Music Downloader</p>
+        <h2 className="text-2xl font-bold text-content-primary">Welcome to MeedyaDL</h2>
+        <p className="text-base text-content-secondary mt-2">
+          Download music and music videos from Apple Music
+        </p>
       </div>
 
       {/* Setup description */}
@@ -247,28 +253,34 @@ export function WelcomeStep() {
           Music. Here's what we'll do:
         </p>
 
+        {/* Step 1 used to promise that "a portable Python runtime will be
+            downloaded". Since the Python step learned to reuse a Python the
+            computer already has (3.10 or newer), that was only one of two
+            things that can happen, so it now says both. */}
         <ol className="list-decimal list-inside space-y-2 ml-2">
           <li>
-            <strong className="text-content-primary">Install Python</strong> - A portable Python
-            runtime will be downloaded (no system changes)
+            <strong className="text-content-primary">Set up Python</strong> — reuse a Python
+            you already have (version 3.10 or newer), or let MeedyaDL download its own private
+            copy
           </li>
           <li>
-            <strong className="text-content-primary">Install GAMDL</strong> - The Apple Music
-            download tool will be installed into the portable Python
+            <strong className="text-content-primary">Install the download engine</strong> — GAMDL,
+            the free tool that does the Apple Music downloading, goes into MeedyaDL&apos;s own
+            Python
           </li>
           <li>
-            <strong className="text-content-primary">Install Tools</strong> - Required tools like
-            FFmpeg and mp4decrypt will be downloaded
+            <strong className="text-content-primary">Install tools</strong> — FFmpeg,
+            mp4decrypt and the other helper programs are downloaded, or copies you already have
+            are used
           </li>
           <li>
-            <strong className="text-content-primary">Import Cookies</strong> - You'll provide your
-            Apple Music authentication cookies
+            <strong className="text-content-primary">Sign in to Apple Music</strong> — so
+            MeedyaDL can download with your subscription
           </li>
         </ol>
 
         <p className="text-xs text-content-tertiary">
-          All files are installed to the application data directory. Nothing is installed
-          system-wide.
+          Everything is kept in MeedyaDL&apos;s own folder. Nothing on your system is changed.
         </p>
 
         {/* Disclaimer notice */}

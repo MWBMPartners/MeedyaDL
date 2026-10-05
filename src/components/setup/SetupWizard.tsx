@@ -101,7 +101,9 @@ const STEP_COMPONENTS: Record<SetupStep, React.FC> = {
 const STEP_LABELS: Record<SetupStep, string> = {
   welcome: 'Welcome',
   python: 'Python',
-  gamdl: 'GAMDL',
+  // "Engine", not "GAMDL": most people setting MeedyaDL up have never
+  // heard of GAMDL, and the step's own heading explains what it is.
+  gamdl: 'Engine',
   dependencies: 'Tools',
   cookies: 'Cookies',
   complete: 'Done',

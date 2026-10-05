@@ -162,8 +162,8 @@ export function GamdlStep() {
             <div>
               <p className="text-sm font-medium text-content-primary">GAMDL Not Found</p>
               <p className="text-xs text-content-secondary mt-1">
-                Click below to install GAMDL from PyPI. This uses the portable Python installed in
-                the previous step.
+                Install GAMDL, the download engine MeedyaDL uses for Apple Music. It goes into
+                the Python set up in the previous step.
               </p>
             </div>
 

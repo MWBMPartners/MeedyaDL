@@ -180,8 +180,8 @@ export function PythonStep() {
       <div>
         <h2 className="text-xl font-semibold text-content-primary">Python Runtime</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL needs Python 3.10 or newer. Reuse a Python you already have, or download a
-          self-contained runtime — either way, your system stays untouched.
+          MeedyaDL&apos;s download engine needs Python 3.10 or newer. Reuse a Python you already
+          have, or download a self-contained copy — either way, your system stays untouched.
         </p>
       </div>
 

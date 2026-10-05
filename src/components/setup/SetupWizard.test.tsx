@@ -109,7 +109,7 @@ describe('SetupWizard', () => {
     render(<SetupWizard />);
     expect(screen.getByText('Welcome')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
-    expect(screen.getByText('GAMDL')).toBeInTheDocument();
+    expect(screen.getByText('Engine')).toBeInTheDocument();
     expect(screen.getByText('Tools')).toBeInTheDocument();
     expect(screen.getByText('Cookies')).toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument();

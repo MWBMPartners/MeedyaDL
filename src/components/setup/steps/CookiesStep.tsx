@@ -604,10 +604,13 @@ export function CookiesStep() {
       <div>
         <h2 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h2>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL needs your Apple Music cookies to authenticate downloads.{' '}
-          <span className="font-medium text-content-primary">
-            You must be logged in to Apple Music in your browser.
-          </span>
+          {/* This used to say "You must be logged in to Apple Music in your
+              browser", in bold, right above a Sign in button that needs no
+              browser at all -- it opens its own sign-in window. Being signed
+              in to a browser only matters for importing from that browser. */}
+          MeedyaDL needs to sign in to Apple Music to download with your subscription. The
+          quickest way is the Sign in button below. You can also import the sign-in from a
+          browser where you are already signed in to Apple Music.
         </p>
       </div>
 
