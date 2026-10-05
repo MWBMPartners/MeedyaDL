@@ -54,6 +54,9 @@ COPY_FILES = [
     "vite.config.ts",
     "src-tauri/tauri.conf.json",
     "src-tauri/Cargo.toml",
+    # The Linux desktop entry (its Comment is one of the descriptions the
+    # installer-details rule compares).
+    "src-tauri/meedyadl.desktop",
     # Where the files in public/ are used from (the unused-file rule).
     "index.html",
     "src-tauri/engines.toml",
@@ -258,6 +261,19 @@ def cases():
                 "support for that service is planned.\";",
                 "support for that service is planned. (Konami code)\";",
             ),
+        ),
+        (
+            # Polish pass L17: the installer details.
+            "an installer with no publisher",
+            "Installer publisher, homepage or description is missing or disagrees",
+            "bundle.publisher",
+            lambda r: sub(r / "src-tauri/tauri.conf.json", r'\n    "publisher": "MeedyaSuite",', ""),
+        ),
+        (
+            "a description worded differently in one place",
+            "Installer publisher, homepage or description is missing or disagrees",
+            "worded differently",
+            lambda r: sub(r / "src-tauri/meedyadl.desktop", r"Comment=A multiplatform media downloader", "Comment=A cross platform media downloader"),
         ),
         (
             "a ratchet count going up",

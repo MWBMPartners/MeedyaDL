@@ -66,6 +66,8 @@
     ],
     "createUpdaterArtifacts": true,
     "copyright": "Copyright (c) 2024-2026 MeedyaSuite",
+    "publisher": "MeedyaSuite",
+    "homepage": "https://github.com/MWBMPartners/MeedyaDL",
     "category": "Utility",
     "shortDescription": "A multiplatform media downloader",
     "longDescription": "MeedyaDL is a multiplatform media downloader with support for quality selection, download queue management, lyrics embedding, and cover art handling.",

@@ -21,7 +21,11 @@ WHAT IT CHECKS -- one `### ` section per rule, findings as bullets
     help pages, translations and interface strings.
  3. One name and one version: package.json, src-tauri/Cargo.toml and
     tauri.conf.json agree exactly; the release-please manifest is never
-    ahead of them, and matches them on a finished release.
+    ahead of them, and matches them on a finished release. And the
+    installer details: tauri.conf.json names MeedyaSuite as the publisher
+    and the repository (Cargo.toml's `repository`) as the homepage, and
+    one description is used by package.json, Cargo.toml, tauri.conf.json's
+    shortDescription and the Linux desktop entry's Comment.
  4. Each screen names the native window (a `setTitle` call, and the
     permission that allows it).
  5. Icons at every size the installers need.
@@ -50,8 +54,9 @@ WHAT IT CHECKS -- one `### ` section per rule, findings as bullets
 15. No message names the hidden developer unlock.
 16. Ratchets -- counts that may only go down: hand-made <button>,
     <select> and <input> outside components/common, hard-coded pixel font
-    sizes, corner rounding that bypasses the theme token, and error toasts
-    shaped "Failed to X: <raw error>". A count above its ceiling is a
+    sizes, corner rounding that bypasses the theme token, error toasts
+    whose message is the raw error, and three full stops ("...") in
+    on-screen text or a translation. A count above its ceiling is a
     finding; so is a count BELOW it, because the ceiling must then be
     lowered in the same change, or it would let the count creep back up.
 
@@ -463,6 +468,59 @@ def check_identity() -> None:
         add(SECTION_IDENTITY, ".release-please-manifest.json", 0, f"says {released}, ahead of the build's {version}")
     elif "-" not in version and released != version:
         add(SECTION_IDENTITY, ".release-please-manifest.json", 0, f"says {released} but this finished release is {version}")
+
+
+SECTION_INSTALLER = "Installer publisher, homepage or description is missing or disagrees"
+# The brand rule: MeedyaSuite is the publisher, MeedyaDL the product.
+PUBLISHER = "MeedyaSuite"
+
+
+def check_installer_details() -> None:
+    """Polish pass L17. Without `bundle.publisher`, Tauri takes the publisher
+    from the identifier (the lowercase "meedyasuite" in
+    com.meedyasuite.meedyadl). Tauri's own schema says the publisher becomes
+    the Windows Installer's Manufacturer and a .deb's Maintainer (what the
+    NSIS installer does with it was not checked: its template is compiled
+    into Tauri's command-line tool). Without
+    `bundle.homepage`, the installers have no web address to show. And the
+    one-line description is typed in four places that drifted before."""
+    try:
+        pkg = json.loads(read(ROOT / "package.json"))
+        conf = json.loads(read(ROOT / "src-tauri/tauri.conf.json"))
+        cargo = read(ROOT / "src-tauri/Cargo.toml")
+    except (OSError, ValueError) as e:
+        add(SECTION_INSTALLER, "(build files)", 0, f"could not read a build file, so the installer details were not compared: {e}")
+        return
+    bundle = conf.get("bundle", {})
+    parts = re.split(r"^\[package\]\s*$", cargo, maxsplit=1, flags=re.M)
+    pkg_block = re.split(r"^\[", parts[-1], maxsplit=1, flags=re.M)[0] if len(parts) == 2 else ""
+
+    if bundle.get("publisher") != PUBLISHER:
+        add(SECTION_INSTALLER, "src-tauri/tauri.conf.json", 0, f'bundle.publisher is "{bundle.get("publisher")}", expected "{PUBLISHER}"')
+    repo = re.search(r'^repository\s*=\s*"([^"]+)"', pkg_block, re.M)
+    if not repo:
+        add(SECTION_INSTALLER, "src-tauri/Cargo.toml", 0, "has no repository address, so the installer homepage could not be compared")
+    elif bundle.get("homepage") != repo.group(1):
+        add(SECTION_INSTALLER, "src-tauri/tauri.conf.json", 0, f'bundle.homepage is "{bundle.get("homepage")}", expected the repository address "{repo.group(1)}"')
+
+    cargo_desc = re.search(r'^description\s*=\s*"([^"]+)"', pkg_block, re.M)
+    descriptions = {
+        "package.json description": pkg.get("description"),
+        "src-tauri/Cargo.toml description": cargo_desc.group(1) if cargo_desc else None,
+        "src-tauri/tauri.conf.json bundle.shortDescription": bundle.get("shortDescription"),
+    }
+    template = bundle.get("linux", {}).get("deb", {}).get("desktopTemplate")
+    if template:
+        try:
+            desktop = read(ROOT / "src-tauri" / template)
+        except OSError as e:
+            add(SECTION_INSTALLER, f"src-tauri/{template}", 0, f"could not read the Linux desktop entry, so its description was not compared: {e}")
+        else:
+            comment = re.search(r"^Comment=(.*)$", desktop, re.M)
+            descriptions[f"src-tauri/{template} Comment"] = comment.group(1).strip() if comment else None
+    if None in descriptions.values() or len(set(descriptions.values())) != 1:
+        listed = "; ".join(f'{k} "{v}"' for k, v in descriptions.items())
+        add(SECTION_INSTALLER, "package.json", 0, f"the description is missing or worded differently: {listed}")
 
 
 # ---------------------------------------------------------------------------
@@ -1107,6 +1165,7 @@ RULES = [
     check_placeholders,
     check_internal_references,
     check_identity,
+    check_installer_details,
     check_window_title,
     check_icons,
     check_router,
