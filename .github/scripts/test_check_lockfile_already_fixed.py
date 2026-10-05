@@ -1036,6 +1036,77 @@ class ManifestsComparedAsData(HelperTestCase):
         )
         self.assertEqual(answer, FIXED, self.last_output)
 
+    # --- the remaining #1312 items: one test per way a package is named -----
+
+    def npm_case(self, before: dict, after: dict, channel: dict) -> str:
+        """A fix that changes package.json from `before` to `after` and moves
+        foo from 1.0.1 to 1.0.3, against a channel with that lockfile and
+        package.json `channel` (each given as its sections)."""
+        def manifest(sections: dict) -> str:
+            return json.dumps({"name": "demo", "version": "1.0.0", **sections}, indent=2) + "\n"
+
+        old, new = self.fix(
+            {NPM_MANIFEST: manifest(before), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.1"})},
+            {NPM_MANIFEST: manifest(after), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"})},
+        )
+        target = self.branch({NPM_MANIFEST: manifest(channel), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"})})
+        return self.verdict(old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_npm_alias_as_an_override_value_counts_issue_1312(self) -> None:
+        # "bar": "npm:foo@1.0.1" replaces bar with the old foo.
+        answer = self.npm_case(
+            {"overrides": {"foo": "^1.0.1"}},
+            {"overrides": {"foo": "^1.0.3"}},
+            {"overrides": {"foo": "^1.0.3", "bar": "npm:foo@1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_alias_in_a_dependency_section_counts(self) -> None:
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "devDependencies": {"old-foo": "npm:foo@1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_dollar_reference_counts(self) -> None:
+        # "baz": "$foo" pins baz to whatever version of foo is depended on.
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "overrides": {"baz": "$foo"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_resolutions_name_the_packages_in_their_path(self) -> None:
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "resolutions": {"**/foo": "1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_cargo_replace_key_names_its_crate(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1.1"\n',
+            '[dependencies]\nfoo = "1.2"\n',
+            cargo_manifest('[dependencies]\nfoo = "1.2"\n\n[replace]\n"foo:1.1.0" = { git = "https://example.invalid/foo" }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_an_inheriting_entry_counts_for_the_crate_its_workspace_entry_renames(self) -> None:
+        # `alias = { workspace = true }` is whatever [workspace.dependencies]
+        # says `alias` is: here foo. Only that link ties the channel's extra
+        # test-only entry, with `risky` on, to foo.
+        workspace = '[workspace.dependencies]\nalias = { package = "foo", version = "1.2" }\n\n'
+        after = workspace + '[dependencies]\nfoo = "1.2"\n'
+        answer = self.cargo_case(
+            workspace + '[dependencies]\nfoo = "1.1"\n',
+            after,
+            cargo_manifest(after + '\n[dev-dependencies]\nalias = { workspace = true, features = ["risky"] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.

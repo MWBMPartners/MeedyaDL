@@ -57,7 +57,7 @@ commit (`--new`) and the branch to check (`--target`), the answer is
          `optionalDependencies`, `peerDependencies` (an `npm:` alias counts
          for the package it installs), `resolutions` (every package a key
          names), and `overrides` at any depth (as a key, or as the parent of
-         nested keys, or as a `$name` reference);
+         nested keys, or as a `$name` reference or an `npm:` alias value);
        - `Cargo.toml`: every dependency table (`dependencies`,
          `dev-dependencies`, `build-dependencies`, and the old spellings
          `dev_dependencies` and `build_dependencies`, at the top level and
@@ -696,6 +696,9 @@ def manifest_mentions(path: str, doc: dict) -> Mentions:
                 # "$foo" means "the version of foo in my dependencies".
                 if isinstance(value, str) and value.startswith("$"):
                     names.add(npm_spec_name(value[1:]))
+                # "bar": "npm:foo@1" replaces bar with foo (issue #1312).
+                elif isinstance(value, str) and value.startswith("npm:"):
+                    names.add(npm_spec_name(value[4:]))
                 out[prefix + (key,)] = (value, names)
                 if isinstance(value, dict):
                     walk(prefix + (key,), value, name)
