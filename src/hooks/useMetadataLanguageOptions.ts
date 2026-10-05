@@ -44,7 +44,9 @@
  * comes, every entry keeps a row of its own -- `"EN-us"` beside `"en-US"`,
  * and a stored Mandarin `"cmn-Hans-CN"` beside the offered Chinese
  * `"zh-Hans-CN"`, which the browser alone would have taken for the same
- * language and hidden.
+ * language and hidden. Two rows that would carry the same name show their
+ * tag after it, so they can be told apart (`toLanguageOptions`; stand-in
+ * review of round 6, finding 7).
  *
  * Which row shows as SELECTED is returned too (`selectedValue`; Codex's
  * review of round 5, finding 1). Once a stored `"EN-us"` has become the

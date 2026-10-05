@@ -169,6 +169,23 @@ describe('toLanguageOptions', () => {
       { value: 'en-GB', label: 'English (United Kingdom)' },
     ]);
   });
+
+  it('adds the tag to every row whose name another row also has', () => {
+    // Stand-in review of round 6, finding 7: the platform names Mandarin
+    // `cmn-Hans-CN` exactly like the offered Chinese `zh-Hans-CN`, and two
+    // spellings of one tag alike, so the person could not tell the rows
+    // apart. Both rows of a pair get their tag; a row with a name of its
+    // own does not.
+    expect(toLanguageOptions(['zh-Hans-CN', 'en-GB', 'cmn-Hans-CN'], 'en')).toEqual([
+      { value: 'zh-Hans-CN', label: 'Chinese (Simplified, China) — zh-Hans-CN' },
+      { value: 'en-GB', label: 'English (United Kingdom)' },
+      { value: 'cmn-Hans-CN', label: 'Chinese (Simplified, China) — cmn-Hans-CN' },
+    ]);
+    expect(toLanguageOptions(['en-US', 'EN-us'], 'de')).toEqual([
+      { value: 'en-US', label: 'Englisch (Vereinigte Staaten) — en-US' },
+      { value: 'EN-us', label: 'Englisch (Vereinigte Staaten) — EN-us' },
+    ]);
+  });
 });
 
 describe('interfaceLanguageLabel', () => {

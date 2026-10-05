@@ -132,7 +132,9 @@ did not change.
   stored Mandarin `cmn-Hans-CN` behind the offered `zh-Hans-CN`); the
   browser's reading is used only to sort (Codex's review of round 5). Once
   answered, a stored `"EN-us"` shows as one row beside the offered
-  `"en-US"`, and the dropdown is handed that row's value so it shows English
+  `"en-US"` (until then, two rows with the same name each show their tag
+  after it, as Mandarin and Chinese always do), and the dropdown is handed
+  that row's value so it shows English
   selected (handing it `"EN-us"` made it show its first row); the stored
   spelling is never rewritten (COMPAT-030).
 - An imported language's length check and tag check are one small function

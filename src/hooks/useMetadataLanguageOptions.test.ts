@@ -187,6 +187,8 @@ describe('useMetadataLanguageOptions', () => {
     await waitFor(() => expect(result.current.options).toHaveLength(METADATA_LANGUAGE_TAGS.length));
     const rows = result.current.options.filter((o) => o.value === 'en-US' || o.value === 'EN-us');
     expect(rows.map((o) => o.value)).toEqual(['en-US']);
+    // One row, so its name alone is enough: no tag added to it.
+    expect(rows[0].label).toBe('English (United States)');
   });
 
   it('selects the one "en-US" row for a saved "EN-us"', async () => {
@@ -303,6 +305,34 @@ describe('useMetadataLanguageOptions while the backend has not identified the ta
     expect(values(result.current.options)).toContain(MANDARIN);
     expect(values(result.current.options)).toContain('zh-Hans-CN');
     expect(result.current.options).toHaveLength(METADATA_LANGUAGE_TAGS.length + 1);
+  });
+
+  // Stand-in review of round 6, finding 7: keeping both rows is right, but
+  // the person must be able to tell them apart.
+
+  it('labels the two English rows apart while a stored "EN-us" is unverified', () => {
+    identities.mockImplementation(() => new Promise(() => {}));
+    const { result } = renderHook(() => useMetadataLanguageOptions('EN-us', 'de'));
+    const labelOf = (value: string) => result.current.options.find((o) => o.value === value)?.label;
+    expect(labelOf('en-US')).toBe('Englisch (Vereinigte Staaten) — en-US');
+    expect(labelOf('EN-us')).toBe('Englisch (Vereinigte Staaten) — EN-us');
+    expect(labelOf('en-GB')).toBe('Englisch (Vereinigtes Königreich)');
+    const labels = result.current.options.map((o) => o.label);
+    expect(new Set(labels).size).toBe(labels.length);
+  });
+
+  it('labels a stored Mandarin row and the offered Chinese row apart, after the backend answers too', async () => {
+    identities.mockImplementation(backendLike);
+    const { result } = renderHook(() => useMetadataLanguageOptions(MANDARIN, 'en'));
+    // The backend has answered once its groups reach the ordering.
+    await waitFor(() => {
+      const [, , groups] = order.mock.calls.at(-1)!;
+      expect(groups).toEqual(expect.arrayContaining(['cmn', 'zh']));
+    });
+    const labelOf = (value: string) => result.current.options.find((o) => o.value === value)?.label;
+    expect(labelOf(MANDARIN)).toBe('Chinese (Simplified, China) — cmn-Hans-CN');
+    expect(labelOf('zh-Hans-CN')).toBe('Chinese (Simplified, China) — zh-Hans-CN');
+    expect(labelOf('zh-Hant-TW')).toBe('Chinese (Traditional, Taiwan)');
   });
 
   it('a later success keeps Mandarin as its own group', async () => {

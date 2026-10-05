@@ -241,12 +241,30 @@ export function isSameList(ordered: readonly string[], tags: readonly string[]):
   return a.every((value, i) => value === b[i]);
 }
 
-/** The list entries, in the given order, named in `uiLanguage`. */
+/**
+ * The list entries, in the given order, named in `uiLanguage`.
+ *
+ * When two rows would carry the same name, BOTH show their tag after it --
+ * "Chinese (Simplified, China) — cmn-Hans-CN" beside "Chinese (Simplified,
+ * China) — zh-Hans-CN" -- so the person can tell them apart (stand-in
+ * review of round 6, finding 7). That happens for a stored Mandarin
+ * `cmn-Hans-CN` beside the offered Chinese `zh-Hans-CN` (the platform names
+ * both alike, even after the backend has said they are different
+ * languages), and for two spellings of one tag (`EN-us` beside `en-US`)
+ * while the backend has not said they are the same. A row whose name is
+ * its own keeps just the name. The value is always the tag (NAME-020).
+ */
 export function toLanguageOptions(
   ordered: readonly string[],
   uiLanguage: string
 ): LanguageOption[] {
-  return ordered.map((tag) => ({ value: tag, label: languageDisplayName(tag, uiLanguage) }));
+  const names = ordered.map((tag) => languageDisplayName(tag, uiLanguage));
+  const rowsNamed = new Map<string, number>();
+  for (const name of names) rowsNamed.set(name, (rowsNamed.get(name) ?? 0) + 1);
+  return ordered.map((tag, i) => ({
+    value: tag,
+    label: (rowsNamed.get(names[i]) ?? 0) > 1 ? `${names[i]} — ${tag}` : names[i],
+  }));
 }
 
 /**
