@@ -147,7 +147,7 @@ export function CrashReportSection() {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-medium text-content-secondary">Recent Error Reports</h4>
+        <h3 className="text-xs font-medium text-content-secondary">Recent Error Reports</h3>
         {reports.length > 1 && (
           <button
             type="button"

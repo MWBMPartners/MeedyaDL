@@ -602,7 +602,7 @@ export function CookiesStep() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h2>
+        <h1 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h1>
         <p className="text-sm text-content-secondary mt-1">
           {/* This used to say "You must be logged in to Apple Music in your
               browser", in bold, right above a Sign in button that needs no

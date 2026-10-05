@@ -129,7 +129,7 @@ export function LegacyFolderMergeSection() {
     <section className="mt-8 pt-6 border-t border-border-light">
       <header className="mb-3">
         <h2 className="text-lg font-semibold text-content-primary">
-          Legacy folder cleanup
+          Legacy Folder Cleanup
         </h2>
         <p className="text-sm text-content-secondary max-w-3xl mt-1">
           Albums downloaded before v1.4.4 with companion codecs enabled

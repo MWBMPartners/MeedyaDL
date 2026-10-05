@@ -136,7 +136,7 @@ export function GamdlStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Download Engine</h2>
+        <h1 className="text-xl font-semibold text-content-primary">Download Engine</h1>
         {/* Used to name votify and Spotify to everyone; both are a
             developer-only preview, installed only with developer access. */}
         <p className="text-sm text-content-secondary mt-1">

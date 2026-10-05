@@ -288,7 +288,7 @@ export function SpotifyTab() {
       {/* Section 2: Anti-ban safeguards                                   */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Anti-ban safeguards"
+        title="Anti-Ban Safeguards"
         description="These knobs shape votify's traffic pattern to look more like a slow human listener. The defaults are designed to be safe — only disable them on a throwaway account that you accept could be suspended."
       >
         <div className="flex items-center justify-between gap-3">
@@ -384,7 +384,7 @@ export function SpotifyTab() {
       {/* Section 3: Daily cap status                                      */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Daily cap status"
+        title="Daily Cap Status"
         description="Live snapshot of today's Spotify download counter. The counter resets at local midnight to match Spotify's listening-session day boundary."
       >
         {capStatus ? (
@@ -438,7 +438,7 @@ export function SpotifyTab() {
       {/* Section 4: Acknowledgement                                       */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Risk acknowledgement"
+        title="Risk Acknowledgement"
         description="Records whether you've accepted the Spotify account-ban-risk consent. Revoking returns you to the first-run modal on the next Spotify queue attempt."
       >
         <div className="flex items-center justify-between">

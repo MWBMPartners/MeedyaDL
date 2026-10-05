@@ -99,8 +99,12 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
     <header className="flex items-start justify-between px-6 py-4 border-b border-border-light">
       {/* Left column: title and optional subtitle */}
       <div>
-        {/* Page title as an <h2> heading for semantic HTML and accessibility */}
-        <h2 className="text-xl font-semibold text-content-primary">{title}</h2>
+        {/* The page's one top-level heading. It used to be an <h2>, and the
+            only <h1> (in the sidebar) is hidden, so no screen had a visible
+            top-level heading at all; screen readers jump between pages by
+            their <h1>. Every page uses this component, so each has exactly
+            one. */}
+        <h1 className="text-xl font-semibold text-content-primary">{title}</h1>
         {/* Subtitle rendered only when provided (conditional rendering) */}
         {subtitle && <p className="text-sm text-content-secondary mt-0.5">{subtitle}</p>}
       </div>

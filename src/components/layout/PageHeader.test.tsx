@@ -21,11 +21,14 @@ describe('PageHeader', () => {
   // Title rendering
   // =========================================================================
 
-  /** The title prop is required and should always render as an h2 heading. */
-  it('renders the title as an h2 element', () => {
+  /**
+   * The title is the page's one top-level heading: an h1. It used to be an
+   * h2, which left every screen with no visible h1 at all.
+   */
+  it('renders the title as an h1 element', () => {
     render(<PageHeader title="Download" />);
 
-    const heading = screen.getByRole('heading', { level: 2 });
+    const heading = screen.getByRole('heading', { level: 1 });
     expect(heading).toHaveTextContent('Download');
   });
 

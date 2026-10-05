@@ -164,9 +164,9 @@ export function FallbackChainList<T extends string>({
           AND there are items currently outside the chain (#659). */}
       {allItems && disabled.length > 0 && (
         <div>
-          <h5 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
+          <h4 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
             Available (not in chain)
-          </h5>
+          </h4>
           <div className="space-y-1">
             {disabled.map((item) => (
               <div

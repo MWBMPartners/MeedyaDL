@@ -64,6 +64,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { MvGapFillModal } from './MvGapFillModal';
 import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
+import { PageHeader } from '@/components/layout';
 
 /**
  * Human-readable label for a canonical codec-registry ID. Used by
@@ -438,19 +439,14 @@ export function LibraryScanPage() {
   };
 
   return (
-    <div className="flex flex-col h-full p-6 overflow-y-auto">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-content-primary mb-2">
-          Library Scan
-        </h1>
-        <p className="text-sm text-content-secondary max-w-3xl">
-          Point MeedyaDL at an existing music library to find downloads
-          that are missing tracks, have a higher quality available, or
-          have been updated by Apple Music since you last fetched them.
-          Re-download just the gaps without losing anything you already
-          have.
-        </p>
-      </header>
+    <div className="flex flex-col h-full overflow-y-auto">
+      {/* The shared page header, like every other screen. This page used to
+          draw its own: a bigger title, different spacing, and its own <h1>. */}
+      <PageHeader
+        title="Library Scan"
+        subtitle="Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher quality available, or have been updated by Apple Music since you last fetched them. Re-download just the gaps without losing anything you already have."
+      />
+      <div className="p-6">
 
       <div className="mb-6 flex items-center gap-3">
         <button
@@ -612,6 +608,7 @@ export function LibraryScanPage() {
           folder picker + state because the merge flow runs whether
           or not the user has any .meedyadl manifests. */}
       <LegacyFolderMergeSection />
+      </div>
     </div>
   );
 }

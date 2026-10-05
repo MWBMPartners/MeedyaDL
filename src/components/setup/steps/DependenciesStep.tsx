@@ -149,7 +149,7 @@ export function DependenciesStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">External Tools</h2>
+        <h1 className="text-xl font-semibold text-content-primary">External Tools</h1>
         <p className="text-sm text-content-secondary mt-1">
           MeedyaDL uses a few helper programs to download and process music. Each one is downloaded
           for you, or a copy you already have is used.

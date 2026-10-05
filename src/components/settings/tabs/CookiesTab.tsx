@@ -965,7 +965,7 @@ export function CookiesTab() {
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
         <div className="flex items-center gap-2.5 mb-2">
           <LogIn size={16} className="text-accent flex-shrink-0" />
-          <h4 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h4>
+          <h3 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h3>
         </div>
 
         {!isLoginWindowOpen ? (
@@ -1028,7 +1028,7 @@ export function CookiesTab() {
         <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
           <div className="flex items-center gap-2.5 mb-2">
             <Globe size={16} className="text-accent flex-shrink-0" />
-            <h4 className="text-xs font-medium text-content-primary">Import from Browser</h4>
+            <h3 className="text-xs font-medium text-content-primary">Import from Browser</h3>
           </div>
 
           {/* Browser selector and import button */}

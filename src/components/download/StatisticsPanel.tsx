@@ -246,9 +246,9 @@ function LifetimeStatsSection() {
       {/* Codec distribution — bar list, hidden when empty. */}
       {stats.codec_distribution.length > 0 && (
         <div className="mt-3">
-          <h4 className="text-xs font-medium text-content-secondary mb-1.5">
+          <h2 className="text-xs font-medium text-content-secondary mb-1.5">
             By codec
-          </h4>
+          </h2>
           <div className="space-y-1">
             {stats.codec_distribution.slice(0, 6).map((c) => {
               const pct = (c.count / stats.success) * 100;

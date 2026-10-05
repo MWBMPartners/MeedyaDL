@@ -153,9 +153,9 @@ export function FallbackTab() {
         {/* Music fallback chain */}
         {activeChain === 'music' && (
           <div>
-            <h4 className="text-sm font-semibold text-content-primary mb-2">
+            <h3 className="text-sm font-semibold text-content-primary mb-2">
               Audio Codec Fallback Chain
-            </h4>
+            </h3>
             <p className="text-xs text-content-tertiary mb-3">
               <strong>ALAC</strong> = lossless (perfect quality) &middot; <strong>Atmos</strong> =
               spatial 3D audio &middot; <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
@@ -191,9 +191,9 @@ export function FallbackTab() {
         {/* Video codec fallback chain */}
         {activeChain === 'video' && (
           <div>
-            <h4 className="text-sm font-semibold text-content-primary mb-2">
+            <h3 className="text-sm font-semibold text-content-primary mb-2">
               Video Codec Fallback Chain
-            </h4>
+            </h3>
             <p className="text-xs text-content-tertiary mb-3">
               Music video resolution is a ceiling, not a request: whatever
               maximum resolution is set in Codec &amp; Resolution, the download tool always

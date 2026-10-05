@@ -995,7 +995,7 @@ export function AdvancedTab() {
         {/* MusicKit */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h4>
+            <h3 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h3>
             <HelpButton topic="animated-artwork" />
           </div>
           <p className="text-xs text-content-tertiary">
@@ -1097,7 +1097,7 @@ export function AdvancedTab() {
 
         {/* AcoustID */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-content-secondary">AcoustID</h4>
+          <h3 className="text-sm font-medium text-content-secondary">AcoustID</h3>
           <Input
             label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
             description={
@@ -1144,7 +1144,7 @@ export function AdvancedTab() {
 
         {/* song.link (Odesli) */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-content-secondary">song.link (Odesli)</h4>
+          <h3 className="text-sm font-medium text-content-secondary">song.link (Odesli)</h3>
           <Input
             label="song.link Access Key"
             description={
@@ -1256,9 +1256,9 @@ export function AdvancedTab() {
                   </div>
                   {auditResult.unknown_fields.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-amber-400 mb-1">
+                      <h3 className="text-sm font-medium text-amber-400 mb-1">
                         Unknown Fields (not in tags.toml)
-                      </h4>
+                      </h3>
                       <div className="max-h-48 overflow-y-auto bg-surface-secondary rounded p-2 space-y-1">
                         {auditResult.unknown_fields.map((field) => (
                           <div
@@ -1282,9 +1282,9 @@ export function AdvancedTab() {
                   )}
                   {auditResult.missing_fields.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-gray-400 mb-1">
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">
                         Missing Fields (in tags.toml but not in API response)
-                      </h4>
+                      </h3>
                       <div className="text-xs font-mono text-content-tertiary">
                         {auditResult.missing_fields.join(', ')}
                       </div>
@@ -1582,7 +1582,7 @@ function DevToolsSection() {
       <div className="space-y-4">
         {/* Token resolution hierarchy status */}
         <div>
-          <h4 className="text-sm font-medium mb-2">MusicKit Token Resolution</h4>
+          <h3 className="text-sm font-medium mb-2">MusicKit Token Resolution</h3>
           <div className="space-y-1 text-xs">
             <div className="flex items-center gap-2">
               <span className={hasUserCreds ? 'text-green-500' : 'text-gray-400'}>
@@ -1623,7 +1623,7 @@ function DevToolsSection() {
           user-facing Settings tabs.
         */}
         <div>
-          <h4 className="text-sm font-medium mb-2">GAMDL log level</h4>
+          <h3 className="text-sm font-medium mb-2">GAMDL log level</h3>
           <Select
             options={[
               { value: 'DEBUG', label: 'DEBUG — verbose (HTTP, decryption, m3u8 URLs)' },
@@ -1740,9 +1740,9 @@ function DiagnosticBundleSection() {
 
   return (
     <div className="pt-2 border-t border-border-light mt-2">
-      <h4 className="text-sm font-medium text-content-primary mb-1">
+      <h3 className="text-sm font-medium text-content-primary mb-1">
         Diagnostic Bundle
-      </h4>
+      </h3>
       <p className="text-xs text-content-secondary mb-2">
         Captures the last 200 activity-log entries, component versions,
         a redacted settings snapshot, and your output-directory tree

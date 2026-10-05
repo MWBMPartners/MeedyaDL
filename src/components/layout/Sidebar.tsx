@@ -333,9 +333,10 @@ export function Sidebar() {
               }}
             />
             <div className="no-drag hidden">
-              <h1 className="text-sm font-semibold text-sidebar-text-active leading-tight">
+              {/* Not a heading: each page's own title is its <h1>. */}
+              <p className="text-sm font-semibold text-sidebar-text-active leading-tight">
                 MeedyaDL
-              </h1>
+              </p>
               <p className="text-[11px] text-content-secondary leading-tight">{t('app.subtitle')}</p>
             </div>
           </>

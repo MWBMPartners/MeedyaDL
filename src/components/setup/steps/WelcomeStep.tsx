@@ -176,18 +176,39 @@ export function WelcomeStep() {
 
   return (
     <div className="text-center space-y-6">
+
+      {/* MeedyaDL's own logo -- the same file the sidebar shows. This used
+          to be a generic download arrow in a blue square, under the heading
+          "Welcome to GAMDL" / "Apple Music Downloader": the first screen a
+          new user saw was branded for the download engine underneath, not
+          for the app they had installed. alt="" because the heading right
+          below already says "MeedyaDL"; reading the logo out as well would
+          only say it twice. */}
+      <img src="/logo.svg" alt="" className="inline-block w-20 h-20" />
+
+      {/* Welcome heading */}
+      <div>
+        <h1 className="text-2xl font-bold text-content-primary">Welcome to MeedyaDL</h1>
+        <p className="text-base text-content-secondary mt-2">
+          Download music and music videos from Apple Music
+        </p>
+      </div>
+
       {/* #876 P5: restore-from-previous-install banner. Surfaces
           any .meedyabundle files we found in Downloads / Desktop /
-          home so a returning user can short-circuit the setup. */}
+          home so a returning user can short-circuit the setup.
+          It sits BELOW the welcome heading: it used to come first, so
+          its heading came before the page's own -- out of order for
+          anyone moving through the page by headings. */}
       {discoveredBundles.length > 0 && (
         <div className="text-left p-4 rounded-platform border border-accent/40 bg-accent/5">
           <div className="flex items-start gap-2 mb-3">
             <Package size={18} className="text-accent flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-sm font-semibold text-content-primary">
+              <h2 className="text-sm font-semibold text-content-primary">
                 Found {discoveredBundles.length} previous-install bundle
                 {discoveredBundles.length === 1 ? '' : 's'}
-              </h3>
+              </h2>
               <p className="text-xs text-content-secondary mt-0.5">
                 Restore your settings, queue, history, and library index in
                 one click. You can still continue with a fresh setup if you'd
@@ -228,23 +249,6 @@ export function WelcomeStep() {
           </div>
         </div>
       )}
-
-      {/* MeedyaDL's own logo -- the same file the sidebar shows. This used
-          to be a generic download arrow in a blue square, under the heading
-          "Welcome to GAMDL" / "Apple Music Downloader": the first screen a
-          new user saw was branded for the download engine underneath, not
-          for the app they had installed. alt="" because the heading right
-          below already says "MeedyaDL"; reading the logo out as well would
-          only say it twice. */}
-      <img src="/logo.svg" alt="" className="inline-block w-20 h-20" />
-
-      {/* Welcome heading */}
-      <div>
-        <h2 className="text-2xl font-bold text-content-primary">Welcome to MeedyaDL</h2>
-        <p className="text-base text-content-secondary mt-2">
-          Download music and music videos from Apple Music
-        </p>
-      </div>
 
       {/* Setup description */}
       <div className="text-left max-w-md mx-auto space-y-3 text-sm text-content-secondary">

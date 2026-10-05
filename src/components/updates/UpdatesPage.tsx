@@ -16,6 +16,8 @@
 
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+/** Renumbers the release notes' headings to fit under "Release Notes". */
+import { remarkFitHeadings } from '@/lib/markdownHeadings';
 import {
   RefreshCw,
   ExternalLink,
@@ -253,9 +255,9 @@ export function UpdatesPage() {
                 something could not be checked it would be claiming that
                 for those too, so the heading steps back to what is
                 actually known: nothing newer was found. */}
-            <h3 className="text-lg font-semibold text-content-primary mb-1">
+            <h2 className="text-lg font-semibold text-content-primary mb-1">
               {notCheckable.length > 0 ? 'No updates found' : <>You&apos;re up to date!</>}
-            </h3>
+            </h2>
             {currentVersion && (
               <p className="text-sm text-content-secondary">Current version: v{currentVersion}</p>
             )}
@@ -623,11 +625,14 @@ export function UpdatesPage() {
                 {/* Full release notes (markdown) for MeedyaDL */}
                 {update.name === APP_COMPONENT_NAME && update.release_body && (
                   <div className="mt-4 pt-4 border-t border-border-light">
-                    <h4 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-3">
+                    <h2 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-3">
                       Release Notes
-                    </h4>
+                    </h2>
                     <div className="prose prose-sm max-w-none text-content-primary">
                       <ReactMarkdown
+                        // The release notes' own headings ("#", then "###")
+                        // go beneath "Release Notes", with no level skipped.
+                        remarkPlugins={[[remarkFitHeadings, { top: 3 }]]}
                         // Release notes come from a GitHub release body, not
                         // a file we wrote ourselves, so a link in them
                         // should never be trusted with the window. This

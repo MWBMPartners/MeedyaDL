@@ -100,6 +100,8 @@ import { useTranslation } from 'react-i18next';
  * @see https://github.com/remarkjs/react-markdown
  */
 import ReactMarkdown from 'react-markdown';
+/** Renumbers each help page's headings to fit under the Help screen's title. */
+import { remarkFitHeadings } from '@/lib/markdownHeadings';
 
 /**
  * remark-gfm -- Remark plugin that adds support for GitHub Flavored
@@ -692,7 +694,10 @@ export function HelpViewer() {
 
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              // Each help page starts with "# Title"; under the Help
+              // screen's own <h1> that becomes an <h2>, and so on down,
+              // with no level skipped (see lib/markdownHeadings.ts).
+              remarkPlugins={[remarkGfm, [remarkFitHeadings, { top: 2 }]]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}
               components={{
                 // Custom link handler. Help pages carry three different

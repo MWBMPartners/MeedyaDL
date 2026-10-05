@@ -44,31 +44,38 @@ export function SettingsSection({
 
   return (
     <div className="rounded-lg border border-border bg-surface-secondary/30">
-      {/* Clickable header */}
-      <button
-        type="button"
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-surface-secondary/50 transition-colors rounded-t-lg"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open ? 'true' : 'false'}
-      >
-        {/* Fix 7 (a11y audit): without aria-hidden, a screen reader
-            read "black right-pointing triangle" out loud before every
-            single section title on every settings tab -- aria-expanded
-            on the button above already says open/closed, so this
-            glyph is purely decorative. */}
-        <span
-          className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}
-          aria-hidden="true"
-        >
-          ▶
-        </span>
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-content-primary">{title}</h3>
-          {description && (
-            <p className="text-xs text-content-tertiary mt-0.5 leading-relaxed">{description}</p>
-          )}
-        </div>
-      </button>
+      {/* Header: the heading CONTAINS the button, not the other way round.
+          It used to be <button><h3>…</h3></button>; a heading inside a
+          button is flattened into the button's name, so screen readers
+          found no headings at all in Settings. <h2> because the page title
+          above is the page's <h1>. The description sits outside the button
+          so the button's name is just the section title. */}
+      <div className="px-4 py-3 hover:bg-surface-secondary/50 transition-colors rounded-t-lg">
+        <h2 className="text-sm font-semibold text-content-primary">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 text-left"
+            onClick={() => setOpen(!open)}
+            aria-expanded={open ? 'true' : 'false'}
+          >
+            {/* Fix 7 (a11y audit): without aria-hidden, a screen reader
+                read "black right-pointing triangle" out loud before every
+                single section title on every settings tab -- aria-expanded
+                on the button above already says open/closed, so this
+                glyph is purely decorative. */}
+            <span
+              className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}
+              aria-hidden="true"
+            >
+              ▶
+            </span>
+            <span className="flex-1 min-w-0">{title}</span>
+          </button>
+        </h2>
+        {description && (
+          <p className="text-xs text-content-tertiary mt-0.5 ml-5 leading-relaxed">{description}</p>
+        )}
+      </div>
 
       {/* Collapsible content */}
       {open && (

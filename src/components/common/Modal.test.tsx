@@ -75,8 +75,9 @@ describe('Modal', () => {
 
   /**
    * Verifies that when the title prop is provided, it is rendered inside
-   * an <h3> heading element within the modal header bar. The title gives
-   * the dialog a clear purpose description.
+   * an <h2> heading element within the modal header bar (a dialog's title
+   * sits one level below the page's <h1>). The title gives the dialog a
+   * clear purpose description.
    */
   it('renders title in header when provided', () => {
     render(
@@ -87,8 +88,8 @@ describe('Modal', () => {
 
     /* The title should appear as a heading in the modal header */
     expect(screen.getByText('Confirm Action')).toBeInTheDocument();
-    /* It should be rendered within an h3 element (the component's markup) */
-    expect(screen.getByText('Confirm Action').tagName).toBe('H3');
+    /* It should be rendered within an h2 element (the component's markup) */
+    expect(screen.getByText('Confirm Action').tagName).toBe('H2');
   });
 
   // ===========================================================================
@@ -227,7 +228,7 @@ describe('Modal', () => {
      * We locate it as the parent container of the heading element.
      */
     const heading = screen.getByText('Test');
-    /* The panel is the grandparent of the h3 (h3 -> header div -> panel div) */
+    /* The panel is the grandparent of the h2 (h2 -> header div -> panel div) */
     const panel = heading.closest('.overflow-hidden');
     expect(panel).toBeTruthy();
     /* The default maxWidth 'max-w-lg' should be present in the panel's classes */
